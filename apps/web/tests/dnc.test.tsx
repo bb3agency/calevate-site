@@ -491,7 +491,7 @@ describe("checking a number", () => {
 
     await screen.findByText(/not on the do-not-call list/);
     expect(container.textContent).toContain(
-      "Other checks — calling hours, consent — still apply",
+      "Other checks, such as calling hours and consent, still apply",
     );
   });
 

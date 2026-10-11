@@ -47,6 +47,7 @@ from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.base import uuid7
+from apps.api.forwarding.service import assert_not_forwarded
 from apps.api.healer import incidents, ledger, notices, proposals, protection
 from apps.api.healer import status as status_page
 from apps.api.healer.playbooks import PLAYBOOKS, paused_keys, unknown_paused_keys
@@ -312,9 +313,10 @@ class FallbackPhoneOut(_Out):
 
 def _forwarding_supported() -> bool:
     from apps.api.agents.service import ForwardsLine
+    from apps.api.campaigns.engine_numbers import numbers_can_forward
     from apps.api.engine import get_engine
 
-    return isinstance(get_engine(), ForwardsLine)
+    return numbers_can_forward() or isinstance(get_engine(), ForwardsLine)
 
 
 async def _fallback_out(session: AsyncSession) -> FallbackPhoneOut:
@@ -348,6 +350,9 @@ async def put_fallback_phone(
     payload: FallbackPhoneIn, session: Session, principal: Writer, request: Request
 ) -> FallbackPhoneOut:
     assert principal.tenant_id is not None
+    # A phone that forwards to the Calevate number would bring a held line's callers
+    # straight back to it (D-746).
+    await assert_not_forwarded(session, [payload.phone_e164])
     await session.execute(
         text(
             "INSERT INTO heal_fallback_phones (id, tenant_id, phone_e164, updated_by, "

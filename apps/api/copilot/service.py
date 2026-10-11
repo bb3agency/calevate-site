@@ -1504,10 +1504,18 @@ async def _run_tool_loop(
         # THE TIER SPLIT, READ FROM THE REGISTRY. `tier_of` is the one reader; a call whose
         # name is in `write_calls` always has a tier, so the `== "confirm"` test is total
         # and the `immediate` list is its complement rather than a second lookup.
+        #
+        # IN A JOB EVERY WRITE IS CONFIRM-TIER (D-729). Nobody watches a job, and what it
+        # reads includes text a caller or a lead form wrote (transcripts, lead fields), so
+        # an immediate change there is one a stranger could induce with nobody to notice.
+        # Interactively the person sees each step as it happens; in a job the change waits
+        # in Approvals for a click instead.
         confirm_calls = [
             call
             for call in write_calls
-            if call in admin_calls or write_tools.tier_of(call.name) == "confirm"
+            if call in admin_calls
+            or limits.mode == "job"
+            or write_tools.tier_of(call.name) == "confirm"
         ]
         immediate_calls = [call for call in write_calls if call not in confirm_calls]
         # A SCREEN TO OPEN (D-524), and it is a THIRD family rather than a write tool: it
@@ -1732,10 +1740,35 @@ async def _run_tool_loop(
             is_admin_action = call in admin_calls
             try:
                 if limits.mode == "job" and not is_admin_action and principal is not None:
-                    # NOTHING IRREVERSIBLE RUNS UNATTENDED (D-694). A job cannot show a
-                    # Confirm card to anybody, so the action is planned and parked in the
-                    # Approvals inbox, and the job carries on with the rest of its work.
+                    # NOTHING RUNS UNATTENDED (D-694, D-729). A job cannot show a Confirm
+                    # card to anybody, so the action is planned and parked in the Approvals
+                    # inbox, and the job carries on with the rest of its work. The cap
+                    # bounds how many cards one run may leave behind.
                     assert limits.job_id is not None
+                    if actions_run >= limits.max_actions:
+                        refusal_reasons = (
+                            f"you have already staged {limits.max_actions} changes for "
+                            "approval in this task, which is the limit",
+                        )
+                        log.warning(
+                            "copilot_action_cap", extra={"turn": turn_index, "tool": call.name}
+                        )
+                        yield CopilotEvent(
+                            step=_step_end(
+                                call,
+                                status="refused",
+                                detail=refusal_reasons[0],
+                                started_at=started_at,
+                            )
+                        )
+                        messages = _with_tool_result(
+                            messages,
+                            outcome,
+                            call,
+                            "NOTHING was staged. " + refusal_reasons[0] + ". Say in your "
+                            "final summary what is waiting for approval and what is left.",
+                        )
+                        continue
                     staged = await write_tools.stage_for_approval(
                         call.name, call.arguments, principal=principal, job_id=limits.job_id
                     )

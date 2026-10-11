@@ -72,6 +72,8 @@ pytestmark = pytest.mark.skipif(
 SUBSTITUTIONS = {
     "ROOT_DOMAIN": "calevate.test",
     "ACME_WEBROOT": "/var/www/certbot",
+    # The default render_nginx applies; nginx_origin_pull_test covers the other states.
+    "CF_ORIGIN_PULL": "off",
 }
 
 

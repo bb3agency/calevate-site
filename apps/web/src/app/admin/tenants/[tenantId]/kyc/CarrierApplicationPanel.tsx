@@ -2,7 +2,6 @@
 
 import { Section } from "@/components/console/section";
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import {
   FIELD,
@@ -107,7 +106,6 @@ export function CarrierApplicationPanel({
              file, so recording one blind means guessing which decision is even legal. */
           <NoticeBox
             tone="warn"
-            icon={<AlertTriangle className="h-5 w-5" />}
             title="Cannot record a decision while the application is unreadable"
           >
             <p className="mt-1 text-meta opacity-90">
@@ -129,7 +127,7 @@ export function CarrierApplicationPanel({
             </div>
             {record.error != null && <ProblemNotice error={record.error} />}
             {record.data && (
-              <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
+              <NoticeBox tone="ok">
                 <p>
                   {record.data.changed
                     ? `Recorded as ${carrierStatusLabel(record.data.status)}.`
@@ -323,7 +321,7 @@ function DecisionForm({
       )}
 
       {blocked && (
-        <NoticeBox tone="warn" icon={<AlertTriangle className="h-5 w-5" />}>
+        <NoticeBox tone="warn">
           <p>{blocked}</p>
         </NoticeBox>
       )}

@@ -10,7 +10,9 @@ raised for one bad call: a window needs `MIN_WINDOW_CALLS`, a deviation must hol
 What each signal can see, honestly: failed and sub-ten-second calls, escalations and the
 knowledge-gap occurrences work on every engine. Slow starts (time to first audio), the
 degraded knowledge states and caller-language mismatches are recorded only on our own
-runtime; on ThinnestAI they read zero. In-call action failures come from
+runtime; on ThinnestAI they read zero, except that a live-call problem the platform reports
+(`call_engine_signals`) counts too: a slow reply as a slow start, and silence, an apology
+or a cut-off the caller heard as a failed call. In-call action failures come from
 `action_invocations`.
 """
 
@@ -23,6 +25,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.events import CALLER_HEARD_FAILURE
 from calevate_shared.worker_api import DEGRADED_KNOWLEDGE_STATES
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -127,14 +130,18 @@ def window_start(at: datetime) -> datetime:
 
 _COUNTS = text(
     "WITH c AS ("
-    " SELECT c.id, c.agent_id, c.status, c.duration_s, c.outcome_tag, c.knowledge_state"
+    " SELECT c.id, c.agent_id, c.engine_call_id, c.status, c.duration_s, c.outcome_tag,"
+    " c.knowledge_state"
     " FROM calls c WHERE c.created_at >= :start AND c.created_at < :end"
     " AND NOT c.trial_call AND c.status IN ('completed', 'failed'))"
     " SELECT a.id, count(c.id),"
     " count(c.id) FILTER (WHERE c.status = 'completed' AND coalesce(c.duration_s, 0) < :short),"
-    " count(c.id) FILTER (WHERE c.status = 'failed'),"
+    " count(c.id) FILTER (WHERE c.status = 'failed' OR EXISTS (SELECT 1 FROM call_engine_signals s"
+    "   WHERE s.engine_call_id = c.engine_call_id AND s.kind = ANY(CAST(:heard AS text[])))),"
     " count(c.id) FILTER (WHERE EXISTS (SELECT 1 FROM call_engine_latency l"
-    "   WHERE l.call_id = c.id AND l.time_to_first_audio_ms > :slow)),"
+    "   WHERE l.call_id = c.id AND l.time_to_first_audio_ms > :slow)"
+    "   OR EXISTS (SELECT 1 FROM call_engine_signals s WHERE s.engine_call_id = c.engine_call_id"
+    "   AND s.kind = 'slow_reply')),"
     " count(c.id) FILTER (WHERE c.outcome_tag = 'transferred'),"
     " count(c.id) FILTER (WHERE c.knowledge_state = ANY(CAST(:degraded AS text[]))"
     "   OR EXISTS (SELECT 1 FROM knowledge_gap_occurrences g WHERE g.call_id = c.id)),"
@@ -185,6 +192,7 @@ async def count_window(session: AsyncSession, *, start: datetime) -> list[Window
                 "short": SHORT_CALL_S,
                 "slow": SLOW_START_MS,
                 "degraded": sorted(DEGRADED_KNOWLEDGE_STATES),
+                "heard": sorted(CALLER_HEARD_FAILURE),
             },
         )
     ).all()

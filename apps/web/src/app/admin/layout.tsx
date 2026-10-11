@@ -590,14 +590,13 @@ function AdminMfaGate({ children }: { children: React.ReactNode }) {
     <div className="mx-auto max-w-xl p-6">
       <NoticeBox
         tone="stop"
-        icon={<Lock aria-hidden className="h-4 w-4" />}
         title="Two-step verification required"
       >
         <p className="mt-1">{problem.message}</p>
         {problem.remediation && <p className="mt-2">{problem.remediation}</p>}
         <p className="mt-2 text-xs">
           The operator console holds cross-client data and the platform
-          controls, so this is required of every admin account — it is not
+          controls, so this is required of every admin account. It is not
           something this screen can waive.
         </p>
       </NoticeBox>

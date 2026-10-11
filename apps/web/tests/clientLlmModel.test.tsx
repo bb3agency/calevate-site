@@ -296,7 +296,7 @@ describe("the account's default model tier", () => {
     );
 
     await waitFor(() =>
-      expect(container.textContent).toContain("so your calls run our standard model until it is"),
+      expect(container.textContent).toContain("so calls use our standard model"),
     );
     // Following the default stays possible; pinning a tier that cannot run does not.
     await waitFor(() => expect(radio(/^Standard/).disabled).toBe(false));

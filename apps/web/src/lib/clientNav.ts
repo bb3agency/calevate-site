@@ -162,6 +162,9 @@ export function clientNavigation(slug: string): NavGroup[] {
         // wrong with a line lately (D-701). Beside Alerts: both are about what we do for
         // the owner when something needs them.
         { href: `/c/${slug}/settings/line-protection`, label: "Line protection", icon: LifeBuoy },
+        // The number callers already know, forwarded to the Calevate number (D-746): its
+        // codes, its test, and the save-our-number message.
+        { href: `/c/${slug}/settings/phone-numbers`, label: "Phone numbers", icon: PhoneForwarded },
         // Which AI model every agent thinks with, and what each one costs a minute. It
         // sits in this group rather than beside "Agents" because it is an ACCOUNT-wide
         // default that happens to be about agents — the same reason the spending limit

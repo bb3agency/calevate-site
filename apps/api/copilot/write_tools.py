@@ -1778,7 +1778,7 @@ async def confirm(
 
 @dataclass(frozen=True, slots=True)
 class StagedApproval:
-    """A confirm-tier action a background job reached, now waiting for a person."""
+    """An action a background job reached, now waiting for a person."""
 
     action_id: UUID
     tool: str
@@ -1791,17 +1791,19 @@ class StagedApproval:
 async def stage_for_approval(
     name: str, raw_arguments: str, *, principal: Principal, job_id: UUID
 ) -> StagedApproval:
-    """A CONFIRM action inside a background job: plan it, and park it in the inbox (D-694).
+    """Any action inside a background job: plan it, and park it in the inbox (D-694, D-729).
 
-    NOTHING IRREVERSIBLE RUNS UNATTENDED, which is the founder's rule for routines and the
-    reason this exists. The job cannot show a Confirm button — nobody is watching it — so
+    NOTHING RUNS UNATTENDED, which is the founder's rule for routines and the reason this
+    exists. Both tiers come here: an immediate-tier change is harmless when the person is
+    watching it happen, but a job reads text callers and lead forms wrote, so a change
+    nobody sees is one a stranger could steer. The job cannot show a Confirm button, so
     instead of a five-minute token it writes a `pending_approval` row holding the canonical
     arguments, and a person approves it from the inbox, where `approve` re-runs the
     planner against the world as it is then and only then executes. Every check
     `plan_write` makes is made here, in the same order.
     """
     tool = _BY_NAME.get(name)
-    if tool is None or tool.tier != "confirm":
+    if tool is None:
         raise WriteRefusedError(f"`{name}` is not something that waits for approval")
     actor = actor_for(principal)
     if actor is None:
@@ -1879,7 +1881,7 @@ async def _pending_for(
         await action_log.decide_approval(session, action_id=action_id, status="expired", by=None)
         raise _approval_refused("copilot_approval_expired", "This approval has expired.")
     tool = _BY_NAME.get(row.tool)
-    if tool is None or tool.tier != "confirm":
+    if tool is None:
         raise _approval_refused(
             "copilot_approval_unknown_tool",
             "This approval refers to something the assistant can no longer do.",

@@ -38,6 +38,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
+import { accountAction, withAccountCode } from "./accountCode";
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 import { saveCsv } from "@/lib/csvDownload";
@@ -584,11 +585,16 @@ export function useExportLeads(session: Session) {
     // POST to the SAME path as the GET — one route with two request shapes, not a second
     // export — because the lens carries the search term and a search term is a phone
     // number (see `lensBody`). The gate is unchanged: `calls:read_raw`, and audited.
-    mutationFn: (lens: LeadLens) =>
-      apiRequest<string>(session, "/v1/leads/export.csv", {
-        method: "POST",
-        body: lensBody(lens),
-      }),
+    mutationFn: (lens: LeadLens) => {
+      const confirmAction = accountAction(session, "export_leads");
+      return withAccountCode(confirmAction, "Exporting your leads.", () =>
+        apiRequest<string>(session, "/v1/leads/export.csv", {
+          method: "POST",
+          body: lensBody(lens),
+          confirmAction,
+        }),
+      );
+    },
     // The byte-order mark, the IST file name and the save itself: `lib/csvDownload`.
     onSuccess: (csv) => saveCsv(csv, "leads"),
   });

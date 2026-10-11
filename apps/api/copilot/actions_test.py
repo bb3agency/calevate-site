@@ -422,6 +422,126 @@ async def test_the_loop_keeps_going_after_an_immediate_action_so_the_person_is_t
     assert "Do not call this tool again" in content
 
 
+async def test_a_job_stages_an_immediate_action_and_writes_nothing(
+    azure_only: None,  # noqa: F811  (the imported fixture, requested by name)
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-729: in a job nothing runs without a click, whatever its tier.
+
+    A job reads text callers and lead forms wrote, so a lead-status move or a draft agent it
+    made on its own is one a stranger could steer. Both calls below are immediate-tier and
+    run at once interactively; in a job each becomes an approval and the world is unchanged
+    until a person approves it.
+    """
+    from apps.api.copilot import jobs
+
+    tenant_id, _slug, token = await _make_tenant()
+    principal = _principal(tenant_id, _user_of(token))
+    lead_id = await _lead_of(tenant_id)
+    status_before = await _lead_status(tenant_id, lead_id)
+    async with tenant_session(tenant_id) as session:
+        job = await jobs.create_job(
+            session,
+            tenant_id=tenant_id,
+            user_id=_user_of(token),
+            goal="tidy my leads",
+            screen_route="/c/{slug}/leads",
+        )
+    _scripted(
+        monkeypatch,
+        [
+            _turn(
+                calls=(
+                    chat.ToolCall(
+                        id="c1",
+                        name="lead_set_status",
+                        arguments=json.dumps({"lead_id": str(lead_id), "status": "lost"}),
+                    ),
+                ),
+            ),
+            _turn(
+                calls=(
+                    chat.ToolCall(id="c2", name="agent_create", arguments=_create_args("Job made")),
+                ),
+            ),
+            _turn(content="Two changes are waiting for your approval."),
+        ],
+    )
+
+    events = [
+        event
+        async for event in service.run_copilot(
+            _ask(),
+            principal=principal,
+            seed="job-1",
+            limits=service.job_limits(job.id),
+        )
+    ]
+
+    assert [event.action for event in events if event.action is not None] == []
+    staged = [event.approval for event in events if event.approval is not None]
+    assert [approval.tool for approval in staged] == ["lead_set_status", "agent_create"]
+    assert await _lead_status(tenant_id, lead_id) == status_before
+    assert await _agent_count(tenant_id, "Job made") == 0
+    async with tenant_session(tenant_id) as session:
+        statuses = (
+            await session.execute(
+                text("SELECT tool, status FROM copilot_actions WHERE job_id = :j ORDER BY tool"),
+                {"j": job.id},
+            )
+        ).all()
+    assert [tuple(row) for row in statuses] == [
+        ("agent_create", "pending_approval"),
+        ("lead_set_status", "pending_approval"),
+    ]
+
+    # The click is the act: approving the staged status move applies it.
+    lead_approval = next(a for a in staged if a.tool == "lead_set_status")
+    async with tenant_session(tenant_id) as session:
+        out = await write_tools.approve(
+            session, lead_approval.action_id, principal=principal, ip=None
+        )
+    assert out.applied is True
+    assert await _lead_status(tenant_id, lead_id) == "lost"
+
+
+async def test_the_same_immediate_action_still_runs_at_once_interactively(
+    azure_only: None,  # noqa: F811  (the imported fixture, requested by name)
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half of D-729: the panel, where the person watches, is unchanged."""
+    tenant_id, _slug, token = await _make_tenant()
+    lead_id = await _lead_of(tenant_id)
+    _scripted(
+        monkeypatch,
+        [
+            _turn(
+                calls=(
+                    chat.ToolCall(
+                        id="c1",
+                        name="lead_set_status",
+                        arguments=json.dumps({"lead_id": str(lead_id), "status": "lost"}),
+                    ),
+                ),
+            ),
+            _turn(content="Marked it lost."),
+        ],
+    )
+
+    events = [
+        event
+        async for event in service.run_copilot(
+            _ask(), principal=_principal(tenant_id, _user_of(token)), seed="panel-1"
+        )
+    ]
+
+    assert [event.approval for event in events if event.approval is not None] == []
+    assert [a.tool for a in (event.action for event in events) if a is not None] == [
+        "lead_set_status"
+    ]
+    assert await _lead_status(tenant_id, lead_id) == "lost"
+
+
 async def test_asking_the_same_thing_twice_in_one_conversation_creates_one_agent(
     azure_only: None,  # noqa: F811  (the imported fixture, requested by name)
     monkeypatch: pytest.MonkeyPatch,

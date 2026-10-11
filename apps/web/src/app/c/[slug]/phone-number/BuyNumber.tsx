@@ -42,7 +42,6 @@ import { Section } from "@/components/console/section";
  * as a top-up route rather than as a fault.
  */
 
-import { AlertTriangle, Info, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -128,7 +127,7 @@ function CannotSupply({
 }) {
   return (
     <div className="space-y-3 p-4">
-      <NoticeBox tone="neutral" icon={<Info aria-hidden className="h-4 w-4" />}>
+      <NoticeBox tone="neutral">
         <p className="text-ink">{detail}</p>
         {remediation && <p className="mt-2 text-ink-muted">{remediation}</p>}
       </NoticeBox>
@@ -361,51 +360,31 @@ export function BuyNumber() {
         <div className="space-y-4 p-4">
           <p className="text-body text-ink-muted">{OWNER_SENTENCE}</p>
 
-          <NoticeBox
-            tone={verified ? "ok" : "warn"}
-            icon={
-              verified ? (
-                <ShieldCheck aria-hidden className="h-4 w-4" />
-              ) : (
-                <AlertTriangle aria-hidden className="h-4 w-4" />
-              )
-            }
-          >
-            {verified ? (
-              <p>
-                Your business is verified, so a number you buy here can be put on an agent
-                straight away.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                <p>
-                  You can buy a number now. It will not be able to make or take calls until
-                  your business is verified — Indian telecom rules require the holder of a
-                  connection to be identified before it carries traffic — and it is held
-                  for you in the meantime.
-                </p>
-                <VerifyLink href={verifyHref} />
-              </div>
-            )}
-          </NoticeBox>
+          {verified ? (
+            <NoticeBox tone="ok">
+              Your business is verified, so a number you buy can go on an agent right away.
+            </NoticeBox>
+          ) : (
+            <NoticeBox
+              tone="warn"
+              action={<VerifyLink href={verifyHref} />}
+              info="Indian telecom rules require the holder of a connection to be identified before it carries calls."
+              infoLabel="why verification comes first"
+            >
+              You can buy a number now. It works once your business is verified, and is held for
+              you until then.
+            </NoticeBox>
+          )}
 
           {bought && (
-            <NoticeBox tone={bought.activated ? "ok" : "warn"} title={`${formatPhone(bought.e164)} is yours`}>
-              {bought.activated ? (
-                <p>
-                  {formatINR(bought.inr_per_month)} a month from today. Choose the agent
-                  that uses it below.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  <p>
-                    {formatINR(bought.inr_per_month)} a month from today. It cannot take or
-                    make calls, and cannot be put on an agent, until your business is
-                    verified.
-                  </p>
-                  <VerifyLink href={verifyHref} />
-                </div>
-              )}
+            <NoticeBox
+              tone={bought.activated ? "ok" : "warn"}
+              title={`${formatPhone(bought.e164)} is yours`}
+              action={bought.activated ? undefined : <VerifyLink href={verifyHref} />}
+            >
+              {bought.activated
+                ? `${formatINR(bought.inr_per_month)} a month from today. Choose the agent that uses it below.`
+                : `${formatINR(bought.inr_per_month)} a month from today. It cannot take or make calls, and cannot be put on an agent, until your business is verified.`}
             </NoticeBox>
           )}
 

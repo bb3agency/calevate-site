@@ -307,6 +307,8 @@ async def test_a_hand_entered_number_is_checked_against_the_platforms_list(
     vendor.hold(number)
     base = {"series": "standard", "provider": "thinnest", "direction": "both"}
     path = f"/v1/admin/tenants/{tenant_id}/numbers"
+    # Recording a number is a step-up write (D-731); a `dev:` token needs only the echo.
+    headers = {**headers, "X-Confirm-Action": f"provision_number:{tenant_id}"}
 
     absent = await _post(path, {**base, "e164": f"+{_number()}"}, headers)
     wrong_ref = await _post(

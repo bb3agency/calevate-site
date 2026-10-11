@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Download, FileDown } from "lucide-react";
+import { Download, FileDown } from "lucide-react";
 
 import {
   FIELD,
@@ -121,14 +121,11 @@ export function SubjectExport({ session }: { session: Session }) {
         <div className="mt-4">
           <NoticeBox
             tone="ok"
-            icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
             title="The export is ready"
           >
-            <p className="mt-1">
-              Save it and send it to the person who asked. We do not show it on screen:
-              it is their whole record with us, and the fewer copies of it exist, the
-              better. If we hold nothing about that number the file says exactly that,
-              which is a complete answer to their request.
+            <p>
+              Save it and send it to the person who asked. If we hold nothing about that
+              number, the file says so, which fully answers their request.
             </p>
             {/* Counts, and deliberately only counts: they let a client check the file
                 is about the person they meant before handing it over, and they are the

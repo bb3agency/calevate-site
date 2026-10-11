@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, TriangleAlert } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 import { ADMIN_PAGE_WIDE, HAIRLINE_LIST, LIST_HEAD, StatusPill } from "@/components/admin/kit";
 import { TEXT_ACTION } from "@/components/console/section";
@@ -131,7 +131,6 @@ export function HoldsScreen() {
           <div>
             <NoticeBox
               tone="warn"
-              icon={<TriangleAlert className="h-5 w-5" />}
               title="The queue could not be read"
             >
               <p className="mt-1">

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2 } from "lucide-react";
 
 import {
   FIELD,
@@ -104,8 +103,7 @@ export function OverrideForm({
       {apply.isSuccess && (
         <NoticeBox
           tone="ok"
-          icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
-          title="Re-priced — the lot now carries that pack's rates"
+          title="Re-priced. The lot now carries that pack's rates"
         >
           <p className="mt-1">
             The lot list has been re-read. Credit did not move; only what a minute drawn

@@ -11,6 +11,7 @@ import {
   formatINR,
 } from "@/components/ui";
 import { useMargin, type Margin } from "@/lib/api/admin";
+import { isZeroMoney, marginPctLabel } from "@/lib/api/spend";
 
 /**
  * Per-client margin (D-12), the number gate G2 turns on.
@@ -44,16 +45,28 @@ export function MarginPanel({ tenantId }: { tenantId: string }) {
         <Skeleton rows={2} />
       </Section>
     );
-  const negative = data.margin_inr.trim().startsWith("-");
+  // The margin on PAID calling: what a free trial covered is an acquisition cost, its own line.
+  const negative = data.paid_margin_inr.trim().startsWith("-");
+  const trialCost = !isZeroMoney(data.trial_cost_inr);
 
   return (
     <Section title={`Margin · ${data.month}`} info={info}>
       <MetricRow className="border-b-0 pb-0">
         <Metric label="Revenue" value={formatINR(data.revenue_inr)} />
-        <Metric label="Our cost" value={formatINR(data.cost_inr)} />
+        <Metric
+          label={trialCost ? "Our cost of paid calls" : "Our cost"}
+          value={formatINR(data.paid_cost_inr)}
+        />
+        {trialCost && (
+          <Metric
+            label="Trial calls we cover"
+            value={formatINR(data.trial_cost_inr)}
+            hint="Free trial calls: an acquisition cost, not in the margin."
+          />
+        )}
         <Metric
           label="Margin"
-          value={formatINR(data.margin_inr)}
+          value={formatINR(data.paid_margin_inr)}
           tone={negative ? "danger" : "default"}
           hint={negative ? "Below cost this month" : undefined}
         />
@@ -61,7 +74,7 @@ export function MarginPanel({ tenantId }: { tenantId: string }) {
             facts, and an operator acts differently on each. */}
         <Metric
           label="Margin %"
-          value={data.margin_pct === null ? "not billed yet" : `${data.margin_pct}%`}
+          value={marginPctLabel(data.paid_margin_pct ?? null, data.trial_in_month)}
         />
       </MetricRow>
       <p className="mt-3 text-meta text-ink-muted">

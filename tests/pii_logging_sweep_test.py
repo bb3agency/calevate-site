@@ -668,7 +668,11 @@ async def _unmasked_read_fixture() -> tuple[dict[str, str], uuid.UUID, uuid.UUID
                 "hash": uuid.uuid4().hex * 2,
             },
         )
-    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "X-Org-Slug": slug,
+        "X-Confirm-Action": "export_leads:" + slug,
+    }
     return headers, lead_id, call_id, slug
 
 

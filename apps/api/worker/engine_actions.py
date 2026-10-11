@@ -37,6 +37,10 @@ A TEST CHAT names no call. An opt-out that names none while the owner is testing
 (`agents/test_window`) answers as a recorded one and writes nothing; every other request
 with no call is answered as not matched.
 
+ONCE PER CALL. A turn the platform re-runs on its backup model can call the same tool again
+(`reliability/in_call_once.py`), so each tool runs once per call and per
+`MEANINGFUL_ARGUMENTS`; a repeat answers with the first answer.
+
 RESPONSES are the smallest object the agent can act on — `status`, `say`, and the booked
 time on a call-back — because what an action returns may be read aloud (custom-api.md:151-
 163). "No such call" and "number does not match" are one answer. HARD RULE 6: ids, states
@@ -71,6 +75,7 @@ from apps.api.actions.execution import CallFacts
 from apps.api.actions.in_call import run_in_call_action
 from apps.api.agents.test_window import window_open
 from apps.api.core.alerting import alert
+from apps.api.core.auth import client_request_ip
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -96,6 +101,7 @@ from apps.api.reliability.engine_actions import (
     envelope_of,
     open_action_secret,
 )
+from apps.api.reliability.in_call_once import once_per_call
 from apps.api.worker.service import refuse_wrong_engine
 from apps.api.worker.tools import (
     OPTOUT_DONE_SAY,
@@ -212,6 +218,36 @@ def _yes(value: str | None) -> bool:
 WORKSPACE_ID_HEADER: Final = "X-Workspace-Id"
 
 
+def note_action_source(request: Request, route: ActionRoute) -> None:
+    """A SOFT check of where an authenticated action came from (D-743). ThinnestAI says its
+    action requests come from one fixed address (email of 11 Oct 2026, VENDOR-STATED; not
+    in the docs, read 11 Oct 2026), held in `thinnest_action_source_ips`. The per-agent
+    secret is the credential, so another address is served anyway and raises one alarm per
+    episode: refusing it would let a vendor renumbering silently stop bookings. The address
+    is the edge's (`client_request_ip`, never a raw X-Forwarded-For); when none is vouched
+    for, nothing is compared."""
+    allowed = {
+        part.strip()
+        for part in get_settings().thinnest_action_source_ips.split(",")
+        if part.strip()
+    }
+    seen = client_request_ip(request)
+    if not allowed or seen is None or seen in allowed:
+        return
+    alert(
+        "ROUTE_HANDLER",
+        "engine_action_source_unexpected",
+        detail=(
+            "an in-call action with a valid agent secret came from an address not on the "
+            "ThinnestAI list (thinnest_action_source_ips). It was served. If ThinnestAI has "
+            "moved, add the new address in the ops console; if not, rotate the agent's "
+            "secret by republishing it."
+        ),
+        episode="thinnest_action_source",
+        agent_id=str(route.agent_id),
+    )
+
+
 def workspace_matches(engine_agent_ref: str, header: str | None) -> bool:
     """False only when the agent lives in a client's own workspace (D-693) and the platform
     named a different one. The header is sent "when known", so its absence is not a
@@ -315,8 +351,23 @@ def call_locator(route: ActionRoute, live: LiveCall, phone_e164: str) -> CallLoc
     return locate
 
 
-def _answer(status: str, say: str, **extra: str) -> JSONResponse:
-    return JSONResponse({"status": status, "say": say, **{k: v for k, v in extra.items() if v}})
+def _body(status: str, say: str, **extra: str | None) -> dict[str, Any]:
+    return {"status": status, "say": say, **{k: v for k, v in extra.items() if v}}
+
+
+def _answer(status: str, say: str, **extra: str | None) -> JSONResponse:
+    return JSONResponse(_body(status, say, **extra))
+
+
+#: The arguments that make two calls of one platform tool on one call different requests.
+#: The wording of a reason or a note is not one of them: a backup model re-running the turn
+#: writes it again in its own words. A call-back for another time is another request.
+MEANINGFUL_ARGUMENTS: Final[dict[str, tuple[str, ...]]] = {
+    OPT_OUT: (),
+    CALLBACK: ("callback_date", "callback_time", "confirmed"),
+    CALLBACK_CANCEL: (),
+    HANDOFF: (),
+}
 
 
 @router.post("/{engine}/{tool}", include_in_schema=False)
@@ -346,6 +397,7 @@ async def engine_action(
             agent_id=str(route.agent_id),
         )
         return JSONResponse(_UNAUTHORISED, status_code=401)
+    note_action_source(request, route)
     if get_settings().engine != engine:
         raise refuse_wrong_engine()
     if tool not in _TOOLS:
@@ -366,18 +418,28 @@ async def engine_action(
         )
     ids = {"tenant_id": str(route.tenant_id), "agent_id": str(route.agent_id), "tool": tool}
 
-    if tool == HANDOFF:
-        out = await request_handoff_unplaced(
-            route.tenant_id,
-            route.agent_id,
-            HandoffToolIn(
-                reason=_clip(args.get("reason"), MAX_TOOL_TEXT),
-                summary=_clip(args.get("summary"), MAX_TOOL_TEXT),
-            ),
-        )
-        return _answer(out.status, out.say)
-
     call_id = named_call_id(request.headers.get(CALL_ID_HEADER), args.get(CALL_ID_FIELD))
+    if tool == HANDOFF:
+
+        async def _handoff() -> dict[str, Any]:
+            out = await request_handoff_unplaced(
+                route.tenant_id,
+                route.agent_id,
+                HandoffToolIn(
+                    reason=_clip(args.get("reason"), MAX_TOOL_TEXT),
+                    summary=_clip(args.get("summary"), MAX_TOOL_TEXT),
+                ),
+            )
+            return {"status": out.status, "say": out.say}
+
+        # One hand-over request per call, whatever words a re-run turn gives its reason.
+        handed = (
+            await once_per_call(call_ref=call_id, action=tool, args={}, run=_handoff)
+            if call_id is not None
+            else await _handoff()
+        )
+        return JSONResponse(handed)
+
     if tool == OPT_OUT and call_id is None and await window_open(route.agent_id):
         # A test chat (`agents/test_window`): no call, so no number and nothing to write.
         # The agent is told what a recorded opt-out tells it, so the test shows what a
@@ -397,40 +459,50 @@ async def engine_action(
     locate = call_locator(route, live, phone)
     caller = CallerIdentityIn(state="known", e164=phone)
     language = _clip(args.get("language"), 8)
-    try:
-        if tool == OPT_OUT:
-            opted = await record_opt_out_for(
-                route.tenant_id,
-                OptOutToolIn(
-                    reason=_clip(args.get("reason"), MAX_TOOL_TEXT),
-                    language=language,
-                    caller=caller,
-                ),
-                locate=locate,
+
+    async def _run() -> dict[str, Any]:
+        try:
+            if tool == OPT_OUT:
+                opted = await record_opt_out_for(
+                    route.tenant_id,
+                    OptOutToolIn(
+                        reason=_clip(args.get("reason"), MAX_TOOL_TEXT),
+                        language=language,
+                        caller=caller,
+                    ),
+                    locate=locate,
+                )
+                return _body(opted.status, opted.say)
+            if tool == CALLBACK:
+                booked = await book_callback_for(
+                    route.tenant_id,
+                    live.engine_call_id,
+                    CallbackBookIn(
+                        callback_date=_clip(args.get("callback_date"), MAX_IDENTIFIER),
+                        callback_time=_clip(args.get("callback_time"), MAX_IDENTIFIER),
+                        confirmed=_yes(args.get("confirmed")),
+                        note=_clip(args.get("note"), MAX_TOOL_TEXT),
+                        language=language,
+                        caller=caller,
+                    ),
+                    locate=locate,
+                )
+                return _body(booked.status, booked.say, booked_for=booked.booked_for)
+            cancelled = await cancel_callback_for(
+                route.tenant_id, CallbackCancelIn(caller=caller), locate=locate
             )
-            return _answer(opted.status, opted.say)
-        if tool == CALLBACK:
-            booked = await book_callback_for(
-                route.tenant_id,
-                live.engine_call_id,
-                CallbackBookIn(
-                    callback_date=_clip(args.get("callback_date"), MAX_IDENTIFIER),
-                    callback_time=_clip(args.get("callback_time"), MAX_IDENTIFIER),
-                    confirmed=_yes(args.get("confirmed")),
-                    note=_clip(args.get("note"), MAX_TOOL_TEXT),
-                    language=language,
-                    caller=caller,
-                ),
-                locate=locate,
-            )
-            return _answer(booked.status, booked.say, booked_for=booked.booked_for)
-        cancelled = await cancel_callback_for(
-            route.tenant_id, CallbackCancelIn(caller=caller), locate=locate
-        )
-        return _answer(cancelled.status, cancelled.say)
-    except _CallNotMatchedError:
-        log.info("engine_action_call_row_not_matched", extra=ids)
-        return _answer("caller_not_matched", NOT_MATCHED_SAY)
+            return _body(cancelled.status, cancelled.say)
+        except _CallNotMatchedError:
+            log.info("engine_action_call_row_not_matched", extra=ids)
+            return _body("caller_not_matched", NOT_MATCHED_SAY)
+
+    answer = await once_per_call(
+        call_ref=live.engine_call_id,
+        action=tool,
+        args={key: args.get(key) or "" for key in MEANINGFUL_ARGUMENTS[tool]},
+        run=_run,
+    )
+    return JSONResponse(answer)
 
 
 #: A client action's body: up to 20 agent-filled values (create-action.md
@@ -472,6 +544,7 @@ async def client_action(
             agent_id=str(route.agent_id),
         )
         return JSONResponse(_UNAUTHORISED, status_code=401)
+    note_action_source(request, route)
     if get_settings().engine != engine:
         raise refuse_wrong_engine()
     raw = await request.body()

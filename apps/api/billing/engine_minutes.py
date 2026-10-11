@@ -55,6 +55,8 @@ from apps.api.core.settings import get_settings
 EngineRateKey = Literal["platform", "standard", "premium", "studio", "byok_voice"]
 ENGINE_RATE_KEYS: Final[tuple[str, ...]] = get_args(EngineRateKey)
 BASE_RATE_KEY: Final[EngineRateKey] = "platform"
+#: What a number forward's connected minute costs us (D-743).
+FORWARDED_RATE_KEY: Final[EngineRateKey] = "standard"
 
 #: Engines metered by attested minute, and their billing pulse in seconds. ThinnestAI's
 #: 30-second pulse is FOUNDER-RELAYED (evaluation §2), the founder's call of 6 Oct 2026.
@@ -319,6 +321,8 @@ class MinuteCost:
     #: The top-up fee `cost` includes, as a fraction.
     topup_fee: Decimal
     cost: CostBreakdown
+    #: The rate key the CLIENT rung is read from: the agent's own, also on a forwarded call.
+    client_rate_key: str = ""
 
     @property
     def priced(self) -> bool:
@@ -333,6 +337,7 @@ async def engine_minute_cost(
     call_id: UUID,
     seconds: Decimal,
     at: datetime,
+    forwarded: bool = False,
 ) -> MinuteCost:
     """This call's supplier cost at the rate attested for its vendor agent's rate key.
 
@@ -342,6 +347,8 @@ async def engine_minute_cost(
     attested rate (module docstring).
     """
     _require_engine(engine)
+    # `currency_stated=True` on both returns below: the figure is an operator-attested
+    # rupee rate, so no vendor amount is converted and no currency is assumed (gate 7).
     stamped = (
         await session.execute(
             text(
@@ -353,25 +360,33 @@ async def engine_minute_cost(
             {"e": engine, "cid": call_id, "tid": tenant_id},
         )
     ).scalar()
-    rate_key = str(stamped) if stamped else BASE_RATE_KEY
+    route_key = str(stamped) if stamped else BASE_RATE_KEY
+    # A forwarded call is billed to us per connected minute "at the standard voice rate"
+    # whatever the agent speaks (docs.thinnest.ai channels/phone-numbers "Forwarding a whole
+    # line", read 11 Oct 2026); the client's rung stays the agent's.
+    rate_key = FORWARDED_RATE_KEY if forwarded else route_key
     minutes = billed_minutes(seconds, pulse_s=PULSE_SECONDS[engine])
     price = (await attested_minute_prices(session, engine=engine, at=at)).get(rate_key)
     fee = topup_fee(engine)
     if price is None:
         return MinuteCost(
             rate_key=rate_key,
+            client_rate_key=route_key,
             billed_minutes=minutes,
             inr_per_min=None,
             topup_fee=fee,
-            cost=CostBreakdown(total_inr=Decimal(0), source_currency="INR"),
+            cost=CostBreakdown(total_inr=Decimal(0), source_currency="INR", currency_stated=True),
         )
     total = cost_with_fee(minutes * price.inr_per_min, fee=fee)
     return MinuteCost(
         rate_key=rate_key,
+        client_rate_key=route_key,
         billed_minutes=minutes,
         inr_per_min=price.inr_per_min,
         topup_fee=fee,
-        cost=CostBreakdown(total_inr=total, platform_inr=total, source_currency="INR"),
+        cost=CostBreakdown(
+            total_inr=total, platform_inr=total, source_currency="INR", currency_stated=True
+        ),
     )
 
 
@@ -381,6 +396,7 @@ __all__ = [
     "BASE_RATE_KEY",
     "BYOK_VOICE_RATE_KEY",
     "ENGINE_RATE_KEYS",
+    "FORWARDED_RATE_KEY",
     "PULSE_SECONDS",
     "TOPUP_FEE_META_KEY",
     "TOPUP_FEE_PLAN_LABELS",

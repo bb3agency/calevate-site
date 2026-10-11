@@ -145,24 +145,29 @@ export function ImprovementReview({
 
   if (done) {
     return (
-      <NoticeBox tone="ok" title="Kept">
-        <p className="mt-1">
+      <NoticeBox
+        tone="ok"
+        title="Kept"
+        action={
+          <>
+            {done === "live" && (
+              <button type="button" className={PRIMARY_BUTTON_SM} onClick={onTestAgain}>
+                Test again
+              </button>
+            )}
+            <button type="button" className={SECONDARY_BUTTON_SM} onClick={onClose}>
+              Close
+            </button>
+          </>
+        }
+      >
+        <p>
           {done === "live"
             ? "Callers hear the changes from the next call. Facts you kept are live for every agent."
             : done === "editor"
               ? "The changes are in your script below. Put it live, then test again to see the difference."
               : "The changes are in your draft. Put it live from the script, then test again."}
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {done === "live" && (
-            <button type="button" className={PRIMARY_BUTTON_SM} onClick={onTestAgain}>
-              Test again
-            </button>
-          )}
-          <button type="button" className={SECONDARY_BUTTON_SM} onClick={onClose}>
-            Close
-          </button>
-        </div>
       </NoticeBox>
     );
   }

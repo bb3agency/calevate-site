@@ -50,10 +50,11 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 
 #: sha256 of `compose_engine_prompt` for the two configs below. A change here is a change to
 #: every Pipecat prompt: re-pinned for D-714 (each platform rule said once, the spoken
-#: register, the cannot-help block), which changed every engine's platform layers on purpose.
+#: register, the cannot-help block) and for D-739 (the turn-shape and spoken-voice rules),
+#: each of which changed every engine's platform layers on purpose.
 PINNED = (
-    "949879d03172418513765172a090f1fa1e0c1aec5b261e707dd74f0551a46663",
-    "18bcc147631512d9ae5e6ad561964c6137f23bb4bc95e78b2e63b80b05f2d861",
+    "3fa2e4bf8e6e790c76d6b4b3c9e1a30bbfda080ef328460e525e764fe3d148f8",
+    "dac1903b3fd666a8376ff05f1413ff063e0c752f66da7f14a1548c44c3641950",
 )
 
 

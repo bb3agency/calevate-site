@@ -99,7 +99,7 @@ function WaiverForm({ tenantId, fee }: { tenantId: string; fee: AdminPlatformFee
     return (
       <div className="space-y-2">
         <NoticeBox tone="ok" title="Waived for this client">
-          {fee.waiver.reason} — since {formatIST(fee.waiver.waived_at)}.
+          {fee.waiver.reason}, since {formatIST(fee.waiver.waived_at)}.
         </NoticeBox>
         <RestrictionNote reason={write.reason} />
         <ActionButton

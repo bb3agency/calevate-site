@@ -145,6 +145,7 @@ from apps.api.billing.lots import AiAssistDemand
 from apps.api.billing.models import (
     ABSORBED_ASSIST_FEATURES,
     AI_ASSIST_UNIT_TYPES,
+    AI_STT_UNIT_TYPE,
     FREE_ASSIST_FEATURES,
     KB_INGESTION_FEATURES,
 )
@@ -157,7 +158,7 @@ from apps.api.billing.plans import ist_month_end, parse_billing_month
 # `extra_unavailable`'s `not_prepaid` and `purchase_ai_overage`'s refusal, i.e. WHO MAY
 # SPEND MONEY. Two spellings of one money predicate is the D-103 shape, and it agreed with
 # the original only by coincidence of nobody having edited either.
-from apps.api.billing.rates import PREPAID_TIERS, llm_inr_per_ktok
+from apps.api.billing.rates import PREPAID_TIERS, llm_inr_per_ktok, stt_rate_inr_per_minute
 from apps.api.billing.service import (
     _IST_MONTH,
     _IST_MONTH_WINDOW,
@@ -1141,6 +1142,76 @@ async def record_ai_assist_usage(
     return AssistMetered(recorded=True, cost_inr=landed)
 
 
+async def record_absorbed_stt_usage(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    ref: str,
+    audio_seconds: int,
+    model: str,
+    feature: str,
+    basis: str,
+) -> AssistMetered:
+    """Meter speech-to-text we run for the console and absorb: one `ai_stt_min` row at the
+    Saaras card per minute of audio (`rates.stt_rate_inr_per_minute`), and the platform
+    counter.
+
+    Never against the client's AI allowance (that reads `AI_ASSIST_UNIT_TYPES` only), never
+    on the client's wallet or spend (`service._NOT_AI_UNITS` excludes every absorbed unit).
+    `basis` says where `audio_seconds` came from, so a reader knows a measured length from
+    a ceiling. Idempotent on `ref`, like `record_ai_assist_usage`.
+    """
+    if not is_assist_ref(ref):
+        raise ValueError(
+            f"a metering key must come from new_assist_ref() ({ASSIST_REF_PREFIX}:<uuid>)"
+        )
+    if audio_seconds < 0:
+        raise ValueError("audio duration cannot be negative")
+    qty = (Decimal(audio_seconds) / Decimal(60)).quantize(Decimal("0.0001"))
+    price = stt_rate_inr_per_minute()
+    meta = json.dumps(
+        {
+            "kind": ASSIST_META_KIND,
+            "model": model,
+            "feature": feature,
+            "ref": ref,
+            "audio_seconds": str(audio_seconds),
+            "audio_seconds_basis": basis,
+        }
+    )
+    inserted = (
+        await session.execute(
+            text(_INSERT_USAGE),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "unit": AI_STT_UNIT_TYPE,
+                "qty": qty,
+                "cost": price,
+                "ref": ref,
+                "meta": meta,
+            },
+        )
+    ).first()
+    if inserted is None:
+        log.warning(
+            "ai_stt_replayed", extra={"tenant_id": str(tenant_id), "ref": ref, "feature": feature}
+        )
+        return AssistMetered(recorded=False, cost_inr=Decimal("0"))
+    landed = qty * price
+    await bump_platform_ai_spend(session, month=str(inserted[1]), amount=landed)
+    log.info(
+        "ai_stt_metered",
+        extra={
+            "tenant_id": str(tenant_id),
+            "ref": ref,
+            "feature": feature,
+            "cost_inr": str(landed),
+        },
+    )
+    return AssistMetered(recorded=True, cost_inr=landed)
+
+
 # --- the gate ----------------------------------------------------------------------
 
 
@@ -1463,6 +1534,7 @@ __all__ = [
     "read_ai_usage",
     "read_ai_usage_between",
     "read_platform_ai_spend",
+    "record_absorbed_stt_usage",
     "record_ai_assist_usage",
     "reference_assist_cost_inr",
     "require_ai_assist",

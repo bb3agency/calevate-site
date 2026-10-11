@@ -397,7 +397,11 @@ function SpendLimit({ session }: { session: Session }) {
         />
         <Row
           label="Used so far"
-          value={`${current.minutes_used} min · ${formatINR(current.spend_used_inr)}`}
+          value={
+            current.trial_active
+              ? `${current.minutes_used} min · ${formatINR(current.spend_used_inr)}, free during your trial`
+              : `${current.minutes_used} min · ${formatINR(current.spend_used_inr)}`
+          }
         />
       </dl>
 

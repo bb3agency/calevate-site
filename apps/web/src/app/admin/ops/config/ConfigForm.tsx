@@ -1,16 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import {
-  ArrowRight,
-  Check,
-  CheckCircle2,
-  Clock,
-  RotateCcw,
-  ShieldAlert,
-  TriangleAlert,
-  Users,
-} from "lucide-react";
+import { ArrowRight, Check, CheckCircle2, Clock, RotateCcw } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
@@ -203,8 +194,7 @@ export function ConfigForm({
       {!refused && cardRefusals !== null && (
         <NoticeBox
           tone="stop"
-          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
-          title="The rate card was refused — nothing was saved"
+          title="The rate card was refused. Nothing was saved"
         >
           <p className="mt-1">
             Calevate will not record a card that sells a minute for less than it costs, or one
@@ -261,7 +251,6 @@ export function ConfigForm({
       {unavailable && (
         <NoticeBox
           tone="warn"
-          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
           title="Clients cannot be given this model yet"
         >
           <p className="mt-1">{unavailable}</p>
@@ -307,7 +296,6 @@ export function ConfigForm({
         {high && field.control.risk_reason && (
           <NoticeBox
             tone="warn"
-            icon={<ShieldAlert aria-hidden className="h-5 w-5" />}
             title="This setting needs care"
           >
             <p className="mt-1">{field.control.risk_reason}</p>
@@ -424,10 +412,9 @@ function ValueMoved({
   return (
     <NoticeBox
       tone="stop"
-      icon={<Users aria-hidden className="h-5 w-5" />}
       title={
         refused
-          ? "Someone changed this setting first — nothing was saved"
+          ? "Someone changed this setting first. Nothing was saved"
           : "Someone changed this setting while you had it open"
       }
     >

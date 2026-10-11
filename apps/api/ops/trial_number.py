@@ -18,9 +18,9 @@ Phone numbers are returned to the operator (they must pick one) and never logged
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Annotated, Final
+from typing import TYPE_CHECKING, Annotated, Final, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 
@@ -30,7 +30,11 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
+
+if TYPE_CHECKING:
+    from apps.api.campaigns.engine_numbers import TrialLineState
 
 log = get_logger(__name__)
 
@@ -167,6 +171,32 @@ class TrialNumberCandidateOut(BaseModel):
     calling_agent: str | None
 
 
+class TrialLineOut(BaseModel):
+    """The shared number's own line: a never-answering agent that speaks our message."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: `ready`, `no_number`, `no_agent`, `not_attached`, `drifted` or `unavailable`.
+    state: Literal["ready", "no_number", "no_agent", "not_attached", "drifted", "unavailable"]
+    #: The message the platform holds, or null.
+    message: str | None
+    #: The platform's note when the message will not be spoken as written, or null.
+    message_note: str | None
+    #: The message we want callers to hear.
+    wanted_message: str
+
+
+def _line_out(state: TrialLineState) -> TrialLineOut:
+    from apps.api.campaigns.engine_numbers import TRIAL_LINE_MESSAGE
+
+    return TrialLineOut(
+        state=state.state,
+        message=state.message,
+        message_note=state.message_note,
+        wanted_message=TRIAL_LINE_MESSAGE,
+    )
+
+
 class TrialNumberOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -180,6 +210,9 @@ class TrialNumberOut(BaseModel):
     engine_uses_it: bool
     #: What may be chosen: platform-held numbers no client has recorded.
     candidates: list[TrialNumberCandidateOut]
+    #: What a caller ringing the number back hears (D-742); null when no number is set or
+    #: the engine is not ThinnestAI.
+    line: TrialLineOut | None
 
 
 @router.get(
@@ -209,7 +242,50 @@ async def read_trial_number(principal: TrialNumberReader) -> TrialNumberOut:
             )
             for c in candidates
         ],
+        line=await _current_line() if engine_uses_it and current else None,
     )
+
+
+async def _current_line() -> TrialLineOut:
+    from apps.api.campaigns.engine_numbers import read_trial_line
+
+    return _line_out(await read_trial_line())
+
+
+TrialLineWriter = Annotated[Principal, Depends(requires("platform:config", realm="admin"))]
+
+#: The step-up string for setting up the shared trial number's line (D-731): it creates or
+#: repairs an agent in our developer workspace and points a live number at it.
+TRIAL_LINE_CONFIRMATION: Final = "set_up_trial_line"
+
+
+@router.post(
+    "/line",
+    response_model=TrialLineOut,
+    openapi_extra=permission_meta("platform:config"),
+    summary="Set up what a caller ringing the shared trial number back hears",
+    description=(
+        "Makes (or repairs) the one agent in our developer workspace that never answers and "
+        "speaks the trial line's message, and makes it the shared number's line. Idempotent; "
+        "the daily number sweep does the same."
+    ),
+)
+async def set_up_trial_line(
+    principal: TrialLineWriter,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
+) -> TrialLineOut:
+    del principal
+    step_up.require(x_confirm_action, TRIAL_LINE_CONFIRMATION)
+    if get_settings().engine != "thinnest" or get_settings().trial_caller_number is None:
+        raise ProblemError.business_rule(
+            "trial_line_no_number",
+            "There is no shared trial number to set up.",
+            remediation="Choose the shared trial number first.",
+        )
+    from apps.api.campaigns.engine_numbers import converge_trial_line
+
+    return _line_out(await converge_trial_line())
 
 
 __all__ = [

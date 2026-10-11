@@ -246,6 +246,17 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
         "given no transcript or caller data (D-127 G-2). The `caller` speaker is an "
         "imagined caller, never a recorded one (tests/agent_intelligence_test.py)"
     ),
+    "EntryValue.text": (
+        "one entry of the PLATFORM's spoken-style table (D-744, Ops > Spoken style): a "
+        "register line, filler, number or punctuation rule, or opening, from "
+        "`calevate_shared/spoken_style.json` or typed by the founder on the review screen. "
+        "Platform-written words about how a language is spoken; no tenant, no caller"
+    ),
+    "TurnBody.text": (
+        "a line of an EXAMPLE exchange in the platform's spoken-style table (D-744), "
+        "written by us or the founder to show how a language sounds; the caller is "
+        "imagined, never recorded"
+    ),
     "VersionOut.summary": (
         "a script version's change note (`prompt_versions.notes`): the owner's own words "
         "when they put it live (`PublishIn.summary`) or OUR sentence for a rollback, a "

@@ -96,7 +96,6 @@ export function NewClientScreen() {
         <div className="space-y-4">
           <NoticeBox
             tone="ok"
-            icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
             title="Account created and owner invited"
           >
             <p className="mt-1">

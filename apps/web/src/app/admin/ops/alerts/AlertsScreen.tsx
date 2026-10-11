@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { MailWarning } from "lucide-react";
 
 import { useAdminAccess } from "@/app/admin/access";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
@@ -168,15 +167,13 @@ export function AlertsScreen() {
           {data !== undefined && data.open_unmailed_pages > 0 && (
             <NoticeBox
               tone="stop"
-              icon={<MailWarning aria-hidden className="h-5 w-5" />}
               title="Some alarms that should have emailed did not"
             >
               <p className="mt-1">
                 {formatCountOf(data.open_unmailed_pages, "alarm")} of the emailed kind{" "}
                 {data.open_unmailed_pages === 1 ? "is" : "are"} still
-                happening and no email was sent for them — the message failed, or no alert
-                mailbox is configured. Check the rows marked &ldquo;not sent&rdquo; below, and
-                check that alerts have somewhere to go.
+                happening with no email sent. Check the rows marked &ldquo;not sent&rdquo; below
+                and the alert mailbox.
               </p>
             </NoticeBox>
           )}

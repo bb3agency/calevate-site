@@ -491,7 +491,18 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # THE FIFTY-FOURTH AND FIFTY-FIFTH are a cloned voice of a real person (D-721,
     # `ops/hosted_voice_routes.py`): recording the speaker's consent is a legal attestation
     # about one voice, and unmarking a voice deletes that record. Both bound to the voice.
-    assert sites == 54, f"found {sites} step-up call sites, expected 54; the census went stale"
+    # THE NEXT TWENTY are D-731's operator writes, each bound to the tenant
+    # (and to the member, flag, charge, outcome, number or action it changes), and each
+    # pinned by `tests/security_gates_test.py`: creating a client, inviting into one,
+    # changing a member's role, recording a number, recording KYC, a feature flag, a fee
+    # waiver, a fee paid offline, a payment recorded onto the wallet, ending a trial,
+    # reconciling payments, buying and releasing a number (both routers), provisioning and
+    # offboarding a voice workspace, undoing an admin assistant action, moving a number into a
+    # client's workspace, and setting up the shared trial number's line.
+    # ONE MORE publishes a language's reviewed spoken style (D-744,
+    # `ops/spoken_style_routes.py`, `publish_confirmation`, bound to the language): it
+    # republishes every live agent with the new words.
+    assert sites == 75, f"found {sites} step-up call sites, expected 75; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.
@@ -554,6 +565,12 @@ _OPS_WRITES_WITHOUT_STEP_UP = {
         "stores the voice platform's own preview of a voice (D-687): a read from the vendor "
         "and one stored clip. A Studio preview costs a line's characters on our key, capped "
         "at 200, which is the cost of an operator listening to a voice once."
+    ),
+    ("apps/api/ops/spoken_style_routes.py", "change_entry"): (
+        "approves, edits, adds or retires ONE spoken-style entry in the working copy (D-744). "
+        "It reaches no agent and no call: only the step-up-gated publish does. It is the "
+        "screen's primary action, repeated entry by entry through a review of a hundred-odd "
+        "words, and it is audited and undone by the next change."
     ),
     ("apps/api/ops/voice_curation_routes.py", "set_voice_curation"): (
         "moves ONE voice between enabled/disabled/archived for the platform (D-588), and "

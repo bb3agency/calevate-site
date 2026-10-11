@@ -58,3 +58,39 @@ export function useConfirmBusinessType(
     },
   });
 }
+
+/**
+ * "Suggest again": queues one AI suggestion (202). The answer arrives on the GET a few
+ * seconds later, so the banner polls while `asking` is set.
+ */
+export function useSuggestBusinessTypeAgain(
+  tenantId: string,
+): UseMutationResult<BusinessTypeState, Error, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<BusinessTypeState>(adminSession(), `${path(tenantId)}/suggest`, {
+        method: "POST",
+      }),
+    onSuccess: (data) => {
+      client.setQueryData(businessTypeKeys.admin(tenantId), data);
+    },
+  });
+}
+
+/** Poll the GET until a suggestion newer than `since` arrives, for at most a minute. */
+export function useBusinessTypePoll(
+  tenantId: string,
+  since: number | null,
+): UseQueryResult<BusinessTypeState> {
+  return useQuery({
+    queryKey: businessTypeKeys.admin(tenantId),
+    queryFn: () => apiRequest<BusinessTypeState>(adminSession(), path(tenantId)),
+    enabled: since !== null,
+    refetchInterval: (query) => {
+      if (since === null || Date.now() - since > 60_000) return false;
+      const at = query.state.data?.unconfirmed?.suggested_at;
+      return at && Date.parse(at) >= since ? false : 3_000;
+    },
+  });
+}

@@ -9,7 +9,7 @@ as a request the person typed — and therefore meets every gate a typed request
 * the permission ladder, re-read when the job starts, so a demoted author is refused;
 * calling hours, DNC, KYC and the pledge, credit, the trial rules and the big red switch,
   which live inside the service functions every action calls. A routine cannot dial
-  anyone by itself: inside a job a confirm-tier action is STAGED in the Approvals inbox
+  anyone by itself: inside a job every action is STAGED in the Approvals inbox (D-729)
   (`write_tools.stage_for_approval`) and runs only when a person approves it, through the
   button's own function, which is where those gates are.
 

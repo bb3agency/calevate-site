@@ -236,14 +236,16 @@ describe("the trial control on the credits screen", () => {
     expect(startButton().disabled).toBe(true);
     expect(screen.getByText(/These two do not match/)).toBeTruthy();
 
+    // Free minutes start at the founder's default of 30, so matching days is the last step.
+    expect((screen.getByLabelText("Free test-call minutes") as HTMLInputElement).value).toBe("30");
     fireEvent.change(screen.getByLabelText("Type the number of days again"), {
       target: { value: "14" },
     });
-    expect(startButton().disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("Free test-call minutes"), {
-      target: { value: "30" },
-    });
     expect(startButton().disabled).toBe(false);
+    fireEvent.change(screen.getByLabelText("Free test-call minutes"), {
+      target: { value: "" },
+    });
+    expect(startButton().disabled).toBe(true);
   });
 
   it("says what it does, for how long, and what it does NOT suspend, before the press", async () => {

@@ -28,6 +28,7 @@ walked twice for two saves a second apart.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime
@@ -155,6 +156,83 @@ async def queue_live_apply(
         },
     )
     return run_id
+
+
+#: The reason a deploy that changed the platform's own prompt text records, followed by the
+#: text's revision (`platform_prompt_revision`).
+PLATFORM_PROMPT_REASON: Final = "platform_prompt"
+
+
+def platform_prompt_revision() -> str:
+    """A short digest of the text every live agent carries that only a deploy can change: the
+    platform layers `compose_engine_prompt` wraps around a script, and how a script's
+    sections compile to engine steps.
+
+    Composed over reference agents rather than read from the constants, so a change in any
+    section builder (registers, knowledge, the cannot-help rules) moves it too. Stable across
+    processes: no ids, clocks or settings go in.
+    """
+    from calevate_shared.call_script import (
+        CallScript,
+        Capabilities,
+        ConversationStage,
+        native_steps,
+        render_steps,
+    )
+    from calevate_shared.engine import AgentConfig, compose_engine_prompt
+
+    script = CallScript(
+        schema_version=2,
+        stages=[
+            ConversationStage(
+                id="ask", name="Ask", instruction="Ask what they need.", collect=["a", "b"]
+            )
+        ],
+    )
+    parts: list[str] = [render_steps(native_steps(script, can=Capabilities(True, False)))]
+    for callbacks, in_knowledge in ((True, True), (False, False)):
+        cfg = AgentConfig(
+            tenant_id="t",
+            agent_id="a",
+            name="A",
+            direction="outbound",
+            language_primary="te-IN",
+            languages_extra=["hi-IN", "en-IN"],
+            system_prompt="S",
+            opening_line="O",
+            call_is_recorded=True,
+            facts_in_knowledge=in_knowledge,
+            knowledge_tool="search_knowledge" if in_knowledge else None,
+            callbacks_offered=callbacks,
+            forwarded_line=not callbacks,
+        )
+        parts.append(compose_engine_prompt(cfg))
+    return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:16]
+
+
+async def queue_platform_prompt_apply(session: AsyncSession) -> UUID | None:
+    """After a deploy, bring every live agent onto the platform prompt text this build
+    carries, once per revision. Returns the run, or None when this revision was already
+    queued by an earlier start (any status: a finished run is not repeated, and a failed
+    agent is the run's own retry ladder and alarm, not a reason to walk the fleet again).
+
+    Called at worker start. Without it a platform text change reaches an agent only on its
+    next publish, and until then the drift sweep reports the agent's instructions as
+    changed on the engine while nothing is wrong with them.
+    """
+    reason = f"{PLATFORM_PROMPT_REASON}:{platform_prompt_revision()}"
+    # The same lock `queue_live_apply` takes for a platform run (re-entrant in one
+    # transaction), so two workers starting together queue one run.
+    await session.execute(text(_LOCK), {"key": "live_apply:platform"})
+    seen = (
+        await session.execute(
+            text("SELECT 1 FROM live_apply_runs WHERE reasons ? :reason LIMIT 1"),
+            {"reason": reason},
+        )
+    ).first()
+    if seen is not None:
+        return None
+    return await queue_live_apply(session, scope="platform", reason=reason)
 
 
 # The worker's own enqueues live here, beside the job names they spell, so every

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { AlertTriangle } from "lucide-react";
 
 import {
   FIELD,
@@ -314,7 +313,7 @@ export function KycRecordForm({
       {/* The destructive direction, said where it is decided: obvious when meant, invisible
           when the wrong row was picked. */}
       {record.is_verified && draft.status !== "verified" && (
-        <NoticeBox tone="warn" icon={<AlertTriangle className="h-4 w-4" />}>
+        <NoticeBox tone="warn">
           <p>
             <span className="font-medium">{tenantName} is verified today.</span> Recording
             this stops outbound dialling on a self-serve or trial account, on every tier.

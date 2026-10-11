@@ -92,6 +92,7 @@ from apps.api.core.settings import (
 )
 from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
 from apps.api.ops.pricing_snapshot import start_pricing_refresher, stop_pricing_refresher
+from apps.api.ops.spoken_style_store import refresh_spoken_style
 from apps.api.reliability.service import OUTBOX_CLAIM_LEASE
 from apps.workers.account_closure import (
     SWEEP_MINUTE as ERASURE_FILING_MINUTE,
@@ -153,7 +154,11 @@ from apps.workers.dnc_recall import recall_dials_for_dnc
 from apps.workers.engine_charges import CHARGE_SWEEP_MINUTES, reconcile_engine_charges
 from apps.workers.engine_customer_data import erase_engine_contact, push_engine_dnc
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
-from apps.workers.engine_signals import ingest_engine_notice, ingest_engine_opt_out
+from apps.workers.engine_signals import (
+    ingest_engine_notice,
+    ingest_engine_opt_out,
+    ingest_engine_problem,
+)
 from apps.workers.engine_webhooks import WEBHOOK_SWEEP_MINUTES, reconcile_engine_webhooks
 from apps.workers.engine_workspaces import (
     offboard_engine_workspace,
@@ -165,6 +170,13 @@ from apps.workers.engine_workspaces import (
     sweep_engine_workspaces,
 )
 from apps.workers.fleet_walk import WalkShape, bounded, every_tick, fleet_wide
+from apps.workers.forwarding import (
+    FORWARDING_SWEEP_MINUTE,
+    hang_up_forwarding_test,
+    send_save_number_message,
+    settle_forwarding_test,
+    sweep_forwarded_lines,
+)
 from apps.workers.fx_pull import PULL_MINUTES, pull_fx_rate
 from apps.workers.healer import SCORE_MINUTES, healer_sweep, run_healer, score_agent_health
 from apps.workers.inbound_cutover import apply_inbound_credit_state
@@ -184,7 +196,12 @@ from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.kb_teach import run_kb_teaching
 from apps.workers.kyc_owner_id_purge import PURGE_HOUR, PURGE_MINUTE, sweep_abandoned_owner_ids
 from apps.workers.lead_fields_draft import draft_lead_fields
-from apps.workers.live_apply import apply_live_agent, apply_live_settings, resume_live_apply
+from apps.workers.live_apply import (
+    apply_live_agent,
+    apply_live_settings,
+    apply_platform_prompt_on_start,
+    resume_live_apply,
+)
 from apps.workers.maintenance import (
     TICK_SECONDS as MAINTENANCE_TICK_SECONDS,
 )
@@ -193,6 +210,7 @@ from apps.workers.maintenance import (
     notify_maintenance,
 )
 from apps.workers.notifications import notify_hot_lead
+from apps.workers.number_moves import move_engine_number
 from apps.workers.number_rental import (
     meter_number_rentals,
     reconcile_engine_numbers,
@@ -278,6 +296,17 @@ FUNCTIONS: list[Any] = [
         ingest_engine_opt_out,
         # A lead or a hand-over the voice platform's own agent reported (D-691).
         ingest_engine_notice,
+        # A problem on a live call the voice platform reported (`call.problem`).
+        ingest_engine_problem,
+        # A client's number moved into its own voice workspace, retried while it is on a
+        # call (`campaigns/engine_numbers.move_into_client_workspace`).
+        move_engine_number,
+        # The forwarding test's settlement and its legs' hang-up, deferred from the place
+        # (`apps/api/forwarding/testing.py`), and the "save our number" WhatsApp from the
+        # outbox (D-746).
+        settle_forwarding_test,
+        hang_up_forwarding_test,
+        send_save_number_message,
         # Person-level writes in a client's OWN voice platform workspace, from the outbox
         # (D-691): its do-not-call additions and a DPDP erasure of its contact.
         push_engine_dnc,
@@ -738,6 +767,15 @@ CRON_JOBS = [
         traced_job(reconcile_carrier_recordings),
         walk=fleet_wide("one tenant_session per callable tenant, keyed enqueues, vendor reads"),
         minute=set(RECORDING_SWEEP_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # Forwarded lines (D-746): a line that normally brings calls and has been silent three
+    # days opens one quiet episode (client notice and an attention alarm), and a test whose
+    # settle job was lost is settled. Hourly, on a minute no other walk uses.
+    _cron(
+        traced_job(sweep_forwarded_lines),
+        walk=fleet_wide("one directory read, then one tenant session per account"),
+        minute={FORWARDING_SWEEP_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # D-678: what the engine charged per call against what we metered from the attested
@@ -1613,6 +1651,12 @@ async def startup(ctx: dict[str, Any]) -> None:
     # starts on defaults and then flips mid-run is the disagreement this closes.
     await refresh_platform_config(force=True)
     start_config_refresher(with_secrets=True)
+    # A deploy that changed the platform's own prompt text brings every live agent onto it
+    # (D-739). After the config is adopted, because the walk publishes with it, and after
+    # the published spoken style is installed (D-744), so the revision this start computes
+    # does not depend on whether the background poll has run yet.
+    await refresh_spoken_style()
+    await apply_platform_prompt_on_start()
     missing = runtime_config_missing_keys()
     if missing:
         # Log, do not die. `/healthz/ready` is the go-live gate.

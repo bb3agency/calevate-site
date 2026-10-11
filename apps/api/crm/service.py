@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Final, Literal, NamedTuple, get_args
 from uuid import UUID
 
+from calevate_shared.cut_off import likely_cut_off_rows
 from calevate_shared.events import CallStatus
 from calevate_shared.extraction import (
     MOMENT_KINDS,
@@ -44,6 +45,8 @@ from apps.api.crm.schemas import (
     CallCallbackOut,
     CallDetailOut,
     CallMomentOut,
+    CallQualityOut,
+    CallSignalOut,
     CallSummaryOut,
     CapturedChipOut,
     DashboardDayOut,
@@ -460,7 +463,8 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
                 f"{_CALLBACK_COLUMNS}, "
                 "c.summary_local, c.summary_language, c.summary_source, c.next_step, "
                 "c.callback_requested, c.translation_state, "
-                f"{_LEAD_NAME_COLUMN}, a.language_primary "
+                f"{_LEAD_NAME_COLUMN}, a.language_primary, c.engine_quality, c.engine_call_id, "
+                "c.caller_id_hidden, c.forwarding_test_id IS NOT NULL "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
                 "WHERE c.id = :cid"
             ),
@@ -475,12 +479,14 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         await session.execute(
             text(
                 f"SELECT idx, speaker, COALESCE({column}, ''), lang, start_ms, text_en, "
-                "start_approximate "
+                "start_approximate, char_length(text) "
                 "FROM transcript_turns WHERE call_id = :cid ORDER BY idx"
             ),
             {"cid": call_id},
         )
     ).all()
+    # From the raw text's length, so the raw and the redacted view flag the same turns.
+    unheard = likely_cut_off_rows((t[0], t[1], int(t[7] or 0), t[4]) for t in turns)
     extraction = (
         await session.execute(
             text(
@@ -492,6 +498,19 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         )
     ).first()
 
+    signals = (
+        (
+            await session.execute(
+                text(
+                    "SELECT kind, occurred_at FROM call_engine_signals "
+                    "WHERE engine_call_id = :ecid ORDER BY occurred_at NULLS LAST, created_at"
+                ),
+                {"ecid": row[32]},
+            )
+        ).all()
+        if row[32]
+        else []
+    )
     extraction_data: dict[str, Any] = (extraction[0] or {}) if extraction else {}
     captured = await captured_fields(
         session,
@@ -522,6 +541,8 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         headline=row[16],
         test_call=bool(row[17]),
         callback=_callback_out(row[18:23]),
+        caller_id_hidden=bool(row[33]),
+        forwarding_test=bool(row[34]),
         summary_local=row[23] if raw else redacted_summary(row[23]),
         summary_language=row[24],
         summary_source=row[25],
@@ -531,6 +552,8 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         lead_name=row[29],
         language=_call_language(turns, agent_language=row[30]),
         extraction_model=extraction[5] if extraction else None,
+        quality=CallQualityOut.model_validate(row[31]) if isinstance(row[31], dict) else None,
+        signals=[CallSignalOut(kind=s[0], occurred_at=s[1]) for s in signals],
         transcript=[
             TranscriptTurnOut(
                 idx=t[0],
@@ -541,6 +564,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
                 # Translated from the redacted text, so it is the same on both views.
                 text_en=t[5],
                 start_approximate=bool(t[6]),
+                likely_cut_off=t[0] in unheard,
                 redacted=not raw,
             )
             for t in turns

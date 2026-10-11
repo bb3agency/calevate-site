@@ -1,6 +1,5 @@
 "use client";
 
-import { ShieldCheck } from "lucide-react";
 
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
@@ -194,8 +193,8 @@ function Review({
         </p>
       </div>
 
-      <NoticeBox tone="neutral" icon={<ShieldCheck aria-hidden className="h-5 w-5" />}>
-        Personal details — phone numbers, account numbers, dates of birth — are hidden in this
+      <NoticeBox tone="neutral">
+        Personal details (phone numbers, account numbers, dates of birth) are hidden in this
         transcript, and there is no way to see them in full on this screen. Opening this call
         was recorded in the audit log against your name.
       </NoticeBox>

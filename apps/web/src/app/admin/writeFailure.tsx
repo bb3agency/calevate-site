@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 
-import { ShieldAlert, ShieldCheck } from "lucide-react";
 
+import { InfoTip } from "@/components/console/infoTip";
 import { NoticeBox, PRIMARY_BUTTON_SM, ProblemNotice } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
 import { AUTHN_CODES } from "@/lib/authn/problems";
@@ -104,15 +104,12 @@ function ReauthenticationRefusal({
       <div role="status">
         <NoticeBox
           tone="ok"
-          icon={<ShieldCheck aria-hidden className="h-5 w-5" />}
-          title="Confirmed — it is still you"
+          title="Confirmed. It is still you"
+          info="The earlier attempt rolled back, and proving who you are does not re-send it. The second factor holds for the next few minutes."
+          infoLabel="the confirmed factor"
         >
-          <p className="mt-1">
-            Your second factor is proved for the next few minutes. Press{" "}
-            <span className="font-semibold">{actionLabel}</span> again to apply the change.
-            Nothing has been applied yet — the earlier attempt rolled back, and proving who
-            you are does not re-send it.
-          </p>
+          Nothing has been applied yet. Press <span className="font-semibold">{actionLabel}</span>{" "}
+          again to apply the change.
         </NoticeBox>
       </div>
     );
@@ -122,34 +119,31 @@ function ReauthenticationRefusal({
     <div role="alert">
       <NoticeBox
         tone="stop"
-        icon={<ShieldAlert aria-hidden className="h-5 w-5" />}
         title="Confirm it is still you"
+        action={
+          <button
+            type="button"
+            // `PRIMARY_BUTTON_SM`, not a hand-written fill. `bg-brand` under white text is
+            // 3.38:1 and `tests/contrast.test.ts` refuses it; the shared constant already
+            // rests on `bg-brand-strong` (6.58:1) and carries the touch target with it.
+            className={PRIMARY_BUTTON_SM}
+            onClick={() => {
+              // Deliberately NOT replaying the write. Proving a factor says who is at the
+              // keyboard; it does not restate the intent to halt a platform or adjust a
+              // client's credits, and a button that silently re-fired one of those on the
+              // back of an emailed code would turn an identity check into a confirmation.
+              void requireStepUp("A confirmed change on this screen.").then((ok) => {
+                if (!ok) return;
+                setProved(true);
+                onRetry?.();
+              });
+            }}
+          >
+            Send me a code
+          </button>
+        }
       >
-        <p className="mt-1">
-          Nothing was changed. This action needs a second factor proved in the last few
-          minutes, and the check runs before the work — so the request rolled back and you
-          do not have to check whether it half-applied.
-        </p>
-        <button
-          type="button"
-          // `PRIMARY_BUTTON_SM`, not a hand-written fill. `bg-brand` under white text is
-          // 3.38:1 and `tests/contrast.test.ts` refuses it; the shared constant already
-          // rests on `bg-brand-strong` (6.58:1) and carries the touch target with it.
-          className={`mt-3 ${PRIMARY_BUTTON_SM}`}
-          onClick={() => {
-            // Deliberately NOT replaying the write. Proving a factor says who is at the
-            // keyboard; it does not restate the intent to halt a platform or adjust a
-            // client's credits, and a button that silently re-fired one of those on the
-            // back of an emailed code would turn an identity check into a confirmation.
-            void requireStepUp("A confirmed change on this screen.").then((ok) => {
-              if (!ok) return;
-              setProved(true);
-              onRetry?.();
-            });
-          }}
-        >
-          Send me a code
-        </button>
+        Nothing was changed. This action needs a second factor from the last few minutes.
       </NoticeBox>
     </div>
   );
@@ -191,20 +185,16 @@ export function WriteFailure({
     <div role="alert">
       <NoticeBox
         tone="stop"
-        icon={<ShieldAlert aria-hidden className="h-5 w-5" />}
         title="Refused: this console's confirmation is not the one the API expects"
       >
-        <p className="mt-1">
-          Nothing was changed. The request was refused before it reached the work, and its
-          transaction rolled back — you do not need to check whether it half-applied.
-        </p>
-        <p className="mt-2">
-          You did type the confirmation, and the console did send it. A refusal at this
-          point means this page is running a different build from the API, so pressing the
-          button again will send the same header and be refused again.{" "}
-          <span className="font-semibold">Reload this page first.</span> If it survives a
-          reload, the API and the console have genuinely diverged: use the request in the
-          runbook by hand, with the header below, and say so in the deploy channel.
+        <p>
+          Nothing was changed. <span className="font-semibold">Reload this page first.</span>{" "}
+          <InfoTip label="a confirmation refusal">
+            You did type the confirmation and the console did send it, so this page runs a
+            different build from the API and pressing again is refused again. If it survives a
+            reload, use the request in the runbook by hand with the header below, and say so
+            in the deploy channel.
+          </InfoTip>
         </p>
         {problem.remediation && <p className="mt-2 font-mono text-xs">{problem.remediation}</p>}
       </NoticeBox>

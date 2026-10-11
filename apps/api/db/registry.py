@@ -19,6 +19,7 @@ from apps.api.copilot import routine_models as copilot_routine_models
 from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
 from apps.api.flags import models as flags_models
+from apps.api.forwarding import models as forwarding_models
 from apps.api.healer import models as healer_models
 from apps.api.ingest import models as ingest_models
 from apps.api.insights import models as insights_models
@@ -49,6 +50,7 @@ __all__ = [
     "copilot_routine_models",
     "crm_models",
     "flags_models",
+    "forwarding_models",
     "healer_models",
     "ingest_models",
     "insights_models",
@@ -129,6 +131,9 @@ TENANT_TABLES = [
     # b7d3e91c4a05). Numbers and a region code, no text — but derived from a tenant's call,
     # so it is isolated like everything else derived from one.
     "call_engine_latency",
+    # What the voice platform reported about a call beside its result (migration
+    # a5d1c7e93f28): a problem while it was live, or a notice its agent raised.
+    "call_engine_signals",
     "leads",
     "lead_events",
     # Per-user-per-tenant Leads-table state (SURFACES §2 saved views, migration
@@ -418,6 +423,13 @@ TENANT_TABLES = [
     "heal_fallback_phones",
     "agent_health_windows",
     "heal_proposals",
+    # A client's existing number forwarded to its Calevate number (D-746, migration
+    # d6f2b8a41c73): the line and its findings, each verification-call run (CAS-updated;
+    # `audit_log` is the immutable record), and the once-per-caller "save our number"
+    # message, keyed on a keyed hash of the caller's number.
+    "forwarded_lines",
+    "forwarding_tests",
+    "save_number_messages",
 ]
 
 # Tables deliberately OUTSIDE tenant isolation, with reasons — the RLS coverage
@@ -836,6 +848,15 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "detail column is authored by us and written through `core/logging.redact_mapping` "
         "and a 500-character cap (hard rule 6); no payload or transcript text reaches it."
     ),
+    "forwarding_test_legs": (
+        "platform-scoped, read untenanted (D-746). One outbound leg of a forwarding test, rung "
+        "from a platform number in our developer workspace. The shared trial number is one "
+        "line for the whole platform, so a free-trial call and a forwarding test must count "
+        "each other's live legs across clients under one advisory lock, and the voice "
+        "platform's report of a leg arrives before any tenant is known (the calling agent "
+        "is ours, not a client's). A tenant policy would hide exactly the rows both readers "
+        "need. No personal data: ids, a vendor call id, answered and seconds; never a number."
+    ),
     "live_apply_runs": (
         "platform-scoped, admin realm only (D-720). One pass that brings the live agents in a "
         "scope up to a setting somebody just saved: the platform, one client, or one agent. "
@@ -1100,4 +1121,8 @@ APPEND_ONLY_TABLES = [
     # Every step the auto-healer took (D-701). A record of automatic action on clients'
     # lines is evidence; an editable one is not. Corrections are new rows.
     "heal_actions",
+    # The founder's spoken-style review (D-744): who approved which words for a language and
+    # when a reviewed set was published. A change is a new revision, never an edit.
+    "spoken_style_revisions",
+    "spoken_style_publications",
 ]

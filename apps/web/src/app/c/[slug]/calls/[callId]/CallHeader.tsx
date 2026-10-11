@@ -43,6 +43,15 @@ export function CallHeader({ detail }: { detail: CallDetail }) {
       {/* One line of text, so it wraps between words rather than leaving a separator at
           the start of a line. */}
       <p className="mt-0.5 text-meta tabular-nums text-ink-muted">{facts.join(" · ")}</p>
+      {/* D-746: a forwarded call that showed your own number, and our forwarding test. */}
+      {detail.caller_id_hidden && (
+        <p className="mt-1 text-meta text-ink-muted">
+          The network hid the caller&apos;s number, so your agent asked for one to call back on.
+        </p>
+      )}
+      {detail.forwarding_test && (
+        <p className="mt-1 text-meta text-ink-muted">This was a forwarding test call. It is not charged.</p>
+      )}
     </header>
   );
 }

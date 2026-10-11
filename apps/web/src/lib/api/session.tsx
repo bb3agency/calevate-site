@@ -70,7 +70,7 @@ import { AdminSessionGate, AdminSessionProvider } from "@/lib/authn/adminSession
 import { ClientSessionGate, ClientSessionProvider } from "@/lib/authn/clientSession";
 import { clientRealmSession } from "@/lib/authn/realmSessions";
 
-import { viewAsSession } from "./admin";
+import { viewAsSession, viewAsStartUrl } from "./admin";
 import { type Session } from "./client";
 import { clientConsoleUrl } from "@/lib/consoleOrigin";
 
@@ -118,7 +118,10 @@ export const VIEW_AS_ADMIN = "admin";
  * have to import a query provider to get it — see that module.
  */
 export function viewAsHref(slug: string, path = ""): string {
-  return clientConsoleUrl(`/c/${slug}${path}?${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}`);
+  // Through the operator console's start page (D-730), which asks for a code typed for
+  // this entry and hands the grant to the client console; the client console cannot
+  // start a view-as session itself.
+  return viewAsStartUrl(slug, path);
 }
 
 export { clientConsoleUrl };
@@ -212,7 +215,12 @@ function Resolver({ slug, children }: { slug: string; children: ReactNode }) {
     </AdminSessionProvider>
   ) : (
     <ClientSessionProvider>
-      <ClientSessionGate landmark>{realm}</ClientSessionGate>
+      <ClientSessionGate landmark>
+        {/* The client realm's code prompt (D-730): exports, integration credentials and
+            outbound webhook endpoints ask for a code typed for that one action. */}
+        <StepUpPrompt realm="client" />
+        {realm}
+      </ClientSessionGate>
     </ClientSessionProvider>
   );
 }

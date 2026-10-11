@@ -2,8 +2,8 @@
 
 1. READ, when the owner sent a photo, a file or a voice note: a photo is read by the OCR leg
    (`document_ocr`, metered as `kb_ocr`), a file by the document reader, a voice note by our
-   speech-to-text sub-processor. A voice note then STOPS at `heard`: the owner checks the
-   words before anything is sorted or saved.
+   speech-to-text sub-processor (metered at our cost as `kb_teach_voice`, absorbed). A voice
+   note then STOPS at `heard`: the owner checks the words before anything is sorted or saved.
 2. SORT the words into facts and rules with the dashboard-assist ladder (Azure, then the
    disclosed Sarvam leg), metered against the client's AI allowance as `kb_teach`. When the
    allowance is used up or no model answers, the words come back unsorted, one line each,
@@ -28,7 +28,12 @@ from calevate_shared.engine import SARVAM_DEFAULT_LLM, azure_openai_base_url
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import account_assist_leg
-from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota, record_ai_assist_usage
+from apps.api.billing.ai_quota import (
+    new_assist_ref,
+    read_ai_quota,
+    record_absorbed_stt_usage,
+    record_ai_assist_usage,
+)
 from apps.api.core import provider_health
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -301,16 +306,40 @@ async def _meter_ocr(tenant_id: UUID, model: str, prompt: int | None, output: in
         )
 
 
+#: `usage_events.meta.feature` for transcribing a teach-box voice note. Absorbed (founder,
+#: 11 Oct 2026): our cost, never the client's allowance or wallet.
+ASSIST_FEATURE_KB_VOICE: Final = "kb_teach_voice"
+#: The recorder stops a voice note at 30 seconds (`teach/teaching.MAX_VOICE_BYTES`) and the
+#: speech-to-text answer carries no audio length, so each note is metered at that ceiling:
+#: our recorded cost can only be above what the vendor bills, never below.
+VOICE_NOTE_CEILING_S: Final = 30
+
+
+async def _meter_voice(tenant_id: UUID) -> None:
+    async with tenant_session(tenant_id) as session:
+        await record_absorbed_stt_usage(
+            session,
+            tenant_id=tenant_id,
+            ref=new_assist_ref(),
+            audio_seconds=VOICE_NOTE_CEILING_S,
+            model=STT_MODEL,
+            feature=ASSIST_FEATURE_KB_VOICE,
+            basis="recorder_ceiling",
+        )
+
+
 async def read_upload(
     tenant_id: UUID, *, data: bytes, input_kind: str, content_type: str, filename: str
 ) -> str:
     """The text of a photo, a file or a voice note. Raises `UnreadableError` with a code."""
     if input_kind == "voice":
         try:
-            return await transcribe_voice(data, content_type)
+            heard = await transcribe_voice(data, content_type)
         except (httpx.HTTPError, RuntimeError, ValueError) as failure:
             log.warning("kb_teach_stt_failed", extra={"error": type(failure).__name__})
             raise UnreadableError("voice_unreadable") from failure
+        await _meter_voice(tenant_id)
+        return heard
     kind = (
         "image"
         if input_kind == "photo"

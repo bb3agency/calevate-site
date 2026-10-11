@@ -2,7 +2,6 @@
 
 import { DesktopAlerts } from "./DesktopAlerts";
 
-import { CircleAlert } from "lucide-react";
 
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -231,15 +230,9 @@ export function AlertsScreen() {
           {!current.delivery_available && (
             <NoticeBox
               tone="warn"
-              icon={<CircleAlert aria-hidden className="h-5 w-5" />}
               title="We cannot send WhatsApp messages yet"
             >
-              <p className="mt-1">
-                This is on our side, not yours: the WhatsApp business connection is not
-                live yet. Agreeing now would record your consent for something we cannot
-                do, so the control is held back until it works. Email alerts are
-                unaffected.
-              </p>
+              <p>This is on our side, not yours. Email alerts are unaffected.</p>
             </NoticeBox>
           )}
 

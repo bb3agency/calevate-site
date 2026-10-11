@@ -115,13 +115,25 @@ const RAZORPAY_CONNECT_ORIGINS = [
 ];
 const RAZORPAY_IMAGE_ORIGIN = "https://cdn.razorpay.com";
 /**
- * Google's file picker (D-703): the loader `apis.google.com/js/api.js` and the picker it
- * loads come from `apis.google.com`, and the picker renders in an iframe on
- * `docs.google.com` (developers.google.com/workspace/drive/picker/guides/web-picker, read
- * 10 Oct 2026). Google publishes no CSP list for it; any further origin the browser reports
- * on the first real pick is added here (OPERATIONS gate A-12).
+ * Google's file picker (D-703), admitted by PATH rather than by origin (D-734).
+ *
+ * `apis.google.com` as a whole origin is a well-known CSP bypass host: it serves JSONP and
+ * gadget endpoints that turn "load a script from here" into "run attacker-chosen code". So
+ * `script-src` names only what the picker loads, measured in a browser on 11 Oct 2026 by
+ * loading `api.js`, calling `gapi.load("picker")` and opening a picker: the loader at
+ * `/js/api.js`, then the `picker` and `gapi_iframes` bundles under
+ * `/_/scs/abc-static/_/js/...`. A source ending in `/` matches every path under it (CSP3
+ * §6.7.2.12), so the second entry admits those bundles and nothing else on the host. The
+ * picker itself renders in an iframe on `docs.google.com`
+ * (developers.google.com/workspace/drive/picker/guides/web-picker). `'strict-dynamic'`
+ * was the alternative and is not taken: it disables the host list, so Razorpay's entry and
+ * this one would stop meaning anything. A new path the browser reports on a real pick is
+ * added here (OPERATIONS gate A-12).
  */
-const GOOGLE_PICKER_SCRIPT_ORIGIN = "https://apis.google.com";
+const GOOGLE_PICKER_SCRIPT_SOURCES = [
+  "https://apis.google.com/js/api.js",
+  "https://apis.google.com/_/scs/",
+];
 const GOOGLE_PICKER_FRAME_ORIGIN = "https://docs.google.com";
 
 /** The collector's path in `apps/api` (`apps/api/security/routes.py`). One spelling. */
@@ -226,7 +238,7 @@ export function buildContentSecurityPolicy(
   const evalSource = opts.devEval && process.env.NODE_ENV !== "production" ? " 'unsafe-eval'" : "";
   const directives = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}'${evalSource} ${RAZORPAY_CHECKOUT_ORIGIN} ${GOOGLE_PICKER_SCRIPT_ORIGIN}`,
+    `script-src 'self' 'nonce-${nonce}'${evalSource} ${RAZORPAY_CHECKOUT_ORIGIN} ${GOOGLE_PICKER_SCRIPT_SOURCES.join(" ")}`,
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: blob: ${RAZORPAY_IMAGE_ORIGIN}`,
     "font-src 'self'",

@@ -7,6 +7,31 @@ effect during a call in progress (OPERATIONS T-28), test-chat action markers, ow
 clones (item 22) and the forwarded-call test calls. No secret, key or workspace id is
 included.
 
+On 11 Oct 2026 ThinnestAI answered the separate 9 Oct email (summary in rememory, "ThinnestAI
+reply 11 Oct 2026") and said this email needs another day. The founder replied the same day
+asking the four points that reply left open: whether forwarding works with the agent off,
+fixed IPs for action requests, Pro limits and raising the customer cap above 5, and the signed
+DPA with the sub-processor list, plus training off in writing.
+
+**Queued for a separate email, to send only after ThinnestAI replies to the current one**
+(founder, 11 Oct 2026). All three come from a production call on 11 Oct:
+
+1. **A time line spoken aloud.** The agent read out "[It is 11:03 am now.]". Our instructions
+   contain no such line. Where is it added, can it be turned off, and does your pipeline strip
+   bracketed or stage-direction text (for example "(Waiting for your reply.)") before speech?
+2. **Turns the caller talked over.** When a caller interrupts, the transcript keeps the agent's
+   whole generated reply. Can an interrupted turn be marked, and trimmed to what was actually
+   spoken, in the transcript, in `call.analysed`, and in the model's own context for the rest
+   of the call?
+3. **Interrupted speech on our own voice key.** On voice-only BYOK, is a sentence that was cut
+   off still synthesised in full and charged to our Cartesia account, and how far ahead of
+   playback do you send text to the voice provider?
+4. **Pronunciation dictionary.** Cartesia applies a pronunciation dictionary per speech
+   request (`pronunciation_dict_id`, docs.cartesia.ai custom pronunciations). On voice-only
+   BYOK with Cartesia, can an agent carry a dictionary id that you pass on every speech
+   request, so brand, product and place names are said correctly? Is there anything similar
+   for your own voices?
+
 Context for our team: the agent Voice settings page in ThinnestAI's console has settings
 that the REST API does not expose (mapping in
 `docs/evidence/first-call-review-2026-10-10.md`, "Mapping result"). Until there is an API

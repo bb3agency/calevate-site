@@ -38,7 +38,11 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from apps.api.core.alerting import alert
-from apps.api.core.console_links import ADMIN_ORIGIN_PREFIXES, VIEW_AS_HANDOFF_PATHS
+from apps.api.core.console_links import (
+    ADMIN_ORIGIN_PREFIXES,
+    APEX_CREDENTIALED_PREFIXES,
+    VIEW_AS_HANDOFF_PATHS,
+)
 from apps.api.core.context import (
     IMPERSONATE_HEADER,
     IMPERSONATION_GRANT_HEADER,
@@ -809,6 +813,11 @@ class RealmCorsMiddleware(CORSMiddleware):
     The exact paths in `view_as_paths` are judged against `view_as_origins` instead, and
     are checked first: they sit under the admin prefixes but are what the client console
     calls to run "view as client" (`console_links.VIEW_AS_HANDOFF_PATHS`).
+
+    `allow_origins` (every origin the product serves) applies only under
+    `apex_path_prefixes`; every other client path is judged against `console_origins`, so
+    the marketing site is credentialed for sign-in and the public rate card and nothing
+    else (D-732).
     """
 
     def __init__(
@@ -820,13 +829,17 @@ class RealmCorsMiddleware(CORSMiddleware):
         admin_path_prefixes: tuple[str, ...],
         view_as_origins: Sequence[str],
         view_as_paths: frozenset[str],
+        console_origins: Sequence[str],
+        apex_path_prefixes: tuple[str, ...],
         **cors: Any,
     ) -> None:
         super().__init__(app, **cors)
         self.admin_path_prefixes = admin_path_prefixes
         self.view_as_paths = view_as_paths
+        self.apex_path_prefixes = apex_path_prefixes
         self.admin = CORSMiddleware(app, **{**cors, "allow_origins": admin_origins})
         self.view_as = CORSMiddleware(app, **{**cors, "allow_origins": view_as_origins})
+        self.console = CORSMiddleware(app, **{**cors, "allow_origins": console_origins})
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http":
@@ -837,6 +850,9 @@ class RealmCorsMiddleware(CORSMiddleware):
             if path.startswith(self.admin_path_prefixes):
                 await self.admin(scope, receive, send)
                 return
+            if not path.startswith(self.apex_path_prefixes):
+                await self.console(scope, receive, send)
+                return
         await super().__call__(scope, receive, send)
 
 
@@ -846,6 +862,7 @@ def install_middleware(
     cors_origins: list[str],
     admin_cors_origins: list[str],
     view_as_cors_origins: list[str] | None = None,
+    console_cors_origins: list[str] | None = None,
 ) -> None:
     """Added innermost-first; Starlette makes the last one outermost.
 
@@ -854,7 +871,13 @@ def install_middleware(
     `cors_origins` what every other path accepts; see `RealmCorsMiddleware`.
     """
     view_as_origins = admin_cors_origins if view_as_cors_origins is None else view_as_cors_origins
-    if "*" in cors_origins or "*" in admin_cors_origins or "*" in view_as_origins:
+    console_origins = cors_origins if console_cors_origins is None else console_cors_origins
+    if (
+        "*" in cors_origins
+        or "*" in admin_cors_origins
+        or "*" in view_as_origins
+        or "*" in console_origins
+    ):
         # REFUSED AT BOOT, because the failure it prevents is silent. Starlette does not
         # reject `allow_origins=["*"]` alongside `allow_credentials=True`: it echoes the
         # request's own `Origin` back with `Access-Control-Allow-Credentials: true`
@@ -892,6 +915,8 @@ def install_middleware(
         admin_path_prefixes=ADMIN_ORIGIN_PREFIXES,
         view_as_origins=view_as_origins,
         view_as_paths=VIEW_AS_HANDOFF_PATHS,
+        console_origins=console_origins,
+        apex_path_prefixes=APEX_CREDENTIALED_PREFIXES,
         allow_credentials=True,
         # PUT WAS MISSING AND FIVE ROUTES WERE UNREACHABLE FROM A BROWSER: `PUT
         # /v1/billing/caps` (a client's own spend cap), `PUT …/feature-flags/{flag}`,

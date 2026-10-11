@@ -42,7 +42,7 @@
 import { useSyncExternalStore } from "react";
 
 import { onlineManager } from "@tanstack/react-query";
-import { CloudOff } from "lucide-react";
+import { NOTICE_DOT, SITE_STRIP } from "@/components/ui";
 
 /** Whether this browser can currently reach the network, as query-core believes it. */
 export function useOnline(): boolean {
@@ -59,7 +59,7 @@ export function useOnline(): boolean {
  *
  * `role="status"` (polite), not `role="alert"`: losing a connection is not an interruption
  * that should cut across whatever a screen reader is currently saying, and it is announced
- * the moment the element appears. Amber rather than rose, on the same reasoning
+ * the moment the element appears. A warn dot rather than a danger one, on the same reasoning
  * `RestrictionNote` is slate: being offline is a state of the world, not a fault of the
  * product, and the product is not broken when it comes back.
  */
@@ -69,12 +69,12 @@ export function OfflineBanner() {
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-b border-warn-line bg-warn-soft px-4 py-1.5 text-center text-xs font-semibold text-warn"
+      className={SITE_STRIP}
     >
-      <CloudOff aria-hidden className="h-3.5 w-3.5 shrink-0" />
+      <span aria-hidden className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${NOTICE_DOT.warn}`} />
       <span>
-        You are offline. Nothing on this screen is up to date, and anything you save will
-        wait until the connection is back.
+        <span className="font-medium">You are offline.</span> This screen may be out of date.
+        Anything you save waits until you reconnect.
       </span>
     </div>
   );

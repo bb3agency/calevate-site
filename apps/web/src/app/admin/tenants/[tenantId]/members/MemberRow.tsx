@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2, UserMinus } from "lucide-react";
+import { UserMinus } from "lucide-react";
 
 import { ActionButton } from "@/components/actionButton";
 import { Drawer } from "@/components/console/drawer";
@@ -149,21 +149,21 @@ export function MemberRow({
       >
         <div className="space-y-4">
           {lastOwner ? (
-            <NoticeBox tone="stop" icon={<AlertTriangle className="h-5 w-5" />}>
+            <NoticeBox tone="stop">
               <p>
-                This is the only owner on the account, so their access cannot be removed —
-                an account with no owner can never invite anybody, change a role or manage
+                This is the only owner on the account, so their access cannot be removed.
+                An account with no owner can never invite anybody, change a role or manage
                 its own settings again. Make somebody else an owner first, or invite a new
                 one and remove this person once they have signed in.
               </p>
             </NoticeBox>
           ) : remove.data != null ? (
-            <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
+            <NoticeBox tone="ok">
               <p>
                 Their access to this account is gone.{" "}
                 {remove.data.leads_still_assigned === 0
                   ? "They were carrying no leads."
-                  : `${remove.data.leads_still_assigned} lead${remove.data.leads_still_assigned === 1 ? " is" : "s are"} still assigned to them and will show as owned by somebody no longer on the account — reassign from the client's own leads screen.`}
+                  : `${remove.data.leads_still_assigned} lead${remove.data.leads_still_assigned === 1 ? " is" : "s are"} still assigned to them and will show as owned by somebody no longer on the account. Reassign from the client's own leads screen.`}
               </p>
             </NoticeBox>
           ) : (

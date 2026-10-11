@@ -98,6 +98,7 @@ function caps(over: Partial<Caps> = {}): Caps {
     minutes_used: "812.00",
     spend_used_inr: "5002.40",
     capped: true,
+    trial_active: false,
     ...over,
   };
 }
@@ -117,6 +118,13 @@ const SPEND: TenantSpend = {
   margin_pct: null,
   cost_currency: "INR",
   cost_currency_stated: true,
+  trial_cost_inr: "0.00",
+  trial_in_month: false,
+  paid_cost_inr: "0.00",
+  paid_margin_inr: "0.00",
+  paid_margin_pct: null,
+  trial_calls: 0,
+  trial_minutes: "0.00",
   period_charge_inr: "0.00",
   itemised_charge_inr: "0.00",
   itemisation_residual_inr: "0.00",
@@ -316,7 +324,7 @@ describe("the spend-cap recompute", () => {
 
     fireEvent.click(await arm());
 
-    await screen.findByText("Recomputed — this client is still capped");
+    await screen.findByText("Recomputed. This client is still capped");
     expect(screen.queryByText(/the cap is released/)).toBeNull();
     // Money formatted from the STRING the server sent, never parsed.
     expect(container.textContent).toContain("₹5,002.40");
@@ -329,7 +337,7 @@ describe("the spend-cap recompute", () => {
     });
 
     fireEvent.click(await arm());
-    await screen.findByText("Recomputed — the cap is released");
+    await screen.findByText("Recomputed. The cap is released");
   });
 
   it("does not report a release when the recompute FAILED", async () => {
@@ -366,7 +374,7 @@ describe("which flag the panel believes", () => {
     });
 
     await screen.findByText(
-      "Not capped — the spend cap is not stopping this client",
+      "Not capped. The spend cap is not stopping this client",
     );
     expect(container.textContent).toContain(
       "The client directory shows this account as capped",

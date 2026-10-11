@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, ShieldAlert } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 import {
   NoticeBox,
@@ -287,7 +287,6 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
           // having none.
           <NoticeBox
             tone="neutral"
-            icon={<ShieldAlert className="h-5 w-5" />}
             title="Nothing to show"
           >
             We could not read this lead. Reload the page, or go back to the leads table.

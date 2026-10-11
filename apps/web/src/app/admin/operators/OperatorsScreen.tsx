@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CircleHelp, MailCheck, UserPlus } from "lucide-react";
+import { UserPlus } from "lucide-react";
 
 import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withheld";
 import { EmptyState } from "@/components/console/emptyState";
@@ -127,32 +127,22 @@ export function OperatorsScreen({
       {restriction && (
         <NoticeBox
           tone="warn"
-          icon={<CircleHelp aria-hidden className="h-5 w-5" />}
           title="We could not check what you may do here"
         >
           <p className="mt-1">{restriction}</p>
-          <p className="mt-2">
-            The controls below stay closed until we know. These actions are only ever allowed
-            for a super admin, whatever this screen shows, so nothing is being withheld that you
-            could otherwise have done.
-          </p>
+          <p>The controls below stay closed until we know. Only a super admin may use them anyway.</p>
         </NoticeBox>
       )}
 
       {added && (
         <NoticeBox
           tone="ok"
-          icon={<MailCheck aria-hidden className="h-5 w-5" />}
           title={`Setup link sent to ${added.email ?? operatorLabel(added)}`}
         >
-          <p className="mt-1">
-            The account exists and cannot sign in until they follow that link and choose their
-            own password. It works once and expires within the hour.
-          </p>
-          <p className="mt-2 text-meta">
-            We cannot show or forward the link — it is stored only as a fingerprint. If it does
-            not arrive, use <span className="font-semibold">Resend setup link</span> on their
-            row below, which invalidates the previous one.
+          <p>They sign in after following it and choosing a password. It works once, for an hour.</p>
+          <p className="text-meta">
+            Not arrived? Use <span className="font-semibold">Resend setup link</span> on their row
+            below. We cannot show or forward the link: only its fingerprint is stored.
           </p>
         </NoticeBox>
       )}

@@ -611,6 +611,15 @@ async def retire_moved_engine_agent(ctx: dict[str, Any], payload: dict[str, Any]
     except Retry:
         raise
     except Exception as exc:
+        # A call that connected after the check above: ThinnestAI refuses the delete with
+        # `409 agent_on_live_call` (docs.thinnest.ai api-reference/errors, read 11 Oct
+        # 2026), so it is waited out like the connected call it is.
+        if (
+            isinstance(exc, EngineRejectedError)
+            and exc.vendor_code == "agent_on_live_call"
+            and attempt < WORKER_MAX_TRIES
+        ):
+            raise Retry(defer=_LIVE_CALL_RETRY_S) from exc
         _retry_or_give_up(exc, attempt)
         alert(
             "WORKER_TERMINAL",

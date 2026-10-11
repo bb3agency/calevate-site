@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
 
 import {
   FIELD,
@@ -97,7 +96,6 @@ export function ScrubScreen({ tenantId }: { tenantId: string }) {
            operator who reads it over a failed read believes there is nothing to unblock. */
         <NoticeBox
           tone="warn"
-          icon={<AlertTriangle className="h-5 w-5" />}
           title="Cannot list this client's campaigns"
         >
           <p className="mt-1 text-meta opacity-90">
@@ -177,23 +175,20 @@ function ScrubForCampaign({
       ) : !check.data ? (
         <NoticeBox
           tone="warn"
-          icon={<AlertTriangle className="h-5 w-5" />}
           title="Cannot read this campaign's launch gate"
         >
-          <p className="mt-1 text-meta opacity-90">
-            Recording a scrub still works, and is still the right thing to do if you are
-            holding a provider&apos;s report — this panel simply cannot tell you whether the
-            gate is currently open. Retry the read above.
+          <p className="text-meta">
+            Whether the gate is open is unknown. Recording a scrub still works. Retry the read
+            above.
           </p>
         </NoticeBox>
       ) : blocker ? (
         <NoticeBox
           tone="stop"
-          icon={<ShieldAlert className="h-5 w-5" />}
           title={
             blocker.rule === "national_dnd_scrub_expired"
-              ? "The scrub on file has expired — this campaign is held"
-              : "No scrub on file — this campaign is held"
+              ? "The scrub on file has expired. This campaign is held"
+              : "No scrub on file. This campaign is held"
           }
         >
           {/* The SERVER's sentence, which names the remedy: the launch preview, the
@@ -203,12 +198,10 @@ function ScrubForCampaign({
       ) : (
         <NoticeBox
           tone="ok"
-          icon={<CheckCircle2 className="h-5 w-5" />}
           title="The preference-register gate is open for this campaign"
         >
-          <p className="mt-1 text-meta opacity-90">
-            A current scrub is on file. It stops being current at midnight IST, and the
-            campaign keeps dialling past midnight — so a run recorded today does not cover
+          <p className="text-meta">
+            It stops being current at midnight IST, so a run recorded today does not cover
             tomorrow&apos;s dialling.{" "}
             {check.data.ready
               ? "Nothing else is holding this campaign either."

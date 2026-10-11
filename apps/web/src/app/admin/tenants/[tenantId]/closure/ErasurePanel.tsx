@@ -2,7 +2,6 @@
 
 import { Section } from "@/components/console/section";
 import { useState } from "react";
-import { AlertTriangle } from "lucide-react";
 
 import {
   DANGER_BUTTON,
@@ -125,11 +124,11 @@ export function ErasurePanel({
         }}
       >
         <RestrictionNote reason={access.reason} />
-        <NoticeBox tone="stop" icon={<AlertTriangle className="h-5 w-5" />}>
+        <NoticeBox tone="stop">
           <p>
-            This destroys every caller record {tenantName} holds — call numbers, summaries,
+            This destroys every caller record {tenantName} holds (call numbers, summaries,
             transcripts, extracted fields, CRM leads, the records we sent to their CRM and
-            the audio past its 90-day legal retention floor — and marks the client deleted.
+            the audio past its 90-day legal retention floor) and marks the client deleted.
             It cannot be undone. Export their data first: nothing here produces the bundle.
             Billing ledgers, consent records, do-not-call entries and the knowledge base are
             kept, and the certificate says so.

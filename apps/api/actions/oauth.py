@@ -56,6 +56,7 @@ from uuid import UUID
 import jwt
 
 from apps.api.actions.schema import PreparedRequest
+from apps.api.core.console_links import client_console_redirect
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings, resolve_hmac_key
@@ -155,10 +156,25 @@ _PROVIDERS: Final[dict[OAuthKind, _Provider]] = {
 def _client(kind: OAuthKind) -> tuple[str | None, str | None, str | None]:
     s = get_settings()
     if kind in GOOGLE_KINDS:
-        return s.google_oauth_client_id, s.google_oauth_client_secret, s.google_oauth_redirect_uri
-    if kind == "zoho_crm":
-        return s.zoho_oauth_client_id, s.zoho_oauth_client_secret, s.zoho_oauth_redirect_uri
-    return s.hubspot_oauth_client_id, s.hubspot_oauth_client_secret, s.hubspot_oauth_redirect_uri
+        client_id, secret, redirect = (
+            s.google_oauth_client_id,
+            s.google_oauth_client_secret,
+            s.google_oauth_redirect_uri,
+        )
+    elif kind == "zoho_crm":
+        client_id, secret, redirect = (
+            s.zoho_oauth_client_id,
+            s.zoho_oauth_client_secret,
+            s.zoho_oauth_redirect_uri,
+        )
+    else:
+        client_id, secret, redirect = (
+            s.hubspot_oauth_client_id,
+            s.hubspot_oauth_client_secret,
+            s.hubspot_oauth_redirect_uri,
+        )
+    # The callback page is served on the client console only (D-732).
+    return client_id, secret, client_console_redirect(redirect)
 
 
 def configured(kind: OAuthKind) -> bool:

@@ -24,7 +24,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +49,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
+from apps.api.core.stepup import ClientActionCode, client_confirmation
 from apps.api.db.base import uuid7
 from apps.api.integrations.egress_guard import egress_client
 from apps.api.reliability.engine_actions import sync_client_actions_now
@@ -57,6 +58,11 @@ log = get_logger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["actions"])
 Session = Annotated[AsyncSession, Depends(db)]
+#: Storing, replacing or removing a credential is the client's own act, so it is declared on
+#: the CLIENT realm and a view-as session meets `impersonation_not_available_here` before
+#: anything is read (D-730), as a top-up does.
+CredentialOwner = Annotated[Principal, Depends(requires("org:manage", realm="client"))]
+ConfirmAction = Annotated[str | None, Header(alias="X-Confirm-Action")]
 
 #: How many runs the per-action call log shows.
 INVOCATION_LOG_LIMIT = 50
@@ -158,8 +164,13 @@ async def create_credential(
     payload: CreateCredentialIn,
     session: Session,
     request: Request,
-    principal: Principal = Depends(requires("org:manage")),
+    principal: CredentialOwner,
+    code: ClientActionCode,
+    x_confirm_action: ConfirmAction = None,
 ) -> CredentialOut:
+    # A code typed for this act (D-730): a stored key lets the agent act in the business's
+    # own systems, so a session left open must not be enough to plant one.
+    await code.require(x_confirm_action, client_confirmation(request, "create_credential"))
     tenant_id = _owner_only(principal)
     record = await creds.create_credential(
         session,
@@ -193,8 +204,11 @@ async def rotate_credential(
     payload: RotateCredentialIn,
     session: Session,
     request: Request,
-    principal: Principal = Depends(requires("org:manage")),
+    principal: CredentialOwner,
+    code: ClientActionCode,
+    x_confirm_action: ConfirmAction = None,
 ) -> CredentialOut:
+    await code.require(x_confirm_action, f"rotate_credential:{credential_id}")
     tenant_id = _owner_only(principal)
     record = await creds.rotate_credential(
         session,
@@ -251,7 +265,7 @@ async def delete_credential(
     credential_id: UUID,
     session: Session,
     request: Request,
-    principal: Principal = Depends(requires("org:manage")),
+    principal: CredentialOwner,
 ) -> None:
     tenant_id = _owner_only(principal)
     agents = await service.agents_using_credential(session, credential_id=credential_id)

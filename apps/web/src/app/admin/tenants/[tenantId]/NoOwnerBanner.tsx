@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { UserPlus } from "lucide-react";
 
 import { NoticeBox } from "@/components/ui";
 import { useOwnerStatus } from "@/lib/api/onboarding";
@@ -44,7 +43,6 @@ export function NoOwnerBanner({ tenantId, slug }: { tenantId: string; slug: stri
     <div className="space-y-3">
       <NoticeBox
         tone="warn"
-        icon={<UserPlus aria-hidden className="h-5 w-5" />}
         title="No owner invited yet"
       >
         <p className="mt-1">

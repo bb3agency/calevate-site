@@ -159,10 +159,14 @@ async def test_a_replay_with_no_override_is_answered_without_reading_the_lot() -
     body = {"amount_inr": "2500.00", "payment_ref": "UTR-REPLAY-PLAIN"}
     async with _client() as http:
         first = await http.post(
-            f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(token), json=body
+            f"/v1/admin/tenants/{tenant_id}/credits",
+            headers=_headers(token, f"record_payment:{tenant_id}"),
+            json=body,
         )
         second = await http.post(
-            f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(token), json=body
+            f"/v1/admin/tenants/{tenant_id}/credits",
+            headers=_headers(token, f"record_payment:{tenant_id}"),
+            json=body,
         )
 
     assert first.status_code == 200, first.text
@@ -433,7 +437,7 @@ async def test_a_part_payment_against_arrears_is_recorded_rather_than_refused() 
         response = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
             json={"amount_inr": "100.00", "payment_ref": "neft-part-1"},
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
         )
 
     assert response.status_code == 200, response.text

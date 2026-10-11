@@ -1,50 +1,55 @@
 "use client";
 
-import Link from "next/link";
-import { AlertTriangle } from "lucide-react";
-
-import { NoticeBox } from "@/components/ui";
+import { ChecklistRows, type ChecklistRow } from "@/components/console/checklist";
 import { holdRule } from "@/lib/api/holds";
 
 /**
- * What is holding this account, at the top of its own page.
+ * What is holding this account, at the top of its own page: one row per hold, with its
+ * state and the screen that clears it. What each hold blocks sits behind the row's ⓘ.
  *
- * `TenantSummary.holds` is `read_tenant_holds` — the blockers themselves — so this says
- * the same thing as the work list and as the client's refusal, in the same vocabulary. It
- * is here because the panels below (numbers, templates, registrations) all read as "this
- * client is nearly ready", and an account whose dialling is refused outright should not
- * have to be inferred from a screen full of green.
+ * `TenantSummary.holds` is `read_tenant_holds`, the blockers themselves, so this says the
+ * same thing as the work list and as the client's refusal. It is here because the panels
+ * below all read as "nearly ready", and a refused account should not have to be inferred
+ * from a screen full of green.
  *
- * Renders nothing when nothing holds them: an operator opening a healthy account should
- * not be shown a box saying so.
+ * Renders nothing when nothing holds them. A rule this build cannot name is still shown,
+ * as itself, routed to the account: an unrecognised hold is still a hold.
  */
 export function HoldsBanner({ tenantId, holds }: { tenantId: string; holds: string[] }) {
   if (holds.length === 0) return null;
+  const rows: ChecklistRow[] = holds.map((rule) => {
+    const copy = holdRule(rule);
+    if (!copy) {
+      return {
+        id: rule,
+        label: rule,
+        status: "blocked",
+        statusText: "Held",
+        info: "No description for this hold in this build. The check that set it has one.",
+      };
+    }
+    return {
+      id: rule,
+      label: copy.item,
+      status: copy.rowStatus,
+      statusText: copy.status,
+      info: (
+        <>
+          <p>{copy.label}.</p>
+          <p>Blocks: {copy.blocks}</p>
+          <p>{copy.remedy}</p>
+        </>
+      ),
+      link: { href: copy.screen(tenantId), label: copy.action },
+    };
+  });
   return (
-    <NoticeBox
+    <ChecklistRows
+      heading={holds.length === 1 ? "Waiting on us" : `Waiting on us: ${holds.length} holds`}
+      headingLevel={2}
       tone="warn"
-      icon={<AlertTriangle className="h-5 w-5" />}
-      title="This account is waiting on us."
-    >
-      <ul className="mt-2 space-y-1.5">
-        {holds.map((rule) => {
-          const copy = holdRule(rule);
-          return (
-            <li key={rule} className="flex flex-wrap items-baseline gap-2">
-              <span className="font-medium">{copy?.label ?? rule}</span>
-              <span>
-                {copy?.blocks ??
-                  "We do not have a plain description for this hold, but the check that set it does."}
-              </span>
-              {copy && (
-                <Link href={copy.screen(tenantId)} className="rounded-sm font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
-                  {copy.cta}
-                </Link>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </NoticeBox>
+      summary="Inbound answering is unaffected."
+      rows={rows}
+    />
   );
 }

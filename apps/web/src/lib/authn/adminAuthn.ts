@@ -86,11 +86,13 @@ export async function requestAdminStepUp(): Promise<void> {
  * route rotates, so no cached rotation result may answer for the session it replaced, and
  * no restore already in flight may resolve into it.
  */
-export async function confirmAdminStepUp(code: string): Promise<AuthnSession> {
+export async function confirmAdminStepUp(code: string, action?: string): Promise<AuthnSession> {
   adminAuthn.reset();
+  // `action` names the one request this code is for (D-730): the API records a single-use
+  // proof for it, which the routes that demand a code typed for them spend.
   return await adminAuthn.rotatingRequest<AuthnSession>("/step-up/verify", {
     method: "POST",
-    body: { code },
+    body: action === undefined ? { code } : { code, action },
   });
 }
 

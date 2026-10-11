@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { RowMenu } from "@/components/console/rowMenu";
 import { CopyButton } from "@/components/interior/copy-button";
 import { NoticeDocument, printableClone } from "@/components/noticeDocument";
-import { PRIMARY_BUTTON, ProblemNotice, Skeleton } from "@/components/ui";
+import { PRIMARY_BUTTON, ProblemNotice, Skeleton, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
 import { useCallerNotice, type CallerNotice } from "@/lib/api/callerNotice";
 import { useMe } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
@@ -129,7 +129,7 @@ function Draft({ notice }: { notice: CallerNotice }) {
       />
 
       {/* The server's own sentence, word for word, before the document it qualifies. */}
-      <p role="note" className="rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-meta leading-snug text-warn">
+      <p role="note" className={`${NOTICE_BASE} ${NOTICE_BAR.warn} text-meta leading-snug`}>
         {notice.disclaimer}
       </p>
 

@@ -66,25 +66,63 @@ ADMIN_AUTH_PREFIX = "/v1/auth/admin/"
 #: accepting the client console's origin.
 ADMIN_ORIGIN_PREFIXES: tuple[str, ...] = (*ADMIN_REALM_PREFIXES, ADMIN_AUTH_PREFIX)
 
+#: The only paths the marketing origin may send a credentialed request to (D-732).
+#:
+#: The apex serves the marketing site and the client sign-in screens, so it needs
+#: `/v1/auth/` (sign-in, session, reset) and `/v1/public/` (the rate card). It used to be
+#: credentialed for EVERY client path, which made a script injected anywhere on the
+#: marketing site — a page with far more third-party content and far less review than the
+#: consoles — able to drive a signed-in client's whole account. Signup, invitation
+#: acceptance and the OAuth callbacks now live on `app.` only; nginx sends the apex paths
+#: there. Every other client path accepts the two consoles alone.
+APEX_CREDENTIALED_PREFIXES: tuple[str, ...] = ("/v1/auth/", "/v1/public/")
+
 #: The admin-realm paths the CLIENT console must also reach, matched exactly.
 #:
 #: "View as client" (D-22) runs on the client console's hostname — the admin hostname
 #: refuses `/c/` by design — under the operator's ADMIN session, so that document has to
-#: restore the admin session, mint the impersonation grant and answer the step-up the
-#: mint demands (D-210), all from `CONSOLE_BASE`. Binding these to the admin origin alone
-#: made the restore's `fetch` fail CORS, which the console can only read as "Calevate did
-#: not answer", and view-as stopped opening for everyone. Exact paths rather than a
-#: prefix, so `/session/refresh`, `/logout` and every other operator surface stay bound to
-#: the admin origin. `apps/web/src/lib/authn/adminAuthn.ts` and `lib/api/admin.ts` are
-#: the callers; `tests/realm_origin_binding_test.py` pins this set against them.
+#: restore the admin session and keep its grant alive from `CONSOLE_BASE`. Exact paths
+#: rather than a prefix, so `/session/refresh`, `/logout` and every other operator surface
+#: stay bound to the admin origin.
+#:
+#: STARTING a view-as session is deliberately NOT here (D-730). The mint, and the step-up
+#: code it demands, are accepted from the operator console alone: an injected script on
+#: the client console could otherwise use the operator's cookie to mint a grant for any
+#: tenant. The operator console mints and hands the grant over in the URL fragment
+#: (`apps/web/src/app/admin/view-as`); the client console may only RENEW what it was
+#: handed. `tests/realm_origin_binding_test.py` pins this set against the web callers.
 VIEW_AS_HANDOFF_PATHS: frozenset[str] = frozenset(
     {
         f"{ADMIN_AUTH_PREFIX}session",
-        f"{ADMIN_AUTH_PREFIX}step-up",
-        f"{ADMIN_AUTH_PREFIX}step-up/verify",
-        "/v1/admin/impersonation-grants",
+        "/v1/admin/impersonation-grants/renew",
     }
 )
+
+
+def client_console_redirect(configured: str | None) -> str | None:
+    """An OAuth redirect URI, moved onto the client console's origin if it names another.
+
+    The callback pages (`/auth/google/callback`, `/oauth/callback/<provider>`) are served
+    from `CONSOLE_BASE` only (D-732); the apex redirects there. A redirect URI configured
+    on the apex would still arrive through that redirect, but the browser would then hold
+    an apex page in its history for a code-bearing URL and the apex would stay a place a
+    callback can land. So the URI we send the provider is always on the client console,
+    keeping the configured path. The provider must have that exact URI registered.
+    A local deployment keeps its configured value: its console is the dev server.
+    """
+    if not configured:
+        return configured
+    from urllib.parse import urlsplit, urlunsplit
+
+    from apps.api.core.settings import get_settings
+
+    target = urlsplit(CONSOLE_BASE)
+    given = urlsplit(configured)
+    if (given.scheme, given.netloc) == (target.scheme, target.netloc):
+        return configured
+    if get_settings().app_env == "local":
+        return configured
+    return urlunsplit((target.scheme, target.netloc, given.path, given.query, ""))
 
 
 def console_base(realm: str) -> str:
@@ -128,6 +166,7 @@ __all__ = [
     "ADMIN_ORIGIN_PREFIXES",
     "ADMIN_REALM_PREFIXES",
     "ADMIN_RESET_PASSWORD_PATH",
+    "APEX_CREDENTIALED_PREFIXES",
     "CLIENT_ACCEPT_INVITE_PATH",
     "CLIENT_RESET_PASSWORD_PATH",
     "CONSOLE_BASE",
@@ -135,6 +174,7 @@ __all__ = [
     "VIEW_AS_HANDOFF_PATHS",
     "accept_invitation_link",
     "admin_bootstrap_link",
+    "client_console_redirect",
     "console_base",
     "password_reset_link",
 ]

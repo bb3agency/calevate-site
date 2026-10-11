@@ -80,6 +80,16 @@ class BoundedByConstruction:
 
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    # --- forwarded lines (D-746) ------------------------------------------------------------
+    "GET /v1/forwarding": BoundedByConstruction(
+        by=(
+            "lines capped at `forwarding.models.MAX_LINES` per client, refused at create; "
+            "Calevate numbers by `forwarding.service.MAX_CALEVATE_NUMBERS` in the LIMIT."
+        )
+    ),
+    "GET /v1/forwarding/codes": BoundedByConstruction(
+        by="the carrier catalogue declared in code, `forwarding.codes.GUIDES`, five carriers."
+    ),
     # --- the teach box and the improvement loop (founder decisions 9 and 11) ---------------
     "GET /v1/kb/knows": BoundedByConstruction(
         by=(
@@ -275,6 +285,27 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/admin/tenants/{tenant_id}/kyc/digilocker-requirement": BoundedByConstruction(
         by="the same two-slot `documents` list as `GET /v1/compliance/kyc`."
     ),
+    "GET /v1/ops/spoken-style": BoundedByConstruction(
+        by=(
+            "one row per language row in `calevate_shared/spoken_style.json` "
+            "(`spoken_style.languages()`), a file shipped with the code."
+        )
+    ),
+    **{
+        route: BoundedByConstruction(
+            by=(
+                "`entries` is the language's rows in `spoken_style.json` plus at most "
+                "`spoken_style_routes.MAX_ADDED_ENTRIES` added on the review screen (refused "
+                "beyond it); `history` is `spoken_style_store.HISTORY_LIMIT` (10) passed as "
+                "the SQL LIMIT; an example's `turns` is `spoken_style.MAX_TURNS`."
+            )
+        )
+        for route in (
+            "GET /v1/ops/spoken-style/{language}",
+            "POST /v1/ops/spoken-style/{language}/entries",
+            "POST /v1/ops/spoken-style/{language}/publish",
+        )
+    },
     "GET /v1/ops/engine-minute-prices": BoundedByConstruction(
         by=(
             "one row per engine in `billing/engine_minutes.ATTESTED_MINUTE_ENGINES` times "
@@ -706,6 +737,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         "product list whose size is a product decision."
     ),
     "POST /v1/admin/tenants/{tenant_id}/business-type/confirm": BoundedByConstruction(
+        by="`choices` is one row per `scripts/seed.BUSINESS_TYPE_LABELS` entry, a fixed "
+        "product list whose size is a product decision."
+    ),
+    "POST /v1/admin/tenants/{tenant_id}/business-type/suggest": BoundedByConstruction(
         by="`choices` is one row per `scripts/seed.BUSINESS_TYPE_LABELS` entry, a fixed "
         "product list whose size is a product decision."
     ),

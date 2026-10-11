@@ -14,6 +14,7 @@ import {
   stillLoading,
 } from "./harness";
 import { businessProfileFixture } from "./businessProfileFixture";
+import { NO_FORWARDING_ROUTES } from "./fixtures/forwarding";
 
 /**
  * The dashboard — the screen a client looks at to decide whether the product is
@@ -231,6 +232,7 @@ const page = <DashboardPage params={Promise.resolve({ slug: "acme" })} />;
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": ME,
+    ...NO_FORWARDING_ROUTES,
     "/v1/dashboard": EMPTY_DASHBOARD,
     "/v1/usage": USAGE,
     "/v1/billing/wallet": wallet(),

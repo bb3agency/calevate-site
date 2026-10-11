@@ -51,6 +51,8 @@ function detail(over: Record<string, unknown> = {}) {
     has_recording: false,
     disclosure_played: null,
     moments: [],
+    quality: null,
+    signals: [],
     transcript: [],
     ...over,
   };

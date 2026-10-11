@@ -49,6 +49,10 @@ class TranscriptTurnOut(Strict):
     #: `start_ms` is the voice platform's rough position, not a point in the audio
     #: (ENGINE=thinnest). Shown as "~0:21".
     start_approximate: bool = False
+    #: An agent turn longer to say than the time before the caller's next turn: the caller
+    #: probably spoke over it and may not have heard all of it (`calevate_shared.cut_off`,
+    #: an estimate).
+    likely_cut_off: bool = False
     redacted: bool = True
 
 
@@ -195,7 +199,48 @@ class CapturedFieldsOut(Strict):
     fields: list[CapturedFieldOut]
 
 
+class CallQualityOut(Strict):
+    """How the call went, as the voice platform measured it once it ended. Any figure is
+    null when it could not be measured on that call."""
+
+    turns: int | None = None
+    reply_ms_median: int | None = None
+    reply_ms_p90: int | None = None
+    reply_ms_max: int | None = None
+    first_token_ms_median: int | None = None
+    first_token_ms_p90: int | None = None
+    first_token_ms_max: int | None = None
+    long_silences: int | None = None
+    longest_silence_s: float | None = None
+    interruptions: int | None = None
+    model_errors: int | None = None
+    backup_answers: int | None = None
+
+
+CallSignalKind = Literal[
+    "conversation_escalated",
+    "lead_captured",
+    "no_answer_from_model",
+    "own_key_failed",
+    "slow_reply",
+    "voice_failed",
+]
+
+
+class CallSignalOut(Strict):
+    """One thing the voice platform reported about the call: a problem while it was live, or
+    a lead taken or a hand-over to a person by its agent."""
+
+    kind: CallSignalKind
+    occurred_at: datetime | None
+
+
 class CallDetailOut(CallSummaryOut):
+    #: A forwarded call that showed the business's own number instead of the caller's
+    #: (D-746): the caller was asked for a call-back number, and the lead carries that one.
+    caller_id_hidden: bool
+    #: Our forwarding test arriving on this number (D-746): no caller, and not charged.
+    forwarding_test: bool
     transcript: list[TranscriptTurnOut] = Field(default_factory=list)
     #: REQUIRED, with no default, and that is deliberate rather than an oversight.
     #:
@@ -244,6 +289,12 @@ class CallDetailOut(CallSummaryOut):
     #: Which runner produced the extraction (`call_extractions.model`): the Sarvam model id
     #: or `offline-heuristic`. NULL for calls extracted before it was recorded.
     extraction_model: str | None = None
+    #: How the call went, from the voice platform (null on an engine that reports none, or
+    #: before the call's figures arrive). Required for `moments`' reason.
+    quality: CallQualityOut | None
+    #: What the voice platform reported about the call, oldest first. Required for
+    #: `moments`' reason.
+    signals: list[CallSignalOut]
 
 
 class CallTranslationOut(Strict):
@@ -1058,6 +1109,7 @@ AttentionKind = Literal[
     "lead_hot",
     "call_failed",
     "credit_low",
+    "forwarded_line_quiet",
 ]
 
 

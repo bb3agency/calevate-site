@@ -1,9 +1,8 @@
 "use client";
 
+import { RowLink } from "@/components/console/checklist";
 import { Section } from "@/components/console/section";
 import { useState } from "react";
-import Link from "next/link";
-import { CircleAlert, PowerOff } from "lucide-react";
 
 import { useAdminAccess } from "@/app/admin/access";
 import { ConfirmDialog } from "@/components/confirmDialog";
@@ -94,24 +93,17 @@ function Overview({ data }: { data: HealerOverview }) {
       {!data.enabled && (
         <NoticeBox
           tone="stop"
-          icon={<PowerOff aria-hidden className="h-5 w-5" />}
           title="The auto-healer is switched off"
+          action={<RowLink href="/admin/ops/config">Turn on in configuration</RowLink>}
+          info="Only the agent settings check runs, because it also enforces the AI disclosure. Detection and notices carry on."
+          infoLabel="a switched-off healer"
         >
-          <p className="mt-1">
-            No repair, line hold or scheduled sweep runs on its own, except the agent
-            settings check that also enforces the AI disclosure. Detection and notices carry
-            on. Turn it back on in{" "}
-            <Link href="/admin/ops/config" className="underline underline-offset-2">
-              configuration
-            </Link>
-            .
-          </p>
+          No repair, line hold or scheduled sweep runs on its own.
         </NoticeBox>
       )}
       {!whatsappReady && (
         <NoticeBox
           tone="warn"
-          icon={<CircleAlert aria-hidden className="h-5 w-5" />}
           title="Pages go by email only"
         >
           <p className="mt-1">

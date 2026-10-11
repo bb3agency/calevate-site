@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useState } from "react";
-import { CheckCircle2, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 
 import { PageHeader } from "@/components/console/pageHeader";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
@@ -342,11 +342,10 @@ function EditForm({
       {edit.data != null && (
         <NoticeBox
           tone={edit.data.changed.length > 0 ? "ok" : "neutral"}
-          icon={<CheckCircle2 className="h-5 w-5" />}
         >
           <p>
             {edit.data.changed.length === 0
-              ? "Nothing moved — the values sent were the ones already on file, so no audit row was written."
+              ? "Nothing moved. The values sent were the ones already on file, so no audit row was written."
               : `Saved: ${edit.data.changed
                   .map((field) => EDIT_FIELD_COPY[field as keyof EditTenantIn]?.label ?? field)
                   .join(", ")}. Each change is audited on its own, naming the value it replaced.`}

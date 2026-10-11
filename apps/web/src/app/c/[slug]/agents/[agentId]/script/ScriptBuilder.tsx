@@ -425,19 +425,21 @@ function Editor({
 
       <RestrictionNote reason={write.reason} />
       {conflict && (
-        <NoticeBox tone="warn" title="This draft was changed somewhere else">
-          <p className="mt-1 text-meta">
-            Another window or another person saved a newer draft while you were editing. Your
-            edits are still on screen and have not been saved.
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => adopt(incoming)}>
-              Load the newer draft
-            </button>
-            <button type="button" className={SECONDARY_BUTTON_SM} disabled={!write.allowed} onClick={() => store(script, false)}>
-              Keep mine
-            </button>
-          </div>
+        <NoticeBox
+          tone="warn"
+          title="This draft was changed somewhere else"
+          action={
+            <>
+              <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => adopt(incoming)}>
+                Load the newer draft
+              </button>
+              <button type="button" className={SECONDARY_BUTTON_SM} disabled={!write.allowed} onClick={() => store(script, false)}>
+                Keep mine
+              </button>
+            </>
+          }
+        >
+          Your edits are still on screen and not saved.
         </NoticeBox>
       )}
       {saveFailed && (

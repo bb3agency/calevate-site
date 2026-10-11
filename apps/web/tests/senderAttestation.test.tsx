@@ -7,6 +7,7 @@ import type { SenderAttestation } from "@/lib/api/senderAttestation";
 
 import { expectNoA11yViolations } from "./a11y";
 import { readInfoTip } from "./infoTip";
+import { NO_FORWARDING_ROUTES } from "./fixtures/forwarding";
 import { problem, renderClientPage, type Routes } from "./harness";
 import {
   KYC_NOT_STARTED,
@@ -92,6 +93,7 @@ function numbers(series: string): unknown {
 function routes(series: string, attestation: unknown, extra: Routes = {}): Routes {
   return {
     "/v1/me": OWNER,
+    ...NO_FORWARDING_ROUTES,
     "/v1/campaigns/numbers": numbers(series),
     "/v1/numbers/num-1/sender-attestation": attestation,
     // The rest of the phone-number screen, in this deployment's ordinary state: buying a

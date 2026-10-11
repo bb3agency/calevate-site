@@ -219,6 +219,7 @@ from apps.api.engine.vendor_http import (
     EngineRateLimitedError,
     EngineRejectedError,
 )
+from apps.api.forwarding.service import has_forwarded_line
 from apps.api.ingest.lead_policy import machine_detection_on
 from apps.api.legal.service import assert_agreements_accepted
 from apps.api.ops.maintenance import read_open_window
@@ -515,6 +516,8 @@ class AgentRow(TypedDict):
     #: False while the account is a restricted free trial (`compliance/trial_access`).
     callbacks_offered: NotRequired[bool]
     detect_machines: NotRequired[bool]
+    #: The client forwards a published number to its Calevate number (D-746).
+    forwarded_line: NotRequired[bool]
     #: The applied version's authored `CallScript`, or NULL for a freeform one.
     structured_script: NotRequired[dict[str, Any] | None]
 
@@ -650,6 +653,8 @@ async def _load_agent(
         "callbacks_offered": await restricting_trial(session, tenant_id=tenant_id) is None,
         # The client's answering-machine switch (founder decision 14, D-716).
         "detect_machines": await machine_detection_on(session),
+        # The hidden-caller instruction is carried only by a client with a forwarded number.
+        "forwarded_line": await has_forwarded_line(session),
     }
 
 
@@ -1173,6 +1178,7 @@ def _to_config(
         callbacks_offered=bool(agent.get("callbacks_offered", True))
         and not call_backs_withheld(agent.get("prompt")),
         detect_machines=bool(agent.get("detect_machines", False)),
+        forwarded_line=bool(agent.get("forwarded_line", False)),
         # THE NOTICES THE AGENT VOLUNTEERS BEFORE ITS OPENING LINE, composed from this
         # agent's two toggles by the one composer (D-163). The opening line itself (the
         # greeting) stays in the script and is never replaced by these (D-708). Empty is a
@@ -2077,8 +2083,8 @@ HealerHold = Literal["paused", "forwarded", "unsupported", "not_answering", "gon
 
 @runtime_checkable
 class ForwardsLine(Protocol):
-    """An adapter that can hand every caller of an agent to another phone (ThinnestAI's
-    hand-over, `engine/thinnest.ThinnestEngine.forward_line`)."""
+    """An adapter that can hand every caller of an agent to another phone by the agent's own
+    hand-over. ThinnestAI forwards the number instead (`apply_healer_silence`, D-743)."""
 
     async def forward_line(
         self,
@@ -2136,7 +2142,23 @@ async def apply_healer_silence(
         return "held"
     ref, recorded = str(row[1]), engine.capabilities.records_audio
     posture = _posture_of_row(row)
-    if forward_to and isinstance(engine, ForwardsLine):
+    from apps.api.campaigns.engine_numbers import forward_agent_numbers, numbers_can_forward
+
+    if forward_to and numbers_can_forward() and engine.capabilities.has("script_override"):
+        # A number-level forward (D-743): every call to the agent's numbers rings the
+        # client's own phone, whether or not the agent answers (OPERATIONS gate T-26). The
+        # agent is paused first, so a number the platform refuses to forward still answers
+        # with the polite sentence rather than the broken agent.
+        await engine.override_call_script(
+            ref,
+            opening_line=credit_stop_greeting(posture, call_is_recorded=recorded),
+            system_prompt=credit_stop_prompt(call_is_recorded=recorded),
+        )
+        forwarded = await forward_agent_numbers(
+            session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=forward_to
+        )
+        held: HealerHold = "forwarded" if forwarded else "paused"
+    elif forward_to and isinstance(engine, ForwardsLine):
         await engine.forward_line(
             ref,
             phone_e164=forward_to,
@@ -2144,7 +2166,7 @@ async def apply_healer_silence(
             opening_line=healer_forward_greeting(posture, call_is_recorded=recorded),
             system_prompt=healer_forward_prompt(call_is_recorded=recorded),
         )
-        held: HealerHold = "forwarded"
+        held = "forwarded"
     elif engine.capabilities.has("script_override"):
         await engine.override_call_script(
             ref,
@@ -2187,6 +2209,11 @@ async def lift_healer_silence(session: AsyncSession, *, tenant_id: UUID, agent_i
     ).first()
     if moved is None:
         return False
+    from apps.api.campaigns.engine_numbers import clear_agent_forwards, numbers_can_forward
+
+    if numbers_can_forward():
+        # The healer's forward (D-743) goes before the publish switches the agent back on.
+        await clear_agent_forwards(session, tenant_id=tenant_id, agent_id=agent_id)
     await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
     return True
 
@@ -4277,6 +4304,10 @@ async def _hold_trial_line(session: AsyncSession) -> None:
             )
         ).scalar_one()
     )
+    # A forwarding test rings from the same number under the same lock (D-746).
+    from apps.api.forwarding.testing import forwarding_legs_in_use
+
+    in_use += await forwarding_legs_in_use(session)
     if in_use > 0:
         log.info("trial_call_refused_line_busy", extra={"trial_lines_in_use": in_use})
         raise ProblemError.conflict(

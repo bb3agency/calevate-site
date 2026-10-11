@@ -1,7 +1,6 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CircleHelp } from "lucide-react";
 
 import { DashboardDataUsePanel } from "@/app/admin/ops/DashboardDataUsePanel";
 import { EngineMinutePricePanel } from "@/app/admin/ops/EngineMinutePricePanel";
@@ -51,7 +50,6 @@ export function ConfigPanel({ id, access, config }: { id: string; access: Access
   return (
     <NoticeBox
       tone="warn"
-      icon={<CircleHelp aria-hidden className="h-5 w-5" />}
       title="This console cannot show one of this section's panels"
     >
       <p className="mt-1">

@@ -23,6 +23,17 @@ describe("the content-security policy", () => {
     expect(scriptSrc).not.toContain("unsafe-eval");
   });
 
+  it("admits Google's picker by path, never the whole apis.google.com origin (D-734)", () => {
+    const scriptSrc = csp.split(";").find((d) => d.trim().startsWith("script-src")) ?? "";
+    const sources = scriptSrc.trim().split(/\s+/);
+    expect(sources).toContain("https://apis.google.com/js/api.js");
+    expect(sources).toContain("https://apis.google.com/_/scs/");
+    // The bare origin would admit every JSONP and gadget endpoint on the host.
+    expect(sources).not.toContain("https://apis.google.com");
+    expect(sources).not.toContain("https://apis.google.com/");
+    expect(sources).not.toContain("'strict-dynamic'");
+  });
+
   it("locks the vectors a bare default-src leaves open", () => {
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("object-src 'none'");

@@ -29,6 +29,14 @@ from apps.api.main import app
 # no `X-Impersonate-Org` header. Impersonation never touches them, so gating them on a
 # mutating permission costs nobody a view.
 ADMIN_CONSOLE_GETS: dict[str, str] = {
+    "/v1/ops/spoken-style": (
+        "the platform's spoken-style table under the founder's review (D-744): how agents "
+        "speak each language, platform-wide, never a client screen"
+    ),
+    "/v1/ops/spoken-style/{language}": (
+        "one language of the platform's spoken-style review (D-744), entry by entry: an "
+        "operator screen, never a client view"
+    ),
     "/v1/ops/live-apply": (
         "platform-wide passes that put an ops console setting on live agents (D-720): an "
         "operator screen, not a client view"

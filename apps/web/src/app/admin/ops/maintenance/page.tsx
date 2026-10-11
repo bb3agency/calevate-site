@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { ShieldAlert, TriangleAlert } from "lucide-react";
 
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -39,11 +38,10 @@ export default function MaintenancePage() {
         // loading — and that is no more "no window" than a failure is.
         <NoticeBox
           tone="warn"
-          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
           title="The maintenance board could not be read"
         >
           <p className="mt-1">
-            So we cannot say whether a window is open. This is not an empty schedule — do not
+            So we cannot say whether a window is open. This is not an empty schedule. Do not
             book one until this reads.
           </p>
         </NoticeBox>
@@ -57,11 +55,10 @@ export default function MaintenancePage() {
 
       <NoticeBox
         tone="neutral"
-        icon={<ShieldAlert aria-hidden className="h-5 w-5" />}
         title="What a window does not do"
       >
         <p className="mt-1">
-          It never hangs up a live call and never cancels a queued job — the deadline bounds
+          It never hangs up a live call and never cancels a queued job. The deadline bounds
           how long the PLATFORM waits, not how long other people&apos;s work takes. It deletes
           nothing. And it never locks operators out: this console, the health checks and the
           engine&apos;s webhooks are exempt from shedding in every mode.

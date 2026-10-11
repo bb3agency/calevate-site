@@ -192,6 +192,8 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.copilot.routine_routes import router as copilot_routines_router
     from apps.api.crm.routes import router as crm_router
     from apps.api.flags.routes import router as feature_flags_router
+    from apps.api.forwarding.routes import admin_router as admin_forwarding_router
+    from apps.api.forwarding.routes import router as forwarding_router
     from apps.api.healer.routes import ops_router as ops_healer_router
     from apps.api.healer.routes import public_router as public_status_router
     from apps.api.healer.routes import router as healer_router
@@ -221,6 +223,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.routes import router as ops_router
     from apps.api.ops.secret_routes import carrier_router as ops_carrier_router
     from apps.api.ops.secret_routes import router as ops_secrets_router
+    from apps.api.ops.spoken_style_routes import router as ops_spoken_style_router
     from apps.api.ops.trial_number import router as ops_trial_number_router
     from apps.api.ops.voice_curation_routes import router as ops_voice_curation_router
     from apps.api.quality.routes import router as quality_router
@@ -556,6 +559,8 @@ def _mount_routers(application: FastAPI) -> None:
     # The per-minute ENGINE price (D-678): an engine that reports no cost per call is
     # metered only at a rate an operator attested (`billing/engine_minutes.py`).
     application.include_router(ops_engine_minute_prices_router)
+    # Ops > Spoken style: the founder reviews how agents speak each language (D-744).
+    application.include_router(ops_spoken_style_router)
     # The ENCODER price attestation (D-608). Its own router for the voice one's reason and
     # one more of its own: an encoder identifier contains a slash, so its path parameter is
     # a `:path` and cannot share a prefix with `POST /v1/ops/model-prices/{model}`.
@@ -587,6 +592,8 @@ def _mount_routers(application: FastAPI) -> None:
     # operator's playbooks and ledger, and the public status page's one read.
     application.include_router(healer_router)
     application.include_router(ops_healer_router)
+    application.include_router(forwarding_router)
+    application.include_router(admin_forwarding_router)
     application.include_router(public_status_router)
     # The browser-tier CSP violation collector (D-541). Its own literal `/reports/v1`
     # prefix, which collides with nothing above, so mount order is not load-bearing here.

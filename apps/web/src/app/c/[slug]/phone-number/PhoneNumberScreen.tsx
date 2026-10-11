@@ -6,7 +6,11 @@ import { ProblemNotice, Skeleton, formatPhone } from "@/components/ui";
 import { useAgents } from "@/lib/api/agents";
 import { useCampaignNumbers, type CampaignNumber } from "@/lib/api/campaigns";
 import { useOwnNumbersStatus } from "@/lib/api/ownNumbers";
-import { useClientSession } from "@/lib/api/session";
+import Link from "next/link";
+
+import { ExistingNumberPrompt } from "@/components/forwarding/ExistingNumberPrompt";
+import { TEXT_ACTION } from "@/components/console/section";
+import { useClientRealm } from "@/lib/api/session";
 
 import { BuyNumber } from "./BuyNumber";
 import { NumberAssignment } from "./NumberAssignment";
@@ -37,7 +41,7 @@ import { TrialLockNotice } from "../TrialLockNotice";
  * screen says what to ASK for, in the words an Indian operator uses.
  */
 export function PhoneNumberScreen() {
-  const session = useClientSession();
+  const { session, href } = useClientRealm();
   const numbers = useCampaignNumbers(session);
   const rows = numbers.data;
   const ours = rows?.filter((number) => number.supplied_by_us) ?? [];
@@ -71,6 +75,7 @@ export function PhoneNumberScreen() {
     <div className="max-w-4xl space-y-6 pb-12">
       <PageHeader description="The numbers your agents answer and call from." />
       <TrialLockNotice lock="numbers" />
+      <ExistingNumberPrompt session={session} href={href} />
 
       {/* With no number yet, getting one IS the job, so it comes first. */}
       {none && getNumber}
@@ -87,15 +92,15 @@ export function PhoneNumberScreen() {
               <h2 className="flex items-center gap-1 text-body font-semibold text-ink">
                 Point your existing phone at this number
                 <InfoTip label="How to forward your line">
-                  Ask your telephone operator to set up conditional call forwarding on your
-                  business line — forward a call when it is busy, unanswered, or out of reach —
-                  and give them this number as the destination. Keep advertising your own
+                  Your existing phone forwards calls to this number. Keep advertising your own
                   number; nobody needs to know this one.
                 </InfoTip>
               </h2>
               <p className="text-body text-ink-muted">
-                Ask your operator for <span className="font-medium text-ink">conditional call forwarding</span> to
-                the number below.
+                Forward your existing number to the number below.{" "}
+                <Link href={href(`/c/${session.orgSlug}/settings/phone-numbers`)} className={TEXT_ACTION}>
+                  Codes and test
+                </Link>
               </p>
               {/* `answerable` needs an agent on the number AND our connection of it at the
                   carrier. Only the first is the client's to fix, so the two get different

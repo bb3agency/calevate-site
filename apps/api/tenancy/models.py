@@ -217,6 +217,10 @@ class Organization(PKMixin, TimestampMixin, Base):
     outbound_requires_consent: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false()
     )
+    #: Send a caller who booked one "save our number" WhatsApp (D-746). Off by default.
+    save_number_message_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     deleted_at: Mapped[datetime | None]
     #: THE GRACE WINDOW BETWEEN "CLOSED" AND "ERASED" (D-538, migration e6c1a49d2f70).

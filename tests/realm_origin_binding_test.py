@@ -88,10 +88,9 @@ async def test_an_admin_mutation_from_the_admin_console_passes_the_origin_check(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("origin", (CONSOLE_BASE, MARKETING_ORIGIN, ADMIN_CONSOLE_BASE))
-async def test_client_paths_still_accept_every_console_origin(origin: str) -> None:
-    """Unchanged for the client realm: the client console, the marketing site's sign-in
-    and the admin console's view-as (D-22) all call client paths."""
+@pytest.mark.parametrize("origin", (CONSOLE_BASE, ADMIN_CONSOLE_BASE))
+async def test_client_paths_still_accept_both_console_origins(origin: str) -> None:
+    """The client console and the admin console's view-as (D-22) call client paths."""
     async with _client() as http:
         http.cookies.set(COOKIE_NAMES["client"], uuid.uuid4().hex)
         response = await http.put(
@@ -108,6 +107,32 @@ async def test_client_paths_still_accept_every_console_origin(origin: str) -> No
     assert not _is_cross_site_refusal(login.json()), login.text
 
 
+@pytest.mark.asyncio
+async def test_the_marketing_origin_is_credentialed_for_sign_in_and_nothing_else() -> None:
+    """D-732: the apex serves the marketing site and the sign-in screens. It may drive
+    `/v1/auth/` and `/v1/public/`; every other client path refuses it as cross-site."""
+    async with _client() as http:
+        http.cookies.set(COOKIE_NAMES["client"], uuid.uuid4().hex)
+        login = await http.post(
+            "/v1/auth/client/login",
+            headers={"origin": MARKETING_ORIGIN, "sec-fetch-site": "same-site"},
+            json={},
+        )
+        caps = await http.put(
+            "/v1/billing/caps",
+            headers={"origin": MARKETING_ORIGIN, "sec-fetch-site": "same-site"},
+            json={},
+        )
+        endpoint = await http.post(
+            "/v1/integrations/endpoints",
+            headers={"origin": MARKETING_ORIGIN, "sec-fetch-site": "same-site"},
+            json={},
+        )
+    assert not _is_cross_site_refusal(login.json()), login.text
+    assert caps.status_code == 403 and _is_cross_site_refusal(caps.json()), caps.text
+    assert endpoint.status_code == 403 and _is_cross_site_refusal(endpoint.json())
+
+
 def test_the_pure_rule_is_path_aware() -> None:
     def refused(path: str, origin: str) -> bool:
         return (
@@ -121,6 +146,14 @@ def test_the_pure_rule_is_path_aware() -> None:
     assert refused("/v1/auth/admin/login", MARKETING_ORIGIN)
     assert not refused("/v1/admin/tenants", ADMIN_CONSOLE_BASE)
     assert not refused("/v1/agents", CONSOLE_BASE)
+    # The apex is credentialed for sign-in and the public rate card only (D-732).
+    assert refused("/v1/agents", MARKETING_ORIGIN)
+    assert not refused("/v1/auth/client/login", MARKETING_ORIGIN)
+    assert not refused("/v1/public/rate-card", MARKETING_ORIGIN)
+    # Starting a view-as session is the operator console's alone (D-730).
+    assert refused("/v1/admin/impersonation-grants", CONSOLE_BASE)
+    assert refused("/v1/auth/admin/step-up/verify", CONSOLE_BASE)
+    assert not refused("/v1/admin/impersonation-grants/renew", CONSOLE_BASE)
     # The API's own origin stays accepted on admin paths (a same-origin call).
     assert not refused("/v1/admin/tenants", "http://api")
 
@@ -177,7 +210,7 @@ async def test_an_admin_read_answered_to_the_client_console_carries_no_allow_ori
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("origin", (CONSOLE_BASE, MARKETING_ORIGIN, ADMIN_CONSOLE_BASE))
+@pytest.mark.parametrize("origin", (CONSOLE_BASE, ADMIN_CONSOLE_BASE))
 async def test_a_client_preflight_is_unchanged(origin: str) -> None:
     async with _client() as http:
         response = await http.options(
@@ -190,6 +223,20 @@ async def test_a_client_preflight_is_unchanged(origin: str) -> None:
         )
     assert response.status_code == 200, response.text
     assert response.headers["access-control-allow-origin"] == origin
+
+
+@pytest.mark.asyncio
+async def test_a_client_preflight_from_the_marketing_site_is_refused_outside_sign_in() -> None:
+    """D-732, the CORS half: the apex gets no `Access-Control-Allow-Origin` on a client
+    path, and keeps it on the sign-in surface."""
+    async with _client() as http:
+        caps = await http.options(
+            "/v1/billing/caps",
+            headers={"Origin": MARKETING_ORIGIN, "Access-Control-Request-Method": "PUT"},
+        )
+        session = await http.get("/v1/auth/client/session", headers={"Origin": MARKETING_ORIGIN})
+    assert "access-control-allow-origin" not in caps.headers
+    assert session.headers.get("access-control-allow-origin") == MARKETING_ORIGIN
 
 
 # ═══════════════ the binding is complete, and local dev still works ═══════════════
@@ -232,10 +279,9 @@ def test_admin_origins_are_the_admin_console_plus_the_dev_origin_only_locally(
 # ═══════════════ the view-as handoff (D-22) runs on the client console ═══════════════
 #
 # "View as client" opens `app.calevate.tech/c/<slug>?view=admin`, and that document
-# restores the OPERATOR's admin session, mints the grant and answers the step-up the mint
-# asks for. Binding those four paths to the admin origin made the restore's `fetch` fail
-# CORS, which the console renders as "We could not check your session" — view-as stopped
-# opening on every browser.
+# restores the OPERATOR's admin session and renews the grant the operator console handed
+# it (D-730). Binding those paths to the admin origin made the restore's `fetch` fail
+# CORS, which the console renders as "We could not check your session".
 
 VIEW_AS_MUTATIONS = tuple(sorted(p for p in VIEW_AS_HANDOFF_PATHS if not p.endswith("/session")))
 
@@ -319,17 +365,37 @@ def test_the_handoff_set_names_what_the_view_as_document_calls() -> None:
     """The web callers, read from source, so a new admin-realm call made under view-as
     fails here rather than as an unexplained 'could not check your session'."""
     web = Path(__file__).resolve().parents[1] / "apps" / "web" / "src" / "lib"
-    admin_authn = (web / "authn" / "adminAuthn.ts").read_text(encoding="utf-8")
     realm = (web / "authn" / "realm.ts").read_text(encoding="utf-8")
     admin_api = (web / "api" / "admin.ts").read_text(encoding="utf-8")
     assert 'request<AuthnSession>("/session"' in realm
-    assert 'adminAuthn.request<void>("/step-up"' in admin_authn
-    assert '"/step-up/verify"' in admin_authn
-    assert 'IMPERSONATION_GRANT_PATH = "/v1/admin/impersonation-grants"' in admin_api
+    assert 'IMPERSONATION_RENEW_PATH = "/v1/admin/impersonation-grants/renew"' in admin_api
     handoff = set(VIEW_AS_HANDOFF_PATHS)
     assert handoff == {
         "/v1/auth/admin/session",
+        "/v1/admin/impersonation-grants/renew",
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path",
+    (
+        "/v1/admin/impersonation-grants",
         "/v1/auth/admin/step-up",
         "/v1/auth/admin/step-up/verify",
-        "/v1/admin/impersonation-grants",
-    }
+    ),
+)
+async def test_starting_a_view_as_session_from_the_client_console_is_refused(path: str) -> None:
+    """D-730: minting a grant, and answering the code it needs, are accepted from the
+    operator console only. The client console can renew what it was handed and no more."""
+    async with _client() as http:
+        http.cookies.set(COOKIE_NAMES["admin"], uuid.uuid4().hex)
+        response = await http.post(
+            path, headers={"origin": CONSOLE_BASE, "sec-fetch-site": "same-site"}, json={}
+        )
+        preflight = await http.options(
+            path, headers={"Origin": CONSOLE_BASE, "Access-Control-Request-Method": "POST"}
+        )
+    assert response.status_code == 403, response.text
+    assert _is_cross_site_refusal(response.json()), response.text
+    assert "access-control-allow-origin" not in preflight.headers

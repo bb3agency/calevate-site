@@ -125,7 +125,10 @@ async def _record(org: dict[str, Any], **payload: Any) -> Any:
     async with _client() as http:
         return await http.post(
             f"/v1/admin/tenants/{org['id']}/kyc",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"record_kyc:{org['id']}",
+            },
             json=payload,
         )
 

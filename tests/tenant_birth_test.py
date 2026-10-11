@@ -88,14 +88,16 @@ async def _create_tenant(token: str, **body: Any) -> Any:
     # Required, with no default (D-722); "Something else" is a choice like any other.
     body.setdefault("vertical_template", "custom")
     async with _client() as http:
-        return await http.post(TENANTS, headers=_auth(token), json=body)
+        return await http.post(
+            TENANTS, headers={**_auth(token), "X-Confirm-Action": "create_tenant"}, json=body
+        )
 
 
 async def _invite(token: str, tenant_id: UUID, email: str, role: str = "owner") -> Any:
     async with _client() as http:
         return await http.post(
             INVITATIONS.format(tenant_id=tenant_id),
-            headers=_auth(token),
+            headers={**_auth(token), "X-Confirm-Action": f"invite_member:{tenant_id}"},
             json={"email": email, "role": role},
         )
 

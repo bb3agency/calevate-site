@@ -57,11 +57,8 @@ export default function AdminBootstrapPage() {
               <Card>
                 <div className="space-y-3 text-sm text-ink-muted">
                   <NoticeBox tone="ok" title="The first operator account is ready">
-                    <p className="mt-1">
-                      Sign in with the address the link was issued for. You will be asked
-                      for an emailed six-digit code — the operator console requires one on
-                      every sign-in.
-                    </p>
+                    Sign in with the address the link was sent to. Every operator sign-in asks
+                    for an emailed six-digit code.
                   </NoticeBox>
                   <Link href={ADMIN_SIGN_IN_PATH} className={PRIMARY_BUTTON}>
                     Go to sign-in

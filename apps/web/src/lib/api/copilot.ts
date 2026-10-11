@@ -31,6 +31,8 @@
 
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
+import { needsReauthentication } from "@/lib/authn/problems";
+import { withActionCode } from "@/lib/authn/stepUpPrompt";
 import { lookup } from "@/lib/lookup";
 
 import { apiRequest, type Session } from "./client";
@@ -153,8 +155,23 @@ export function undoPath(realm: "client" | "admin", actionId: string): string {
 export function useUndoAction(session: Session, realm: "client" | "admin") {
   const client = useQueryClient();
   return useMutation<CopilotUndoOut, unknown, string>({
-    mutationFn: (actionId: string) =>
-      apiRequest<CopilotUndoOut>(session, undoPath(realm, actionId), { method: "POST" }),
+    mutationFn: (actionId: string) => {
+      if (realm === "client") {
+        return apiRequest<CopilotUndoOut>(session, undoPath(realm, actionId), { method: "POST" });
+      }
+      // The admin realm's undo takes step-up (D-731), bound to the action.
+      const confirmAction = `undo_copilot_action:${actionId}`;
+      return withActionCode(
+        confirmAction,
+        "Undoing something the assistant did.",
+        () =>
+          apiRequest<CopilotUndoOut>(session, undoPath(realm, actionId), {
+            method: "POST",
+            confirmAction,
+          }),
+        needsReauthentication,
+      );
+    },
     onSuccess: (result) => refreshAfterConfirm(client, session.orgSlug, result.tool),
   });
 }

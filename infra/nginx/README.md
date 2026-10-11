@@ -36,7 +36,9 @@ by an explicit `include`. Put a snippet in `conf.d` and `nginx -t` fails; put th
 ## 2. Rendering
 
 `envsubst` over an **explicit** variable list — `ROOT_DOMAIN`, `TLS_LIVE_DIR`,
-`ACME_WEBROOT`, `ORIGIN_CERT_PATH`, `ORIGIN_KEY_PATH`. Bare `envsubst` would substitute
+`ACME_WEBROOT`, `ORIGIN_CERT_PATH`, `ORIGIN_KEY_PATH`, and `CF_ORIGIN_PULL` (`off` by default,
+`optional` or `on`: which `snippets/calevate-origin-pull-*.conf` every TLS vhost includes, D-734;
+turn zone-level Authenticated Origin Pulls on in Cloudflare before setting it). Bare `envsubst` would substitute
 every `$name` in the file, and an nginx config is made of `$name`: `$host`,
 `$remote_addr`, `$binary_remote_addr` would all become empty strings, producing a config
 that passes `nginx -t` and puts every request on Earth into one rate-limit bucket. The

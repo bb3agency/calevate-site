@@ -150,9 +150,9 @@ describe("who holds a client account", () => {
       // point of the compare-and-swap.
       expected_role: "staff",
     });
-    // A reversible act takes no ceremony — see the API's own argument for why attaching
-    // one here would cost the removal's confirmation its meaning.
-    expect(patch?.headers["X-Confirm-Action"]).toBeUndefined();
+    // Promoting someone to owner hands them the account, so the role change takes
+    // step-up too (D-731), bound to the tenant and the person.
+    expect(patch?.headers["X-Confirm-Action"]).toMatch(/^change_member_role:[^:]+:[^:]+$/);
   });
 
   it("arms a removal only after a typed REMOVE, and sends the person-bound confirmation", async () => {

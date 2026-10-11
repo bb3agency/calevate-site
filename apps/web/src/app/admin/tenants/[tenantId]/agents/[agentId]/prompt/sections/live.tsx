@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle } from "lucide-react";
 
 import { ActionButton } from "@/components/actionButton";
 import { SuccessRipple } from "@/components/successRipple";
@@ -122,7 +121,6 @@ export function GoLivePanel({
            */
           <NoticeBox
             tone="warn"
-            icon={<AlertTriangle className="h-5 w-5" />}
             title="This agent cannot be published from here"
           >
             <p className="mt-0.5">{pending.engine_verification.headline}</p>
@@ -136,7 +134,6 @@ export function GoLivePanel({
           <>
             <NoticeBox
               tone="warn"
-              icon={<AlertTriangle className="h-5 w-5" />}
               title="This agent has never reached the voice platform"
             >
               <p className="mt-0.5">
@@ -256,7 +253,6 @@ export function PublishingPanel({
           <>
             <NoticeBox
               tone="warn"
-              icon={<AlertTriangle className="h-5 w-5" />}
               title={staged.headline}
             >
               <p className="mt-0.5">{staged.why}</p>

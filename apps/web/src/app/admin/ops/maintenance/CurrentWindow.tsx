@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { TriangleAlert } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { InfoTip } from "@/components/console/infoTip";
@@ -73,7 +72,6 @@ function InFlightPanel({
       {!inFlight.complete && (
         <NoticeBox
           tone="warn"
-          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
           title="These numbers are a floor, not a total"
         >
           <p className="mt-1">

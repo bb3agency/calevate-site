@@ -300,6 +300,21 @@ async def test_flipping_a_d163_toggle_does_not_drop_the_memory_sentence() -> Non
 # --- 3. the migration's copy of the sentences ----------------------------------------
 
 
+def _script_rewrite() -> dict[str, str]:
+    """D-745's (old, new) sentence pairs, read from its migration's `_LINES` as source."""
+    path = MIGRATION.parent / "e9b4c2a7d136_notices_in_their_own_script.py"
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "_LINES" for t in node.targets
+        ):
+            rows = ast.literal_eval(node.value)
+            return {row[i]: row[i + 1] for row in rows for i in (0, 2, 4)}
+    raise AssertionError(f"no `_LINES` in {path}")
+
+
+SCRIPT_REWRITE = _script_rewrite()
+
+
 def _migration_notices() -> dict[str, str]:
     """The migration's `_NOTICE`, read as SOURCE rather than imported.
 
@@ -307,7 +322,7 @@ def _migration_notices() -> dict[str, str]:
     make this test pass by way of the same object it is supposed to be comparing against
     if the copy were ever replaced with an import. The AST is the honest reading.
     """
-    tree = ast.parse(MIGRATION.read_text())
+    tree = ast.parse(MIGRATION.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.Assign)
@@ -324,8 +339,15 @@ def test_the_migrations_copy_of_the_sentences_is_byte_identical() -> None:
     """The migration COPIES rather than imports, for the reason every migration copies its
     constants — it must keep meaning what it meant on the day it ran. A copy nobody
     compares is a copy that drifts, and the drift is invisible: the agents created before
-    the change and after it would open with different sentences in the same language."""
-    assert _migration_notices() == CALLER_MEMORY_NOTICE_TEMPLATES
+    the change and after it would open with different sentences in the same language.
+
+    D-745 moved the Telugu and Hindi sentences into their own script, and its migration
+    rewrites exactly the old outputs; so the old copy, carried through that rewrite, is
+    today's table."""
+    rewritten = {
+        lang: SCRIPT_REWRITE.get(line, line) for lang, line in _migration_notices().items()
+    }
+    assert rewritten == CALLER_MEMORY_NOTICE_TEMPLATES
 
 
 def _backfill_case(languages: list[str]) -> str:

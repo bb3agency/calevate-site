@@ -481,7 +481,8 @@ async def test_the_export_honours_the_assignee_filter_the_screen_applied() -> No
 
     async with _client() as http:
         response = await http.get(
-            f"/v1/leads/export.csv?assigned_to={member}", headers=_headers(slug, token)
+            f"/v1/leads/export.csv?assigned_to={member}",
+            headers={**_headers(slug, token), "X-Confirm-Action": f"export_leads:{slug}"},
         )
     assert response.status_code == 200, response.text
     lines = [line for line in response.text.splitlines() if line.strip()]

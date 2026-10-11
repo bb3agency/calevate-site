@@ -38,6 +38,7 @@ from apps.api.agents.live_apply import (
     failure_code,
     is_permanent,
     queue_agent_retry,
+    queue_platform_prompt_apply,
     queue_walk,
     resume_walk,
 )
@@ -47,6 +48,7 @@ from apps.api.core.platform_config import refresh
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
+from apps.api.ops.spoken_style_store import refresh_spoken_style
 
 log = get_logger(__name__)
 
@@ -170,8 +172,10 @@ async def apply_live_settings(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     del ctx
     run_id = UUID(str(payload["run_id"]))
     # The worker may not yet have re-read a setting saved a second ago; the walk must
-    # publish the saved value, not this process's last poll of it.
+    # publish the saved value, not this process's last poll of it. The same for the
+    # founder's published spoken style (D-744), which is not a setting.
     await refresh()
+    await refresh_spoken_style()
     engine = get_engine().name
     async with untenanted_session() as session:
         run = (await session.execute(_CLAIM, {"id": run_id, "lease": LEASE_S})).first()
@@ -333,4 +337,23 @@ async def resume_live_apply(ctx: dict[str, Any]) -> str:
     return f"resumed={len(stalled)}"
 
 
-__all__ = ["apply_live_agent", "apply_live_settings", "resume_live_apply"]
+async def apply_platform_prompt_on_start() -> None:
+    """Queue the platform walk for this build's prompt text, at worker start
+    (`queue_platform_prompt_apply`). Logged, never raised: a worker that cannot reach the
+    database here fails its first job loudly anyway, and the next start queues the walk."""
+    try:
+        async with untenanted_session() as session:
+            run_id = await queue_platform_prompt_apply(session)
+    except Exception:
+        log.exception("live_apply_platform_prompt_not_queued")
+        return
+    if run_id is not None:
+        log.info("live_apply_platform_prompt_queued", extra={"run_id": str(run_id)})
+
+
+__all__ = [
+    "apply_live_agent",
+    "apply_live_settings",
+    "apply_platform_prompt_on_start",
+    "resume_live_apply",
+]

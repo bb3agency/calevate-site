@@ -132,7 +132,7 @@ async def _wallet_with_one_lot(http: AsyncClient, token: str, tenant_id: uuid.UU
     fact; its two rates come from the card (`_pack("growth")`)."""
     posted = await http.post(
         f"/v1/admin/tenants/{tenant_id}/credits",
-        headers=_headers(token),
+        headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
         json={"amount_inr": "6000.00", "payment_ref": f"UTR-{uuid.uuid4().hex[:8]}"},
     )
     assert posted.status_code == 200, posted.text

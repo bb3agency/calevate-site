@@ -127,6 +127,11 @@ function legacyMargin(): Omit<Margin, "tiers"> & { tiers: LegacyTiers } {
     margin_inr: "613549.50",
     margin_pct: "60.39",
     legs_unpriced: 0,
+    trial_cost_inr: "0.00",
+    trial_in_month: false,
+    paid_cost_inr: "402350.50",
+    paid_margin_inr: "613549.50",
+    paid_margin_pct: "60.39",
     tiers: {
       minutes_premium: "900.00",
       minutes_value: "280.00",
@@ -216,6 +221,7 @@ describe("the console reads the deprecated rung names when the API has not moved
           minutes_used: "812.00",
           spend_used_inr: "5002.40",
           capped: false,
+          trial_active: false,
         },
       },
     );

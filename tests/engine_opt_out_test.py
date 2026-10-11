@@ -332,7 +332,7 @@ async def test_a_notice_blip_is_retried(
     async def _down(*_a: object, **_k: object) -> None:
         raise ConnectionError("db")
 
-    monkeypatch.setattr(engine_signals, "_tenant_of", _down)
+    monkeypatch.setattr(engine_signals, "_route_of", _down)
     with pytest.raises(Retry):
         await engine_signals.ingest_engine_notice({"job_try": 1}, payload)
     with pytest.raises(ConnectionError):

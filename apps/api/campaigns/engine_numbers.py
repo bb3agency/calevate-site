@@ -39,7 +39,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Final, Literal
+from typing import Final, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
 from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER
@@ -61,6 +61,7 @@ from apps.api.campaigns.number_pricing import attested_price_inr, require_attest
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import enqueue
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.engine import get_engine
@@ -73,6 +74,8 @@ from apps.api.engine.thinnest_numbers import (
     thinnest_numbers,
 )
 from apps.api.engine.thinnest_workspace import in_workspace, workspace_not_provisioned
+from apps.api.engine.trial_line import TrialLineAgent
+from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.tenancy.engine_workspace import (
     active_workspaces,
     resolve_workspace,
@@ -211,8 +214,9 @@ def _other_workspace_refusal() -> ProblemError:
         "This number is held in the platform account and can only answer an agent that still "
         "lives there; this agent lives in the client's own workspace.",
         remediation=(
-            "Buy a number for this client from its Numbers page, or keep this number for "
-            "testing with an agent that has not been republished."
+            "Move it into the client's workspace from the client's admin Numbers page (it "
+            "keeps its digits), buy a number for this client, or keep this number for testing "
+            "with an agent that has not been republished."
         ),
     )
 
@@ -607,6 +611,12 @@ async def reconcile_engine_number_attachments() -> NumberReconciliation:
         workspaces=len(workspaces),
     )
     log.info("engine_number_reconciliation", extra=asdict(summary))
+    if trial is not None:
+        # The shared number's own line, repaired daily like every other attachment.
+        try:
+            await converge_trial_line()
+        except ProblemError as exc:
+            _trial_line_failed(outcome="refused", refusal=exc.code)
     return summary
 
 
@@ -679,14 +689,131 @@ def is_trial_number(e164_or_ref: str | None) -> bool:
     return bool(trial and e164_or_ref) and digits(str(e164_or_ref)) == trial
 
 
-async def lend_trial_line(agent_ref: str) -> bool:
-    """Lend the shared trial number to `agent_ref` for one test call, and make sure nothing
-    answers it. True once the platform holds exactly that.
+#: What anybody who rings the shared trial number back hears (founder, 11 Oct 2026). English:
+#: the message is read by the phone provider's own Indian-English voice, which speaks English
+#: or English in Roman letters and plays the generic sentence for Telugu script
+#: (docs.thinnest.ai channels/voice "When Answer calls is off", read 11 Oct 2026). Neutral, no
+#: greeting (D-708). The platform refuses one over 300 characters.
+TRIAL_LINE_MESSAGE: Final = (
+    "Thanks for calling back. This number only places test calls for businesses trying "
+    "Calevate, so no one can take your call here. Goodbye."
+)
 
-    `callingAgent` "calls out on the number without answering it", and `agent: null` "makes
-    nothing answer it" (`thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/
-    phone-numbers/update-phone-number.md:451-470`), so an inbound call to the shared number
-    can never reach a trial client's agent. A call's `from` must be one of the agent's
+
+@runtime_checkable
+class HoldsTrialLine(Protocol):
+    """An engine that can keep one never-answering agent on the shared trial number."""
+
+    async def read_trial_line_agent(self) -> TrialLineAgent | None: ...
+
+    async def converge_trial_line_agent(self, message: str) -> TrialLineAgent: ...
+
+    async def set_line_answering(self, ref: str, *, on: bool) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class TrialLineState:
+    """The shared trial number's line, as the ops panel shows it."""
+
+    #: `ready`: the number answers the paused agent, which speaks our message; `no_number`;
+    #: `no_agent`; `not_attached`: the agent exists but the number answers something else;
+    #: `drifted`: the agent answers calls or says another message; `unavailable`: the
+    #: platform could not be read.
+    state: Literal["ready", "no_number", "no_agent", "not_attached", "drifted", "unavailable"]
+    agent_ref: str | None = None
+    message: str | None = None
+    #: The platform's note when the message will not be spoken as written.
+    message_note: str | None = None
+
+
+#: The trial line's agent, once this process has found or made it.
+_TRIAL_LINE_AGENT: str | None = None
+
+
+def _trial_line_engine() -> HoldsTrialLine | None:
+    engine = get_engine()
+    return engine if isinstance(engine, HoldsTrialLine) else None
+
+
+async def read_trial_line() -> TrialLineState:
+    """Where the shared trial number's line stands; reads only."""
+    number = trial_number_ref()
+    engine = _trial_line_engine()
+    if number is None or engine is None:
+        return TrialLineState(state="no_number")
+    try:
+        agent = await engine.read_trial_line_agent()
+        if agent is None:
+            return TrialLineState(state="no_agent")
+        held = await thinnest_numbers().get_number(number)
+    except ProblemError:
+        return TrialLineState(state="unavailable")
+    state: Literal["ready", "not_attached", "drifted"] = "ready"
+    if held.answering_agent != agent.ref:
+        state = "not_attached"
+    elif agent.answers_calls or agent.message != TRIAL_LINE_MESSAGE:
+        state = "drifted"
+    return TrialLineState(
+        state=state, agent_ref=agent.ref, message=agent.message, message_note=agent.message_note
+    )
+
+
+async def converge_trial_line() -> TrialLineState:
+    """Give the shared trial number its never-answering agent and our message (D-742).
+
+    The agent lives in the developer workspace with the number and is no client's: it is
+    found by its fixed name, never recorded in `agents`, and only ever answers nothing. The
+    number is made its line; who it is lent to for calling out is kept. ThinnestAI requires
+    an answering agent to have voice switched on (`update-phone-number`), so when the attach
+    is refused the agent is switched on for the attach and off again straight after.
+    """
+    global _TRIAL_LINE_AGENT
+    number = trial_number_ref()
+    engine = _trial_line_engine()
+    if number is None or engine is None:
+        return TrialLineState(state="no_number")
+    agent = await engine.converge_trial_line_agent(TRIAL_LINE_MESSAGE)
+    held = await thinnest_numbers().get_number(number)
+    if held.answering_agent != agent.ref:
+        result = await _attach(number, agent=agent.ref, calling_agent=held.calling_agent)
+        if result.outcome == "refused":
+            await engine.set_line_answering(agent.ref, on=True)
+            try:
+                result = await _attach(number, agent=agent.ref, calling_agent=held.calling_agent)
+            finally:
+                await engine.set_line_answering(agent.ref, on=False)
+        if result.outcome != "applied":
+            _trial_line_failed(outcome=result.outcome, refusal=result.refusal)
+            return TrialLineState(state="not_attached", agent_ref=agent.ref)
+    _TRIAL_LINE_AGENT = agent.ref
+    log.info("trial_line_converged")
+    return TrialLineState(
+        state="ready", agent_ref=agent.ref, message=agent.message, message_note=agent.message_note
+    )
+
+
+async def _trial_line_answerer() -> str | None:
+    """The agent the shared number answers with, made on first use; None when it cannot be
+    (the number then answers nothing, as it did before D-742)."""
+    if _TRIAL_LINE_AGENT is not None:
+        return _TRIAL_LINE_AGENT
+    try:
+        state = await converge_trial_line()
+    except ProblemError as exc:
+        log.warning("trial_line_agent_unavailable", extra={"reason": exc.code})
+        return None
+    return state.agent_ref if state.state == "ready" else None
+
+
+async def lend_trial_line(agent_ref: str) -> bool:
+    """Lend the shared trial number to `agent_ref` for one test call, while the number's
+    own line stays the trial line's never-answering agent (D-742; nothing, if that agent
+    cannot be had). True once the platform holds exactly that.
+
+    `callingAgent` "calls out on the number without answering it" (`thinnest-findings/
+    mirror/snapshots/2026-10-08/pages/api-reference/phone-numbers/update-phone-number.md:
+    451-470`), so an inbound call to the shared number can never reach a trial client's
+    agent: whoever rings back hears `TRIAL_LINE_MESSAGE`. A call's `from` must be one of the agent's
     numbers, "its own, or one lent to it" (`calls/place-call.md:430-433,971-977`), which is
     why the number is lent before each call. The caller holds the trial line
     (`agents.service._hold_trial_line`) from before this until the call ends: what
@@ -695,8 +822,17 @@ async def lend_trial_line(agent_ref: str) -> bool:
     number = trial_number_ref()
     if number is None:
         return False
+    return await lend_platform_line(number, agent_ref)
+
+
+async def lend_platform_line(number: str, agent_ref: str) -> bool:
+    """Lend a platform number held in the developer workspace to `agent_ref` for calling
+    out, with the trial line's never-answering agent as its line, so whoever rings it back
+    hears `TRIAL_LINE_MESSAGE`. The shared trial number uses it, and so does the forwarding
+    test's second number (D-746). True once the platform holds exactly that."""
     try:
-        result = await _attach(number, agent=None, calling_agent=agent_ref)
+        answerer = await _trial_line_answerer()
+        result = await _attach(number, agent=answerer, calling_agent=agent_ref)
     except ProblemError as exc:
         _trial_line_failed(outcome="refused", refusal=exc.code)
         return False
@@ -779,25 +915,261 @@ async def search_available(
     return await thinnest_numbers().search(workspace, city=city, pattern=pattern, cursor=cursor)
 
 
+# --- the auto-healer's forward (D-743) ----------------------------------------------------
+
+_AGENT_NUMBERS_SQL: Final = (
+    "SELECT id, engine_number_ref FROM phone_numbers WHERE agent_id = :aid "
+    "AND released_at IS NULL AND provider = :p AND engine_number_ref IS NOT NULL "
+    "ORDER BY created_at, id"
+)
+
+
+async def _agent_numbers(session: AsyncSession, agent_id: UUID) -> list[tuple[UUID, str]]:
+    provider = engine_number_provider()
+    if provider is None:
+        return []
+    rows = await session.execute(text(_AGENT_NUMBERS_SQL), {"aid": agent_id, "p": provider})
+    return [(UUID(str(r[0])), str(r[1])) for r in rows]
+
+
+async def forward_agent_numbers(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, phone_e164: str
+) -> int:
+    """Forward every call to this agent's numbers to the client's own phone: the healer's
+    hold of a broken line (OPERATIONS gate T-26). How many numbers forward now.
+
+    Each number lives in the workspace its handle names (D-693), so the request is made
+    there. A refusal (a destination the platform will not ring, a carrier that cannot
+    forward) alarms `healer_forward_refused` with its code and the number is left to the
+    pause the caller applies anyway. Idempotent: a number already forwarding there is left.
+    """
+    forwarded = 0
+    for number_id, ref in await _agent_numbers(session, agent_id):
+        if is_trial_number(ref):
+            continue
+        try:
+            await thinnest_numbers().set_forward(ref, phone_e164)
+        except EngineRejectedError as exc:
+            alert(
+                "CORE_LOGIC",
+                "healer_forward_refused",
+                detail=(
+                    "the voice platform refused to forward a broken agent's number to the "
+                    f"client's fallback phone ({exc.vendor_code or 'no code'}), so its callers "
+                    "hear the polite unavailable sentence instead. "
+                    "`forward_destination_not_allowed`: the fallback phone is a premium, "
+                    "toll-free or special number; ask the client for an ordinary mobile. "
+                    "`number_cannot_forward`: this carrier cannot forward."
+                ),
+                tenant_id=str(tenant_id),
+                number_id=str(number_id),
+            )
+            continue
+        forwarded += 1
+    log.info(
+        "healer_numbers_forwarded",
+        extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id), "count": forwarded},
+    )
+    return forwarded
+
+
+async def clear_agent_forwards(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> int:
+    """Stop forwarding this agent's numbers, so its callers reach it again. How many were
+    cleared. A failure alarms `healer_forward_not_cleared` and raises: a forward left in
+    place would keep every caller away from the restored agent."""
+    cleared = 0
+    for number_id, ref in await _agent_numbers(session, agent_id):
+        try:
+            before = await thinnest_numbers().get_number(ref)
+            if before.forward_to is None:
+                continue
+            await thinnest_numbers().set_forward(ref, None)
+        except ProblemError:
+            alert(
+                "CORE_LOGIC",
+                "healer_forward_not_cleared",
+                detail=(
+                    "a restored agent's number is still forwarded to the client's fallback "
+                    "phone, so callers do not reach the agent. Clear Forward calls on the "
+                    "number in the voice platform's console, or let the healer retry."
+                ),
+                tenant_id=str(tenant_id),
+                number_id=str(number_id),
+            )
+            raise
+        cleared += 1
+    return cleared
+
+
+def numbers_can_forward() -> bool:
+    """Whether this deployment's numbers can be forwarded by the healer."""
+    return engine_number_provider() is not None
+
+
+# --- moving a number into the client's own workspace --------------------------------------
+
+#: Move refusals that clear by themselves (a call ending, a move finishing, the phone
+#: network), so the move is tried again rather than refused for good.
+MOVE_RETRYABLE: Final = frozenset(
+    {"number_on_live_call", "number_move_in_progress", "number_move_unavailable"}
+)
+#: The ARQ job that tries a move again (`apps/workers/number_moves.py`).
+MOVE_NUMBER_JOB: Final = "move_engine_number"
+#: Tried every two minutes for longer than the longest call on this engine (20 minutes).
+MOVE_ATTEMPTS: Final = 12
+MOVE_RETRY_EVERY: Final = timedelta(minutes=2)
+
+
+async def queue_number_move(tenant_id: UUID, number_id: UUID, *, attempt: int) -> None:
+    """Try the move again in `MOVE_RETRY_EVERY`. Re-enqueued with a deferral rather than
+    arq's `Retry`, because the worker's retry budget is shorter than one call."""
+    await enqueue(
+        MOVE_NUMBER_JOB,
+        {"tenant_id": str(tenant_id), "number_id": str(number_id), "attempt": attempt},
+        job_id=f"{MOVE_NUMBER_JOB}:{number_id}:{attempt}",
+        _defer_by=MOVE_RETRY_EVERY,
+    )
+
+
+def _move_refusal(exc: EngineRejectedError) -> ProblemError:
+    """A vendor refusal of a move in our words. Admin realm, so the vendor's code rides in
+    the remediation an operator reads."""
+    code = exc.vendor_code or "unknown"
+    if code in MOVE_RETRYABLE:
+        return ProblemError(
+            kind="conflict",
+            code="engine_number_move_later",
+            title="The number cannot be moved this minute",
+            detail=(
+                "Nothing was moved: the number is on a call, already being moved, or the "
+                "phone network did not take the move. It will be tried again shortly."
+            ),
+            remediation=f"Nothing to do; the move is retried. Platform code: {code}.",
+            status=409,
+        )
+    if code == "number_move_needs_business_details":
+        return ProblemError.business_rule(
+            "engine_number_move_needs_business_details",
+            "Nothing was moved: an Indian number is held in the name of the business using "
+            "it, and this client's business details are not approved yet.",
+            remediation=(
+                "Send the client's business details from its Numbers page, wait for approval, "
+                "then move the number."
+            ),
+        )
+    return ProblemError.business_rule(
+        "engine_number_move_refused",
+        "Nothing was moved: the voice platform refused to move this number.",
+        remediation=(
+            f"Platform code: {code}. `number_move_legacy_number` and "
+            "`number_move_carrier_account` need the voice platform's support; a deleted or "
+            "unknown workspace needs the client's workspace provisioned again first."
+        ),
+    )
+
+
+_MOVABLE_SQL: Final = (
+    "SELECT engine_number_ref, released_at, e164 FROM phone_numbers "
+    "WHERE id = :nid AND provider = :p FOR UPDATE"
+)
+
+
+async def move_into_client_workspace(
+    session: AsyncSession, *, tenant_id: UUID, number_id: UUID
+) -> str:
+    """Move one of this client's numbers into its own workspace, keeping the digits, and
+    answer its new handle.
+
+    For a number held in another workspace than the client's own: one rented in our
+    developer workspace before D-693 ("held in the platform account") or one in a workspace
+    the client no longer uses. This replaces releasing it and renting new digits, which
+    would make every caller who saved the number dial a stranger. The number arrives
+    answered by nobody, so it is re-attached from our row at once. A rented number becomes
+    the client's to pay for from its next renewal (`price_recorded_number`), never for the
+    month already under way. In the tenant's session; the caller writes the audit row.
+    """
+    provider = engine_number_provider()
+    if provider is None:
+        raise _refuse_off_engine()
+    row = (await session.execute(text(_MOVABLE_SQL), {"nid": number_id, "p": provider})).first()
+    if row is None or not row[0]:
+        raise ProblemError.not_found("phone_number", str(number_id))
+    if row[1] is not None:
+        raise ProblemError.conflict(
+            "engine_number_released",
+            "This number has been released, so there is nothing to move.",
+            remediation="Buy a number for this client from its Numbers page.",
+        )
+    current = str(row[0])
+    if is_trial_number(current) or is_trial_number(str(row[2])):
+        raise ProblemError.conflict(
+            "engine_number_is_trial_number",
+            "This number is the shared number free-trial test calls ring from, so it stays in "
+            "the platform account.",
+            remediation="Move another number, or set a different shared trial number first.",
+        )
+    target = await resolve_workspace(session, tenant_id)
+    if target is None:
+        raise workspace_not_provisioned()
+    if scope_of(current) == target:
+        return current
+    try:
+        moved, rented = await thinnest_numbers().move(current, target)
+    except EngineRejectedError as exc:
+        raise _move_refusal(exc) from exc
+    await session.execute(
+        text(
+            "UPDATE phone_numbers SET engine_number_ref = :ref, updated_at = now() WHERE id = :nid"
+        ),
+        {"ref": moved, "nid": number_id},
+    )
+    priced = await price_recorded_number(session, number_id=number_id) if rented else False
+    attachment = await sync_number_attachment(session, number_id=number_id)
+    log.info(
+        "engine_number_moved",
+        extra={
+            "tenant_id": str(tenant_id),
+            "number_id": str(number_id),
+            "priced": priced,
+            "attachment": attachment,
+        },
+    )
+    return moved
+
+
 __all__ = [
     "ATTACHMENT_SWEEP_BUDGET",
     "LAPSED_BUSINESS_STATUSES",
+    "MOVE_ATTEMPTS",
+    "MOVE_NUMBER_JOB",
+    "MOVE_RETRYABLE",
+    "MOVE_RETRY_EVERY",
+    "TRIAL_LINE_MESSAGE",
+    "HoldsTrialLine",
     "NumberReconciliation",
     "RecordedEngineNumber",
     "SyncOutcome",
+    "TrialLineState",
     "alarm_lapsed_business_details",
     "answers_calls",
     "assert_number_can_answer",
     "assert_same_workspace",
     "available_cities",
+    "clear_agent_forwards",
+    "converge_trial_line",
     "engine_number_provider",
+    "forward_agent_numbers",
     "held_number",
     "is_platform_held",
     "is_trial_number",
     "lend_trial_line",
     "live_tenants",
+    "move_into_client_workspace",
+    "numbers_can_forward",
     "price_recorded_number",
+    "queue_number_move",
     "read_business_details",
+    "read_trial_line",
     "reconcile_engine_number_attachments",
     "record_engine_number",
     "releasable_by",

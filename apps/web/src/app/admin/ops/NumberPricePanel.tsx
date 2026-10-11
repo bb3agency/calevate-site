@@ -2,7 +2,7 @@
 
 import { Section } from "@/components/console/section";
 import { useState } from "react";
-import { CheckCircle2, CircleAlert, Lock, Phone } from "lucide-react";
+import { CheckCircle2, Lock, Phone } from "lucide-react";
 
 import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withheld";
@@ -102,8 +102,7 @@ export function NumberPricePanel() {
         {current && !current.attested && (
           <NoticeBox
             tone="warn"
-            icon={<CircleAlert aria-hidden className="h-5 w-5" />}
-            title="No price recorded — clients cannot buy a number"
+            title="No price recorded. Clients cannot buy a number"
           >
             <p className="mt-1">
               A client&apos;s Buy button stays refused until a price read from the carrier&apos;s

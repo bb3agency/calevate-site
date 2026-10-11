@@ -12,7 +12,15 @@
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import {
+  adminSession,
+  buyNumberConfirmation,
+  confirmedAdminRequest,
+  moveNumberConfirmation,
+  releaseNumberConfirmation,
+  workspaceOffboardConfirmation,
+  workspaceProvisionConfirmation,
+} from "./admin";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
 
@@ -27,6 +35,7 @@ export type AdminAvailableNumbers = Schemas["AdminAvailableNumbersOut"];
 export type AdminPurchaseIn = Schemas["AdminPurchaseIn"];
 export type AdminPurchased = Schemas["AdminPurchasedOut"];
 export type AdminReleased = Schemas["AdminReleasedOut"];
+export type AdminMoved = Schemas["AdminMovedOut"];
 
 /**
  * The voice platform's business-details application, for an operator. The statuses are the
@@ -65,6 +74,8 @@ export const WORKSPACE_PATHS = {
     `${BASE}/tenants/${tenantId}/numbers/${numberId}/release`,
   forget: (tenantId: string, numberId: string) =>
     `${BASE}/tenants/${tenantId}/numbers/${numberId}/forget`,
+  move: (tenantId: string, numberId: string) =>
+    `${BASE}/tenants/${tenantId}/numbers/${numberId}/move`,
 } as const;
 
 const tenantKey = (tenantId: string) => ["admin", "engine-workspace", tenantId] as const;
@@ -105,12 +116,37 @@ function useWorkspaceAction(tenantId: string, path: (tenantId: string) => string
   });
 }
 
+/** Provisioning and offboarding take step-up (D-731), so they send their confirmation. */
+function useConfirmedWorkspaceAction(
+  tenantId: string,
+  path: (tenantId: string) => string,
+  confirmAction: string,
+  reason: string,
+) {
+  const invalidate = useInvalidateTenant(tenantId);
+  return useMutation({
+    mutationFn: () =>
+      confirmedAdminRequest<unknown>(path(tenantId), { method: "POST", confirmAction }, reason),
+    onSuccess: invalidate,
+  });
+}
+
 export function useProvisionWorkspace(tenantId: string) {
-  return useWorkspaceAction(tenantId, WORKSPACE_PATHS.provision);
+  return useConfirmedWorkspaceAction(
+    tenantId,
+    WORKSPACE_PATHS.provision,
+    workspaceProvisionConfirmation(tenantId),
+    "Creating this client's voice workspace.",
+  );
 }
 
 export function useOffboardWorkspace(tenantId: string) {
-  return useWorkspaceAction(tenantId, WORKSPACE_PATHS.offboard);
+  return useConfirmedWorkspaceAction(
+    tenantId,
+    WORKSPACE_PATHS.offboard,
+    workspaceOffboardConfirmation(tenantId),
+    "Dismantling this client's voice workspace.",
+  );
 }
 
 export function useSendWorkspaceBusinessDetails(tenantId: string) {
@@ -155,10 +191,11 @@ export function useWorkspacePurchase(tenantId: string) {
   return useMutation({
     retry: false,
     mutationFn: (body: AdminPurchaseIn) =>
-      apiRequest<AdminPurchased>(adminSession(), WORKSPACE_PATHS.purchase(tenantId), {
-        method: "POST",
-        body,
-      }),
+      confirmedAdminRequest<AdminPurchased>(
+        WORKSPACE_PATHS.purchase(tenantId),
+        { method: "POST", body, confirmAction: buyNumberConfirmation(tenantId) },
+        "Buying a number for this client.",
+      ),
     onSuccess: invalidate,
   });
 }
@@ -167,10 +204,15 @@ export function useWorkspaceRelease(tenantId: string) {
   const invalidate = useInvalidateTenant(tenantId);
   return useMutation({
     mutationFn: (numberId: string) =>
-      apiRequest<AdminReleased>(adminSession(), WORKSPACE_PATHS.release(tenantId, numberId), {
-        method: "POST",
-        body: { confirm: true },
-      }),
+      confirmedAdminRequest<AdminReleased>(
+        WORKSPACE_PATHS.release(tenantId, numberId),
+        {
+          method: "POST",
+          body: { confirm: true },
+          confirmAction: releaseNumberConfirmation(tenantId, numberId),
+        },
+        "Releasing this number.",
+      ),
     onSuccess: invalidate,
   });
 }
@@ -183,6 +225,19 @@ export function useWorkspaceForget(tenantId: string) {
         method: "POST",
         body: { confirm: true },
       }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useWorkspaceMove(tenantId: string) {
+  const invalidate = useInvalidateTenant(tenantId);
+  return useMutation({
+    mutationFn: (numberId: string) =>
+      confirmedAdminRequest<AdminMoved>(
+        WORKSPACE_PATHS.move(tenantId, numberId),
+        { method: "POST", confirmAction: moveNumberConfirmation(tenantId, numberId) },
+        "Moving this number into the client's workspace.",
+      ),
     onSuccess: invalidate,
   });
 }

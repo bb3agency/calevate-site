@@ -32,12 +32,16 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from calevate_shared.engine import ProvisionedNumber
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service
+from apps.api.admin.engine_workspace_routes import (
+    buy_number_confirmation,
+    release_number_confirmation,
+)
 from apps.api.agents import service as agents_service
 from apps.api.billing.number_rental import RentalOutcome
 from apps.api.campaigns import engine_numbers, number_supply
@@ -51,6 +55,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.hosted_platform import engine_number_console
@@ -256,6 +261,8 @@ async def buy_number(
     session: AdminSession,
     request: Request,
     principal: NumberOperator,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> BoughtNumberOut:
     """Buy, record and — if the number is attached to a live agent — route, in one request.
 
@@ -272,7 +279,10 @@ async def buy_number(
     purchase's transaction under a savepoint. A failed outcome row therefore costs a log
     line and never the purchase record, and an unaudited purchase is impossible: the
     request row is on the ledger before the vendor is called.
+
+    Step-up first (D-731): a purchase is money spent at the vendor and cannot be undone.
     """
+    step_up.require(x_confirm_action, buy_number_confirmation(tenant_id))
     async with tenant_session(tenant_id) as scoped:
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")
@@ -405,7 +415,11 @@ async def release_number(
     session: AdminSession,
     request: Request,
     principal: NumberOperator,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> None:
+    # Step-up first (D-731): a released number can be taken by someone else at once.
+    step_up.require(x_confirm_action, release_number_confirmation(tenant_id, number_id))
     # One transaction for the release and its audit row. Unlike a purchase this may be
     # rolled back safely: both vendor steps treat an absent number as success, so the
     # retry an operator makes after a failed audit completes rather than compounds.

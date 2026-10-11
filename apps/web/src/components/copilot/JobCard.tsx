@@ -23,8 +23,8 @@ const STATUS_WORDS: Record<CopilotJobFrame["status"], string> = {
  * and — once it finishes — what it did.
  *
  * The job runs on after the answer ends, so this card reads its own progress (polled while
- * it runs, `useCopilotJob`). Steps that need the person's approval are named here and wait
- * in the Approvals inbox; nothing irreversible happens without them. The assistant's page
+ * it runs, `useCopilotJob`). Every change it reaches is named here and waits in the
+ * Approvals inbox (D-729); nothing changes without the person's click. The assistant's page
  * lists every task with the same progress (`JobProgress`).
  */
 export function JobCard({ session, job }: { session: Session; job: CopilotJobFrame }) {

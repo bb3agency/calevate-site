@@ -190,8 +190,21 @@ serif was taken (the brand decision wins).
   `open_days`; the setup has Hours and Days (default Mon – Sat, 9 am – 6 pm). The same sentence
   stays in the agent's instructions so it can say the hours. Older actions are read from their
   instructions and show "Any time" with a prompt to set hours.
-- **Notices on tokens.** `NOTICE_TONES` maps ok/warn/stop/neutral to brand-soft, warn, danger
-  and an ink wash; `NoticeBox` is `rounded-md px-4 py-3 text-body`.
+- **Notices are quiet (founder, 11 Oct 2026, superseding the tinted box).** The tinted card with
+  a border, an icon medallion, a bold coloured title and every line in the tone colour read as
+  AI-generated. Two patterns, by purpose:
+  - ONE MESSAGE: `NoticeBox`, a 2px tone rule (`NOTICE_BAR`) on white, title in ink, at most a
+    line of detail in muted ink, the one action inline at the end (`action`), explanation behind
+    an ⓘ (`info`). `icon` is accepted and not drawn. Errors (`ProblemNotice`) are the same bar:
+    what happened, what to do, "Try again" as a text action.
+  - SEVERAL STEPS OR BLOCKERS: `ChecklistRows` (`console/checklist`), a heading, then one row per
+    item: short label, status pill (Done, Waiting, Not started, Blocked, or a more exact word),
+    ⓘ, one action (`RowLink`, "Open ›").
+  - Site-wide strips (offline, maintenance, view-as pending) are `SITE_STRIP`: a hairline under
+    white with a tone dot. `NOTICE_TONES` (tinted) is for small marks only: pills, badges.
+  - Copy: one line plus one action, no em dashes, no "This account is…" narration; facts,
+    money statements and compliance sentences stay exact. `tests/noticeStyle.test.tsx` guards
+    the look, and rejects hand-rolled tinted notice cards.
 - **No resting shadows in the console kit** (`Card`, `StatTile`, card `Disclosure`, the live
   call panel and pill, the step flow). Marketing keeps `shadow-card`.
 - **`Fact`** is a plain muted label over a medium-weight value; the uppercase tracked label is

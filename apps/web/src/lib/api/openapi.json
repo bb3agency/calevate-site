@@ -1002,6 +1002,41 @@
         "title": "AdminCopilotAskIn",
         "type": "object"
       },
+      "AdminForwardingOut": {
+        "additionalProperties": false,
+        "properties": {
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/LineOut"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "recent_tests": {
+            "items": {
+              "$ref": "#/components/schemas/ForwardingTestOut"
+            },
+            "title": "Recent Tests",
+            "type": "array"
+          },
+          "save_number_enabled": {
+            "title": "Save Number Enabled",
+            "type": "boolean"
+          },
+          "save_number_sent": {
+            "title": "Save Number Sent",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lines",
+          "recent_tests",
+          "save_number_enabled",
+          "save_number_sent"
+        ],
+        "title": "AdminForwardingOut",
+        "type": "object"
+      },
       "AdminInvoiceOut": {
         "additionalProperties": false,
         "description": "The operator's copy: the client's document plus why it is not a tax invoice.\n\n`document_blockers` names the `GST_SUPPLIER_*` settings a registration would need, as\nan operator types them. It lives ONLY here (D-659): unset is the normal state while\nCalevate is below the registration threshold, and a settings name on a client's\nstatement is an internal, not an explanation.",
@@ -1483,6 +1518,30 @@
           "permissions"
         ],
         "title": "AdminMeOut",
+        "type": "object"
+      },
+      "AdminMovedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "number_id": {
+            "format": "uuid",
+            "title": "Number Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "moved",
+              "queued"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number_id",
+          "status"
+        ],
+        "title": "AdminMovedOut",
         "type": "object"
       },
       "AdminPlatformFeeOut": {
@@ -2324,6 +2383,14 @@
           "minutes": {
             "title": "Minutes",
             "type": "string"
+          },
+          "paid_margin_inr": {
+            "title": "Paid Margin Inr",
+            "type": "string"
+          },
+          "trial_cost_inr": {
+            "title": "Trial Cost Inr",
+            "type": "string"
           }
         },
         "required": [
@@ -2334,7 +2401,9 @@
           "charged_inr",
           "cost_inr",
           "margin_inr",
-          "cost_currency_assumed"
+          "cost_currency_assumed",
+          "trial_cost_inr",
+          "paid_margin_inr"
         ],
         "title": "AgentSpendOut",
         "type": "object"
@@ -3194,7 +3263,8 @@
               "action_broken",
               "lead_hot",
               "call_failed",
-              "credit_low"
+              "credit_low",
+              "forwarded_line_quiet"
             ],
             "title": "Kind",
             "type": "string"
@@ -4855,6 +4925,31 @@
         "title": "CalendarConnectOut",
         "type": "object"
       },
+      "CalevateNumberOut": {
+        "additionalProperties": false,
+        "properties": {
+          "answering": {
+            "title": "Answering",
+            "type": "boolean"
+          },
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "e164",
+          "answering"
+        ],
+        "title": "CalevateNumberOut",
+        "type": "object"
+      },
       "CallAssistOut": {
         "additionalProperties": false,
         "description": "One user-triggered re-summarise of a call (D-127 G-2/G-5/G-6).\n\n**EVERY FIELD IS REQUIRED \u2014 none carries a Pydantic default.** A default here\ngenerates an OPTIONAL property in the client this repo generates from OpenAPI, and\nall three of these are facts the screen has to state rather than shapes it may skip:\nan absent `disclosure` would render a Sarvam answer as the assistant's own (the one\noutcome G-6 rules out), and an absent `metered` would render \"this cost you nothing\"\nas the default for an assist that cost the allowance.\n\nNothing here is persisted. The stored `calls.summary` is the FIRST pass, over the raw\ntranscript; this is a second reading over the redacted copy, held for as long as the\nperson is looking at it (`crm/assist.py` argues why overwriting one with the other\nwould degrade the lead and rewrite history).",
@@ -5199,6 +5294,10 @@
             ],
             "title": "Caller E164"
           },
+          "caller_id_hidden": {
+            "title": "Caller Id Hidden",
+            "type": "boolean"
+          },
           "captured": {
             "items": {
               "$ref": "#/components/schemas/CapturedFieldOut"
@@ -5280,6 +5379,10 @@
           "extraction_valid": {
             "default": true,
             "title": "Extraction Valid",
+            "type": "boolean"
+          },
+          "forwarding_test": {
+            "title": "Forwarding Test",
             "type": "boolean"
           },
           "has_recording": {
@@ -5367,6 +5470,16 @@
             ],
             "title": "Outcome Tag"
           },
+          "quality": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallQualityOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "sentiment": {
             "anyOf": [
               {
@@ -5377,6 +5490,13 @@
               }
             ],
             "title": "Sentiment"
+          },
+          "signals": {
+            "items": {
+              "$ref": "#/components/schemas/CallSignalOut"
+            },
+            "title": "Signals",
+            "type": "array"
           },
           "started_at": {
             "anyOf": [
@@ -5482,10 +5602,14 @@
           "status",
           "summary_state",
           "test_call",
+          "caller_id_hidden",
+          "forwarding_test",
           "moments",
           "captured",
           "translation_state",
-          "language"
+          "language",
+          "quality",
+          "signals"
         ],
         "title": "CallDetailOut",
         "type": "object"
@@ -5655,6 +5779,146 @@
         "title": "CallMomentOut",
         "type": "object"
       },
+      "CallQualityOut": {
+        "additionalProperties": false,
+        "description": "How the call went, as the voice platform measured it once it ended. Any figure is\nnull when it could not be measured on that call.",
+        "properties": {
+          "backup_answers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backup Answers"
+          },
+          "first_token_ms_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Token Ms Max"
+          },
+          "first_token_ms_median": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Token Ms Median"
+          },
+          "first_token_ms_p90": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Token Ms P90"
+          },
+          "interruptions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interruptions"
+          },
+          "long_silences": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Long Silences"
+          },
+          "longest_silence_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Longest Silence S"
+          },
+          "model_errors": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Errors"
+          },
+          "reply_ms_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Ms Max"
+          },
+          "reply_ms_median": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Ms Median"
+          },
+          "reply_ms_p90": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Ms P90"
+          },
+          "turns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turns"
+          }
+        },
+        "title": "CallQualityOut",
+        "type": "object"
+      },
       "CallScript": {
         "additionalProperties": false,
         "description": "A whole agent script, structured \u2014 or a raw escape hatch, never both at once.\n\nONE MODEL, TWO SHAPES. `raw_override` is the escape hatch AND the lossless\nrepresentation of a legacy freeform prompt: when it is set, the compiler returns it\nverbatim and the structured fields are ignored, so nothing an author wrote in raw mode\nis reinterpreted, and a pre-structured `prompt_versions.body` round-trips exactly (see\n`from_freeform`). When it is None, the structured fields compile. A model validator\nforbids the ambiguous middle \u2014 structured content AND a raw override \u2014 because a row\nthat is half one and half the other has no single answer to \"what does this compile\nto\".\n\nThe `opening_line` here is the agent's GREETING, the client's own words, and it is a\nseparate thing from the two notices (D-163, D-708). The notices are composed by\n`compose_opening_line` from the agent's two switches; a notice that is switched on is\nsaid before this line, and with both off this line is the first thing a caller hears.\nNo switch adds, removes or replaces it. `engine.compose_first_utterance` joins the two\nfor an engine that speaks one greeting field.",
@@ -5803,6 +6067,42 @@
         "title": "CallScript",
         "type": "object"
       },
+      "CallSignalOut": {
+        "additionalProperties": false,
+        "description": "One thing the voice platform reported about the call: a problem while it was live, or\na lead taken or a hand-over to a person by its agent.",
+        "properties": {
+          "kind": {
+            "enum": [
+              "conversation_escalated",
+              "lead_captured",
+              "no_answer_from_model",
+              "own_key_failed",
+              "slow_reply",
+              "voice_failed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          }
+        },
+        "required": [
+          "kind",
+          "occurred_at"
+        ],
+        "title": "CallSignalOut",
+        "type": "object"
+      },
       "CallSpendOut": {
         "additionalProperties": false,
         "description": "One call, both directions.",
@@ -5874,6 +6174,10 @@
               }
             ],
             "title": "Started At"
+          },
+          "trial_covered": {
+            "title": "Trial Covered",
+            "type": "boolean"
           }
         },
         "required": [
@@ -5886,7 +6190,8 @@
           "charged_inr",
           "cost_inr",
           "margin_inr",
-          "cost_currency_assumed"
+          "cost_currency_assumed",
+          "trial_covered"
         ],
         "title": "CallSpendOut",
         "type": "object"
@@ -6600,6 +6905,11 @@
           "spend_used_inr": {
             "title": "Spend Used Inr",
             "type": "string"
+          },
+          "trial_active": {
+            "default": false,
+            "title": "Trial Active",
+            "type": "boolean"
           }
         },
         "required": [
@@ -6936,6 +7246,70 @@
           "changed"
         ],
         "title": "CarrierDecisionOut",
+        "type": "object"
+      },
+      "CarrierGuideOut": {
+        "additionalProperties": false,
+        "properties": {
+          "app_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Path"
+          },
+          "carrier": {
+            "title": "Carrier",
+            "type": "string"
+          },
+          "codes": {
+            "items": {
+              "$ref": "#/components/schemas/CodeOut"
+            },
+            "title": "Codes",
+            "type": "array"
+          },
+          "method": {
+            "enum": [
+              "codes",
+              "app",
+              "ask_provider"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "unconfirmed": {
+            "items": {
+              "$ref": "#/components/schemas/CodeSetOut"
+            },
+            "title": "Unconfirmed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "carrier",
+          "method",
+          "codes",
+          "unconfirmed",
+          "app_path",
+          "note"
+        ],
+        "title": "CarrierGuideOut",
         "type": "object"
       },
       "CarrierProbeOut": {
@@ -8173,6 +8547,112 @@
           "forfeited_credit_inr"
         ],
         "title": "ClosureOut",
+        "type": "object"
+      },
+      "CodeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "activate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activate"
+          },
+          "condition": {
+            "title": "Condition",
+            "type": "string"
+          },
+          "deactivate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deactivate"
+          },
+          "evidence": {
+            "enum": [
+              "carrier_own",
+              "standards_body",
+              "web_secondary"
+            ],
+            "title": "Evidence",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "condition",
+          "activate",
+          "deactivate",
+          "evidence",
+          "source"
+        ],
+        "title": "CodeOut",
+        "type": "object"
+      },
+      "CodeSetOut": {
+        "additionalProperties": false,
+        "properties": {
+          "codes": {
+            "items": {
+              "$ref": "#/components/schemas/CodeOut"
+            },
+            "title": "Codes",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "codes"
+        ],
+        "title": "CodeSetOut",
+        "type": "object"
+      },
+      "CodesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "carriers": {
+            "items": {
+              "$ref": "#/components/schemas/CarrierGuideOut"
+            },
+            "title": "Carriers",
+            "type": "array"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/CarrierGuideOut"
+          },
+          "read_on": {
+            "title": "Read On",
+            "type": "string"
+          },
+          "ring_time_source": {
+            "title": "Ring Time Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "carriers",
+          "provider",
+          "ring_time_source",
+          "read_on"
+        ],
+        "title": "CodesOut",
         "type": "object"
       },
       "CollectFieldOut": {
@@ -14381,6 +14861,218 @@
         "title": "EngineStateOut",
         "type": "object"
       },
+      "EntryChangeIn": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "approve",
+              "edit",
+              "add",
+              "retire"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "kind": {
+            "enum": [
+              "register",
+              "swap",
+              "filler",
+              "number_rule",
+              "punctuation",
+              "example",
+              "opening"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntryValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "action"
+        ],
+        "title": "EntryChangeIn",
+        "type": "object"
+      },
+      "EntryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "register",
+              "swap",
+              "filler",
+              "number_rule",
+              "punctuation",
+              "example",
+              "opening"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "file",
+              "added"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "published_value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntryValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "approved",
+              "needs_review",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unpublished": {
+            "title": "Unpublished",
+            "type": "boolean"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntryValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "key",
+          "status",
+          "origin",
+          "value",
+          "published_value",
+          "unpublished"
+        ],
+        "title": "EntryOut",
+        "type": "object"
+      },
+      "EntryValue": {
+        "additionalProperties": false,
+        "description": "One entry's value; which fields are set depends on the kind (register, opening,\nnumber_rule, punctuation: `text`; filler: `text` and `use`; swap: `formal`, `spoken`\nand `in_prompt`; example: `turns`).",
+        "properties": {
+          "formal": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formal"
+          },
+          "in_prompt": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "In Prompt"
+          },
+          "spoken": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spoken"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "maxLength": 600,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "turns": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TurnBody"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turns"
+          },
+          "use": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Use"
+          }
+        },
+        "title": "EntryValue",
+        "type": "object"
+      },
       "ErasureLimitationOut": {
         "additionalProperties": false,
         "description": "One thing the erasure did NOT destroy, and the rule that stopped it.\n\nModelled rather than left as prose because this is the part of the certificate a\nregulator tabulates: `outcome` is the machine-readable verdict\n(`retained_under_legal_floor`, `unconfirmed`, ...), `why` and `authority` are\nwritten for a reader with no access to this codebase, and `count` is populated\nwhere the erasure could count the affected rows and `None` where it could not.",
@@ -15941,6 +16633,25 @@
             "title": "Month",
             "type": "string"
           },
+          "paid_cost_inr": {
+            "title": "Paid Cost Inr",
+            "type": "string"
+          },
+          "paid_margin_inr": {
+            "title": "Paid Margin Inr",
+            "type": "string"
+          },
+          "paid_margin_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Margin Pct"
+          },
           "revenue_inr": {
             "title": "Revenue Inr",
             "type": "string"
@@ -15951,6 +16662,10 @@
             },
             "title": "Tenants",
             "type": "array"
+          },
+          "trial_cost_inr": {
+            "title": "Trial Cost Inr",
+            "type": "string"
           },
           "tts_plan": {
             "items": {
@@ -15974,6 +16689,10 @@
           "cost_inr",
           "margin_inr",
           "margin_pct",
+          "trial_cost_inr",
+          "paid_cost_inr",
+          "paid_margin_inr",
+          "paid_margin_pct",
           "ai_absorbed_inr",
           "tenants",
           "undecidable",
@@ -16025,6 +16744,25 @@
             "title": "Name",
             "type": "string"
           },
+          "paid_cost_inr": {
+            "title": "Paid Cost Inr",
+            "type": "string"
+          },
+          "paid_margin_inr": {
+            "title": "Paid Margin Inr",
+            "type": "string"
+          },
+          "paid_margin_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Margin Pct"
+          },
           "plan_tier": {
             "title": "Plan Tier",
             "type": "string"
@@ -16040,6 +16778,14 @@
           "tenant_id": {
             "title": "Tenant Id",
             "type": "string"
+          },
+          "trial_cost_inr": {
+            "title": "Trial Cost Inr",
+            "type": "string"
+          },
+          "trial_in_month": {
+            "title": "Trial In Month",
+            "type": "boolean"
           }
         },
         "required": [
@@ -16053,6 +16799,11 @@
           "cost_inr",
           "margin_inr",
           "margin_pct",
+          "trial_cost_inr",
+          "trial_in_month",
+          "paid_cost_inr",
+          "paid_margin_inr",
+          "paid_margin_pct",
           "ai_absorbed_inr",
           "ai_requests"
         ],
@@ -16092,6 +16843,166 @@
           "reason"
         ],
         "title": "FleetUndecidableOut",
+        "type": "object"
+      },
+      "ForwardingOut": {
+        "additionalProperties": false,
+        "properties": {
+          "calevate_numbers": {
+            "items": {
+              "$ref": "#/components/schemas/CalevateNumberOut"
+            },
+            "title": "Calevate Numbers",
+            "type": "array"
+          },
+          "concurrency_testable": {
+            "title": "Concurrency Testable",
+            "type": "boolean"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/LineOut"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "max_lines": {
+            "title": "Max Lines",
+            "type": "integer"
+          },
+          "testing_available": {
+            "title": "Testing Available",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "lines",
+          "calevate_numbers",
+          "testing_available",
+          "concurrency_testable",
+          "max_lines"
+        ],
+        "title": "ForwardingOut",
+        "type": "object"
+      },
+      "ForwardingTestOut": {
+        "additionalProperties": false,
+        "properties": {
+          "caller_id_finding": {
+            "anyOf": [
+              {
+                "enum": [
+                  "caller_shown",
+                  "business_number_shown",
+                  "other_number_shown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Id Finding"
+          },
+          "concurrency_finding": {
+            "anyOf": [
+              {
+                "enum": [
+                  "both_arrived",
+                  "one_arrived",
+                  "not_tested"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrency Finding"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "legs_placed": {
+            "title": "Legs Placed",
+            "type": "integer"
+          },
+          "line_id": {
+            "format": "uuid",
+            "title": "Line Id",
+            "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "arrived",
+                  "not_arrived",
+                  "answered_on_phone",
+                  "not_placed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "settled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settled At"
+          },
+          "status": {
+            "enum": [
+              "placing",
+              "ringing",
+              "settled",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "line_id",
+          "status",
+          "outcome",
+          "legs_placed",
+          "caller_id_finding",
+          "concurrency_finding",
+          "failure_code",
+          "created_at",
+          "settled_at"
+        ],
+        "title": "ForwardingTestOut",
         "type": "object"
       },
       "FxObservationOut": {
@@ -17815,6 +18726,29 @@
           "expires_at"
         ],
         "title": "ImpersonationGrantOut",
+        "type": "object"
+      },
+      "ImpersonationGrantRenewIn": {
+        "additionalProperties": false,
+        "properties": {
+          "renew": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Renew",
+            "type": "string"
+          },
+          "slug": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "renew"
+        ],
+        "title": "ImpersonationGrantRenewIn",
         "type": "object"
       },
       "ImproveIn": {
@@ -19981,6 +20915,171 @@
         "title": "LanesOut",
         "type": "object"
       },
+      "LanguageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "approved": {
+            "title": "Approved",
+            "type": "integer"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryOut"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/PublicationOut"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "publish_confirmation": {
+            "title": "Publish Confirmation",
+            "type": "string"
+          },
+          "register_name": {
+            "title": "Register Name",
+            "type": "string"
+          },
+          "review": {
+            "enum": [
+              "needs_native_review",
+              "native_reviewed"
+            ],
+            "title": "Review",
+            "type": "string"
+          },
+          "reviewed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By"
+          },
+          "reviewed_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed On"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "unpublished_changes": {
+            "title": "Unpublished Changes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "language",
+          "name",
+          "register_name",
+          "review",
+          "reviewed_by",
+          "reviewed_on",
+          "total",
+          "approved",
+          "unpublished_changes",
+          "entries",
+          "history",
+          "publish_confirmation"
+        ],
+        "title": "LanguageOut",
+        "type": "object"
+      },
+      "LanguageSummaryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "approved": {
+            "title": "Approved",
+            "type": "integer"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "register_name": {
+            "title": "Register Name",
+            "type": "string"
+          },
+          "review": {
+            "enum": [
+              "needs_native_review",
+              "native_reviewed"
+            ],
+            "title": "Review",
+            "type": "string"
+          },
+          "reviewed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By"
+          },
+          "reviewed_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed On"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "unpublished_changes": {
+            "title": "Unpublished Changes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "language",
+          "name",
+          "register_name",
+          "review",
+          "reviewed_by",
+          "reviewed_on",
+          "total",
+          "approved",
+          "unpublished_changes"
+        ],
+        "title": "LanguageSummaryOut",
+        "type": "object"
+      },
       "LatencyBudget": {
         "description": "The whole of TRD \u00a74, as one object, with the composed totals DERIVED.\n\nExists so a surface that judges a latency carries every target rather than the one leg\nit happens to summarise \u2014 the defect this model was written for is an operator screen\nprinting \"target for the first reply: 350 ms\" as though it were the budget, when it was\none of four legs inside a 1.1s voice-to-voice p50.\n\n**IT NOW ALSO CARRIES THE GAP**, because the budget no longer fits inside the target\n(see `latency_budget_composes`). `composes` and `voice_to_voice_headroom_p50_ms` are\ncomputed here and shipped, so the console states the shortfall in the operator's own\nwords instead of a CI job failing where no operator is looking.\n\nFROZEN, and every field defaults to the module constant above. It is a CARRIER, not a\nsecond declaration: nothing constructs it with different numbers, and a caller that\nwants the budget wants `LATENCY_BUDGET`.\n\nThe composed figures are `computed_field`s rather than plain properties so they reach\nthe wire \u2014 a browser that had to add the legs up itself would be computing a target,\nwhich is the one thing every surface here is forbidden to do.",
         "properties": {
@@ -22133,6 +23232,312 @@
         "title": "LifecycleOut",
         "type": "object"
       },
+      "LineChangeIn": {
+        "additionalProperties": false,
+        "properties": {
+          "calevate_number_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calevate Number Id"
+          },
+          "carrier": {
+            "enum": [
+              "airtel",
+              "jio",
+              "vi",
+              "bsnl",
+              "other"
+            ],
+            "title": "Carrier",
+            "type": "string"
+          },
+          "line_kind": {
+            "enum": [
+              "mobile",
+              "landline",
+              "office_system"
+            ],
+            "title": "Line Kind",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "conditional",
+              "all_calls"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "ring_seconds": {
+            "maximum": 30.0,
+            "minimum": 0.0,
+            "title": "Ring Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "line_kind",
+          "carrier",
+          "mode",
+          "ring_seconds"
+        ],
+        "title": "LineChangeIn",
+        "type": "object"
+      },
+      "LineIn": {
+        "additionalProperties": false,
+        "properties": {
+          "attest": {
+            "title": "Attest",
+            "type": "boolean"
+          },
+          "calevate_number_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calevate Number Id"
+          },
+          "carrier": {
+            "enum": [
+              "airtel",
+              "jio",
+              "vi",
+              "bsnl",
+              "other"
+            ],
+            "title": "Carrier",
+            "type": "string"
+          },
+          "line_kind": {
+            "enum": [
+              "mobile",
+              "landline",
+              "office_system"
+            ],
+            "title": "Line Kind",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "conditional",
+              "all_calls"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "number": {
+            "maxLength": 24,
+            "minLength": 6,
+            "title": "Number",
+            "type": "string"
+          },
+          "ring_seconds": {
+            "maximum": 30.0,
+            "minimum": 0.0,
+            "title": "Ring Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "number",
+          "line_kind",
+          "carrier",
+          "mode",
+          "ring_seconds",
+          "attest"
+        ],
+        "title": "LineIn",
+        "type": "object"
+      },
+      "LineOut": {
+        "additionalProperties": false,
+        "properties": {
+          "attested_at": {
+            "format": "date-time",
+            "title": "Attested At",
+            "type": "string"
+          },
+          "calevate_number_e164": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calevate Number E164"
+          },
+          "calevate_number_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calevate Number Id"
+          },
+          "caller_id_finding": {
+            "anyOf": [
+              {
+                "enum": [
+                  "caller_shown",
+                  "business_number_shown",
+                  "other_number_shown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Id Finding"
+          },
+          "carrier": {
+            "enum": [
+              "airtel",
+              "jio",
+              "vi",
+              "bsnl",
+              "other"
+            ],
+            "title": "Carrier",
+            "type": "string"
+          },
+          "concurrency_finding": {
+            "anyOf": [
+              {
+                "enum": [
+                  "both_arrived",
+                  "one_arrived",
+                  "not_tested"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrency Finding"
+          },
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_test_outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "arrived",
+                  "not_arrived",
+                  "answered_on_phone",
+                  "not_placed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test Outcome"
+          },
+          "last_tested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Tested At"
+          },
+          "line_kind": {
+            "enum": [
+              "mobile",
+              "landline",
+              "office_system"
+            ],
+            "title": "Line Kind",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "conditional",
+              "all_calls"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "quiet_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quiet Since"
+          },
+          "ring_seconds": {
+            "title": "Ring Seconds",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "untested",
+              "testing",
+              "working",
+              "not_working"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "e164",
+          "line_kind",
+          "carrier",
+          "mode",
+          "ring_seconds",
+          "calevate_number_id",
+          "calevate_number_e164",
+          "status",
+          "attested_at",
+          "last_tested_at",
+          "caller_id_finding",
+          "concurrency_finding",
+          "last_test_outcome",
+          "quiet_since"
+        ],
+        "title": "LineOut",
+        "type": "object"
+      },
       "LinkIn": {
         "additionalProperties": false,
         "properties": {
@@ -23125,6 +24530,27 @@
             "title": "Month",
             "type": "string"
           },
+          "paid_cost_inr": {
+            "default": "0.00",
+            "title": "Paid Cost Inr",
+            "type": "string"
+          },
+          "paid_margin_inr": {
+            "default": "0.00",
+            "title": "Paid Margin Inr",
+            "type": "string"
+          },
+          "paid_margin_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Margin Pct"
+          },
           "rental_revenue_inr": {
             "default": "0.00",
             "title": "Rental Revenue Inr",
@@ -23136,6 +24562,16 @@
           },
           "tiers": {
             "$ref": "#/components/schemas/TierSplitOut"
+          },
+          "trial_cost_inr": {
+            "default": "0.00",
+            "title": "Trial Cost Inr",
+            "type": "string"
+          },
+          "trial_in_month": {
+            "default": false,
+            "title": "Trial In Month",
+            "type": "boolean"
           }
         },
         "required": [
@@ -27333,42 +28769,47 @@
         "title": "ProvisionNumberIn",
         "type": "object"
       },
-      "PublishIn": {
+      "PublicationOut": {
         "additionalProperties": false,
         "properties": {
-          "expected_version": {
+          "note": {
             "anyOf": [
               {
-                "minimum": 1.0,
-                "type": "integer"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Expected Version"
+            "title": "Note"
           },
-          "script": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CallScript"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
           },
-          "summary": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Summary",
+          "published_by": {
+            "format": "uuid",
+            "title": "Published By",
+            "type": "string"
+          },
+          "reviewed_on": {
+            "title": "Reviewed On",
+            "type": "string"
+          },
+          "reviewer_name": {
+            "title": "Reviewer Name",
             "type": "string"
           }
         },
         "required": [
-          "summary"
+          "reviewer_name",
+          "reviewed_on",
+          "published_at",
+          "published_by",
+          "note"
         ],
-        "title": "PublishIn",
+        "title": "PublicationOut",
         "type": "object"
       },
       "PurchaseIn": {
@@ -30018,6 +31459,34 @@
         "title": "SaveIn",
         "type": "object"
       },
+      "SaveNumberIn": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "SaveNumberIn",
+        "type": "object"
+      },
+      "SaveNumberOut": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "SaveNumberOut",
+        "type": "object"
+      },
       "SaveScriptIn": {
         "additionalProperties": false,
         "properties": {
@@ -32146,6 +33615,23 @@
         "title": "SpendSeriesOut",
         "type": "object"
       },
+      "SpokenStyleOut": {
+        "additionalProperties": false,
+        "properties": {
+          "languages": {
+            "items": {
+              "$ref": "#/components/schemas/LanguageSummaryOut"
+            },
+            "title": "Languages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "languages"
+        ],
+        "title": "SpokenStyleOut",
+        "type": "object"
+      },
       "StaffCurationIn": {
         "additionalProperties": false,
         "description": "The whole of the resource, which is what makes this a PUT rather than a PATCH \u2014\n`LlmDefaultIn`'s argument, one field further down.",
@@ -32713,6 +34199,35 @@
           "title"
         ],
         "title": "StatusPostIn",
+        "type": "object"
+      },
+      "StepUpVerifyIn": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "code": {
+            "maxLength": 16,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "StepUpVerifyIn",
         "type": "object"
       },
       "StruggleOut": {
@@ -35030,6 +36545,25 @@
             "title": "Month",
             "type": "string"
           },
+          "paid_cost_inr": {
+            "title": "Paid Cost Inr",
+            "type": "string"
+          },
+          "paid_margin_inr": {
+            "title": "Paid Margin Inr",
+            "type": "string"
+          },
+          "paid_margin_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Margin Pct"
+          },
           "period_charge_inr": {
             "title": "Period Charge Inr",
             "type": "string"
@@ -35080,6 +36614,22 @@
             "title": "Top Calls Truncated",
             "type": "boolean"
           },
+          "trial_calls": {
+            "title": "Trial Calls",
+            "type": "integer"
+          },
+          "trial_cost_inr": {
+            "title": "Trial Cost Inr",
+            "type": "string"
+          },
+          "trial_in_month": {
+            "title": "Trial In Month",
+            "type": "boolean"
+          },
+          "trial_minutes": {
+            "title": "Trial Minutes",
+            "type": "string"
+          },
           "unattributed": {
             "anyOf": [
               {
@@ -35102,6 +36652,13 @@
           "cost_inr",
           "margin_inr",
           "margin_pct",
+          "trial_cost_inr",
+          "trial_calls",
+          "trial_minutes",
+          "trial_in_month",
+          "paid_cost_inr",
+          "paid_margin_inr",
+          "paid_margin_pct",
           "period_charge_inr",
           "itemised_charge_inr",
           "itemisation_residual_inr",
@@ -36761,6 +38318,11 @@
             ],
             "title": "Lang"
           },
+          "likely_cut_off": {
+            "default": false,
+            "title": "Likely Cut Off",
+            "type": "boolean"
+          },
           "redacted": {
             "default": true,
             "title": "Redacted",
@@ -36909,6 +38471,58 @@
         "title": "TrialEndIn",
         "type": "object"
       },
+      "TrialLineOut": {
+        "additionalProperties": false,
+        "description": "The shared number's own line: a never-answering agent that speaks our message.",
+        "properties": {
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "message_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Note"
+          },
+          "state": {
+            "enum": [
+              "ready",
+              "no_number",
+              "no_agent",
+              "not_attached",
+              "drifted",
+              "unavailable"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "wanted_message": {
+            "title": "Wanted Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "message",
+          "message_note",
+          "wanted_message"
+        ],
+        "title": "TrialLineOut",
+        "type": "object"
+      },
       "TrialNumberCandidateOut": {
         "additionalProperties": false,
         "properties": {
@@ -37004,13 +38618,24 @@
           "engine_uses_it": {
             "title": "Engine Uses It",
             "type": "boolean"
+          },
+          "line": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrialLineOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "current",
           "current_held",
           "engine_uses_it",
-          "candidates"
+          "candidates",
+          "line"
         ],
         "title": "TrialNumberOut",
         "type": "object"
@@ -38119,6 +39744,30 @@
           "fleet"
         ],
         "title": "TtsSpeakingRateOut",
+        "type": "object"
+      },
+      "TurnBody": {
+        "additionalProperties": false,
+        "properties": {
+          "speaker": {
+            "enum": [
+              "caller",
+              "agent"
+            ],
+            "title": "Speaker",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 300,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "speaker",
+          "text"
+        ],
+        "title": "TurnBody",
         "type": "object"
       },
       "UnattributedSpendOut": {
@@ -40176,6 +41825,44 @@
         "title": "PublishOut",
         "type": "object"
       },
+      "apps__api__agents__script_routes__PublishIn": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          },
+          "script": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallScript"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summary": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary"
+        ],
+        "title": "PublishIn",
+        "type": "object"
+      },
       "apps__api__agents__script_routes__PublishOut": {
         "additionalProperties": false,
         "properties": {
@@ -40514,6 +42201,34 @@
           "documents"
         ],
         "title": "KycRecordOut",
+        "type": "object"
+      },
+      "apps__api__ops__spoken_style_routes__PublishIn": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "reviewer_name": {
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Reviewer Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reviewer_name"
+        ],
+        "title": "PublishIn",
         "type": "object"
       },
       "apps__api__teach__routes__TestTurnOut": {
@@ -41108,7 +42823,7 @@
     },
     "/v1/admin/copilot/actions/{action_id}/undo": {
       "post": {
-        "description": "The admin twin of `POST /v1/copilot/actions/{id}/undo`. Every admin action is\nconfirm-tier today, so this answers `409 copilot_action_not_undoable` for each of them \u2014\nand `404` for an id that is not this operator's \u2014 and is where a reversible admin action\nlands without a second mechanism.",
+        "description": "The admin twin of `POST /v1/copilot/actions/{id}/undo`. Every admin action is\nconfirm-tier today, so this answers `409 copilot_action_not_undoable` for each of them \u2014\nand `404` for an id that is not this operator's \u2014 and is where a reversible admin action\nlands without a second mechanism. Step-up (D-731): an undo is itself a platform change,\nand it takes the same second factor the change it reverses did.",
         "operationId": "undo_admin_copilot_action_v1_admin_copilot_actions__action_id__undo_post",
         "parameters": [
           {
@@ -41119,6 +42834,22 @@
               "format": "uuid",
               "title": "Action Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
             }
           }
         ],
@@ -41641,6 +43372,22 @@
               "title": "Tenant Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
           }
         ],
         "requestBody": {
@@ -41739,6 +43486,73 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/{number_id}/move": {
+      "post": {
+        "description": "For a number held in the platform account, or in a workspace the client no longer uses: it moves into the client's own workspace with the same digits, instead of releasing it and buying new ones, and is pointed at the client's agent again. A rented number is charged to the client from its next renewal. Refused until the client's business details are approved (an Indian number is held in the name of the business using it). A number on a call is moved once the call ends.",
+        "operationId": "admin_move_v1_admin_engine_workspaces_tenants__tenant_id__numbers__number_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Number Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminMovedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Move a number into the client's own voice workspace, keeping its digits",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/{number_id}/release": {
       "post": {
         "description": "Permanent: the number goes back to the pool and anybody may take it next; the current month is not refunded by the platform or to the client. The client's monthly charge stops. A number held in the platform account (testing) is released only here. Requires `confirm: true`.",
@@ -41762,6 +43576,22 @@
               "format": "uuid",
               "title": "Number Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
             }
           }
         ],
@@ -41814,6 +43644,22 @@
               "title": "Tenant Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
           }
         ],
         "responses": {
@@ -41854,6 +43700,22 @@
               "title": "Tenant Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
           }
         ],
         "responses": {
@@ -41881,9 +43743,62 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/forwarding/tenants/{tenant_id}": {
+      "get": {
+        "description": "Read under the tenant's own RLS, and the read recorded (SEC-COMP \u00a75).",
+        "operationId": "admin_forwarding_v1_admin_forwarding_tenants__tenant_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminForwardingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One client's forwarded numbers, their findings and latest tests",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/impersonation-grants": {
       "post": {
-        "description": "Begins a 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant and expires in minutes.\n\nThe session may CHANGE the account, not only read it, and every change is recorded against you: the audit row names your operator id, the client, and this grant. What it may not do is spend the client's money or AI allowance, grant anyone access to their account, give a consent, accept an agreement or file an erasure \u2014 those stay with the client, and the platform surfaces stay in the operator console.\n\nSTARTING a view-as session needs step-up: a second factor proved in the last 30 minutes AND the header `X-Confirm-Action: view_as:<slug>`. EXTENDING one does not \u2014 send the grant currently held as `renew` and it is continued, for up to an hour from the second factor that started it.",
+        "description": "Begins a 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant and expires in minutes.\n\nThe session may CHANGE the account, not only read it, and every change is recorded against you: the audit row names your operator id, the client, and this grant. What it may not do is spend the client's money or AI allowance, grant anyone access to their account, give a consent, accept an agreement or file an erasure \u2014 those stay with the client, and the platform surfaces stay in the operator console.\n\nSTARTING a view-as session needs a code entered for it (D-730): request one at `POST /v1/auth/admin/step-up`, answer it at `/v1/auth/admin/step-up/verify` with `action: view_as:<slug>`, then send this request with the header `X-Confirm-Action: view_as:<slug>`. The proof is spent by the mint it was typed for, and this route is accepted from the operator console's origin only. EXTENDING a session takes no code \u2014 send the grant currently held as `renew`, here or at `/impersonation-grants/renew`, and it is continued for up to an hour from the code that started it.",
         "operationId": "mint_impersonation_grant_v1_admin_impersonation_grants_post",
         "parameters": [
           {
@@ -41932,6 +43847,45 @@
           }
         },
         "summary": "Mint the short-lived grant a view-as session needs (D-22, D-587)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:impersonate"
+      }
+    },
+    "/v1/admin/impersonation-grants/renew": {
+      "post": {
+        "description": "Continues a view-as session from the grant currently held, for up to an hour from the code that started it. It never STARTS one: a missing, foreign, expired or out-of-window grant is refused, and the operator re-enters the client from the operator console. This is the one grant route the client console may call.",
+        "operationId": "renew_impersonation_grant_v1_admin_impersonation_grants_renew_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImpersonationGrantRenewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImpersonationGrantOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Extend a view-as session the operator already holds (D-730)",
         "tags": [
           "admin"
         ],
@@ -42293,6 +44247,22 @@
               "title": "Tenant Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
           }
         ],
         "requestBody": {
@@ -42506,6 +44476,22 @@
               "format": "uuid",
               "title": "Number Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
             }
           }
         ],
@@ -43167,6 +45153,24 @@
     "/v1/admin/payments/reconcile": {
       "post": {
         "operationId": "run_reconciliation_v1_admin_payments_reconcile_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -43583,6 +45587,24 @@
       "post": {
         "description": "The audit row is the birth transaction's LAST WRITE, not a second transaction.\n\n`on_created` is the hook `admin/service.py` already exposes for exactly this and\nself-serve signup already uses (`tenancy/signup.py::_audit`); the wizard was writing\nits row afterwards, on a different session, which is a second way of doing one thing\nand \u2014 when that write is the one that fails \u2014 a client account whose creation nobody\nrecorded. Same transaction now: the tenant and the record of who created it commit\ntogether or not at all.\n\nThe `global_db` dependency this route used to carry went with it: it existed only to\ngive the second transaction a session, and a dependency nobody reads is a session\nopened per request for nothing.",
         "operationId": "create_tenant_v1_admin_tenants_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -44598,6 +46620,47 @@
           "admin"
         ],
         "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/business-type/suggest": {
+      "post": {
+        "description": "Queues one AI suggestion for a client whose business type nobody has chosen. The suggestion replaces any on file and changes nothing by itself. Refused when the type is already chosen or the platform-wide AI brake is on.",
+        "operationId": "suggest_business_type_again_v1_admin_tenants__tenant_id__business_type_suggest_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessTypeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask the AI to suggest the client's business type again",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "ops:manage"
       }
     },
     "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
@@ -45815,6 +47878,22 @@
               "title": "Flag",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
           }
         ],
         "requestBody": {
@@ -45971,6 +48050,22 @@
               "format": "uuid",
               "title": "Tenant Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
             }
           }
         ],
@@ -46384,6 +48479,22 @@
               "format": "uuid",
               "title": "Tenant Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
             }
           }
         ],
@@ -46905,6 +49016,22 @@
               "title": "User Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
           }
         ],
         "requestBody": {
@@ -46955,6 +49082,22 @@
               "format": "uuid",
               "title": "Tenant Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
             }
           }
         ],
@@ -47246,6 +49389,22 @@
               "title": "Tenant Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
           }
         ],
         "requestBody": {
@@ -47306,6 +49465,22 @@
               "format": "uuid",
               "title": "Charge Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
             }
           }
         ],
@@ -47740,6 +49915,22 @@
               "format": "uuid",
               "title": "Tenant Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
             }
           }
         ],
@@ -49891,7 +52082,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PublishIn"
+                "$ref": "#/components/schemas/apps__api__agents__script_routes__PublishIn"
               }
             }
           },
@@ -50946,7 +53137,7 @@
     },
     "/v1/auth/admin/step-up": {
       "post": {
-        "description": "The first half of C-09 (D-178).\n\nADMIN REALM ONLY, declared rather than refused \u2014 same structural choice as\n`/bootstrap/confirm`. The client realm requires no second factor\n(`service.MFA_REQUIRED_REALMS`), so a client-realm step-up would be a route\nwith nothing to re-prove and nobody to call it.\n\nDepends on `authed`, not `live`: step-up RE-proves a factor, so a session that\nhas never proved one is at the ordinary sign-in gate, not this one.",
+        "description": "The first half of C-09 (D-178), on both realms since D-730.\n\nOn the admin realm the answer re-proves the second factor. On the client realm,\nwhich has no second factor (`service.MFA_REQUIRED_REALMS`), the code is asked for\nby the few actions that hand out a client's data or credentials, and answering it\nbuys one proof for the action it names.\n\nDepends on `authed`, not `live`: step-up RE-proves a factor, so a session that has\nnever proved one is at the ordinary sign-in gate, not this one.",
         "operationId": "step_up_request_v1_auth_admin_step_up_post",
         "responses": {
           "202": {
@@ -50959,7 +53150,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Email a code to re-prove this operator's second factor before a dangerous action",
+        "summary": "Email a code to confirm it is still you before a dangerous action",
         "tags": [
           "auth-admin"
         ]
@@ -50967,13 +53158,13 @@
     },
     "/v1/auth/admin/step-up/verify": {
       "post": {
-        "description": "Rotates the session \u2014 see `service.complete_step_up` on why re-proving a\nfactor is a privilege change and why it cannot extend the absolute bound.",
+        "description": "On the admin realm this rotates the session \u2014 see `service.complete_step_up` on\nwhy re-proving a factor is a privilege change and why it cannot extend the absolute\nbound. On both realms, a named `action` is recorded as a single-use proof that the\nroute for that action spends (`stepup.record_action_proof`, D-730).",
         "operationId": "step_up_verify_v1_auth_admin_step_up_verify_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SecondFactorIn"
+                "$ref": "#/components/schemas/StepUpVerifyIn"
               }
             }
           },
@@ -50997,7 +53188,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Answer the step-up code, restamping this session's second factor",
+        "summary": "Answer the step-up code, optionally for one named action",
         "tags": [
           "auth-admin"
         ]
@@ -51571,6 +53762,65 @@
           }
         },
         "summary": "Email a code to create an account (answers the same for any address)",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/step-up": {
+      "post": {
+        "description": "The first half of C-09 (D-178), on both realms since D-730.\n\nOn the admin realm the answer re-proves the second factor. On the client realm,\nwhich has no second factor (`service.MFA_REQUIRED_REALMS`), the code is asked for\nby the few actions that hand out a client's data or credentials, and answering it\nbuys one proof for the action it names.\n\nDepends on `authed`, not `live`: step-up RE-proves a factor, so a session that has\nnever proved one is at the ordinary sign-in gate, not this one.",
+        "operationId": "step_up_request_v1_auth_client_step_up_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Email a code to confirm it is still you before a dangerous action",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/step-up/verify": {
+      "post": {
+        "description": "On the admin realm this rotates the session \u2014 see `service.complete_step_up` on\nwhy re-proving a factor is a privilege change and why it cannot extend the absolute\nbound. On both realms, a named `action` is recorded as a single-use proof that the\nroute for that action spends (`stepup.record_action_proof`, D-730).",
+        "operationId": "step_up_verify_v1_auth_client_step_up_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StepUpVerifyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Answer the step-up code, optionally for one named action",
         "tags": [
           "auth-client"
         ]
@@ -53168,6 +55418,22 @@
               "default": true,
               "title": "Test Calls",
               "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
             }
           }
         ],
@@ -56243,6 +58509,391 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/forwarding": {
+      "get": {
+        "operationId": "get_forwarding_v1_forwarding_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForwardingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Your existing numbers, how they forward, and whether the forward works",
+        "tags": [
+          "forwarding"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/forwarding/codes": {
+      "get": {
+        "operationId": "get_codes_v1_forwarding_codes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How to switch forwarding on and off, per carrier, with each code's source",
+        "tags": [
+          "forwarding"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/forwarding/lines": {
+      "post": {
+        "operationId": "add_line_v1_forwarding_lines_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LineIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Add the number your callers already know, confirming it is your business's",
+        "tags": [
+          "forwarding"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/forwarding/lines/{line_id}": {
+      "delete": {
+        "operationId": "remove_line_v1_forwarding_lines__line_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Stop tracking an existing number",
+        "tags": [
+          "forwarding"
+        ],
+        "x-calevate-permission": "org:manage"
+      },
+      "patch": {
+        "operationId": "change_line_v1_forwarding_lines__line_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LineChangeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Change how an existing number forwards",
+        "tags": [
+          "forwarding"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/forwarding/lines/{line_id}/tests": {
+      "get": {
+        "operationId": "list_tests_v1_forwarding_lines__line_id__tests_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ForwardingTestOut"
+                  },
+                  "title": "Response List Tests V1 Forwarding Lines  Line Id  Tests Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The latest forwarding tests of one number",
+        "tags": [
+          "forwarding"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "operationId": "run_test_v1_forwarding_lines__line_id__tests_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForwardingTestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ring your existing number from our side to check it forwards to your agent",
+        "tags": [
+          "forwarding"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/forwarding/save-number": {
+      "get": {
+        "operationId": "get_save_number_v1_forwarding_save_number_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveNumberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether callers who book get one WhatsApp asking them to save your number",
+        "tags": [
+          "forwarding"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "put": {
+        "operationId": "put_save_number_v1_forwarding_save_number_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveNumberIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveNumberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Switch the save-our-number WhatsApp on or off",
+        "tags": [
+          "forwarding"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/healer/fallback-phone": {
       "delete": {
         "operationId": "delete_fallback_phone_v1_healer_fallback_phone_delete",
@@ -56630,6 +59281,24 @@
       },
       "post": {
         "operationId": "create_credential_v1_integrations_credentials_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -56710,6 +59379,22 @@
               "format": "uuid",
               "title": "Credential Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
             }
           }
         ],
@@ -56924,6 +59609,24 @@
       "post": {
         "description": "Register a webhook endpoint. Two things happen here that did not used to.\n\n**The destination is vetted before the row exists.** `assert_public_http_url` resolves\nthe host and refuses loopback, link-local, private, multicast, reserved and\nunroutable addresses, and any port but 80/443 \u2014 see `egress_guard` for the bypass\nclasses and the evidence. It is checked AGAIN in `service.deliver`, because the name\nis one the tenant controls the DNS for and this row outlives the lookup.\n\n**And the registration is audited.** Deactivating an endpoint wrote an `audit_log`\nrow while CREATING one wrote nothing, which had it exactly backwards: registration\nis the act that starts a client's lead PII leaving their tenant, and it was the act\nwith no record of who performed it. Written in the SAME transaction as the INSERT,\nso an endpoint cannot exist without the row naming who made it.\n\nThe summary records the HOST, never the URL. A webhook URL's path and query are\ntenant-authored free text and routinely carry a bearer credential (`?apikey=\u2026`); an\naudit trail that quoted the whole thing would leak the secret it exists to attest\n(hard rule 6). The host is the fact an investigator needs \u2014 where the leads went.",
         "operationId": "create_endpoint_v1_integrations_endpoints_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -56963,6 +59666,24 @@
       "post": {
         "description": "Deliver events to a Google Sheet, written by the account's own Google Sheets connection. Accepts the spreadsheet picked in Google's file picker (its id or URL), the connection, and the events to subscribe to. Refused with `sheets_delivery_unavailable` where Google Sheets delivery is not enabled.",
         "operationId": "create_sheets_endpoint_v1_integrations_endpoints_sheets_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -59612,6 +62333,22 @@
               "title": "F",
               "type": "array"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
           }
         ],
         "responses": {
@@ -59634,6 +62371,24 @@
       "post": {
         "description": "The SAME filters `GET /v1/leads` takes, with the same meanings, so \"export what I\nam looking at\" is expressible. It accepted `agent_id` alone once, so a client who\nfiltered the table to `hot` and pressed Export downloaded every contact in the account\nwith full numbers \u2014 the widest possible read of the narrowest possible request.\nWidening the filters does NOT widen the gate: this stays `calls:read_raw` and stays\naudited, and a narrower request is not a cheaper permission.\n\nThe COLUMN CHOOSER and the FACETS mean exactly what they mean on the list \u2014 see\n`_COLUMNS_Q` for why an unknown column is dropped and an unknown facet is refused.\nThat mirroring is a correctness requirement here rather than a nicety: the screen and\nthe file must not disagree about which rows and which columns, because the file is the\none carrying the whole contact list out of the building in a single click.",
         "operationId": "export_leads_v1_leads_export_csv_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -63508,6 +66263,195 @@
         "x-calevate-permission": "platform:secrets"
       }
     },
+    "/v1/ops/spoken-style": {
+      "get": {
+        "operationId": "list_spoken_styles_v1_ops_spoken_style_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpokenStyleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every language's spoken style: review state and counts",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/spoken-style/{language}": {
+      "get": {
+        "operationId": "read_spoken_style_v1_ops_spoken_style__language__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "language",
+            "required": true,
+            "schema": {
+              "maxLength": 16,
+              "pattern": "^[a-z]{2,3}-[A-Z]{2}$",
+              "title": "Language",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LanguageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One language's spoken style, entry by entry",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/spoken-style/{language}/entries": {
+      "post": {
+        "description": "Changes the working copy only; nothing reaches an agent until the language is published. An edit or an addition counts as the reviewer's approval.",
+        "operationId": "change_entry_v1_ops_spoken_style__language__entries_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "language",
+            "required": true,
+            "schema": {
+              "maxLength": 16,
+              "pattern": "^[a-z]{2,3}-[A-Z]{2}$",
+              "title": "Language",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntryChangeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LanguageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Approve, edit, add or retire one spoken-style entry (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/spoken-style/{language}/publish": {
+      "post": {
+        "description": "Every entry change of this language so far becomes what prompts, starters and the script writer read, stamped with the reviewer's name, and every live agent is republished with it (live apply, scope platform). Requires `X-Confirm-Action: publish_spoken_style:<language>`.",
+        "operationId": "publish_spoken_style_v1_ops_spoken_style__language__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "language",
+            "required": true,
+            "schema": {
+              "maxLength": 16,
+              "pattern": "^[a-z]{2,3}-[A-Z]{2}$",
+              "title": "Language",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/apps__api__ops__spoken_style_routes__PublishIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LanguageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Publish a language's reviewed spoken style to every live agent (step-up, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
     "/v1/ops/tenants/{tenant_id}/spend-cap/recompute": {
       "post": {
         "description": "Recomputes `spend_state.capped` from the minutes and spend ALREADY metered this month against the ceiling now in force. Use it after raising `plans.hard_cap_min` / `hard_cap_spend` for a capped client: the flag is a derived column and raising the ceiling does not by itself release the gate. It never sets the flag directly and never moves a counter, so a tenant still over their ceiling stays capped. Inbound calling is unaffected either way.",
@@ -63587,6 +66531,53 @@
           }
         },
         "summary": "The shared free-trial number, and the platform-held numbers that may be it",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/trial-number/line": {
+      "post": {
+        "description": "Makes (or repairs) the one agent in our developer workspace that never answers and speaks the trial line's message, and makes it the shared number's line. Idempotent; the daily number sweep does the same.",
+        "operationId": "set_up_trial_line_v1_ops_trial_number_line_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrialLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set up what a caller ringing the shared trial number back hears",
         "tags": [
           "ops"
         ],

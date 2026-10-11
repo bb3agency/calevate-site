@@ -2,7 +2,6 @@
 
 import { Section } from "@/components/console/section";
 import { useState } from "react";
-import { AlertTriangle } from "lucide-react";
 
 import {
   FIELD,
@@ -195,7 +194,7 @@ export function ScrubForm({
         />
 
         {blocked && (
-          <NoticeBox tone="warn" icon={<AlertTriangle className="h-5 w-5" />}>
+          <NoticeBox tone="warn">
             <p>{blocked}</p>
           </NoticeBox>
         )}

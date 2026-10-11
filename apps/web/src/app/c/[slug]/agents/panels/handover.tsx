@@ -50,7 +50,6 @@ import { InfoTip } from "@/components/console/infoTip";
 import {
   FIELD,
   FIELD_LABEL,
-  NOTICE_TONES,
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
@@ -58,6 +57,8 @@ import {
   Skeleton,
   ToggleSwitch,
   formatIST,
+  NOTICE_BAR,
+  NOTICE_BASE,
 } from "@/components/ui";
 import {
   useHandoff,
@@ -217,12 +218,12 @@ export function Handover({ agent }: { agent: Agent }) {
         </div>
 
         {data.unavailable_reason ? (
-          <div className="mt-4 rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-sm text-ink">
+          <div className={`mt-4 ${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
             <p className="font-medium">Nobody is available to take a call right now.</p>
-            {data.remediation && <p className="mt-1">{data.remediation}</p>}
+            {data.remediation && <p className="text-ink-muted">{data.remediation}</p>}
           </div>
         ) : (
-          <p className={`mt-4 rounded-md px-3 py-2 text-sm ${NOTICE_TONES.ok}`}>
+          <p className={`mt-4 ${NOTICE_BASE} ${NOTICE_BAR.ok}`}>
             A caller asking for a person right now would reach{" "}
             <strong>
               {data.members.find((member) => member.id === data.on_duty_member_id)?.label ??

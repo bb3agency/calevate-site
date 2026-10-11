@@ -132,6 +132,7 @@ server {
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
     include /etc/nginx/snippets/calevate-tls.conf;
+    include /etc/nginx/snippets/calevate-origin-pull-${CF_ORIGIN_PULL}.conf;
     include /etc/nginx/snippets/calevate-origin.conf;
     include /etc/nginx/snippets/calevate-headers.conf;
 
@@ -192,6 +193,16 @@ server {
     # are sent to. `admin.` serves it and nothing else does.
     location ^~ /auth/admin { return 404; }
 
+    # SIGNUP, INVITATION ACCEPTANCE AND THE OAUTH CALLBACKS LIVE ON `app.` ONLY (D-732).
+    # The API credentials the apex for `/v1/auth/` and `/v1/public/` and nothing else, so
+    # these pages are sent to the client console, query string and all, rather than served
+    # here. 301: the move is permanent.
+    location ^~ /signup                 { return 301 https://app.${ROOT_DOMAIN}$request_uri; }
+    location ^~ /invite                 { return 301 https://app.${ROOT_DOMAIN}$request_uri; }
+    location ^~ /auth/accept-invitation { return 301 https://app.${ROOT_DOMAIN}$request_uri; }
+    location ^~ /auth/google/callback   { return 301 https://app.${ROOT_DOMAIN}$request_uri; }
+    location ^~ /oauth/callback         { return 301 https://app.${ROOT_DOMAIN}$request_uri; }
+
     # BUILD ASSETS ARE NOT RATE-LIMITED, and this location exists because the limiter was
     # firing on them. Every path here is content-addressed by Next's build hash
     # (`/_next/static/chunks/9926-8fef8aebe910ff85.js`), immutable, and served with
@@ -242,6 +253,7 @@ server {
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
     include /etc/nginx/snippets/calevate-tls.conf;
+    include /etc/nginx/snippets/calevate-origin-pull-${CF_ORIGIN_PULL}.conf;
     include /etc/nginx/snippets/calevate-origin.conf;
     include /etc/nginx/snippets/calevate-headers.conf;
 
@@ -303,6 +315,7 @@ server {
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
     include /etc/nginx/snippets/calevate-tls.conf;
+    include /etc/nginx/snippets/calevate-origin-pull-${CF_ORIGIN_PULL}.conf;
     include /etc/nginx/snippets/calevate-origin.conf;
     include /etc/nginx/snippets/calevate-headers.conf;
 
@@ -443,6 +456,7 @@ server {
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
     include /etc/nginx/snippets/calevate-tls.conf;
+    include /etc/nginx/snippets/calevate-origin-pull-${CF_ORIGIN_PULL}.conf;
     include /etc/nginx/snippets/calevate-origin.conf;
     include /etc/nginx/snippets/calevate-headers.conf;
 
@@ -559,6 +573,7 @@ server {
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
     include /etc/nginx/snippets/calevate-tls.conf;
+    include /etc/nginx/snippets/calevate-origin-pull-${CF_ORIGIN_PULL}.conf;
     include /etc/nginx/snippets/calevate-origin.conf;
     include /etc/nginx/snippets/calevate-headers.conf;
 
@@ -654,6 +669,7 @@ server {
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
     include /etc/nginx/snippets/calevate-tls.conf;
+    include /etc/nginx/snippets/calevate-origin-pull-${CF_ORIGIN_PULL}.conf;
     include /etc/nginx/snippets/calevate-origin.conf;
     include /etc/nginx/snippets/calevate-headers.conf;
 

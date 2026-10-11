@@ -20,7 +20,10 @@ A RUN, in a worker (`apps/workers/agent_test_conversations.py`):
 4. **An AI judge** on the same chain reads the agent's pinned facts, knowledge titles and
    script, and gives each scenario a verdict, a one-line reason and the kind of fix. The
    deterministic checks stay where a fact decides (`hard_check`): a retired action used, the
-   opt-out action not used or not recorded, and textbook words from the spoken-style list.
+   opt-out action not used or not recorded, and every reply as speech (`agents/turn_checks`:
+   textbook words from the spoken-style list, brackets and symbols, the time, prices in
+   digits, the caller's part, a repeated, second or unmarked question, more than two
+   sentences), each of which fails the scenario before the judge.
 
 "IMPROVE MY AGENT" (`apps/workers/agent_test_ai.propose_improvement`) turns the failures
 into script edits (step ids kept, reviewed change by change in the builder's proposal
@@ -54,6 +57,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import handoff, script_builder
+from apps.api.agents.turn_checks import PLATFORM_KINDS, TurnProblem, formal_swaps, turn_problems
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.engine import get_engine
@@ -205,8 +209,93 @@ _STANDARD_NOT_INTERESTED: Final[dict[str, str]] = {
 }
 
 
+#: Callers who draw out the failures of the 11 Oct 2026 call (D-739): an answer too vague
+#: to act on, a caller with little interest, a price and quantity question (which tempts
+#: "₹450" and "2 kg" and textbook words), and one who goes quiet. Each is two turns so
+#: the second reply shows whether the agent asks one thing and waits, or piles on questions.
+#: The test chat cannot send silence, so "goes quiet" sends the filler a phone line
+#: transcribes when someone says nothing much.
+_STANDARD_SHAPE: Final[dict[str, tuple[str, tuple[dict[str, str], dict[str, str]], str]]] = {
+    "vague_answer": (
+        "Answers vaguely",
+        (
+            {
+                "te-IN": "మీ దగ్గర మిర్చి ఉందా అండి?",
+                "hi-IN": "आपके पास मिर्च है क्या?",
+                "en-IN": "Do you have chilli?",
+            },
+            {"te-IN": "ఒకటి చాలు అండి.", "hi-IN": "बस एक.", "en-IN": "Just one."},
+        ),
+        "Asks one short question to pin down what they meant, then waits. Never asks it "
+        "twice, never answers for the caller.",
+    ),
+    "low_interest": (
+        "Has little interest",
+        (
+            {
+                "te-IN": "ఆ, చెప్పండి.",
+                "hi-IN": "हाँ, बोलिए.",
+                "en-IN": "Yeah, go on.",
+            },
+            {
+                "te-IN": "పెద్దగా ఏమీ అవసరం లేదు అండి.",
+                "hi-IN": "ज़्यादा कुछ नहीं चाहिए जी.",
+                "en-IN": "I don't really need much.",
+            },
+        ),
+        "Makes one short offer and, if the caller stays lukewarm, thanks them and closes "
+        "politely. Does not press with more questions.",
+    ),
+    "price_in_words": (
+        "Asks a price and a quantity",
+        (
+            {
+                "te-IN": "Whole chilli కిలో ఎంత అండి?",
+                "hi-IN": "साबुत मिर्च एक किलो कितने की है?",
+                "en-IN": "How much is a kilo of whole chilli?",
+            },
+            {
+                "te-IN": "సరే, రెండు కిలోలు ఇస్తారా?",
+                "hi-IN": "ठीक है, दो किलो मिलेगी?",
+                "en-IN": "Okay, can I get two kilos?",
+            },
+        ),
+        "Says the price and the quantity in words as a shop says them, never with a rupee "
+        "sign or digits, in everyday spoken words, and asks at most one question.",
+    ),
+    "goes_quiet": (
+        "Goes quiet",
+        (
+            {
+                "te-IN": "మీ దగ్గర ఏం ఏం ఉన్నాయి?",
+                "hi-IN": "आपके पास क्या-क्या है?",
+                "en-IN": "What do you have?",
+            },
+            {"te-IN": "హ్మ్...", "hi-IN": "हम्म...", "en-IN": "Hmm..."},
+        ),
+        "Checks once, briefly, whether the caller is still there or wants anything, then "
+        "waits. Does not fill the silence with several questions.",
+    ),
+}
+
+
 def _in(lines: dict[str, str], language: str) -> str:
     return lines.get(language) or lines["en-IN"]
+
+
+def shape_scenarios(language: str) -> list[Scenario]:
+    """The callers in `_STANDARD_SHAPE`, in `language`."""
+    return [
+        Scenario(
+            key=key,
+            title=title,
+            category="edge",
+            turns=tuple(_in(line, language) for line in lines),
+            expect=expect,
+            source="standard",
+        )
+        for key, (title, lines, expect) in _STANDARD_SHAPE.items()
+    ]
 
 
 def probe_scenario(probe: str, language: str) -> Scenario:
@@ -222,8 +311,9 @@ def probe_scenario(probe: str, language: str) -> Scenario:
 
 
 def standard_scenarios(language: str, direction: str) -> list[Scenario]:
-    """The set that runs when no AI can write one: a product question, the four probes and,
-    for an agent that places calls, a caller who is not interested."""
+    """The set that runs when no AI can write one: a product question, the four probes, the
+    four callers that test the shape of a turn and, for an agent that places calls, a
+    caller who is not interested."""
     out = [
         Scenario(
             key="asks_about_products",
@@ -237,6 +327,7 @@ def standard_scenarios(language: str, direction: str) -> list[Scenario]:
             source="standard",
         ),
         *(probe_scenario(probe, language) for probe in PROBES),
+        *shape_scenarios(language),
     ]
     if direction in ("outbound", "both"):
         out.append(
@@ -300,10 +391,6 @@ _AI_WORDS: Final = re.compile(
     re.IGNORECASE,
 )
 _RECORDING_WORDS: Final = re.compile(r"record|రికార్డ్|రికార్డు|रिकॉर्ड|रेकॉर्ड", re.IGNORECASE)
-#: Indic letters carry combining marks, so `\b` does not mark a word start: a formal word
-#: counts when it opens the reply or follows a space or punctuation.
-_WORD_START: Final = r"(?:^|(?<=[\s,.!?;:\"'(।]))"
-
 #: What our opt-out action answers when it recorded the request, on a call or in a test.
 OPT_OUT_RECORDED: Final = frozenset({"recorded", "recorded_in_test"})
 
@@ -311,14 +398,7 @@ OPT_OUT_RECORDED: Final = frozenset({"recorded", "recorded_in_test"})
 def formal_words(reply: str, language: str) -> list[str]:
     """The formal or written words from the spoken-style list (`spoken_style.json`) that
     this reply used, in the order the list gives them."""
-    style = style_for(language)
-    if style is None or not reply:
-        return []
-    return [
-        formal
-        for formal, _spoken in style.word_swaps
-        if re.search(_WORD_START + re.escape(formal), reply)
-    ]
+    return [formal for formal, _spoken in formal_swaps(reply, language)]
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,6 +411,20 @@ class Turn:
     cut_short: bool = False
 
 
+def speech_problems(turns: list[Turn], *, language: str = "") -> list[TurnProblem]:
+    """The shape problems in a conversation's replies (`agents/turn_checks`), each kind
+    once, in the order they first appear. Each reply is judged against the caller line it
+    answered, which decides whether a longer reply was asked for."""
+    seen: set[str] = set()
+    out: list[TurnProblem] = []
+    for turn in turns:
+        for problem in turn_problems(turn.reply, caller_said=turn.said, language=language):
+            if problem.kind not in seen:
+                seen.add(problem.kind)
+                out.append(problem)
+    return out
+
+
 @dataclass(frozen=True, slots=True)
 class HardCheck:
     verdict: Verdict | None = None
@@ -341,8 +435,9 @@ class HardCheck:
     floor_pass: bool = False
 
 
-def hard_check(scenario: Scenario, turns: list[Turn]) -> HardCheck:
-    """What a fact decides, before or without the AI judge."""
+def hard_check(scenario: Scenario, turns: list[Turn], *, language: str = "") -> HardCheck:
+    """What a fact decides, before or without the AI judge. `language` selects the
+    spoken-style word list a textbook word is failed against."""
     tools = [tool for turn in turns for tool in turn.tools]
     if any(tool in RETIRED_ACTION_NAMES for tool in tools):
         return HardCheck(
@@ -371,6 +466,13 @@ def hard_check(scenario: Scenario, turns: list[Turn]) -> HardCheck:
                 reason="The request not to be called again was not recorded.",
                 fix="platform",
             )
+    shape = speech_problems(turns, language=language)
+    if shape:
+        return HardCheck(
+            verdict="failed",
+            reason=" ".join(dict.fromkeys(problem.reason for problem in shape)),
+            fix="platform" if any(p.kind in PLATFORM_KINDS for p in shape) else "style",
+        )
     if scenario.probe == "ai":
         return HardCheck(floor_pass=bool(_AI_WORDS.search(replies)))
     if scenario.probe == "recording":
@@ -401,7 +503,7 @@ def decide(
     unjudged_reason: str,
 ) -> dict[str, Any]:
     """One scenario's verdict: the hard checks, the judge and the spoken-style list."""
-    hard = hard_check(scenario, turns)
+    hard = hard_check(scenario, turns, language=language)
     listed = []
     for turn in turns:
         listed += [w for w in formal_words(turn.reply, language) if w not in listed]
@@ -415,9 +517,6 @@ def decide(
         verdict, reason, fix = "passed", "It answered truthfully.", None
     else:
         verdict, reason, fix = "unjudged", unjudged_reason, None
-    if listed and _SEVERITY[verdict] < _SEVERITY["needs_fix"]:
-        verdict, fix = "needs_fix", "style"
-        reason = "It used textbook words callers do not say: " + ", ".join(listed) + "."
     if any(turn.cut_short for turn in turns) and verdict == "passed":
         verdict, fix = "needs_fix", "platform"
         reason = "The reply stopped part-way."

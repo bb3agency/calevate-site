@@ -87,6 +87,7 @@ from apps.api.ops.model_pricing import (
     installed_llm_legs,
     tts_price_is_billable,
 )
+from apps.api.ops.spoken_style_store import refresh_spoken_style
 
 log = get_logger(__name__)
 
@@ -324,6 +325,9 @@ async def _poll_forever() -> None:
         # to be wired into both again, which is exactly the half-wired seam the voice
         # catalogue exists to stop being.
         await refresh_voice_catalogue_snapshot()
+        # The founder's published spoken style (D-744) rides the same poll for the voice
+        # catalogue's reason: one more platform fact both processes serve from memory.
+        await refresh_spoken_style()
         await asyncio.sleep(_POLL_INTERVAL_S)
 
 

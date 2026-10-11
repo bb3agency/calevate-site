@@ -149,13 +149,19 @@ DEFAULT_LANGUAGE = get_language("english_india").bcp47
 #: separately could only ever be switched on and off together: there was one column, so
 #: there was one answer.
 #:
+#: IN THE LANGUAGE'S OWN SCRIPT (D-745): a Telugu or Hindi sentence in Latin letters is
+#: read by the voice as if it were English. The English words people use (AI assistant,
+#: call, record, note) stay in English letters, as in every spoken line
+#: (`calevate_shared.spoken_style`). The Hindi memory sentence says "we" so it assumes no
+#: gender.
+#:
 #: NO GREETING WORD IN IT (D-708). The greeting is the agent's own opening line, in its
 #: script, and follows this sentence when it is switched on; a "Namaskaram," here made the
 #: notice read as the greeting and made the agent say hello twice. Agents created before
 #: this keep the sentence they were given until an operator rewrites it.
 AI_DISCLOSURE_TEMPLATES: dict[str, str] = {
-    "te-IN": "Idi {business} AI assistant.",
-    "hi-IN": "Main {business} ka AI assistant hoon.",
+    "te-IN": "ఇది {business} AI assistant.",
+    "hi-IN": "मैं {business} का AI assistant हूँ।",
     "en-IN": "This is the AI assistant for {business}.",
 }
 
@@ -164,8 +170,8 @@ AI_DISCLOSURE_TEMPLATES: dict[str, str] = {
 #: `{business}` placeholder, because the AI sentence has already named the caller's
 #: counterparty and a second naming reads as a script that lost its place.
 RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
-    "te-IN": "Ee call record avutundi.",
-    "hi-IN": "Yeh call record ho rahi hai.",
+    "te-IN": "ఈ call record అవుతుంది.",
+    "hi-IN": "यह call record हो रही है।",
     "en-IN": "This call is being recorded.",
 }
 
@@ -194,8 +200,8 @@ RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
 #: edited a slider would make the agent's opening a moving target nobody reviewed, and the
 #: 180-day ceiling below is a platform maximum rather than a tenant setting.
 CALLER_MEMORY_NOTICE_TEMPLATES: dict[str, str] = {
-    "te-IN": "Meeru adigina daani gurinchi oka chinna note nenu gurthu pettukuntaanu.",
-    "hi-IN": "Aapne kya poocha, uska ek chhota note main yaad rakhta hoon.",
+    "te-IN": "మీరు అడిగిన దాని గురించి ఒక చిన్న note గుర్తు పెట్టుకుంటాను.",
+    "hi-IN": "आपने जो पूछा, उसका एक छोटा note हम याद रखते हैं।",
     "en-IN": "I keep a short note of what you ask about, so I remember it if you call again.",
 }
 

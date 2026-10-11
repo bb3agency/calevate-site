@@ -1,11 +1,11 @@
 {
-  "about": "Spoken-register guidance and example exchanges for voice agents, per call language and business type. AI-drafted on 10 Oct 2026 (founder decision 3, docs/evidence/first-call-review-2026-10-10.md). EVERY entry is review: needs_native_review until a native speaker has read it; set review to native_reviewed with the reviewer's name in reviewed_by when that happens. Openings are a starter's greeting in that language. The register line and the word swaps (the formal or written form on the left, what people actually say on the right) go into every agent's prompt in that language (calevate_shared.spoken_style.register_guidance); the example exchanges seed new scripts (starters, the script assistant) and stay editable by the client. Example lines show HOW to speak, never facts: they name no price, time, address or stock level, so an agent cannot repeat a made-up fact from them.",
+  "about": "Spoken-register guidance for voice agents, per call language and business type. AI-drafted 10 Oct 2026 and expanded 11 Oct 2026 (founder decisions 3, 10 Oct, and the 11 Oct spoken-style rules). EVERY entry here is needs_native_review: the founder reviews them on the admin screen Ops > Spoken style, whose published edits are stored in the database and layered over this file (calevate_shared.spoken_style.install_published). What each part is for: register is the one-line description of how the language is spoken; word_swaps pairs a formal or written form (left) with what people actually say (right), and the ones named in prompt_swaps go into every agent's prompt in that language, while the whole list guides the script writer, the test callers and the test checks; fillers are the spoken tags and light fillers people use; number_rules and punctuation say how numbers and sentences are written for a voice; examples are example exchanges per business type that show HOW to speak, never facts (no price, time, address or stock level, so an agent cannot repeat a made-up fact); openings are a starter's greeting. Register sources for te-IN: Telugu has a literary register (grandhika) and a spoken standard (vyavaharika, the sishta vyavaharika of educated everyday speech), the latter championed by Gidugu Venkata Ramamurthy (https://en.wikipedia.org/wiki/Gidugu_Venkata_Ramamurthy; https://www.deccanchronicle.com/lifestyle/culture-and-society/telugu-language-day-commemorates-gidugu-revolutionary-behind-simple-telugu-usage-1983163). Telugu-English code-mixing ('Tenglish') is extensively used in Hyderabad (Dutta and Rajeswari, Texas Linguistics Forum 2015, https://asol.ling.utexas.edu/salsa/proceedings/2015/Dutta.pdf); Standard and Telangana Telugu differences and code-mixing in speech are studied in Sravani, Kameswari and Mamidi 2021 (https://aclanthology.org/2021.calcs-1.1). Voice facts (Cartesia, read 11 Oct 2026): sonic-3.6 lists Telugu (te); it varies pacing and intonation to the transcript without SSML, pause length adapts to the sentence, and disfluencies such as 'uhm' give a thinking pace (https://docs.cartesia.ai/build-with-cartesia/tts-models/latest); full, punctuated sentences ending in . ? or ! give the best pacing (https://docs.cartesia.ai/build-with-cartesia/sonic-3-5/prompting-tips). Code-switching is documented only for Hindi written in Latin script; Telugu-English mixing is UNVERIFIED in the vendor docs and confirmed only by the founder's ear test (\"whole chilli\", \"call\", \"kg\" spoken naturally). The number style (prices, quantities and times in English words as shop people say them) is the founder's decision of 11 Oct 2026; Cartesia's own guidance would let the model normalise digits, which the founder's ear test overrode for Telugu calls.",
   "languages": {
     "te-IN": {
       "review": "needs_native_review",
       "reviewed_by": null,
       "register_name": "Neutral spoken Telugu",
-      "register": "Everyday spoken Telugu as people talk on the phone, neutral and understood in both Telangana and Andhra, in Telugu script, with the English words people use (order, price, delivery, call back). Polite with అండి and గారు, never stiff.",
+      "register": "Everyday spoken Telugu (vyavaharika, never grandhika or bookish), neutral for both Telangana and Andhra, in Telugu script; the English words people use stay in English letters (order, price, delivery, call, kg). అండి and గారు by situation, not in every sentence.",
       "examples": {
         "_default": [
           [
@@ -14,11 +14,11 @@
           ],
           [
             "agent",
-            "ఒక్క నిమిషం అండి, చూసి చెప్తాను."
+            "హా, చెప్పండి. ఒక్క సెకండ్ అండి, చూసి చెప్తాను."
           ],
           [
             "agent",
-            "ఉందండి. మీకు ఎంత కావాలి?"
+            "మీకు ఎంత కావాలి?"
           ],
           [
             "caller",
@@ -32,41 +32,75 @@
         "retail": [
           [
             "caller",
-            "మీ దగ్గర ఎండు మిర్చి ఉందా అండి?"
+            "మీ దగ్గర ఎండు మిర్చి దొరుకుతుందా అండి?"
           ],
           [
             "agent",
-            "ఒక్క నిమిషం అండి, చూసి చెప్తాను."
-          ],
-          [
-            "agent",
-            "ఉందండి. మీకు ఎంత quantity కావాలి?"
+            "హా అండి, చెప్తాను. మీకు whole chilli కావాలా, powder కావాలా?"
           ],
           [
             "caller",
-            "ఒక కిలో. Home delivery ఉంటుందా?"
+            "Powder. ఒక kg ఎంత?"
           ],
           [
             "agent",
-            "Delivery గురించి నా దగ్గర details లేవండి. మీ area ఏదో చెప్తారా?"
+            "ఒక్క సెకండ్ అండి, price చూసి చెప్తాను."
+          ],
+          [
+            "caller",
+            "సరే. Home delivery ఉంటుందా?"
+          ],
+          [
+            "agent",
+            "Delivery details నా దగ్గర లేవండి. మీది ఏ area?"
           ]
         ],
-        "clinic": [
+        "local_services": [
           [
             "caller",
-            "Doctor గారిని చూపించుకోవాలి, appointment దొరుకుతుందా?"
+            "రేపు haircut కి slot ఉందా?"
           ],
           [
             "agent",
-            "తప్పకుండా అండి. ఏ problem తో రావాలనుకుంటున్నారు?"
-          ],
-          [
-            "caller",
-            "రెండు రోజుల నుంచి జ్వరం."
+            "ఒక్క సెకండ్ అండి, చూసి చెప్తాను."
           ],
           [
             "agent",
-            "అర్థమైంది అండి. మీకు ఏ రోజు, ఏ time వీలవుతుంది?"
+            "రేపు ఏ time అయితే మీకు వీలవుతుంది?"
+          ],
+          [
+            "caller",
+            "సాయంత్రం five తర్వాత."
+          ],
+          [
+            "agent",
+            "సరే అండి. మీ పేరు చెప్తారా?"
+          ]
+        ],
+        "automobile": [
+          [
+            "caller",
+            "Bike service కి ఇవ్వాలి, ఎప్పుడు తీసుకురావొచ్చు?"
+          ],
+          [
+            "agent",
+            "సరే అండి. మీ bike ఏ model?"
+          ],
+          [
+            "caller",
+            "Splendor. Brakes కొంచెం problem ఉంది."
+          ],
+          [
+            "agent",
+            "అర్థమైంది అండి. ఏ రోజు తీసుకురాగలరు?"
+          ],
+          [
+            "caller",
+            "Saturday morning."
+          ],
+          [
+            "agent",
+            "ఓకే అండి, Saturday morning. మీ పేరు చెప్తారా?"
           ]
         ],
         "real_estate": [
@@ -80,15 +114,33 @@
           ],
           [
             "agent",
-            "ఉన్నాయండి. మీ budget ఎంతలో చూస్తున్నారు?"
+            "మీ budget దాదాపు ఎంతలో చూస్తున్నారు?"
           ],
           [
             "caller",
-            "ముందు site చూడాలి."
+            "Seventy lakhs వరకు. ముందు site చూడాలి."
           ],
           [
             "agent",
-            "మంచిది అండి. Site visit కి ఏ రోజు రాగలరు?"
+            "మంచిది అండి. Site visit కి ఏ రోజు వీలవుతుంది?"
+          ]
+        ],
+        "clinic": [
+          [
+            "caller",
+            "Doctor గారిని చూపించుకోవాలి, appointment దొరుకుతుందా?"
+          ],
+          [
+            "agent",
+            "తప్పకుండా అండి. ఏ problem తో వస్తున్నారు?"
+          ],
+          [
+            "caller",
+            "రెండు రోజుల నుంచి జ్వరం."
+          ],
+          [
+            "agent",
+            "అయ్యో, అర్థమైంది అండి. మీకు ఏ రోజు, ఏ time వీలవుతుంది?"
           ]
         ],
         "insurance": [
@@ -98,7 +150,7 @@
           ],
           [
             "agent",
-            "మీ policy details నా దగ్గర లేవండి. మీరు ఏ policy తీసుకున్నారో చెప్తారా?"
+            "మీ policy details నా దగ్గర లేవండి. ఏ policy తీసుకున్నారు?"
           ],
           [
             "caller",
@@ -116,7 +168,7 @@
           ],
           [
             "agent",
-            "ఉందండి. Student ఏ class చదువుతున్నారు?"
+            "హా అండి, చెప్తాను. Student ఏ class చదువుతున్నారు?"
           ],
           [
             "caller",
@@ -126,68 +178,60 @@
             "agent",
             "సరే అండి. ముందు ఒక demo class చూస్తారా?"
           ]
-        ],
-        "local_services": [
-          [
-            "caller",
-            "రేపు haircut కి slot ఉందా?"
-          ],
-          [
-            "agent",
-            "ఒక్క నిమిషం అండి, చూసి చెప్తాను."
-          ],
-          [
-            "agent",
-            "రేపు ఏ time మీకు వీలవుతుంది అండి?"
-          ],
-          [
-            "caller",
-            "సాయంత్రం ఐదు తర్వాత."
-          ],
-          [
-            "agent",
-            "సరే అండి, మీ పేరు చెప్తారా?"
-          ]
-        ],
-        "automobile": [
-          [
-            "caller",
-            "Bike service కి ఇవ్వాలి, ఎప్పుడు రావొచ్చు?"
-          ],
-          [
-            "agent",
-            "మీ bike ఏ model అండి?"
-          ],
-          [
-            "caller",
-            "Splendor."
-          ],
-          [
-            "agent",
-            "సరే అండి. ఏ రోజు తీసుకురాగలరు?"
-          ]
         ]
       },
       "word_swaps": [
         [
-          "క్షమించండి",
-          "sorry అండి"
+          "ధన్యవాదాలు",
+          "thanks అండి"
+        ],
+        [
+          "మరియు",
+          "(join with ఇంకా, or leave it out)"
+        ],
+        [
+          "కొనుగోలు",
+          "కొంటారు"
+        ],
+        [
+          "సుమారు",
+          "దాదాపు"
+        ],
+        [
+          "అవసరం",
+          "కావాలి"
         ],
         [
           "దయచేసి",
           "(leave it out)"
         ],
         [
+          "సమాచారం",
+          "details"
+        ],
+        [
+          "ప్రస్తుతం",
+          "ఇప్పుడు"
+        ],
+        [
+          "వేచి ఉండండి",
+          "ఒక్క నిమిషం అండి"
+        ],
+        [
+          "క్షమించండి",
+          "sorry అండి"
+        ],
+        [
           "తెలియజేయండి",
           "చెప్పండి"
         ],
         [
-          "వివరాలు",
-          "details"
+          "తెలియజేస్తాను",
+          "చెప్తాను"
         ],
         [
-          "ధన్యవాదాలు",
-          "thanks అండి"
+          "వివరాలు",
+          "details"
         ],
         [
           "ధర",
@@ -200,18 +244,460 @@
         [
           "తిరిగి కాల్ చేస్తాము",
           "మళ్ళీ call చేస్తాం"
+        ],
+        [
+          "సహజంగా పండించిన",
+          "natural గా పండించిన"
+        ],
+        [
+          "ఆహార పదార్థాలు",
+          "items"
+        ],
+        [
+          "ఆహారాలు",
+          "items"
+        ],
+        [
+          "సాధారణంగా",
+          "మామూలుగా"
+        ],
+        [
+          "యొక్క",
+          "(leave it out)"
+        ],
+        [
+          "చేయాలనుకుంటున్నారా",
+          "చేస్తారా"
+        ],
+        [
+          "కోరుకుంటున్నారా",
+          "కావాలా"
+        ],
+        [
+          "ఏమిటి",
+          "ఏంటి"
+        ],
+        [
+          "ఏమి కావాలి",
+          "ఏం కావాలి"
+        ],
+        [
+          "చేస్తాము",
+          "చేస్తాం"
+        ],
+        [
+          "ఉన్నాము",
+          "ఉన్నాం"
+        ],
+        [
+          "అమ్ముతాము",
+          "అమ్ముతాం"
+        ],
+        [
+          "నమోదు",
+          "note చేసుకుంటాను"
+        ],
+        [
+          "నిర్ధారించండి",
+          "confirm చేయండి"
+        ],
+        [
+          "నిర్ధారిస్తాను",
+          "confirm చేస్తాను"
+        ],
+        [
+          "ధృవీకరించండి",
+          "confirm చేయండి"
+        ],
+        [
+          "సంప్రదించండి",
+          "call చేయండి"
+        ],
+        [
+          "అభ్యర్థన",
+          "request"
+        ],
+        [
+          "సేవలు",
+          "services"
+        ],
+        [
+          "ఉత్పత్తులు",
+          "products"
+        ],
+        [
+          "పరిమాణం",
+          "quantity"
+        ],
+        [
+          "చిరునామా",
+          "address"
+        ],
+        [
+          "చెల్లింపు",
+          "payment"
+        ],
+        [
+          "రుసుము",
+          "charges"
+        ],
+        [
+          "పంపిణీ",
+          "delivery"
+        ],
+        [
+          "అనుకూలంగా",
+          "వీలుగా"
+        ],
+        [
+          "ఎందుకనగా",
+          "ఎందుకంటే"
+        ],
+        [
+          "కావున",
+          "అందుకే"
+        ],
+        [
+          "అయినప్పటికీ",
+          "అయినా"
+        ],
+        [
+          "చేయుచున్నాను",
+          "చేస్తున్నాను"
+        ],
+        [
+          "కలదు",
+          "ఉంది"
+        ],
+        [
+          "సహాయం",
+          "help"
+        ],
+        [
+          "సహాయపడతాను",
+          "help చేస్తాను"
+        ],
+        [
+          "వినియోగదారులు",
+          "customers"
+        ],
+        [
+          "ఖాతాదారులు",
+          "customers"
+        ],
+        [
+          "సంస్థ",
+          "company"
+        ],
+        [
+          "స్వాగతం",
+          "నమస్కారం అండి"
+        ],
+        [
+          "శుభదినం",
+          "(leave it out)"
+        ],
+        [
+          "ఎంపికలు",
+          "options"
+        ],
+        [
+          "నాణ్యత",
+          "quality"
+        ],
+        [
+          "తగ్గింపు",
+          "discount"
+        ],
+        [
+          "సిద్ధంగా",
+          "ready గా"
+        ],
+        [
+          "గృహం",
+          "ఇల్లు"
+        ],
+        [
+          "ఋణం",
+          "loan"
+        ],
+        [
+          "వాహనం",
+          "vehicle"
+        ],
+        [
+          "మరమ్మతు",
+          "repair"
+        ],
+        [
+          "విడిభాగాలు",
+          "spare parts"
+        ],
+        [
+          "కేశాలంకరణ",
+          "haircut"
+        ],
+        [
+          "సౌందర్య",
+          "beauty"
+        ],
+        [
+          "ముందస్తు",
+          "advance"
+        ],
+        [
+          "రద్దు",
+          "cancel"
+        ],
+        [
+          "తేదీ",
+          "date"
+        ],
+        [
+          "తక్షణమే",
+          "వెంటనే"
+        ],
+        [
+          "త్వరలో",
+          "తొందర్లోనే"
+        ],
+        [
+          "పరిశీలించి",
+          "check చేసి"
+        ],
+        [
+          "తనిఖీ",
+          "check"
+        ],
+        [
+          "విచారణ",
+          "enquiry"
+        ],
+        [
+          "చేయబడుతుంది",
+          "చేస్తాం"
+        ],
+        [
+          "కొరకు",
+          "కోసం"
+        ],
+        [
+          "వలన",
+          "వల్ల"
+        ],
+        [
+          "అత్యంత",
+          "చాలా"
+        ],
+        [
+          "అధికంగా",
+          "ఎక్కువగా"
+        ],
+        [
+          "పొందవచ్చు",
+          "తీసుకోవచ్చు"
+        ],
+        [
+          "చెప్పగలరా",
+          "చెప్తారా"
+        ],
+        [
+          "ఇవ్వగలరా",
+          "ఇస్తారా"
+        ],
+        [
+          "తెలుసుకోవచ్చా",
+          "చెప్తారా"
+        ],
+        [
+          "ప్రయత్నిస్తాను",
+          "try చేస్తాను"
+        ],
+        [
+          "ఎదురుచూస్తున్నాము",
+          "(leave it out)"
+        ],
+        [
+          "ఉపయోగించండి",
+          "use చేయండి"
+        ],
+        [
+          "చేయవలసి",
+          "చేయాల్సి"
+        ],
+        [
+          "కావలెను",
+          "కావాలి"
+        ],
+        [
+          "అర్థమైనది",
+          "అర్థమైంది"
+        ],
+        [
+          "అదనపు",
+          "extra"
+        ],
+        [
+          "గమనించండి",
+          "(leave it out)"
         ]
       ],
       "openings": {
         "inbound": "నమస్కారం అండి, {business} కి call చేసినందుకు thanks. చెప్పండి, ఏం కావాలి?",
         "outbound": "నమస్కారం అండి, {business} నుంచి call చేస్తున్నాను. ఇప్పుడు రెండు నిమిషాలు మాట్లాడొచ్చా?"
-      }
+      },
+      "prompt_swaps": [
+        "ధన్యవాదాలు",
+        "మరియు",
+        "కొనుగోలు",
+        "సుమారు",
+        "అవసరం",
+        "దయచేసి",
+        "సమాచారం",
+        "ప్రస్తుతం",
+        "క్షమించండి",
+        "యొక్క",
+        "చేయాలనుకుంటున్నారా",
+        "చేస్తాము"
+      ],
+      "fillers": [
+        {
+          "id": "sare-andi",
+          "text": "సరే అండి",
+          "use": "Acknowledging what the caller said or asked for."
+        },
+        {
+          "id": "ha",
+          "text": "హా",
+          "use": "Short yes, or showing you are listening."
+        },
+        {
+          "id": "avuna",
+          "text": "అవునా",
+          "use": "Mild surprise or 'is that so?' after news from the caller."
+        },
+        {
+          "id": "kada",
+          "text": "కదా",
+          "use": "A tag asking for agreement: '..., కదా?'"
+        },
+        {
+          "id": "enti",
+          "text": "ఏంటి",
+          "use": "A casual 'what?', as in 'ఏంటి problem?'"
+        },
+        {
+          "id": "okka-second",
+          "text": "ఒక్క సెకండ్ అండి",
+          "use": "Before checking something or looking it up."
+        },
+        {
+          "id": "ante",
+          "text": "అంటే",
+          "use": "'I mean' or 'that is', before rephrasing."
+        },
+        {
+          "id": "okay",
+          "text": "ఓకే",
+          "use": "Okay, between steps."
+        },
+        {
+          "id": "avunandi",
+          "text": "అవునండి",
+          "use": "A polite yes."
+        },
+        {
+          "id": "alage-andi",
+          "text": "అలాగే అండి",
+          "use": "'Sure, will do' to a request."
+        },
+        {
+          "id": "cheppandi",
+          "text": "చెప్పండి",
+          "use": "'Go ahead, tell me' when the caller starts."
+        },
+        {
+          "id": "manchidi",
+          "text": "మంచిది అండి",
+          "use": "'Good' when the caller agrees to a next step."
+        },
+        {
+          "id": "ayyo",
+          "text": "అయ్యో",
+          "use": "Sympathy when the caller has a problem: 'అయ్యో, sorry అండి.'"
+        },
+        {
+          "id": "no-problem",
+          "text": "no problem అండి",
+          "use": "Reassuring after the caller apologises or declines."
+        }
+      ],
+      "number_rules": [
+        {
+          "id": "prices",
+          "text": "Prices in English words the way shop people say them: 120 rupees is \"one twenty rupees\", 250 is \"two fifty rupees\", 1,500 is \"fifteen hundred rupees\". Never write the rupee sign or digits."
+        },
+        {
+          "id": "lakhs",
+          "text": "Big amounts as people say them: \"seventy lakhs\", \"one point two crores\"."
+        },
+        {
+          "id": "quantities",
+          "text": "Quantities and units in English: \"one kg\", \"half kg\", \"two litres\", \"five hundred grams\", \"two BHK\", \"twelve hundred square feet\"."
+        },
+        {
+          "id": "times",
+          "text": "Times in English: \"five o'clock\", \"ten thirty\". The part of the day can stay Telugu: \"పొద్దున ten o'clock\", \"సాయంత్రం five thirty\"."
+        },
+        {
+          "id": "days",
+          "text": "రేపు, ఎల్లుండి and ఈరోజు stay Telugu; weekdays and dates are English: \"Monday\", \"the twelfth\"."
+        },
+        {
+          "id": "digits",
+          "text": "Phone numbers, OTPs and codes one digit at a time in English: \"nine eight four nine\"."
+        },
+        {
+          "id": "small-counts",
+          "text": "Small everyday counts can stay Telugu (రెండు నిమిషాలు, ఒక్క సెకండ్); a price, a quantity or a time is said in English."
+        }
+      ],
+      "punctuation": [
+        {
+          "id": "short",
+          "text": "Short sentences, one idea each. Split a long sentence into two."
+        },
+        {
+          "id": "breath",
+          "text": "A comma where you would take a breath: \"సరే అండి, ఒక్క నిమిషం.\""
+        },
+        {
+          "id": "question",
+          "text": "A question mark on every question and a full stop at the end of every other sentence."
+        },
+        {
+          "id": "no-symbols",
+          "text": "No dashes, slashes, brackets, ellipses, quotation marks, bullets or emoji: the voice reads them or stumbles on them."
+        },
+        {
+          "id": "no-dots",
+          "text": "No dotted abbreviations: \"Dr Ravi\", never \"Dr. Ravi\"; say \"rupees\", never \"Rs\"."
+        },
+        {
+          "id": "scripts",
+          "text": "English words in English letters (delivery, not డెలివరీ) and Telugu words in Telugu script."
+        },
+        {
+          "id": "choices",
+          "text": "Two choices as two short questions, \"whole chilli కావాలా, powder కావాలా?\", rather than a list joined with లేదా."
+        }
+      ]
     },
     "hi-IN": {
       "review": "needs_native_review",
       "reviewed_by": null,
       "register_name": "Everyday spoken Hindi (Hindustani)",
-      "register": "Everyday spoken Hindi in Devanagari, with the English words people use (order, price, delivery, call back). Polite with जी and आप; prefer 'we' forms (बताते हैं) so no gender is assumed.",
+      "register": "Everyday spoken Hindi in Devanagari, never shuddh or bookish; the English words people use stay in English letters (order, price, delivery, call). Polite with जी and आप; prefer 'we' forms (बताते हैं) so no gender is assumed.",
       "examples": {
         "_default": [
           [
@@ -402,12 +888,166 @@
         [
           "जानकारी",
           "details"
+        ],
+        [
+          "प्रतीक्षा करें",
+          "एक minute जी"
+        ],
+        [
+          "सहायता",
+          "help"
+        ],
+        [
+          "आवश्यकता",
+          "ज़रूरत"
+        ],
+        [
+          "आवश्यक",
+          "ज़रूरी"
+        ],
+        [
+          "सूचित करें",
+          "बता दीजिए"
+        ],
+        [
+          "पुष्टि",
+          "confirm"
+        ],
+        [
+          "ग्राहक",
+          "customer"
+        ],
+        [
+          "उत्पाद",
+          "product"
+        ],
+        [
+          "वितरण",
+          "delivery"
+        ],
+        [
+          "भुगतान",
+          "payment"
+        ],
+        [
+          "दिनांक",
+          "date"
+        ],
+        [
+          "तथा",
+          "और"
+        ],
+        [
+          "एवं",
+          "और"
+        ],
+        [
+          "हेतु",
+          "के लिए"
+        ],
+        [
+          "अत्यंत",
+          "बहुत"
+        ],
+        [
+          "शीघ्र",
+          "जल्दी"
+        ],
+        [
+          "प्रारंभ",
+          "start"
+        ],
+        [
+          "संस्था",
+          "company"
         ]
       ],
       "openings": {
         "inbound": "नमस्ते जी, {business} में call करने के लिए thank you. बताइए, क्या चाहिए?",
         "outbound": "नमस्ते जी, {business} की तरफ़ से call है। अभी दो minute बात हो सकती है?"
-      }
+      },
+      "prompt_swaps": [
+        "कृपया",
+        "क्षमा करें",
+        "धन्यवाद",
+        "उपलब्ध है",
+        "जानकारी",
+        "आवश्यकता"
+      ],
+      "fillers": [
+        {
+          "id": "theek-hai",
+          "text": "ठीक है जी",
+          "use": "Acknowledging what the caller said or asked for."
+        },
+        {
+          "id": "haan-ji",
+          "text": "हाँ जी",
+          "use": "A polite yes, or showing you are listening."
+        },
+        {
+          "id": "achha",
+          "text": "अच्छा",
+          "use": "'I see' after news from the caller."
+        },
+        {
+          "id": "ek-minute",
+          "text": "एक minute जी",
+          "use": "Before checking something or looking it up."
+        },
+        {
+          "id": "matlab",
+          "text": "मतलब",
+          "use": "'I mean', before rephrasing."
+        },
+        {
+          "id": "bilkul",
+          "text": "बिल्कुल जी",
+          "use": "'Of course' to a request."
+        },
+        {
+          "id": "bataiye",
+          "text": "बताइए",
+          "use": "'Go ahead, tell me' when the caller starts."
+        },
+        {
+          "id": "koi-baat-nahin",
+          "text": "कोई बात नहीं",
+          "use": "Reassuring after the caller apologises or declines."
+        }
+      ],
+      "number_rules": [
+        {
+          "id": "prices",
+          "text": "Prices and quantities in words, the way shop people say them on the phone, in Hindi or English words: \"एक सौ बीस रुपये\" or \"one twenty\", \"एक किलो\". Never the rupee sign or digits."
+        },
+        {
+          "id": "times",
+          "text": "Times as people say them: \"शाम पाँच बजे\", \"साढ़े दस\"."
+        },
+        {
+          "id": "digits",
+          "text": "Phone numbers, OTPs and codes one digit at a time."
+        }
+      ],
+      "punctuation": [
+        {
+          "id": "short",
+          "text": "Short sentences, one idea each, a comma where you would take a breath."
+        },
+        {
+          "id": "question",
+          "text": "A question mark on every question; end other sentences with । or a full stop."
+        },
+        {
+          "id": "no-symbols",
+          "text": "No dashes, slashes, brackets, ellipses, quotation marks, bullets or emoji."
+        },
+        {
+          "id": "scripts",
+          "text": "English words in English letters and Hindi words in Devanagari."
+        }
+      ]
     },
     "en-IN": {
       "review": "needs_native_review",

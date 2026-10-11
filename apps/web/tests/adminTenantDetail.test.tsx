@@ -124,6 +124,11 @@ function margin(over: Partial<Margin> = {}): Margin {
     margin_inr: "613549.50",
     margin_pct: "60.39",
     legs_unpriced: 0,
+    trial_cost_inr: "0.00",
+    trial_in_month: false,
+    paid_cost_inr: "402350.50",
+    paid_margin_inr: "613549.50",
+    paid_margin_pct: "60.39",
     tiers: {
       // BOTH SPELLINGS, because that is what the wire carries for one release
       // (hard rule 8 step 1, D-558): `*_base_rung` / `*_second_rung` are the
@@ -190,10 +195,11 @@ function healthy(): Routes {
       minutes_used: "812.00",
       spend_used_inr: "5002.40",
       capped: false,
+      trial_active: false,
     },
     "/v1/kb/delivery": KB_ALL_DELIVERED,
     [`${TENANT_PATH}/whatsapp-alerts`]: WHATSAPP_NEVER_ASKED,
-    // A business type somebody chose: no "Confirm business type" prompt (D-722).
+    // A business type somebody chose: no "Business type not confirmed" prompt (D-722).
     [`${TENANT_PATH}/business-type`]: businessType(),
     // The health summary at the top of the page (redesign #2). Healthy by default; the
     // wallet and the line incidents are not this file's subject, so they stay unanswered.
@@ -457,6 +463,13 @@ describe("the client detail screen", () => {
       residual_reason: null,
       cost_currency: null,
       cost_currency_stated: false,
+      trial_cost_inr: "0.00",
+      trial_in_month: false,
+      paid_cost_inr: "0.00",
+      paid_margin_inr: "0.00",
+      paid_margin_pct: null,
+      trial_calls: 0,
+      trial_minutes: "0.00",
       unattributed: null,
       ai_assist: { used_inr: "1.08", requests: 4, kb_used_inr: "0.00", kb_requests: 0 },
       cost_all_in: breakdown,
@@ -508,7 +521,7 @@ describe("the client detail screen", () => {
 
   it("formats margin money without ever parsing it, and keeps 'not billed yet' out of 0%", async () => {
     const { container } = await render({
-      [MARGIN_PATH]: margin({ margin_pct: null }),
+      [MARGIN_PATH]: margin({ margin_pct: null, paid_margin_pct: null }),
     });
 
     await screen.findByText("₹10,15,900.00");
@@ -540,7 +553,7 @@ describe("the client detail screen", () => {
     // Scoped to the banner. The nav above carries a link of the same name to the same
     // screen, and an unscoped query would pass on the nav alone — which is the wiring
     // this case exists to prove is NOT what is being asserted.
-    const banner = within(title.parentElement as HTMLElement);
+    const banner = within(title.closest("[data-notice]") as HTMLElement);
     expect(banner.getByRole("link", { name: "Account state" }).getAttribute("href")).toBe(
       `/admin/tenants/${TENANT}/lifecycle`,
     );
@@ -551,7 +564,7 @@ describe("the client detail screen", () => {
 
     const title = await screen.findByText("This account is closed.");
     expect(container.textContent).toContain("Nobody at the client can sign in");
-    const banner = within(title.parentElement as HTMLElement);
+    const banner = within(title.closest("[data-notice]") as HTMLElement);
     expect(banner.getByRole("link", { name: "Closing the account" }).getAttribute("href")).toBe(
       `/admin/tenants/${TENANT}/closure`,
     );
@@ -665,7 +678,7 @@ describe("an account given a business type by default (D-722)", () => {
       [`${TENANT_PATH}/business-type`]: unconfirmed,
       [`POST ${confirmPath}`]: businessType(),
     });
-    expect(await screen.findByText("Confirm business type")).toBeTruthy();
+    expect(await screen.findByText("Business type not confirmed")).toBeTruthy();
     expect(screen.getByText(/sells chilli powder/)).toBeTruthy();
     const select = screen.getByLabelText("Business type") as HTMLSelectElement;
     expect(select.value).toBe("retail");
@@ -684,6 +697,6 @@ describe("an account given a business type by default (D-722)", () => {
   it("says nothing for an account whose type somebody chose", async () => {
     await render();
     await screen.findByText("Last calls");
-    expect(screen.queryByText("Confirm business type")).toBeNull();
+    expect(screen.queryByText("Business type not confirmed")).toBeNull();
   });
 });

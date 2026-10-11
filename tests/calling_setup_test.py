@@ -596,6 +596,54 @@ async def test_the_endpoint_answers_signed_lookups_and_refuses_the_rest(vendor: 
     assert answered.status_code == 200 and answered.json() == {"variables": {}}
 
 
+async def test_a_repeat_for_the_same_call_gets_the_same_answer_without_a_second_lookup(
+    vendor: FakeVendor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A phone provider that repeats its own request makes ThinnestAI ask again with the same
+    `callId` (live docs, "Who-is-calling lookup", read 11 Oct 2026)."""
+    from apps.api.worker import engine_lookups as lookup_route
+
+    tenant_id, agent_id = await _tenant()
+    ref = await _route(tenant_id, agent_id)
+    await _ensure(tenant_id, ref)
+    phone = "+919822233355"
+    await _lead(tenant_id, agent_id, phone=phone, name="Ravi")
+    looked: list[str] = []
+    real = lookup_route.caller_variables
+
+    async def counted(session: Any, **kwargs: Any) -> dict[str, str]:
+        looked.append(kwargs["phone_e164"])
+        return await real(session, **kwargs)
+
+    monkeypatch.setattr(lookup_route, "caller_variables", counted)
+    body = json.dumps(
+        {
+            "event": "call.started",
+            "callId": f"CA{uuid.uuid4().hex[:8]}",
+            "surface": "phone",
+            "agentId": ref,
+            "from": phone,
+            "to": "+918000000000",
+            "direction": "inbound",
+            "contact": None,
+        }
+    ).encode()
+    transport = httpx.ASGITransport(app=api_app, client=("127.0.0.1", 44444))
+    async with httpx.AsyncClient(transport=transport, base_url="http://api") as raw:
+        answers = [
+            await raw.post(
+                f"/v1/worker/engine-lookups/thinnest?agent={ref}",
+                content=body,
+                headers=_signed(body, "cs_1"),
+            )
+            for _ in range(2)
+        ]
+    assert [a.status_code for a in answers] == [200, 200]
+    assert answers[0].json() == answers[1].json()
+    assert answers[0].json()["variables"]["first_name"] == "Ravi"
+    assert looked == [phone]
+
+
 # --- 5. call settings on ThinnestAI ---------------------------------------------------------
 
 

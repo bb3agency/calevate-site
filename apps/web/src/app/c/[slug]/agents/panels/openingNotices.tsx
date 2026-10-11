@@ -9,11 +9,11 @@
  * the guarantee it does NOT switch off must be visible above it.
  */
 
-import { CircleAlert, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { ProblemNotice, RestrictionNote, ToggleSwitch } from "@/components/ui";
+import { ProblemNotice, RestrictionNote, ToggleSwitch, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
 import { useSetDisclosure, type Agent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
@@ -240,8 +240,7 @@ function NoticeToggle({
           “{quote}”
         </blockquote>
         {!checked && (
-          <p className="mt-3 flex items-start gap-2 rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-xs text-ink">
-            <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
+          <p className={`mt-3 ${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
             <span>{offNote}</span>
           </p>
         )}

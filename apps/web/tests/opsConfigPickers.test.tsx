@@ -100,6 +100,7 @@ describe("the shared trial number is picked from what ThinnestAI holds", () => {
     current: null,
     current_held: null,
     engine_uses_it: true,
+    line: null,
     candidates: [
       {
         e164: "+918041234567",

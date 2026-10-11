@@ -233,13 +233,11 @@ function RequestDetail({ request }: { request: DeletionRequest }) {
         <div className="mt-3">
           <NoticeBox
             tone="warn"
-            icon={<ShieldAlert aria-hidden className="h-5 w-5" />}
             title="Completed, but no certificate was recorded"
           >
-            <p className="mt-1">
-              The erasure is marked complete and the proof is missing, so we cannot show
-              you what it did. Send us this request id before you answer the person who
-              asked — do not tell them it is done on the strength of this panel alone.
+            <p>
+              The proof is missing, so we cannot show what it did. Send us this request id,
+              and do not tell them it is done on the strength of this panel alone.
             </p>
           </NoticeBox>
         </div>

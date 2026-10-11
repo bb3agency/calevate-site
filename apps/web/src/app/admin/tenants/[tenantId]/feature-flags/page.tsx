@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { use, useState } from "react";
-import { AlertTriangle, Info } from "lucide-react";
 
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
@@ -158,7 +157,7 @@ export default function FeatureFlagsPage({
       {/* VISIBLE AND VERBATIM: the person most likely to look for such a switch is the
           person on a support call being asked for one. The two other "what these are not"
           notes are explanation, so they sit behind the ⓘ. */}
-      <NoticeBox tone="neutral" icon={<Info className="h-5 w-5" />}>
+      <NoticeBox tone="neutral">
         <div className="flex items-start gap-1 text-meta">
           <p>
             <span className="font-medium">Never a compliance control.</span> Nothing here
@@ -197,7 +196,6 @@ export default function FeatureFlagsPage({
            silently reverse a colleague's change — and nothing downstream would refuse it. */
         <NoticeBox
           tone="warn"
-          icon={<AlertTriangle className="h-5 w-5" />}
           title="Cannot change a flag while the current state is unreadable"
         >
           <p className="mt-1 text-meta opacity-90">

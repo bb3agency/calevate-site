@@ -33,6 +33,7 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import payments
 from apps.api.billing.credit_packs import CreditPack, pack_by_id
+from apps.api.billing.payment_objects import record_route
 from apps.api.billing.payment_routes import (
     CheckoutCallbackIn,
     RefundIn,
@@ -224,6 +225,21 @@ def test_the_checkout_signature_verifies_the_order_pipe_payment_with_the_key_sec
     )
 
 
+async def _our_order(tenant_id: UUID) -> str:
+    """An order id recorded as this tenant's, the way the intent route records one."""
+    order_id = f"order_{uuid.uuid4().hex[:14]}"
+    async with tenant_session(tenant_id) as session:
+        await record_route(
+            session,
+            tenant_id=tenant_id,
+            object_id=order_id,
+            kind="order",
+            purpose="topup",
+            amount_inr=Decimal("500"),
+        )
+    return order_id
+
+
 async def test_the_callback_route_accepts_a_genuine_signature_but_credits_nothing() -> None:
     principal = Principal(
         realm="client",
@@ -232,10 +248,12 @@ async def test_the_callback_route_accepts_a_genuine_signature_but_credits_nothin
         role="owner",
         impersonating=False,
     )
-    sig = _checkout_signature("order_cb", "pay_cb")
+    assert principal.tenant_id is not None
+    order_id = await _our_order(principal.tenant_id)
+    sig = _checkout_signature(order_id, "pay_cb")
     out = await confirm_topup_callback(
         CheckoutCallbackIn(
-            razorpay_order_id="order_cb", razorpay_payment_id="pay_cb", razorpay_signature=sig
+            razorpay_order_id=order_id, razorpay_payment_id="pay_cb", razorpay_signature=sig
         ),
         principal,
     )
@@ -263,6 +281,31 @@ async def test_the_callback_route_rejects_a_forged_signature() -> None:
             principal,
         )
     assert raised.value.code == "payment_signature_invalid"
+
+
+async def test_the_callback_route_refuses_another_accounts_order() -> None:
+    """D-735: a genuine signature on an order made for ANOTHER account is refused, and so
+    is one on an order we never made."""
+    owner = await _tenant()
+    principal = Principal(
+        realm="client",
+        user_id=uuid.uuid4(),
+        tenant_id=await _tenant(),
+        role="owner",
+        impersonating=False,
+    )
+    for order_id in (await _our_order(owner), f"order_{uuid.uuid4().hex[:14]}"):
+        sig = _checkout_signature(order_id, "pay_cb")
+        with pytest.raises(ProblemError) as raised:
+            await confirm_topup_callback(
+                CheckoutCallbackIn(
+                    razorpay_order_id=order_id,
+                    razorpay_payment_id="pay_cb",
+                    razorpay_signature=sig,
+                ),
+                principal,
+            )
+        assert raised.value.code == "payment_order_unknown"
 
 
 # ============================================================================

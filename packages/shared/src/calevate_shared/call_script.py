@@ -646,6 +646,23 @@ def _stage_detail(stage: ConversationStage) -> str:
     return detail
 
 
+#: Added to an engine step that collects more than one detail. A step's `collect` list reads
+#: to the model as a checklist for one turn, and a production call (D-739) asked which
+#: product and how much in one breath; the instructions say the same, but the step is what
+#: the model is following at that moment.
+ONE_DETAIL_PER_TURN: Final = "Ask for one of these details per turn."
+
+
+def _step_detail(stage: ConversationStage) -> str:
+    """`_stage_detail`, plus `ONE_DETAIL_PER_TURN` when the step collects several details
+    and the sentence still fits the engine's step. The text compile and the editor's 600
+    counter read `_stage_detail`, so the owner's budget is not spent on this."""
+    detail = _stage_detail(stage)
+    if len(stage.collect) > 1 and len(detail) + 1 + len(ONE_DETAIL_PER_TURN) <= STAGE_DETAIL_MAX:
+        detail = f"{detail} {ONE_DETAIL_PER_TURN}"
+    return detail
+
+
 @dataclass(frozen=True, slots=True)
 class Capabilities:
     """What the account can do when the script is compiled for a call. Unknown at save
@@ -719,7 +736,7 @@ def native_steps(script: CallScript, *, can: Capabilities | None = None) -> tupl
         return tuple(
             NativeStep(
                 title=stage.name.strip(),
-                detail=_stage_detail(stage),
+                detail=_step_detail(stage),
                 branches=tuple(_stage_exits(stage, names, can)),
                 collect=tuple(stage.collect),
             )
@@ -784,7 +801,7 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
     if purpose:
         goal = (
             f"{goal}\n" if goal else ""
-        ) + f"On a call you place, say early and in one sentence why you are calling: {purpose}"
+        ) + f"On calls you place, say early, in one sentence, why you call: {purpose}"
     add("[GOAL]", goal)
     add(OPENING_HEADER, script.opening_line)
 
@@ -827,14 +844,14 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
                 line += " — needed"
             lines.append(line)
         add(
-            "[WHAT TO COLLECT] One at a time, when it fits; read each back. Ask for nothing else.",
+            "[WHAT TO COLLECT] One per turn, when it fits. Ask for nothing else.",
             "\n".join(lines),
         )
 
     objections = [o for o in script.objections if o.response.strip()]
     if objections:
         add(
-            "[OBJECTIONS] Answer in this spirit, in your own words. Two noes: accept politely.",
+            "[OBJECTIONS] In this spirit, in your own words.",
             "\n".join(f"Q: {o.objection.strip()}\nA: {o.response.strip()}" for o in objections),
         )
 
@@ -860,7 +877,7 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
     example = [line for line in script.example_exchange if line.text.strip()]
     if example:
         add(
-            f"{EXAMPLE_HEADER} Copy the style, never the facts.",
+            f"{EXAMPLE_HEADER} Copy the style, never the facts or the Caller lines.",
             "\n".join(
                 f"{'Caller' if line.speaker == 'caller' else 'You'}: {line.text.strip()}"
                 for line in example

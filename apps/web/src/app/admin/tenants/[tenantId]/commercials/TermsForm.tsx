@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import {
   FIELD,
@@ -211,10 +210,10 @@ export function TermsForm({
         {loosened.length > 0 && (
           /* The dangerous direction, called out where it is decided: the API requires a
              superadmin AND the confirmation header for this write. */
-          <NoticeBox tone="warn" icon={<AlertTriangle className="h-4 w-4" />}>
+          <NoticeBox tone="warn">
             <p>
               This raises or removes the <span className="font-medium">{loosened.join(" and ")}</span>.
-              That is a superadmin action and it is confirmed explicitly — this console
+              That is a superadmin action and it is confirmed explicitly. This console
               sends the confirmation with the request. Tightening a ceiling, or setting a
               first one, needs neither.
             </p>
@@ -231,11 +230,11 @@ export function TermsForm({
 
         {save.error != null && <WriteFailure error={save.error} actionLabel="Record new terms" />}
         {save.data && (
-          <NoticeBox tone={save.data.changed ? "ok" : "neutral"} icon={<CheckCircle2 className="h-5 w-5" />}>
+          <NoticeBox tone={save.data.changed ? "ok" : "neutral"}>
             <p>
               {save.data.changed
                 ? "Recorded as a new dated agreement. Nothing already billed was altered."
-                : "These are already the terms in effect — nothing was written, and no audit row was added."}
+                : "These are already the terms in effect. Nothing was written, and no audit row was added."}
             </p>
           </NoticeBox>
         )}

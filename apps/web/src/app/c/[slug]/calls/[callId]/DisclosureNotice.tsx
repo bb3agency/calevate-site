@@ -1,6 +1,5 @@
 "use client";
 
-import { ShieldAlert } from "lucide-react";
 
 import { NoticeBox } from "@/components/ui";
 
@@ -19,7 +18,6 @@ export function DisclosureNotice({ played }: { played: boolean | null | undefine
     return (
       <NoticeBox
         tone="stop"
-        icon={<ShieldAlert className="h-5 w-5" />}
         title="No disclosure was played on this call"
       >
         Callers must be told they are speaking to an automated agent. Tell us about this call

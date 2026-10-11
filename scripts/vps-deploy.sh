@@ -1156,7 +1156,19 @@ render_nginx() {
   : "${ACME_WEBROOT:=/var/www/certbot}"
   : "${ORIGIN_CERT_PATH:?ORIGIN_CERT_PATH must be set — the Cloudflare Origin CA cert for the default_server (DEPLOYMENT §5)}"
   : "${ORIGIN_KEY_PATH:?ORIGIN_KEY_PATH must be set — the Cloudflare Origin CA key}"
-  export ROOT_DOMAIN TLS_LIVE_DIR ACME_WEBROOT ORIGIN_CERT_PATH ORIGIN_KEY_PATH
+  # Cloudflare Authenticated Origin Pulls (D-734): off | optional | on, OFF unless the
+  # operator sets it. Requiring the client certificate before zone-level AOP is switched on
+  # in Cloudflare refuses every request, so the switch is the operator's, in that order
+  # (infra/nginx/snippets/calevate-origin-pull-on.conf).
+  : "${CF_ORIGIN_PULL:=off}"
+  case "$CF_ORIGIN_PULL" in
+    off|optional|on) ;;
+    *) die "CF_ORIGIN_PULL must be off, optional or on (got: $CF_ORIGIN_PULL)" ;;
+  esac
+  if [[ "$CF_ORIGIN_PULL" != off && ! -r /etc/nginx/certs/calevate-origin-pull-ca.pem ]]; then
+    die "CF_ORIGIN_PULL=$CF_ORIGIN_PULL needs the zone's origin-pull CA at /etc/nginx/certs/calevate-origin-pull-ca.pem"
+  fi
+  export ROOT_DOMAIN TLS_LIVE_DIR ACME_WEBROOT ORIGIN_CERT_PATH ORIGIN_KEY_PATH CF_ORIGIN_PULL
 
   local staging
   staging=$(mktemp -d)
@@ -1164,9 +1176,9 @@ render_nginx() {
   # finds — and an nginx config is nothing but `$name`: `$host`, `$remote_addr`,
   # `$binary_remote_addr` would all be replaced with empty strings, producing a file that
   # passes `nginx -t` and rate-limits every request into the same bucket. Naming the five
-  # is what makes this safe.
+  # (and the origin-pull switch) is what makes this safe.
   # shellcheck disable=SC2016  # envsubst wants the LITERAL `${NAME}` list, unexpanded
-  local subst='${ROOT_DOMAIN} ${TLS_LIVE_DIR} ${ACME_WEBROOT} ${ORIGIN_CERT_PATH} ${ORIGIN_KEY_PATH}'
+  local subst='${ROOT_DOMAIN} ${TLS_LIVE_DIR} ${ACME_WEBROOT} ${ORIGIN_CERT_PATH} ${ORIGIN_KEY_PATH} ${CF_ORIGIN_PULL}'
 
   # FIRST, and the `00-` prefix is load-bearing: `nginx.conf` includes `conf.d/*.conf` in
   # ALPHABETICAL order and `log_format` must be defined before the `access_log` that names

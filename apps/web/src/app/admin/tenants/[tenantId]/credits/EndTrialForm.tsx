@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, CircleAlert } from "lucide-react";
+import { CircleAlert } from "lucide-react";
 
 import {
   FIELD,
@@ -138,8 +138,7 @@ export function EndTrialForm({
       {end.data && (
         <NoticeBox
           tone="ok"
-          icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
-          title={`Trial ended — ${end.data.status}`}
+          title={`Trial ended: ${end.data.status}`}
         >
           <p className="mt-1">
             {end.data.erase_after

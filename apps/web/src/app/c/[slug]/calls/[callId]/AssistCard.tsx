@@ -159,7 +159,7 @@ function AssistAnswer({
       {/* G-6: a fallback is ALWAYS disclosed, in the server's own sentence. */}
       {answer.disclosure !== null && (
         <NoticeBox tone="neutral" title="Written by a different model">
-          <p className="mt-1">{answer.disclosure}</p>
+          {answer.disclosure}
         </NoticeBox>
       )}
       {!answer.metered && (
@@ -201,10 +201,7 @@ function CeilingOffer({
 
   return (
     <NoticeBox tone="warn" title="You have used this month's included AI help">
-      <p className="mt-1">
-        AI help in the console has stopped for this month. Everything else — your calls,
-        campaigns and leads — carries on exactly as before.
-      </p>
+      <p>AI help is off until next month. Calls, campaigns and leads carry on as before.</p>
 
       {quota.error != null && (
         <div className="mt-3">

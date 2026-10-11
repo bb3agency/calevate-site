@@ -142,8 +142,8 @@ export const DPA: LegalDocument = {
             // class VENDOR-PUBLISHED, RELAYED, because that vendor's pages are
             // egress-blocked from our build environment and nobody here has opened them.
             // So every clause is what its documents SAY; the two flat statements
-            // (nothing has been sent, what it receives) come from this repository's own
-            // code. No company is named: a voice quality is a product choice, and the
+            // (what it receives, and that it has since 11 October 2026) come from this
+            // repository's own code and production usage. No company is named: a voice quality is a product choice, and the
             // sub-processor register is where a name belongs.
             "The same is true on the voice-synthesis leg, which since " +
               "18 September 2026 is not the speech vendor's at all. " +
@@ -161,12 +161,13 @@ export const DPA: LegalDocument = {
               "day it is submitted. Its no-retention option is sold only on its " +
               "enterprise plan; on the plans we could buy, retention is governed by its " +
               "published data-processing agreement instead, and we have not established " +
-              "what those periods are. What reaches it is the words your agent is about " +
-              "to speak, as text, a turn at a time — which can include a detail a caller " +
-              "has just given where the agent repeats it back — and never the caller's " +
-              "audio, the transcript, the recording or anything from your dashboard. " +
-              "Nothing has been sent to either of them: no voice of either can be " +
-              "selected yet. Of the second " +
+              "what those periods are. What reaches it is the words your agent speaks, " +
+              "as text — which can include personal data a caller has given, such as a " +
+              "name or the details of an order, where the agent says it back — and never " +
+              "the caller's audio, the transcript, the recording or anything from your " +
+              "dashboard. Since 11 October 2026 it receives those words for every agent " +
+              "you put on the dearer quality. Nothing has been sent to the second " +
+              "company. Of the second " +
               "we have read nothing but a price list — its own sites refuse a " +
               "connection from the environment we build in — so its position on " +
               "training and retention " +
@@ -304,17 +305,19 @@ export const DPA: LegalDocument = {
             "Indian data-protection law; until it is signed we do not represent to you " +
             "that one is in place with it, and what it has told us about training and " +
             "retention is its statement rather than a term we hold (section 3.7 of the " +
-            "sub-processor page). The other two are voice-synthesis vendors nothing has " +
-            "been sent to: no voice of either can be selected yet. The first of those " +
-            "was added to the register on 7 September 2026. Its " +
+            "sub-processor page). The other two are voice-synthesis vendors. The first " +
+            "of those was added to the register on 7 September 2026 and, since " +
+            "11 October 2026, receives the words of every agent you put on the dearer " +
+            "voice quality. Its " +
             "data-processing agreement is published, and whether it can be " +
             "entered on a plan we could actually buy — without an enterprise contract — " +
             "is a question we have not settled, so we do not represent to you that one " +
             "is in place. It will not be in place because this clause implies it: it " +
-            "will be in place when somebody has established that it can be, and that is " +
-            "part of what has to happen before that row stops reading as switched off. " +
+            "will be in place when somebody has established that it can be and it has " +
+            "been entered. " +
             "The second was added on 15 September 2026 and speaks the cheaper voice " +
-            "quality only when calls run on our own call program; the only page of its " +
+            "quality only when calls run on our own call program; nothing has been sent " +
+            "to it. The only page of its " +
             "own we have read is its price list, and nothing it publishes that we can " +
             "reach says whether it offers a data-processing agreement at all, so we " +
             "represent nothing about one. " +
@@ -604,8 +607,10 @@ export const DPA: LegalDocument = {
             "sites cannot be reached from the environment we build in at all, so the " +
             "only page of its own anybody here has read is its price list, which says " +
             "nothing about where — and rather than name a plausible country the " +
-            "register's location cells for both say so; nothing has been sent to either " +
-            "of them, and the sentence this clause used to carry, that keeping your " +
+            "register's location cells for both say so; the first of them has received " +
+            "the words of agents on the dearer voice quality since 11 October 2026 and " +
+            "nothing has been sent to the other, and the sentence this clause used to " +
+            "carry, that keeping your " +
             "agents on the first voice quality kept it that way, is WITHDRAWN because " +
             "there is no longer a voice quality that does; " +
             "the language model we run ourselves — the in-app assistant, and the call " +
@@ -811,7 +816,7 @@ export const DPA: LegalDocument = {
               "Phone numbers; call metadata; call audio recordings; raw and redacted " +
                 "transcripts; call summaries; timestamped key moments; the fields the " +
                 "Client's extraction schema defines (which may include name, location, " +
-                "budget, stated requirement, appointment preference, callback number and " +
+                "budget, stated requirement, preferred time, callback number and " +
                 "anything else the Client chooses); lead records and their history; consent " +
                 "and opt-out records; contact rows uploaded by the Client, including any " +
                 "additional columns in the Client's file.",

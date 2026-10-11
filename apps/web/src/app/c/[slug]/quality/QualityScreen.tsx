@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { TriangleAlert } from "lucide-react";
 
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
@@ -171,13 +170,9 @@ export function QualityScreen() {
            TanStack has PAUSED (browser offline) has no error and no data either. */
         <NoticeBox
           tone="warn"
-          icon={<TriangleAlert className="h-5 w-5" />}
           title="Your quality reports could not be loaded"
         >
-          <p className="mt-1">
-            So we cannot show this month&apos;s results. This does not mean there are none —
-            reload the page, and tell us if it keeps happening.
-          </p>
+          Reload the page. This does not mean there are none. Tell us if it keeps happening.
         </NoticeBox>
       ) : !shown ? (
         <EmptyState

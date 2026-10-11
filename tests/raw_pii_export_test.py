@@ -89,7 +89,12 @@ async def test_an_owner_can_export_and_the_export_is_recorded() -> None:
 
     async with _client() as http:
         response = await http.get(
-            EXPORT, headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
+            EXPORT,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Org-Slug": slug,
+                "X-Confirm-Action": f"export_leads:{slug}",
+            },
         )
 
     assert response.status_code == 200, response.text

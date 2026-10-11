@@ -2,7 +2,7 @@
 
 import { EmptySketch } from "@/components/console/emptySketch";
 import { useState } from "react";
-import { CheckCircle2, KeyRound, UserPlus } from "lucide-react";
+import { KeyRound, UserPlus } from "lucide-react";
 
 import { ActionButton } from "@/components/actionButton";
 import { Drawer } from "@/components/console/drawer";
@@ -331,7 +331,7 @@ function InviteForm({
 
       {invite.error != null && <ProblemNotice error={invite.error} />}
       {invite.data != null && (
-        <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
+        <NoticeBox tone="ok">
           <p>
             The invitation is queued for delivery and the link is good for{" "}
             {invite.data.expires_in_hours} hours. It appears under Waiting to sign up, where it

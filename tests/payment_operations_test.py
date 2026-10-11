@@ -461,7 +461,11 @@ async def test_the_reconcile_route_reports_the_pass(monkeypatch: pytest.MonkeyPa
         )
 
     monkeypatch.setattr(payment_admin_routes, "reconcile", _report)
-    out = await payment_admin_routes.run_reconciliation(_admin())
+    out = await payment_admin_routes.run_reconciliation(
+        _admin(),
+        StepUp(present=False, verified_at=None),
+        payment_admin_routes.RECONCILE_PAYMENTS_CONFIRMATION,
+    )
     assert out.window_days == 3 and out.payments_seen == 4
     assert out.credited_late == ["pay_a"]
     assert out.settled_inr == Decimal("99.50")

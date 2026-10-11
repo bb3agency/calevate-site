@@ -56,15 +56,12 @@ decision as well as in the answer after it.
 `MUTATING_PERMISSIONS`, so gating the READ on it would hide "who can get into this
 account" from exactly the support session whose job is to answer that on a telephone call.
 
-The REMOVAL takes the composed step-up (`core/stepup.py`) and the role change does not.
-The line between them is not the word "destructive" — it is whether the operator who was
-wrong can put it back. A role change is undone by the same operator, on the same screen,
-in one click, and the census in `tests/authn_stepup_test.py` records what ceremony on a
-reversible act costs: it teaches an operator to type past ceremony, which is why the
-reversible half of `set_tenant_status` lost its gate. A removal cannot be undone by us at
-all. The way back is a NEW invitation that the person themselves must receive and redeem,
-so an operator who removes the wrong person has handed the repair to somebody who can no
-longer sign in. That asymmetry buys the second factor.
+Both the REMOVAL and the ROLE CHANGE take the composed step-up (`core/stepup.py`). The role
+change used to go without, on the ground that one click undoes it; D-731 gated it because
+promoting someone to owner hands them the whole account, including the power to remove the
+real owner, and that is a grant of authority a console left open must not be enough to
+make. A removal cannot be undone by us at all: the way back is a NEW invitation that the
+person themselves must receive and redeem.
 
 The confirmation string carries BOTH ids. A header captured while looking at one person
 on one account must not be replayable against the colleague listed beneath them — on this
@@ -150,6 +147,11 @@ def remove_member_confirmation(tenant_id: UUID, user_id: UUID) -> str:
     than a reformat that leaves the console sending a header the API refuses.
     """
     return f"remove_member_access:{tenant_id}:{user_id}"
+
+
+def member_role_confirmation(tenant_id: UUID, user_id: UUID) -> str:
+    """The `X-Confirm-Action` for moving ONE person between owner and staff (D-731)."""
+    return f"change_member_role:{tenant_id}:{user_id}"
 
 
 class TeamMemberOut(BaseModel):
@@ -344,8 +346,11 @@ async def set_tenant_member_role(
     payload: TeamMemberRoleIn,
     request: Request,
     principal: Manager,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> TeamMemberOut:
-    """No step-up: reversible by the same operator on the same screen (module docstring).
+    """Step-up since D-731: promoting someone to owner hands them the whole account, and a
+    console left open must not be enough to do it, however reversible the click.
 
     `actor_user_id` is `None`: `members._refuse_self` compares a `users.id`, and an
     operator's `principal.user_id` is an `admin_users.id` — a different table with no
@@ -358,6 +363,7 @@ async def set_tenant_member_role(
     this package gives: a grant of authority whose record failed to commit is a grant
     nobody can later account for.
     """
+    step_up.require(x_confirm_action, member_role_confirmation(tenant_id, user_id))
     async with tenant_session(tenant_id) as scoped:
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")

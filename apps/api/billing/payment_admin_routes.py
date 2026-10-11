@@ -185,13 +185,23 @@ class ReconcileOut(_Strict):
     settled_inr: Decimal
 
 
+#: The step-up string for running the Razorpay reconciliation by hand (D-731). It credits
+#: payments that were captured and never credited, so it moves money onto wallets.
+RECONCILE_PAYMENTS_CONFIRMATION = "reconcile_payments"
+
+
 @router.post(
     "/reconcile",
     response_model=ReconcileOut,
     openapi_extra=permission_meta("admin:tenants"),
     summary="Run the Razorpay reconciliation now (it also runs daily)",
 )
-async def run_reconciliation(_principal: Operator) -> ReconcileOut:
+async def run_reconciliation(
+    _principal: Operator,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
+) -> ReconcileOut:
+    step_up.require(x_confirm_action, RECONCILE_PAYMENTS_CONFIRMATION)
     report = await reconcile()
     return ReconcileOut(
         window_days=report.window_days,

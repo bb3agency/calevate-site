@@ -148,6 +148,10 @@ class Call(PKMixin, TimestampMixin, Base):
             "engine_charged_inr IS NULL OR engine_charged_inr >= 0",
             name="engine_charged_inr_not_negative",
         ),
+        CheckConstraint(
+            "engine_quality IS NULL OR call_quality_is_numeric(engine_quality)",
+            name="engine_quality_is_numbers",
+        ),
         # Recordings the carrier reported and we have not copied yet: the copy sweep's
         # worklist (`workers/carrier_recordings`), a handful of rows at any moment.
         Index(
@@ -329,6 +333,13 @@ class Call(PKMixin, TimestampMixin, Base):
     #: A free-trial test call (D-697), placed from the shared trial number. What the trial's
     #: daily cap, its free minutes and the one-test-call-at-a-time line count.
     trial_call: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: The forwarding test this inbound call was (D-746): its minutes are ours, it files no lead.
+    forwarding_test_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("forwarding_tests.id", ondelete="SET NULL")
+    )
+    #: A forwarded call that showed the client's own published number instead of the
+    #: caller's (D-746): the lead is filed under the call-back number the caller gave.
+    caller_id_hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     lead_id: Mapped[UUID | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"))
     # D-21 M2: the call this one follows up. Bounds the callback chain — see migration
     # efb47868ec59 for why an unbounded one is a compliance problem, not a UX one.
@@ -354,6 +365,11 @@ class Call(PKMixin, TimestampMixin, Base):
     #: settles (ThinnestAI `costMicro`). A reconciliation input, never `unit_cost_paid`
     #: (hard rule 7): `workers/engine_charges.reconcile_call_charge`.
     engine_charged_inr: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))
+    #: How the call went as the voice platform measured it once it ended
+    #: (`calevate_shared.events.CallQuality`, dumped): reply times, silences, interruptions,
+    #: model errors and backup answers, each NULL when not measured. Numbers only, which the
+    #: CHECK of migration a5d1c7e93f28 enforces. NULL until the platform reports it.
+    engine_quality: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     # The one-way handle a DPDP erasure leaves behind when it clears this row's numbers
     # (D-310, migration c1e9a4f7d302). Without it an erased call is orphaned from its
     # subject forever — the two phone columns were the only join — so records that arrive
@@ -648,3 +664,41 @@ class CallEngineLatency(PKMixin, TimestampMixin, Base):
     #: the payload parsed cleanly, so a warning is visible as a warning rather than as an
     #: empty list nobody looks inside.
     parse_warnings: Mapped[list[str] | None] = mapped_column(JSONB)
+
+
+#: What the voice platform reports about a call beside its result: a problem while it was
+#: live (`calevate_shared.events.EngineProblemKind`) or a notice its agent raised.
+CALL_ENGINE_SIGNAL_KINDS = (
+    "conversation_escalated",
+    "lead_captured",
+    "no_answer_from_model",
+    "own_key_failed",
+    "slow_reply",
+    "voice_failed",
+)
+
+
+class CallEngineSignal(PKMixin, TimestampMixin, Base):
+    """One thing the voice platform reported about a call, at most once per kind per call
+    (migration a5d1c7e93f28).
+
+    Keyed by the platform's call id rather than a foreign key to `calls`: a problem arrives
+    while an inbound call is still live, before we hold a row for it, and the call screen
+    and the healer join on `calls.engine_call_id`. Kind and time only, never the platform's
+    own sentence, so nothing a vendor writes is stored here.
+    """
+
+    __tablename__ = "call_engine_signals"
+    __table_args__ = (
+        CheckConstraint(f"kind IN {CALL_ENGINE_SIGNAL_KINDS!r}", name="kind_enum"),
+        UniqueConstraint("tenant_id", "engine_call_id", "kind"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    #: Our agent the platform names; on a handed call, the agent that raised it.
+    agent_id: Mapped[UUID | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
+    engine_call_id: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    occurred_at: Mapped[datetime | None]

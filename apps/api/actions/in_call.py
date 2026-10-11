@@ -17,6 +17,11 @@ sheet row — is acknowledged at once and finished by `workers/client_actions.py
 else runs inside `IN_CALL_BUDGET_S`, below ThinnestAI's "Answer within 10 seconds"
 (snapshots/2026-10-08/pages/mcp/own-database.md:48).
 
+ONCE PER CALL. A turn the platform re-runs on its backup model can call an action again, so
+an action runs once per call and arguments and a repeat answers with the first answer
+(`reliability/in_call_once.py`). That is a separate guard from the caps below: a repeat is
+answered without counting against them.
+
 LIMITS PER CALL. ThinnestAI caps custom actions at thirty calls per conversation per hour
 (agent/custom-api.md:147-155). Ours are tighter where an action reaches the caller or moves
 money: two WhatsApp messages and two payment links per action per call, counted in Redis. A
@@ -40,6 +45,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue
 from apps.api.core.redis import get_redis
 from apps.api.db.session import tenant_session
+from apps.api.reliability.in_call_once import once_per_call
 
 log = get_logger(__name__)
 
@@ -209,7 +215,29 @@ async def _within_limit(tool: LoadedTool, call: CallFacts) -> bool:
 async def run_in_call_action(
     *, tenant_id: UUID, agent_id: UUID, name: str, args: dict[str, Any], call: CallFacts
 ) -> InCallAnswer:
-    """Run (or accept) the client action `name` on this agent's call."""
+    """Run (or accept) the client action `name` on this agent's call, once per call and
+    arguments: a repeat answers with the first answer (`reliability/in_call_once.py`)."""
+    if not call.call_ref:
+        return await _run_in_call_action(
+            tenant_id=tenant_id, agent_id=agent_id, name=name, args=args, call=call
+        )
+
+    async def _run() -> dict[str, Any]:
+        answer = await _run_in_call_action(
+            tenant_id=tenant_id, agent_id=agent_id, name=name, args=args, call=call
+        )
+        return answer.body()
+
+    body = await once_per_call(
+        call_ref=call.call_ref, action=f"client:{agent_id}:{name}", args=args, run=_run
+    )
+    status, say = str(body.get("status", "")), str(body.get("say", ""))
+    return InCallAnswer(status, say, {k: v for k, v in body.items() if k not in ("status", "say")})
+
+
+async def _run_in_call_action(
+    *, tenant_id: UUID, agent_id: UUID, name: str, args: dict[str, Any], call: CallFacts
+) -> InCallAnswer:
     ids = {"tenant_id": str(tenant_id), "agent_id": str(agent_id)}
     async with tenant_session(tenant_id) as session:
         tool = await in_call_tool(session, agent_id=agent_id, name=name)

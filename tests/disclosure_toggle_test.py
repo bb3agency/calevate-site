@@ -901,7 +901,13 @@ def test_the_migration_goes_down_and_comes_back_up() -> None:
     # The AI sentence's live wording moved on with D-708 (no greeting word in a notice); the
     # revision keeps the wording it backfilled with, for the same languages.
     assert revision.AI_TEMPLATES.keys() == AI_DISCLOSURE_TEMPLATES.keys()
-    assert revision.RECORDING_TEMPLATES == RECORDING_NOTICE_TEMPLATES
+    # D-745 then wrote the Telugu and Hindi sentences in their own script, rewriting exactly
+    # these outputs; carried through that rewrite, the old copy is today's table.
+    script = _load_revision("e9b4c2a7d136_notices_in_their_own_script")
+    rewrite = {row[2]: row[3] for row in script._LINES}
+    assert {
+        lang: rewrite.get(line, line) for lang, line in revision.RECORDING_TEMPLATES.items()
+    } == RECORDING_NOTICE_TEMPLATES
 
     url = (get_settings().alembic_database_url or get_settings().database_url).replace(
         "+asyncpg", "+psycopg"

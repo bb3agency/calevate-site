@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowRight, TriangleAlert } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
@@ -140,7 +140,6 @@ export function QaQueueScreen() {
           <div>
             <NoticeBox
               tone="warn"
-              icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
               title="The sampling queue could not be read"
             >
               <p className="mt-1">

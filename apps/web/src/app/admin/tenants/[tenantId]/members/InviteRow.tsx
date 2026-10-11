@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Send } from "lucide-react";
+import { Send } from "lucide-react";
 
 import { ActionButton } from "@/components/actionButton";
 import { Drawer } from "@/components/console/drawer";
@@ -195,10 +195,10 @@ function ResentNotice({
   data: NonNullable<ReturnType<typeof useResendTenantInvitation>["data"]>;
 }) {
   return (
-    <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
+    <NoticeBox tone="ok">
       <p>
         A fresh link is on its way to {data.email}, and the previous one stopped working the
-        moment it was cut. It expires {formatIST(data.expires_at)} — send {data.send_count} for
+        moment it was cut. It expires {formatIST(data.expires_at)}. This is send {data.send_count} for
         this invitation.
       </p>
     </NoticeBox>

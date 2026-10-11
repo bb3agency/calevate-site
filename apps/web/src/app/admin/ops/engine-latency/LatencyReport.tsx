@@ -1,7 +1,6 @@
 "use client";
 
 import { Section } from "@/components/console/section";
-import { TriangleAlert } from "lucide-react";
 
 import { MonoValue } from "@/app/admin/ops/opsLanguage";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
@@ -82,7 +81,7 @@ export function LatencyReport({
           verdict and the three figures are its fields: this states a gap, never works one
           out. Above everything else because it changes how every target should be read. */}
       {report.budget.composes === false && (
-        <NoticeBox tone="warn" icon={<TriangleAlert aria-hidden className="h-5 w-5" />} title={BUDGET_GAP_TITLE}>
+        <NoticeBox tone="warn" title={BUDGET_GAP_TITLE}>
           <p className="mt-1">{BUDGET_GAP_BODY}</p>
           <dl className="mt-3 grid gap-3 sm:grid-cols-3">
             <BudgetItem
@@ -112,7 +111,6 @@ export function LatencyReport({
       {!report.complete && (
         <NoticeBox
           tone="warn"
-          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
           title="These figures cover only part of the window"
         >
           <p className="mt-1">

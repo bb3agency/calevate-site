@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Rocket } from "lucide-react";
+import { Rocket } from "lucide-react";
 
 import {
   DANGER_BUTTON,
@@ -9,6 +9,8 @@ import {
   SECONDARY_BUTTON,
   formatCount,
   formatPhone,
+  NOTICE_BAR,
+  NOTICE_BASE,
 } from "@/components/ui";
 import { TypedConfirmation } from "@/components/typedConfirmation";
 
@@ -149,14 +151,13 @@ export function LaunchConfirm({
 
   return (
     <div className="space-y-3">
-      <div className="rounded-md border border-warn-line bg-warn-soft px-4 py-3 text-body text-warn">
-        <p className="flex items-start gap-2 font-semibold">
-          <AlertTriangle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+      <div className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
+        <p className="font-semibold">
           <span>
             This starts calling {formatCount(contacts)} {people}.
           </span>
         </p>
-        <ul className="mt-2 list-disc space-y-1 pl-5">
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-ink-muted">
           <li>
             Calls go out between 9am and 9pm IST only
             {callingHours ? (

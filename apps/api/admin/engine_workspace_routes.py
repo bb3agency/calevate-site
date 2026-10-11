@@ -23,7 +23,7 @@ from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from calevate_shared.engine_scope import scope_of
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,6 +51,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.engine.thinnest_customers import PLAN_CUSTOMER_CAPS
 from apps.api.engine.thinnest_numbers import BusinessDetails
@@ -68,6 +69,32 @@ router = APIRouter(prefix="/v1/admin/engine-workspaces", tags=["admin"])
 
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 WorkspaceOperator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
+ConfirmAction = Annotated[str | None, Header(alias="X-Confirm-Action")]
+
+
+#: The step-up strings for this router's writes (D-731), each bound to the tenant and, for
+#: a release, to the number. Buying and releasing move money and a client's phone line;
+#: provisioning and offboarding create or dismantle the client's whole voice workspace.
+def workspace_provision_confirmation(tenant_id: UUID) -> str:
+    return f"provision_workspace:{tenant_id}"
+
+
+def workspace_offboard_confirmation(tenant_id: UUID) -> str:
+    return f"offboard_workspace:{tenant_id}"
+
+
+def buy_number_confirmation(tenant_id: UUID) -> str:
+    return f"buy_number:{tenant_id}"
+
+
+def release_number_confirmation(tenant_id: UUID, number_id: UUID) -> str:
+    return f"release_number:{tenant_id}:{number_id}"
+
+
+def move_number_confirmation(tenant_id: UUID, number_id: UUID) -> str:
+    return f"move_number:{tenant_id}:{number_id}"
+
+
 OpsViewer = Annotated[Principal, Depends(requires("ops:manage", realm="admin"))]
 
 #: The vendor erases a deleted customer 30 days after the delete, and it counts towards the
@@ -241,8 +268,13 @@ def _off() -> ProblemError:
     summary="Provision this client's own voice workspace again (after a plan upgrade or a fix)",
 )
 async def provision_again(
-    tenant_id: UUID, request: Request, principal: WorkspaceOperator
+    tenant_id: UUID,
+    request: Request,
+    principal: WorkspaceOperator,
+    step_up: StepUpGate,
+    x_confirm_action: ConfirmAction = None,
 ) -> TenantWorkspaceOut:
+    step_up.require(x_confirm_action, workspace_provision_confirmation(tenant_id))
     if not engine_has_workspaces():
         raise _off()
     async with tenant_session(tenant_id) as scoped:
@@ -272,8 +304,13 @@ async def provision_again(
     ),
 )
 async def offboard_again(
-    tenant_id: UUID, request: Request, principal: WorkspaceOperator
+    tenant_id: UUID,
+    request: Request,
+    principal: WorkspaceOperator,
+    step_up: StepUpGate,
+    x_confirm_action: ConfirmAction = None,
 ) -> TenantWorkspaceOut:
+    step_up.require(x_confirm_action, workspace_offboard_confirmation(tenant_id))
     if not engine_has_workspaces():
         raise _off()
     async with tenant_session(tenant_id) as scoped:
@@ -505,8 +542,14 @@ class AdminPurchasedOut(BaseModel):
     ),
 )
 async def admin_purchase(
-    tenant_id: UUID, payload: AdminPurchaseIn, request: Request, principal: WorkspaceOperator
+    tenant_id: UUID,
+    payload: AdminPurchaseIn,
+    request: Request,
+    principal: WorkspaceOperator,
+    step_up: StepUpGate,
+    x_confirm_action: ConfirmAction = None,
 ) -> AdminPurchasedOut:
+    step_up.require(x_confirm_action, buy_number_confirmation(tenant_id))
     if not engine_has_workspaces():
         raise _off()
     async with tenant_session(tenant_id) as scoped:
@@ -597,7 +640,10 @@ async def admin_release(
     payload: AdminReleaseIn,
     request: Request,
     principal: WorkspaceOperator,
+    step_up: StepUpGate,
+    x_confirm_action: ConfirmAction = None,
 ) -> AdminReleasedOut:
+    step_up.require(x_confirm_action, release_number_confirmation(tenant_id, number_id))
     if not engine_has_workspaces():
         raise _off()
     async with tenant_session(tenant_id) as scoped:
@@ -653,6 +699,65 @@ async def admin_forget(
             summary={"released": str(released)},
         )
     return AdminReleasedOut(number_id=number_id, released=released)
+
+
+class AdminMovedOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    number_id: UUID
+    #: `moved` now, or `queued`: the number is on a call (or the move is under way) and is
+    #: tried again every two minutes until it can be.
+    status: Literal["moved", "queued"]
+
+
+@router.post(
+    "/tenants/{tenant_id}/numbers/{number_id}/move",
+    response_model=AdminMovedOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Move a number into the client's own voice workspace, keeping its digits",
+    description=(
+        "For a number held in the platform account, or in a workspace the client no longer "
+        "uses: it moves into the client's own workspace with the same digits, instead of "
+        "releasing it and buying new ones, and is pointed at the client's agent again. A "
+        "rented number is charged to the client from its next renewal. Refused until the "
+        "client's business details are approved (an Indian number is held in the name of "
+        "the business using it). A number on a call is moved once the call ends."
+    ),
+)
+async def admin_move(
+    tenant_id: UUID,
+    number_id: UUID,
+    request: Request,
+    principal: WorkspaceOperator,
+    step_up: StepUpGate,
+    x_confirm_action: ConfirmAction = None,
+) -> AdminMovedOut:
+    step_up.require(x_confirm_action, move_number_confirmation(tenant_id, number_id))
+    if not engine_has_workspaces():
+        raise _off()
+    status: Literal["moved", "queued"] = "moved"
+    async with tenant_session(tenant_id) as scoped:
+        await _require_tenant(scoped, tenant_id)
+        try:
+            await engine_numbers.move_into_client_workspace(
+                scoped, tenant_id=tenant_id, number_id=number_id
+            )
+        except ProblemError as exc:
+            if exc.code != "engine_number_move_later":
+                raise
+            await engine_numbers.queue_number_move(tenant_id, number_id, attempt=1)
+            status = "queued"
+        await write_audit(
+            scoped,
+            action="number.moved_to_client_workspace",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="phone_number",
+            object_id=str(number_id),
+            ip=client_request_ip(request),
+            summary={"status": status},
+        )
+    return AdminMovedOut(number_id=number_id, status=status)
 
 
 class WorkspaceFailureOut(BaseModel):

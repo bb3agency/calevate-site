@@ -173,7 +173,10 @@ async def _verify_gstin(org: dict[str, Any], gstin: str) -> None:
     async with _client() as http:
         response = await http.post(
             f"/v1/admin/tenants/{org['id']}/kyc",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"record_kyc:{org['id']}",
+            },
             json={
                 "status": "verified",
                 "entity_type": "private_limited",
@@ -442,7 +445,10 @@ async def test_an_unverified_gstin_is_not_printed(gst_registered: Any) -> None:
     async with _client() as http:
         recorded = await http.post(
             f"/v1/admin/tenants/{org['id']}/kyc",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"record_kyc:{org['id']}",
+            },
             json={
                 "status": "in_review",
                 "document_kind": "gstin",

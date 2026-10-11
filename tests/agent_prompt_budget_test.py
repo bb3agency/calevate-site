@@ -19,6 +19,12 @@ from calevate_shared.call_script import (
 )
 from calevate_shared.engine import AgentConfig, compose_engine_prompt
 
+#: Characters left for what the owner adds to a starter. 1,700 under D-714; 900 since the
+#: founder put the turn-shape and spoken-voice rules into every prompt and widened each
+#: language's spoken register (D-739, 11 Oct 2026). Lowering it again is a founder decision:
+#: the composed instructions are refused at publish above 8,000.
+OWNER_RESERVE = 900
+
 COLLECT = [
     CollectField(label="Name", required=True),
     CollectField(label="What they want to buy"),
@@ -39,7 +45,7 @@ def _composed(job: str) -> tuple[int, int, int]:
         direction="inbound" if job == "answer_calls" else "outbound",
         language_primary="te-IN",
         system_prompt=without_outline(body),
-        opening_line="Idi Raghava Organics AI assistant.",
+        opening_line="ఇది Raghava Organics AI assistant.",
         call_is_recorded=True,
         facts_in_knowledge=True,
         knowledge_tool="search_knowledge",
@@ -54,8 +60,7 @@ def test_a_typical_agent_leaves_room_in_the_instructions_box() -> None:
         total, script_chars, steps = _composed(job)
         print(f"{job}: composed {total} chars, client script {script_chars}, {steps} steps")
         assert steps > 0
-        # At least 1,700 characters left for what the owner adds.
-        assert total <= INSTRUCTIONS_MAX_CHARS - 1_700, (job, total)
+        assert total <= INSTRUCTIONS_MAX_CHARS - OWNER_RESERVE, (job, total)
 
 
 def test_the_platform_layers_alone_stay_small() -> None:
@@ -74,4 +79,4 @@ def test_the_platform_layers_alone_stay_small() -> None:
     )
     platform = len(compose_engine_prompt(cfg))
     print(f"platform layers, three languages: {platform} chars")
-    assert platform <= 5_700
+    assert platform <= 6_800

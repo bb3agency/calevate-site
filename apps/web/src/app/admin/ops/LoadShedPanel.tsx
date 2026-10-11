@@ -133,7 +133,6 @@ export function LoadShedPanel({ state, access }: { state: PlatformState; access:
       <div className="space-y-4">
         <NoticeBox
           tone={current === "normal" ? "ok" : "warn"}
-          icon={<Gauge aria-hidden className="h-5 w-5" />}
           title={loadShedModeCopy(current).label}
         >
           <p className="mt-1">

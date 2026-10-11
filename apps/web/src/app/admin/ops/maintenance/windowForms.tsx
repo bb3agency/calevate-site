@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarClock } from "lucide-react";
 
 import { Drawer } from "@/components/console/drawer";
 import {
@@ -146,13 +145,12 @@ export function AmendWindowDrawer({
         {current.announced && (
           <NoticeBox
             tone="neutral"
-            icon={<CalendarClock aria-hidden className="h-5 w-5" />}
             title="Clients have already been told about this window"
           >
             <p className="mt-1">
               Changing the time or the wording emails every client again with the window as it
-              now is. That is the point — a client holding an old time is worse than a second
-              email — but it is not a silent edit.
+              now is. That is the point. A client holding an old time is worse than a second
+              email, but it is not a silent edit.
             </p>
           </NoticeBox>
         )}

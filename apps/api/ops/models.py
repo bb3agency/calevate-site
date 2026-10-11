@@ -823,6 +823,71 @@ class PlatformAlert(PKMixin, Base):
     cleared_at: Mapped[datetime | None] = mapped_column()
 
 
+class SpokenStyleRevision(Base):
+    """One change to one spoken-style entry made on the founder's review screen (D-744).
+
+    The working copy is the latest revision of each (language, kind, entry_key); nothing
+    reaches an agent until a `SpokenStylePublication` takes the revisions up to its
+    `through_revision`. Layered over `calevate_shared/spoken_style.json`: `value` is the
+    entry's whole value (`spoken_style.normalize_value`), NULL retires the file's entry,
+    and `approved` is the reviewer's yes. Append-only and platform-scoped: one table of how
+    the platform speaks a language, no tenant, and the history is the record of who
+    approved which words.
+    """
+
+    __tablename__ = "spoken_style_revisions"
+
+    #: The order revisions were made in; a publication takes every revision up to one seq.
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    language: Mapped[str] = mapped_column(Text, nullable=False)
+    #: `spoken_style.EntryKind`.
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The swap's formal word, the example's business type, or the entry's id.
+    entry_key: Mapped[str] = mapped_column(Text, nullable=False)
+    value: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    approved: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('register', 'swap', 'filler', 'number_rule', 'punctuation', "
+            "'example', 'opening')",
+            name="kind_known",
+        ),
+        Index(
+            "ix_spoken_style_revisions_entry",
+            "language",
+            "kind",
+            "entry_key",
+            text("seq DESC"),
+        ),
+    )
+
+
+class SpokenStylePublication(Base):
+    """Publishing one language's reviewed spoken style (D-744): every revision of that
+    language up to `through_revision` is what prompts read from now on, stamped
+    "Reviewed by <reviewer_name> on <published_at>". Append-only, platform-scoped."""
+
+    __tablename__ = "spoken_style_publications"
+
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    language: Mapped[str] = mapped_column(Text, nullable=False)
+    through_revision: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: The native speaker who reviewed it, as they want it shown.
+    reviewer_name: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    published_by: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=False
+    )
+    published_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+    __table_args__ = (Index("ix_spoken_style_publications_language", "language", text("seq DESC")),)
+
+
 __all__ = [
     "DEFAULT_MAX_DRAIN_MINUTES",
     "FX_RATE",
@@ -839,4 +904,6 @@ __all__ = [
     "PlatformModelPrice",
     "PlatformSecret",
     "PlatformSetting",
+    "SpokenStylePublication",
+    "SpokenStyleRevision",
 ]

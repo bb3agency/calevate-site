@@ -1,11 +1,13 @@
 """Protecting a client's line while their agent is broken, and giving it back (D-701).
 
 INBOUND: callers are handed to the client's own fallback phone where the voice platform
-can do it (`agents/service.ForwardsLine`; on ThinnestAI a hand-over the agent makes, whose
-first-turn reliability is OPERATIONS gate T-26), otherwise the line answers with the
-neutral can't-take-your-call sentence the empty-wallet path already uses. ThinnestAI
-documents no number-level forward, so there is no way to divert a call before an agent
-speaks.
+can do it, otherwise the line answers with the neutral can't-take-your-call sentence the
+empty-wallet path already uses. On ThinnestAI the agent is paused and each of its numbers
+is forwarded with `forwardTo` (D-743, `campaigns/engine_numbers.forward_agent_numbers`),
+which rings the phone before any agent speaks and works whether or not the agent answers
+(docs.thinnest.ai channels/phone-numbers "Forwarding a whole line", read 11 Oct 2026);
+the restore clears it. An engine with only an agent hand-over uses
+`agents/service.ForwardsLine`.
 
 THE CALL-BACK LIST IS THE INCIDENT'S OWN LIST OF CALLS, NOT `scheduled_callbacks`. That
 table is dialled automatically by the agent at the booked time, and these callers never

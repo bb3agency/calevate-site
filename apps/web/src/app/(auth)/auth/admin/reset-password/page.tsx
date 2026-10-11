@@ -59,10 +59,8 @@ function AdminResetBody() {
         <Card>
           <div className="space-y-3 text-sm text-ink-muted">
             <NoticeBox tone="ok" title="Your password has been changed">
-              <p className="mt-1">
-                Every operator session on this account has been ended. Sign in again with
-                the new password — you will be asked for an emailed code as usual.
-              </p>
+              Every operator session on this account has ended. Sign in with the new password
+              and the emailed code.
             </NoticeBox>
             <Link href={ADMIN_SIGN_IN_PATH} className={PRIMARY_BUTTON}>
               Go to sign-in

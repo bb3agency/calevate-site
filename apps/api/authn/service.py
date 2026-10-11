@@ -597,6 +597,33 @@ async def complete_step_up(
     return rotated
 
 
+async def answer_action_code(
+    *, verified: VerifiedSession, code: str, ip: str | None, now: datetime | None = None
+) -> None:
+    """Answer a step-up code WITHOUT restamping the session (D-730, client realm).
+
+    The client realm has no second factor to re-prove (`MFA_REQUIRED_REALMS`), so there is
+    no `mfa_verified_at` to move and no privilege change to rotate for. What a client code
+    buys is a single-use proof for one action, which the route records after this returns.
+    The challenge, the purpose and the throttle are `complete_step_up`'s exactly.
+    """
+    realm, subject_id = verified.realm, verified.subject_id
+    attempt = await reserve(OTP_BUDGET, realm=realm, subject_id=subject_id)
+    at = now or datetime.now(UTC)
+    async with credential_session() as session:
+        outcome = await otp.check_challenge(
+            session, purpose=STEP_UP, realm=realm, subject_id=subject_id, code=code, now=at
+        )
+    if outcome != "accepted":
+        await _audit(action="auth.step_up_failed", realm=realm, subject_id=subject_id, ip=ip)
+        await _equalise(attempt)
+        raise _code_refused(outcome, code="invalid_second_factor")
+    await clear(OTP_BUDGET, realm=realm, subject_id=subject_id)
+    if await load_subject(realm, subject_id) is None:
+        raise _invalid_credentials()
+    await _audit(action="auth.step_up_completed", realm=realm, subject_id=subject_id, ip=ip)
+
+
 # ───────────────────────────── password reset ────────────────────────────────
 
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, X } from "lucide-react";
+import { X } from "lucide-react";
 
 import {
   DANGER_BUTTON,
@@ -11,6 +11,8 @@ import {
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   formatCount,
+  NOTICE_BAR,
+  NOTICE_BASE,
 } from "@/components/ui";
 import { TypedConfirmation } from "@/components/typedConfirmation";
 import type {
@@ -317,17 +319,16 @@ export function BulkActionBar({
             person reads what will happen, to how many rows, in which scope, and only
             then meets the button. */}
         {confirming && count !== undefined && (
-          <div className="mt-3 rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-body text-warn">
-            <p className="flex items-start gap-2 font-semibold">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className={`mt-3 ${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
+            <p className="font-semibold">
               <span>
                 {verb} for {formatCount(count)} {count === 1 ? "lead" : "leads"}
                 {selection.wholeQuery
-                  ? " — every lead matching these filters, not only the ones on screen."
+                  ? ": every lead matching these filters, not only the ones on screen."
                   : " you have ticked on this page."}
               </span>
             </p>
-            <p className="mt-1">
+            <p className="text-ink-muted">
               Each lead&rsquo;s history records the change. Leads that are already{" "}
               {action === "status" ? "at that stage" : "owned by that person"} are left
               alone and reported separately.
@@ -414,17 +415,12 @@ function BulkResultSummary({
       role="status"
       className={
         failed
-          ? "mt-3 rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-body text-warn"
-          : "mt-3 rounded-md bg-surface-muted p-3 text-body text-ink"
+          ? `mt-3 ${NOTICE_BASE} ${NOTICE_BAR.warn}`
+          : `mt-3 ${NOTICE_BASE} ${NOTICE_BAR.ok}`
       }
     >
       <div className="flex items-start justify-between gap-2">
         <p className="flex items-start gap-2 font-medium">
-          {failed ? (
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          ) : (
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-brand-strong dark:text-brand-bright" />
-          )}
           {/* Every number here is the SERVER's — including the scope, so this sentence
               cannot claim a set the request did not run over. */}
           <span>

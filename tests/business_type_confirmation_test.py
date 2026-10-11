@@ -472,3 +472,175 @@ async def test_an_autosaved_working_copy_counts_as_an_edit(
 
     script, _ = await _draft_script(tenant_id, agent_id)
     assert starter_vertical_of(script, job=job, business=name, language=language) == "clinic"
+
+
+# --- 6. the suggestion step always runs, says why it did not ask, and can be asked again ---
+
+
+async def _superadmin() -> dict[str, str]:
+    admin_id = uuid.uuid4()
+    async with admin_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops Lead', 'superadmin', now(), now())"
+            ),
+            {"id": admin_id},
+        )
+    return {"Authorization": f"Bearer dev:admin:{admin_id}"}
+
+
+def _suggestion_lines(caplog: pytest.LogCaptureFixture) -> list[dict[str, Any]]:
+    return [
+        {k: getattr(r, k) for k in ("tenant_id", "asked", "outcome", "code")}
+        for r in caplog.records
+        if r.getMessage() == "business_type_suggestion"
+    ]
+
+
+@pytest.mark.rls
+async def test_every_run_logs_whether_it_asked_and_the_outcome(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("INFO", logger="apps.workers.business_type")
+    tenant_id = await _tenant("clinic")
+    await _given_clinic_by_default(tenant_id)
+    _suggests(monkeypatch, "retail")
+    await _apply(tenant_id)
+    await _apply(tenant_id)
+    confirmed = await _tenant("retail")
+    await _apply(confirmed)
+
+    assert _suggestion_lines(caplog) == [
+        {"tenant_id": str(tenant_id), "asked": True, "outcome": "stored", "code": "retail"},
+        {
+            "tenant_id": str(tenant_id),
+            "asked": False,
+            "outcome": "skipped_already_suggested",
+            "code": None,
+        },
+        {"tenant_id": str(confirmed), "asked": False, "outcome": "skipped_confirmed", "code": None},
+    ]
+
+
+@pytest.mark.rls
+async def test_an_unavailable_model_is_logged_with_its_code(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("INFO", logger="apps.workers.business_type")
+    tenant_id = await _tenant("clinic")
+    await _given_clinic_by_default(tenant_id)
+    _suggests(monkeypatch, None)
+    await _apply(tenant_id)
+    assert _suggestion_lines(caplog) == [
+        {
+            "tenant_id": str(tenant_id),
+            "asked": True,
+            "outcome": "unavailable",
+            "code": "assist_unavailable",
+        }
+    ]
+
+
+@pytest.mark.rls
+async def test_an_unconfirmed_account_with_no_suggestion_is_asked_on_every_delivery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = await _tenant("clinic")
+    await _given_clinic_by_default(tenant_id)
+    asked = _suggests(monkeypatch, None)
+    await _apply(tenant_id)
+    # The model answered nothing the first time; the next delivery tries again rather than
+    # leaving the account on "No suggestion yet" for good.
+    asked_again = _suggests(monkeypatch, "retail")
+    await _apply(tenant_id)
+    assert len(asked) == 1 and len(asked_again) == 1
+    async with tenant_session(tenant_id) as session:
+        state = await business_type.read_state(session, tenant_id=tenant_id)
+    assert state.unconfirmed is not None and state.unconfirmed.suggested == "retail"
+
+
+@pytest.mark.rls
+async def test_suggest_again_asks_only_for_a_suggestion_and_replaces_the_one_on_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = await _tenant("clinic")
+    await _given_clinic_by_default(tenant_id)
+    _suggests(monkeypatch, "retail")
+    await _apply(tenant_id)
+    asked = _suggests(monkeypatch, "custom")
+
+    async def no_refit(*args: Any, **kwargs: Any) -> int:
+        raise AssertionError("suggest_only must not touch lead details")
+
+    monkeypatch.setattr(worker, "_refit_fields", no_refit)
+    assert (
+        await worker.apply_business_type({}, {"tenant_id": str(tenant_id), "suggest_only": True})
+        == "done"
+    )
+    assert len(asked) == 1
+    async with tenant_session(tenant_id) as session:
+        state = await business_type.read_state(session, tenant_id=tenant_id)
+    assert state.unconfirmed is not None and state.unconfirmed.suggested == "custom"
+
+
+@pytest.mark.rls
+async def test_the_suggest_again_route_queues_audits_and_is_refused_once_chosen() -> None:
+    tenant_id = await _tenant("clinic")
+    await _given_clinic_by_default(tenant_id)
+    path = f"/v1/admin/tenants/{tenant_id}/business-type/suggest"
+
+    # Spends our AI money: an operator who onboards clients cannot press it.
+    assert (await _http("POST", path, await _operator())).status_code == 403
+
+    headers = await _superadmin()
+    queued = await _http("POST", path, headers)
+    assert queued.status_code == 202, queued.text
+    assert queued.json()["unconfirmed"]["given"] == "clinic"
+    async with tenant_session(tenant_id) as session:
+        jobs = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT payload FROM outbox_messages WHERE job = :job "
+                        "AND payload->>'tenant_id' = :tid"
+                    ),
+                    {"job": business_type.APPLY_JOB, "tid": str(tenant_id)},
+                )
+            )
+            .scalars()
+            .all()
+        )
+        audited = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM audit_log WHERE tenant_id = :tid "
+                    "AND action = 'organization.business_type_suggestion_requested'"
+                ),
+                {"tid": tenant_id},
+            )
+        ).scalar()
+    assert jobs == [{"tenant_id": str(tenant_id), "suggest_only": True}]
+    assert audited == 1
+
+    chosen = await _tenant("retail")
+    refused = await _http("POST", f"/v1/admin/tenants/{chosen}/business-type/suggest", headers)
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["type"].endswith("/business_type_already_chosen")
+
+
+@pytest.mark.rls
+async def test_suggest_again_is_refused_while_the_platform_ai_brake_is_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def tripped(*args: Any, **kwargs: Any) -> bool:
+        return True
+
+    monkeypatch.setattr(business_type, "platform_brake_tripped", tripped)
+    tenant_id = await _tenant("clinic")
+    await _given_clinic_by_default(tenant_id)
+    refused = await _http(
+        "POST", f"/v1/admin/tenants/{tenant_id}/business-type/suggest", await _superadmin()
+    )
+    assert refused.status_code == 503, refused.text
+    assert refused.json()["type"].endswith("/ai_paused_platform_wide")

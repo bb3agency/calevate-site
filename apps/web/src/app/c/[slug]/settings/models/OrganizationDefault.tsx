@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Info, IndianRupee, Save, Sparkles } from "lucide-react";
 
-import { Disclosure, FIELD_HINT, ProblemNotice, RestrictionNote } from "@/components/ui";
+import { Disclosure, FIELD_HINT, NOTICE_BAR, NOTICE_BASE, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
 import { SavedTick } from "@/components/console/savedTick";
 import { ModelPicker, type ModelChoice } from "@/components/llmModelPicker";
@@ -94,9 +94,9 @@ export function OrganizationDefault({
         {/* The tier marked as running is the one we INTEND to run; this says when it is not
             the one answering yet. A warning, not help text: it changes what a call runs on. */}
         {!defaults.effective_is_available && (
-          <p className="rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-body text-ink">
-            {defaults.effective_tier_label} is not switched on for your account yet, so your
-            calls run our standard model until it is — ask your Calevate team to enable it.
+          <p className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
+            {defaults.effective_tier_label} is not on for your account yet, so calls use our
+            standard model. Ask your Calevate team to turn it on.
           </p>
         )}
 

@@ -24,20 +24,11 @@ replay, our own TM registration — every one of which acts on all tenants at on
 Enabling a beta for one client during their onboarding is an operator's job, and gating
 it on `ops:manage` would mean an operator could complete an onboarding except for this.
 
-**NO STEP-UP HEADER, and this is a decision rather than an omission.** Step-up in this
-repo is reserved for actions where a live, fully-MFA'd session being replayed is the
-threat: the big red switch, a cap RAISE, raw-transcript access. Two things put flags
-outside that family:
-
-* the neighbouring per-tenant compliance writes take none. Releasing a self-serve account
-  for outbound dialling — `POST /v1/admin/tenants/{id}/first-campaign-review` — is a
-  larger act than any flag flip and is protected by `admin:tenants` plus an audit row.
-  Adding a confirmation here and not there would be the wrong way round;
-* `admin.record_commercial_terms` shows the shape a step-up takes when it IS warranted:
-  bound to the dangerous DIRECTION (loosening a spend ceiling), not to the route. A flag
-  has no such direction, because a flag may not gate a compliance control at all
-  (`flags/registry.py` states that limit). **The day one does, the flag is the wrong
-  mechanism — not the day to add a header.**
+**STEP-UP SINCE D-731.** It used to take none, on the ground that a flag is a smaller act
+than the compliance writes beside it. The founder decided otherwise on 11 Oct 2026: a flag
+can put a client onto an unfinished surface or take a safeguard away, and a console left
+open must not be enough to do either. The confirmation is bound to the tenant and the flag
+(`feature_flag_confirmation`).
 
 Every write is audited, on a REAL change only.
 """
@@ -48,7 +39,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Path, Request
+from fastapi import APIRouter, Depends, Header, Path, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from apps.api.admin.service import tenant_exists
@@ -57,6 +48,7 @@ from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requ
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.flags.registry import FLAG_NAME_PATTERN, FLAGS, spec_for
 from apps.api.flags.service import (
@@ -169,6 +161,11 @@ class FeatureFlagChangeOut(BaseModel):
     after: FlagStateOut
 
 
+def feature_flag_confirmation(tenant_id: UUID, flag: str) -> str:
+    """The `X-Confirm-Action` for moving ONE flag on ONE client (D-731)."""
+    return f"set_feature_flag:{tenant_id}:{flag}"
+
+
 def _state(resolution: FlagResolution) -> FlagStateOut:
     return FlagStateOut(enabled=resolution.enabled, source=resolution.source)
 
@@ -264,8 +261,11 @@ async def put_feature_flag(
     payload: FeatureFlagIn,
     request: Request,
     principal: FlagWriter,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> FeatureFlagChangeOut:
-    """Audited on a real change, in the transaction that made it.
+    """Audited on a real change, in the transaction that made it. Step-up since D-731:
+    a flag can switch a client onto an unfinished surface or off a safeguard.
 
     `write_audit` appends in the CALLER'S transaction, so the row and the record of who
     moved it commit together or not at all (`recompute_spend_cap` is the same shape). The
@@ -282,6 +282,7 @@ async def put_feature_flag(
     # the id is present — and `set_by_admin_id` is NOT NULL, so a None here would be an
     # IntegrityError at COMMIT rather than a clear failure at the top of the request.
     assert principal.user_id is not None
+    step_up.require(x_confirm_action, feature_flag_confirmation(tenant_id, flag))
 
     setting = payload.enabled is not None
     if setting and spec_for(flag) is None:

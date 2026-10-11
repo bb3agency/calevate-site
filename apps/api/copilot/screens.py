@@ -388,6 +388,21 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=("backup number", "forward calls", "fallback phone", "line down", "outage"),
     ),
     Screen(
+        route="/c/{slug}/settings/phone-numbers",
+        name="Phone numbers",
+        group=SETTINGS_GROUP,
+        summary="The number callers already know, forwarded to the Calevate number: how its "
+        "calls reach the agent, the codes for the phone, the forwarding test, and the "
+        "save-our-number message.",
+        aliases=(
+            "existing number",
+            "call forwarding",
+            "forward my number",
+            "divert",
+            "test forwarding",
+        ),
+    ),
+    Screen(
         route="/c/{slug}/settings/models",
         name="AI model",
         group=SETTINGS_GROUP,

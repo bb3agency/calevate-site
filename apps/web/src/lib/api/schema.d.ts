@@ -309,7 +309,8 @@ export interface paths {
          * @description The admin twin of `POST /v1/copilot/actions/{id}/undo`. Every admin action is
          *     confirm-tier today, so this answers `409 copilot_action_not_undoable` for each of them —
          *     and `404` for an id that is not this operator's — and is where a reversible admin action
-         *     lands without a second mechanism.
+         *     lands without a second mechanism. Step-up (D-731): an undo is itself a platform change,
+         *     and it takes the same second factor the change it reverses did.
          */
         post: operations["undo_admin_copilot_action_v1_admin_copilot_actions__action_id__undo_post"];
         delete?: never;
@@ -579,6 +580,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/{number_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a number into the client's own voice workspace, keeping its digits
+         * @description For a number held in the platform account, or in a workspace the client no longer uses: it moves into the client's own workspace with the same digits, instead of releasing it and buying new ones, and is pointed at the client's agent again. A rented number is charged to the client from its next renewal. Refused until the client's business details are approved (an Indian number is held in the name of the business using it). A number on a call is moved once the call ends.
+         */
+        post: operations["admin_move_v1_admin_engine_workspaces_tenants__tenant_id__numbers__number_id__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/{number_id}/release": {
         parameters: {
             query?: never;
@@ -636,6 +657,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/forwarding/tenants/{tenant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One client's forwarded numbers, their findings and latest tests
+         * @description Read under the tenant's own RLS, and the read recorded (SEC-COMP §5).
+         */
+        get: operations["admin_forwarding_v1_admin_forwarding_tenants__tenant_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/impersonation-grants": {
         parameters: {
             query?: never;
@@ -651,9 +692,29 @@ export interface paths {
          *
          *     The session may CHANGE the account, not only read it, and every change is recorded against you: the audit row names your operator id, the client, and this grant. What it may not do is spend the client's money or AI allowance, grant anyone access to their account, give a consent, accept an agreement or file an erasure — those stay with the client, and the platform surfaces stay in the operator console.
          *
-         *     STARTING a view-as session needs step-up: a second factor proved in the last 30 minutes AND the header `X-Confirm-Action: view_as:<slug>`. EXTENDING one does not — send the grant currently held as `renew` and it is continued, for up to an hour from the second factor that started it.
+         *     STARTING a view-as session needs a code entered for it (D-730): request one at `POST /v1/auth/admin/step-up`, answer it at `/v1/auth/admin/step-up/verify` with `action: view_as:<slug>`, then send this request with the header `X-Confirm-Action: view_as:<slug>`. The proof is spent by the mint it was typed for, and this route is accepted from the operator console's origin only. EXTENDING a session takes no code — send the grant currently held as `renew`, here or at `/impersonation-grants/renew`, and it is continued for up to an hour from the code that started it.
          */
         post: operations["mint_impersonation_grant_v1_admin_impersonation_grants_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/impersonation-grants/renew": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Extend a view-as session the operator already holds (D-730)
+         * @description Continues a view-as session from the grant currently held, for up to an hour from the code that started it. It never STARTS one: a missing, foreign, expired or out-of-window grant is refused, and the operator re-enters the client from the operator console. This is the one grant route the client console may call.
+         */
+        post: operations["renew_impersonation_grant_v1_admin_impersonation_grants_renew_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1611,6 +1672,26 @@ export interface paths {
          * @description Sets the business type as a person's choice. The client's agents that have no lead details of their own get this type's details; every agent's script is recompiled to ask for them, and live agents are updated from their next call. Details a client chose are kept.
          */
         post: operations["confirm_business_type_v1_admin_tenants__tenant_id__business_type_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/business-type/suggest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the AI to suggest the client's business type again
+         * @description Queues one AI suggestion for a client whose business type nobody has chosen. The suggestion replaces any on file and changes nothing by itself. Refused when the type is already chosen or the platform-wide AI brake is on.
+         */
+        post: operations["suggest_business_type_again_v1_admin_tenants__tenant_id__business_type_suggest_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4030,16 +4111,16 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Email a code to re-prove this operator's second factor before a dangerous action
-         * @description The first half of C-09 (D-178).
+         * Email a code to confirm it is still you before a dangerous action
+         * @description The first half of C-09 (D-178), on both realms since D-730.
          *
-         *     ADMIN REALM ONLY, declared rather than refused — same structural choice as
-         *     `/bootstrap/confirm`. The client realm requires no second factor
-         *     (`service.MFA_REQUIRED_REALMS`), so a client-realm step-up would be a route
-         *     with nothing to re-prove and nobody to call it.
+         *     On the admin realm the answer re-proves the second factor. On the client realm,
+         *     which has no second factor (`service.MFA_REQUIRED_REALMS`), the code is asked for
+         *     by the few actions that hand out a client's data or credentials, and answering it
+         *     buys one proof for the action it names.
          *
-         *     Depends on `authed`, not `live`: step-up RE-proves a factor, so a session that
-         *     has never proved one is at the ordinary sign-in gate, not this one.
+         *     Depends on `authed`, not `live`: step-up RE-proves a factor, so a session that has
+         *     never proved one is at the ordinary sign-in gate, not this one.
          */
         post: operations["step_up_request_v1_auth_admin_step_up_post"];
         delete?: never;
@@ -4058,9 +4139,11 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Answer the step-up code, restamping this session's second factor
-         * @description Rotates the session — see `service.complete_step_up` on why re-proving a
-         *     factor is a privilege change and why it cannot extend the absolute bound.
+         * Answer the step-up code, optionally for one named action
+         * @description On the admin realm this rotates the session — see `service.complete_step_up` on
+         *     why re-proving a factor is a privilege change and why it cannot extend the absolute
+         *     bound. On both realms, a named `action` is recorded as a single-use proof that the
+         *     route for that action spends (`stepup.record_action_proof`, D-730).
          */
         post: operations["step_up_verify_v1_auth_admin_step_up_verify_post"];
         delete?: never;
@@ -4433,6 +4516,57 @@ export interface paths {
         put?: never;
         /** Email a code to create an account (answers the same for any address) */
         post: operations["signup_start_v1_auth_client_signup_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/step-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Email a code to confirm it is still you before a dangerous action
+         * @description The first half of C-09 (D-178), on both realms since D-730.
+         *
+         *     On the admin realm the answer re-proves the second factor. On the client realm,
+         *     which has no second factor (`service.MFA_REQUIRED_REALMS`), the code is asked for
+         *     by the few actions that hand out a client's data or credentials, and answering it
+         *     buys one proof for the action it names.
+         *
+         *     Depends on `authed`, not `live`: step-up RE-proves a factor, so a session that has
+         *     never proved one is at the ordinary sign-in gate, not this one.
+         */
+        post: operations["step_up_request_v1_auth_client_step_up_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/step-up/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer the step-up code, optionally for one named action
+         * @description On the admin realm this rotates the session — see `service.complete_step_up` on
+         *     why re-proving a factor is a privilege change and why it cannot extend the absolute
+         *     bound. On both realms, a named `action` is recorded as a single-use proof that the
+         *     route for that action spends (`stepup.record_action_proof`, D-730).
+         */
+        post: operations["step_up_verify_v1_auth_client_step_up_verify_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6516,6 +6650,111 @@ export interface paths {
          *     which is the answer this repo already gives for a delete with nothing to report.
          */
         delete: operations["remove_v1_dnc__entry_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/forwarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Your existing numbers, how they forward, and whether the forward works */
+        get: operations["get_forwarding_v1_forwarding_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/forwarding/codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How to switch forwarding on and off, per carrier, with each code's source */
+        get: operations["get_codes_v1_forwarding_codes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/forwarding/lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add the number your callers already know, confirming it is your business's */
+        post: operations["add_line_v1_forwarding_lines_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/forwarding/lines/{line_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Stop tracking an existing number */
+        delete: operations["remove_line_v1_forwarding_lines__line_id__delete"];
+        options?: never;
+        head?: never;
+        /** Change how an existing number forwards */
+        patch: operations["change_line_v1_forwarding_lines__line_id__patch"];
+        trace?: never;
+    };
+    "/v1/forwarding/lines/{line_id}/tests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The latest forwarding tests of one number */
+        get: operations["list_tests_v1_forwarding_lines__line_id__tests_get"];
+        put?: never;
+        /** Ring your existing number from our side to check it forwards to your agent */
+        post: operations["run_test_v1_forwarding_lines__line_id__tests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/forwarding/save-number": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether callers who book get one WhatsApp asking them to save your number */
+        get: operations["get_save_number_v1_forwarding_save_number_get"];
+        /** Switch the save-our-number WhatsApp on or off */
+        put: operations["put_save_number_v1_forwarding_save_number_put"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -9325,6 +9564,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/spoken-style": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every language's spoken style: review state and counts */
+        get: operations["list_spoken_styles_v1_ops_spoken_style_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/spoken-style/{language}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One language's spoken style, entry by entry */
+        get: operations["read_spoken_style_v1_ops_spoken_style__language__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/spoken-style/{language}/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve, edit, add or retire one spoken-style entry (audited)
+         * @description Changes the working copy only; nothing reaches an agent until the language is published. An edit or an addition counts as the reviewer's approval.
+         */
+        post: operations["change_entry_v1_ops_spoken_style__language__entries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/spoken-style/{language}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish a language's reviewed spoken style to every live agent (step-up, audited)
+         * @description Every entry change of this language so far becomes what prompts, starters and the script writer read, stamped with the reviewer's name, and every live agent is republished with it (live apply, scope platform). Requires `X-Confirm-Action: publish_spoken_style:<language>`.
+         */
+        post: operations["publish_spoken_style_v1_ops_spoken_style__language__publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/tenants/{tenant_id}/spend-cap/recompute": {
         parameters: {
             query?: never;
@@ -9356,6 +9669,26 @@ export interface paths {
         get: operations["read_trial_number_v1_ops_trial_number_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/trial-number/line": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set up what a caller ringing the shared trial number back hears
+         * @description Makes (or repairs) the one agent in our developer workspace that never answers and speaks the trial line's message, and makes it the shared number's line. Idempotent; the daily number sweep does the same.
+         */
+        post: operations["set_up_trial_line_v1_ops_trial_number_line_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10309,6 +10642,17 @@ export interface components {
             /** Tenant Id */
             tenant_id?: string | null;
         };
+        /** AdminForwardingOut */
+        AdminForwardingOut: {
+            /** Lines */
+            lines: components["schemas"]["LineOut"][];
+            /** Recent Tests */
+            recent_tests: components["schemas"]["ForwardingTestOut"][];
+            /** Save Number Enabled */
+            save_number_enabled: boolean;
+            /** Save Number Sent */
+            save_number_sent: number;
+        };
         /**
          * AdminInvoiceOut
          * @description The operator's copy: the client's document plus why it is not a tax invoice.
@@ -10444,6 +10788,19 @@ export interface components {
              * Format: uuid
              */
             user_id: string;
+        };
+        /** AdminMovedOut */
+        AdminMovedOut: {
+            /**
+             * Number Id
+             * Format: uuid
+             */
+            number_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "moved" | "queued";
         };
         /** AdminPlatformFeeOut */
         AdminPlatformFeeOut: {
@@ -10763,6 +11120,10 @@ export interface components {
             margin_inr: string;
             /** Minutes */
             minutes: string;
+            /** Paid Margin Inr */
+            paid_margin_inr: string;
+            /** Trial Cost Inr */
+            trial_cost_inr: string;
         };
         /**
          * AgentStatsOut
@@ -11133,7 +11494,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected" | "inbound_stopped" | "action_broken" | "lead_hot" | "call_failed" | "credit_low";
+            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected" | "inbound_stopped" | "action_broken" | "lead_hot" | "call_failed" | "credit_low" | "forwarded_line_quiet";
             /**
              * Occurred At
              * Format: date-time
@@ -11663,6 +12024,18 @@ export interface components {
             /** Authorize Url */
             authorize_url: string;
         };
+        /** CalevateNumberOut */
+        CalevateNumberOut: {
+            /** Answering */
+            answering: boolean;
+            /** E164 */
+            e164: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+        };
         /**
          * CallAssistOut
          * @description One user-triggered re-summarise of a call (D-127 G-2/G-5/G-6).
@@ -11799,6 +12172,8 @@ export interface components {
             callback_requested?: boolean | null;
             /** Caller E164 */
             caller_e164?: string | null;
+            /** Caller Id Hidden */
+            caller_id_hidden: boolean;
             /** Captured */
             captured: components["schemas"]["CapturedFieldOut"][];
             /** Captured Preview */
@@ -11829,6 +12204,8 @@ export interface components {
              * @default true
              */
             extraction_valid: boolean;
+            /** Forwarding Test */
+            forwarding_test: boolean;
             /**
              * Has Recording
              * @default false
@@ -11853,8 +12230,11 @@ export interface components {
             next_step?: string | null;
             /** Outcome Tag */
             outcome_tag?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
+            quality: components["schemas"]["CallQualityOut"] | null;
             /** Sentiment */
             sentiment?: string | null;
+            /** Signals */
+            signals: components["schemas"]["CallSignalOut"][];
             /** Started At */
             started_at?: string | null;
             /** Status */
@@ -11958,6 +12338,37 @@ export interface components {
             turn_idx: number | null;
         };
         /**
+         * CallQualityOut
+         * @description How the call went, as the voice platform measured it once it ended. Any figure is
+         *     null when it could not be measured on that call.
+         */
+        CallQualityOut: {
+            /** Backup Answers */
+            backup_answers?: number | null;
+            /** First Token Ms Max */
+            first_token_ms_max?: number | null;
+            /** First Token Ms Median */
+            first_token_ms_median?: number | null;
+            /** First Token Ms P90 */
+            first_token_ms_p90?: number | null;
+            /** Interruptions */
+            interruptions?: number | null;
+            /** Long Silences */
+            long_silences?: number | null;
+            /** Longest Silence S */
+            longest_silence_s?: number | null;
+            /** Model Errors */
+            model_errors?: number | null;
+            /** Reply Ms Max */
+            reply_ms_max?: number | null;
+            /** Reply Ms Median */
+            reply_ms_median?: number | null;
+            /** Reply Ms P90 */
+            reply_ms_p90?: number | null;
+            /** Turns */
+            turns?: number | null;
+        };
+        /**
          * CallScript
          * @description A whole agent script, structured — or a raw escape hatch, never both at once.
          *
@@ -12050,6 +12461,20 @@ export interface components {
             variables?: components["schemas"]["ScriptVariable"][];
         };
         /**
+         * CallSignalOut
+         * @description One thing the voice platform reported about the call: a problem while it was live, or
+         *     a lead taken or a hand-over to a person by its agent.
+         */
+        CallSignalOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "conversation_escalated" | "lead_captured" | "no_answer_from_model" | "own_key_failed" | "slow_reply" | "voice_failed";
+            /** Occurred At */
+            occurred_at: string | null;
+        };
+        /**
          * CallSpendOut
          * @description One call, both directions.
          */
@@ -12074,6 +12499,8 @@ export interface components {
             minutes: string;
             /** Started At */
             started_at: string | null;
+            /** Trial Covered */
+            trial_covered: boolean;
         };
         /** CallSummaryOut */
         CallSummaryOut: {
@@ -12346,6 +12773,11 @@ export interface components {
             plan_cap_spend_inr: string | null;
             /** Spend Used Inr */
             spend_used_inr: string;
+            /**
+             * Trial Active
+             * @default false
+             */
+            trial_active: boolean;
         };
         /**
          * CapturedChipOut
@@ -12449,6 +12881,24 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** CarrierGuideOut */
+        CarrierGuideOut: {
+            /** App Path */
+            app_path: string | null;
+            /** Carrier */
+            carrier: string;
+            /** Codes */
+            codes: components["schemas"]["CodeOut"][];
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "codes" | "app" | "ask_provider";
+            /** Note */
+            note: string | null;
+            /** Unconfirmed */
+            unconfirmed: components["schemas"]["CodeSetOut"][];
         };
         /**
          * CarrierProbeOut
@@ -12979,6 +13429,39 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** CodeOut */
+        CodeOut: {
+            /** Activate */
+            activate: string | null;
+            /** Condition */
+            condition: string;
+            /** Deactivate */
+            deactivate: string | null;
+            /**
+             * Evidence
+             * @enum {string}
+             */
+            evidence: "carrier_own" | "standards_body" | "web_secondary";
+            /** Source */
+            source: string;
+        };
+        /** CodeSetOut */
+        CodeSetOut: {
+            /** Codes */
+            codes: components["schemas"]["CodeOut"][];
+            /** Label */
+            label: string;
+        };
+        /** CodesOut */
+        CodesOut: {
+            /** Carriers */
+            carriers: components["schemas"]["CarrierGuideOut"][];
+            provider: components["schemas"]["CarrierGuideOut"];
+            /** Read On */
+            read_on: string;
+            /** Ring Time Source */
+            ring_time_source: string;
         };
         /** CollectFieldOut */
         CollectFieldOut: {
@@ -15561,6 +16044,66 @@ export interface components {
             /** Voice Applied */
             voice_applied: boolean | null;
         };
+        /** EntryChangeIn */
+        EntryChangeIn: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "approve" | "edit" | "add" | "retire";
+            /** Key */
+            key?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "register" | "swap" | "filler" | "number_rule" | "punctuation" | "example" | "opening";
+            value?: components["schemas"]["EntryValue"] | null;
+        };
+        /** EntryOut */
+        EntryOut: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "register" | "swap" | "filler" | "number_rule" | "punctuation" | "example" | "opening";
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "file" | "added";
+            published_value: components["schemas"]["EntryValue"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "approved" | "needs_review" | "retired";
+            /** Unpublished */
+            unpublished: boolean;
+            value: components["schemas"]["EntryValue"] | null;
+        };
+        /**
+         * EntryValue
+         * @description One entry's value; which fields are set depends on the kind (register, opening,
+         *     number_rule, punctuation: `text`; filler: `text` and `use`; swap: `formal`, `spoken`
+         *     and `in_prompt`; example: `turns`).
+         */
+        EntryValue: {
+            /** Formal */
+            formal?: string | null;
+            /** In Prompt */
+            in_prompt?: boolean | null;
+            /** Spoken */
+            spoken?: string | null;
+            /** Text */
+            text?: string | null;
+            /** Turns */
+            turns?: components["schemas"]["TurnBody"][] | null;
+            /** Use */
+            use?: string | null;
+        };
         /**
          * ErasureLimitationOut
          * @description One thing the erasure did NOT destroy, and the rule that stopped it.
@@ -16190,10 +16733,18 @@ export interface components {
             margin_pct: string | null;
             /** Month */
             month: string;
+            /** Paid Cost Inr */
+            paid_cost_inr: string;
+            /** Paid Margin Inr */
+            paid_margin_inr: string;
+            /** Paid Margin Pct */
+            paid_margin_pct: string | null;
             /** Revenue Inr */
             revenue_inr: string;
             /** Tenants */
             tenants: components["schemas"]["FleetTenantOut"][];
+            /** Trial Cost Inr */
+            trial_cost_inr: string;
             /** Tts Plan */
             tts_plan: components["schemas"]["TtsPlanSpendOut"][];
             /** Undecidable */
@@ -16220,6 +16771,12 @@ export interface components {
             minutes_used: string;
             /** Name */
             name: string;
+            /** Paid Cost Inr */
+            paid_cost_inr: string;
+            /** Paid Margin Inr */
+            paid_margin_inr: string;
+            /** Paid Margin Pct */
+            paid_margin_pct: string | null;
             /** Plan Tier */
             plan_tier: string;
             /** Revenue Inr */
@@ -16228,6 +16785,10 @@ export interface components {
             slug: string;
             /** Tenant Id */
             tenant_id: string;
+            /** Trial Cost Inr */
+            trial_cost_inr: string;
+            /** Trial In Month */
+            trial_in_month: boolean;
         };
         /**
          * FleetUndecidableOut
@@ -16255,6 +16816,54 @@ export interface components {
             slug: string;
             /** Tenant Id */
             tenant_id: string;
+        };
+        /** ForwardingOut */
+        ForwardingOut: {
+            /** Calevate Numbers */
+            calevate_numbers: components["schemas"]["CalevateNumberOut"][];
+            /** Concurrency Testable */
+            concurrency_testable: boolean;
+            /** Lines */
+            lines: components["schemas"]["LineOut"][];
+            /** Max Lines */
+            max_lines: number;
+            /** Testing Available */
+            testing_available: boolean;
+        };
+        /** ForwardingTestOut */
+        ForwardingTestOut: {
+            /** Caller Id Finding */
+            caller_id_finding: ("caller_shown" | "business_number_shown" | "other_number_shown") | null;
+            /** Concurrency Finding */
+            concurrency_finding: ("both_arrived" | "one_arrived" | "not_tested") | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Failure Code */
+            failure_code: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Legs Placed */
+            legs_placed: number;
+            /**
+             * Line Id
+             * Format: uuid
+             */
+            line_id: string;
+            /** Outcome */
+            outcome: ("arrived" | "not_arrived" | "answered_on_phone" | "not_placed") | null;
+            /** Settled At */
+            settled_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "placing" | "ringing" | "settled" | "failed";
         };
         /**
          * FxObservationOut
@@ -16888,6 +17497,13 @@ export interface components {
             expires_at: string;
             /** Grant */
             grant: string;
+            /** Slug */
+            slug: string;
+        };
+        /** ImpersonationGrantRenewIn */
+        ImpersonationGrantRenewIn: {
+            /** Renew */
+            renew: string;
             /** Slug */
             slug: string;
         };
@@ -17762,6 +18378,60 @@ export interface components {
             lanes: components["schemas"]["LaneOut"][];
             /** Precedence Rule */
             precedence_rule: string;
+        };
+        /** LanguageOut */
+        LanguageOut: {
+            /** Approved */
+            approved: number;
+            /** Entries */
+            entries: components["schemas"]["EntryOut"][];
+            /** History */
+            history: components["schemas"]["PublicationOut"][];
+            /** Language */
+            language: string;
+            /** Name */
+            name: string;
+            /** Publish Confirmation */
+            publish_confirmation: string;
+            /** Register Name */
+            register_name: string;
+            /**
+             * Review
+             * @enum {string}
+             */
+            review: "needs_native_review" | "native_reviewed";
+            /** Reviewed By */
+            reviewed_by: string | null;
+            /** Reviewed On */
+            reviewed_on: string | null;
+            /** Total */
+            total: number;
+            /** Unpublished Changes */
+            unpublished_changes: number;
+        };
+        /** LanguageSummaryOut */
+        LanguageSummaryOut: {
+            /** Approved */
+            approved: number;
+            /** Language */
+            language: string;
+            /** Name */
+            name: string;
+            /** Register Name */
+            register_name: string;
+            /**
+             * Review
+             * @enum {string}
+             */
+            review: "needs_native_review" | "native_reviewed";
+            /** Reviewed By */
+            reviewed_by: string | null;
+            /** Reviewed On */
+            reviewed_on: string | null;
+            /** Total */
+            total: number;
+            /** Unpublished Changes */
+            unpublished_changes: number;
         };
         /**
          * LatencyBudget
@@ -18701,6 +19371,105 @@ export interface components {
              */
             tenant_id: string;
         };
+        /** LineChangeIn */
+        LineChangeIn: {
+            /** Calevate Number Id */
+            calevate_number_id?: string | null;
+            /**
+             * Carrier
+             * @enum {string}
+             */
+            carrier: "airtel" | "jio" | "vi" | "bsnl" | "other";
+            /**
+             * Line Kind
+             * @enum {string}
+             */
+            line_kind: "mobile" | "landline" | "office_system";
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "conditional" | "all_calls";
+            /** Ring Seconds */
+            ring_seconds: number;
+        };
+        /** LineIn */
+        LineIn: {
+            /** Attest */
+            attest: boolean;
+            /** Calevate Number Id */
+            calevate_number_id?: string | null;
+            /**
+             * Carrier
+             * @enum {string}
+             */
+            carrier: "airtel" | "jio" | "vi" | "bsnl" | "other";
+            /**
+             * Line Kind
+             * @enum {string}
+             */
+            line_kind: "mobile" | "landline" | "office_system";
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "conditional" | "all_calls";
+            /** Number */
+            number: string;
+            /** Ring Seconds */
+            ring_seconds: number;
+        };
+        /** LineOut */
+        LineOut: {
+            /**
+             * Attested At
+             * Format: date-time
+             */
+            attested_at: string;
+            /** Calevate Number E164 */
+            calevate_number_e164: string | null;
+            /** Calevate Number Id */
+            calevate_number_id: string | null;
+            /** Caller Id Finding */
+            caller_id_finding: ("caller_shown" | "business_number_shown" | "other_number_shown") | null;
+            /**
+             * Carrier
+             * @enum {string}
+             */
+            carrier: "airtel" | "jio" | "vi" | "bsnl" | "other";
+            /** Concurrency Finding */
+            concurrency_finding: ("both_arrived" | "one_arrived" | "not_tested") | null;
+            /** E164 */
+            e164: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Test Outcome */
+            last_test_outcome: ("arrived" | "not_arrived" | "answered_on_phone" | "not_placed") | null;
+            /** Last Tested At */
+            last_tested_at: string | null;
+            /**
+             * Line Kind
+             * @enum {string}
+             */
+            line_kind: "mobile" | "landline" | "office_system";
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "conditional" | "all_calls";
+            /** Quiet Since */
+            quiet_since: string | null;
+            /** Ring Seconds */
+            ring_seconds: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "untested" | "testing" | "working" | "not_working";
+        };
         /** LinkIn */
         LinkIn: {
             /**
@@ -19093,6 +19862,18 @@ export interface components {
             /** Month */
             month: string;
             /**
+             * Paid Cost Inr
+             * @default 0.00
+             */
+            paid_cost_inr: string;
+            /**
+             * Paid Margin Inr
+             * @default 0.00
+             */
+            paid_margin_inr: string;
+            /** Paid Margin Pct */
+            paid_margin_pct?: string | null;
+            /**
              * Rental Revenue Inr
              * @default 0.00
              */
@@ -19100,6 +19881,16 @@ export interface components {
             /** Revenue Inr */
             revenue_inr: string;
             tiers: components["schemas"]["TierSplitOut"];
+            /**
+             * Trial Cost Inr
+             * @default 0.00
+             */
+            trial_cost_inr: string;
+            /**
+             * Trial In Month
+             * @default false
+             */
+            trial_in_month: boolean;
         };
         /** MasterSwitchIn */
         MasterSwitchIn: {
@@ -20697,13 +21488,24 @@ export interface components {
              */
             series: "140" | "160" | "standard";
         };
-        /** PublishIn */
-        PublishIn: {
-            /** Expected Version */
-            expected_version?: number | null;
-            script?: components["schemas"]["CallScript"] | null;
-            /** Summary */
-            summary: string;
+        /** PublicationOut */
+        PublicationOut: {
+            /** Note */
+            note: string | null;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /**
+             * Published By
+             * Format: uuid
+             */
+            published_by: string;
+            /** Reviewed On */
+            reviewed_on: string;
+            /** Reviewer Name */
+            reviewer_name: string;
         };
         /**
          * PurchaseIn
@@ -21812,6 +22614,16 @@ export interface components {
             /** Items */
             items: components["schemas"]["TeachItemIO"][];
         };
+        /** SaveNumberIn */
+        SaveNumberIn: {
+            /** Enabled */
+            enabled: boolean;
+        };
+        /** SaveNumberOut */
+        SaveNumberOut: {
+            /** Enabled */
+            enabled: boolean;
+        };
         /** SaveScriptIn */
         SaveScriptIn: {
             /** Expected Version */
@@ -22785,6 +23597,11 @@ export interface components {
             /** To Date */
             to_date: string;
         };
+        /** SpokenStyleOut */
+        SpokenStyleOut: {
+            /** Languages */
+            languages: components["schemas"]["LanguageSummaryOut"][];
+        };
         /**
          * StaffCurationIn
          * @description The whole of the resource, which is what makes this a PUT rather than a PATCH —
@@ -23012,6 +23829,13 @@ export interface components {
             component?: ("calls" | "dashboard" | "numbers" | "assistant") | null;
             /** Title */
             title: string | null;
+        };
+        /** StepUpVerifyIn */
+        StepUpVerifyIn: {
+            /** Action */
+            action?: string | null;
+            /** Code */
+            code: string;
         };
         /** StruggleOut */
         StruggleOut: {
@@ -23964,6 +24788,12 @@ export interface components {
             minutes_used: string;
             /** Month */
             month: string;
+            /** Paid Cost Inr */
+            paid_cost_inr: string;
+            /** Paid Margin Inr */
+            paid_margin_inr: string;
+            /** Paid Margin Pct */
+            paid_margin_pct: string | null;
             /** Period Charge Inr */
             period_charge_inr: string;
             /** Plan Tier */
@@ -23983,6 +24813,14 @@ export interface components {
             top_calls: components["schemas"]["CallSpendOut"][];
             /** Top Calls Truncated */
             top_calls_truncated: boolean;
+            /** Trial Calls */
+            trial_calls: number;
+            /** Trial Cost Inr */
+            trial_cost_inr: string;
+            /** Trial In Month */
+            trial_in_month: boolean;
+            /** Trial Minutes */
+            trial_minutes: string;
             unattributed: components["schemas"]["UnattributedSpendOut"] | null;
         };
         /** TenantSummary */
@@ -24576,6 +25414,11 @@ export interface components {
             /** Lang */
             lang?: string | null;
             /**
+             * Likely Cut Off
+             * @default false
+             */
+            likely_cut_off: boolean;
+            /**
              * Redacted
              * @default true
              */
@@ -24631,6 +25474,23 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /**
+         * TrialLineOut
+         * @description The shared number's own line: a never-answering agent that speaks our message.
+         */
+        TrialLineOut: {
+            /** Message */
+            message: string | null;
+            /** Message Note */
+            message_note: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "no_number" | "no_agent" | "not_attached" | "drifted" | "unavailable";
+            /** Wanted Message */
+            wanted_message: string;
+        };
         /** TrialNumberCandidateOut */
         TrialNumberCandidateOut: {
             /** Answered */
@@ -24656,6 +25516,7 @@ export interface components {
             current_held: boolean | null;
             /** Engine Uses It */
             engine_uses_it: boolean;
+            line: components["schemas"]["TrialLineOut"] | null;
         };
         /**
          * TrialOut
@@ -25105,6 +25966,16 @@ export interface components {
             reason: string | null;
             /** Tts Inr Per 10K Chars */
             tts_inr_per_10k_chars: string;
+        };
+        /** TurnBody */
+        TurnBody: {
+            /**
+             * Speaker
+             * @enum {string}
+             */
+            speaker: "caller" | "agent";
+            /** Text */
+            text: string;
         };
         /**
          * UnattributedSpendOut
@@ -25993,6 +26864,14 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** PublishIn */
+        apps__api__agents__script_routes__PublishIn: {
+            /** Expected Version */
+            expected_version?: number | null;
+            script?: components["schemas"]["CallScript"] | null;
+            /** Summary */
+            summary: string;
+        };
         /** PublishOut */
         apps__api__agents__script_routes__PublishOut: {
             /** Live */
@@ -26074,6 +26953,13 @@ export interface components {
             verified_at: string | null;
             /** Verified Name */
             verified_name: string | null;
+        };
+        /** PublishIn */
+        apps__api__ops__spoken_style_routes__PublishIn: {
+            /** Note */
+            note?: string | null;
+            /** Reviewer Name */
+            reviewer_name: string;
         };
         /** TestTurnOut */
         apps__api__teach__routes__TestTurnOut: {
@@ -26537,7 +27423,9 @@ export interface operations {
     undo_admin_copilot_action_v1_admin_copilot_actions__action_id__undo_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 action_id: string;
             };
@@ -26885,7 +27773,9 @@ export interface operations {
     admin_purchase_v1_admin_engine_workspaces_tenants__tenant_id__numbers_purchase_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };
@@ -26953,10 +27843,46 @@ export interface operations {
             };
         };
     };
+    admin_move_v1_admin_engine_workspaces_tenants__tenant_id__numbers__number_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+                number_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminMovedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     admin_release_v1_admin_engine_workspaces_tenants__tenant_id__numbers__number_id__release_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path: {
                 tenant_id: string;
                 number_id: string;
@@ -26992,7 +27918,9 @@ export interface operations {
     offboard_again_v1_admin_engine_workspaces_tenants__tenant_id__offboard_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };
@@ -27023,7 +27951,9 @@ export interface operations {
     provision_again_v1_admin_engine_workspaces_tenants__tenant_id__provision_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };
@@ -27051,6 +27981,39 @@ export interface operations {
             };
         };
     };
+    admin_forwarding_v1_admin_forwarding_tenants__tenant_id__get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminForwardingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     mint_impersonation_grant_v1_admin_impersonation_grants_post: {
         parameters: {
             query?: never;
@@ -27063,6 +28026,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ImpersonationGrantIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImpersonationGrantOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    renew_impersonation_grant_v1_admin_impersonation_grants_renew_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImpersonationGrantRenewIn"];
             };
         };
         responses: {
@@ -27309,7 +28305,9 @@ export interface operations {
     buy_number_v1_admin_numbers_tenants__tenant_id__buy_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };
@@ -27446,7 +28444,9 @@ export interface operations {
     release_number_v1_admin_numbers_tenants__tenant_id___number_id__release_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
                 number_id: string;
@@ -27882,7 +28882,9 @@ export interface operations {
     run_reconciliation_v1_admin_payments_reconcile_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -28136,7 +29138,9 @@ export interface operations {
     create_tenant_v1_admin_tenants_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -28734,6 +29738,37 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessTypeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    suggest_business_type_again_v1_admin_tenants__tenant_id__business_type_suggest_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -29484,7 +30519,9 @@ export interface operations {
     put_feature_flag_v1_admin_tenants__tenant_id__feature_flags__flag__put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
                 flag: string;
@@ -29588,7 +30625,9 @@ export interface operations {
     invite_member_v1_admin_tenants__tenant_id__invitations_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };
@@ -29853,7 +30892,9 @@ export interface operations {
     record_kyc_verification_v1_admin_tenants__tenant_id__kyc_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };
@@ -30187,7 +31228,9 @@ export interface operations {
     set_tenant_member_role_v1_admin_tenants__tenant_id__members__user_id__patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
                 user_id: string;
@@ -30223,7 +31266,9 @@ export interface operations {
     provision_number_v1_admin_tenants__tenant_id__numbers_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };
@@ -30392,7 +31437,9 @@ export interface operations {
     waive_platform_fee_v1_admin_tenants__tenant_id__platform_fee_waiver_put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };
@@ -30458,7 +31505,9 @@ export interface operations {
     record_manual_fee_payment_v1_admin_tenants__tenant_id__platform_fee__charge_id__payments_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
                 charge_id: string;
@@ -30730,7 +31779,9 @@ export interface operations {
     close_trial_v1_admin_tenants__tenant_id__trial_end_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };
@@ -32225,7 +33276,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PublishIn"];
+                "application/json": components["schemas"]["apps__api__agents__script_routes__PublishIn"];
             };
         };
         responses: {
@@ -33108,7 +34159,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SecondFactorIn"];
+                "application/json": components["schemas"]["StepUpVerifyIn"];
             };
         };
         responses: {
@@ -33678,6 +34729,66 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    step_up_request_v1_auth_client_step_up_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    step_up_verify_v1_auth_client_step_up_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StepUpVerifyIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -34743,7 +35854,9 @@ export interface operations {
                 until?: string | null;
                 test_calls?: boolean;
             };
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -37188,6 +38301,293 @@ export interface operations {
             };
         };
     };
+    get_forwarding_v1_forwarding_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForwardingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_codes_v1_forwarding_codes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_line_v1_forwarding_lines_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LineIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_line_v1_forwarding_lines__line_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    change_line_v1_forwarding_lines__line_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LineChangeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_tests_v1_forwarding_lines__line_id__tests_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForwardingTestOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    run_test_v1_forwarding_lines__line_id__tests_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForwardingTestOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_save_number_v1_forwarding_save_number_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaveNumberOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_save_number_v1_forwarding_save_number_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveNumberIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaveNumberOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_fallback_phone_v1_healer_fallback_phone_get: {
         parameters: {
             query?: never;
@@ -37501,7 +38901,9 @@ export interface operations {
     create_credential_v1_integrations_credentials_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -37563,7 +38965,9 @@ export interface operations {
     rotate_credential_v1_integrations_credentials__credential_id__rotate_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path: {
                 credential_id: string;
             };
@@ -37722,7 +39126,9 @@ export interface operations {
     create_endpoint_v1_integrations_endpoints_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -37755,7 +39161,9 @@ export interface operations {
     create_sheets_endpoint_v1_integrations_endpoints_sheets_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -39601,7 +41009,9 @@ export interface operations {
                 /** @description Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together. */
                 f?: string[];
             };
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -39628,7 +41038,9 @@ export interface operations {
     export_leads_v1_leads_export_csv_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -42290,6 +43702,138 @@ export interface operations {
             };
         };
     };
+    list_spoken_styles_v1_ops_spoken_style_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpokenStyleOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_spoken_style_v1_ops_spoken_style__language__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                language: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LanguageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    change_entry_v1_ops_spoken_style__language__entries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                language: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntryChangeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LanguageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    publish_spoken_style_v1_ops_spoken_style__language__publish_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                language: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["apps__api__ops__spoken_style_routes__PublishIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LanguageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     recompute_spend_cap_v1_ops_tenants__tenant_id__spend_cap_recompute_post: {
         parameters: {
             query?: never;
@@ -42339,6 +43883,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrialNumberOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_up_trial_line_v1_ops_trial_number_line_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrialLineOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

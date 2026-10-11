@@ -199,8 +199,16 @@ category rows say the same facts without the names. Evidence classes follow hard
   2026-10-07b/pages/api-reference/bring-your-own-keys.md:13-24`). Cartesia bills our
   account directly; ThinnestAI holds the key encrypted (`:77-78`). On `ENGINE=pipecat` our
   own call program calls Cartesia directly. Same receipt either way.
-- Status: configured, not enabled. Nothing is sent until Studio voices are switched on with
-  our key installed and a client publishes a Studio agent (OPERATIONS gate T-12).
+- Status: ENABLED since 11 Oct 2026. Production usage that day records a Studio call on a
+  trial account (a `tts_kchars` usage row, 0.806 kchars): the agent's spoken text, which can
+  include personal data a caller gave (a name, order details), reached Cartesia. Studio is
+  open to trial accounts (D-727). No DPA with Cartesia is recorded as entered (DPA clause 5
+  exception still stands). Public page: sub-processors revision 20; privacy 21 and DPA 13
+  say the same. All three revisions are MATERIAL.
+- Also holds one voice clone made by Calevate staff from a staff member's own voice,
+  recorded with that person's written consent, offered to clients as a voice option. Not a
+  caller's or a client's voice; no client data goes into it (founder, 11 Oct 2026; disclosed
+  on the public page from sub-processors revision 20).
 
 ### Gnani (text-to-speech, Clear)
 

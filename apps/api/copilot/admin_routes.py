@@ -750,6 +750,11 @@ async def list_admin_copilot_actions(
     )
 
 
+def undo_confirmation(action_id: UUID) -> str:
+    """The `X-Confirm-Action` for undoing one admin assistant action (D-731)."""
+    return f"undo_copilot_action:{action_id}"
+
+
 @router.post(
     "/copilot/actions/{action_id}/undo",
     response_model=CopilotUndoOut,
@@ -760,12 +765,16 @@ async def undo_admin_copilot_action(
     action_id: UUID,
     request: Request,
     principal: AdminCopilotUser,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> CopilotUndoOut:
     """The admin twin of `POST /v1/copilot/actions/{id}/undo`. Every admin action is
     confirm-tier today, so this answers `409 copilot_action_not_undoable` for each of them —
     and `404` for an id that is not this operator's — and is where a reversible admin action
-    lands without a second mechanism."""
+    lands without a second mechanism. Step-up (D-731): an undo is itself a platform change,
+    and it takes the same second factor the change it reverses did."""
     del request
+    step_up.require(x_confirm_action, undo_confirmation(action_id))
     _operator_id(principal)
     async with untenanted_session() as session:
         return await undo.undo_admin_action(session, action_id, principal=principal)

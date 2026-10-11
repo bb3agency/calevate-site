@@ -45,7 +45,7 @@ from calevate_shared.call_script import (
     unplaced_lines,
     upgrade_to_v2,
 )
-from calevate_shared.spoken_style import example_exchange, style_for
+from calevate_shared.spoken_style import example_exchange, native_reviewed, style_for
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
@@ -277,7 +277,8 @@ async def get_script(agent_id: UUID, session: Session, _: ScriptReader) -> Scrip
             update={
                 "schema_version": SCRIPT_SCHEMA_VERSION,
                 "example_exchange": [ExampleLine(speaker=t.speaker, text=t.text) for t in seed],
-                "example_needs_review": True,
+                # Unreviewed until the founder publishes this language as reviewed (D-744).
+                "example_needs_review": not native_reviewed(context.language),
             }
         )
     draft = await script_builder.read_draft(session, agent_id)

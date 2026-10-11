@@ -339,11 +339,11 @@ describe("the credits screen", () => {
     // `admin:tenants` is in MUTATING_PERMISSIONS and D-22 refuses those to an acting-as
     // session.
     expect(post?.headers["X-Impersonate-Org"]).toBeUndefined();
-    // The route accepts no step-up header, so the console sends none — one that the API
-    // ignores is a confirmation of nothing.
-    expect(post?.headers["X-Confirm-Action"]).toBeUndefined();
+    // A recorded payment is credit the client can spend, so it takes step-up (D-731),
+    // bound to the tenant.
+    expect(post?.headers["X-Confirm-Action"]).toBe(`record_payment:${TENANT}`);
 
-    await screen.findByText("Recorded — ₹2,500.10 credited");
+    await screen.findByText("Recorded: ₹2,500.10 credited");
     expect(document.body.textContent).toContain("₹5,000.10");
   });
 
@@ -364,14 +364,14 @@ describe("the credits screen", () => {
     await fillTopUp(REF, "2500.00");
     submit();
 
-    await screen.findByText("Already recorded — nothing was credited");
+    await screen.findByText("Already recorded. Nothing was credited");
     expect(document.body.textContent).toContain("no second entry was written");
     expect(document.body.textContent).toContain("has not been credited twice");
     // NOT a failure: no refusal panel anywhere on the screen.
     expect(screen.queryByRole("alert")).toBeNull();
     // And NOT a fresh credit. This is the belief that causes the damage — the money is
     // already unrecoverable by the time anyone acts on it.
-    expect(document.body.textContent).not.toContain("Recorded — ₹");
+    expect(document.body.textContent).not.toContain("Recorded: ₹");
   });
 
   it("warns before the click when the reference is already on the ledger", async () => {
@@ -560,7 +560,7 @@ describe("the credits screen", () => {
 
     await fillTopUp(REF, "2500.00");
     submit();
-    await screen.findByText("Already recorded — nothing was credited");
+    await screen.findByText("Already recorded. Nothing was credited");
     // The correction panel's own notices too — the selected-entry box and the outcome,
     // including the one that only appears when a client has just been stopped dialling.
     await fillCorrection(ENTRY, "2500.00");
@@ -572,7 +572,7 @@ describe("the credits screen", () => {
     // its own. Three forms, three sets of markup that first paint never sees.
     await fillRestatement(REF, "50000.00");
     fireEvent.click(restateButton());
-    await screen.findByText("Restated — ₹47,500.00 credited to Sri Traders");
+    await screen.findByText("Restated: ₹47,500.00 credited to Sri Traders");
 
     await expectNoA11yViolations(
       // The filled form is the open drawer, a dialog portalled onto <body>.
@@ -646,7 +646,7 @@ describe("correcting a wrong entry", () => {
     // The admin session with the tenant in the path, never an impersonating one (D-22).
     expect(post?.headers["X-Impersonate-Org"]).toBeUndefined();
 
-    await screen.findByText("Corrected — -₹2,500.00 taken back");
+    await screen.findByText("Corrected: -₹2,500.00 taken back");
     expect(document.body.textContent).toContain(
       "The entry it cancels is still there too",
     );
@@ -693,7 +693,7 @@ describe("correcting a wrong entry", () => {
       (call) => call.method === "POST" && call.path === ADJUST_PATH,
     );
     expect(post?.headers["X-Confirm-Action"]).toBeUndefined();
-    await screen.findByText("Corrected — ₹80.00 credited back");
+    await screen.findByText("Corrected: ₹80.00 credited back");
   });
 
   it("reads a repeated correction as ALREADY CORRECTED, not as a second debit", async () => {
@@ -704,12 +704,12 @@ describe("correcting a wrong entry", () => {
     await fillCorrection(ENTRY, "2500.00");
     fireEvent.click(correctButton());
 
-    await screen.findByText("Already corrected — nothing moved");
+    await screen.findByText("Already corrected. Nothing moved");
     expect(document.body.textContent).toContain("no second one was written");
     expect(document.body.textContent).toContain("has not been debited twice");
     // NOT a failure, and NOT a fresh debit — the belief that causes the damage.
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(document.body.textContent).not.toContain("Corrected — -₹");
+    expect(document.body.textContent).not.toContain("Corrected: -₹");
   });
 
   it("says out loud when the correction has stopped the client dialling", async () => {
@@ -963,7 +963,7 @@ describe("restating an under-recorded payment", () => {
     // The admin session with the tenant in the path, never an impersonating one (D-22).
     expect(post?.headers["X-Impersonate-Org"]).toBeUndefined();
 
-    await screen.findByText("Restated — ₹47,500.00 credited to Sri Traders");
+    await screen.findByText("Restated: ₹47,500.00 credited to Sri Traders");
     // The assertion the whole slice exists for, in the sentence an operator reads.
     expect(document.body.textContent).toContain("now credits ₹50,000.00");
     expect(document.body.textContent).toContain("one bank transfer");
@@ -999,12 +999,12 @@ describe("restating an under-recorded payment", () => {
     await fillRestatement(REF, "50000.00");
     fireEvent.click(restateButton());
 
-    await screen.findByText("Already restated — nothing was credited");
+    await screen.findByText("Already restated. Nothing was credited");
     expect(document.body.textContent).toContain("no second entry was written");
     expect(document.body.textContent).toContain("has not been credited twice");
     // NOT a failure, and NOT a fresh credit — the belief that causes the damage.
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(document.body.textContent).not.toContain("Restated — ₹");
+    expect(document.body.textContent).not.toContain("Restated: ₹");
   });
 
   it("keeps the button dead until the payment, both totals and the reason are in", async () => {
@@ -1288,7 +1288,7 @@ describe("what the balance is made of", () => {
     await fillTopUp("UTR-900042", "2500.10");
     submit();
 
-    await screen.findByText(/Recorded — ₹2,500.10 credited/);
+    await screen.findByText(/Recorded: ₹2,500.10 credited/);
     expect(document.body.textContent).toContain("It opened lot");
     expect(document.body.textContent).toContain("Those rates are frozen on it");
   });
@@ -1306,7 +1306,7 @@ describe("what the balance is made of", () => {
     await fillRestatement(REF, "50000.00");
     fireEvent.click(restateButton());
 
-    await screen.findByText(/Restated — ₹47,500.00 credited/);
+    await screen.findByText(/Restated: ₹47,500.00 credited/);
     // THE REGRESSION THIS TEST EXISTS FOR: the rates sentence, in the words that make the
     // promise checkable at the moment it is kept.
     expect(document.body.textContent).toContain(
@@ -1328,7 +1328,7 @@ describe("what the balance is made of", () => {
     await fillRestatement(REF, "50000.00");
     fireEvent.click(restateButton());
 
-    await screen.findByText(/Restated — ₹47,500.00 credited/);
+    await screen.findByText(/Restated: ₹47,500.00 credited/);
     expect(document.body.textContent).toContain(
       "₹1,000.00 of the correction was more than the lot",
     );

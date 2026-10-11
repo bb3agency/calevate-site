@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { TriangleAlert } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
@@ -94,7 +93,6 @@ export function VoiceCatalogue({
       {catalogue.offered === 0 && (
         <NoticeBox
           tone="warn"
-          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
           title="No voice can be chosen for any agent right now"
         >
           <p className="mt-1">{catalogue.note}</p>

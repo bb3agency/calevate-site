@@ -1,6 +1,5 @@
 "use client";
 
-import { Lock } from "lucide-react";
 
 import { Section } from "@/components/console/section";
 import { NoticeBox } from "@/components/ui";
@@ -57,7 +56,6 @@ export function WithheldPanel({
     <Section title={title}>
       <NoticeBox
         tone="neutral"
-        icon={<Lock aria-hidden className="h-5 w-5" />}
         title="Your admin account cannot see this"
       >
         <p className="mt-1">{reason}</p>

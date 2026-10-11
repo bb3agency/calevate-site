@@ -1,7 +1,7 @@
 "use client";
 
-import { Eye, Languages } from "lucide-react";
-import { useEffect, useRef, type ReactNode } from "react";
+import { Languages } from "lucide-react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 
 import { Section } from "@/components/console/section";
 import { SegmentedControl } from "@/components/interior/segmented-control";
@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/console/emptyState";
 import { formatClock } from "@/components/callAudioPlayer";
 import type { CallDetail } from "@/lib/api/client";
 import type { WriteAccess } from "@/lib/api/hooks";
+import { spokenClock } from "@/lib/callMoments";
 import { activeTurnIdx, groupTurns, isEnglishCall, langAttr, languageName } from "@/lib/callReview";
 import { lookup } from "@/lib/lookup";
 
@@ -112,9 +113,8 @@ export function TranscriptCard({
         {/* Which transcript this is, said before it is read. Quiet in the default view,
             loud in the raw one, which is the view that is audited. */}
         {showingRaw ? (
-          <NoticeBox tone="warn" icon={<Eye className="h-5 w-5" />} title="Full transcript">
-            You are reading the full text, personal details included. This view was recorded
-            in your account&apos;s audit log against your name.
+          <NoticeBox tone="warn" title="Full transcript">
+            Personal details included. This view is recorded in your account&apos;s audit log under your name.
           </NoticeBox>
         ) : (
           <p className="text-meta text-ink-faint">
@@ -337,6 +337,7 @@ function Bubble({
   marker?: ReactNode;
 }) {
   const clock = lineClock(turn);
+  const wordsId = useId();
   const translated = english && Boolean(turn.text_en);
   const words = translated ? turn.text_en : turn.text;
   const lang = translated ? "en" : langAttr(turn.lang);
@@ -349,19 +350,12 @@ function Bubble({
   ].join(" ");
   const body = (
     <>
-      <span lang={lang} className="block whitespace-pre-wrap break-words text-transcript text-ink">
+      <span id={wordsId} lang={lang} className="block whitespace-pre-wrap break-words text-transcript text-ink">
         {words}
       </span>
       {clock && (
         <span className={`mt-0.5 block text-[12px] leading-4 tabular-nums text-ink-faint ${agent ? "" : "text-right"}`}>
-          {seekable ? (
-            <>
-              <span className="sr-only">{`Play from ${clock}`}</span>
-              <span aria-hidden>{clock}</span>
-            </>
-          ) : (
-            clock
-          )}
+          {clock}
         </span>
       )}
     </>
@@ -373,6 +367,8 @@ function Bubble({
           type="button"
           data-turn={turn.idx}
           onClick={() => onSeek(turn.start_ms ?? 0)}
+          aria-label={`Play from ${spokenClock(turn.start_ms, turn.start_approximate)}`}
+          aria-describedby={wordsId}
           aria-current={active ? "true" : undefined}
           className={`${shape} scroll-mt-48 ${agent ? "hover:bg-ink/[0.07] dark:hover:bg-white/[0.1]" : "hover:bg-brand-soft/70 dark:hover:bg-brand/30"} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2`}
         >
@@ -382,6 +378,11 @@ function Bubble({
         <div data-turn={turn.idx} className={`${shape} scroll-mt-48`}>
           {body}
         </div>
+      )}
+      {agent && turn.likely_cut_off && (
+        <p className="max-w-full text-meta text-ink-faint">
+          The caller spoke over this, so they may not have heard all of it.
+        </p>
       )}
       {marker}
     </div>

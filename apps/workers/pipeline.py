@@ -38,6 +38,7 @@ from typing import Any, Final, Literal, NoReturn, cast
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.cut_off import UNHEARD_LABEL, likely_cut_off
 from calevate_shared.engine import (
     SARVAM_DEFAULT_LLM,
     ExecutionListing,
@@ -103,7 +104,6 @@ from apps.api.billing.rates import (
     llm_price_is_billable,
     llm_surcharge_applies,
     llm_surcharge_billed_inr,
-    prepaid_billed_inr,
 )
 from apps.api.billing.service import (
     BASE_OVERAGE_RUNG,
@@ -151,6 +151,12 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.recording_source import EngineRecordingSource
 from apps.api.engine.thinnest_workspace import in_workspace
+from apps.api.forwarding.save_number import queue_if_booked
+from apps.api.forwarding.testing import (
+    claim_inbound_call,
+    is_forwarding_leg,
+    meter_test_arrival,
+)
 from apps.api.ingest.service import normalize_phone
 from apps.api.insights import detection as gap_detection
 from apps.api.insights import service as gap_service
@@ -545,6 +551,15 @@ async def _ingest_stages(
     async with untenanted_session() as session:
         resolved = await _resolve_agent(session, engine_name, agent_ref)
     if resolved is None:
+        # One of our own forwarding-test legs (D-746): its agent is ours, not a client's,
+        # and the test's settlement reads the leg back from the platform itself.
+        async with untenanted_session() as session:
+            own_leg = await is_forwarding_leg(session, snapshot.engine_call_id)
+        if own_leg:
+            if inbox_row_id:
+                async with untenanted_session() as session:
+                    await mark_inbox_processed(session, row_id=UUID(str(inbox_row_id)))
+            return "forwarding_test_leg"
         # An event for an agent we do not know: never invent a tenant, never drop it
         # silently. This is how a mis-provisioned agent gets noticed on day one.
         #
@@ -648,13 +663,16 @@ async def _upsert_call_row(
                 text(
                     "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
                     "from_e164, to_e164, status, started_at, ended_at, duration_s, "
-                    "created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, :dir, :from_e, "
-                    ":to_e, :status, :started, :ended, :dur, now(), now()) "
+                    "engine_quality, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
+                    ":dir, :from_e, :to_e, :status, :started, :ended, :dur, "
+                    "CAST(:quality AS jsonb), now(), now()) "
                     "ON CONFLICT (engine_call_id) DO UPDATE SET "
                     "  status = EXCLUDED.status, "
                     "  started_at = COALESCE(calls.started_at, EXCLUDED.started_at), "
                     "  ended_at = COALESCE(EXCLUDED.ended_at, calls.ended_at), "
                     "  duration_s = COALESCE(EXCLUDED.duration_s, calls.duration_s), "
+                    # `call.completed` can carry no figures where `call.analysed` does.
+                    "  engine_quality = COALESCE(EXCLUDED.engine_quality, calls.engine_quality), "
                     "  updated_at = now() "
                     # THE CONSTANT, NOT A RETYPED COPY OF ITS FIVE MEMBERS. This clause
                     # is what stops a late `ringing` webhook un-completing a finished
@@ -682,6 +700,7 @@ async def _upsert_call_row(
                     "started": snapshot.started_at,
                     "ended": snapshot.ended_at,
                     "dur": snapshot.duration_s,
+                    "quality": snapshot.quality.model_dump_json() if snapshot.quality else None,
                     "terminal": sorted(TERMINAL_STATUSES),
                 },
             )
@@ -1272,6 +1291,25 @@ async def _post_call_stages(
                 ),
             )
 
+    # STEP 1e — a forwarded number (D-746): is this inbound call our forwarding test
+    # arriving (its minutes are then ours and it files no lead), or a forwarded call that
+    # showed the client's own number instead of the caller's? Before the lead and the meter,
+    # which both read the answer off the call row.
+    if snapshot.direction == "inbound":
+        with span("pipeline.forwarded_line", call_id=str(call_id)) as stage:
+            async with tenant_session(tenant_id) as session:
+                claim = await claim_inbound_call(
+                    session,
+                    call_id=call_id,
+                    from_e164=_party_e164(snapshot.from_e164),
+                    started_at=snapshot.started_at,
+                )
+            set_span_attributes(
+                stage,
+                forwarding_test=claim.test_id is not None,
+                caller_hidden=claim.caller_hidden,
+            )
+
     # STEP 2 — transcript + redaction. `text_redacted` is the default view (hard rule 5).
     with span("pipeline.transcript_persist", call_id=str(call_id)) as stage:
         transcript_text = await _persist_transcript(tenant_id, call_id, snapshot)
@@ -1406,6 +1444,7 @@ async def _post_call_stages(
                 line_turns=prompt_line_turns(snapshot.transcript),
                 field_labels=field_labels,
                 redact=lambda label: redact(label).text,
+                unheard=likely_cut_off(snapshot.transcript),
             )
         )
         moments = merge_moments(
@@ -1414,6 +1453,7 @@ async def _post_call_stages(
                 extraction=extraction.data,
                 field_labels=field_labels,
                 opt_out_turn_idx=opt_out_signal.turn_idx if opt_out_signal else None,
+                unheard=likely_cut_off(snapshot.transcript),
             ),
             suggested,
         )
@@ -1582,6 +1622,9 @@ async def _post_call_stages(
                 payload={"tenant_id": str(tenant_id), "call_id": str(call_id)},
                 dedupe_key=f"after_call_actions:{call_id}",
             )
+            # STEP 8c — "save our number" to a caller who booked, when the client switched
+            # it on (D-746). Once per call here; once per caller in the job.
+            await queue_if_booked(session, tenant_id=tenant_id, call_id=call_id)
 
         # STEP 9 — the DPDP obligation this run may have just broken (D-310).
         #
@@ -1730,6 +1773,10 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
     if not snapshot.transcript:
         return ""
     lines: list[str] = []
+    # D-739: an agent turn the caller probably spoke over is labelled for the extractor, so
+    # an offer or a price in it is not read as heard. One label per line, no new lines, so
+    # `moments.prompt_line_turns` still numbers the lines the same way.
+    unheard = likely_cut_off(snapshot.transcript)
     async with tenant_session(tenant_id) as session:
         for turn in snapshot.transcript:
             redacted = redact(turn.text)
@@ -1742,7 +1789,8 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
             # `extract_call` turns the resulting empty string into the schema's own
             # verdict without a provider call.
             if turn.text.strip():
-                lines.append(f"{turn.speaker}: {turn.text}")
+                who = UNHEARD_LABEL if turn.idx in unheard else turn.speaker
+                lines.append(f"{who}: {turn.text}")
             await session.execute(
                 text(
                     "INSERT INTO transcript_turns (id, tenant_id, call_id, idx, speaker, text, "
@@ -2648,6 +2696,14 @@ _LEAD_CALL_FILED = (
 )
 
 
+def _callback_number(data: dict[str, Any]) -> str | None:
+    """The call-back number a caller gave (the core `other_number` field), as E.164."""
+    from apps.api.forwarding.service import normalize_india
+
+    raw = data.get("other_number")
+    return normalize_india(raw) if isinstance(raw, str) and raw.strip() else None
+
+
 async def _upsert_lead(
     tenant_id: UUID,
     agent_id: UUID,
@@ -2690,11 +2746,22 @@ async def _upsert_lead(
         call_row = (
             await session.execute(
                 text(
-                    "SELECT trial_call, campaign_id FROM calls WHERE id = :cid AND tenant_id = :tid"
+                    "SELECT trial_call, campaign_id, forwarding_test_id IS NOT NULL, "
+                    "caller_id_hidden FROM calls WHERE id = :cid AND tenant_id = :tid"
                 ),
                 {"cid": call_id, "tid": tenant_id},
             )
         ).first()
+        if call_row is not None and call_row[2]:
+            # Our own forwarding test arriving is no caller (D-746).
+            return None
+        if call_row is not None and call_row[3]:
+            # The network showed the client's own number: the lead is the call-back number
+            # the caller gave, or nobody (D-746). Filing it under the business's own number
+            # would make every such caller one lead and ring the business on a call back.
+            caller = _party_e164(_callback_number(data))
+            if not caller:
+                return None
         trial = bool(call_row[0]) if call_row else False
         source = _lead_source(
             direction=direction,
@@ -3195,6 +3262,7 @@ async def _engine_minute_cost(
             call_id=call_id,
             seconds=_billable_seconds(snapshot, tenant_id=tenant_id, call_id=call_id),
             at=at,
+            forwarded=snapshot.forwarded,
         )
     if not priced.priced:
         alert(
@@ -3318,6 +3386,21 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         return 0
     async with tenant_session(tenant_id) as session:
         await lock_call_writes(session, call_id)
+        # Our forwarding test arriving on the client's number is ours to pay (D-746): one
+        # absorbed row instead of the client's minute, and no wallet or spend movement.
+        test_minutes = (
+            minute_cost.billed_minutes
+            if minute_cost is not None
+            else (Decimal(snapshot.duration_s or 0) / Decimal(60)).quantize(Decimal("0.0001"))
+        )
+        if await meter_test_arrival(
+            session,
+            tenant_id=tenant_id,
+            call_id=call_id,
+            minutes=test_minutes,
+            cost=cost.total_inr,
+        ):
+            return 1
         tier = await plan_tier_of(session, tenant_id)
         config_row = (
             await session.execute(
@@ -3402,7 +3485,10 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             # band publish stamped on the route row, not from `agents.tts_voice`, which names
             # one of OUR voices and is not what this engine spoke.
             voice = _engine_minute_voice_tier(
-                snapshot.engine, minute_cost.rate_key, tenant_id=tenant_id, call_id=call_id
+                snapshot.engine,
+                minute_cost.client_rate_key or minute_cost.rate_key,
+                tenant_id=tenant_id,
+                call_id=call_id,
             )
         # WHICH SURCHARGE BUCKET THIS CALL'S MINUTES LAND IN (D-455). The paragraph above
         # ends "NOT PRICED HERE, deliberately ... this is the identifier the gap will be
@@ -3781,8 +3867,8 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # vendor for this call and a cost nobody recorded is a cost nobody can see. What
         # does not happen is the wallet debit — the same division `on_us` above makes, for
         # a different reason, and the reason the two are separate booleans rather than one:
-        # a trial call is ABSORBED and priced into `spend_state.billed_inr` as what it
-        # would have cost, while this one is not billed to anybody and accrues nothing.
+        # a trial call is a gift the client is shown (`trial_absorbed_inr`) and is not
+        # gated by the wallet at all, while this one is a debt the wallet refuses to grow.
         #
         # THE PREDICATE IS `credits_exhausted`, ASKED AND NEVER RE-DERIVED — the same one
         # the dial gate, the campaign launch gate and the client's own credits screen ask,
@@ -3891,24 +3977,16 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             # `spend_state.billed_inr` for a prepaid tenant must equal the sum of the
             # `usage` debits actually taken off their wallet, because the wallet IS their
             # bill (D-39) — and since the debit is now priced by the lots it consumed, the
-            # only way to state the same number twice is to state it once. A call that was
-            # ON US consumed nothing, so what it WOULD have cost is priced at the month's
-            # list rate: that is the `trial_absorbed_inr` figure, and it is the same
-            # arithmetic `consume` would have used for a wallet holding no lots.
-            prepaid_billed=(
-                charged_inr
-                if not on_us
-                # THE SAME PAIR, RESOLVED BY THE SAME VOICE. A trial call takes no debit,
-                # so what it WOULD have cost is priced exactly as `consume` would have
-                # priced it for a wallet holding no lots, at the month's list rate for this
-                # call's own voice.
-                else prepaid_billed_inr(
-                    minutes=client_minutes, self_serve_rate=fallback_rates.rate_for(voice)
-                )
-                + surcharge_inr
-            ),
+            # only way to state the same number twice is to state it once.
+            prepaid_billed=charged_inr,
         )
-        billed = increment.billed_inr
+        # A CALL A FREE TRIAL COVERED SPENDS NOTHING OF THE CLIENT'S, ON EITHER MOTION. The
+        # rupee ceiling is a limit on what the client pays, so a free minute must not draw
+        # it down; pricing it at the list rate here showed a trial client "Spent ₹18" of a
+        # trial that cost them nothing and could stop them at a ceiling they never reached.
+        # Its minutes still count, because a minute ceiling limits calling, not money. What
+        # the trial gave away is `usage_summary.trial_absorbed_inr`, computed there.
+        billed = Decimal("0") if on_us else increment.billed_inr
         counters = (
             await session.execute(
                 text(_SPEND_STATE_UPSERT),

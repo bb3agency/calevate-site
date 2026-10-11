@@ -49,7 +49,10 @@ async def _invite(token: str, tenant_id: uuid.UUID, email: str) -> httpx.Respons
     async with _client() as http:
         return await http.post(
             INVITATIONS.format(tenant_id=tenant_id),
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"invite_member:{tenant_id}",
+            },
             json={"email": email, "role": "owner"},
         )
 

@@ -14,8 +14,9 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { adminRealmSession } from "@/lib/authn/realmSessions";
-import { needsReauthentication } from "@/lib/authn/problems";
-import { requireStepUp } from "@/lib/authn/stepUpPrompt";
+import { codeOf, needsReauthentication } from "@/lib/authn/problems";
+import { withActionCode } from "@/lib/authn/stepUpPrompt";
+import { adminConsoleUrl } from "@/lib/consoleOrigin";
 
 import type { CampaignSummary } from "./campaigns";
 import { apiRequest, type GrantSource, type Session } from "./client";
@@ -87,6 +88,58 @@ export function adminSession(orgSlug = ""): Session {
   return adminRealmSession(orgSlug);
 }
 
+/**
+ * The `X-Confirm-Action` strings of the operator writes D-731 put behind step-up, copied
+ * VERBATIM from the API (`admin/routes.py`, `members_routes.py`, `flags/routes.py`,
+ * `billing/*_routes.py`, `engine_workspace_routes.py`, `copilot/admin_routes.py`).
+ */
+export const CREATE_TENANT_CONFIRMATION = "create_tenant";
+export const RECONCILE_PAYMENTS_CONFIRMATION = "reconcile_payments";
+export const inviteMemberConfirmation = (tenantId: string) => `invite_member:${tenantId}`;
+export const provisionNumberConfirmation = (tenantId: string) => `provision_number:${tenantId}`;
+export const recordKycConfirmation = (tenantId: string) => `record_kyc:${tenantId}`;
+export const memberRoleConfirmation = (tenantId: string, userId: string) =>
+  `change_member_role:${tenantId}:${userId}`;
+export const featureFlagConfirmation = (tenantId: string, flag: string) =>
+  `set_feature_flag:${tenantId}:${flag}`;
+export const feeWaiverConfirmation = (tenantId: string) => `waive_platform_fee:${tenantId}`;
+export const feePaymentConfirmation = (tenantId: string, chargeId: string) =>
+  `record_fee_payment:${tenantId}:${chargeId}`;
+export const recordPaymentConfirmation = (tenantId: string) => `record_payment:${tenantId}`;
+export const endTrialConfirmation = (tenantId: string, outcome: string) =>
+  `end_trial:${tenantId}:${outcome}`;
+export const workspaceProvisionConfirmation = (tenantId: string) =>
+  `provision_workspace:${tenantId}`;
+export const workspaceOffboardConfirmation = (tenantId: string) =>
+  `offboard_workspace:${tenantId}`;
+export const buyNumberConfirmation = (tenantId: string) => `buy_number:${tenantId}`;
+export const releaseNumberConfirmation = (tenantId: string, numberId: string) =>
+  `release_number:${tenantId}:${numberId}`;
+export const undoCopilotConfirmation = (actionId: string) => `undo_copilot_action:${actionId}`;
+export const moveNumberConfirmation = (tenantId: string, numberId: string) =>
+  `move_number:${tenantId}:${numberId}`;
+export const TRIAL_LINE_CONFIRMATION = "set_up_trial_line";
+
+/**
+ * A confirmed operator write (D-731): sends `X-Confirm-Action`, and when the API answers
+ * that the second factor is stale, asks for a code and sends the request once more.
+ *
+ * The retry is safe because every step-up gate refuses before it does any work
+ * (`apps/api/core/stepup.py`), so the first attempt changed nothing.
+ */
+export function confirmedAdminRequest<T>(
+  path: string,
+  options: NonNullable<Parameters<typeof apiRequest>[2]> & { confirmAction: string },
+  reason: string,
+): Promise<T> {
+  return withActionCode(
+    options.confirmAction,
+    reason,
+    () => apiRequest<T>(adminSession(), path, options),
+    needsReauthentication,
+  );
+}
+
 /* --- D-22 view-as: the grant, and where it comes from ------------------------------
  *
  * This file used to build an impersonating session by setting one header and nothing
@@ -115,6 +168,30 @@ export function adminSession(orgSlug = ""): Session {
 export const IMPERSONATION_GRANT_PATH = "/v1/admin/impersonation-grants";
 
 /**
+ * The renewal endpoint — the ONLY grant route the client console may call (D-730).
+ * Starting a view-as session is accepted from the operator console's origin alone.
+ */
+export const IMPERSONATION_RENEW_PATH = "/v1/admin/impersonation-grants/renew";
+
+/** The operator console page that starts a view-as session and hands it over (D-730). */
+export const VIEW_AS_START_PATH = "/admin/view-as";
+
+/**
+ * The URL-fragment keys the operator console hands a fresh grant over in. A FRAGMENT,
+ * because it never leaves the browser: it is not sent to any server, so it reaches no
+ * access log and no `Referer`. The receiving page strips it on arrival.
+ */
+export const HANDOFF_GRANT_KEY = "vg";
+export const HANDOFF_EXPIRES_KEY = "ve";
+
+/**
+ * Per-tab copy of each slug's grant, so a reload continues the session instead of sending
+ * the operator back for a new code. `sessionStorage`, never `localStorage`: the grant is
+ * worthless without the operator's own cookie, and it should not outlive the tab.
+ */
+const GRANT_STORAGE_PREFIX = "calevate:view-as-grant:";
+
+/**
  * Re-mint this long before the grant expires.
  *
  * Not zero, because "expired" would then be discovered as a failed read in front of an
@@ -139,7 +216,7 @@ export function viewAsConfirmation(slug: string): string {
   return `view_as:${slug}`;
 }
 
-interface MintedGrant {
+export interface MintedGrant {
   grant: string;
   expiresAtMs: number;
 }
@@ -183,6 +260,14 @@ const grantCache = new Map<string, CachedGrant>();
 /** Drop every cached grant. For tests, and for a sign-out that changes who "we" are. */
 export function clearImpersonationGrants(): void {
   grantCache.clear();
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const key = sessionStorage.key(i);
+      if (key?.startsWith(GRANT_STORAGE_PREFIX)) sessionStorage.removeItem(key);
+    }
+  } catch {
+    // Storage unavailable: there is nothing kept to drop.
+  }
 }
 
 /**
@@ -195,21 +280,117 @@ export function clearImpersonationGrants(): void {
  */
 type MintResponse = Schemas["ImpersonationGrantOut"];
 
-async function postMint(slug: string, renew: string | undefined): Promise<MintedGrant> {
+function storeGrant(slug: string, minted: MintedGrant): void {
+  try {
+    sessionStorage.setItem(GRANT_STORAGE_PREFIX + slug, JSON.stringify(minted));
+  } catch {
+    // Storage unavailable (private mode, blocked site data): the session still works for
+    // this page load; a reload asks the operator console again.
+  }
+}
+
+function storedGrant(slug: string): MintedGrant | undefined {
+  try {
+    const raw = sessionStorage.getItem(GRANT_STORAGE_PREFIX + slug);
+    if (raw === null) return undefined;
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof (parsed as MintedGrant).grant === "string" &&
+      typeof (parsed as MintedGrant).expiresAtMs === "number"
+    ) {
+      return parsed as MintedGrant;
+    }
+  } catch {
+    // Unreadable or unavailable: treated as no grant.
+  }
+  return undefined;
+}
+
+/**
+ * The grant the operator console handed this page in its URL fragment, if any. Read once
+ * and STRIPPED from the address bar, so it is not left in history or a screenshot.
+ */
+function adoptHandoffGrant(slug: string): MintedGrant | undefined {
+  if (typeof window === "undefined" || window.location.hash.length < 2) return undefined;
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  const grant = params.get(HANDOFF_GRANT_KEY);
+  const expiresAtMs = Number(params.get(HANDOFF_EXPIRES_KEY));
+  if (!grant || !Number.isFinite(expiresAtMs)) return undefined;
+  params.delete(HANDOFF_GRANT_KEY);
+  params.delete(HANDOFF_EXPIRES_KEY);
+  const rest = params.toString();
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `${window.location.pathname}${window.location.search}${rest ? `#${rest}` : ""}`,
+  );
+  const minted = { grant, expiresAtMs };
+  storeGrant(slug, minted);
+  return minted;
+}
+
+/**
+ * Whether this page is on the CLIENT console's hostname while the operator console lives
+ * on another. There the API refuses to START a view-as session (D-730), so a page that has
+ * no grant to renew sends the operator back to the operator console instead.
+ */
+function onClientConsoleOrigin(): boolean {
+  if (typeof window === "undefined") return false;
+  const admin = adminConsoleUrl("/");
+  if (!/^https?:\/\//.test(admin)) return false;
+  return new URL(admin).origin !== window.location.origin;
+}
+
+/** Where a client-console page goes to re-enter `slug` through the operator console. */
+export function viewAsStartUrl(slug: string, path = ""): string {
+  const query = new URLSearchParams({ slug });
+  if (path) query.set("path", path);
+  return adminConsoleUrl(`${VIEW_AS_START_PATH}?${query.toString()}`);
+}
+
+function reenterFromOperatorConsole(slug: string): never {
+  const prefix = `/c/${slug}`;
+  const here = window.location.pathname;
+  const path = here.startsWith(prefix) ? here.slice(prefix.length) : "";
+  window.location.assign(viewAsStartUrl(slug, path));
+  throw new Error("This view-as session has ended. Opening it again from the operator console.");
+}
+
+async function postStart(slug: string): Promise<MintedGrant> {
   // `adminSession()`, never `viewAsSession()`: minting is an admin-realm act, and the
   // API refuses a mint made from inside another account's session (no chained
-  // delegation). Passing the impersonating session here would be an infinite regress
-  // as well as a refusal.
+  // delegation).
   const minted = await apiRequest<MintResponse>(adminSession(), IMPERSONATION_GRANT_PATH, {
     method: "POST",
-    body: renew === undefined ? { slug } : { slug, renew },
-    // Sent on EVERY mint, including the renewals the API does not check it on. One code
-    // path is worth more than one saved header: it means a refusal from this endpoint is
-    // always the freshness half, never the echo, so the branch below keys on one code and
-    // an echo mismatch stays the loud version-skew signal it is meant to be.
+    body: { slug },
     confirmAction: viewAsConfirmation(slug),
   });
   return { grant: minted.grant, expiresAtMs: Date.parse(minted.expires_at) };
+}
+
+async function postRenew(slug: string, renew: string): Promise<MintedGrant> {
+  const minted = await apiRequest<MintResponse>(adminSession(), IMPERSONATION_RENEW_PATH, {
+    method: "POST",
+    body: { slug, renew },
+  });
+  return { grant: minted.grant, expiresAtMs: Date.parse(minted.expires_at) };
+}
+
+/**
+ * Start a view-as session for `slug` on the operator console, asking for a code typed
+ * for this entry (D-730). The retry is safe: the API refuses before it mints or audits.
+ */
+export async function startViewAs(slug: string): Promise<MintedGrant> {
+  const minted = await withActionCode(
+    viewAsConfirmation(slug),
+    `Opening ${slug} as an operator.`,
+    () => postStart(slug),
+    needsReauthentication,
+  );
+  storeGrant(slug, minted);
+  return minted;
 }
 
 /**
@@ -231,22 +412,37 @@ async function postMint(slug: string, renew: string | undefined): Promise<Minted
  * and re-offering it would ask the API the question it has already answered.
  */
 async function mint(slug: string, renew: string | undefined): Promise<MintedGrant> {
-  try {
-    return await postMint(slug, renew);
-  } catch (error) {
-    if (!needsReauthentication(error)) throw error;
-    const proved = await requireStepUp(`Opening ${slug} as an operator.`);
-    // Dismissed. The operator's action fails with the server's own refusal — it is still
-    // exactly true, and it carries the sentence and remediation this console would
-    // otherwise have to reinvent.
-    if (!proved) throw error;
-    return await postMint(slug, undefined);
+  if (renew !== undefined) {
+    try {
+      const renewed = await postRenew(slug, renew);
+      storeGrant(slug, renewed);
+      return renewed;
+    } catch (error) {
+      // Out of window, or a grant from another operator or tenant: the session has to be
+      // started again. Anything else (a network failure) is reported as it is.
+      if (codeOf(error) !== "view_as_renewal_refused") throw error;
+    }
   }
+  if (onClientConsoleOrigin()) reenterFromOperatorConsole(slug);
+  return await startViewAs(slug);
 }
 
 function impersonationGrant(slug: string): GrantSource {
   return async () => {
-    const cached = grantCache.get(slug);
+    let cached = grantCache.get(slug);
+    if (cached === undefined) {
+      // A fresh page: the grant the operator console just handed over, or this tab's copy
+      // from before a reload.
+      const seeded = adoptHandoffGrant(slug) ?? storedGrant(slug);
+      if (seeded !== undefined) {
+        cached = {
+          pending: Promise.resolve(seeded),
+          expiresAtMs: seeded.expiresAtMs,
+          grant: seeded.grant,
+        };
+        grantCache.set(slug, cached);
+      }
+    }
     if (cached && cached.expiresAtMs - Date.now() > GRANT_REFRESH_MARGIN_MS) {
       return (await cached.pending).grant;
     }
@@ -457,10 +653,11 @@ export function useCreateTenant() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (payload: CreateOrgIn) =>
-      apiRequest<CreateOrgOut>(adminSession(), "/v1/admin/tenants", {
-        method: "POST",
-        body: payload,
-      }),
+      confirmedAdminRequest<CreateOrgOut>(
+        "/v1/admin/tenants",
+        { method: "POST", body: payload, confirmAction: CREATE_TENANT_CONFIRMATION },
+        "Creating a new client.",
+      ),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "tenants"] }),
   });
 }
@@ -482,10 +679,15 @@ export function useInvite() {
       name?: string | null;
       phone?: string | null;
     }) =>
-      apiRequest<InviteOut>(adminSession(), `/v1/admin/tenants/${tenantId}/invitations`, {
-        method: "POST",
-        body: { email, role, name: name ?? null, phone_e164: phone ?? null },
-      }),
+      confirmedAdminRequest<InviteOut>(
+        `/v1/admin/tenants/${tenantId}/invitations`,
+        {
+          method: "POST",
+          body: { email, role, name: name ?? null, phone_e164: phone ?? null },
+          confirmAction: inviteMemberConfirmation(tenantId),
+        },
+        "Inviting someone into this client's account.",
+      ),
     // The Invitations screen tells the operator the new link "appears in the list above",
     // and that list is `useTenantInvitations`, which has no poll of its own.
     onSuccess: (_data, { tenantId }) =>
@@ -683,10 +885,14 @@ export function useRecordKyc(tenantId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (payload: KycRecordIn) =>
-      apiRequest<Schemas["apps__api__admin__routes__KycRecordOut"]>(
-        adminSession(),
+      confirmedAdminRequest<Schemas["apps__api__admin__routes__KycRecordOut"]>(
         `/v1/admin/tenants/${tenantId}/kyc`,
-        { method: "POST", body: toRecordBody(payload) },
+        {
+          method: "POST",
+          body: toRecordBody(payload),
+          confirmAction: recordKycConfirmation(tenantId),
+        },
+        "Recording this client's verification.",
       ),
     // Prefix invalidation, so the panel re-reads what is now STORED rather than
     // echoing back what this screen just sent. `record_kyc` COALESCEs blank fields
@@ -1168,10 +1374,10 @@ export function useProvisionNumber(tenantId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (payload: ProvisionNumberBody) =>
-      apiRequest<components["schemas"]["NumberCreatedOut"]>(
-        adminSession(),
+      confirmedAdminRequest<components["schemas"]["NumberCreatedOut"]>(
         `/v1/admin/tenants/${tenantId}/numbers`,
-        { method: "POST", body: payload },
+        { method: "POST", body: payload, confirmAction: provisionNumberConfirmation(tenantId) },
+        "Recording a number for this client.",
       ),
     // **NO `agent_id`, DELIBERATELY, THOUGH THE ROUTE ACCEPTS ONE (D-576).** The console
     // has exactly ONE way to decide which agent answers a number — the attach control on

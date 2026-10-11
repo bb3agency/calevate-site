@@ -983,21 +983,30 @@ describe("what each document must contain", () => {
       expect(
         prose,
         `/legal/${slug} does not say what the vendor receives`,
-      ).toMatch(
-        /words (?:the|your) agent is about to speak, (?:sent )?as text,? a turn at a time/,
-      );
+      ).toMatch(/words (?:the|your) agent speaks,? (?:sent )?as text/);
+      expect(
+        prose,
+        `/legal/${slug} does not say the spoken words can carry a caller's personal data`,
+      ).toMatch(/personal data (?:you have|a caller has) given/);
       expect(
         prose,
         `/legal/${slug} does not exclude the caller's audio`,
       ).toMatch(/(?:Not|never) (?:your own|the caller's) audio/);
-      // Nothing has been sent yet — ours, read off the code, and the one claim here that
-      // is stated flatly.
-      // Both spellings are accepted ("to it" / "to either of them", the Addendum's, since
-      // there are two synthesis vendors) so the CLAIM is pinned rather than its grammar.
+      // The dearer quality's company has received agents' words since 11 October 2026
+      // (production usage; D-727 opened Studio to trials), and the other synthesis company
+      // still nothing. A document saying nothing was sent to EITHER is now false.
       expect(
         prose,
-        `/legal/${slug} omits that nothing has been sent to it`,
-      ).toMatch(/[Nn]othing has been sent to (?:it|either of them)/);
+        `/legal/${slug} omits that the vendor has received agents' words since 11 October 2026`,
+      ).toMatch(/since 11 October 2026/);
+      expect(
+        prose,
+        `/legal/${slug} omits that nothing has been sent to the other synthesis company`,
+      ).toMatch(/[Nn]othing has been sent to the (?:third|second) company/);
+      expect(
+        prose,
+        `/legal/${slug} still says nothing was sent to either synthesis company`,
+      ).not.toMatch(/[Nn]othing has been sent to either of them/);
     }
 
     // WHERE it processes is unknown in both, and neither resolves it to a country.

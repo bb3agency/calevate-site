@@ -103,7 +103,8 @@ describe("the client header", () => {
     await render();
 
     const link = await screen.findByRole("link", { name: /View as client \(logged\)/ });
-    expect(link.getAttribute("href")).toBe(`/c/${SLUG}?view=admin`);
+    // D-730: through the operator console's start page, which asks for a code.
+    expect(link.getAttribute("href")).toBe(`/admin/view-as?slug=${SLUG}`);
     expect(screen.queryByRole("link", { name: /read-only/i })).toBeNull();
   });
 });

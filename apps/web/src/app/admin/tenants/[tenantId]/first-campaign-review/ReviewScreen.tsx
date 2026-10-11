@@ -1,6 +1,5 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import { NoticeBox, ProblemNotice, Skeleton, formatIST, formatISTStamp } from "@/components/ui";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -107,7 +106,6 @@ export function ReviewScreen({ tenantId }: { tenantId: string }) {
            withdrawn because complaints arrived. A retry is the cheaper failure. */
         <NoticeBox
           tone="warn"
-          icon={<AlertTriangle className="h-5 w-5" />}
           title="Cannot decide while the current state is unreadable"
         >
           <p className="mt-1 text-meta opacity-90">
@@ -120,7 +118,7 @@ export function ReviewScreen({ tenantId }: { tenantId: string }) {
         <>
           <WhereItStands hold={hold.data} tenantName={tenant.name} slug={slug} />
           {decide.data && (
-            <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
+            <NoticeBox tone="ok">
               <p>
                 Recorded as <span className="font-medium">{decide.data.status}</span> at{" "}
                 {formatIST(decide.data.decided_at)} IST. The panel above has re-read the

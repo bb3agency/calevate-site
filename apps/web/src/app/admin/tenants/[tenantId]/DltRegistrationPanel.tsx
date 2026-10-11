@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { BookOpenCheck } from "lucide-react";
 
 import { Section } from "@/components/console/section";
 import {
@@ -84,7 +83,7 @@ export function DltRegistrationPanel({ tenantId, write }: { tenantId: string; wr
         /* The API has no GET for this, so the panel can only show what THIS screen just
            wrote — never the stored state on load. Echoing what was recorded is the honest
            version; claiming to display a current state we did not read would be worse. */
-        <NoticeBox tone="ok" icon={<BookOpenCheck className="h-4 w-4" />}>
+        <NoticeBox tone="ok">
           <p>
             Recorded: entity registration{" "}
             <span className="font-medium">{record.data.status.replace(/_/g, " ")}</span>,{" "}

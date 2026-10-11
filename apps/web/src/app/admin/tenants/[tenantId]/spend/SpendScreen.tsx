@@ -17,6 +17,8 @@ import { currentISTMonth } from "@/lib/api/invoice";
 import { useTenant } from "@/lib/api/admin";
 import {
   CHARGE_BASIS_COPY,
+  isZeroMoney,
+  marginPctLabel,
   useTenantSpend,
   type TenantSpend,
 } from "@/lib/api/spend";
@@ -37,12 +39,14 @@ import { Breakdown } from "./SpendBreakdown";
  * every `cost_inr` and `margin_inr` is `unit_cost_paid`, our supplier pricing, and
  * `GET /v1/billing/spend` declares no cost-shaped field at all.
  *
- * The four headline figures are `margin_for_tenant`'s own, read verbatim: D-12's margin has
- * ONE definition, and nothing here adds two rupee strings together.
+ * The headline figures are the server's, read verbatim, and nothing here adds two rupee
+ * strings together. The margin shown is the margin on PAID calling: calls a free trial
+ * covered were free by design, so their cost is its own line ("Trial calls we cover"), an
+ * acquisition cost rather than a loss. D-12's all-in margin stays on the wire.
  *
- * `cost_currency_stated` is false whenever WE chose the currency because the vendor named
- * none (OPERATIONS §2 gate 7) — every row today — so the caveat is stated unconditionally
- * rather than only when something looks wrong. No CLIENT-facing figure is affected.
+ * `cost_currency_stated` is false only when a cost row converted a vendor figure in a
+ * currency WE chose (OPERATIONS §2 gate 7). Attested INR rates assume nothing, so the
+ * caveat appears only where it is true. No CLIENT-facing figure is affected.
  *
  * The spend cap lives here (D-661 Money › Spend): it is this client's money too, and its
  * recompute route binds its step-up to this tenant id, so it belongs on the client's own
@@ -85,18 +89,33 @@ export function SpendScreen({ tenantId }: { tenantId: string }) {
           { key: "minutes_used", label: "Minutes used", value: data.minutes_used },
           { key: "revenue_inr", label: "Charged to the client (₹)", value: data.revenue_inr },
           { key: "cost_inr", label: "What it cost us (₹)", value: data.cost_inr },
-          { key: "margin_inr", label: "Margin (₹)", value: data.margin_inr },
           {
-            key: "margin_pct",
-            label: "Margin (%)",
-            value: data.margin_pct ?? "nothing billed this month",
+            key: "trial_cost_inr",
+            label: "Our cost of calls a free trial covered (₹), an acquisition cost",
+            value: `${data.trial_cost_inr} across ${formatCountOf(data.trial_calls, "call")}`,
+          },
+          { key: "paid_cost_inr", label: "Our cost of paid calls (₹)", value: data.paid_cost_inr },
+          {
+            key: "paid_margin_inr",
+            label: "Margin on paid calls (₹), trial cost excluded",
+            value: data.paid_margin_inr,
+          },
+          {
+            key: "paid_margin_pct",
+            label: "Margin on paid calls (%)",
+            value: marginPctLabel(data.paid_margin_pct, data.trial_in_month),
+          },
+          {
+            key: "margin_inr",
+            label: "Margin all in (₹), trial cost included",
+            value: data.margin_inr,
           },
           {
             key: "cost_confidence",
-            label: "Do the cost figures rest on a currency the VENDOR stated",
+            label: "Do the cost figures rest on a stated or attested currency",
             value: data.cost_currency_stated
-              ? `yes — ${data.cost_currency ?? "unnamed"}`
-              : "NO. We chose the currency because the vendor's payload names none, so every cost and margin above is scaled by our assumption.",
+              ? `yes — ${data.cost_currency ?? "rupees"}`
+              : "NO. Some cost rows converted a vendor figure whose currency the vendor did not name, so those are scaled by our assumption.",
           },
           {
             // D-608: the KNOWLEDGE half of the absorbed AI cost is what an operator asks
@@ -170,13 +189,28 @@ function SpendBoard({ data }: { data: TenantSpend }) {
     label: "How each call is charged",
     hint: "",
   };
-  const negative = data.margin_inr.trim().startsWith("-");
+  // The margin on PAID calling: a free trial's calls are an acquisition cost shown on their
+  // own line, never a loss (the server's subtraction, not the browser's).
+  const negative = data.paid_margin_inr.trim().startsWith("-");
+  const trialCost = !isZeroMoney(data.trial_cost_inr);
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-x-6 gap-y-5 lg:grid-cols-4">
+      <div
+        className={`grid grid-cols-2 gap-x-6 gap-y-5 ${trialCost ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}
+      >
         <Metric label={`Revenue · ${data.month}`} value={formatINR(data.revenue_inr)} />
-        <Metric label="Our cost of calls" value={formatINR(data.cost_inr)} />
+        <Metric
+          label={trialCost ? "Our cost of paid calls" : "Our cost of calls"}
+          value={formatINR(data.paid_cost_inr)}
+        />
+        {trialCost && (
+          <Metric
+            label="Trial calls we cover"
+            value={formatINR(data.trial_cost_inr)}
+            hint={`${formatCountOf(data.trial_calls, "free trial call")}, ${data.trial_minutes} minutes. An acquisition cost, not in the margin.`}
+          />
+        )}
         <Metric
           label="Margin"
           tone={negative ? "danger" : "default"}
@@ -184,19 +218,21 @@ function SpendBoard({ data }: { data: TenantSpend }) {
           value={
             <>
               {negative && <span className="sr-only">Losing money: </span>}
-              {formatINR(data.margin_inr)}
+              {formatINR(data.paid_margin_inr)}
             </>
           }
         />
         {/* null, not 0%: "nothing billed yet" and "we made nothing" are different facts. */}
-        <Metric
-          label="Margin %"
-          value={data.margin_pct === null ? "not billed yet" : `${data.margin_pct}%`}
-        />
+        <Metric label="Margin %" value={marginPctLabel(data.paid_margin_pct, data.trial_in_month)} />
       </div>
 
       <p className="text-meta text-ink-muted">
-        {data.plan_tier} · {data.minutes_used} minutes across {formatCount(data.calls)} calls
+        {data.plan_tier} · {data.minutes_used} minutes across{" "}
+        {formatCountOf(data.calls, "call")}
+        {data.trial_calls > 0 &&
+          (data.trial_calls === data.calls
+            ? ", all on a free trial"
+            : `, ${formatCount(data.trial_calls)} of them on a free trial`)}
         {data.retainer_inr === null
           ? ", no monthly fee"
           : `, plus a ${formatINR(data.retainer_inr)} monthly fee`}
@@ -204,18 +240,18 @@ function SpendBoard({ data }: { data: TenantSpend }) {
         the same per-call figures on their own spend screen.{" "}
         {data.cost_currency_stated ? (
           <>
-            Our cost is recorded in {data.cost_currency ?? "the vendor's own currency"}, as the
-            vendor stated it.
+            Our cost is recorded in {data.cost_currency ?? "rupees"} at stated or attested
+            rates.
           </>
         ) : (
           <>
             <strong className="font-semibold text-ink">Cost is scaled by an assumption.</strong>{" "}
             <InfoTip label="About the cost currency">
-              The vendor&rsquo;s data names no currency, so we treated it as{" "}
+              At least one cost row converted a vendor figure whose currency the vendor&rsquo;s
+              data did not name, so we treated it as{" "}
               {data.cost_currency ?? "our configured default"} — a figure we chose, not one the
-              vendor stated. Every cost and margin figure on this page carries that assumption;
-              no figure the client sees does, because a client is priced off minutes at their
-              own rate.
+              vendor stated. Rows marked * in the breakdown carry that assumption; no figure
+              the client sees does, because a client is priced off minutes at their own rate.
             </InfoTip>
           </>
         )}

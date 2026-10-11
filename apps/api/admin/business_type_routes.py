@@ -5,6 +5,8 @@
                                                                 default and the AI's suggestion
     POST  /v1/admin/tenants/{tenant_id}/business-type/confirm   a person's choice; the agents'
                                                                 lead details and scripts follow
+    POST  /v1/admin/tenants/{tenant_id}/business-type/suggest   ask the AI again; the new
+                                                                suggestion arrives on the GET
 
 Confirming is the only way an unconfirmed account gets a type back. Changing the type of an
 account that already has one stays the profile form's job (`PATCH /v1/admin/tenants/{id}`).
@@ -32,6 +34,8 @@ router = APIRouter(prefix="/v1/admin/tenants/{tenant_id}/business-type", tags=["
 
 AdminReader = Annotated[Principal, Depends(requires("org:read", realm="admin"))]
 Operator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
+#: Spends our AI money, so it sits with the other ops levers rather than with tenant edits.
+OpsManager = Annotated[Principal, Depends(requires("ops:manage", realm="admin"))]
 
 
 class _Out(BaseModel):
@@ -142,6 +146,39 @@ async def confirm_business_type(
             object_id=str(tenant_id),
             ip=client_request_ip(request),
             summary={"before": before, "after": payload.business_type},
+        )
+        state = await service.read_state(scoped, tenant_id=tenant_id)
+    return _out(tenant_id, state)
+
+
+@router.post(
+    "/suggest",
+    response_model=BusinessTypeOut,
+    status_code=202,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Ask the AI to suggest the client's business type again",
+    description=(
+        "Queues one AI suggestion for a client whose business type nobody has chosen. The "
+        "suggestion replaces any on file and changes nothing by itself. Refused when the type "
+        "is already chosen or the platform-wide AI brake is on."
+    ),
+)
+async def suggest_business_type_again(
+    tenant_id: UUID,
+    request: Request,
+    principal: OpsManager,
+) -> BusinessTypeOut:
+    async with tenant_session(tenant_id) as scoped:
+        await service.queue_suggestion(scoped, tenant_id=tenant_id)
+        await write_audit(
+            scoped,
+            action="organization.business_type_suggestion_requested",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="organization",
+            object_id=str(tenant_id),
+            ip=client_request_ip(request),
+            summary={},
         )
         state = await service.read_state(scoped, tenant_id=tenant_id)
     return _out(tenant_id, state)

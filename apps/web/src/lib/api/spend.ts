@@ -76,6 +76,24 @@ export type FleetSpend = Schemas["FleetSpendOut"];
 export type FleetTenant = Schemas["FleetTenantOut"];
 
 /**
+ * Is this exact decimal string zero? Compared as text, never parsed: "0.00", "-0.00" and
+ * "0" are the spellings the server can send for nothing.
+ */
+export function isZeroMoney(value: string): boolean {
+  return /^-?0+(\.0+)?$/.test(value.trim());
+}
+
+/**
+ * The margin-percentage cell, shared by the client page and the fleet board. Null is "no
+ * revenue to be a percentage of", and during a free trial that is by design, so it says so
+ * rather than "not billed yet".
+ */
+export function marginPctLabel(pct: string | null, trialInMonth: boolean): string {
+  if (pct !== null) return `${pct}%`;
+  return trialInMonth ? "Free trial" : "not billed yet";
+}
+
+/**
  * The month query string all three share, so no two callers can key their cache
  * differently — `invoice.ts::monthQuery`'s reason, one endpoint family over.
  */

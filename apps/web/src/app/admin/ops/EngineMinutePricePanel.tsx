@@ -2,7 +2,7 @@
 
 import { Section } from "@/components/console/section";
 import { useState } from "react";
-import { CheckCircle2, CircleAlert, Lock } from "lucide-react";
+import { CheckCircle2, Lock } from "lucide-react";
 
 import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withheld";
 import { WriteFailure } from "@/app/admin/writeFailure";
@@ -128,8 +128,7 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
         {platformUnpriced && (
           <NoticeBox
             tone="warn"
-            icon={<CircleAlert aria-hidden className="h-5 w-5" />}
-            title="No platform rate recorded — no minute on it can be sold"
+            title="No platform rate recorded. No minute on it can be sold"
           >
             <p className="mt-1">
               Until the platform minute is recorded, no agent on that platform is offered and

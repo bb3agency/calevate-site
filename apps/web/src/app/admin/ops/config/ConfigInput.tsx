@@ -21,6 +21,7 @@ import {
 import { useTenants } from "@/lib/api/admin";
 import { useThinnestWorkspace, type ConfigField } from "@/lib/api/opsConfig";
 import { useTrialNumber } from "@/lib/api/opsTrialNumber";
+import { TrialLinePanel } from "./TrialLinePanel";
 
 import {
   controlKind,
@@ -468,6 +469,7 @@ function TrialNumberPicker({ field, draft, onChange }: ConfigInputProps) {
           </p>
         </NoticeBox>
       )}
+      {data.line && <TrialLinePanel line={data.line} />}
       <ChoiceCards
         legend="Choose the number trial calls ring from"
         selected={(value) => value === draft}

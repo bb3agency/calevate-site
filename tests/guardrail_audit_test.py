@@ -490,6 +490,10 @@ class TestRlsCoverage:
             # machinery read in the admin realm; a nullable tenant_id names the client a
             # tenant- or agent-scoped pass is about.
             "live_apply_runs",
+            # D-746: one outbound leg of a forwarding test. The shared trial number is one
+            # line for the platform, so trial calls and tests count each other's live legs
+            # across clients; the leg's report arrives before any tenant is known.
+            "forwarding_test_legs",
             # D-475: the pulled USD/INR rate. Platform state — one exchange rate for the
             # whole deployment at an instant, so there is no tenant whose row it could be —
             # and read only behind `platform:config` in the admin realm.
@@ -1163,6 +1167,9 @@ class TestRedactionExposure:
             "RuleOut.text",
             "ExampleLine.text",
             "VersionOut.summary",
+            # D-744: the platform's spoken-style table under review, platform words.
+            "EntryValue.text",
+            "TurnBody.text",
         }
         assert set(check_redaction_exposure.ACKNOWLEDGED_PASSTHROUGH) == {
             # D-591: the `**ids` on an alert episode, redacted at the write by the same

@@ -13,7 +13,7 @@ THE ENQUEUE GOES THROUGH THE OUTBOX, in the same transaction as the row, so a jo
 exists without its work being queued and a queued job never points at a row that rolled
 back (BACKEND-PATTERNS, the reliability triad).
 
-NOTHING IRREVERSIBLE RUNS UNATTENDED. Inside a job a confirm-tier action is not proposed —
+NOTHING RUNS UNATTENDED (D-729). Inside a job no action runs and none is proposed —
 nobody is watching for a five-minute card — it is staged in the Approvals inbox
 (`write_tools.stage_for_approval`) and runs only when a person approves it.
 """

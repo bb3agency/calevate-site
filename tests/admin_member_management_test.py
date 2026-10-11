@@ -199,7 +199,7 @@ async def test_a_tenant_id_that_names_nothing_is_a_404_on_every_route() -> None:
         patched = await http.patch(
             MEMBER.format(tenant_id=missing, user_id=stranger),
             json={"role": "owner", "expected_role": "staff"},
-            headers=headers,
+            headers={**headers, "X-Confirm-Action": f"change_member_role:{missing}:{stranger}"},
         )
         deleted = await http.delete(
             MEMBER.format(tenant_id=missing, user_id=stranger),
@@ -233,7 +233,10 @@ async def test_promoting_a_colleague_writes_the_transition_and_names_the_operato
         response = await http.patch(
             MEMBER.format(tenant_id=tenant_id, user_id=staff_id),
             json={"role": "owner", "expected_role": "staff"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"change_member_role:{tenant_id}:{staff_id}",
+            },
         )
 
     assert response.status_code == 200, response.text
@@ -269,7 +272,10 @@ async def test_a_write_against_a_role_the_row_no_longer_holds_is_refused() -> No
         response = await http.patch(
             MEMBER.format(tenant_id=tenant_id, user_id=second_id),
             json={"role": "staff", "expected_role": "staff"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"change_member_role:{tenant_id}:{second_id}",
+            },
         )
 
     assert response.status_code == 409, response.text
@@ -291,7 +297,10 @@ async def test_setting_the_role_somebody_already_holds_writes_no_audit_row() -> 
         response = await http.patch(
             MEMBER.format(tenant_id=tenant_id, user_id=staff_id),
             json={"role": "staff", "expected_role": "staff"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"change_member_role:{tenant_id}:{staff_id}",
+            },
         )
 
     assert response.status_code == 200, response.text
@@ -312,7 +321,10 @@ async def test_the_last_owner_cannot_be_demoted_from_the_console_either() -> Non
         response = await http.patch(
             MEMBER.format(tenant_id=tenant_id, user_id=owner_id),
             json={"role": "staff", "expected_role": "owner"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"change_member_role:{tenant_id}:{owner_id}",
+            },
         )
 
     # 422 and not 409: `last_owner_protected` is a `ProblemError.business_rule` — the
@@ -339,7 +351,7 @@ async def test_a_client_token_cannot_reach_this_surface_at_all() -> None:
         patched = await http.patch(
             MEMBER.format(tenant_id=tenant_id, user_id=staff_id),
             json={"role": "owner", "expected_role": "staff"},
-            headers=headers,
+            headers={**headers, "X-Confirm-Action": f"change_member_role:{tenant_id}:{staff_id}"},
         )
 
     # 401 rather than 403: the guard's verdict is that this CREDENTIAL is not valid in
@@ -522,7 +534,7 @@ async def test_one_clients_roster_can_never_show_or_touch_anothers_member() -> N
         patched = await http.patch(
             MEMBER.format(tenant_id=tenant_a, user_id=b_staff),
             json={"role": "owner", "expected_role": "staff"},
-            headers=headers,
+            headers={**headers, "X-Confirm-Action": f"change_member_role:{tenant_a}:{b_staff}"},
         )
         deleted = await http.delete(
             MEMBER.format(tenant_id=tenant_a, user_id=b_staff),

@@ -50,6 +50,10 @@ router = APIRouter(prefix="/v1/numbers/own", tags=["campaigns"])
 
 Session = Annotated[AsyncSession, Depends(db)]
 NumberBuyer = Annotated[Principal, Depends(requires("org:manage"))]
+#: Buying or giving up a number spends the client's money and changes their phone line, so
+#: those two writes are declared on the CLIENT realm: a view-as session meets
+#: `impersonation_not_available_here` before anything is read (D-730), as a top-up does.
+NumberOwner = Annotated[Principal, Depends(requires("org:manage", realm="client"))]
 NumberViewer = Annotated[Principal, Depends(requires("org:read"))]
 
 
@@ -288,7 +292,7 @@ class PurchasedOwnNumberOut(BaseModel):
     ),
 )
 async def purchase_own_number(
-    payload: PurchaseOwnNumberIn, request: Request, principal: NumberBuyer
+    payload: PurchaseOwnNumberIn, request: Request, principal: NumberOwner
 ) -> PurchasedOwnNumberOut:
     assert principal.tenant_id is not None
     if not engine_has_workspaces():
@@ -357,7 +361,7 @@ async def release_own_number(
     number_id: UUID,
     payload: ReleaseOwnNumberIn,
     request: Request,
-    principal: NumberBuyer,
+    principal: NumberOwner,
 ) -> ReleasedOwnNumberOut:
     assert principal.tenant_id is not None
     if not engine_has_workspaces():

@@ -124,13 +124,13 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
       {refresh.error != null && <ProblemNotice error={refresh.error} />}
 
       {added.plan_note != null && (
-        <NoticeBox tone="warn" title={`No ${soldBand} voices on the voice platform`}>
-          <p className="mt-1">{added.plan_note}</p>
+        <NoticeBox
+          tone="warn"
+          title={`No ${soldBand} voices on the voice platform`}
+        >
+          <p>{added.plan_note}</p>
           {added.clear_band === "studio" && (
-            <p className="mt-1">
-              ThinnestAI&rsquo;s Studio band is not our Studio tier: that is our Cartesia key and adds no
-              voice to this band.
-            </p>
+            <p>ThinnestAI&rsquo;s Studio band is not our Studio tier: that is our Cartesia key and adds no voice to this band.</p>
           )}
         </NoticeBox>
       )}

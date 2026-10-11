@@ -322,10 +322,26 @@ def _confirmation_for(key: str, ids: dict[str, str]) -> str | None:
         # quantized to paise — so it must match `BODIES`' figure exactly.
         "POST /v1/admin/tenants/{tenant_id}/credits/grants": "grant_credits:1000.00",
         # Bound to BOTH the tenant and the days, because days are the only bound a trial
-        # has (`start_trial_confirmation`). The trial END takes no step-up.
+        # has (`start_trial_confirmation`).
         "POST /v1/admin/tenants/{tenant_id}/trial": f"start_trial:{subject}:14",
         "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": (
             f"record_preference_scrub:{ids.get('campaign_id', '')}"
+        ),
+        # D-731's operator writes, each bound the way its route binds it.
+        "POST /v1/admin/tenants/{tenant_id}/credits": f"record_payment:{subject}",
+        "POST /v1/admin/tenants/{tenant_id}/trial/end": f"end_trial:{subject}:stopped",
+        "PATCH /v1/admin/tenants/{tenant_id}/members/{user_id}": (
+            f"change_member_role:{subject}:{ids.get('user_id', '')}"
+        ),
+        "POST /v1/admin/tenants/{tenant_id}/invitations": f"invite_member:{subject}",
+        "POST /v1/admin/tenants/{tenant_id}/kyc": f"record_kyc:{subject}",
+        "POST /v1/admin/tenants/{tenant_id}/numbers": f"provision_number:{subject}",
+        "PUT /v1/admin/tenants/{tenant_id}/feature-flags/{flag}": (
+            f"set_feature_flag:{subject}:{ids.get('flag', '')}"
+        ),
+        "PUT /v1/admin/tenants/{tenant_id}/platform-fee/waiver": f"waive_platform_fee:{subject}",
+        "POST /v1/admin/tenants/{tenant_id}/platform-fee/{charge_id}/payments": (
+            f"record_fee_payment:{subject}:{ids.get('charge_id', '')}"
         ),
     }.get(key)
 

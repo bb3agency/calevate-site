@@ -266,7 +266,27 @@ CLIENT_BILLED_UNIT_TYPES = (
 
 #: Units CALEVATE absorbs (D-127 G-3): metered per tenant so "which client is expensive"
 #: stays a query, and excluded from every client-facing rupee figure.
-PLATFORM_ABSORBED_UNIT_TYPES = AI_ASSIST_UNIT_TYPES
+#:
+#: `ai_stt_min` is speech-to-text WE run for the console rather than for a call (the teach
+#: box's voice note): per minute of audio at the Saaras card, `stt_min`'s quantum reason
+#: (founder, 11 Oct 2026: Calevate absorbs it, never charged, never against the allowance).
+#: Its own unit and not `stt_min`, which is a call's leg and client-billed.
+AI_STT_UNIT_TYPE = "ai_stt_min"
+#: Spelled out rather than built from the two names above: `service._NOT_AI_UNITS` splices
+#: it into SQL, and `scripts/check_raw_sql` traces a splice only to literals.
+#: `forwarding_test_min`: the minutes of the call we place to check a client's forwarding
+#: (D-746), both our outbound legs and the forwarded arrival on the client's number.
+FORWARDING_TEST_UNIT_TYPE = "forwarding_test_min"
+#: `whatsapp_msg`: one WhatsApp Calevate sends from its own business account to a caller
+#: (the "save our number" message, D-746). Its own unit, so a message is never a minute.
+WHATSAPP_MESSAGE_UNIT_TYPE = "whatsapp_msg"
+PLATFORM_ABSORBED_UNIT_TYPES = (
+    "ai_assist_ktok_in",
+    "ai_assist_ktok_out",
+    "ai_stt_min",
+    "forwarding_test_min",
+    "whatsapp_msg",
+)
 
 
 def assert_units_are_disjoint(billed: tuple[str, ...], absorbed: tuple[str, ...]) -> None:

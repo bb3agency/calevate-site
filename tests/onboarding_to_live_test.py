@@ -116,7 +116,7 @@ async def _new_client(token: str) -> tuple[UUID, UUID, str]:
     async with _client() as http:
         response = await http.post(
             "/v1/admin/tenants",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}", "X-Confirm-Action": "create_tenant"},
             json={
                 "name": "Necklace Road Dental",
                 "slug": slug,
@@ -359,12 +359,12 @@ async def test_the_wizard_refuses_a_second_live_invitation_for_one_address() -> 
     async with _client() as http:
         first = await http.post(
             INVITE.format(tenant_id=tenant_id),
-            headers=headers,
+            headers={**headers, "X-Confirm-Action": f"invite_member:{tenant_id}"},
             json={"email": email, "role": "owner"},
         )
         second = await http.post(
             INVITE.format(tenant_id=tenant_id),
-            headers=headers,
+            headers={**headers, "X-Confirm-Action": f"invite_member:{tenant_id}"},
             json={"email": email, "role": "owner"},
         )
 
@@ -404,7 +404,10 @@ async def test_the_wizard_refuses_inviting_somebody_already_on_the_account() -> 
     async with _client() as http:
         response = await http.post(
             INVITE.format(tenant_id=tenant_id),
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"invite_member:{tenant_id}",
+            },
             json={"email": email, "role": "owner"},
         )
 
@@ -433,7 +436,10 @@ async def test_a_members_email_on_another_account_does_not_block_this_ones_invit
     async with _client() as http:
         response = await http.post(
             INVITE.format(tenant_id=here),
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"invite_member:{here}",
+            },
             json={"email": email, "role": "staff"},
         )
 
@@ -451,7 +457,10 @@ async def test_the_wizards_invitation_is_redeemable_and_lands_the_right_role() -
     async with _client() as http:
         minted = await http.post(
             INVITE.format(tenant_id=tenant_id),
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"invite_member:{tenant_id}",
+            },
             json={"email": email, "role": "owner"},
         )
         assert minted.status_code == 201, minted.text
@@ -583,7 +592,7 @@ async def test_the_console_can_cancel_the_invitation_it_just_issued() -> None:
     async with _client() as http:
         first = await http.post(
             INVITE.format(tenant_id=tenant_id),
-            headers=headers,
+            headers={**headers, "X-Confirm-Action": f"invite_member:{tenant_id}"},
             json={"email": email, "role": "owner"},
         )
         assert first.status_code == 201, first.text
@@ -593,7 +602,7 @@ async def test_the_console_can_cancel_the_invitation_it_just_issued() -> None:
         first_token = await mailed_invitation_token(email)
         blocked = await http.post(
             INVITE.format(tenant_id=tenant_id),
-            headers=headers,
+            headers={**headers, "X-Confirm-Action": f"invite_member:{tenant_id}"},
             json={"email": email, "role": "owner"},
         )
         assert blocked.status_code == 409, blocked.text
@@ -605,7 +614,7 @@ async def test_the_console_can_cancel_the_invitation_it_just_issued() -> None:
 
         reissued = await http.post(
             INVITE.format(tenant_id=tenant_id),
-            headers=headers,
+            headers={**headers, "X-Confirm-Action": f"invite_member:{tenant_id}"},
             json={"email": email, "role": "owner"},
         )
 
@@ -637,7 +646,7 @@ async def test_an_accepted_invitation_cannot_be_cancelled_out_from_under_its_mem
     async with _client() as http:
         minted = await http.post(
             INVITE.format(tenant_id=tenant_id),
-            headers=headers,
+            headers={**headers, "X-Confirm-Action": f"invite_member:{tenant_id}"},
             json={"email": email, "role": "owner"},
         )
         _owner_token, owner_id = await _user(email)
@@ -675,7 +684,7 @@ async def test_one_tenants_invitation_is_not_cancellable_from_another_tenants_pa
     async with _client() as http:
         minted = await http.post(
             INVITE.format(tenant_id=owner_tenant),
-            headers=headers,
+            headers={**headers, "X-Confirm-Action": f"invite_member:{owner_tenant}"},
             json={"email": email, "role": "owner"},
         )
         crossed = await http.delete(
@@ -707,7 +716,7 @@ async def test_the_console_lists_pending_invitations_in_full_and_per_tenant() ->
     async with _client() as http:
         minted = await http.post(
             INVITE.format(tenant_id=tenant_id),
-            headers=headers,
+            headers={**headers, "X-Confirm-Action": f"invite_member:{tenant_id}"},
             json={"email": email, "role": "owner"},
         )
         listed = await http.get(INVITE.format(tenant_id=tenant_id), headers=headers)
@@ -737,7 +746,7 @@ async def test_the_pending_list_drops_an_invitation_once_it_is_redeemed() -> Non
         assert (
             await http.post(
                 INVITE.format(tenant_id=tenant_id),
-                headers=headers,
+                headers={**headers, "X-Confirm-Action": f"invite_member:{tenant_id}"},
                 json={"email": email, "role": "owner"},
             )
         ).status_code == 201
@@ -817,7 +826,7 @@ async def test_a_failed_invitation_leaves_no_account_behind(
     ) as http:
         response = await http.post(
             "/v1/admin/tenants",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}", "X-Confirm-Action": "create_tenant"},
             json={
                 "name": "Half Made Dental",
                 "slug": slug,
@@ -835,7 +844,7 @@ async def test_an_account_cannot_be_created_without_an_owner_to_invite() -> None
     async with _client() as http:
         response = await http.post(
             "/v1/admin/tenants",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}", "X-Confirm-Action": "create_tenant"},
             json={"name": "Nobody Dental", "slug": slug, "vertical_template": "clinic"},
         )
     assert response.status_code == 422

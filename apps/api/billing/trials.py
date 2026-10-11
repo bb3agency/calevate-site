@@ -363,6 +363,34 @@ async def trial_covers(session: AsyncSession, *, tenant_id: UUID, at: datetime) 
     return trial.started_at <= at < boundary
 
 
+#: `trial_covers` as a predicate on a `usage_events` row, for the readers that split a month
+#: into calls a trial paid for and calls the client paid for. The meter decides on the
+#: call's own instant and stamps the rows at that same instant, so `occurred_at` answers
+#: the question the meter asked. EVERY trial is consulted, not only the newest: a call
+#: covered by an earlier trial stays covered after a later one opens.
+ON_TRIAL_ROW_SQL: Final = (
+    "EXISTS (SELECT 1 FROM tenant_trials tt WHERE tt.tenant_id = usage_events.tenant_id "
+    "AND usage_events.occurred_at >= tt.started_at "
+    "AND usage_events.occurred_at < LEAST(tt.ends_at, COALESCE(tt.ended_at, tt.ends_at)))"
+)
+
+_TRIAL_OVERLAPS_SQL = (
+    "SELECT EXISTS (SELECT 1 FROM tenant_trials WHERE tenant_id = :tid "
+    "AND started_at < :next AND LEAST(ends_at, COALESCE(ended_at, ends_at)) > :start)"
+)
+
+
+async def trial_overlaps(
+    session: AsyncSession, *, tenant_id: UUID, start: datetime, end: datetime
+) -> bool:
+    """Did any trial of this tenant cover part of `[start, end)`? Lets a screen say "free
+    trial" for a month a trial ran in even when no call was placed in it."""
+    found = await session.execute(
+        text(_TRIAL_OVERLAPS_SQL), {"tid": tenant_id, "start": start, "next": end}
+    )
+    return bool(found.scalar())
+
+
 async def counter_epoch(session: AsyncSession, *, tenant_id: UUID) -> datetime | None:
     """The instant this client's CURRENT counting period began, or None if it is the month.
 
@@ -778,6 +806,7 @@ __all__ = [
     "MIN_ERASURE_GRACE_DAYS",
     "MIN_FREE_MINUTES",
     "MIN_TRIAL_DAYS",
+    "ON_TRIAL_ROW_SQL",
     "PAID_REASON",
     "TRIAL_ACTIVE",
     "TRIAL_CONVERTED",
@@ -797,5 +826,6 @@ __all__ = [
     "trial_cost_breakdown",
     "trial_cost_to_us_inr",
     "trial_covers",
+    "trial_overlaps",
     "trial_seconds_used",
 ]

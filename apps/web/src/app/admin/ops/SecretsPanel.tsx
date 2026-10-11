@@ -10,15 +10,7 @@ import { SettingRow, SettingRows } from "@/components/console/settingRow";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withheld";
-import {
-  CheckCircle2,
-  CircleHelp,
-  KeyRound,
-  Lock,
-  RefreshCw,
-  ShieldCheck,
-  TriangleAlert,
-} from "lucide-react";
+import { CheckCircle2, KeyRound, Lock, RefreshCw, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import {
   DANGER_BUTTON,
@@ -168,14 +160,9 @@ export function SecretsPanel({
         {state.status === "unreadable" && (
           <NoticeBox
             tone="warn"
-            icon={<CircleHelp aria-hidden className="h-5 w-5" />}
             title="We could not read which credentials are installed"
           >
-            <p className="mt-1">
-              This panel will not tell you a key is missing when it could not find out —
-              installing one over a working credential is the mistake that would cause.
-              The error above says what stopped the read.
-            </p>
+            <p>Do not install a key over one that may be working. The error above says why.</p>
           </NoticeBox>
         )}
 
@@ -727,16 +714,12 @@ export function KeyManagementPanel({
         {query.error !== null && !query.isLoading && (
           <NoticeBox
             tone="warn"
-            icon={<CircleHelp aria-hidden className="h-5 w-5" />}
             title="We could not read the key-management state"
           >
-            <p className="mt-1">
-              This panel will not tell you a rotation is complete when it could not find
-              out. In particular it does NOT know how many stored keys are still locked with
-              a previous master key, so do not remove the previous master key (
-              <MonoValue>PLATFORM_KEK_RETIRED</MonoValue>) from the server on the strength of
-              this screen. The re-lock below is still available — it is the recovery step,
-              and it reports its own counts.
+            <p>
+              The count is unknown, so do not remove the previous master key (<MonoValue>PLATFORM_KEK_RETIRED</MonoValue>)
+              on the strength of this screen. The re-lock below still works and reports its own
+              counts.
             </p>
           </NoticeBox>
         )}
@@ -758,7 +741,6 @@ export function KeyManagementPanel({
             {!totals.complete ? (
               <NoticeBox
                 tone="warn"
-                icon={<CircleHelp aria-hidden className="h-5 w-5" />}
                 title="We could not count every client's saved keys in time"
               >
                 <p className="mt-1">
@@ -775,7 +757,6 @@ export function KeyManagementPanel({
             ) : totals.pending > 0 ? (
               <NoticeBox
                 tone="warn"
-                icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
                 title={`${formatCount(totals.pending)} stored keys are still locked with a previous master key`}
               >
                 <p className="mt-1">
@@ -791,7 +772,6 @@ export function KeyManagementPanel({
             ) : (
               <NoticeBox
                 tone="ok"
-                icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
                 title="Every stored key is locked with the current master key"
               >
                 <p className="mt-1">
@@ -808,7 +788,6 @@ export function KeyManagementPanel({
         {rewrap.data && relocked && (
           <NoticeBox
             tone={relocked.unreadable.length > 0 ? "stop" : "ok"}
-            icon={<RefreshCw aria-hidden className="h-5 w-5" />}
             title={`${formatCount(relocked.rewrapped)} of ${formatCount(relocked.examined)} stored keys re-locked`}
           >
             {relocked.unreadable.length > 0 ? (
@@ -819,7 +798,7 @@ export function KeyManagementPanel({
                 </p>
                 <p className="mt-1">
                   These will be lost if the previous master key is removed. They were locked
-                  with a master key this server no longer has — find it and set it as the
+                  with a master key this server no longer has. Find it and set it as the
                   previous master key (<MonoValue>PLATFORM_KEK_RETIRED</MonoValue>) before
                   doing anything else.
                 </p>

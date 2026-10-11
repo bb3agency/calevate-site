@@ -1,7 +1,8 @@
 "use client";
 
+import { InfoTip } from "@/components/console/infoTip";
 import { Section } from "@/components/console/section";
-import { CheckCircle2, FileSearch, Lock, ShieldAlert } from "lucide-react";
+import { FileSearch, Lock } from "lucide-react";
 
 import {
   NoticeBox,
@@ -92,15 +93,14 @@ export function AuditChainPanel({ access }: { access: OpsAccess }) {
         {verify.data && !verify.data.ok && (
           <NoticeBox
             tone="stop"
-            icon={<ShieldAlert aria-hidden className="h-5 w-5" />}
-            title="TAMPER CHECK FAILED"
+            title="Tamper check failed"
+            info="The check does not stop at the first break. It runs to the end, so the list covers the whole log, not just the part before the earliest break."
+            infoLabel="the tamper check"
           >
-            <p className="mt-1">
+            <p>
               {verify.data.breaks_found === 1
                 ? "The seal is broken in one place."
-                : `The seal is broken in ${formatCount(verify.data.breaks_found)} places.`}{" "}
-              The check did not stop at the first — it carried on to the end, so what follows
-              covers the whole log, not just the part before the earliest break.
+                : `The seal is broken in ${formatCount(verify.data.breaks_found)} places.`}
             </p>
             {/* Every break, dated and typed. A single line naming only the first is how a
                 historical break — which an append-only ledger can never repair — hides
@@ -111,7 +111,7 @@ export function AuditChainPanel({ access }: { access: OpsAccess }) {
                 {verify.data.breaks.map((entry) => (
                   <li key={entry.entry_id} className="text-body">
                     <span className="font-mono font-semibold">{entry.entry_id}</span>
-                    {" — "}
+                    {". "}
                     {entry.kind === "content"
                       ? "its own fields no longer hash to its recorded hash (edited)"
                       : "it names the wrong predecessor (deleted or reordered)"}
@@ -133,21 +133,22 @@ export function AuditChainPanel({ access }: { access: OpsAccess }) {
               <p className="mt-2">
                 Only the first {formatCount(verify.data.breaks.length)} are listed;{" "}
                 {formatCount(verify.data.breaks_found - verify.data.breaks.length)} more
-                were found. At this scale the count matters more than the individual rows —
-                query the activity log directly.
+                were found. At this scale the count matters more than the individual rows.
+                Query the activity log directly.
               </p>
             )}
-            <p className="mt-2">
-              <span className="font-semibold">Treat this as an incident.</span> The activity
-              log is add-only — entries are never meant to change — so a broken seal means an
-              entry was edited, deleted or reordered in the database. Do not re-run and move
-              on: note the entry IDs above, and do not let anyone &quot;repair&quot; the
-              rows — the break itself is the evidence.
+            <p>
+              <span className="font-semibold text-ink">Treat this as an incident.</span> Note the
+              entry IDs above and let nobody &quot;repair&quot; the rows: the break is the evidence.{" "}
+              <InfoTip label="a broken seal">
+                The activity log is add-only, so a broken seal means an entry was edited, deleted
+                or reordered in the database. Do not re-run and move on.
+              </InfoTip>
             </p>
             <WeaklyAttestedNote count={verify.data.entries_under_retired_key} />
             <p className="mt-2 text-meta">
               {verify.data.complete
-                ? `Whole log checked — ${formatCount(verify.data.entries_checked)} entries. Checked at ${asOf}.`
+                ? `Whole log checked. ${formatCount(verify.data.entries_checked)} entries. Checked at ${asOf}.`
                 : `Covers ${formatCount(verify.data.entries_checked)} entries only, so there may be more beyond them. Checked at ${asOf}.`}
             </p>
           </NoticeBox>
@@ -156,20 +157,16 @@ export function AuditChainPanel({ access }: { access: OpsAccess }) {
         {verify.data?.ok && (
           <NoticeBox
             tone="ok"
-            icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
             title="No tampering found in the entries checked"
           >
-            <p className="mt-1">
-              Every seal checked out, so nothing in that range was edited, deleted or
-              reordered.
-            </p>
+            <p>Nothing in that range was edited, deleted or reordered.</p>
             {/* The scope, beside the green box rather than in a tooltip: this is what
                 stops "verified" being read as "the whole log is verified". It is the
                 server's own count and range — an incomplete walk must never be allowed
                 to read like a full audit. */}
             <p className="mt-2">
               {verify.data.complete
-                ? `Whole log checked — ${formatCount(verify.data.entries_checked)} entries, from the first row to the last.`
+                ? `Whole log checked. ${formatCount(verify.data.entries_checked)} entries, from the first row to the last.`
                 : `This covers ${formatCount(verify.data.entries_checked)} entries only, so it says nothing about the rest of the log.`}
             </p>
             <WeaklyAttestedNote count={verify.data.entries_under_retired_key} />

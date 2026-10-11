@@ -234,7 +234,7 @@ async def test_ending_a_trial_restarts_the_counters_and_records_the_erasure_date
     async with _client() as http:
         ended = await http.post(
             f"/v1/admin/tenants/{tenant_id}/trial/end",
-            headers=_headers(token),
+            headers=_headers(token, f"end_trial:{tenant_id}:stopped"),
             json={"outcome": "stopped", "reason": "Client went quiet."},
         )
 

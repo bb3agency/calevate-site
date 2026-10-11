@@ -42,10 +42,12 @@ ENGINE: Final = "thinnest"
 #: webhooks.md:77-85`): the two the post-call path reads (THINNEST-INTEGRATION §3.1), and
 #: `contact.opted_out`, which files the person on the do-not-call list of the client whose
 #: agent heard them (D-691), and the engine's notices (`NOTICE_EVENTS`: `lead.captured`,
-#: `conversation.escalated`, read by `ThinnestEngine.parse_notice`). Sorted, so the order sent
-#: and the order compared are one order.
+#: `conversation.escalated`, read by `ThinnestEngine.parse_notice`), and `call.problem`, sent
+#: while a call is live (docs.thinnest.ai api-reference/webhooks/create-webhook, read 11 Oct
+#: 2026). Sorted, so the order sent and the order compared are one order. An endpoint
+#: registered before an event was added is brought up to date in place by the sweep.
 SUBSCRIBED_EVENTS: Final = tuple(
-    sorted({"call.analysed", "call.completed", "contact.opted_out", *NOTICE_EVENTS})
+    sorted({"call.analysed", "call.completed", "call.problem", "contact.opted_out", *NOTICE_EVENTS})
 )
 
 #: The query parameter our registered url carries, naming the vendor agent the endpoint

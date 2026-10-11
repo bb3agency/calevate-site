@@ -1,7 +1,7 @@
 "use client";
 
 import { Section } from "@/components/console/section";
-import { ArrowRightLeft, CircleHelp, TriangleAlert } from "lucide-react";
+import { ArrowRightLeft } from "lucide-react";
 
 import {
   WithheldPanel,
@@ -158,11 +158,10 @@ export function FxRatePanel() {
         {state.status === "unreadable" && (
           <NoticeBox
             tone="warn"
-            icon={<CircleHelp aria-hidden className="h-5 w-5" />}
             title="We could not read the exchange rate"
           >
             <p className="mt-1">
-              This panel will not show a rate it could not read — a made-up
+              This panel will not show a rate it could not read. A made-up
               figure here reads exactly like a real one. The error above says
               what stopped the read. Billing itself is unaffected by this
               screen: the server keeps converting at whatever rate it last had.
@@ -214,13 +213,6 @@ function FxRateBody({ rate }: { rate: FxRate }) {
 
       <NoticeBox
         tone={headline.tone === "ok" ? "ok" : "warn"}
-        icon={
-          headline.tone === "ok" ? (
-            <ArrowRightLeft aria-hidden className="h-5 w-5" />
-          ) : (
-            <TriangleAlert aria-hidden className="h-5 w-5" />
-          )
-        }
         title={headline.title}
       >
         <p className="mt-1">{headline.body}</p>

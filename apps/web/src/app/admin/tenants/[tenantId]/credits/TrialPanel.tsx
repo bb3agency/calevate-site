@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, CircleHelp, Info } from "lucide-react";
 
 import { Section } from "@/components/console/section";
 import {
@@ -77,13 +76,9 @@ export function TrialPanel({
         <NoticeBox
           className="mt-4"
           tone="warn"
-          icon={<CircleHelp aria-hidden className="h-5 w-5" />}
           title="We could not read this client's trial, so none can be started here"
         >
-          <p className="mt-1">
-            This screen will not tell you they have never had one — it does not know. Retry
-            the read and the control comes back with it.
-          </p>
+          <p>Whether they had one is unknown. Retry the read and the control comes back.</p>
         </NoticeBox>
       </Section>
     );
@@ -139,16 +134,9 @@ function TrialFacts({ state }: { state: TrialStatus }) {
     <NoticeBox
       className="mt-3"
       tone={state.active ? "ok" : "neutral"}
-      icon={
-        state.active ? (
-          <CheckCircle2 aria-hidden className="h-5 w-5" />
-        ) : (
-          <Info aria-hidden className="h-5 w-5" />
-        )
-      }
       title={
         state.active
-          ? `On us for ${formatCountOf(state.days_remaining ?? 0, "more day", "more days")} — until ${formatIST(state.ends_at)}`
+          ? `On us for ${formatCountOf(state.days_remaining ?? 0, "more day", "more days")}, until ${formatIST(state.ends_at)}`
           : `Their trial ended ${state.ended_at ? formatIST(state.ended_at) : ""} (${state.status})`
       }
     >
@@ -167,7 +155,7 @@ function TrialFacts({ state }: { state: TrialStatus }) {
       <p className="mt-2 text-meta">
         Cost to Calevate so far:{" "}
         <span className="font-semibold tabular-nums">{formatINR(state.cost_to_us_inr)}</span>{" "}
-        at our supplier rates. This figure is ours and is never shown to the client.
+        at our supplier rates. This figure is never shown to the client.
       </p>
       {state.cost_breakdown && (
         <div className="mt-2">

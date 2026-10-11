@@ -416,7 +416,6 @@ function SignupForm() {
       {problem && fields.length > 0 && (
         <NoticeBox
           tone="stop"
-          icon={<CircleAlert aria-hidden className="h-4 w-4" />}
           title={problem.message}
         >
           <div role="alert" className="mt-1 space-y-1">

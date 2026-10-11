@@ -54,7 +54,11 @@ class Org:
 
     @property
     def headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.token}", "X-Org-Slug": self.slug}
+        return {
+            "Authorization": f"Bearer {self.token}",
+            "X-Org-Slug": self.slug,
+            "X-Confirm-Action": "export_leads:" + self.slug,
+        }
 
 
 async def _org(role: str = "owner", *, agents: int = 1) -> Org:

@@ -119,8 +119,12 @@ async def _ledger(tenant_id: uuid.UUID) -> list[tuple[str, Decimal, str | None]]
     return [(str(r[0]), Decimal(str(r[1])), r[2]) for r in rows]
 
 
-def _headers(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
+def _headers(token: str, confirm: str | None = None) -> dict[str, str]:
+    """`confirm` is the step-up string a recorded payment takes (D-731)."""
+    headers = {"Authorization": f"Bearer {token}"}
+    if confirm is not None:
+        headers["X-Confirm-Action"] = confirm
+    return headers
 
 
 async def test_a_topup_raises_the_balance_and_lands_on_the_ledger() -> None:
@@ -130,7 +134,7 @@ async def test_a_topup_raises_the_balance_and_lands_on_the_ledger() -> None:
     async with _client() as http:
         posted = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers=_headers(token, f"record_payment:{tenant_id}"),
             json={"amount_inr": "2500.00", "payment_ref": "UTR900011", "note": "NEFT, ICICI"},
         )
         read = await http.get(f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(token))
@@ -164,15 +168,19 @@ async def test_the_same_payment_reference_credits_exactly_once() -> None:
 
     async with _client() as http:
         first = await http.post(
-            f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(token), json=payload
+            f"/v1/admin/tenants/{tenant_id}/credits",
+            headers=_headers(token, f"record_payment:{tenant_id}"),
+            json=payload,
         )
         second = await http.post(
-            f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(token), json=payload
+            f"/v1/admin/tenants/{tenant_id}/credits",
+            headers=_headers(token, f"record_payment:{tenant_id}"),
+            json=payload,
         )
         # Trailing whitespace is the same reference, not a new one.
         third = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers=_headers(token, f"record_payment:{tenant_id}"),
             json={**payload, "payment_ref": " UTR-DUPLICATE-1 "},
         )
 
@@ -212,7 +220,7 @@ async def test_a_reference_that_is_only_whitespace_is_refused_before_it_becomes_
         for ref in ("   ", "\t\n ", " a "):
             response = await http.post(
                 f"/v1/admin/tenants/{tenant_id}/credits",
-                headers=_headers(token),
+                headers=_headers(token, f"record_payment:{tenant_id}"),
                 json={"amount_inr": "1000.00", "payment_ref": ref},
             )
             assert response.status_code == 422, f"{ref!r}: {response.text}"
@@ -270,7 +278,9 @@ async def test_two_operators_recording_one_payment_at_once_credit_it_once(
             await first_looked.wait()
         async with _client() as http:
             response = await http.post(
-                f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(token), json=payload
+                f"/v1/admin/tenants/{tenant_id}/credits",
+                headers=_headers(token, f"record_payment:{tenant_id}"),
+                json=payload,
             )
         return response.status_code
 
@@ -302,11 +312,12 @@ async def test_a_client_realm_owner_cannot_record_a_payment() -> None:
     async with _client() as http:
         posted = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(client_token),
+            headers=_headers(client_token, f"record_payment:{tenant_id}"),
             json={"amount_inr": "5000.00", "payment_ref": "UTR-CLIENT-1"},
         )
         read = await http.get(
-            f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(client_token)
+            f"/v1/admin/tenants/{tenant_id}/credits",
+            headers={**_headers(client_token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
         )
         anonymous = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
@@ -328,7 +339,7 @@ async def test_the_credit_carries_an_audit_row() -> None:
     async with _client() as http:
         posted = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers=_headers(token, f"record_payment:{tenant_id}"),
             json={"amount_inr": "300.00", "payment_ref": "UTR-AUDIT-1"},
         )
     assert posted.status_code == 200, posted.text
@@ -361,10 +372,14 @@ async def test_a_replayed_reference_does_not_write_a_second_audit_row() -> None:
 
     async with _client() as http:
         await http.post(
-            f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(token), json=payload
+            f"/v1/admin/tenants/{tenant_id}/credits",
+            headers=_headers(token, f"record_payment:{tenant_id}"),
+            json=payload,
         )
         await http.post(
-            f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(token), json=payload
+            f"/v1/admin/tenants/{tenant_id}/credits",
+            headers=_headers(token, f"record_payment:{tenant_id}"),
+            json=payload,
         )
 
     async with untenanted_session() as session:
@@ -387,12 +402,12 @@ async def test_a_zero_or_negative_amount_is_refused_by_name() -> None:
     async with _client() as http:
         zero = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers=_headers(token, f"record_payment:{tenant_id}"),
             json={"amount_inr": "0", "payment_ref": "UTR-ZERO"},
         )
         negative = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers=_headers(token, f"record_payment:{tenant_id}"),
             json={"amount_inr": "-500.00", "payment_ref": "UTR-NEGATIVE"},
         )
 
@@ -412,7 +427,7 @@ async def test_a_json_float_amount_is_refused_rather_than_rounded() -> None:
     async with _client() as http:
         response = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers=_headers(token, f"record_payment:{tenant_id}"),
             json={"amount_inr": 2500.10, "payment_ref": "UTR-FLOAT"},
         )
 
@@ -432,12 +447,12 @@ async def test_the_same_reference_with_a_different_amount_is_a_conflict() -> Non
     async with _client() as http:
         first = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers=_headers(token, f"record_payment:{tenant_id}"),
             json={"amount_inr": "1000.00", "payment_ref": "UTR-CONFLICT"},
         )
         clash = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers=_headers(token, f"record_payment:{tenant_id}"),
             json={"amount_inr": "2000.00", "payment_ref": "UTR-CONFLICT"},
         )
 
@@ -490,7 +505,7 @@ async def test_an_unknown_tenant_is_a_404_not_a_500() -> None:
     async with _client() as http:
         posted = await http.post(
             f"/v1/admin/tenants/{missing}/credits",
-            headers=_headers(token),
+            headers=_headers(token, f"record_payment:{missing}"),
             json={"amount_inr": "100.00", "payment_ref": "UTR-NOWHERE"},
         )
         read = await http.get(f"/v1/admin/tenants/{missing}/credits", headers=_headers(token))
@@ -540,6 +555,7 @@ async def test_a_topup_by_a_principal_with_no_user_records_the_payment_without_a
         posted = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
             json={"amount_inr": "1200.00", "payment_ref": "UTR-NO-USER-1", "note": "bank sweep"},
+            headers={"X-Confirm-Action": f"record_payment:{tenant_id}"},
         )
 
     assert posted.status_code == 200, posted.text

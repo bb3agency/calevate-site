@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { lookup } from "@/lib/lookup";
 
+import { accountAction, withAccountCode } from "./accountCode";
 import { ApiProblem, apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
@@ -206,11 +207,16 @@ export function useCreateEndpoint(session: Session) {
     // `NewEndpoint`, the generated body type, so the three `call.completed` opt-ins are
     // typed and optional exactly as the API declares them — a hand-written shape here is
     // where `include_raw_transcript` would silently stop being sent.
-    mutationFn: (payload: NewEndpoint) =>
-      apiRequest<NewEndpointResult>(session, "/v1/integrations/endpoints", {
-        method: "POST",
-        body: payload,
-      }),
+    mutationFn: (payload: NewEndpoint) => {
+      const confirmAction = accountAction(session, "create_endpoint");
+      return withAccountCode(confirmAction, "Adding a place to send your leads.", () =>
+        apiRequest<NewEndpointResult>(session, "/v1/integrations/endpoints", {
+          method: "POST",
+          body: payload,
+          confirmAction,
+        }),
+      );
+    },
     onSuccess: () => void client.invalidateQueries({ queryKey: ["endpoints", session.orgSlug] }),
   });
 }
@@ -255,11 +261,16 @@ export const SHEET_KIND = "google_sheets";
 export function useCreateSheetsEndpoint(session: Session) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (payload: NewSheetEndpoint) =>
-      apiRequest<NewSheetEndpointResult>(session, "/v1/integrations/endpoints/sheets", {
-        method: "POST",
-        body: payload,
-      }),
+    mutationFn: (payload: NewSheetEndpoint) => {
+      const confirmAction = accountAction(session, "create_endpoint");
+      return withAccountCode(confirmAction, "Sending your leads to a Google Sheet.", () =>
+        apiRequest<NewSheetEndpointResult>(session, "/v1/integrations/endpoints/sheets", {
+          method: "POST",
+          body: payload,
+          confirmAction,
+        }),
+      );
+    },
     onSuccess: () => void client.invalidateQueries({ queryKey: ["endpoints", session.orgSlug] }),
   });
 }

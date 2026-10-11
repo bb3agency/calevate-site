@@ -51,16 +51,14 @@ export function SheetChooser({
   if (!connection) {
     return (
       <NoticeBox tone="neutral" title="Connect Google Sheets first">
-        <p className="mt-1">
-          Connect Google Sheets on the{" "}
-          <Link
-            href={`/c/${session.orgSlug}/integrations`}
-            className="font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
-          >
-            Integrations
-          </Link>{" "}
-          page, then come back and choose your spreadsheet.
-        </p>
+        Connect it on{" "}
+        <Link
+          href={`/c/${session.orgSlug}/integrations`}
+          className="font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+        >
+          Integrations
+        </Link>
+        , then choose your spreadsheet here.
       </NoticeBox>
     );
   }

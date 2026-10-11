@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Gift, Info } from "lucide-react";
+import { Gift } from "lucide-react";
 
 import {
   FIELD,
@@ -245,7 +245,6 @@ function Granted({ result, clientName }: { result: GrantResult; clientName: stri
     return (
       <NoticeBox
         tone="neutral"
-        icon={<Info className="h-5 w-5" />}
         title="That grant was already on this wallet"
         className="mt-4"
       >
@@ -253,7 +252,7 @@ function Granted({ result, clientName }: { result: GrantResult; clientName: stri
           {/* A REPLAY, AND IT MOVED NOTHING. Rendering it as a fresh grant would have an
               operator believe they had given the money twice; rendering it as a failure
               would have them give it again for real. */}
-          Nothing moved. This is the same grant under the same reference — the balance
+          Nothing moved. This is the same grant under the same reference. The balance
           below is what it already was, and {clientName} has not been credited a second
           time.
         </p>
@@ -263,7 +262,6 @@ function Granted({ result, clientName }: { result: GrantResult; clientName: stri
   return (
     <NoticeBox
       tone="ok"
-      icon={<CheckCircle2 className="h-5 w-5" />}
       title={`${formatINR(result.amount_inr)} given to ${clientName}`}
       className="mt-4"
     >

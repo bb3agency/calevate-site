@@ -111,17 +111,35 @@ def _form(**fields: str) -> bytes:
 
 
 @pytest.mark.parametrize("switch", ["vobiz", "plivo"])
-@pytest.mark.parametrize("carrier", ["vobiz", "plivo"])
-async def test_every_carrier_is_answered_whatever_the_switch_says(
-    carrier: str, switch: str, env: Env
-) -> None:
+async def test_vobiz_is_answered_whatever_the_switch_says(switch: str, env: Env) -> None:
+    """A Vobiz call in flight across a carrier switch still gets its document."""
     env(CARRIER=switch)
 
-    response = await _request(answer_path(carrier, _ref()), method="GET")  # type: ignore[arg-type]
+    response = await _request(answer_path("vobiz", _ref()), method="GET")
 
     assert response.status_code == 200
     _url, claim = _claim(response.text)
-    assert claim[carrier_routes.CLAIM_CARRIER_PARAM] == carrier
+    assert claim[carrier_routes.CLAIM_CARRIER_PARAM] == "vobiz"
+
+
+async def test_plivo_answers_only_while_it_is_the_selected_carrier(env: Env) -> None:
+    """D-733: Plivo carries no secret and no signature we check, so its answer route
+    mints nothing unless `CARRIER` selects it — and refuses exactly as an unknown ref."""
+    ref = _ref()
+    env(CARRIER="vobiz")
+    refused = await _request(answer_path("plivo", ref), method="GET")
+    unknown = await _request("/carrier/v1/vobiz/answer/not-a-ref")
+
+    assert refused.status_code == unknown.status_code == 404
+    assert refused.json()["type"] == unknown.json()["type"]
+    assert "wss://" not in refused.text
+
+    env(CARRIER="plivo")
+    answered = await _request(answer_path("plivo", ref), method="GET")
+
+    assert answered.status_code == 200
+    _url, claim = _claim(answered.text)
+    assert claim[carrier_routes.CLAIM_CARRIER_PARAM] == "plivo"
 
 
 @pytest.mark.parametrize("carrier", ["twilio", "VOBIZ", "plivo2"])
@@ -309,6 +327,7 @@ async def test_plivos_answer_is_byte_for_byte_what_it_was(env: Env) -> None:
     """The Plivo row is UNKNOWN in every cell, so its document carries the state and
     nothing else, exactly as before the carrier seam existed."""
     ref = _ref()
+    env(CARRIER="plivo")
 
     response = await _request(f"/carrier/v1/plivo/answer/{ref}", method="GET", source_ip=None)
 

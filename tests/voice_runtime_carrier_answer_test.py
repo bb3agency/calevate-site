@@ -50,6 +50,8 @@ def stream_base(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     path an operator's change takes, and a patched attribute would test a different one.
     """
     monkeypatch.setenv("PIPECAT_STREAM_BASE_URL", STREAM_BASE)
+    # These drive the Plivo route, which answers only while it is the selected carrier.
+    monkeypatch.setenv("CARRIER", "plivo")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
@@ -59,6 +61,7 @@ def stream_base(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 def no_stream_base(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """The unconfigured deployment, which is what every deployment is until BLOCKER-1."""
     monkeypatch.delenv("PIPECAT_STREAM_BASE_URL", raising=False)
+    monkeypatch.setenv("CARRIER", "plivo")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

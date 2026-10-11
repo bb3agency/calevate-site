@@ -48,13 +48,17 @@ from apps.api.billing.ai_quota import AiUsage, read_ai_usage
 from apps.api.billing.attribution import (
     AgentAttribution,
     CallAttribution,
+    PaidMargin,
     PeriodAttribution,
+    month_trial_cost_inr,
+    paid_margin,
     period_attribution,
 )
 from apps.api.billing.cost_breakdown import CostBreakdownOut, read_month_cost_breakdown
 from apps.api.billing.number_rental import rental_revenue_inr
 from apps.api.billing.plans import ist_month_window, month_pricing_instant
 from apps.api.billing.service import to_paise
+from apps.api.billing.trials import trial_overlaps
 from apps.api.core.auth import record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db
@@ -244,6 +248,11 @@ class AgentSpendOut(Strict):
     #: At least one of this agent's cost rows was priced in a currency the vendor's
     #: payload did not state (OPERATIONS §2 gate 7).
     cost_currency_assumed: bool
+    #: The part of `cost_inr` spent on calls a free trial covered.
+    trial_cost_inr: str
+    #: `charged_inr - (cost_inr - trial_cost_inr)`: the margin on the calls the client
+    #: paid for, with the trial's cost published beside it rather than counted as a loss.
+    paid_margin_inr: str
 
 
 class CallSpendOut(Strict):
@@ -259,6 +268,9 @@ class CallSpendOut(Strict):
     cost_inr: str
     margin_inr: str
     cost_currency_assumed: bool
+    #: A free trial covered this call: the client was charged nothing by design and
+    #: `cost_inr` is an acquisition cost, not a loss.
+    trial_covered: bool
 
 
 class UnitSpendOut(Strict):
@@ -369,6 +381,22 @@ class TenantSpendOut(Strict):
     #: Null rather than "0.0" when nothing has been billed: "0% margin" and "nothing
     #: billed yet" are different facts.
     margin_pct: str | None
+    #: THE TRIAL'S SHARE OF `cost_inr`: calls a free trial covered, which the client was
+    #: charged nothing for by design. An acquisition cost, published on its own line so a
+    #: trial month does not read as a calling loss.
+    trial_cost_inr: str
+    trial_calls: int
+    trial_minutes: str
+    #: A trial covered some part of this month, whether or not a call was placed in it —
+    #: so a trial month with nothing billed reads "free trial" rather than "not billed yet".
+    trial_in_month: bool
+    #: `cost_inr - trial_cost_inr`: what the calls the client paid for cost us.
+    paid_cost_inr: str
+    #: `revenue_inr - paid_cost_inr`, and its percentage of revenue (null when nothing was
+    #: billed). The margin on paid calling, which is what "are we losing money" asks;
+    #: `margin_inr` above stays D-12's all-in figure, trial cost included.
+    paid_margin_inr: str
+    paid_margin_pct: str | None
     #: The client's own itemisation anchor, so an operator reading this page and a client
     #: reading theirs are looking at the same rupees.
     period_charge_inr: str
@@ -376,10 +404,10 @@ class TenantSpendOut(Strict):
     itemisation_residual_inr: str
     residual_reason: str | None
     #: THE HONESTY ABOUT OUR COST (OPERATIONS §2 gate 7). `cost_currency_stated` is False
-    #: whenever any row recorded that WE chose the currency rather than the vendor naming
-    #: it — which is every row today, because the vendor's execution object declares no
-    #: currency at all. Every cost figure on this page is scaled by that assumption; no
-    #: client-facing figure is, because a client is priced off minutes at their own rate.
+    #: whenever any row converted a vendor figure in a currency WE chose because the vendor
+    #: named none. Rows priced at an operator-attested INR rate (`billing/engine_minutes`,
+    #: the attested Studio character price) assumed nothing and leave it True. No
+    #: client-facing figure is ever affected: a client is priced off minutes at their rate.
     cost_currency: str | None
     cost_currency_stated: bool
     #: Absent on every month that has no callless cost row.
@@ -414,6 +442,12 @@ class FleetTenantOut(Strict):
     cost_inr: str
     margin_inr: str
     margin_pct: str | None
+    #: `TenantSpendOut`'s trial split, by the same reader (`month_trial_cost_inr`).
+    trial_cost_inr: str
+    trial_in_month: bool
+    paid_cost_inr: str
+    paid_margin_inr: str
+    paid_margin_pct: str | None
     #: The dashboard AI we absorbed for this client this month (assistant, re-summarise,
     #: script drafting, knowledge preparation), exact paise. NOT in `cost_inr` or the
     #: margin, for `AbsorbedAiSpendOut`'s reason: it has no matching revenue, and folding
@@ -533,6 +567,12 @@ class FleetSpendOut(Strict):
     cost_inr: str
     margin_inr: str
     margin_pct: str | None
+    #: Sums of the rows' trial split: what trials cost us across the fleet, and the margin
+    #: on paid calling once that acquisition cost is set beside it rather than inside it.
+    trial_cost_inr: str
+    paid_cost_inr: str
+    paid_margin_inr: str
+    paid_margin_pct: str | None
     #: The sum of every row's `ai_absorbed_inr`: AI cost we carried across the fleet,
     #: outside the revenue, cost and margin totals above.
     ai_absorbed_inr: str
@@ -716,6 +756,8 @@ def _agent_spend(agent: AgentAttribution) -> AgentSpendOut:
         cost_inr=str(agent.cost_inr),
         margin_inr=str(agent.charged_inr - agent.cost_inr),
         cost_currency_assumed=agent.cost_currency_assumed,
+        trial_cost_inr=str(agent.trial_cost_inr),
+        paid_margin_inr=str(agent.charged_inr - (agent.cost_inr - agent.trial_cost_inr)),
     )
 
 
@@ -731,6 +773,7 @@ def _call_spend(call: CallAttribution) -> CallSpendOut:
         cost_inr=str(call.cost_inr),
         margin_inr=str(call.charged_inr - call.cost_inr),
         cost_currency_assumed=call.cost_currency_assumed,
+        trial_covered=call.trial_covered,
     )
 
 
@@ -832,12 +875,21 @@ async def tenant_spend(
         all_in = await read_month_cost_breakdown(scoped, tenant_id=tenant_id, month=period.month)
         ai = all_in.ai
         rental = await rental_revenue_inr(scoped, tenant_id=tenant_id, month=period.month)
+        window_start, window_next = ist_month_window(period.month)
+        trial_in_month = await trial_overlaps(
+            scoped, tenant_id=tenant_id, start=window_start, end=window_next
+        )
         # D-482 L-1: a direct-admin read of one client's money board joins the audit
         # trail, coalesced per (admin, tenant) per minute.
         await record_admin_tenant_read(
             scoped, request=request, principal=principal, tenant_id=tenant_id
         )
     margin = _margin_of(period, rental_inr=rental)
+    paid = paid_margin(
+        revenue_inr=margin.revenue_inr,
+        cost_inr=margin.cost_inr,
+        trial_cost_inr=period.trial_cost_inr,
+    )
     ranked = _by_cost(period)
     return TenantSpendOut(
         month=period.month,
@@ -851,6 +903,13 @@ async def tenant_spend(
         cost_inr=str(margin.cost_inr),
         margin_inr=str(margin.margin_inr),
         margin_pct=_money(margin.margin_pct),
+        trial_cost_inr=str(period.trial_cost_inr),
+        trial_calls=period.trial_calls,
+        trial_minutes=str(period.trial_minutes),
+        trial_in_month=trial_in_month or period.trial_calls > 0,
+        paid_cost_inr=str(paid.cost_inr),
+        paid_margin_inr=str(paid.margin_inr),
+        paid_margin_pct=_money(paid.margin_pct),
         period_charge_inr=str(period.period_charge_inr),
         itemised_charge_inr=str(period.itemised_charge_inr),
         itemisation_residual_inr=str(period.itemisation_residual_inr),
@@ -1007,6 +1066,15 @@ class _FleetRow:
     plan_tier: str
     margin: dict[str, object]
     ai: AiUsage
+    trial_cost_inr: Decimal
+    trial_in_month: bool
+
+    def paid(self) -> PaidMargin:
+        return paid_margin(
+            revenue_inr=_dec(self.margin["revenue_inr"]),
+            cost_inr=_dec(self.margin["cost_inr"]),
+            trial_cost_inr=self.trial_cost_inr,
+        )
 
 
 @router.get(
@@ -1079,6 +1147,10 @@ async def fleet_spend(
                 ai = await read_ai_usage(
                     scoped, tenant_id=tenant_id, month=period, include_free=True
                 )
+                trial_cost = await month_trial_cost_inr(scoped, tenant_id=tenant_id, month=period)
+                trial_in_month = await trial_overlaps(
+                    scoped, tenant_id=tenant_id, start=window_start, end=window_next
+                )
         except ValueError as exc:
             # ONE CLIENT'S REFUSAL IS ONE ROW, NOT THE WHOLE BOARD (19 Sep 2026). This walk
             # had no isolation, so a single tenant `voice_tier_usage` could not price took
@@ -1118,6 +1190,8 @@ async def fleet_spend(
                 plan_tier=str(org[3]),
                 margin=margin,
                 ai=ai,
+                trial_cost_inr=trial_cost,
+                trial_in_month=trial_in_month or trial_cost > 0,
             )
         )
 
@@ -1139,6 +1213,8 @@ async def fleet_spend(
     revenue = sum((_dec(r.margin["revenue_inr"]) for r in walked), Decimal("0.00"))
     cost = sum((_dec(r.margin["cost_inr"]) for r in walked), Decimal("0.00"))
     total_margin = revenue - cost
+    trial_cost = sum((r.trial_cost_inr for r in walked), Decimal("0.00"))
+    fleet_paid = paid_margin(revenue_inr=revenue, cost_inr=cost, trial_cost_inr=trial_cost)
     ai_absorbed = sum((r.ai.used_inr for r in walked), Decimal("0"))
     return FleetSpendOut(
         month=period,
@@ -1150,6 +1226,10 @@ async def fleet_spend(
         # through the SAME function `margin_for_tenant` uses per client rather than a
         # second copy of the rule (`billing.service.margin_pct`).
         margin_pct=_money(billing.margin_pct(margin_inr=total_margin, revenue_inr=revenue)),
+        trial_cost_inr=str(trial_cost),
+        paid_cost_inr=str(fleet_paid.cost_inr),
+        paid_margin_inr=str(fleet_paid.margin_inr),
+        paid_margin_pct=_money(fleet_paid.margin_pct),
         ai_absorbed_inr=str(to_paise(ai_absorbed)),
         tenants=[
             FleetTenantOut(
@@ -1163,12 +1243,19 @@ async def fleet_spend(
                 cost_inr=str(r.margin["cost_inr"]),
                 margin_inr=str(r.margin["margin_inr"]),
                 margin_pct=_money(_opt_dec(r.margin["margin_pct"])),
+                trial_cost_inr=str(r.trial_cost_inr),
+                trial_in_month=r.trial_in_month,
+                paid_cost_inr=str(paid.cost_inr),
+                paid_margin_inr=str(paid.margin_inr),
+                paid_margin_pct=_money(paid.margin_pct),
                 ai_absorbed_inr=str(to_paise(r.ai.used_inr)),
                 ai_requests=r.ai.requests,
             )
-            # Worst first: the client we are losing the most on is the one an operator
-            # opened this page for. Ties by name so the order is stable between renders.
-            for r in sorted(walked, key=lambda r: (_dec(r.margin["margin_inr"]), r.name))
+            # Worst PAID margin first: the client we are losing the most on is the one an
+            # operator opened this page for, and a trial's cost is an acquisition cost
+            # rather than a loss. Ties by name so the order is stable between renders.
+            for r in sorted(walked, key=lambda r: (r.paid().margin_inr, r.name))
+            for paid in (r.paid(),)
         ],
         undecidable=undecidable,
         tts_plan=_tts_plan_rows(month=period, fees=fees, prices=tts_prices, attributed=attributed),

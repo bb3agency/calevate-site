@@ -226,7 +226,7 @@ describe("at the ceiling", () => {
 
     await screen.findByText(/used this month's included AI help/i);
     expect(
-      screen.getByText(/calls, campaigns and leads — carries on/),
+      screen.getByText(/Calls, campaigns and leads carry on as before/),
     ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /what more AI help costs/i }),

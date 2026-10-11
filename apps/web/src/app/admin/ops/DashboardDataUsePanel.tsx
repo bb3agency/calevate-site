@@ -9,14 +9,7 @@ import {
   isForbidden,
 } from "@/app/admin/withheld";
 import { WriteFailure } from "@/app/admin/writeFailure";
-import {
-  BadgeCheck,
-  CircleHelp,
-  Save,
-  ShieldAlert,
-  ShieldCheck,
-  TriangleAlert,
-} from "lucide-react";
+import { BadgeCheck, Save, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import { providerLabel } from "@/lib/api/llmModels";
 import {
@@ -139,12 +132,11 @@ export function DashboardDataUsePanel({
         {state.status === "unreadable" && (
           <NoticeBox
             tone="warn"
-            icon={<CircleHelp aria-hidden className="h-5 w-5" />}
             title="We could not read the data-use attestations"
           >
             <p className="mt-1">
               This panel will not show invented eligibility when it could not read the real
-              answer — an assistant routed on a guessed data-use position is the mistake that
+              answer. An assistant routed on a guessed data-use position is the mistake that
               would cause. The error above says what stopped the read.
             </p>
           </NoticeBox>
@@ -218,7 +210,6 @@ function DataUseRow({
       {leg.blocked_reason != null && (
         <NoticeBox
           tone="warn"
-          icon={<ShieldAlert aria-hidden className="h-5 w-5" />}
           title={
             attested
               ? "Attested, but the assistant still cannot run on this leg"
@@ -232,7 +223,6 @@ function DataUseRow({
       {leg.eligible && (
         <NoticeBox
           tone="ok"
-          icon={<ShieldCheck aria-hidden className="h-5 w-5" />}
           title="The assistant may run on this leg"
         >
           <p className="mt-1">

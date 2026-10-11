@@ -3,7 +3,6 @@
 import { SavedNote } from "@/components/admin/kit";
 import { Section } from "@/components/console/section";
 import { use, useState } from "react";
-import { AlertTriangle, Wrench } from "lucide-react";
 
 import {
   FIELD_LABEL,
@@ -153,14 +152,14 @@ export default function LlmModelPage({
            `/commercials` withholds its own form for the same reason. */
         <NoticeBox
           tone="warn"
-          icon={<AlertTriangle className="h-5 w-5" />}
           title="Cannot change the model while the current one is unreadable"
         >
-          <p className="mt-1 text-meta opacity-90">
-            We could not read what this client is on, or what the alternatives cost. A
-            change replaces whatever is on file, so making one now could undo a
-            colleague&apos;s and move this client&apos;s per-minute charge without anyone
-            seeing it happen. Retry the read above; the controls come back with it.
+          <p className="text-meta">
+            Retry the read above; the controls come back with it.{" "}
+            <InfoTip label="the withheld model change">
+              A change replaces whatever is on file, so making one blind could undo a
+              colleague&apos;s and move this client&apos;s per-minute charge unseen.
+            </InfoTip>
           </p>
         </NoticeBox>
       ) : (
@@ -253,14 +252,11 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
       {isRetiredChoice(defaults) && (
         <NoticeBox
           tone="warn"
-          icon={<Wrench className="h-5 w-5" />}
           title="This client is pinned to a model the platform no longer offers"
           className="mt-4"
         >
-          <p className="mt-1 text-meta opacity-90">
-            The choice on file is not in the list below, so nothing here can price it and
-            it cannot be re-selected. Move this client onto a model that is offered, or
-            clear the choice and put them back on the platform default.
+          <p className="text-meta">
+            Move them onto an offered model, or clear the choice to use the platform default.
           </p>
         </NoticeBox>
       )}
@@ -276,29 +272,20 @@ function MoneyWarning() {
   return (
     <NoticeBox
       tone="warn"
-      icon={<AlertTriangle className="h-5 w-5" />}
       title="This changes what this client is billed, and what it costs us"
     >
-      <ul className="mt-1 space-y-1 text-meta opacity-90">
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-meta">
         <li>
-          Each model shows{" "}
-          <span className="font-medium">what it adds to this client&apos;s bill</span>{" "}
-          per minute — their plan&apos;s model surcharge, set on Commercials — and,
-          separately, <span className="font-medium">what it costs us</span> to run.
-          &ldquo;No extra charge&rdquo; means their plan quotes no surcharge, so a dearer
-          model is margin we give up rather than revenue we gain. Nothing already billed
-          is touched: a past call is priced from what the ledger recorded, not from this
-          setting.
+          Each model shows <span className="font-medium">what it adds to their bill</span> and{" "}
+          <span className="font-medium">what it costs us</span>.{" "}
+          <InfoTip label="model charges">
+            The bill figure is their plan&apos;s model surcharge, set on Commercials. &ldquo;No
+            extra charge&rdquo; means a dearer model is margin we give up. Past calls keep the
+            price the ledger recorded.
+          </InfoTip>
         </li>
-        <li>
-          It reaches every agent on this account that has not been given a model of its
-          own. An agent with its own choice keeps that choice.
-        </li>
-        <li>
-          The client can change this themselves from their own console. An operator
-          setting it here is making the same decision on their behalf, and it is recorded
-          against your admin account.
-        </li>
+        <li>It reaches every agent without a model of its own.</li>
+        <li>The client can change it too. Your change is recorded against your admin account.</li>
       </ul>
     </NoticeBox>
   );

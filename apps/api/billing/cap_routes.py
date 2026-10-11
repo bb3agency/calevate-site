@@ -51,6 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.caps import CapView, apply_client_caps, read_caps, read_spend_counters
 from apps.api.billing.service import current_billing_month, to_paise
+from apps.api.billing.trials import trial_billing_active
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -154,12 +155,23 @@ class CapsOut(Strict):
     # write, which is what makes "I just capped myself below my spend" visible at the
     # moment it happens rather than discovered from an empty call list.
     capped: bool
+    # A free trial is running: calls cost the client nothing, so `spend_used_inr` is ₹0
+    # and only the minute ceiling is drawn down. Defaulted only so older generated types
+    # stay valid; both routes set it.
+    trial_active: bool = False
 
 
-def _render(caps: CapView, *, minutes: Decimal, spend: Decimal, capped: bool) -> CapsOut:
+def _render(
+    caps: CapView, *, minutes: Decimal, spend: Decimal, capped: bool, trial_active: bool
+) -> CapsOut:
     def money(value: Decimal | None) -> str | None:
         return str(to_paise(value)) if value is not None else None
 
+    # During a trial the period is the trial (`trials.counter_epoch`) and nothing in it was
+    # charged — `usage_summary.spend_used_inr` reads ₹0 for the same reason. The meter adds
+    # nothing for a trial call; this also hides what an older meter priced trial calls at.
+    if trial_active:
+        spend = Decimal("0")
     return CapsOut(
         month=current_billing_month(),
         plan_cap_minutes=caps.admin_cap_min,
@@ -171,6 +183,7 @@ def _render(caps: CapView, *, minutes: Decimal, spend: Decimal, capped: bool) ->
         minutes_used=str(to_paise(minutes)),
         spend_used_inr=str(to_paise(spend)),
         capped=capped,
+        trial_active=trial_active,
     )
 
 
@@ -201,6 +214,7 @@ async def get_caps(session: Session, principal: CapsRead) -> CapsOut:
         # publishing the monthly aggregate of it.
         spend=counters.billed_inr,
         capped=counters.capped,
+        trial_active=await trial_billing_active(session, tenant_id=principal.tenant_id),
     )
 
 
@@ -280,6 +294,7 @@ async def set_caps(
         # read: same transaction either way, but this is the value the client is being
         # told they caused.
         capped=result.capped_now,
+        trial_active=await trial_billing_active(session, tenant_id=tenant_id),
     )
 
 

@@ -193,8 +193,8 @@ describe("the feature-flag screen", () => {
       enabled: null,
       reason: "Beta trial finished; back on the platform default.",
     });
-    // No step-up header, because the route asks for none (apps/api/flags/routes.py).
-    expect(write!.headers["X-Confirm-Action"]).toBeUndefined();
+    // Step-up since D-731, bound to the tenant and the flag (apps/api/flags/routes.py).
+    expect(write!.headers["X-Confirm-Action"]).toMatch(/^set_feature_flag:[^:]+:[a-z0-9_]+$/);
   });
 
   it("refuses to send a change with no reason, before the click", async () => {

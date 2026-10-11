@@ -27,7 +27,12 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import {
+  adminSession,
+  buyNumberConfirmation,
+  confirmedAdminRequest,
+  releaseNumberConfirmation,
+} from "./admin";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
 
@@ -82,10 +87,11 @@ export function useBuyNumber(tenantId: string) {
       provider: string | null;
       monthly_price_usd: string;
     }) =>
-      apiRequest<BoughtNumber>(adminSession(), `/v1/admin/numbers/tenants/${tenantId}/buy`, {
-        method: "POST",
-        body: payload,
-      }),
+      confirmedAdminRequest<BoughtNumber>(
+        `/v1/admin/numbers/tenants/${tenantId}/buy`,
+        { method: "POST", body: payload, confirmAction: buyNumberConfirmation(tenantId) },
+        "Buying a number for this client.",
+      ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["admin", "number-costs"] });
       void client.invalidateQueries({ queryKey: ["admin", "numbers"] });
@@ -151,10 +157,10 @@ export function useReleaseNumber(tenantId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (numberId: string) =>
-      apiRequest<void>(
-        adminSession(),
+      confirmedAdminRequest<void>(
         `/v1/admin/numbers/tenants/${tenantId}/${numberId}/release`,
-        { method: "POST" },
+        { method: "POST", confirmAction: releaseNumberConfirmation(tenantId, numberId) },
+        "Releasing this number.",
       ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["admin", "number-costs"] });

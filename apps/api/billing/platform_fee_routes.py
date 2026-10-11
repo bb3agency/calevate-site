@@ -20,7 +20,7 @@ from decimal import Decimal
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,6 +59,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.reliability.service import (
     body_hash,
@@ -333,6 +334,16 @@ async def _admin_view(session: AsyncSession, *, tenant_id: UUID) -> AdminPlatfor
     )
 
 
+def fee_waiver_confirmation(tenant_id: UUID) -> str:
+    """The `X-Confirm-Action` for excusing one client from the platform fee (D-731)."""
+    return f"waive_platform_fee:{tenant_id}"
+
+
+def fee_payment_confirmation(tenant_id: UUID, charge_id: UUID) -> str:
+    """The `X-Confirm-Action` for recording one fee as paid offline (D-731)."""
+    return f"record_fee_payment:{tenant_id}:{charge_id}"
+
+
 async def _require_tenant(session: AsyncSession, tenant_id: UUID) -> None:
     if not await tenant_exists(session, tenant_id):
         raise ProblemError.not_found("Client")
@@ -367,8 +378,16 @@ async def admin_read_platform_fee(
     ),
 )
 async def waive_platform_fee(
-    tenant_id: UUID, payload: WaiverIn, request: Request, principal: AdminFeeWrite
+    tenant_id: UUID,
+    payload: WaiverIn,
+    request: Request,
+    principal: AdminFeeWrite,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> AdminPlatformFeeOut:
+    """Step-up (D-731): a waiver forgives money owed. Withdrawing one re-imposes the fee,
+    the safe direction, and takes no step-up."""
+    step_up.require(x_confirm_action, fee_waiver_confirmation(tenant_id))
     async with tenant_session(tenant_id) as scoped:
         await _require_tenant(scoped, tenant_id)
         changed = await set_waiver(
@@ -437,7 +456,11 @@ async def record_manual_fee_payment(
     payload: ManualFeePaymentIn,
     request: Request,
     principal: AdminFeeWrite,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> FeePaymentOut:
+    # Step-up (D-731): recording a fee paid by bank transfer marks money owed as settled.
+    step_up.require(x_confirm_action, fee_payment_confirmation(tenant_id, charge_id))
     at = datetime.now(UTC)
     async with tenant_session(tenant_id) as scoped:
         await _require_tenant(scoped, tenant_id)

@@ -10,6 +10,7 @@ import { OWN_NUMBERS_PATHS, type OwnNumbersStatus } from "@/lib/api/ownNumbers";
 import { expectNoA11yViolations } from "./a11y";
 import { KYC_NOT_STARTED } from "./fixtures/sharedReads";
 import { problem, renderClientPage, type ApiCall, type Routes } from "./harness";
+import { NO_FORWARDING_ROUTES } from "./fixtures/forwarding";
 
 /**
  * A phone number in the business's own name (D-693), on the client's phone-number screen.
@@ -61,6 +62,7 @@ const SECOND_PAGE = `${OWN_NUMBERS_PATHS.available("Hyderabad", "", "c2")}`;
 function routes(own: OwnNumbersStatus, extra: Routes = {}): Routes {
   return {
     "/v1/me": OWNER,
+    ...NO_FORWARDING_ROUTES,
     "/v1/campaigns/numbers": [],
     "/v1/agents": [{ id: "agent-1", name: "Reception", status: "live" }],
     [OWN_NUMBERS_PATHS.status]: own,
@@ -331,7 +333,7 @@ describe("buying a number", () => {
 
   it("says the agent must be published again when the number cannot reach it", async () => {
     await buyAnswering({ attachment: "other_workspace", replayed: false, first_period: "charged" });
-    expect(screen.getByText(/the agent has to be published again before it can answer this number/)).toBeTruthy();
+    expect(screen.getByText(/Publish the agent again, then choose it on the number below/)).toBeTruthy();
   });
 
   it("keeps only digits in the search, ten at most, so the server never refuses it", async () => {
@@ -495,6 +497,7 @@ describe("the step card on Verify your business", () => {
   it("leads to phone numbers once the business is verified", async () => {
     await renderClientPage(<VerifyBusinessPage />, {
       "/v1/me": OWNER,
+      ...NO_FORWARDING_ROUTES,
       "/v1/compliance/kyc": KYC_NOT_STARTED,
       "/v1/compliance/outbound-pledge": {
         version: 1,

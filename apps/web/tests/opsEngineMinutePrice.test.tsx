@@ -73,7 +73,7 @@ describe("EngineMinutePricePanel", () => {
       [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, topup_fees: FEES, as_of: "2026-10-07T06:30:00Z" },
     });
     expect(
-      await screen.findByText("No platform rate recorded — no minute on it can be sold"),
+      await screen.findByText("No platform rate recorded. No minute on it can be sold"),
     ).toBeTruthy();
     expect(screen.getByText("Sold to clients as Clear.")).toBeTruthy();
     expect(screen.getAllByText("Not sold to clients — recorded for cost only.")).toHaveLength(2);

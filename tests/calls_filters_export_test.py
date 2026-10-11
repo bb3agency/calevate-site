@@ -26,7 +26,12 @@ def _client() -> AsyncClient:
 
 
 def _headers(slug: str, token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
+    # The export's step-up string (D-730); a `dev:` token needs only the echo.
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Org-Slug": slug,
+        "X-Confirm-Action": f"export_calls:{slug}",
+    }
 
 
 async def _seed_calls(tenant_id: uuid.UUID) -> datetime:

@@ -78,7 +78,7 @@ from apps.api.core.platform_config import (
     typed_strict,
     validate_value,
 )
-from apps.api.core.settings import ENV_ONLY_KEYS, env_declares, env_var_for
+from apps.api.core.settings import ENV_ONLY_KEYS, env_declares, env_var_for, get_settings
 
 log = get_logger(__name__)
 
@@ -600,6 +600,18 @@ async def set_value(
         from apps.api.ops.trial_number import assert_trial_number_selectable
 
         await assert_trial_number_selectable(stored)
+    # The forwarding test's second number: the same kind of number, and not the first one,
+    # which could not ring a second call at once (D-746).
+    if key == "forwarding_test_second_number":
+        from apps.api.ops.trial_number import assert_trial_number_selectable
+
+        await assert_trial_number_selectable(stored)
+        if stored is not None and stored == get_settings().trial_caller_number:
+            raise ProblemError.business_rule(
+                "forwarding_second_number_is_trial_number",
+                "The second number must be a different number from the shared trial number.",
+                remediation="Pick another number our developer workspace holds.",
+            )
     # Clear may not be moved onto a voice band the last refresh showed the account is not
     # listed: on pay-as-you-go ThinnestAI lists no Studio voice, so Clear would sell nothing.
     if key == "thinnest_clear_voice_band":

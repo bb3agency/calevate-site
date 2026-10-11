@@ -359,7 +359,7 @@ export const PRIVACY_POLICY: LegalDocument = {
                     "We use what Google gives us only for the feature you chose it for. " +
                     "\"Continue with Google\" gives us your name, email address and account " +
                     "identifier, to sign you in. Connecting Google Calendar lets your agent " +
-                    "see when you are free and add the appointments callers book. " +
+                    "see when you are free and add the bookings callers make to it. " +
                     "Connecting Google Sheets lets us read and add rows only in the " +
                     "spreadsheets you pick in Google's file picker. We do not sell this " +
                     "information, use it for advertising, or use it to train AI models, and " +
@@ -521,7 +521,7 @@ export const PRIVACY_POLICY: LegalDocument = {
                   term: "Whatever the client's agent was configured to find out",
                   detail:
                     "Each client defines their own list of fields — a name, an area, a " +
-                    "budget, a symptom, a preferred appointment slot, a callback number " +
+                    "budget, a question about a product, a preferred time, a callback number " +
                     "— and those become the columns of their CRM. We cannot list them " +
                     "here because the client chooses them; the client's own notice must.",
                 },
@@ -875,13 +875,14 @@ export const PRIVACY_POLICY: LegalDocument = {
           kind: "para",
           text:
             "What reaches either of those two companies is narrower than the word voice " +
-            "suggests, and it is worth being exact: the words the agent is about to " +
-            "speak, sent as text a turn at a time, which can include a detail you have " +
-            "just given where the agent repeats it back to confirm it. Not your own " +
-            "audio, not the transcript of what you said, not the recording, and nothing " +
-            "from a client's dashboard. Nothing has been sent to either of them: no " +
-            "voice of either company can be chosen today, and the product refuses rather " +
-            "than quietly working without one. This paragraph used to end by telling a " +
+            "suggests, and it is worth being exact: the words the agent speaks, sent as " +
+            "text while it speaks them, which can include personal data you have given, " +
+            "such as your name or the details of an order, where the agent says it back. " +
+            "Not your own audio, not the transcript of what you said, not the recording, " +
+            "and nothing from a client's dashboard. Since 11 October 2026 the company " +
+            "that synthesises the dearer quality receives those words on every call " +
+            "answered or made by an agent a client has put on that quality. Nothing has " +
+            "been sent to the third company. This paragraph used to end by telling a " +
             "client who would rather none of it applied to their callers that they could " +
             "keep every agent on the other voice quality. That is withdrawn rather than " +
             "reworded: an agent on the cheaper quality today is spoken by the hosted " +
@@ -919,7 +920,7 @@ export const PRIVACY_POLICY: LegalDocument = {
           text:
             "A client can also have its agent act in the client's own accounts during " +
             "your call: look you up in its CRM or spreadsheet by your number so it can " +
-            "greet you by name, check its calendar and book your appointment, save your " +
+            "greet you by name, check its calendar and make your booking, save your " +
             "details to its CRM (Zoho CRM or HubSpot) or spreadsheet, send you a WhatsApp " +
             "message from its own WhatsApp Business account, send you a payment link from " +
             "its own Razorpay account, or ask its own systems a question. Each of those " +
@@ -1097,9 +1098,9 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "statement about who the service is for rather than about where the " +
                 "processing happens, which is why it is quoted here rather than " +
                 "summarised into a location. What reaches it is the words the agent " +
-                "speaks, as text, a turn at a time, and section 6 sets out both that " +
-                "and what its terms permit it to do with them. Nothing has been sent to " +
-                "it yet. The cheaper quality is spoken by the hosted voice platform that " +
+                "speaks, as text, and section 6 sets out both that and what its terms " +
+                "permit it to do with them. It has received them since 11 October 2026, " +
+                "for agents a client has put on that quality. The cheaper quality is spoken by the hosted voice platform that " +
                 "runs the call, in its own voices, by providers it has not named to us " +
                 "voice by voice; the entry on the call itself, below, says what it has " +
                 "told us about where it processes. If calls ran on our own call program " +

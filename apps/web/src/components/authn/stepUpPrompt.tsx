@@ -43,6 +43,12 @@ import {
   confirmAdminStepUp,
   requestAdminStepUp,
 } from "@/lib/authn/adminAuthn";
+import {
+  CLIENT_SIGN_IN_PATH,
+  clientAuthn,
+  confirmClientStepUp,
+  requestClientStepUp,
+} from "@/lib/authn/clientAuthn";
 import { markSignedOut } from "@/lib/authn/signedOutNotice";
 import { OTP_LENGTH, OTP_RESEND_COOLDOWN_MS } from "@/lib/authn/otp";
 import { useCountdown } from "@/lib/authn/useCountdown";
@@ -66,7 +72,28 @@ import { useFocusTrap } from "@/lib/focusTrap";
  */
 export const REAUTH_WINDOW_MINUTES = 30;
 
-export function StepUpPrompt() {
+/**
+ * Each realm's half of the prompt (D-730). The client realm has step-up codes too now, for
+ * the few client actions that hand out data or store a credential; it has no second
+ * factor, so its answer buys a proof for one action and never restamps a session.
+ */
+const REALMS = {
+  admin: {
+    request: requestAdminStepUp,
+    confirm: (code: string, action?: string) => confirmAdminStepUp(code, action),
+    authn: adminAuthn,
+    signInPath: ADMIN_SIGN_IN_PATH,
+  },
+  client: {
+    request: requestClientStepUp,
+    confirm: (code: string, action?: string) => confirmClientStepUp(code, action),
+    authn: clientAuthn,
+    signInPath: CLIENT_SIGN_IN_PATH,
+  },
+} as const;
+
+export function StepUpPrompt({ realm = "admin" }: { realm?: "admin" | "client" } = {}) {
+  const side = REALMS[realm];
   const prompt = useSyncExternalStore(subscribeToStepUpPrompt, readStepUpPrompt, readStepUpPrompt);
   const panel = useRef<HTMLDivElement>(null);
   const [code, setCode] = useState("");
@@ -112,7 +139,7 @@ export function StepUpPrompt() {
     setLeaving(true);
     reset();
     dismissStepUpPrompt();
-    markSignedOut("admin");
+    markSignedOut(realm);
     // `window.location.assign`, not the router: the session cookie is gone, so every
     // client-side cache in this tree is about to describe a session that no longer
     // exists. A full document load is the same exit `adminIdleTimeoutModal` takes, for
@@ -125,26 +152,27 @@ export function StepUpPrompt() {
     // are stuck. The local session state is already cleared by `signOut`'s own `finally`
     // (`lib/authn/realm.ts`), so there is nothing here to report and nothing to retry:
     // the browser must stop believing it holds a session either way.
-    void adminAuthn
+    void side.authn
       .signOut()
       .catch(() => undefined)
       .finally(() => {
-        if (typeof window !== "undefined") window.location.assign(ADMIN_SIGN_IN_PATH);
+        if (typeof window !== "undefined") window.location.assign(side.signInPath);
       });
-  }, [leaving, reset]);
+  }, [leaving, reset, realm, side]);
 
   const send = useCallback(() => {
     if (sending || cooldown > 0) return;
     setSending(true);
     setError(null);
-    void requestAdminStepUp()
+    void side
+      .request()
       .then(() => {
         setSentAt(Date.now());
         setResendReadyAt(Date.now() + OTP_RESEND_COOLDOWN_MS);
       })
       .catch(setError)
       .finally(() => setSending(false));
-  }, [cooldown, sending]);
+  }, [cooldown, sending, side]);
 
   // `checkingRef` and not only the `checking` state: the last digit submits the code, and
   // an Enter or a paste in the same tick would otherwise read a stale `false`.
@@ -155,7 +183,8 @@ export function StepUpPrompt() {
       checkingRef.current = true;
       setChecking(true);
       setError(null);
-      void confirmAdminStepUp(value)
+      void side
+        .confirm(value, prompt?.action)
         .then(() => {
           // Reset BEFORE completing: the ask resolves synchronously into callers that may
           // re-render this tree, and leaving a spent code in state would show it again the
@@ -176,7 +205,7 @@ export function StepUpPrompt() {
           setChecking(false);
         });
     },
-    [reset],
+    [reset, side, prompt],
   );
 
   const submit = useCallback(
@@ -229,8 +258,14 @@ export function StepUpPrompt() {
           <p>
             {/* The server's own words for what is waiting, not a sentence invented here —
                 the caller knows which action it is and this panel does not. */}
-            {prompt.reason} This needs a second factor proved in the last{" "}
-            {REAUTH_WINDOW_MINUTES} minutes.
+            {prompt.action !== undefined ? (
+              <>{prompt.reason} This needs a code entered for it.</>
+            ) : (
+              <>
+                {prompt.reason} This needs a second factor proved in the last{" "}
+                {REAUTH_WINDOW_MINUTES} minutes.
+              </>
+            )}
           </p>
 
           <form className="space-y-3" onSubmit={submit} noValidate>

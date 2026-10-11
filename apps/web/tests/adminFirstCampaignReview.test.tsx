@@ -175,7 +175,7 @@ describe("the first-campaign review", () => {
     await screen.findByText("Held — a reviewer refused this account.");
 
     expect(container.textContent).toContain(
-      "this is what the client is reading now",
+      "This is what the client is reading now",
     );
     expect(container.textContent).toContain(
       "The contact list is a purchased list declared as opt-in.",
@@ -271,10 +271,10 @@ describe("the first-campaign review", () => {
     const link = await screen.findByRole("link", {
       name: /What the client sees \(read-only\)/,
     });
-    // D-22: the marker selects the impersonating credential; the view grants nothing and
-    // every page view of it is audited.
+    // D-730: view-as starts on the operator console, which asks for a code typed for the
+    // entry and then opens the client's page; every page view of it is audited.
     expect(link.getAttribute("href")).toBe(
-      `/c/${SLUG}/campaign-review?view=admin`,
+      `/admin/view-as?slug=${SLUG}&path=%2Fcampaign-review`,
     );
   });
 });

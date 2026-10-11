@@ -1,8 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { AlertTriangle, PauseCircle } from "lucide-react";
-
+import { RowLink } from "@/components/console/checklist";
 import { NoticeBox } from "@/components/ui";
 
 /**
@@ -33,21 +31,12 @@ export function AccountStateBanner({ tenantId, status }: { tenantId: string; sta
     return (
       <NoticeBox
         tone="warn"
-        icon={<PauseCircle className="h-5 w-5" />}
         title="This account is suspended."
+        action={<RowLink href={`/admin/tenants/${tenantId}/lifecycle`}>Account state</RowLink>}
+        info="Reactivating is one click on Account state, where the reason for the suspension is recorded."
       >
-        <p className="mt-1">
-          Its outbound dialling is refused at the next dial — campaigns included. Inbound
-          answering is deliberately untouched: their own customers still get through.
-          Reactivating is one click on{" "}
-          <Link
-            href={`/admin/tenants/${tenantId}/lifecycle`}
-            className="rounded-sm font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-          >
-            Account state
-          </Link>
-          , where the reason it was suspended was recorded.
-        </p>
+        Its outbound dialling is refused, campaigns included. Inbound answering is deliberately
+        untouched.
       </NoticeBox>
     );
   }
@@ -56,18 +45,11 @@ export function AccountStateBanner({ tenantId, status }: { tenantId: string; sta
     return (
       <NoticeBox
         tone="stop"
-        icon={<AlertTriangle className="h-5 w-5" />}
         title="This account is closed."
+        action={<RowLink href={`/admin/tenants/${tenantId}/closure`}>Closing the account</RowLink>}
+        info="Closing the account shows whether their records are erased yet and when they go. It is also the one way to reopen the account while nothing has been deleted."
       >
-        <p className="mt-1">
-          Nobody at the client can sign in, no call or campaign runs, and no agent can be
-          published. Whether their records have been erased yet — and the date they go —
-          is on{" "}
-          <Link href={`/admin/tenants/${tenantId}/closure`} className="rounded-sm font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
-            Closing the account
-          </Link>
-          , which is also the one way to reopen it while nothing has been deleted.
-        </p>
+        Nobody at the client can sign in, and no call, campaign or publish runs.
       </NoticeBox>
     );
   }

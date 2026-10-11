@@ -82,6 +82,7 @@ import {
 } from "@/lib/api/numbers";
 
 import { EngineNumbersPanel } from "./EngineNumbersPanel";
+import { ForwardingCard } from "./ForwardingCard";
 import { NumberRow } from "./NumberRow";
 import { WorkspacePanel } from "./WorkspacePanel";
 
@@ -170,6 +171,9 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
       {/* Only on a voice platform that rents and attaches numbers in its own console;
           renders nothing otherwise. */}
       <EngineNumbersPanel tenantId={tenantId} canWrite={write.allowed} />
+
+      {/* The client's existing published number and its forwarding findings (D-746). */}
+      <ForwardingCard tenantId={tenantId} />
 
       {/* The client's own ThinnestAI workspace (D-693). Only an engine that rents numbers in
           its own console has per-client workspaces, so nothing is asked elsewhere. */}

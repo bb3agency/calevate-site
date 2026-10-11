@@ -61,13 +61,6 @@ export function OutboundHaltPanel({ state, access }: { state: PlatformState; acc
       <div className="space-y-4">
         <NoticeBox
           tone={halted ? "stop" : "ok"}
-          icon={
-            halted ? (
-              <PhoneOff aria-hidden className="h-5 w-5" />
-            ) : (
-              <PhoneCall aria-hidden className="h-5 w-5" />
-            )
-          }
           title={
             halted
               ? "Outbound calling is HALTED for every client"
@@ -76,14 +69,11 @@ export function OutboundHaltPanel({ state, access }: { state: PlatformState; acc
         >
           {halted ? (
             <>
-              <p className="mt-1">
-                No outbound call is being placed for any client. Inbound calls are
-                unaffected — clients&apos; receptionists keep answering.
-              </p>
+              <p>No outbound call is placed for any client. Inbound calls are unaffected.</p>
               {/* The one question whoever finds the platform halted asks first. It is on
                   the wire and was on no screen until this pass. */}
-              <p className="mt-2">
-                <span className="font-semibold">Reason on the record:</span>{" "}
+              <p>
+                <span className="font-medium text-ink">Reason on the record:</span>{" "}
                 {state.halt_reason ?? "none was recorded with this halt."}
               </p>
             </>

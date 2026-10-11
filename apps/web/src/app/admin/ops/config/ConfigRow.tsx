@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState, type ReactNode } from "react";
-import { CheckCircle2, Lock, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Lock } from "lucide-react";
 
 import { MonoValue } from "@/app/admin/ops/opsLanguage";
 import { WriteFailure } from "@/app/admin/writeFailure";
@@ -399,7 +399,6 @@ function WriteReceipt({
       {recorded && !inForceHere && (
         <NoticeBox
           tone="warn"
-          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
           title="This screen has not picked up the change yet"
         >
           <p className="mt-1">

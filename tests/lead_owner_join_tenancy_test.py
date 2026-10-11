@@ -109,7 +109,12 @@ async def test_a_lead_assigned_to_a_multi_account_reader_appears_once_on_the_gri
     _tenant, slug, token, _user, lead_id = await _staged()
     async with _client() as http:
         response = await http.get(
-            "/v1/leads", headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
+            "/v1/leads",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Org-Slug": slug,
+                "X-Confirm-Action": "export_leads:" + slug,
+            },
         )
     assert response.status_code == 200
     body = response.json()
@@ -133,7 +138,11 @@ async def test_the_export_writes_that_lead_once() -> None:
     async with _client() as http:
         response = await http.get(
             "/v1/leads/export.csv",
-            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Org-Slug": slug,
+                "X-Confirm-Action": "export_leads:" + slug,
+            },
         )
     assert response.status_code == 200
     assert response.text.count(str(phone)) == 1

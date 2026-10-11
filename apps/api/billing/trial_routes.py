@@ -91,6 +91,11 @@ TrialWrite = Annotated[Principal, Depends(requires("admin:tenants", realm="admin
 TrialRead = Annotated[Principal, Depends(requires("billing:read", realm="admin"))]
 
 
+def end_trial_confirmation(tenant_id: UUID, outcome: str) -> str:
+    """The step-up string for ending a client's trial (D-731), bound to the outcome."""
+    return f"end_trial:{tenant_id}:{outcome}"
+
+
 def start_trial_confirmation(tenant_id: UUID, days: int) -> str:
     """The step-up string for putting a client on a trial.
 
@@ -347,7 +352,12 @@ async def close_trial(
     payload: TrialEndIn,
     request: Request,
     principal: TrialWrite,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> TrialOut:
+    # Step-up (D-731): `stopped` schedules the client's erasure, and the outcome is in the
+    # string so a confirmation for converting cannot be replayed to stop.
+    step_up.require(x_confirm_action, end_trial_confirmation(tenant_id, payload.outcome))
     at = datetime.now(UTC)
     async with tenant_session(tenant_id) as scoped:
         await _assert_tenant_exists(tenant_id, scoped)

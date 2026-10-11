@@ -362,6 +362,8 @@ class CallStartLookup:
     agent_id: str | None
     answerable: bool
     caller: str | None
+    #: The call it is about; a repeat of the request carries the same one.
+    call_id: str | None = None
 
 
 def parse_call_start(raw: bytes) -> CallStartLookup | None:
@@ -382,6 +384,7 @@ def parse_call_start(raw: bytes) -> CallStartLookup | None:
         and data.get("direction") == "inbound"
         and data.get("surface") in ("phone", "whatsapp"),
         caller=caller if isinstance(caller, str) else None,
+        call_id=_str(data.get("callId")),
     )
 
 

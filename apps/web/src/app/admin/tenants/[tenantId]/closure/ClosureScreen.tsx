@@ -2,7 +2,7 @@
 
 import { Section } from "@/components/console/section";
 import { useState } from "react";
-import { AlertTriangle, CalendarClock, CheckCircle2, Undo2 } from "lucide-react";
+import { Undo2 } from "lucide-react";
 
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
@@ -157,7 +157,7 @@ export function ClosureScreen({ tenantId }: { tenantId: string }) {
       {/* Outside the closed branch on purpose: the successful reopen re-reads the closure,
           which swaps the branch, and the confirmation must survive that swap. */}
       {restore.data != null && restore.data.closed_at == null && (
-        <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
+        <NoticeBox tone="ok">
           <p>
             This account is active again and the scheduled erasure is cancelled. The client
             has been emailed.
@@ -222,7 +222,6 @@ function ErasedNotice({ erasedAt }: { erasedAt: string }) {
   return (
     <NoticeBox
       tone="stop"
-      icon={<AlertTriangle className="h-5 w-5" />}
       title="This client's records have been erased"
     >
       <p className="mt-1 text-meta opacity-90">
@@ -241,7 +240,6 @@ function ClosedPanel({ record }: { record: Closure }) {
   return (
     <NoticeBox
       tone="stop"
-      icon={<CalendarClock className="h-5 w-5" />}
       title={
         record.erase_after
           ? `Closed. Records are erased on ${formatIST(record.erase_after)}`
@@ -261,20 +259,18 @@ function ClosedPanel({ record }: { record: Closure }) {
           <dt className="inline font-medium">Time left to undo: </dt>
           <dd className="inline">
             {!record.restorable
-              ? "none — this close can no longer be undone"
+              ? "none. This close can no longer be undone"
               : record.days_remaining == null
                 ? "no erasure is scheduled, so there is no deadline"
                 : record.days_remaining === 0
-                  ? "due today — the next hourly sweep will file the erasure"
+                  ? "due today. The next hourly sweep will file the erasure"
                   : `${record.days_remaining} day${record.days_remaining === 1 ? "" : "s"}`}
           </dd>
         </div>
       </dl>
-      <p className="mt-2 text-meta opacity-90">
-        Their telephone numbers were disconnected from the agents at the carrier, and no
-        agent holds a conversation for a closed account. The numbers are not released:
-        release or port them with the telephony provider only on the client&apos;s
-        instruction. The client&apos;s notice says so too.
+      <p className="mt-2 text-meta">
+        Their numbers were disconnected from the agents. The numbers are not released: release or port them
+        only on the client&apos;s instruction.
       </p>
     </NoticeBox>
   );

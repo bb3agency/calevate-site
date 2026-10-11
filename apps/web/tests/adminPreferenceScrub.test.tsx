@@ -250,7 +250,7 @@ describe("recording a national DND scrub", () => {
       expect(container.textContent).toContain("does NOT open the gate");
     });
     expect(container.textContent).toContain("ask the provider for a scrub run TODAY");
-    expect(container.textContent).not.toContain("this campaign may launch");
+    expect(container.textContent).not.toContain("This campaign may launch");
   });
 
   it("says when the scrub stops being good, and that dialling outlives it", async () => {
@@ -260,7 +260,7 @@ describe("recording a national DND scrub", () => {
     fireEvent.click(submitButton());
 
     await waitFor(() => {
-      expect(container.textContent).toContain("this campaign may launch");
+      expect(container.textContent).toContain("This campaign may launch");
     });
     expect(container.textContent).toContain("midnight IST");
     // The half nobody guesses: the campaign keeps dialling past the expiry.
@@ -279,7 +279,7 @@ describe("recording a national DND scrub", () => {
       expect(container.textContent).toContain("were already on file");
     });
     // It still opened the gate, so it is not rendered as a refusal.
-    expect(container.textContent).toContain("this campaign may launch");
+    expect(container.textContent).toContain("This campaign may launch");
   });
 
   it("will not submit until the provider's reference is re-keyed", async () => {
@@ -319,7 +319,7 @@ describe("recording a national DND scrub", () => {
     });
 
     await waitFor(() => {
-      expect(container.textContent).toContain("No scrub on file — this campaign is held");
+      expect(container.textContent).toContain("No scrub on file. This campaign is held");
     });
     expect(container.textContent).toContain("national customer preference register");
   });

@@ -65,12 +65,9 @@ export function OutboundRestriction({
   if (direction === "inbound" || series !== ORDINARY) return null;
   return (
     <NoticeBox tone="warn">
-      <p>
-        Calling out from an ordinary number is not free of rules. Your agent can dial from
-        it only once you have confirmed that your business is the sender of those calls,
-        which is the panel on the number itself — and marketing campaigns need a{" "}
-        <Term id="series140" term="140-series" /> number whichever option you pick here.
-      </p>
+      Your agent can call out from this number once you confirm your business sends those
+      calls, on the number&apos;s own panel. Marketing campaigns need a{" "}
+      <Term id="series140" term="140-series" /> number either way.
     </NoticeBox>
   );
 }

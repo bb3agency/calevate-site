@@ -1,16 +1,10 @@
 "use client";
 
+import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION } from "@/components/console/section";
 import { useMemo, useState } from "react";
 
-import {
-  BellRing,
-  CalendarClock,
-  CircleHelp,
-  Save,
-  TriangleAlert,
-  Undo2,
-} from "lucide-react";
+import { CalendarClock, Save, TriangleAlert, Undo2 } from "lucide-react";
 
 import { MonoValue } from "@/app/admin/ops/opsLanguage";
 import { VOICE_TIERS, unpricedTier, type VoiceTier } from "@/lib/api/rateCard";
@@ -127,15 +121,14 @@ export function RateCardPanel({
       {!query.isLoading && card === null && (
         <NoticeBox
           tone="warn"
-          icon={<CircleHelp aria-hidden className="h-5 w-5" />}
           title="We could not read the rate card"
         >
-          <p className="mt-1">
-            No rates are shown because none were received — a table of guessed prices is the
-            one thing this panel must never render. Either this deployment&apos;s API does not
-            publish <MonoValue>/v1/ops/rate-card</MonoValue> yet, or the read failed. The
-            card in force is unaffected by this panel failing to load, and no card can be
-            recorded until it can be read.
+          <p>
+            The card in force is unaffected. No card can be recorded until this reads.{" "}
+            <InfoTip label="an unread rate card">
+              No rates are shown rather than guessed ones. Either this deployment&apos;s API does
+              not publish <MonoValue>/v1/ops/rate-card</MonoValue> yet, or the read failed.
+            </InfoTip>
           </p>
         </NoticeBox>
       )}
@@ -179,14 +172,14 @@ function RateCardTable({ card }: { card: RateCard }) {
     return (
       <NoticeBox
         tone="warn"
-        icon={<CircleHelp aria-hidden className="h-5 w-5" />}
         title="This deployment did not send the Studio volume, so no cost is shown"
       >
-        <p className="mt-1">
-          A Studio minute is billed as a monthly subscription, so what it costs us depends on
-          how many minutes the platform spoke — and a cost printed without that volume is a
-          guess, which is what this screen used to do. The rates themselves are unaffected;
-          the API is older than the volume block and needs deploying.
+        <p>
+          The rates are unaffected; the API needs deploying.{" "}
+          <InfoTip label="the missing Studio volume">
+            A Studio minute is billed as a monthly subscription, so its cost depends on how many
+            minutes the platform spoke. A cost without that volume would be a guess.
+          </InfoTip>
         </p>
       </NoticeBox>
     );
@@ -1047,7 +1040,6 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
           operator learns how many that is, rather than from the replies. */}
       <NoticeBox
         tone="warn"
-        icon={<BellRing aria-hidden className="h-5 w-5" />}
         title={
           recipients === null
             ? "We do not know how many clients would be emailed"
@@ -1059,11 +1051,11 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
         <p className="mt-1">
           {recipients === null
             ? "This deployment's API did not say how many clients are on a wallet, so no number is shown rather than a guessed one. Every client the new rates would price is still emailed when the card is recorded."
-            : "Everyone on a wallet is told the new rates and the day they start, as soon as the card is recorded — not on the day itself."}
+            : "Everyone on a wallet is told the new rates and the day they start, as soon as the card is recorded. Not on the day itself."}
         </p>
-        <p className="mt-2">
-          Credit already bought is not repriced. Every top-up keeps the rates it was bought
-          at, so this card only prices purchases made on or after the day you pick.
+        <p>
+          Credit already bought is not repriced. This card prices purchases from the day you
+          pick.
         </p>
       </NoticeBox>
 
@@ -1104,7 +1096,6 @@ function CardRefusalNotice({
     <div role="alert">
       <NoticeBox
         tone="stop"
-        icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
         title={refusal.title}
       >
         <p className="mt-1">{refusal.advice}</p>

@@ -123,8 +123,7 @@ export function HandWritten({
                 ))}
               </ul>
               <p className="mt-2 text-meta">
-                Add them to a step after you keep the changes, or discard and edit your text.
-                Your hand-written script stays in History once it has been live.
+                Add them to a step after keeping the changes, or discard and edit your text.
               </p>
               <label className="mt-2 flex items-start gap-2 text-meta">
                 <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />

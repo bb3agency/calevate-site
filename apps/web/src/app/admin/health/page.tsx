@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, TriangleAlert } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 import { ADMIN_PAGE_WIDE, HAIRLINE_LIST, LIST_HEAD, StatusPill } from "@/components/admin/kit";
 import { EmptyState } from "@/components/console/emptyState";
@@ -169,7 +169,6 @@ export default function ClientHealthPage() {
           <div>
             <NoticeBox
               tone="warn"
-              icon={<TriangleAlert className="h-5 w-5" />}
               title="The board could not be read"
             >
               <p className="mt-1">

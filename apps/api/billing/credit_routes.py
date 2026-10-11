@@ -878,6 +878,16 @@ def credit_adjustment_confirmation(entry_id: UUID) -> str:
     return f"adjust_credits:{entry_id}"
 
 
+def record_payment_confirmation(tenant_id: UUID) -> str:
+    """The step-up string for recording a payment received outside Checkout (D-731).
+
+    Bound to the tenant whose wallet it credits. The payment reference already makes a
+    second recording a no-op, so what this guards is the first one: credit is spendable the
+    moment it lands.
+    """
+    return f"record_payment:{tenant_id}"
+
+
 def lot_rate_override_confirmation(pack_id: str) -> str:
     """The step-up string for selling a purchase at ANOTHER pack's rates (Q6).
 
@@ -1154,10 +1164,9 @@ async def record_topup(
     request: Request,
     principal: CreditsWrite,
     # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
-    # open transaction — `core/stepup.py` on `max_overflow=0`. Present on every call and
-    # CONSULTED only when the body asks for a rate override: recording a bank transfer at
-    # the published card is not a step-up act and never was, and making it one would put a
-    # confirmation in front of the ordinary path to protect the rare one.
+    # open transaction — `core/stepup.py` on `max_overflow=0`. Every recording takes it
+    # since D-731: a payment recorded here is credit a client can spend, so a console left
+    # open must not be enough to mint it. A rate override takes its own, stricter string.
     step_up: StepUpGate,
     x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> TopUpOut:
@@ -1189,6 +1198,8 @@ async def record_topup(
     override = _override_pack(payload)
     if override is not None:
         step_up.require(x_confirm_action, lot_rate_override_confirmation(override.pack_id))
+    else:
+        step_up.require(x_confirm_action, record_payment_confirmation(tenant_id))
 
     ref = payload.payment_ref
     async with tenant_session(tenant_id) as scoped:

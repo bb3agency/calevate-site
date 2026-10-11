@@ -203,7 +203,7 @@ describe("routines", () => {
     // Add Monday to Friday: the wire is Monday-first whatever order it was ticked in.
     fireEvent.click(within(drawer).getByRole("button", { name: "Monday" }));
     fireEvent.click(within(drawer).getByRole("button", { name: "Next" }));
-    await within(drawer).findByText(/wait in\s+Approvals/);
+    await within(drawer).findByText(/waits in\s+Approvals/);
     await act(async () => {
       fireEvent.click(within(drawer).getByRole("button", { name: "Add routine" }));
     });

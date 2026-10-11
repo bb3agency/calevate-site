@@ -168,7 +168,7 @@ async def test_a_client_owner_cannot_record_any_of_these_telecom_facts() -> None
         refusals = {
             "numbers": await http.post(
                 NUMBERS.format(tenant_id=tenant_id),
-                headers=headers,
+                headers={**headers, "X-Confirm-Action": f"provision_number:{tenant_id}"},
                 json={"e164": _e164("160"), "series": "160", "provider": "vobiz"},
             ),
             "number_status": await http.post(
@@ -188,7 +188,7 @@ async def test_a_client_owner_cannot_record_any_of_these_telecom_facts() -> None
             ),
             "kyc": await http.post(
                 KYC.format(tenant_id=tenant_id),
-                headers=headers,
+                headers={**headers, "X-Confirm-Action": f"record_kyc:{tenant_id}"},
                 json={"status": "verified", "document_kind": "cin", "document_ref": "U85110"},
             ),
         }
@@ -233,7 +233,7 @@ async def test_provisioning_a_number_returns_it_pending_and_audits_the_series_on
         async with _client() as http:
             response = await http.post(
                 NUMBERS.format(tenant_id=tenant_id),
-                headers=_auth(token),
+                headers={**_auth(token), "X-Confirm-Action": f"provision_number:{tenant_id}"},
                 json={"e164": e164, "series": "160", "provider": "vobiz", "purpose": "reception"},
             )
     assert response.status_code == 201, response.text
@@ -271,7 +271,7 @@ async def test_recording_the_registrars_verdict_moves_the_number_and_audits_it(
     async with _client() as http:
         created = await http.post(
             NUMBERS.format(tenant_id=tenant_id),
-            headers=_auth(token),
+            headers={**_auth(token), "X-Confirm-Action": f"provision_number:{tenant_id}"},
             json={"e164": _e164("140"), "series": "140", "provider": "vobiz"},
         )
         number_id = created.json()["id"]
@@ -308,7 +308,7 @@ async def test_another_tenants_number_is_a_404_and_is_not_moved() -> None:
     async with _client() as http:
         created = await http.post(
             NUMBERS.format(tenant_id=other_id),
-            headers=_auth(token),
+            headers={**_auth(token), "X-Confirm-Action": f"provision_number:{other_id}"},
             json={"e164": _e164("160"), "series": "160", "provider": "vobiz"},
         )
         stranger = created.json()["id"]
@@ -441,7 +441,7 @@ async def test_recording_kyc_returns_the_record_and_audits_the_registry_referenc
         async with _client() as http:
             response = await http.post(
                 KYC.format(tenant_id=tenant_id),
-                headers=_auth(token),
+                headers={**_auth(token), "X-Confirm-Action": f"record_kyc:{tenant_id}"},
                 json={
                     "status": "verified",
                     "entity_type": "private_limited",
@@ -493,7 +493,7 @@ async def test_a_verified_record_with_no_document_is_refused_before_anything_is_
     async with _client() as http:
         response = await http.post(
             KYC.format(tenant_id=tenant_id),
-            headers=_auth(token),
+            headers={**_auth(token), "X-Confirm-Action": f"record_kyc:{tenant_id}"},
             json={"status": "verified", "entity_type": "sole_proprietorship"},
         )
     assert response.status_code == 422, response.text
@@ -526,7 +526,7 @@ async def test_the_kyc_record_this_route_writes_is_the_one_the_client_reads() ->
         )
         await http.post(
             KYC.format(tenant_id=tenant_id),
-            headers=_auth(admin_token),
+            headers={**_auth(admin_token), "X-Confirm-Action": f"record_kyc:{tenant_id}"},
             json={
                 "status": "verified",
                 "entity_type": "llp",
@@ -576,7 +576,7 @@ async def test_a_mistyped_tenant_id_is_a_404_on_every_one_of_these_routes() -> N
         answers = {
             "numbers": await http.post(
                 NUMBERS.format(tenant_id=absent),
-                headers=_auth(token),
+                headers={**_auth(token), "X-Confirm-Action": f"provision_number:{absent}"},
                 json={"e164": _e164("160"), "series": "160", "provider": "vobiz"},
             ),
             "number_status": await http.post(
@@ -596,7 +596,7 @@ async def test_a_mistyped_tenant_id_is_a_404_on_every_one_of_these_routes() -> N
             ),
             "kyc": await http.post(
                 KYC.format(tenant_id=absent),
-                headers=_auth(token),
+                headers={**_auth(token), "X-Confirm-Action": f"record_kyc:{absent}"},
                 json={"status": "in_review"},
             ),
         }
@@ -633,12 +633,12 @@ async def test_a_genuinely_taken_number_still_says_so() -> None:
     async with _client() as http:
         first = await http.post(
             NUMBERS.format(tenant_id=tenant_id),
-            headers=_auth(token),
+            headers={**_auth(token), "X-Confirm-Action": f"provision_number:{tenant_id}"},
             json={"e164": e164, "series": "160", "provider": "vobiz"},
         )
         second = await http.post(
             NUMBERS.format(tenant_id=other_id),
-            headers=_auth(token),
+            headers={**_auth(token), "X-Confirm-Action": f"provision_number:{other_id}"},
             json={"e164": e164, "series": "160", "provider": "vobiz"},
         )
     assert first.status_code == 201, first.text

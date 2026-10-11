@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, CircleAlert, Info, Lock, TriangleAlert } from "lucide-react";
+import { Lock, TriangleAlert } from "lucide-react";
 
 import {
   FIELD,
@@ -161,7 +161,6 @@ export function CorrectionForm({
           {entry && (
             <NoticeBox
               tone="neutral"
-              icon={<Info aria-hidden className="h-5 w-5" />}
               title={`${formatINR(entry.reversible_inr)} of this entry can still be taken back`}
             >
               <p className="mt-1">
@@ -176,8 +175,8 @@ export function CorrectionForm({
                 . Correcting it{" "}
                 {debit
                   ? "takes credit off this wallet"
-                  : "puts credit back on this wallet"}{" "}
-                — the direction comes from the entry, so there is no sign for you to get
+                  : "puts credit back on this wallet"}.{" "}
+                The direction comes from the entry, so there is no sign for you to get
                 right.
               </p>
             </NoticeBox>
@@ -355,17 +354,10 @@ function CorrectionOutcome({
     <div className="space-y-3">
       <NoticeBox
         tone={result.recorded ? "ok" : "neutral"}
-        icon={
-          result.recorded ? (
-            <CheckCircle2 aria-hidden className="h-5 w-5" />
-          ) : (
-            <Info aria-hidden className="h-5 w-5" />
-          )
-        }
         title={
           result.recorded
-            ? `Corrected — ${formatINR(result.delta_inr)} ${tookCredit ? "taken back" : "credited back"}`
-            : "Already corrected — nothing moved"
+            ? `Corrected: ${formatINR(result.delta_inr)} ${tookCredit ? "taken back" : "credited back"}`
+            : "Already corrected. Nothing moved"
         }
       >
         {result.recorded ? (
@@ -391,7 +383,7 @@ function CorrectionOutcome({
             one was written and the balance did not move. It stands at{" "}
             {formatINR(result.balance_inr)}.{" "}
             <span className="font-semibold">
-              This client has not been debited twice — this is the correction&apos;s own
+              This client has not been debited twice. This is the correction&apos;s own
               reference doing its job.
             </span>{" "}
             If a FURTHER correction is genuinely needed, it is for a different amount.
@@ -402,19 +394,17 @@ function CorrectionOutcome({
       {result.stops_dialling && (
         <NoticeBox
           tone="stop"
-          icon={<CircleAlert aria-hidden className="h-5 w-5" />}
           title={`${clientName} cannot place or answer calls until this wallet is topped up`}
+          info="Callers hear a short apology that gives no reason and says nothing about the account. If the credit was not theirs, this is the correct state and they need to pay."
+          infoLabel="the stopped wallet"
         >
           {/* Inbound is NOT unaffected: at or below zero every answering agent is silenced
               at the engine and callers hear a short apology
               (`agents/service.py::reconcile_inbound_answering`, D-551). */}
-          <p className="mt-1">
-            The balance is at or below zero and this account pays from a wallet, so the
-            compliance gate refuses every outbound call and their agents have stopped
-            answering incoming ones — callers hear a short apology that gives no reason and
-            says nothing about the account. If the credit was genuinely theirs, record the
-            payment above and both start again straight away; if it was not, this is the
-            correct state and they need to pay.
+          <p>
+            At zero or below, the compliance gate refuses every outbound call and their
+            agents have stopped answering incoming ones. If the credit was theirs, record the
+            payment above and both start again straight away.
           </p>
         </NoticeBox>
       )}

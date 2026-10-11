@@ -55,9 +55,9 @@ from apps.api.billing.caps import (
 from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_paid_for
 from apps.api.billing.list_rates import card_at, self_serve_rate_at
 from apps.api.billing.models import (
-    AI_ASSIST_UNIT_TYPES,
     GRANTED_CREDIT_REASONS,
     PAID_CREDIT_REASONS,
+    PLATFORM_ABSORBED_UNIT_TYPES,
 )
 from apps.api.billing.plans import (
     OVERAGE_RATE_SECOND_SQL,
@@ -1779,11 +1779,14 @@ def _month_bounds(month: str, *, since: datetime | None = None) -> dict[str, dat
 # "…and it is a CALL row", for the cost query that prices minutes. Spelled NEGATIVELY
 # rather than as a positive list of call unit types, and that is deliberate: a positive
 # list would silently drop `number_rental` and any unit added tomorrow out of the client's
-# own cost, which is the direction that costs a client money. Excluding the two units
-# whose whole point is that WE pay for them is the narrow, checkable statement. Derived
+# own cost, which is the direction that costs a client money. Excluding the units
+# whose whole point is that WE pay for them (the AI units and the console's speech-to-text)
+# is the narrow, checkable statement. Derived
 # from the one constant in `billing/models.py`, never retyped, so a third AI unit type
 # cannot appear in a client's spend by omission.
-_NOT_AI_UNITS = "unit_type <> ALL(ARRAY[" + ", ".join(f"'{u}'" for u in AI_ASSIST_UNIT_TYPES) + "])"
+_NOT_AI_UNITS = (
+    "unit_type <> ALL(ARRAY[" + ", ".join(f"'{u}'" for u in PLATFORM_ABSORBED_UNIT_TYPES) + "])"
+)
 
 # `telephony_s` is metered in SECONDS and every client-facing figure is in MINUTES. The
 # divisor is a `Decimal` and named, so the conversion happens in exactly one place and

@@ -41,6 +41,8 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     outcome_tag: "call_back_booked",
     summary_state: "ready",
     test_call: false,
+    caller_id_hidden: false,
+    forwarding_test: false,
     translation_state: "not_needed",
     language: "te-IN",
     sentiment: "neutral",
@@ -56,18 +58,20 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     has_recording: false,
     disclosure_played: true,
     moments: [],
+    quality: null,
+    signals: [],
     transcript: [
-      { idx: 0, speaker: "agent", text: "Namaskaram.", redacted: true, start_ms: 0, start_approximate: false },
-      { idx: 1, speaker: "caller", text: "Chilli undha?", redacted: true, start_ms: 4000, start_approximate: false },
+      { idx: 0, speaker: "agent", text: "Namaskaram.", redacted: true, start_ms: 0, start_approximate: false, likely_cut_off: false },
+      { idx: 1, speaker: "caller", text: "Chilli undha?", redacted: true, start_ms: 4000, start_approximate: false, likely_cut_off: false },
     ],
     ...over,
   };
 }
 
 const TELUGU = [
-  { idx: 0, speaker: "agent" as const, text: "నమస్కారం అండి.", text_en: "Hello.", lang: "te", redacted: true, start_ms: 0, start_approximate: false },
-  { idx: 1, speaker: "agent" as const, text: "ఎలా సహాయం చేయగలను?", text_en: "How can I help?", lang: "te", redacted: true, start_ms: 2000, start_approximate: false },
-  { idx: 2, speaker: "caller" as const, text: "చిల్లీ ఉందా?", text_en: "Do you have chilli?", lang: "te", redacted: true, start_ms: 5000, start_approximate: false },
+  { idx: 0, speaker: "agent" as const, text: "నమస్కారం అండి.", text_en: "Hello.", lang: "te", redacted: true, start_ms: 0, start_approximate: false, likely_cut_off: false },
+  { idx: 1, speaker: "agent" as const, text: "ఎలా సహాయం చేయగలను?", text_en: "How can I help?", lang: "te", redacted: true, start_ms: 2000, start_approximate: false, likely_cut_off: false },
+  { idx: 2, speaker: "caller" as const, text: "చిల్లీ ఉందా?", text_en: "Do you have chilli?", lang: "te", redacted: true, start_ms: 5000, start_approximate: false, likely_cut_off: false },
 ];
 /** The same lines before any English was written. */
 const TELUGU_ONLY = TELUGU.map((turn) => ({ ...turn, text_en: null }));
@@ -210,9 +214,31 @@ describe("the conversation", () => {
   it("marks a time the platform only approximates with a tilde", async () => {
     await renderClientPage(
       page,
-      routes(detail({ transcript: [{ ...TELUGU[2], start_approximate: true }], translation_state: "ready" })),
+      routes(detail({ transcript: [{ ...TELUGU[2], start_approximate: true, likely_cut_off: false }], translation_state: "ready" })),
     );
     expect(await screen.findByText("~0:05")).toBeTruthy();
+  });
+
+  it("says under an agent line when the caller probably spoke over it (D-739)", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          transcript: [
+            { ...TELUGU[1], likely_cut_off: true },
+            { ...TELUGU[2], likely_cut_off: false },
+          ],
+          translation_state: "ready",
+        }),
+      ),
+    );
+    const note = await screen.findByText(
+      "The caller spoke over this, so they may not have heard all of it.",
+    );
+    expect(screen.getAllByText(/the caller spoke over this/i)).toHaveLength(1);
+    // Under the agent's line, not inside it.
+    expect(note.closest("li")?.textContent).toContain("How can I help?");
+    expect(note.closest("button")).toBeNull();
   });
 
   it("switches every line to English with the one switch, and back", async () => {

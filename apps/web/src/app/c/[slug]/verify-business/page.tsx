@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, ShieldAlert } from "lucide-react";
 
 import { FileDrop, FileSummary } from "@/components/fileDrop";
 
+import { ChecklistRows, type ChecklistRow } from "@/components/console/checklist";
 import { PageHeader } from "@/components/console/pageHeader";
 import {
   Card,
@@ -100,27 +100,52 @@ export default function VerifyBusinessPage() {
   );
 }
 
+/**
+ * What stands between this account and outgoing calls: one row per step, its state in a
+ * word, and the cards below to do it. `outboundSteps` decides whether anything is left.
+ */
 function OutboundStatus({ record, pledge }: { record: KycRecord; pledge: OutboundPledge | undefined }) {
-  const steps = outboundSteps(record, pledge);
-  if (steps.length === 0) {
-    return (
-      <NoticeBox tone="ok" icon={<CheckCircle2 aria-hidden className="h-5 w-5" />} title="Outgoing calls are open">
-        <p className="mt-1">Your business is verified and the pledge is accepted.</p>
-      </NoticeBox>
-    );
+  if (outboundSteps(record, pledge).length === 0) {
+    return <NoticeBox tone="ok" title="Outgoing calls are open">Your business is verified and the pledge is accepted.</NoticeBox>;
+  }
+  const inReview = record.status === "submitted" || record.status === "in_review";
+  const rows: ChecklistRow[] = [
+    {
+      id: "business",
+      label: "Business verification",
+      ...(record.is_verified
+        ? { status: "done" as const }
+        : inReview
+          ? { status: "waiting" as const, statusText: "In review" }
+          : { status: "not_started" as const, statusText: "Not started" }),
+    },
+  ];
+  if (record.is_verified && record.digilocker_outstanding) {
+    rows.push({
+      id: "digilocker",
+      label: "DigiLocker check",
+      status: "not_started",
+      statusText: "Needed",
+      info: record.digilocker_required_reason ? `Why we asked: ${record.digilocker_required_reason}` : undefined,
+    });
+  }
+  if (pledge) {
+    rows.push({
+      id: "pledge",
+      label: "No-cold-calls pledge",
+      ...(pledge.is_current
+        ? { status: "done" as const, statusText: "Accepted" }
+        : { status: "not_started" as const, statusText: pledge.accepted_version === null ? "Not accepted" : "Updated, accept again" }),
+    });
   }
   return (
-    <NoticeBox tone="warn" icon={<ShieldAlert aria-hidden className="h-5 w-5" />} title="Outgoing calls are paused">
-      <ul className="mt-1 list-disc pl-5">
-        {steps.map((step) => (
-          <li key={step}>{step}</li>
-        ))}
-      </ul>
-      <p className="mt-2 font-semibold">Calls coming in are unaffected — your agent keeps answering.</p>
-      {record.digilocker_outstanding && record.digilocker_required_reason && (
-        <p className="mt-2">Why we asked: {record.digilocker_required_reason}</p>
-      )}
-    </NoticeBox>
+    <ChecklistRows
+      heading="Outgoing calls are paused"
+      headingLevel={2}
+      tone="warn"
+      summary="Calls coming in are unaffected. Your agent keeps answering."
+      rows={rows}
+    />
   );
 }
 
@@ -189,7 +214,7 @@ function VerifyCards({ session, record, access }: { session: Session; record: Ky
       <DigiLockerReturn session={session} />
       {record.status === "rejected" && record.rejection_reason && (
         <NoticeBox tone="stop" title="We could not verify the business from what was sent">
-          <p className="mt-1">{record.rejection_reason}</p>
+          {record.rejection_reason}
         </NoticeBox>
       )}
       {!locked && <RestrictionNote reason={access.write.reason ?? access.upload.reason} />}
@@ -620,11 +645,16 @@ function DigiLockerReturn({ session }: { session: Session }) {
   if (complete.error) return <ProblemNotice error={complete.error} />;
   if (complete.data?.status === "pending") {
     return (
-      <NoticeBox tone="warn" title="DigiLocker has not finished yet">
-        <p className="mt-1">If you completed it, wait a moment and check again.</p>
-        <button type="button" className={SECONDARY_BUTTON} onClick={() => complete.mutate(ref)}>
-          Check again
-        </button>
+      <NoticeBox
+        tone="warn"
+        title="DigiLocker has not finished yet"
+        action={
+          <button type="button" className={SECONDARY_BUTTON} onClick={() => complete.mutate(ref)}>
+            Check again
+          </button>
+        }
+      >
+        If you completed it, wait a moment and check again.
       </NoticeBox>
     );
   }
@@ -632,7 +662,7 @@ function DigiLockerReturn({ session }: { session: Session }) {
   if (outcome) {
     return (
       <NoticeBox tone={outcome.tone} title={outcome.title}>
-        <p className="mt-1">{outcome.body}</p>
+        {outcome.body}
       </NoticeBox>
     );
   }

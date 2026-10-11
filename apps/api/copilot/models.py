@@ -280,7 +280,7 @@ class AdminCopilotConversationTurn(_ConversationTurnColumns, PKMixin, TimestampM
 #: * `done`             — it ran. An immediate row may then become `undone`.
 #: * `undone`           — its inverse ran.
 #: * `refused`          — the tool, the permission ladder or the platform said no. No args.
-#: * `pending_approval` — a background job reached a CONFIRM-tier action, which waits in the
+#: * `pending_approval` — a background job reached an action (any tier), which waits in the
 #:                        Approvals inbox; it becomes `done`, `rejected` or `expired`.
 ACTION_STATUSES: Final[tuple[str, ...]] = (
     "done",

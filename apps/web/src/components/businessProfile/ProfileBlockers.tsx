@@ -1,9 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { ArrowRight, ClipboardList } from "lucide-react";
-
-import { NoticeBox } from "@/components/ui";
+import { ChecklistRows } from "@/components/console/checklist";
 import { setupHref, stepCopy, type StepId } from "@/lib/api/businessProfile";
 
 export interface ProfileBlocker {
@@ -30,22 +27,19 @@ export function ProfileBlockers({
 }) {
   if (blockers.length === 0) return null;
   return (
-    <NoticeBox tone="warn" icon={<ClipboardList aria-hidden className="h-5 w-5" />} title={title}>
-      <p className="mt-1">{lead}</p>
-      <ul className="mt-2 space-y-1">
-        {blockers.map((blocker) => (
-          <li key={blocker.code}>
-            <Link
-              href={setupHref(href, blocker.step)}
-              className="inline-flex items-center gap-1 rounded-sm font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
-            >
-              {stepCopy(blocker.step).short}
-              <ArrowRight aria-hidden className="h-3.5 w-3.5" />
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </NoticeBox>
+    <ChecklistRows
+      heading={title}
+      tone="warn"
+      summary={lead}
+      rows={blockers.map((blocker) => ({
+        id: blocker.code,
+        label: stepCopy(blocker.step).short,
+        status: "not_started",
+        statusText: "To do",
+        info: blocker.message,
+        link: { href: setupHref(href, blocker.step), label: "Open" },
+      }))}
+    />
   );
 }
 

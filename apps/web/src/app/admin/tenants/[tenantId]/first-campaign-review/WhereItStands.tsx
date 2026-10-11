@@ -80,15 +80,13 @@ export function WhereItStands({
 }) {
   const state = firstCampaignState(hold);
   const verdict = OPERATOR_VERDICTS[state];
-  const Icon = verdict.icon;
 
   return (
-    <NoticeBox tone={verdict.tone} icon={<Icon className="h-5 w-5" />} title={verdict.headline}>
+    <NoticeBox tone={verdict.tone} title={verdict.headline}>
       {state === "never_applied" && (
-        <p className="mt-1 text-meta opacity-90">
-          The hold is scoped to the self-serve and trial motions. {tenantName} was onboarded
-          by a person, so no campaign of theirs is held by this rule — recording a decision
-          here is possible and changes nothing about their calling.
+        <p className="text-meta">
+          {tenantName} was onboarded by a person, so this rule holds none of their campaigns. A
+          decision recorded here changes nothing about their calling.
         </p>
       )}
       {state === "held_unknown" && hold.reason && (
@@ -98,7 +96,7 @@ export function WhereItStands({
       <dl className="mt-3 grid gap-2 text-meta sm:grid-cols-2">
         <div>
           <dt className="opacity-70">Decision on file</dt>
-          <dd className="mt-0.5 font-medium">{hold.status ?? "none — nobody has looked"}</dd>
+          <dd className="mt-0.5 font-medium">{hold.status ?? "none, nobody has looked"}</dd>
         </div>
         <div>
           <dt className="opacity-70">Decided</dt>
@@ -109,7 +107,7 @@ export function WhereItStands({
         <div className="sm:col-span-2">
           <dt className="opacity-70">
             Note on file
-            {hold.status === "rejected" && " — this is what the client is reading now"}
+            {hold.status === "rejected" && ". This is what the client is reading now"}
           </dt>
           <dd className="mt-0.5 whitespace-pre-wrap font-medium">{hold.decision_note ?? "—"}</dd>
         </div>
@@ -131,8 +129,8 @@ export function WhereItStands({
         >
           <Eye aria-hidden className="h-3.5 w-3.5" />
           What the client sees (read-only)
-        </Link>{" "}
-        — their own screen renders the note above verbatim.
+        </Link>.{" "}
+        Their own screen renders the note above verbatim.
       </p>
     </NoticeBox>
   );

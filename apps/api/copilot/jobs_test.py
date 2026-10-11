@@ -209,16 +209,40 @@ async def test_another_tenant_cannot_approve() -> None:
     assert await _dnc_count(tenant_a) == 0
 
 
-async def test_an_immediate_tool_is_never_staged() -> None:
-    tenant_id, _slug, token = await _make_tenant()
+async def test_an_immediate_tool_is_staged_and_changes_nothing_until_approved() -> None:
+    """D-729: inside a job an immediate-tier change waits for a click like any other."""
+    tenant_id, slug, token = await _make_tenant()
     job = await _job(tenant_id, token)
-    with pytest.raises(write_tools.WriteRefusedError):
-        await write_tools.stage_for_approval(
-            "lead_set_status",
-            json.dumps({"lead_id": str(await _lead_of(tenant_id)), "status": "hot"}),
-            principal=_principal(tenant_id, _user_of(token)),
-            job_id=job.id,
+    lead_id = await _lead_of(tenant_id)
+    staged = await write_tools.stage_for_approval(
+        "lead_set_status",
+        json.dumps({"lead_id": str(lead_id), "status": "hot"}),
+        principal=_principal(tenant_id, _user_of(token)),
+        job_id=job.id,
+    )
+
+    async def status() -> str:
+        async with tenant_session(tenant_id) as session:
+            return str(
+                (
+                    await session.execute(
+                        text("SELECT status FROM leads WHERE id = :i"), {"i": lead_id}
+                    )
+                ).scalar()
+            )
+
+    assert await status() != "hot"
+    async with _client() as http:
+        preview = await http.get(
+            f"/v1/copilot/approvals/{staged.action_id}/preview", headers=_headers(token, slug)
         )
+        approved = await http.post(
+            f"/v1/copilot/approvals/{staged.action_id}/approve", headers=_headers(token, slug)
+        )
+    assert approved.status_code == 200, approved.text
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["still_applies"] is True
+    assert await status() == "hot"
 
 
 async def test_a_staff_member_cannot_stage_what_their_role_cannot_do() -> None:

@@ -68,6 +68,9 @@ Session = Annotated[AsyncSession, Depends(db)]
 # `Annotated` alias rather than a `Depends(...)` default: B008 is waived only for
 # `**/routes.py` and this module is `provisioning_routes.py`.
 NumberBuyer = Annotated[Principal, Depends(requires("org:manage"))]
+#: The purchase itself is the client's own spend, declared on the CLIENT realm so a
+#: view-as session is refused before anything is read (D-730), as a top-up is.
+NumberOwner = Annotated[Principal, Depends(requires("org:manage", realm="client"))]
 
 # READING the number screens is a READ. Support impersonating a client is deliberately
 # read-only (D-22), so a GET gated on a mutating permission is a screen that support
@@ -339,7 +342,7 @@ async def available_numbers(
 async def purchase_number(
     payload: PurchaseIn,
     request: Request,
-    principal: NumberBuyer,
+    principal: NumberOwner,
 ) -> PurchasedNumberOut:
     """Claim the key, buy, record the answer — three transactions, in that order.
 

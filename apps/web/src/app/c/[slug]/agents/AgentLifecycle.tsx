@@ -54,6 +54,8 @@ import {
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON,
+  NOTICE_BAR,
+  NOTICE_BASE,
 } from "@/components/ui";
 import { movesFor } from "@/lib/agentState";
 import {
@@ -203,10 +205,10 @@ export function AgentLifecycle({
                  two sibling buttons would silently take away. */
               <div
                 role="status"
-                className="mt-3 rounded-md border border-danger-line bg-danger-soft px-3 py-2 text-xs text-ink"
+                className={`mt-3 ${NOTICE_BASE} ${NOTICE_BAR.stop}`}
               >
                 <p className="font-semibold">{copy.confirm.title}</p>
-                <ul className="mt-2 list-inside list-disc space-y-1">
+                <ul className="mt-1 list-inside list-disc space-y-1 text-ink-muted">
                   {copy.confirm.points.map((point) => (
                     <li key={point}>{point}</li>
                   ))}

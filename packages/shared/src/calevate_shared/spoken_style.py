@@ -1,43 +1,84 @@
 """How people speak on a call, per language and business type: the register line every agent
-in that language carries, and example exchanges that seed new scripts (founder decision 3,
-10 Oct 2026, `docs/evidence/first-call-review-2026-10-10.md`).
+in that language carries, the formal-to-spoken word list, the tags and fillers, how numbers
+and sentences are written for a voice, and example exchanges that seed new scripts (founder
+decision 3, 10 Oct 2026, `docs/evidence/first-call-review-2026-10-10.md`; the spoken-style
+rules of 11 Oct 2026, D-744).
 
-The words live in `spoken_style.json` beside this module, not in code, so the founder or a
-native speaker can correct them without touching a prompt builder. Every entry carries a
-`review` status; all of them are AI-drafted and `needs_native_review` until a native speaker
-has read them, and the script builder says so to the client.
+The words live in `spoken_style.json` beside this module, not in code, so the founder can
+correct them without touching a prompt builder. Every entry there is AI-drafted and
+`needs_native_review`. The founder reviews them on the admin screen (Ops > Spoken style);
+what they publish is stored by the API (`apps/api/ops/spoken_style_store.py`) and installed
+here with `install_published`, layered over the file: an edited or added entry replaces or
+joins the file's, a retired one is dropped, and an entry the founder approved is
+`native_reviewed`. This package cannot import the API, so the published layer is pushed in
+rather than read, the same way the API installs the attested prices into `billing.rates`.
 
-Two consumers, kept apart on purpose:
+Consumers, kept apart on purpose:
 
 * `register_guidance` is PLATFORM text, composed into every agent's prompt by
-  `engine.compose_engine_prompt`. It describes the register in English and quotes no full
-  sentence, because platform text is part of what the owned runtime's output guard treats as
-  instructions not to recite (`voice_worker/output_guard.py`).
-* `example_exchange` seeds the CLIENT's script (`call_script.CallScript.example_exchange`),
-  where the client can edit or delete it and where the output guard knows it is spoken.
+  `engine.compose_engine_prompt`. It stays short (the prompt has an 8,000-character
+  ceiling), so it carries the register line, only the swaps named in `prompt_swaps` and the
+  tags and fillers, and quotes no full sentence: platform text is what the owned runtime's
+  output guard treats as instructions not to recite (`voice_worker/output_guard.py`).
+* `writer_guidance` is the long form for the models that WRITE spoken lines (the script
+  assistant, the test-caller writer): every swap, the number and punctuation rules and two
+  or three example exchanges, because a writer copies examples far better than it follows
+  an abstract rule about register.
+* `example_exchange` and `opening_in` seed the CLIENT's script, where the client can edit
+  or delete them and where the output guard knows they are spoken.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from functools import cache
 from importlib import resources
-from typing import Any, Final, Literal
+from types import MappingProxyType
+from typing import Any, Final, Literal, get_args
 
 from calevate_shared.languages import find_language
 
 ReviewStatus = Literal["needs_native_review", "native_reviewed"]
 Speaker = Literal["caller", "agent"]
 
+#: What one reviewable entry is. `register` has the one key `line`; `opening` is keyed by
+#: call direction; `example` by business type; `swap` by its formal word; the rest by id.
+EntryKind = Literal[
+    "register", "swap", "filler", "number_rule", "punctuation", "example", "opening"
+]
+ENTRY_KINDS: Final[tuple[EntryKind, ...]] = get_args(EntryKind)
+
 #: The business-type key an unknown or custom business falls back to.
 DEFAULT_EXAMPLES: Final = "_default"
+#: The key of a language's one register line.
+REGISTER_KEY: Final = "line"
+#: The call directions an opening is keyed by.
+OPENING_KEYS: Final = ("inbound", "outbound")
+
+#: Bounds on what an edit may hold, so a typo cannot blow the prompt budget.
+MAX_TEXT: Final = 600
+MAX_SHORT: Final = 120
+MAX_TURNS: Final = 10
+#: Tags and fillers quoted in the prompt; the rest guide the writers only.
+PROMPT_FILLERS: Final = 6
+#: Keys are short ids a URL can carry: letters, digits, `-` and `_`, or a swap's formal word.
+_ID: Final = re.compile(r"^[a-z0-9_][a-z0-9_-]{0,47}$")
 
 
 @dataclass(frozen=True, slots=True)
 class ExampleTurn:
     speaker: Speaker
     text: str
+
+
+@dataclass(frozen=True, slots=True)
+class Filler:
+    text: str
+    #: When it is used, in English, for the writers.
+    use: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,46 +89,235 @@ class LanguageStyle:
     review: ReviewStatus
     reviewed_by: str | None
     examples: dict[str, tuple[ExampleTurn, ...]]
-    #: (formal or written form, what people say instead), for the prompt's do/don't list.
+    #: (formal or written form, what people say instead): the whole list, for the writers
+    #: and the test checks.
     word_swaps: tuple[tuple[str, str], ...] = ()
     #: A starter's greeting in this language, by direction, with `{business}` to fill.
     openings: dict[str, str] | None = None
+    #: The swaps short enough and common enough to sit in every agent's prompt.
+    prompt_swaps: tuple[tuple[str, str], ...] = ()
+    fillers: tuple[Filler, ...] = ()
+    number_rules: tuple[str, ...] = ()
+    punctuation: tuple[str, ...] = ()
+    #: The IST date the reviewed set was published, when it was.
+    reviewed_on: str | None = None
 
 
-def _turns(raw: list[list[str]]) -> tuple[ExampleTurn, ...]:
-    out: list[ExampleTurn] = []
-    for speaker, text in raw:
-        if speaker not in ("caller", "agent"):
-            raise ValueError(f"spoken_style.json: unknown speaker {speaker!r}")
-        out.append(ExampleTurn(speaker=speaker, text=text))  # type: ignore[arg-type]
-    return tuple(out)
+@dataclass(frozen=True, slots=True)
+class StyleEntry:
+    """One reviewable entry as the file holds it (`value` is `normalize_value`'s shape)."""
+
+    kind: EntryKind
+    key: str
+    value: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class PublishedEntry:
+    """The founder's published word on one entry: its value (None = retired) and whether
+    they approved it."""
+
+    value: Mapping[str, Any] | None
+    approved: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PublishedLanguage:
+    """One language's published layer: entries keyed by (kind, key), and who reviewed it."""
+
+    entries: Mapping[tuple[str, str], PublishedEntry] = field(default_factory=dict)
+    reviewed_by: str | None = None
+    reviewed_on: str | None = None
+
+
+# --- values ---------------------------------------------------------------------------------
+
+
+def _text(
+    raw: Mapping[str, Any], name: str, limit: int = MAX_TEXT, *, required: bool = True
+) -> str:
+    value = raw.get(name, "")
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be text")
+    value = " ".join(value.split())
+    if required and not value:
+        raise ValueError(f"{name} is empty")
+    if len(value) > limit:
+        raise ValueError(f"{name} is longer than {limit} characters")
+    return value
+
+
+def normalize_value(kind: str, key: str, raw: Mapping[str, Any]) -> dict[str, Any]:
+    """An entry's value in its one shape, or ValueError naming what is wrong. Used for the
+    file and for every edit the review screen sends, so both reach the prompt the same way."""
+    if kind == "register":
+        if key != REGISTER_KEY:
+            raise ValueError(f"the register's key is {REGISTER_KEY!r}")
+        return {"text": _text(raw, "text")}
+    if kind == "swap":
+        formal = _text(raw, "formal", MAX_SHORT)
+        if formal != key:
+            raise ValueError("a swap is keyed by its formal word; retire it and add a new one")
+        return {
+            "formal": formal,
+            "spoken": _text(raw, "spoken", MAX_SHORT),
+            "in_prompt": bool(raw.get("in_prompt", False)),
+        }
+    if kind == "opening":
+        if key not in OPENING_KEYS:
+            raise ValueError(f"an opening is keyed by {' or '.join(OPENING_KEYS)}")
+        return {"text": _text(raw, "text", 300)}
+    if not _ID.match(key):
+        raise ValueError("key: lowercase letters, digits, - and _ only")
+    if kind == "filler":
+        return {
+            "text": _text(raw, "text", MAX_SHORT),
+            "use": _text(raw, "use", 300, required=False),
+        }
+    if kind in ("number_rule", "punctuation"):
+        return {"text": _text(raw, "text", 400)}
+    if kind == "example":
+        turns = raw.get("turns")
+        if not isinstance(turns, Sequence) or isinstance(turns, str) or not turns:
+            raise ValueError("an example needs at least one turn")
+        if len(turns) > MAX_TURNS:
+            raise ValueError(f"an example has at most {MAX_TURNS} turns")
+        out: list[dict[str, str]] = []
+        for turn in turns:
+            if not isinstance(turn, Mapping) or turn.get("speaker") not in ("caller", "agent"):
+                raise ValueError("each turn has a speaker, caller or agent")
+            out.append({"speaker": str(turn["speaker"]), "text": _text(turn, "text", 300)})
+        return {"turns": out}
+    raise ValueError(f"unknown entry kind {kind!r}")
+
+
+# --- the file -------------------------------------------------------------------------------
+
+
+@cache
+def _raw() -> dict[str, Any]:
+    raw: dict[str, Any] = json.loads(
+        resources.files(__package__).joinpath("spoken_style.json").read_text(encoding="utf-8")
+    )
+    return raw
+
+
+def languages() -> tuple[str, ...]:
+    """Every language the file has a row for, in file order."""
+    return tuple(_raw()["languages"])
+
+
+def _file_entries(row: Mapping[str, Any]) -> list[StyleEntry]:
+    entries: list[StyleEntry] = []
+
+    def add(kind: EntryKind, key: str, raw: Mapping[str, Any]) -> None:
+        entries.append(StyleEntry(kind=kind, key=key, value=normalize_value(kind, key, raw)))
+
+    add("register", REGISTER_KEY, {"text": row["register"]})
+    for direction, text in (row.get("openings") or {}).items():
+        add("opening", direction, {"text": text})
+    prompt_names = row.get("prompt_swaps")
+    for formal, spoken in row.get("word_swaps", []):
+        in_prompt = True if prompt_names is None else formal in prompt_names
+        add("swap", formal, {"formal": formal, "spoken": spoken, "in_prompt": in_prompt})
+    for item in row.get("fillers", []):
+        add("filler", item["id"], item)
+    for item in row.get("number_rules", []):
+        add("number_rule", item["id"], item)
+    for item in row.get("punctuation", []):
+        add("punctuation", item["id"], item)
+    for kind, turns in row["examples"].items():
+        for speaker, _said in turns:
+            if speaker not in ("caller", "agent"):
+                raise ValueError(f"spoken_style.json: unknown speaker {speaker!r}")
+        add("example", kind, {"turns": [{"speaker": s, "text": t} for s, t in turns]})
+    return entries
+
+
+def default_entries(tag: str) -> tuple[StyleEntry, ...]:
+    """A language's entries as the file holds them, before any review. Empty for a
+    language with no row."""
+    row = _raw()["languages"].get(tag)
+    return tuple(_file_entries(row)) if row is not None else ()
+
+
+# --- the published layer --------------------------------------------------------------------
+
+_published: Mapping[str, PublishedLanguage] = MappingProxyType({})
+
+
+def install_published(layer: Mapping[str, PublishedLanguage] | None) -> None:
+    """Install the founder's published layer for this process (None restores the file
+    alone). Called by the API's snapshot refresher, and by tests."""
+    global _published
+    _published = MappingProxyType(dict(layer or {}))
+    _table.cache_clear()
+
+
+def merged_entries(tag: str) -> tuple[list[StyleEntry], set[tuple[str, str]]]:
+    """The language's entries with the published layer applied, in file order then added
+    order, and the (kind, key) pairs the founder approved."""
+    layer = _published.get(tag)
+    merged: dict[tuple[str, str], StyleEntry] = {(e.kind, e.key): e for e in default_entries(tag)}
+    approved: set[tuple[str, str]] = set()
+    if layer is not None:
+        for (kind, key), published in layer.entries.items():
+            if published.value is None:
+                merged.pop((kind, key), None)
+                continue
+            merged[(kind, key)] = StyleEntry(kind=kind, key=key, value=published.value)  # type: ignore[arg-type]
+            if published.approved:
+                approved.add((kind, key))
+    return list(merged.values()), approved
+
+
+def _build(tag: str, row: Mapping[str, Any]) -> LanguageStyle:
+    review = row["review"]
+    if review not in ("needs_native_review", "native_reviewed"):
+        raise ValueError(f"spoken_style.json: {tag} has review {review!r}")
+    entries, approved = merged_entries(tag)
+    by_kind: dict[str, list[StyleEntry]] = {kind: [] for kind in ENTRY_KINDS}
+    for entry in entries:
+        by_kind[entry.kind].append(entry)
+    layer = _published.get(tag)
+    reviewed_by = row.get("reviewed_by")
+    reviewed_on: str | None = None
+    if layer is not None and entries and all((e.kind, e.key) in approved for e in entries):
+        review, reviewed_by, reviewed_on = "native_reviewed", layer.reviewed_by, layer.reviewed_on
+    register = by_kind["register"][0].value["text"] if by_kind["register"] else row["register"]
+    swaps = tuple((e.value["formal"], e.value["spoken"]) for e in by_kind["swap"])
+    return LanguageStyle(
+        tag=tag,
+        register_name=str(row["register_name"]),
+        register=str(register),
+        review=review,
+        reviewed_by=reviewed_by,
+        examples={
+            e.key: tuple(
+                ExampleTurn(speaker=t["speaker"], text=t["text"]) for t in e.value["turns"]
+            )
+            for e in by_kind["example"]
+        },
+        word_swaps=swaps,
+        openings={e.key: e.value["text"] for e in by_kind["opening"]} or None,
+        prompt_swaps=tuple(
+            (e.value["formal"], e.value["spoken"]) for e in by_kind["swap"] if e.value["in_prompt"]
+        ),
+        fillers=tuple(Filler(text=e.value["text"], use=e.value["use"]) for e in by_kind["filler"]),
+        number_rules=tuple(e.value["text"] for e in by_kind["number_rule"]),
+        punctuation=tuple(e.value["text"] for e in by_kind["punctuation"]),
+        reviewed_on=reviewed_on,
+    )
 
 
 @cache
 def _table() -> dict[str, LanguageStyle]:
-    raw: dict[str, Any] = json.loads(
-        resources.files(__package__).joinpath("spoken_style.json").read_text(encoding="utf-8")
-    )
-    table: dict[str, LanguageStyle] = {}
-    for tag, row in raw["languages"].items():
-        review = row["review"]
-        if review not in ("needs_native_review", "native_reviewed"):
-            raise ValueError(f"spoken_style.json: {tag} has review {review!r}")
-        table[tag] = LanguageStyle(
-            tag=tag,
-            register_name=str(row["register_name"]),
-            register=str(row["register"]),
-            review=review,
-            reviewed_by=row.get("reviewed_by"),
-            examples={kind: _turns(turns) for kind, turns in row["examples"].items()},
-            word_swaps=tuple((str(a), str(b)) for a, b in row.get("word_swaps", [])),
-            openings=dict(row["openings"]) if "openings" in row else None,
-        )
-    return table
+    return {tag: _build(tag, row) for tag, row in _raw()["languages"].items()}
 
 
 def style_for(tag: str | None) -> LanguageStyle | None:
-    """The style row for a language, by any code `languages.find_language` accepts."""
+    """The style row for a language, by any code `languages.find_language` accepts, with
+    the founder's published layer applied."""
     if not tag:
         return None
     language = find_language(tag)
@@ -95,17 +325,30 @@ def style_for(tag: str | None) -> LanguageStyle | None:
     return _table().get(key)
 
 
+# --- readers --------------------------------------------------------------------------------
+
+
+def native_reviewed(tag: str | None) -> bool:
+    """Has a native speaker reviewed this language's published set?"""
+    style = style_for(tag)
+    return style is not None and style.review == "native_reviewed"
+
+
 def register_guidance(tag: str | None) -> str | None:
-    """The register line, then the do/don't list as concrete pairs. Concrete pairs because
-    an open in-call model (GPT-OSS 120B, founder decision 10 Oct 2026) follows a word it can
-    copy far better than an abstract rule about register."""
+    """The register line, then the prompt's do/don't list as concrete pairs, then the tags
+    and fillers. Concrete pairs because an open in-call model (GPT-OSS 120B, founder decision
+    10 Oct 2026) follows a word it can copy far better than an abstract rule about register."""
     style = style_for(tag)
     if style is None:
         return None
-    if not style.word_swaps:
-        return style.register
-    swaps = "; ".join(_swap(formal, spoken) for formal, spoken in style.word_swaps)
-    return f"{style.register} Say it the spoken way: {swaps}."
+    parts = [style.register]
+    if style.prompt_swaps:
+        swaps = "; ".join(_swap(formal, spoken) for formal, spoken in style.prompt_swaps)
+        parts.append(f"Say it the spoken way: {swaps}.")
+    if style.fillers:
+        said = ", ".join(f.text for f in style.fillers[:PROMPT_FILLERS])
+        parts.append(f"Tags and fillers people use, lightly: {said}.")
+    return " ".join(parts)
 
 
 def _swap(formal: str, spoken: str) -> str:
@@ -132,14 +375,96 @@ def opening_in(tag: str | None, direction: str) -> str | None:
     return style.openings.get(direction)
 
 
+def _exchanges_for(style: LanguageStyle, business_type: str | None, count: int) -> list[str]:
+    order = [business_type or "", DEFAULT_EXAMPLES, *style.examples]
+    picked: list[str] = []
+    for kind in order:
+        if kind in style.examples and kind not in picked:
+            picked.append(kind)
+        if len(picked) == count:
+            break
+    return picked
+
+
+def writer_guidance(tag: str | None, business_type: str | None = None, *, examples: int = 3) -> str:
+    """Everything a model that WRITES spoken lines in this language needs, in English:
+    the register, every formal-to-spoken swap, the tags and fillers, the number and
+    punctuation rules, and up to `examples` example exchanges (this business type's first).
+    Empty for a language with no style row."""
+    style = style_for(tag)
+    if style is None:
+        return ""
+    lines = [f"How people speak it on the phone ({style.register_name}): {style.register}"]
+    if style.word_swaps:
+        lines.append(
+            "Formal words to avoid, with what people say instead: "
+            + "; ".join(f"{formal} -> {spoken}" for formal, spoken in style.word_swaps)
+            + "."
+        )
+    if style.fillers:
+        lines.append(
+            "Spoken tags and light fillers, used where they help and not in every line: "
+            + "; ".join(f"{f.text} ({f.use})" if f.use else f.text for f in style.fillers)
+        )
+    if style.number_rules:
+        lines.append("Numbers: " + " ".join(style.number_rules))
+    if style.punctuation:
+        lines.append("Writing for a voice: " + " ".join(style.punctuation))
+    picked = _exchanges_for(style, business_type, examples)
+    if picked:
+        lines.append("Example exchanges, showing how it sounds, never facts to repeat:")
+        for kind in picked:
+            label = "any business" if kind == DEFAULT_EXAMPLES else kind.replace("_", " ")
+            lines.append(f"({label})")
+            lines += [f"{t.speaker.title()}: {t.text}" for t in style.examples[kind]]
+    return "\n".join(lines)
+
+
+def caller_guidance(tag: str | None, business_type: str | None = None) -> str:
+    """How a CALLER sounds in this language, for the model that writes test callers: the
+    tags and fillers, how numbers are said, and the caller's side of one example exchange.
+    The swaps are not repeated here (the test brief already lists them). Empty for a
+    language with no style row."""
+    style = style_for(tag)
+    if style is None:
+        return ""
+    lines: list[str] = []
+    if style.fillers:
+        lines.append("Tags and fillers callers use: " + ", ".join(f.text for f in style.fillers))
+    if style.number_rules:
+        lines.append("Numbers as people say them: " + " ".join(style.number_rules))
+    picked = _exchanges_for(style, business_type, 1)
+    if picked:
+        said = [t.text for t in style.examples[picked[0]] if t.speaker == "caller"]
+        if said:
+            lines.append("How callers sound (style only): " + " / ".join(said))
+    return "\n".join(lines)
+
+
 __all__ = [
     "DEFAULT_EXAMPLES",
+    "ENTRY_KINDS",
+    "OPENING_KEYS",
+    "REGISTER_KEY",
+    "EntryKind",
     "ExampleTurn",
+    "Filler",
     "LanguageStyle",
+    "PublishedEntry",
+    "PublishedLanguage",
     "ReviewStatus",
     "Speaker",
+    "StyleEntry",
+    "caller_guidance",
+    "default_entries",
     "example_exchange",
+    "install_published",
+    "languages",
+    "merged_entries",
+    "native_reviewed",
+    "normalize_value",
     "opening_in",
     "register_guidance",
     "style_for",
+    "writer_guidance",
 ]

@@ -23,12 +23,12 @@ import type { Session } from "@/lib/api/client";
 export function StateNotice({ quota, session }: { quota: AiQuota; session: Session }) {
   if (quota.state === "platform_paused") {
     return (
-      <NoticeBox tone="warn" title="AI help is paused right now">
-        <p className="mt-1">
-          We have paused AI help across Calevate while we check unusually high usage.
-          Your calls, campaigns and leads are unaffected, and nothing has been charged.
-          It comes back on its own — ask us if you need it sooner.
-        </p>
+      <NoticeBox
+        tone="warn"
+        title="AI help is paused right now"
+        info="We paused AI help across Calevate while we check unusually high usage. It comes back on its own. Ask us if you need it sooner."
+      >
+        Your calls, campaigns and leads are unaffected, and nothing has been charged.
       </NoticeBox>
     );
   }
@@ -36,11 +36,7 @@ export function StateNotice({ quota, session }: { quota: AiQuota; session: Sessi
   if (quota.state === "exhausted") {
     return (
       <NoticeBox tone="stop" title="This month's AI help is finished">
-        <p className="mt-1">
-          You have used the AI help included with your plan and the extra you added. It
-          starts again at the beginning of next month. Talk to us if
-          you need more before then.
-        </p>
+        It starts again next month. Talk to us if you need more before then.
       </NoticeBox>
     );
   }
@@ -64,10 +60,7 @@ function CeilingReached({ quota, session }: { quota: AiQuota; session: Session }
   return (
     <>
       <NoticeBox tone="warn" title="You have used this month's included AI help">
-        <p className="mt-1">
-          AI help in the console has stopped for this month. Everything else — your
-          calls, campaigns and leads — carries on exactly as before.
-        </p>
+        <p>AI help is off until next month. Calls, campaigns and leads carry on as before.</p>
         {quota.extra_available ? (
           <>
             <div className="mt-3">

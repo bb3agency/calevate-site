@@ -11,7 +11,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest, RECONCILE_PAYMENTS_CONFIRMATION } from "./admin";
 import { apiRequest, apiUpload } from "./client";
 import type { components } from "./schema";
 
@@ -62,7 +62,11 @@ export function useRunReconciliation() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiRequest<ReconcileReport>(adminSession(), `${BASE}/reconcile`, { method: "POST" }),
+      confirmedAdminRequest<ReconcileReport>(
+        `${BASE}/reconcile`,
+        { method: "POST", confirmAction: RECONCILE_PAYMENTS_CONFIRMATION },
+        "Running the payment reconciliation.",
+      ),
     onSuccess: () => void client.invalidateQueries({ queryKey: paymentKeys.status }),
   });
 }

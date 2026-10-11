@@ -117,6 +117,13 @@ const TENANT_SPEND: TenantSpend = {
   margin_pct: "70.61",
   cost_currency: "INR",
   cost_currency_stated: false,
+  trial_cost_inr: "0.00",
+  trial_in_month: false,
+  paid_cost_inr: "300000.00",
+  paid_margin_inr: "720899.00",
+  paid_margin_pct: "70.61",
+  trial_calls: 0,
+  trial_minutes: "0.00",
   unattributed: { minutes: "0.0000", cost_inr: "120.00" },
   // `kb_used_inr` is a COMPONENT of `used_inr` (D-608), never a sibling to add to it.
   ai_assist: {
@@ -132,6 +139,8 @@ const TENANT_SPEND: TenantSpend = {
       cost_inr: "300000.00",
       margin_inr: "715850.00",
       cost_currency_assumed: true,
+      trial_cost_inr: "0.00",
+      paid_margin_inr: "715850.00",
     },
   ],
   top_calls: [
@@ -140,6 +149,7 @@ const TENANT_SPEND: TenantSpend = {
       cost_inr: "200000.00",
       margin_inr: "500000.00",
       cost_currency_assumed: true,
+      trial_covered: false,
     },
   ],
 };
@@ -159,6 +169,10 @@ const FLEET: FleetSpend = {
   margin_inr: "-184100.00",
   margin_pct: null,
   ai_absorbed_inr: "0.81",
+  trial_cost_inr: "0.00",
+  paid_cost_inr: "1200000.00",
+  paid_margin_inr: "-184100.00",
+  paid_margin_pct: null,
   tenants: [
     {
       tenant_id: "t2",
@@ -173,6 +187,11 @@ const FLEET: FleetSpend = {
       margin_pct: null,
       ai_absorbed_inr: "0.81",
       ai_requests: 3,
+      trial_cost_inr: "0.00",
+      trial_in_month: false,
+      paid_cost_inr: "184100.00",
+      paid_margin_inr: "-184100.00",
+      paid_margin_pct: null,
     },
     {
       tenant_id: "t1",
@@ -187,6 +206,11 @@ const FLEET: FleetSpend = {
       margin_pct: "0.00",
       ai_absorbed_inr: "0.00",
       ai_requests: 0,
+      trial_cost_inr: "0.00",
+      trial_in_month: false,
+      paid_cost_inr: "1015900.10",
+      paid_margin_inr: "0.00",
+      paid_margin_pct: "0.00",
     },
   ],
 };
@@ -729,6 +753,50 @@ describe("the client's spend screen", () => {
   });
 });
 
+/** A free-trial month: nothing billed, our cost all trial-covered, attested INR rates. */
+const TRIAL_SPEND: TenantSpend = {
+  ...TENANT_SPEND,
+  plan_tier: "prepaid",
+  calls: 4,
+  minutes_used: "4.00",
+  revenue_inr: "0.00",
+  cost_inr: "13.80",
+  margin_inr: "-13.80",
+  margin_pct: null,
+  cost_currency: "INR",
+  cost_currency_stated: true,
+  unattributed: null,
+  trial_cost_inr: "13.80",
+  trial_calls: 4,
+  trial_minutes: "4.00",
+  trial_in_month: true,
+  paid_cost_inr: "0.00",
+  paid_margin_inr: "0.00",
+  paid_margin_pct: null,
+  by_agent: [
+    {
+      ...TENANT_SPEND.by_agent[0],
+      calls: 4,
+      charged_inr: "0.00",
+      cost_inr: "13.80",
+      margin_inr: "-13.80",
+      cost_currency_assumed: false,
+      trial_cost_inr: "13.80",
+      paid_margin_inr: "0.00",
+    },
+  ],
+  top_calls: [
+    {
+      ...TENANT_SPEND.top_calls[0],
+      charged_inr: "0.00",
+      cost_inr: "4.20",
+      margin_inr: "-4.20",
+      cost_currency_assumed: false,
+      trial_covered: true,
+    },
+  ],
+};
+
 describe("the operator's half", () => {
   it("shows both directions for one client and marks the assumed cost currency", async () => {
     const { container } = await renderAdminRoute(tenantPage, {
@@ -776,10 +844,53 @@ describe("the operator's half", () => {
     // Two different facts, and an operator acts differently on each.
     const { container } = await renderAdminRoute(tenantPage, {
       ...TENANT_PAGE_READS,
-      [TENANT_ROUTE]: { ...TENANT_SPEND, margin_pct: null },
+      [TENANT_ROUTE]: { ...TENANT_SPEND, margin_pct: null, paid_margin_pct: null },
     });
     await screen.findByText("not billed yet");
     expect(container.textContent).not.toContain("0.00%");
+  });
+
+  it("shows a free trial month as the trial cost we cover, never as losing money", async () => {
+    // Raghava Organics, October 2026: four trial calls, nothing billed, ₹13.80 of our cost.
+    const { container } = await renderAdminRoute(tenantPage, {
+      ...TENANT_PAGE_READS,
+      [TENANT_ROUTE]: TRIAL_SPEND,
+    });
+    await screen.findByText("Trial calls we cover");
+    expect(tileValue(container, "Trial calls we cover")).toBe("₹13.80");
+    expect(tileValue(container, "Our cost of paid calls")).toBe("₹0.00");
+    expect(tileValue(container, "Margin")).toBe("₹0.00");
+    expect(tileValue(container, "Margin %")).toBe("Free trial");
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("Losing money");
+    expect(text).not.toContain("not billed yet");
+    expect(text).toContain("4 calls, all on a free trial");
+    // Attested INR rates assumed no currency, so the caveat does not appear.
+    expect(text).not.toContain("Cost is scaled by an assumption");
+    expect(text).toContain("Free trial");
+  });
+
+  it("shows a month mixing trial and paid calls with both figures", async () => {
+    const { container } = await renderAdminRoute(tenantPage, {
+      ...TENANT_PAGE_READS,
+      [TENANT_ROUTE]: {
+        ...TRIAL_SPEND,
+        calls: 6,
+        revenue_inr: "18.00",
+        cost_inr: "19.80",
+        paid_cost_inr: "6.00",
+        paid_margin_inr: "12.00",
+        paid_margin_pct: "66.7",
+        margin_inr: "-1.80",
+      },
+    });
+    await screen.findByText("Trial calls we cover");
+    expect(tileValue(container, "Our cost of paid calls")).toBe("₹6.00");
+    expect(tileValue(container, "Trial calls we cover")).toBe("₹13.80");
+    expect(tileValue(container, "Margin")).toBe("₹12.00");
+    expect(tileValue(container, "Margin %")).toBe("66.7%");
+    expect(container.textContent).toContain("4 of them on a free trial");
+    expect(container.textContent).not.toContain("Losing money");
   });
 
   it("walks the whole fleet and marks a losing client in words, not only in colour", async () => {
@@ -797,6 +908,53 @@ describe("the operator's half", () => {
     // Colour is the one signal the a11y sweep cannot check and a colour-blind operator may
     // not have.
     expect(container.textContent).toContain("Losing money:");
+  });
+
+  it("keeps a trial client off the losing list and shows the trial cost on its own", async () => {
+    const trialFleet: FleetSpend = {
+      ...FLEET,
+      cost_inr: "13.80",
+      margin_inr: "-13.80",
+      trial_cost_inr: "13.80",
+      paid_cost_inr: "0.00",
+      paid_margin_inr: "0.00",
+      paid_margin_pct: null,
+      revenue_inr: "0.00",
+      tenants: [
+        {
+          ...FLEET.tenants[0],
+          name: "Raghava Organics",
+          revenue_inr: "0.00",
+          cost_inr: "13.80",
+          margin_inr: "-13.80",
+          trial_cost_inr: "13.80",
+          trial_in_month: true,
+          paid_cost_inr: "0.00",
+          paid_margin_inr: "0.00",
+          paid_margin_pct: null,
+        },
+      ],
+    };
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: trialFleet,
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
+    await screen.findByText("Raghava Organics");
+    expect(tileValue(container, "Trial cost we cover")).toBe("₹13.80");
+    expect(container.textContent).not.toContain("Losing money");
+    const row = container.querySelector("tbody tr") as HTMLElement;
+    expect(within(row).getByText("Free trial")).toBeTruthy();
+  });
+
+  it("keeps the AI amount and its action count apart as separate words", async () => {
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: FLEET,
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
+    await screen.findByText("Vasavi Dental");
+    const row = container.querySelector("tbody tr") as HTMLElement;
+    // textContent is what a screen reader and a plain copy join; it must not read "₹0.813".
+    expect(row.textContent).toContain("₹0.81 3 actions");
   });
 
   it("shows the AI we absorb per client and in total, outside the margin", async () => {

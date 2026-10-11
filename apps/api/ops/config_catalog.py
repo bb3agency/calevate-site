@@ -376,7 +376,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "calling-limits",
         "limits",
         "Simultaneous calls on the ThinnestAI workspace",
-        "Inbound and outbound together; set it to the ceiling ThinnestAI has confirmed.",
+        "Inbound and outbound together; set it to the ceiling ThinnestAI has confirmed: 5 on "
+        "pay-as-you-go, 10 on Pro, raised on request.",
         _THINNEST,
     ),
     "trial_caller_number": _m(
@@ -384,7 +385,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "trial",
         "Shared trial number",
         "Every free-trial test call rings from this number, one our ThinnestAI workspace has "
-        "rented. Nothing answers it while trials use it.",
+        "rented. No AI answers it; somebody who rings it back hears a short message saying "
+        "it only places test calls.",
         _THINNEST,
     ),
     "trial_daily_call_cap": _m(
@@ -410,6 +412,23 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Studio test call is refused and Clear test calls go on. 0 allows none.",
         _THINNEST,
     ),
+    "forwarding_test_second_number": _m(
+        "calling-limits",
+        "trial",
+        "Second number for forwarding tests",
+        "A forwarding test rings a client's own published number from the shared trial number "
+        "and from this one at the same moment, to check two callers both get through. Pick a "
+        "second number our ThinnestAI workspace has rented. Unset, a test places one call.",
+        _THINNEST,
+    ),
+    "forwarding_test_daily_cap": _m(
+        "calling-limits",
+        "trial",
+        "Forwarding tests per client per day",
+        "How many forwarding tests one client may run in an IST day. Each test is a short "
+        "call we pay for.",
+        _THINNEST,
+    ),
     "self_serve_trial_days": _m(
         "calling-limits",
         "trial",
@@ -421,6 +440,15 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "trial",
         "Free trial minutes for self sign-up",
         "How many free test-call minutes a business gets when it signs itself up.",
+    ),
+    "thinnest_action_source_ips": _m(
+        "voice-engine",
+        "thinnest",
+        "Where in-call actions come from",
+        "The addresses ThinnestAI sends in-call action requests from, separated by commas. A "
+        "request from anywhere else is still served when its agent's secret is right, and "
+        "raises one alarm, so a change of address never stops a booking.",
+        _THINNEST,
     ),
     "thinnest_customer_plan": _m(
         "voice-engine",
@@ -839,6 +867,13 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Maintenance notice lead time",
         "How far ahead clients are told about a planned maintenance window.",
     ),
+    "whatsapp_message_inr": _m(
+        "notifications",
+        "whatsapp",
+        "Cost of one WhatsApp we send",
+        "What one message from our own WhatsApp account costs us, in rupees, read from Meta's "
+        "rate card. Used to record the cost of the save-our-number message, which we absorb.",
+    ),
     "whatsapp_enabled": _m(
         "notifications",
         "whatsapp",
@@ -1029,6 +1064,7 @@ _PROVIDER_ONLY_LOCAL = "For development only; refused outside a local machine."
 CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     # ---- choices among things that exist elsewhere ----------------------------------
     "trial_caller_number": ControlHint(kind="entity_picker", source="trial_numbers"),
+    "forwarding_test_second_number": ControlHint(kind="entity_picker", source="trial_numbers"),
     "thinnest_developer_workspace_id": ControlHint(
         kind="entity_picker", source="thinnest_workspace"
     ),
@@ -1150,6 +1186,8 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "razorpay_reconciliation_days": ControlHint(unit="days"),
     "trial_daily_call_cap": ControlHint(unit="calls a day"),
     "trial_studio_minutes": ControlHint(unit="minutes"),
+    "forwarding_test_daily_cap": ControlHint(unit="tests a day"),
+    "whatsapp_message_inr": ControlHint(unit="rupees"),
     "thinnest_max_concurrent_calls": ControlHint(unit="calls at once"),
     "carrier_concurrency": ControlHint(unit="calls at once"),
     "inbound_reserved_lines": ControlHint(

@@ -43,7 +43,8 @@ two adapters, which run in `api` and in `workers`.
 
 from __future__ import annotations
 
-from typing import Literal
+from dataclasses import dataclass
+from typing import Literal, Protocol, runtime_checkable
 
 from sqlalchemy import text
 
@@ -172,10 +173,34 @@ async def record_engine_failure(engine: str, *, kind: FailureKind) -> None:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class PlatformStatus:
+    """What a voice platform says about its own health. Read beside our own error counts,
+    so an outage of the platform can be told apart from a fault of ours."""
+
+    #: False when its status read did not answer: we then know nothing either way.
+    reachable: bool
+    #: Whether it says calls are working; None when unreachable.
+    calls_operational: bool | None = None
+    #: Whether it says its own records are working; None when unreachable.
+    data_operational: bool | None = None
+    #: Its words for both parts, reduced to short codes, for the alarm line.
+    reported: str | None = None
+
+
+@runtime_checkable
+class ReportsPlatformStatus(Protocol):
+    """An adapter whose platform publishes a status read."""
+
+    async def platform_status(self) -> PlatformStatus: ...
+
+
 __all__ = [
     "RETENTION_DAYS",
     "SPIKE_THRESHOLD",
     "SPIKE_WINDOW_MINUTES",
     "FailureKind",
+    "PlatformStatus",
+    "ReportsPlatformStatus",
     "record_engine_failure",
 ]

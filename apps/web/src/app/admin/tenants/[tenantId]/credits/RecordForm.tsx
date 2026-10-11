@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Info, Lock, TriangleAlert } from "lucide-react";
+import { Lock, TriangleAlert } from "lucide-react";
 
 import {
   FIELD,
@@ -276,7 +276,7 @@ export function RecordForm({
         </div>
 
         {caution && (
-          <NoticeBox tone="warn" icon={<TriangleAlert aria-hidden className="h-4 w-4" />}>
+          <NoticeBox tone="warn">
             <p className="text-meta">{caution}</p>
           </NoticeBox>
         )}
@@ -284,13 +284,12 @@ export function RecordForm({
         {alreadyOnLedger && (
           <NoticeBox
             tone="warn"
-            icon={<Info aria-hidden className="h-5 w-5" />}
             title="That reference is already on this ledger"
           >
             <p className="mt-1">
               It credited {formatINR(alreadyOnLedger.delta_inr)} on{" "}
-              {formatIST(alreadyOnLedger.occurred_at)}. Sending it again credits nothing —
-              the server returns the entry that already exists. If this is a second,
+              {formatIST(alreadyOnLedger.occurred_at)}. Sending it again credits nothing.
+              The server returns the entry that already exists. If this is a second,
               genuine payment it has its own reference; reusing this one for a different
               amount is refused as a conflict.
             </p>
@@ -367,21 +366,20 @@ function Outcome({ result }: { result: TopUpResult }) {
     return (
       <NoticeBox
         tone="neutral"
-        icon={<Info aria-hidden className="h-5 w-5" />}
-        title="Already recorded — nothing was credited"
+        title="Already recorded. Nothing was credited"
       >
         <p className="mt-1">
           <span className="font-mono">{result.payment_ref}</span> was already on this
           wallet for {formatINR(result.amount_inr)}, so no second entry was written and
           the balance did not move. It stands at {formatINR(result.balance_inr)}.{" "}
           <span className="font-semibold">
-            This client has not been credited twice — this is the reference doing its job.
+            This client has not been credited twice. This is the reference doing its job.
           </span>
         </p>
         <p className="mt-2 text-meta">
           The entry that already existed:{" "}
           <span className="font-mono">{result.entry_id}</span>. If you expected a NEW
-          payment here, the two transfers share a reference on your statement — check it
+          payment here, the two transfers share a reference on your statement. Check it
           before recording anything else.
         </p>
       </NoticeBox>
@@ -390,8 +388,7 @@ function Outcome({ result }: { result: TopUpResult }) {
   return (
     <NoticeBox
       tone="ok"
-      icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
-      title={`Recorded — ${formatINR(result.amount_inr)} credited`}
+      title={`Recorded: ${formatINR(result.amount_inr)} credited`}
     >
       <p className="mt-1">
         Against <span className="font-mono">{result.payment_ref}</span>. The wallet now

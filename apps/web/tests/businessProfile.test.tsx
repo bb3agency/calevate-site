@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { SetupWizard } from "@/app/c/[slug]/setup/SetupWizard";
@@ -151,7 +151,9 @@ describe("the business profile screen", () => {
       }),
     });
     await screen.findByText("Finish your business profile");
-    const link = screen.getByRole("link", { name: /Services and prices/ });
+    const blockers = screen.getByRole("region", { name: "Finish your business profile" });
+    const row = within(blockers).getByText("Services and prices").closest("li") as HTMLElement;
+    const link = within(row).getByRole("link", { name: /Open/ });
     expect(link.getAttribute("href")).toContain("/c/acme/setup?step=services");
     expect(container.textContent).toContain("Sunrise Dental");
   });

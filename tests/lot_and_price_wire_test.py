@@ -383,7 +383,7 @@ async def test_every_credit_write_names_the_lot_it_touched() -> None:
     async with _client() as http:
         topped = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "6000.00", "payment_ref": "UTR-WIRE-1"},
         )
         assert topped.status_code == 200, topped.text
@@ -425,7 +425,7 @@ async def test_a_credit_back_names_its_new_lot_and_taking_credit_away_names_none
     async with _client() as http:
         topped = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "6000.00", "payment_ref": "UTR-WIRE-2"},
         )
         entry_id = topped.json()["entry_id"]
@@ -628,7 +628,9 @@ async def test_an_override_needs_the_step_up_and_a_stated_reason() -> None:
     }
     async with _client() as http:
         bare = await http.post(
-            f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(token), json=body
+            f"/v1/admin/tenants/{tenant_id}/credits",
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
+            json=body,
         )
         unexplained = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",

@@ -321,7 +321,9 @@ async def test_two_overlapping_topups_of_one_reference_credit_it_once(monkeypatc
             await a_looked.wait()
         async with _client() as http:
             response = await http.post(
-                f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(token), json=payload
+                f"/v1/admin/tenants/{tenant_id}/credits",
+                headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
+                json=payload,
             )
         return response.status_code, response.json()
 
@@ -606,7 +608,7 @@ async def test_no_admin_money_surface_puts_a_float_on_the_wire() -> None:
     async with _client() as http:
         topup = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "2500.10", "payment_ref": f"UTR-{uuid.uuid4().hex[:10]}"},
         )
         wallet = await http.get(f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(token))

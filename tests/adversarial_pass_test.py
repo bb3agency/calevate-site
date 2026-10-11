@@ -447,6 +447,14 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
                 "VALUES (:i, :t, :a, 'done', '[]'::jsonb)",
                 {"a": agent_id},
             ),
+            # D-746: a published number. Testing a neighbour's would ring their phone.
+            (
+                "line_id",
+                "INSERT INTO forwarded_lines (id, tenant_id, e164, line_kind, carrier, mode, "
+                "ring_seconds, attested_at) VALUES (:i, :t, '+919812345678', 'mobile', "
+                "'airtel', 'conditional', 20, now())",
+                {},
+            ),
             # One spoken turn, so the call has something to put into English.
             (
                 "turn_id",
@@ -657,7 +665,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
         "POST",
         "/v1/integrations/credentials/{credential_id}/rotate",
         {"secret": "x", "expected_version": 1},
-        {},
+        # The rotation's step-up string (D-730); a `dev:` token needs only the echo.
+        {"X-Confirm-Action": "rotate_credential:{credential_id}"},
     ),
     ("DELETE", "/v1/integrations/credentials/{credential_id}", {}, {}),
     # D-700: the connection check and the per-action run log. RLS hides a neighbour's
@@ -756,6 +765,22 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # D-716: releasing a neighbour's held lead would ring their customer.
     ("POST", "/v1/lead-calling/held/{hold_id}/release", {}, {}),
     ("POST", "/v1/lead-calling/held/{hold_id}/drop", {}, {}),
+    # D-746: a neighbour's published number. Each resolves the line under the caller's RLS.
+    (
+        "PATCH",
+        "/v1/forwarding/lines/{line_id}",
+        {"line_kind": "mobile", "carrier": "airtel", "mode": "conditional", "ring_seconds": 20},
+        {},
+    ),
+    ("DELETE", "/v1/forwarding/lines/{line_id}", {}, {}),
+    ("GET", "/v1/forwarding/lines/{line_id}/tests", {}, {}),
+    (
+        "POST",
+        "/v1/forwarding/lines/{line_id}/tests",
+        {},
+        # The test's confirmation, bound to the CALLER's own account.
+        {"X-Confirm-Action": "forwarding_test:{caller_slug}"},
+    ),
 )
 
 
@@ -804,9 +829,12 @@ async def test_a_neighbours_object_id_is_not_found_and_never_forbidden(
             sent = {
                 k: (ids.get(v.strip("{}"), v) if isinstance(v, str) else v) for k, v in body.items()
             }
-            response = await http.request(
-                method, path, headers={**headers, **extra_headers}, json=sent
-            )
+            # A step-up string may name an id too (`rotate_credential:{credential_id}`).
+            extra = dict(extra_headers)
+            extra = {k: v.replace("{caller_slug}", str(org_b["slug"])) for k, v in extra.items()}
+            for key, value in ids.items():
+                extra = {k: v.replace("{" + key + "}", value) for k, v in extra.items()}
+            response = await http.request(method, path, headers={**headers, **extra}, json=sent)
             payload = response.json() if response.content else {}
             code = (
                 str(payload.get("type", "")).rsplit("/", 1)[-1]

@@ -31,6 +31,7 @@
  *   account's own screen, behind the permission that opens it.
  */
 
+import type { ChecklistRowStatus } from "@/components/console/checklist";
 import type { NoticeTone } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 
@@ -56,6 +57,13 @@ export interface HoldRule {
   /** Wording on the link to that screen. */
   cta: string;
   tone: NoticeTone;
+  /** The checklist row: what is being checked ("Identity (KYC)"). */
+  item: string;
+  /** The row's state in a word or two ("Not filed"). */
+  status: string;
+  rowStatus: ChecklistRowStatus;
+  /** The row's one action ("Open", "Review"). */
+  action: string;
 }
 
 /**
@@ -77,19 +85,27 @@ export interface HoldRule {
 export const HOLD_RULES: Record<string, HoldRule> = {
   kyc_missing: {
     label: "Identity not filed",
-    blocks: "All outbound calling, on any tier — and their own operator asks for the same documents.",
+    blocks: "All outbound calling, on any tier. Their own operator asks for the same documents.",
     remedy: "Chase the business's registration details, then record the verification.",
     screen: (tenantId) => `/admin/tenants/${tenantId}/kyc`,
     cta: "Identity (KYC)",
     tone: "stop",
+    item: "Identity (KYC)",
+    status: "Not filed",
+    rowStatus: "not_started",
+    action: "Open",
   },
   kyc_not_verified: {
     label: "Identity not verified",
-    blocks: "All outbound calling, on any tier — and their own operator asks for the same documents.",
-    remedy: "Something is on file and is not cleared — check it and record the outcome.",
+    blocks: "All outbound calling, on any tier. Their own operator asks for the same documents.",
+    remedy: "Something is on file and is not cleared. Check it and record the outcome.",
     screen: (tenantId) => `/admin/tenants/${tenantId}/kyc`,
     cta: "Identity (KYC)",
     tone: "warn",
+    item: "Identity (KYC)",
+    status: "Not verified",
+    rowStatus: "waiting",
+    action: "Open",
   },
   first_campaign_review_pending: {
     label: "First campaign not reviewed",
@@ -98,6 +114,10 @@ export const HOLD_RULES: Record<string, HoldRule> = {
     screen: (tenantId) => `/admin/tenants/${tenantId}/first-campaign-review`,
     cta: "Review & release",
     tone: "warn",
+    item: "First campaign",
+    status: "Waiting for review",
+    rowStatus: "waiting",
+    action: "Review",
   },
   first_campaign_review_rejected: {
     label: "First campaign refused",
@@ -108,6 +128,10 @@ export const HOLD_RULES: Record<string, HoldRule> = {
     screen: (tenantId) => `/admin/tenants/${tenantId}/first-campaign-review`,
     cta: "Review & release",
     tone: "stop",
+    item: "First campaign",
+    status: "Refused",
+    rowStatus: "blocked",
+    action: "Review",
   },
 };
 

@@ -191,6 +191,10 @@ own developer workspace's id, which is `org_…` like every customer's
 (`api-reference/workspace/get-workspace.md:327-351`) and is therefore never accepted as a
 client's own workspace (`tenancy/engine_workspace.is_own_workspace`). Provisioning also reads
 it from `GET /workspace`; the setting covers a process that has not (OPERATIONS §2 gate T-16).
+`thinnest_action_source_ips` (applies live, default `34.47.220.98`, comma-separated) is where
+ThinnestAI says its in-call action requests come from (email of 11 Oct 2026, VENDOR-STATED,
+not in the docs); a request from another address is still served when its per-agent secret
+is valid and alarms `engine_action_source_unexpected` once per episode (D-743).
 Free-trial test calls (D-697, 9 Oct 2026) add three console-managed settings, all applying
 live, under Calling limits, Free-trial test calls: `trial_caller_number` (optional, +91 form)
 is the shared number every test call rings from, held in our developer workspace and
@@ -200,6 +204,16 @@ one trial account may place per IST day; `trial_call_max_seconds` (default 180, 
 the per-call `maxCallSeconds` each test call carries (THINNEST-INTEGRATION §3c).
 D-727 adds `trial_studio_minutes` (default 15, 0..1000, live): the Studio minutes one trial
 account may use on test calls before a Studio test call is refused; Clear test calls go on.
+D-746 adds three console-managed settings, all applying live. Under Calling limits, Free-trial
+test calls: `forwarding_test_second_number` (optional, +91 form) is the second developer-
+workspace number a forwarding test rings a client's published number from, so two calls reach
+it at once; it must be held in our developer workspace, recorded against no client and differ
+from `trial_caller_number` (OPERATIONS §2 gate F-5; unset, a test places one call and reports
+concurrency untested); `forwarding_test_daily_cap` (default 3, 1..20) is how many forwarding
+tests one client may run per IST day. Under Notifications, WhatsApp: `whatsapp_message_inr`
+(optional, 0..10 rupees) is what one WhatsApp from Calevate's own account costs us, attested
+from Meta's rate card, and prices the absorbed `whatsapp_msg` row of each save-our-number
+message (unset, the row is written unpriced; gate F-8).
 D-703 adds, all live: `self_serve_trial_days` (default 7) and `self_serve_trial_free_minutes`
 (default 15), the trial a business gets the moment it signs itself up; under Integrations,
 Google, `google_signin_redirect_uri` (`https://app.calevate.tech/auth/google/callback`,

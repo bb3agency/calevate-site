@@ -93,7 +93,7 @@ from apps.api.billing.payment_events import (
     apply_refund_processed,
     apply_token,
 )
-from apps.api.billing.payment_objects import TOPUP, record_route
+from apps.api.billing.payment_objects import TOPUP, record_route, route_for
 from apps.api.billing.payments import (
     AUTHORIZED_EVENT,
     CREDIT_EVENTS,
@@ -1022,6 +1022,20 @@ async def confirm_topup_callback(
             code="payment_signature_invalid",
             title="Payment could not be verified",
             detail="We could not confirm this payment was genuine.",
+            remediation="Do not retry the payment. Contact us if it was debited.",
+        )
+
+    # THE ORDER MUST BE ONE WE MADE FOR THIS ACCOUNT (D-735). The signature proves Razorpay
+    # produced the pair, not whose order it was: without this, one client could post back
+    # another client's genuine order and be told it was theirs.
+    route = await route_for(payload.razorpay_order_id)
+    if route is None or route.kind != "order" or route.tenant_id != principal.tenant_id:
+        log.warning("topup_callback_foreign_order", extra={"tenant_id": str(principal.tenant_id)})
+        raise ProblemError(
+            kind="not_found",
+            code="payment_order_unknown",
+            title="Payment could not be matched",
+            detail="This payment does not belong to an order made from this account.",
             remediation="Do not retry the payment. Contact us if it was debited.",
         )
 

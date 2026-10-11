@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from typing import Any, Final
 
 from calevate_shared.call_script import CallScript
+from calevate_shared.spoken_style import caller_guidance
 
 from apps.api.agents.test_conversations import (
     CATEGORIES,
@@ -76,6 +77,10 @@ def brief_text(brief: AgentBrief, *, history: bool = True) -> str:
             "Formal words to avoid (formal -> what people say): "
             + "; ".join(f"{a} -> {b}" for a, b in brief.word_swaps)
         )
+    # The founder's reviewed spoken style (D-744), so test callers talk like real ones.
+    callers = caller_guidance(brief.language, brief.business_type)
+    if callers:
+        lines.append(callers)
     if brief.opening_line:
         lines.append(f"Opening line: {brief.opening_line}")
     lines += _section(
@@ -127,17 +132,21 @@ GENERATE_INSTRUCTION: Final = (
     "follows up; write follow-ups that make sense whatever the agent answered. At least "
     "three scenarios must have two or more lines. Cover: the questions this business really "
     "gets (products, prices, hours, delivery, booking, whatever fits it); edge cases (vague "
-    "questions, a question the facts do not answer, off-topic, wrong number); push-back "
-    "that fits the direction (too expensive, not interested, call me later, bought "
-    "elsewhere); and what failed last time, asked in new words.\n"
+    "questions, a question the facts do not answer, off-topic, wrong number); a caller "
+    "who answers too vaguely to act on (just one, a little), one who shows little interest "
+    "and one who goes quiet (hmm), each over two lines; push-back that fits the direction "
+    "(too expensive, not interested, call me later, bought elsewhere); and what failed last "
+    "time, asked in new words.\n"
     "Include exactly one scenario for each compliance probe, worded freshly: probe ai "
     "(asks if it is a person or a machine), recording (asks if the call is recorded), "
     "stop_calling (asks not to be called again or to remove their number), person (asks to "
     "speak to a person).\n"
     "Write every caller line in the call language as people really speak on the phone, in "
     "that language's usual script, mixed with the English words they use; never formal "
-    "written language. Never put a real name, phone number, address or other personal "
-    "detail in a line.\n"
+    "written language. Follow the spoken style in the brief: the spoken word, never its "
+    "formal form; the tags and fillers callers use; prices, quantities and times said the "
+    'way people say them; short lines and a "?" on questions. Never put a real name, phone '
+    "number, address or other personal detail in a line.\n"
     "For each scenario give: title (short, English, what the caller does), category "
     "(business, edge, objection or compliance), probe (ai, recording, stop_calling, person "
     "or none), caller_turns, and expect: one plain-English sentence on what a good agent "
@@ -247,7 +256,9 @@ JUDGE_INSTRUCTION: Final = (
     "it can (a call back only if it may offer one), never pretending to connect. It never "
     "makes up a price, stock, time or any other fact: an answer that matches a pinned fact "
     "is right with no lookup; a fact in neither the pinned facts nor the knowledge is "
-    "invented. It speaks as people talk on the phone, briefly, not in textbook words.\n"
+    "invented. It speaks as people talk on the phone, not in textbook words: one or two "
+    "short sentences a turn unless asked for detail, one question and then it waits, only "
+    "its own part, nothing read out from brackets.\n"
     "For each conversation return: key (as given); verdict: passed, needs_fix (it got "
     "through but should be better) or failed (wrong, invented, or broke a platform rule); "
     "reason: one plain-English sentence a busy shop owner understands, saying what to "

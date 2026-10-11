@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, TriangleAlert } from "lucide-react";
+import { TriangleAlert } from "lucide-react";
 
 import {
   FIELD,
@@ -53,7 +53,7 @@ const NO_START: StartDraft = {
   confirm: "",
   reason: "",
   grace: String(DEFAULT_ERASURE_GRACE_DAYS),
-  minutes: "",
+  minutes: "30",
 };
 
 /** Whole days only, inside the bounds the route and the table both enforce. Parsed as an
@@ -274,8 +274,7 @@ export function StartTrialForm({
       {start.data && (
         <NoticeBox
           tone="ok"
-          icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
-          title={`On us for ${formatCountOf(start.data.days, "day")} — until ${formatIST(start.data.ends_at)}`}
+          title={`On us for ${formatCountOf(start.data.days, "day")}, until ${formatIST(start.data.ends_at)}`}
         >
           <p className="mt-1">
             Nothing was credited to their wallet and no ledger entry was written: a trial is

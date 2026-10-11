@@ -64,6 +64,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.engine import get_engine
+from apps.api.forwarding.service import assert_not_forwarded
 
 router = APIRouter(prefix="/v1/agents/{agent_id}/handoff", tags=["agents"])
 
@@ -414,6 +415,16 @@ async def put_handoff(
                 "callers asking for a person are offered a call-back instead."
             ),
         )
+    # A person whose phone forwards to the Calevate number would hand the caller straight
+    # back to the agent (D-746).
+    if chosen:
+        phones = (
+            await session.execute(
+                text("SELECT phone_e164 FROM business_contacts WHERE id = ANY(:ids)"),
+                {"ids": chosen},
+            )
+        ).scalars()
+        await assert_not_forwarded(session, [str(phone) for phone in phones])
     await session.execute(
         text("DELETE FROM agent_handoff_members WHERE agent_id = :aid"), {"aid": agent_id}
     )

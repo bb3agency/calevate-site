@@ -8,6 +8,7 @@ import { PATHS } from "@/lib/api/numberProvisioning";
 import { expectNoA11yViolations } from "./a11y";
 import { OWN_NUMBERS_OFF, OWN_NUMBERS_STATUS_PATH } from "./fixtures/sharedReads";
 import { problem, renderClientPage, stillLoading, type Routes } from "./harness";
+import { NO_FORWARDING_ROUTES } from "./fixtures/forwarding";
 
 /**
  * GETTING A PHONE NUMBER, AND THE STATE EVERY CLIENT IS ACTUALLY IN.
@@ -113,6 +114,7 @@ function heldNumbers(): unknown {
 function routes(extra: Routes = {}): Routes {
   return {
     "/v1/me": OWNER,
+    ...NO_FORWARDING_ROUTES,
     "/v1/campaigns/numbers": heldNumbers(),
     "/v1/agents": [{ id: "agent-1", name: "Reception", status: "live" }],
     "/v1/numbers/num-1/sender-attestation": {
@@ -268,7 +270,7 @@ describe("browsing what is on offer", () => {
     await renderClientPage(<PhoneNumberPage />, routes({ "/v1/compliance/kyc": kyc(false) }));
 
     expect(
-      await screen.findByText(/will not be able to make or take calls until your business is verified/i),
+      await screen.findByText(/It works once your business is verified/i),
     ).toBeTruthy();
     await chooseNumber();
     const buy = screen.getByRole("button", { name: /buy this number/i });
@@ -412,7 +414,7 @@ describe("choosing what a number is used for", () => {
     fireEvent.click(await screen.findByLabelText(/call out from this number/i));
 
     const note = await screen.findByText(
-      /confirmed that your business is the sender of those calls/i,
+      /once you confirm your business sends those calls/i,
     );
     expect(note.textContent).toMatch(/marketing campaigns need a 140-series number/i);
     // The statement itself belongs to the attestation panel and is not duplicated here.

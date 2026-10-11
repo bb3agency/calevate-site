@@ -409,7 +409,10 @@ async def test_a_provisioned_number_cannot_name_a_neighbours_agent(
     async with _client() as http:
         response = await http.post(
             f"/v1/admin/tenants/{org_b['id']}/numbers",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"provision_number:{org_b['id']}",
+            },
             json={
                 "e164": _spare_number("160"),
                 "series": "160",
@@ -447,7 +450,10 @@ async def test_provisioning_a_number_against_this_tenants_own_agent_still_works(
     async with _client() as http:
         attached = await http.post(
             f"/v1/admin/tenants/{org_b['id']}/numbers",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"provision_number:{org_b['id']}",
+            },
             json={
                 "e164": _spare_number("160"),
                 "series": "160",
@@ -459,7 +465,10 @@ async def test_provisioning_a_number_against_this_tenants_own_agent_still_works(
         # ordinary onboarding order — the guard must no-op on None, not refuse it.
         unattached = await http.post(
             f"/v1/admin/tenants/{org_b['id']}/numbers",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"provision_number:{org_b['id']}",
+            },
             json={"e164": _spare_number(), "series": "standard", "provider": "vobiz"},
         )
 

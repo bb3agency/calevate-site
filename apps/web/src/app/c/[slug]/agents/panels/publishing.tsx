@@ -9,9 +9,8 @@
  * the caller reads once and hands down. Loading and failure are the caller's branches.
  */
 
-import { Hourglass } from "lucide-react";
 
-import { formatCallCap, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
+import { formatCallCap, formatINR, formatIST, formatRupeeRate, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
 import { SettingRow } from "@/components/console/settingRow";
 import type { PendingChange, PendingState } from "@/lib/api/publishing";
 import { voiceTierRate } from "@/lib/api/voices";
@@ -34,18 +33,15 @@ export function stagedScript(state: PendingState): PendingChange | undefined {
 export function PendingBanner({ state }: { state: PendingState }) {
   if (!state.has_pending) return null;
   return (
-    <div role="status" className="rounded-md border border-warn-line bg-warn-soft px-4 py-3 text-sm text-ink">
-      <p className="flex items-center gap-2 font-semibold">
-        <Hourglass aria-hidden className="h-4 w-4 shrink-0 text-warn" />
-        Changes waiting to go live
-      </p>
-      <ul className="mt-3 space-y-3">
+    <div role="status" data-notice="warn" className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
+      <p className="font-semibold">Changes waiting to go live</p>
+      <ul className="mt-2 divide-y divide-line border-y border-line">
         {state.pending.map((change) => (
           <PendingRow key={change.field} change={change} />
         ))}
       </ul>
-      <p className="mt-3 text-xs text-ink-muted">
-        Callers keep hearing what is live now until the change is put live — nothing goes
+      <p className="mt-2 text-meta text-ink-muted">
+        Callers keep hearing what is live now until the change is put live. Nothing goes
         live silently.
         {stagedScript(state) ? " Put it live from the top of this page, or undo it from the ⋯ menu there." : ""}
       </p>
@@ -60,7 +56,7 @@ export function PendingBanner({ state }: { state: PendingState }) {
  */
 function PendingRow({ change }: { change: PendingChange }) {
   return (
-    <li className="border-l-2 border-warn-line pl-3">
+    <li className="py-2">
       <p className="font-medium">{change.headline}</p>
       <p className="mt-1 text-xs">{change.why}</p>
       <p className="mt-1 text-xs text-ink-muted">Waiting since {formatIST(change.staged_at)}</p>

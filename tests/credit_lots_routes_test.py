@@ -109,7 +109,7 @@ async def test_a_manual_topup_opens_a_lot_at_the_free_amount_rates() -> None:
     async with _client() as http:
         posted = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "6000.00", "payment_ref": "UTR-LOT-1"},
         )
     assert posted.status_code == 200, posted.text
@@ -156,7 +156,7 @@ async def test_a_restatement_grows_the_purchases_own_lot_rather_than_opening_a_s
     async with _client() as http:
         await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "5000.00", "payment_ref": "UTR-LOT-2"},
         )
         restated = await http.post(
@@ -188,7 +188,7 @@ async def test_an_adjustment_that_takes_credit_back_restates_the_lot_it_corrects
     async with _client() as http:
         posted = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "5000.00", "payment_ref": "UTR-LOT-3"},
         )
         entry_id = posted.json()["entry_id"]
@@ -214,7 +214,7 @@ async def test_a_full_reversal_empties_the_lot_and_the_route_still_answers() -> 
     async with _client() as http:
         posted = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "50000.00", "payment_ref": "UTR-WRONG"},
         )
         entry_id = posted.json()["entry_id"]
@@ -246,7 +246,7 @@ async def test_an_adjustment_that_credits_back_opens_a_lot_at_the_list_rates() -
     async with _client() as http:
         await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "1000.00", "payment_ref": "UTR-LOT-4"},
         )
     async with tenant_session(tenant_id) as session:
@@ -378,7 +378,7 @@ async def test_a_correction_that_overdraws_the_wallet_publishes_the_shortfall() 
     async with _client() as http:
         posted = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "5000.00", "payment_ref": "UTR-LOT-OVERDRAW"},
         )
         assert posted.status_code == 200, posted.text
@@ -425,7 +425,7 @@ async def test_a_correction_that_fits_reports_no_shortfall() -> None:
     async with _client() as http:
         posted = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "5000.00", "payment_ref": "UTR-LOT-FITS"},
         )
         entry_id = posted.json()["entry_id"]

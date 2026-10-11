@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle } from "lucide-react";
 
 import { StatusPill } from "@/components/admin/kit";
 import { Section } from "@/components/console/section";
@@ -83,12 +82,11 @@ export function CommercialsScreen({ tenantId }: { tenantId: string }) {
            unreadable writes a ceiling and a rate without knowing what they supersede. */
         <NoticeBox
           tone="warn"
-          icon={<AlertTriangle className="h-5 w-5" />}
           title="Cannot record terms while the current agreement is unreadable"
         >
           <p className="mt-1 text-meta opacity-90">
             We could not read what is in effect for this client. Recording new terms now
-            would supersede an agreement nobody can see — including, possibly, a spend
+            would supersede an agreement nobody can see, possibly including a spend
             ceiling. Retry the read above; the form comes back with it.
           </p>
         </NoticeBox>
@@ -151,7 +149,7 @@ function TermsFacts({ inEffect }: { inEffect: PlanRow | null }) {
 function StateBanner({ state }: { state: string }) {
   const copy = termsStateCopy(state);
   return (
-    <NoticeBox tone={copy.tone} icon={<AlertTriangle className="h-5 w-5" />} title={copy.label}>
+    <NoticeBox tone={copy.tone} title={copy.label}>
       <p className="mt-1 text-meta opacity-90">{copy.detail}</p>
     </NoticeBox>
   );

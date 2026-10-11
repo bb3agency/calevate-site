@@ -34,7 +34,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,6 +46,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
+from apps.api.core.stepup import ClientActionCode, client_confirmation
 from apps.api.db.base import uuid7
 from apps.api.integrations import service
 from apps.api.integrations.egress_guard import assert_public_http_url
@@ -60,6 +61,11 @@ from apps.workers.sheets_sync import sheets_delivery_available
 router = APIRouter(prefix="/v1/integrations", tags=["integrations"])
 
 Session = Annotated[AsyncSession, Depends(db)]
+#: Where a client's lead data is sent is the client's own decision, so endpoint writes are
+#: declared on the CLIENT realm: a view-as session meets `impersonation_not_available_here`
+#: before anything is read (D-730), as a top-up does.
+EndpointOwner = Annotated[Principal, Depends(requires("org:manage", realm="client"))]
+ConfirmAction = Annotated[str | None, Header(alias="X-Confirm-Action")]
 
 EventName = Literal[
     "lead.created",
@@ -422,7 +428,9 @@ async def create_endpoint(
     payload: CreateEndpointIn,
     session: Session,
     request: Request,
-    principal: Principal = Depends(requires("org:manage")),
+    principal: EndpointOwner,
+    code: ClientActionCode,
+    x_confirm_action: ConfirmAction = None,
 ) -> CreateEndpointOut:
     """Register a webhook endpoint. Two things happen here that did not used to.
 
@@ -443,6 +451,9 @@ async def create_endpoint(
     audit trail that quoted the whole thing would leak the secret it exists to attest
     (hard rule 6). The host is the fact an investigator needs — where the leads went.
     """
+    # A code typed for this act (D-730): an endpoint starts this account's lead data
+    # leaving it, so a session left open must not be enough to point it somewhere.
+    await code.require(x_confirm_action, client_confirmation(request, "create_endpoint"))
     assert principal.tenant_id is not None
     assert_may_opt_into_raw_transcript(payload, principal)
     assert_recording_ready_has_its_opt_in(payload)
@@ -531,7 +542,9 @@ async def create_sheets_endpoint(
     payload: CreateSheetEndpointIn,
     session: Session,
     request: Request,
-    principal: Principal = Depends(requires("org:manage")),
+    principal: EndpointOwner,
+    code: ClientActionCode,
+    x_confirm_action: ConfirmAction = None,
 ) -> SheetEndpointOut:
     """Configure the OTHER D-23 kind. Ships behind a gate, and the gate is the argument.
 
@@ -569,6 +582,7 @@ async def create_sheets_endpoint(
     row's keys, so a subscription we could never write is refused once here instead of
     once per lead forever.
     """
+    await code.require(x_confirm_action, client_confirmation(request, "create_endpoint"))
     assert principal.tenant_id is not None
     if not sheets_delivery_available():
         raise ProblemError(
@@ -725,7 +739,7 @@ async def deactivate_endpoint(
     endpoint_id: UUID,
     session: Session,
     request: Request,
-    principal: Principal = Depends(requires("org:manage")),
+    principal: EndpointOwner,
 ) -> None:
     """Deactivate the endpoint; the row and its delivery history stay.
 

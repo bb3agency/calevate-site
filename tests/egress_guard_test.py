@@ -918,7 +918,12 @@ def _client() -> httpx.AsyncClient:
 
 
 def _headers(slug: str, token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
+    # Creating an endpoint takes a step-up string (D-730); a `dev:` token needs only the echo.
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Org-Slug": slug,
+        "X-Confirm-Action": f"create_endpoint:{slug}",
+    }
 
 
 async def _rows(tenant_id: uuid.UUID) -> list[Any]:

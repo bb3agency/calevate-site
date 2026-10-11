@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { ProblemNotice } from "@/components/ui";
+import { NOTICE_DOT, ProblemNotice, SITE_STRIP } from "@/components/ui";
 import { ADMIN_CONSOLE_PATH } from "@/lib/authn/adminAuthn";
 import { adminConsoleUrl } from "@/lib/consoleOrigin";
 import { useMe } from "@/lib/api/hooks";
@@ -62,19 +62,20 @@ export function ViewAsBanner({ slug }: { slug: string }) {
   // the server's own `impersonating`, and this one must never be mistaken for it.
   if (viewAsRequested && me.isPending) {
     return (
-      <div className="bg-warn-soft px-4 py-1.5 text-center text-xs font-semibold text-warn">
-        Opening as an operator — confirming with the server…
+      <div className={SITE_STRIP}>
+        <span aria-hidden className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${NOTICE_DOT.warn}`} />
+        <span className="font-medium">Opening as an operator. Checking with the server…</span>
       </div>
     );
   }
 
   if (viewAsRequested && !me.data?.impersonating && me.error != null) {
     return (
-      <div className="border-b border-danger-line bg-danger-soft px-4 py-2">
+      <div className="space-y-2 border-b border-line bg-surface px-4 py-2 lg:px-8">
         <ProblemNotice error={me.error} />
-        <p className="mt-2 text-xs text-danger">
-          This page was opened as an operator. Open it from the admin console, or{" "}
-          <Link href={`/c/${slug}`} className="underline">
+        <p className="text-sm text-ink-muted">
+          Opened as an operator. Open it from the admin console, or{" "}
+          <Link href={`/c/${slug}`} className="font-medium text-brand-strong underline">
             continue as a normal user
           </Link>
           .

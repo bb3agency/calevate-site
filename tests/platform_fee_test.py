@@ -180,7 +180,10 @@ async def test_an_unpaid_fee_pauses_outbound_after_grace_and_paying_lifts_it() -
         paid = await http.post(
             f"/v1/admin/tenants/{tenant_id}/platform-fee/{late}/payments",
             json={"reference": f"UTR{uuid.uuid4().hex[:12]}"},
-            headers={"Authorization": f"Bearer {await _admin('operator')}"},
+            headers={
+                "Authorization": f"Bearer {await _admin('operator')}",
+                "X-Confirm-Action": f"record_fee_payment:{tenant_id}:{late}",
+            },
         )
     assert paid.status_code == 200, paid.text
     assert paid.json() == {"charge_id": str(late), "recorded": True, "status": "paid"}
@@ -236,12 +239,18 @@ async def test_a_waived_client_is_never_paused_and_the_waiver_is_audited() -> No
         waived = await http.put(
             f"/v1/admin/tenants/{tenant_id}/platform-fee/waiver",
             json={"reason": "lighthouse client, agreed by founder"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"waive_platform_fee:{tenant_id}",
+            },
         )
         again = await http.put(
             f"/v1/admin/tenants/{tenant_id}/platform-fee/waiver",
             json={"reason": "lighthouse client, agreed by founder"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"waive_platform_fee:{tenant_id}",
+            },
         )
     assert waived.status_code == 200, waived.text
     body = waived.json()

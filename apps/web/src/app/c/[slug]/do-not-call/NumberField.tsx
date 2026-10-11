@@ -6,7 +6,8 @@ import { CheckCircle2, PhoneOff, ShieldAlert } from "lucide-react";
 import {
   FIELD,
   FIELD_INLINE,
-  NOTICE_TONES,
+  NOTICE_BAR,
+  NOTICE_BASE,
   PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
@@ -198,7 +199,7 @@ function CheckVerdict({ result }: { result: { valid: boolean; suppressed: boolea
   if (result.suppressed) {
     return (
       <Verdict tone="stop" icon={<PhoneOff className="h-4 w-4" />}>
-        This number is suppressed — no agent will call it.
+        This number is suppressed, so no agent will call it.
         {result.scope === "global"
           ? " Calevate has suppressed it across the whole platform, so it cannot be removed from this account."
           : " It was added to your account's list."}
@@ -207,8 +208,8 @@ function CheckVerdict({ result }: { result: { valid: boolean; suppressed: boolea
   }
   return (
     <Verdict tone="ok" icon={<CheckCircle2 className="h-4 w-4" />}>
-      This number is not on the do-not-call list. Other checks — calling hours, consent —
-      still apply to any actual call.
+      This number is not on the do-not-call list. Other checks, such as calling hours and
+      consent, still apply to any actual call.
     </Verdict>
   );
 }
@@ -217,9 +218,9 @@ function Verdict({ tone, icon, children }: { tone: NoticeTone; icon: ReactNode; 
   return (
     <p
       aria-live="polite"
-      className={`settings-enter flex items-start gap-2 rounded-md border px-3 py-2 text-body ${NOTICE_TONES[tone]}`}
+      className={`settings-enter flex items-start gap-2 ${NOTICE_BASE} ${NOTICE_BAR[tone]}`}
     >
-      <span className="mt-0.5 shrink-0" aria-hidden>
+      <span className="mt-0.5 shrink-0 text-ink-faint" aria-hidden>
         {icon}
       </span>
       <span>{children}</span>

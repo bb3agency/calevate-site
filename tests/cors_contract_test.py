@@ -29,8 +29,8 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from apps.api.core.bootstrap import DEFAULT_CORS_ORIGINS
-from apps.api.core.console_links import ADMIN_CONSOLE_BASE
+from apps.api.core.bootstrap import DEFAULT_CORS_ORIGINS, MARKETING_ORIGIN
+from apps.api.core.console_links import ADMIN_CONSOLE_BASE, CONSOLE_BASE
 from apps.api.core.middleware import install_middleware
 from apps.api.core.rbac import ADMIN_ORIGIN_PREFIXES, iter_api_routes
 from apps.api.main import app
@@ -38,7 +38,9 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from starlette.middleware.cors import CORSMiddleware
 
-ORIGIN = DEFAULT_CORS_ORIGINS[0]
+#: The client console: every client path accepts it, where the marketing apex is
+#: credentialed for `/v1/auth/` and `/v1/public/` only (D-732).
+ORIGIN = CONSOLE_BASE
 
 _WEB_SRC = Path(__file__).resolve().parents[1] / "apps" / "web" / "src"
 CLIENT_TS = _WEB_SRC / "lib" / "api" / "client.ts"
@@ -335,7 +337,7 @@ def crashing_route() -> Iterator[str]:
         ]
 
 
-@pytest.mark.parametrize("origin", DEFAULT_CORS_ORIGINS)
+@pytest.mark.parametrize("origin", [o for o in DEFAULT_CORS_ORIGINS if o != MARKETING_ORIGIN])
 async def test_a_crash_is_readable_by_the_console_that_caused_it(
     crashing_route: str, origin: str
 ) -> None:

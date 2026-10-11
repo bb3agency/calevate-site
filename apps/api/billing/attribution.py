@@ -28,9 +28,13 @@ recorded wrongly could never be corrected on the usage row, only compensated. Re
 WHAT IS EXACT AND WHAT IS AN ALLOCATION — READ THIS BEFORE PUBLISHING A FIGURE
 ------------------------------------------------------------------------------
 * **Our COST per call is a fact.** Every `usage_events` row carries `call_id`, so a call's
-  cost is a sum, not a share. (It rests on the vendor CURRENCY assumption that OPERATIONS
-  §2 gate 7 still scores — see `cost_currency_stated` below. The client-facing charge does
-  not: it is priced off MINUTES at the client's own rate and is untouched by gate 7.)
+  cost is a sum, not a share. (A row converted from a vendor figure rests on the CURRENCY
+  assumption OPERATIONS §2 gate 7 scores — see `cost_currency_stated` below; a row priced
+  at an attested INR rate does not. The client-facing charge never does: it is priced off
+  MINUTES at the client's own rate.)
+* **A trial call's cost is ours to carry.** A call a free trial covered charges the client
+  nothing by design, so its cost is published as `trial_cost_inr` — what we spend to win
+  the account — and the screens keep it out of the margin on paid calling.
 * **A PREPAID client's charge per call is a fact.** `charge_for_call` debits the wallet
   once per call, keyed by `call_id`, so `credit_ledger` holds the rupees that actually
   left their balance. `charge_basis` is `wallet_debit`.
@@ -131,11 +135,13 @@ from apps.api.billing.service import (
     _surcharge_binds,
     allocate_paise,
     calling_revenue_inr,
+    margin_pct,
     plan_tier_of,
     to_paise,
     usage_summary,
     voice_tier_usage,
 )
+from apps.api.billing.trials import ON_TRIAL_ROW_SQL
 from apps.api.core.logging import get_logger
 
 log = get_logger(__name__)
@@ -215,7 +221,15 @@ WITH priced AS (
          {_BILLED_SECS_SQL} AS secs,
          {_ROW_COST_SQL} AS cost,
          meta ->> 'source_currency' AS source_currency,
-         meta ->> 'currency_stated' AS currency_stated
+         -- `= 'false'` rather than `<> 'true'`: only a row that RECORDED the fallback
+         -- asserts it, so a correction row, which carries no `currency_stated` at all,
+         -- cannot manufacture the flag. A row priced at an operator-attested INR minute
+         -- rate (D-678; it carries `engine_rate_key`) converted no vendor figure, so it
+         -- assumed no currency whatever `currency_stated` says: the minute meter wrote
+         -- `false` there until it stated otherwise.
+         (meta ->> 'currency_stated' = 'false' AND meta ->> 'engine_rate_key' IS NULL)
+           AS currency_assumed,
+         {ON_TRIAL_ROW_SQL} AS on_trial
     FROM usage_events
    WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW} AND {_NOT_AI_UNITS}
 ),
@@ -225,16 +239,18 @@ folded AS (
          COALESCE(SUM(secs), 0) AS secs,
          COALESCE(SUM(qty), 0) AS qty,
          COALESCE(SUM(cost), 0) AS cost,
-         -- OUR ASSUMPTION OR THEIRS (gate 7). `= 'false'` rather than `<> 'true'`: only a
-         -- row that RECORDED the fallback asserts it, so a correction row -- which carries
-         -- no `currency_stated` at all -- cannot manufacture the flag.
-         bool_or(currency_stated = 'false') AS currency_assumed,
+         -- OUR ASSUMPTION OR THEIRS (gate 7).
+         COALESCE(bool_or(currency_assumed), false) AS currency_assumed,
          min(source_currency) AS currency_lo,
-         max(source_currency) AS currency_hi
+         max(source_currency) AS currency_hi,
+         -- What a free trial paid for: the same `cost` expression, so the trial share is a
+         -- part of `cost` and never a second pricing of it.
+         COALESCE(SUM(cost) FILTER (WHERE on_trial), 0) AS trial_cost,
+         bool_or(on_trial) AS on_trial
     FROM priced GROUP BY GROUPING SETS ((call_id, tier, llm_model), (unit_type))
 )
 SELECT f.per_call, f.call_id, f.unit_type, f.tier, f.llm_model, f.secs, f.qty, f.cost,
-       f.currency_assumed, f.currency_lo, f.currency_hi,
+       f.currency_assumed, f.currency_lo, f.currency_hi, f.trial_cost, f.on_trial,
        c.agent_id, c.started_at, c.direction, a.name
   FROM folded f
   LEFT JOIN calls c ON c.id = f.call_id
@@ -278,6 +294,9 @@ class CallAttribution:
     #: (OPERATIONS §2 gate 7). Admin-only, because it qualifies OUR figure and nothing
     #: about what the client was charged.
     cost_currency_assumed: bool
+    #: A free trial covered this call (`trials.trial_covers` at its own instant): the
+    #: client was charged nothing by design and `cost_inr` is what we paid to win them.
+    trial_covered: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,6 +316,8 @@ class AgentAttribution:
     cost_inr: Decimal
     charged_inr: Decimal
     cost_currency_assumed: bool
+    #: The part of `cost_inr` spent on calls a free trial covered.
+    trial_cost_inr: Decimal = Decimal("0.00")
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,10 +378,16 @@ class PeriodAttribution:
     #: The one currency our cost rows were read in, or None when the month has none or
     #: more than one. Admin-only.
     cost_currency: str | None
-    #: True only if EVERY costed row recorded that the vendor stated its currency. False
-    #: is the state of the world today (`AgentExecution` declares no `currency` property),
-    #: which is what gate 7 is open on and what `runbooks/vendor-cost-unit.md` triages.
+    #: False when any costed row converted a vendor figure in a currency the vendor did not
+    #: name (gate 7, `runbooks/vendor-cost-unit.md`). Rows priced at an attested INR rate
+    #: — every ThinnestAI minute and Studio character — assumed nothing.
     cost_currency_stated: bool
+    #: The part of `cost_inr` that paid for calls a free trial covered — an acquisition
+    #: cost, not a loss on calling. `to_paise` of the exact sum, the same figure
+    #: `month_trial_cost_inr` reads for the fleet board.
+    trial_cost_inr: Decimal
+    trial_calls: int
+    trial_minutes: Decimal
     by_agent: tuple[AgentAttribution, ...]
     by_unit: tuple[UnitAttribution, ...]
     by_call: tuple[CallAttribution, ...]
@@ -381,6 +408,8 @@ class _Bucket:
     #: across the call's rung sub-buckets, so a corrected call weighs what it ran as.
     weight: Decimal
     currency_assumed: bool
+    trial_cost_inr: Decimal = Decimal("0")
+    on_trial: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -482,6 +511,8 @@ async def _read_month(
         assumed,
         low,
         high,
+        trial_cost,
+        on_trial,
         agent_id,
         started_at,
         direction,
@@ -527,6 +558,9 @@ async def _read_month(
                 surcharge=surcharge if str(llm_model or "") else None,
             ),
             currency_assumed=(prior.currency_assumed if prior else False) or bool(assumed),
+            trial_cost_inr=(prior.trial_cost_inr if prior else Decimal("0"))
+            + Decimal(str(trial_cost or 0)),
+            on_trial=(prior.on_trial if prior else False) or bool(on_trial),
         )
     currency = min(lows) if lows and min(lows) == max(highs) else None
     return _MonthRead(buckets=list(folded.values()), units=units, currency=currency)
@@ -634,10 +668,12 @@ async def period_attribution(
             cost_inr=cost,
             charged_inr=charge,
             cost_currency_assumed=bucket.currency_assumed,
+            trial_covered=bucket.on_trial,
         )
         for bucket, minute, cost, charge in zip(buckets, minutes, costs, charges, strict=True)
         if bucket.call_id is not None
     )
+    trial_calls = [row for row in by_call if row.trial_covered]
     unattributed = next(
         (
             UnattributedCost(minutes=minute, cost_inr=cost)
@@ -684,10 +720,53 @@ async def period_attribution(
         unattributed=unattributed,
         cost_currency=read.currency,
         cost_currency_stated=not any(b.currency_assumed for b in buckets),
+        trial_cost_inr=to_paise(sum((b.trial_cost_inr for b in buckets), Decimal("0"))),
+        trial_calls=len(trial_calls),
+        trial_minutes=sum((row.minutes for row in trial_calls), Decimal("0.00")),
         by_agent=_roll_up_agents(by_call),
         by_unit=_unit_costs(read.units, total=cost_total),
         by_call=by_call,
     )
+
+
+#: `period_attribution`'s trial share without the per-call fold, for the fleet board: the
+#: same rows, the same cost expression and the same trial predicate, so a client's row on
+#: the board and the header of their own Spend page carry one figure.
+_MONTH_TRIAL_COST_SQL: Final = (
+    f"SELECT COALESCE(SUM({_ROW_COST_SQL}) FILTER (WHERE {ON_TRIAL_ROW_SQL}), 0) "
+    f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW} AND {_NOT_AI_UNITS}"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PaidMargin:
+    """The margin on paid calling: a trial's cost set beside the margin, not inside it."""
+
+    cost_inr: Decimal
+    margin_inr: Decimal
+    margin_pct: Decimal | None
+
+
+def paid_margin(*, revenue_inr: Decimal, cost_inr: Decimal, trial_cost_inr: Decimal) -> PaidMargin:
+    """D-12's margin with the trial's cost taken out of the cost side. `margin_pct` is the
+    one shared function, so "nothing billed" stays null here too."""
+    paid_cost = to_paise(cost_inr - trial_cost_inr)
+    margin = to_paise(revenue_inr - paid_cost)
+    return PaidMargin(
+        cost_inr=paid_cost,
+        margin_inr=margin,
+        margin_pct=margin_pct(margin_inr=margin, revenue_inr=revenue_inr),
+    )
+
+
+async def month_trial_cost_inr(session: AsyncSession, *, tenant_id: UUID, month: str) -> Decimal:
+    """Our cost of this tenant's calls a free trial covered in `month`, to the paisa."""
+    total = (
+        await session.execute(
+            text(_MONTH_TRIAL_COST_SQL), {"tid": tenant_id, **_month_bounds(month)}
+        )
+    ).scalar()
+    return to_paise(Decimal(str(total or 0)))
 
 
 def _allocate_minutes(buckets: list[_Bucket], *, total: Decimal) -> tuple[Decimal, ...]:
@@ -812,6 +891,8 @@ def _roll_up_agents(calls: tuple[CallAttribution, ...]) -> tuple[AgentAttributio
             charged_inr=(prior.charged_inr if prior else Decimal("0.00")) + call.charged_inr,
             cost_currency_assumed=(prior.cost_currency_assumed if prior else False)
             or call.cost_currency_assumed,
+            trial_cost_inr=(prior.trial_cost_inr if prior else Decimal("0.00"))
+            + (call.cost_inr if call.trial_covered else Decimal("0.00")),
         )
     return tuple(
         sorted(rolled.values(), key=lambda a: (-a.cost_inr, -a.charged_inr, str(a.agent_id)))
@@ -844,9 +925,12 @@ __all__ = [
     "AgentAttribution",
     "CallAttribution",
     "ChargeBasis",
+    "PaidMargin",
     "PeriodAttribution",
     "ResidualReason",
     "UnattributedCost",
     "UnitAttribution",
+    "month_trial_cost_inr",
+    "paid_margin",
     "period_attribution",
 ]

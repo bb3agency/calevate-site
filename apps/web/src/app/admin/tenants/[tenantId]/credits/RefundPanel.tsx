@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Clock, Info, TriangleAlert } from "lucide-react";
 
 import {
   FIELD,
@@ -130,15 +129,12 @@ export function RefundPanel({
 
       <NoticeBox
         tone="neutral"
-        icon={<Info className="h-5 w-5" />}
         title="Only a payment the provider captured"
         className="mt-3"
       >
-        <p className="mt-1 text-meta opacity-90">
-          A wallet credited from a BANK TRANSFER — a UTR typed off a statement — has a
-          reference the payment provider has never seen, and it will refuse the refund.
-          Send that money back by bank transfer and record a compensating adjustment
-          instead, so the ledger still matches what left the account.
+        <p className="text-meta">
+          The provider has never seen a bank-transfer reference and refuses the refund. Send
+          that money back by bank transfer and record a compensating adjustment instead.
         </p>
       </NoticeBox>
 
@@ -265,7 +261,7 @@ export function RefundPanel({
         </Field>
 
         {blocked && (
-          <NoticeBox tone="warn" icon={<TriangleAlert className="h-5 w-5" />}>
+          <NoticeBox tone="warn">
             <p className="text-meta">{blocked}</p>
           </NoticeBox>
         )}
@@ -294,7 +290,6 @@ function Refunded({ result, clientName }: { result: RefundResult; clientName: st
       return (
         <NoticeBox
           tone="ok"
-          icon={<CheckCircle2 className="h-5 w-5" />}
           title={`${formatINR(result.amount_inr)} refunded to ${clientName}`}
           className="mt-4"
         >
@@ -305,7 +300,7 @@ function Refunded({ result, clientName }: { result: RefundResult; clientName: st
               : // A STATED ABSENCE, never ₹0.00: the route returns a balance only when
                 // the ledger entry was written in this request, and "we did not derive
                 // it" is a different fact from "the wallet is empty".
-                " The wallet balance was not reported with this answer — the ledger below is the figure to read."}
+                " The wallet balance was not reported with this answer. The ledger below is the figure to read."}
             {bonusBack !== null &&
               ` ${formatINR(bonusBack)} of the pack's bonus credit was taken back with it, in proportion to the amount refunded.`}{" "}
             Their bank typically shows it within {result.processing_days} days. Nothing
@@ -320,7 +315,6 @@ function Refunded({ result, clientName }: { result: RefundResult; clientName: st
       return (
         <NoticeBox
           tone="ok"
-          icon={<Clock className="h-5 w-5" />}
           title={`${formatINR(result.amount_inr)} accepted by the provider`}
           className="mt-4"
         >
@@ -328,14 +322,14 @@ function Refunded({ result, clientName }: { result: RefundResult; clientName: st
             {/* THE SENTENCE THIS WHOLE PANEL IS ARRANGED AROUND. It is not a failure and
                 it is not a partial success: the refund is issued and in flight, and the
                 wallet entry is written automatically when the provider confirms it. */}
-            The refund is issued and on its way — it has not settled yet, so this wallet
+            The refund is issued and on its way. It has not settled yet, so this wallet
             does not show it. The entry appears by itself when the provider confirms,
             usually within {result.processing_days} days.{" "}
             <span className="font-semibold">Do not issue it again</span>: a second refund
             is a second amount out of our account for the same payment.
           </p>
           <p className="mt-2 text-meta opacity-90">
-            Provider reference <span className="font-mono">{result.refund_id}</span> — quote
+            Provider reference <span className="font-mono">{result.refund_id}</span>. Quote
             it if you have to ask them where the money is.
           </p>
         </NoticeBox>

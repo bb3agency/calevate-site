@@ -13,6 +13,7 @@ import {
   HeartPulse,
   Hourglass,
   KeyRound,
+  Languages,
   PhoneOff,
   ShieldUser,
   SlidersHorizontal,
@@ -211,6 +212,16 @@ export const ADMIN_NAV: NavGroup[] = [
         icon: AudioLines,
         permission: "ops:manage",
         action: "add and manage the voices this platform offers",
+      },
+      {
+        // How agents speak each language (D-744): the founder reviews the spoken-style table
+        // here and publishes it to live agents. `ops:manage` is what every route the screen
+        // calls carries (`apps/api/ops/spoken_style_routes.py`).
+        href: "/admin/ops/spoken-style",
+        label: "Spoken style",
+        icon: Languages,
+        permission: "ops:manage",
+        action: "review how agents speak each language",
       },
       {
         // PLANNED MAINTENANCE. Its own entry rather than a panel on Operations, for the

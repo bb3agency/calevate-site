@@ -14,6 +14,8 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
+import { needsReauthentication } from "@/lib/authn/problems";
+import { withActionCode } from "@/lib/authn/stepUpPrompt";
 import { lookup } from "@/lib/lookup";
 
 import { apiRequest, type Session } from "./client";
@@ -108,10 +110,17 @@ export function useSetFeeWaiver(session: Session, tenantId: string) {
         ? apiRequest<AdminPlatformFee>(session, `${adminPlatformFeePath(tenantId)}/waiver`, {
             method: "DELETE",
           })
-        : apiRequest<AdminPlatformFee>(session, `${adminPlatformFeePath(tenantId)}/waiver`, {
-            method: "PUT",
-            body: { reason },
-          }),
+        : withActionCode(
+            `waive_platform_fee:${tenantId}`,
+            "Waiving this client's platform fee.",
+            () =>
+              apiRequest<AdminPlatformFee>(session, `${adminPlatformFeePath(tenantId)}/waiver`, {
+                method: "PUT",
+                body: { reason },
+                confirmAction: `waive_platform_fee:${tenantId}`,
+              }),
+            needsReauthentication,
+          ),
     onSuccess: (data) => client.setQueryData(["admin", "platform-fee", tenantId], data),
   });
 }
@@ -120,10 +129,21 @@ export function useRecordFeePayment(session: Session, tenantId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ chargeId, reference }: { chargeId: string; reference: string }) =>
-      apiRequest<FeePayment>(session, `${adminPlatformFeePath(tenantId)}/${chargeId}/payments`, {
-        method: "POST",
-        body: { reference },
-      }),
+      withActionCode(
+        `record_fee_payment:${tenantId}:${chargeId}`,
+        "Recording a platform fee as paid.",
+        () =>
+          apiRequest<FeePayment>(
+            session,
+            `${adminPlatformFeePath(tenantId)}/${chargeId}/payments`,
+            {
+              method: "POST",
+              body: { reference },
+              confirmAction: `record_fee_payment:${tenantId}:${chargeId}`,
+            },
+          ),
+        needsReauthentication,
+      ),
     onSuccess: () =>
       void client.invalidateQueries({ queryKey: ["admin", "platform-fee", tenantId] }),
   });

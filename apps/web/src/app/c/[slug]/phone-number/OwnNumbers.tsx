@@ -18,7 +18,6 @@ import { Section } from "@/components/console/section";
  * of what the purchase actually did to the account — never from what we expected it to do.
  */
 
-import { CheckCircle2, Clock, Info } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
@@ -196,20 +195,15 @@ export function OwnNumbersJourney({ status }: { status: OwnNumbersStatus }) {
         </p>
 
         {status.step === "add_credit" && (
-          <NoticeBox tone="neutral" icon={<Clock aria-hidden className="h-4 w-4" />} title="Add credit to get started">
-            <p className="mt-1">
-              During your free trial, test calls ring from a shared Calevate number. Add credit
-              to end the trial; then these three steps get you a number in your business&apos;s name.
-            </p>
+          <NoticeBox tone="neutral" title="Add credit to get started">
+            Test calls ring from a shared Calevate number during the trial. After you add credit,
+            these three steps get you a number in your business&apos;s name.
           </NoticeBox>
         )}
 
         {status.step === "workspace" && (
-          <NoticeBox tone="neutral" icon={<Clock aria-hidden className="h-4 w-4" />} title="Your calling account is being set up">
-            <p className="mt-1">
-              We are setting up the account your phone numbers will live in. There is nothing for
-              you to do — this page moves on by itself once it is ready.
-            </p>
+          <NoticeBox tone="neutral" title="Your calling account is being set up">
+            Nothing for you to do. This page moves on by itself when it is ready.
           </NoticeBox>
         )}
 
@@ -340,7 +334,6 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
       {bought && (
         <NoticeBox
           tone="ok"
-          icon={<CheckCircle2 aria-hidden className="h-4 w-4" />}
           title={`${formatPhone(bought.e164)} is yours`}
         >
           {firstPeriodSentence(bought.first_period, bought.inr_per_month) && (
@@ -353,8 +346,8 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
           )}
           {bought.attachment === "other_workspace" && (
             <p className="mt-1">
-              It does not ring that agent yet: the agent has to be published again before it
-              can answer this number. Publish the agent, then choose it on the number below.
+              It does not ring that agent yet. Publish the agent again, then choose it on the
+              number below.
             </p>
           )}
         </NoticeBox>
@@ -588,7 +581,7 @@ export function ReleaseOwnNumber({ numberId, e164 }: { numberId: string; e164: s
             release.mutate(numberId, { onSuccess: () => setConfirming(false) })
           }
         >
-          <NoticeBox tone="warn" icon={<Info aria-hidden className="h-4 w-4" />}>
+          <NoticeBox tone="warn">
             <ul className="list-disc space-y-1 pl-4">
               <li>Releasing is permanent. The number stops ringing straight away.</li>
               <li>It goes back to the pool, and anybody may take it next. You cannot get it back.</li>

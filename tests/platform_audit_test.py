@@ -187,7 +187,7 @@ async def test_reserved_slugs_are_refused_by_the_api_not_only_the_form() -> None
     async with _client() as http:
         explicit = await http.post(
             "/v1/admin/tenants",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}", "X-Confirm-Action": "create_tenant"},
             json={
                 "name": "Totally Fine Clinic",
                 "slug": "admin",
@@ -197,7 +197,7 @@ async def test_reserved_slugs_are_refused_by_the_api_not_only_the_form() -> None
         )
         derived = await http.post(
             "/v1/admin/tenants",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}", "X-Confirm-Action": "create_tenant"},
             json={
                 "name": "Billing",
                 "vertical_template": "clinic",
@@ -215,7 +215,7 @@ async def test_creating_the_same_slug_twice_is_a_clean_conflict() -> None:
     async with _client() as http:
         first = await http.post(
             "/v1/admin/tenants",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}", "X-Confirm-Action": "create_tenant"},
             json={
                 "name": "Retry Clinic",
                 "slug": slug,
@@ -225,7 +225,7 @@ async def test_creating_the_same_slug_twice_is_a_clean_conflict() -> None:
         )
         second = await http.post(
             "/v1/admin/tenants",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}", "X-Confirm-Action": "create_tenant"},
             json={
                 "name": "Retry Clinic",
                 "slug": slug,

@@ -5,9 +5,11 @@ ThinnestAI POSTs `{event: "call.started", callId, surface, agentId, from, to, di
 WhatsApp call is about to be answered, and waits up to two seconds for
 `{"variables": {...}}` (docs.thinnest.ai channels/voice "Who-is-calling lookup" and
 api-reference/agents/update-agent `callStartUrl`, read 10 Oct 2026). No answer, an error or
-anything else and the call goes ahead without them; it is never retried, and a repeat with
-the same `callId` is the phone provider asking again. Answering is read-only here, so a
-repeat is answered again rather than deduplicated.
+anything else and the call goes ahead without them; it is never retried, but a phone provider
+that repeats its own request makes ThinnestAI ask again with the same `callId` (live docs,
+"Who-is-calling lookup", read 11 Oct 2026). So the first request for a call answers it and a
+repeat gets the same variables back with no second lookup (`repeat_key`). Two seconds is
+the vendor's limit; we keep our own 0.8.
 
 AUTHENTICATION, before the body is parsed: `x-thinnest-signature-v2` is `sha256=` + hex
 HMAC-SHA256 of `<x-thinnest-delivered-at>.<raw body>` under the secret the vendor minted for
@@ -24,11 +26,14 @@ goes ahead at once. HARD RULE 6: logs carry ids and an outcome word, never the n
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
+import json
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Final
 
+from calevate_shared.engine import CALLER_HIDDEN_VARIABLE
 from calevate_shared.engine_scope import raw_of
 from calevate_shared.webhook_signature import (
     signed_time_is_fresh,
@@ -39,10 +44,12 @@ from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import JSONResponse
 
 from apps.api.core.logging import get_logger
+from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.crm.caller_lookup import caller_variables
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.thinnest_actions import DELIVERED_AT_HEADER, SIGNATURE_HEADER, parse_call_start
+from apps.api.forwarding.testing import queue_early_hang_up, record_lookup_arrival
 from apps.api.ingest.service import normalize_phone
 from apps.api.reliability.engine_lookups import (
     LOOKUP_ENGINES,
@@ -125,19 +132,45 @@ async def caller_lookup(
 
     async def _answer() -> dict[str, str]:
         async with tenant_session(tid) as session:
-            return await caller_variables(session, tenant_id=tid, agent_id=aid, phone_e164=number)
+            # A forwarded number (D-746): our own test arriving is recorded and gets no
+            # variables; a call that shows the client's own published number instead of the
+            # caller's tells the agent to ask for a call-back number, and is never looked up
+            # as a caller (it would find the business's own records).
+            verdict = await record_lookup_arrival(
+                session, tenant_id=tid, caller_e164=number, engine_call_id=lookup.call_id
+            )
+            if verdict.test_id is None and not verdict.caller_hidden:
+                return await caller_variables(
+                    session, tenant_id=tid, agent_id=aid, phone_e164=number
+                )
+        if verdict.test_id is not None:
+            await queue_early_hang_up(tid, verdict.test_id)
+            return {}
+        return {CALLER_HIDDEN_VARIABLE: "yes"}
 
+    key = repeat_key(engine, agent, lookup.call_id) if lookup.call_id else None
+    claimed = await _claim(key)
+    if claimed is False:
+        repeated = await _first_answer(key)
+        log.info(
+            "engine_lookup_answered",
+            extra={**ids, "outcome": "repeat", "count": len(repeated or {})},
+        )
+        return JSONResponse({"variables": repeated or {}})
     try:
         variables = await asyncio.wait_for(_answer(), timeout=ANSWER_BUDGET_S)
     except TimeoutError:
         log.warning("engine_lookup_not_answered", extra={**ids, "outcome": "timeout"})
+        await _keep(key, {})
         return _empty()
     except Exception as exc:  # the call must go ahead whatever happened here
         log.warning(
             "engine_lookup_not_answered",
             extra={**ids, "outcome": "error", "error": type(exc).__name__},
         )
+        await _keep(key, {})
         return _empty()
+    await _keep(key, variables)
     log.info(
         "engine_lookup_answered",
         extra={**ids, "outcome": "known" if variables else "unknown", "count": len(variables)},
@@ -145,4 +178,72 @@ async def caller_lookup(
     return JSONResponse({"variables": variables})
 
 
-__all__ = ["ANSWER_BUDGET_S", "caller_lookup", "router", "verify_lookup_signature"]
+# --- one answer per call ---------------------------------------------------------------
+
+#: A repeat is the phone provider asking again when our first answer was late, seconds
+#: later. The kept answer holds a caller's name, so it lives only that long.
+REPEAT_TTL_S: Final = 120
+_PENDING: Final = "pending"
+_POLL_S: Final = 0.05
+
+
+def repeat_key(engine: str, agent: str, call_id: str) -> str:
+    """Hashed, so neither the agent nor the call id is a Redis key name."""
+    digest = hashlib.sha256(f"{engine}\x00{agent}\x00{call_id}".encode()).hexdigest()
+    return f"lookup:once:{digest}"
+
+
+async def _claim(key: str | None) -> bool | None:
+    """True when this request answers the call, False when an earlier one does, None when
+    there is nothing to dedupe on or Redis cannot say (then this one answers)."""
+    if key is None:
+        return None
+    try:
+        return bool(await get_redis().set(key, _PENDING, nx=True, ex=REPEAT_TTL_S))
+    except Exception as exc:
+        log.warning("engine_lookup_repeat_unreadable", extra={"error": type(exc).__name__})
+        return None
+
+
+async def _first_answer(key: str | None) -> dict[str, str] | None:
+    """The variables the first request answered with, waited for inside the budget. None
+    when it has not answered in time: the repeat then sends none rather than a second
+    lookup, and the call goes ahead as it would on a late answer."""
+    if key is None:
+        return None
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + ANSWER_BUDGET_S
+    while True:
+        try:
+            held = await get_redis().get(key)
+        except Exception as exc:
+            log.warning("engine_lookup_repeat_unreadable", extra={"error": type(exc).__name__})
+            return None
+        if held is not None and held != _PENDING:
+            try:
+                kept = json.loads(held)
+            except ValueError:
+                return None
+            return {str(k): str(v) for k, v in kept.items()} if isinstance(kept, dict) else None
+        if held is None or loop.time() >= deadline:
+            return None
+        await asyncio.sleep(_POLL_S)
+
+
+async def _keep(key: str | None, variables: dict[str, str]) -> None:
+    if key is None:
+        return
+    try:
+        await get_redis().set(key, json.dumps(variables), ex=REPEAT_TTL_S)
+    except Exception as exc:
+        log.warning("engine_lookup_repeat_unsaved", extra={"error": type(exc).__name__})
+
+
+__all__ = [
+    "ANSWER_BUDGET_S",
+    "REPEAT_TTL_S",
+    "caller_lookup",
+    "repeat_key",
+    "router",
+    "verify_lookup_signature",
+]

@@ -1,6 +1,5 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import { NoticeBox, formatIST, formatWholeCount } from "@/components/ui";
 import { Metric } from "@/components/console/metric";
@@ -11,12 +10,9 @@ export function ScrubResult({ result }: { result: PreferenceScrubOut }) {
   return (
     <NoticeBox
       tone={result.is_current ? "ok" : "warn"}
-      icon={
-        result.is_current ? <CheckCircle2 className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />
-      }
       title={
         result.is_current
-          ? "Recorded — this campaign may launch"
+          ? "Recorded. This campaign may launch"
           : "Recorded, but it does NOT open the gate"
       }
     >
@@ -27,10 +23,10 @@ export function ScrubResult({ result }: { result: PreferenceScrubOut }) {
             evidence. */}
         {result.recorded
           ? "This run is now on file."
-          : "That provider and reference were already on file, so nothing new was written — the suppression was re-applied to be sure."}{" "}
+          : "That provider and reference were already on file, so nothing new was written. The suppression was re-applied to be sure."}{" "}
         {result.is_current ? (
           <>
-            Valid until <span className="font-medium">{formatIST(result.expires_at)}</span> —
+            Valid until <span className="font-medium">{formatIST(result.expires_at)}</span>,
             midnight IST. The campaign keeps dialling past that moment, so a run recorded
             today does not cover tomorrow&apos;s dialling, and the dispatch tick will hold it
             again in the morning.
@@ -62,7 +58,7 @@ export function ScrubResult({ result }: { result: PreferenceScrubOut }) {
       {result.unmatched > 0 && (
         <p className="mt-2 text-meta opacity-90">
           {formatWholeCount(String(result.unmatched))} were readable but are not pending on this
-          campaign — already dialled, or on a different list. That is ordinary; it is shown so
+          campaign: already dialled, or on a different list. That is ordinary; it is shown so
           the totals add up.
         </p>
       )}

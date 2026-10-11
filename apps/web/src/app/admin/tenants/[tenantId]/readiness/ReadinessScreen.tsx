@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CheckCircle2, UserRound } from "lucide-react";
+import { UserRound } from "lucide-react";
 
 import {
   NoticeBox,
@@ -138,7 +138,7 @@ export function ReadinessScreen({
            send an operator to tell a client they are clear to dial. */
         <ProblemNotice error={readiness.error} onRetry={() => void readiness.refetch()} />
       ) : readiness.data?.may_operate ? (
-        <NoticeBox tone="ok" icon={<CheckCircle2 className="h-4 w-4" />} title="Nothing is in the way">
+        <NoticeBox tone="ok" title="Nothing is in the way">
           Every account-level gate is clear, so this client&apos;s outgoing calls are not
           being refused for any reason this screen can see. A campaign of theirs may still
           have its own blockers.

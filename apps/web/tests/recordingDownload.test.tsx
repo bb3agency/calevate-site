@@ -42,6 +42,8 @@ function detail(): CallDetail {
     outcome_tag: "answered",
     summary_state: "ready",
     test_call: false,
+    caller_id_hidden: false,
+    forwarding_test: false,
     translation_state: "not_needed",
     language: "en-IN",
     sentiment: "neutral",
@@ -53,7 +55,9 @@ function detail(): CallDetail {
     has_recording: true,
     disclosure_played: true,
     moments: [],
-    transcript: [{ idx: 0, speaker: "agent", text: "Hello.", redacted: true, start_ms: 0, start_approximate: false }],
+    quality: null,
+    signals: [],
+    transcript: [{ idx: 0, speaker: "agent", text: "Hello.", redacted: true, start_ms: 0, start_approximate: false, likely_cut_off: false }],
   };
 }
 

@@ -471,3 +471,29 @@ def test_the_sarvam_key_and_the_sarvam_105b_price_are_both_on_the_ops_console() 
     assert "sarvam-105b" in rates.INR_PRICED_LLMS
     # The rupee prices render inside the Model prices panel, which a served section mounts.
     assert [s.id for s in SECTIONS if PANEL_MODEL_PRICING in s.panels_after] == ["language-models"]
+
+
+# ------------------------------------------------------------------ a deploy's prompt text
+
+
+async def test_a_new_platform_prompt_revision_queues_one_platform_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-739: a worker starting on a build whose platform text changed walks the fleet once;
+    the next start, and a second worker starting beside it, queue nothing."""
+    revision = uuid.uuid4().hex[:16]
+    monkeypatch.setattr(live_apply, "platform_prompt_revision", lambda: revision)
+    async with untenanted_session() as session:
+        run_id = await live_apply.queue_platform_prompt_apply(session)
+    assert run_id is not None
+    run = await _run(run_id)
+    assert (run.scope, run.reasons) == ("platform", [f"platform_prompt:{revision}"])
+    assert await _outbox(APPLY_JOB, run_id) == 1
+    async with untenanted_session() as session:
+        assert await live_apply.queue_platform_prompt_apply(session) is None
+
+
+def test_the_platform_prompt_revision_is_stable_and_short() -> None:
+    first = live_apply.platform_prompt_revision()
+    assert first == live_apply.platform_prompt_revision()
+    assert len(first) == 16

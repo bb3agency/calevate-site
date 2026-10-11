@@ -33,7 +33,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest, memberRoleConfirmation } from "./admin";
 import { apiRequest } from "./client";
 
 import type { components } from "./schema";
@@ -77,9 +77,8 @@ export function useTenantMembers(tenantId: string): UseQueryResult<TenantMember[
 /**
  * Move somebody between owner and staff.
  *
- * NO confirmation header, matching the API and for the reason its docstring gives: this is
- * undone by the same operator on the same screen in one click, and ceremony on a reversible
- * act teaches an operator to type past ceremony on the route where it matters.
+ * Step-up since D-731: promoting someone to owner hands them the whole account, so the
+ * write sends its confirmation and asks for a code when the second factor is stale.
  */
 export function useSetTenantMemberRole(tenantId: string) {
   const client = useQueryClient();
@@ -94,10 +93,15 @@ export function useSetTenantMemberRole(tenantId: string) {
       /** What the row was showing when the control was used — the CAS guard. */
       expectedRole: TenantMemberRole;
     }) =>
-      apiRequest<TenantMember>(adminSession(), memberPath(tenantId, userId), {
-        method: "PATCH",
-        body: { role, expected_role: expectedRole },
-      }),
+      confirmedAdminRequest<TenantMember>(
+        memberPath(tenantId, userId),
+        {
+          method: "PATCH",
+          body: { role, expected_role: expectedRole },
+          confirmAction: memberRoleConfirmation(tenantId, userId),
+        },
+        "Changing someone's role on this client's account.",
+      ),
     onSuccess: () => invalidate(client, tenantId),
   });
 }

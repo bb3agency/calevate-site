@@ -596,6 +596,9 @@ The transcript is one turn per line, and every line is labelled with the speaker
   not an answer and there is no name in it. "Book cheyala leda cancel cheyala?" is the
   agent listing options; it is not the caller's intent.
 - The agent repeating a value back does not confirm it. The caller must have said it.
+- A line labelled "agent (the caller spoke over this; they may not have heard it):" was
+  probably cut off: do not treat an offer, a price or a promise in it as heard, agreed or
+  part of the summary unless the caller responds to it later.
 - Never copy a speaker label ("caller", "agent") into a value.
 - If the transcript has no speaker labels at all, answer only where the caller's own
   words are unmistakable.

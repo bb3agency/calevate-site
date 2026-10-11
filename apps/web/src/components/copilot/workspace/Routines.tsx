@@ -58,8 +58,8 @@ const INSTRUCTION_MAX = 2000;
  * ROUTINES: things the assistant does on a schedule, as the person who set them up (D-694).
  *
  * Each run is a background task, so it meets every check a typed request meets. The rule
- * this screen states once, where the routine is made: anything that would call someone,
- * spend money or cannot be undone waits in Approvals — a routine never does it alone.
+ * this screen states once, where the routine is made: every change a routine would make
+ * waits in Approvals (D-729) — a routine never changes anything alone.
  */
 export function Routines({ session }: { session: Session }) {
   const routines = useRoutines(session);
@@ -76,7 +76,7 @@ export function Routines({ session }: { session: Session }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-prose text-sm text-ink-muted">
-          Calls, spending and anything that can&apos;t be undone wait for your approval.
+          Every change a routine would make waits in Approvals for your click.
         </p>
         <button type="button" onClick={() => setEditing("new")} className={PRIMARY_BUTTON}>
           <Plus aria-hidden className="h-4 w-4" />
@@ -385,8 +385,8 @@ function RoutineEditor({
             <div>
               <dt className="text-ink-faint">What waits for you</dt>
               <dd className="text-ink">
-                Calling anyone, spending money and anything that can&apos;t be undone wait in
-                Approvals. Small changes happen straight away, each with an Undo.
+                Every change it would make, from a lead&apos;s status to a new campaign, waits in
+                Approvals until you approve it. Nothing changes on its own.
               </dd>
             </div>
           </dl>

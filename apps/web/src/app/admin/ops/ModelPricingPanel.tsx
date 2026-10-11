@@ -10,12 +10,7 @@ import {
   isForbidden,
 } from "@/app/admin/withheld";
 import { WriteFailure } from "@/app/admin/writeFailure";
-import {
-  BadgeCheck,
-  CircleHelp,
-  Save,
-  TriangleAlert,
-} from "lucide-react";
+import { BadgeCheck, Save, TriangleAlert } from "lucide-react";
 
 import { lookup } from "@/lib/lookup";
 import {
@@ -171,12 +166,11 @@ export function ModelPricingPanel({
         {state.status === "unreadable" && (
           <NoticeBox
             tone="warn"
-            icon={<CircleHelp aria-hidden className="h-5 w-5" />}
             title="We could not read the model prices"
           >
             <p className="mt-1">
               This panel will not show invented figures when it could not read
-              the real ones — billing from a guessed price is the mistake that
+              the real ones. Billing from a guessed price is the mistake that
               would cause. The error above says what stopped the read.
             </p>
           </NoticeBox>
@@ -553,7 +547,6 @@ function EmbeddingPricesSection({
         // of the truth, and it is the claim that gets an upload indexed for free on paper.
         <NoticeBox
           tone="warn"
-          icon={<CircleHelp aria-hidden className="h-5 w-5" />}
           title="This deployment did not send any indexing prices"
         >
           <p className="mt-1">
@@ -846,13 +839,12 @@ function TtsPricesSection({
         // one that gets a Cartesia minute metered as free.
         <NoticeBox
           tone="warn"
-          icon={<CircleHelp aria-hidden className="h-5 w-5" />}
           title="This deployment did not send any voice prices"
         >
           <p className="mt-1">
             Nothing is shown rather than a table of guessed figures. A voice whose price is
-            not confirmed cannot be sold at all — every minute on it would meter as costing
-            nothing — so treat this as unknown, not as free.
+            not confirmed cannot be sold at all. Every minute on it would meter as costing
+            nothing, so treat this as unknown, not as free.
           </p>
         </NoticeBox>
       ) : (

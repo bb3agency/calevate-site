@@ -1,8 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { Lock } from "lucide-react";
-
+import { RowLink } from "@/components/console/checklist";
 import { NoticeBox } from "@/components/ui";
 import { useClientRealm } from "@/lib/api/session";
 import { useShellWallet } from "@/lib/api/wallet";
@@ -11,19 +9,23 @@ import { useShellWallet } from "@/lib/api/wallet";
 export const TRIAL_LOCK_COPY = {
   numbers: {
     title: "Your own phone number comes after the trial",
-    body: "During your free trial, test calls ring from a shared Calevate number. Add credit, then verify your business, and you can buy a number in your business's name.",
+    body: "Test calls ring from a shared Calevate number until then.",
+    info: "Add credit, then verify your business, and you can buy a number in your business's name.",
   },
   campaigns: {
     title: "Campaigns open once you add credit",
-    body: "During your free trial you can try your agents with test calls from your dashboard. Add credit and verify your business to call your leads.",
+    body: "Until then, try your agents with test calls from your dashboard.",
+    info: "Add credit and verify your business to call your leads.",
   },
   kyc: {
     title: "Business verification opens once you add credit",
-    body: "During your free trial you can accept the no-cold-calls promise below and place test calls. Verifying your business comes next, after you add credit.",
+    body: "You can accept the no-cold-calls promise below and place test calls now.",
+    info: "Verifying your business comes next, after you add credit.",
   },
   agents: {
     title: "Your agents can place test calls during the trial",
-    body: "An agent that only answers calls needs your own phone number, which comes after you add credit and verify your business. Until then, set an agent to place calls and try it from your dashboard.",
+    body: "An agent that only answers calls needs your own number, which comes after the trial.",
+    info: "Your own number comes after you add credit and verify your business. Until then, set an agent to place calls and try it from your dashboard.",
   },
 } as const;
 
@@ -40,14 +42,13 @@ export function TrialLockNotice({ lock }: { lock: TrialLock }) {
   if (wallet === undefined || wallet.trial?.test_calls_only !== true) return null;
   const copy = TRIAL_LOCK_COPY[lock];
   return (
-    <NoticeBox tone="neutral" icon={<Lock aria-hidden className="h-4 w-4" />} title={copy.title}>
-      <p>{copy.body}</p>
-      <Link
-        href={href(`/c/${session.orgSlug}/billing?tab=credits`)}
-        className="mt-2 inline-block font-semibold underline underline-offset-2"
-      >
-        Add credit to go live
-      </Link>
+    <NoticeBox
+      tone="neutral"
+      title={copy.title}
+      info={copy.info}
+      action={<RowLink href={href(`/c/${session.orgSlug}/billing?tab=credits`)}>Add credit to go live</RowLink>}
+    >
+      {copy.body}
     </NoticeBox>
   );
 }

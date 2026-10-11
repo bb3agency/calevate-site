@@ -51,14 +51,17 @@ ENGINE_OPT_OUT_JOB: Final = "ingest_engine_opt_out"
 #: A lead taken or a conversation handed to a person by the engine's own agent
 #: (`apps/workers/engine_signals.ENGINE_NOTICE_JOB`).
 ENGINE_NOTICE_JOB: Final = "ingest_engine_notice"
+#: Something going wrong on a call that is still live
+#: (`apps/workers/engine_signals.ENGINE_PROBLEM_JOB`).
+ENGINE_PROBLEM_JOB: Final = "ingest_engine_problem"
 
 
 @dataclass(frozen=True, slots=True)
 class SignedEventRoute:
-    #: The `data` field naming the call this event is about: the inbox and the job are
-    #: keyed on it, so the unit an operator searches for is the call. None for an event
-    #: that need not be about a call (a chat escalation), keyed on its event id instead.
-    call_field: str | None
+    #: The `data` fields naming the call this event is about, the first one present wins:
+    #: the inbox and the job are keyed on it, so the unit an operator searches for is the
+    #: call. Empty for an event keyed on its event id instead.
+    call_fields: tuple[str, ...]
     #: The worker job that consumes the event.
     job: str
 
@@ -82,17 +85,25 @@ SIGNED_INTAKES: Final[dict[str, SignedIntake]] = {
         event_id_header="x-thinnest-event-id",
         attempt_header="x-thinnest-attempt",
         events={
-            # `call.completed` the moment a call ends; `call.analysed` once its results are
-            # ready, "the same shape as Get Call" (webhooks.md:82-83).
-            "call.completed": SignedEventRoute(call_field="id", job=INGEST_JOB),
-            "call.analysed": SignedEventRoute(call_field="id", job=INGEST_JOB),
+            # `call.completed` carries `id` only for a call placed through the API and
+            # `callRef` on every call, so an inbound call is keyed on `callRef`; `id` first
+            # because it is the place-call id our dispatch stored (docs.thinnest.ai
+            # api-reference/webhooks "call.completed", read 11 Oct 2026). `call.analysed`
+            # is the Get Call object, which carries both.
+            "call.completed": SignedEventRoute(call_fields=("id", "callRef"), job=INGEST_JOB),
+            "call.analysed": SignedEventRoute(call_fields=("id", "callRef"), job=INGEST_JOB),
             # `data.phone`, `data.callId`, `data.source` ("call"), `data.optedOutAt`
             # (webhooks.md:85).
-            "contact.opted_out": SignedEventRoute(call_field="callId", job=ENGINE_OPT_OUT_JOB),
-            # Notices the engine's agent raises (webhooks.md:79-80); their `data` is printed only
-            # as `{ … }`, so nothing in it keys the unit.
-            "lead.captured": SignedEventRoute(call_field=None, job=ENGINE_NOTICE_JOB),
-            "conversation.escalated": SignedEventRoute(call_field=None, job=ENGINE_NOTICE_JOB),
+            "contact.opted_out": SignedEventRoute(call_fields=("callId",), job=ENGINE_OPT_OUT_JOB),
+            # Notices the engine's agent raises. They carry `agentId` and `callId` (null off
+            # a call) since 9 Oct 2026; the unit stays the event id, so one raised on a chat
+            # is keyed like one raised on a call and the worker attaches it to its call.
+            "lead.captured": SignedEventRoute(call_fields=(), job=ENGINE_NOTICE_JOB),
+            "conversation.escalated": SignedEventRoute(call_fields=(), job=ENGINE_NOTICE_JOB),
+            # `{callId, agentId, kind, detail, at}`, at most once per kind per call, sent
+            # while the call is live (docs.thinnest.ai api-reference/webhooks "call.problem",
+            # read 11 Oct 2026).
+            "call.problem": SignedEventRoute(call_fields=("callId",), job=ENGINE_PROBLEM_JOB),
         },
     ),
 }
@@ -219,10 +230,18 @@ def keyed_event(
     # the vendor's bare ids, so a call is keyed in the agent's workspace — the form every
     # other path stores it in — and the agent is compared without it.
     agent_id, workspace = split_handle(engine_agent_ref)
-    if route.call_field is None:
+    if not route.call_fields:
         execution_id = keyable(event_id)
     else:
-        raw_call = keyable(scalar_hint(data.get(route.call_field)) or "")
+        named_call = next(
+            (
+                hint
+                for field in route.call_fields
+                if (hint := scalar_hint(data.get(field))) is not None
+            ),
+            None,
+        )
+        raw_call = keyable(named_call or "")
         execution_id = (
             keyable(scoped_handle(raw_call, workspace))
             if raw_call is not None and SCOPE_SEPARATOR not in raw_call
@@ -231,7 +250,11 @@ def keyed_event(
     if execution_id is None:
         return "unusable execution key"
     agent = data.get("agent")
-    named = scalar_hint(agent.get("id")) if isinstance(agent, dict) else None
+    # A call object names its agent as `agent.id`; the notices and `call.problem` as
+    # `agentId`.
+    named = (scalar_hint(agent.get("id")) if isinstance(agent, dict) else None) or scalar_hint(
+        data.get("agentId")
+    )
     if named is not None and named != agent_id:
         # Signed by this agent's secret yet naming another agent: a misregistered endpoint.
         return "agent mismatch"
@@ -245,6 +268,7 @@ __all__ = [
     "AGENT_QUERY_PARAM",
     "ENGINE_NOTICE_JOB",
     "ENGINE_OPT_OUT_JOB",
+    "ENGINE_PROBLEM_JOB",
     "INGEST_JOB",
     "REPLAY_TOLERANCE",
     "SIGNED_INTAKES",

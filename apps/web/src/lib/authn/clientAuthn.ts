@@ -170,3 +170,25 @@ export async function completeGoogleSignIn(input: {
   clientAuthn.reset();
   return done;
 }
+
+/* --- Step-up on the client realm (D-730) ---------------------------------------------
+ *
+ * The client realm has no second factor, so a code here does not restamp anything: it
+ * buys one proof for the one action it names. The few client routes that hand out a
+ * client's data or store a credential (exports, integration credentials, outbound
+ * webhook endpoints) spend that proof. The server does not rotate the session on this
+ * answer, so `request` (which waits on the rotation barrier) is the right transport.
+ */
+
+/** Email this user a `step_up`-purpose code. Issuing one retires the previous. */
+export async function requestClientStepUp(): Promise<void> {
+  await clientAuthn.request<void>("/step-up", { method: "POST" });
+}
+
+/** Answer the code for `action`; the next request carrying that confirmation passes. */
+export async function confirmClientStepUp(code: string, action?: string): Promise<void> {
+  await clientAuthn.request<unknown>("/step-up/verify", {
+    method: "POST",
+    body: action === undefined ? { code } : { code, action },
+  });
+}

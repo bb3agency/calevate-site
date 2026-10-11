@@ -293,7 +293,7 @@ export function TeamScreen() {
           {remove.data.leads_still_assigned > 0
             ? `${formatCount(remove.data.leads_still_assigned)} ${
                 remove.data.leads_still_assigned === 1 ? "lead is" : "leads are"
-              } still assigned to them. Those leads were not touched — reassign them from the Leads screen so somebody picks them up.`
+              } still assigned to them. Reassign them on the Leads screen so somebody picks them up.`
             : "They had no leads assigned, so nothing needs reassigning."}
         </NoticeBox>
       )}

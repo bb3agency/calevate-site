@@ -16,11 +16,16 @@ Raghava Organics). Three steps, each idempotent, so a redelivery repeats nothing
    to collect" matches, and a live agent is republished through the one publish path
    (`script_builder.recompile_collect`). One transaction per agent, so one agent the voice
    platform refuses does not hold back the others.
-3. **Suggestion.** For an account still unconfirmed, the dashboard AI chain
-   (`workers/script_assist.ask_json`: Azure, then the disclosed Sarvam fallback) reads the
-   business's own description of itself, redacted (D-127 G-1/G-2), and suggests ONE type
-   with a short reason. It is stored for the operator's "Confirm business type" prompt and
-   changes nothing by itself. Metered as `ASSIST_FEATURE_BUSINESS_TYPE`, absorbed.
+3. **Suggestion.** For an account still unconfirmed with no suggestion on file, the
+   dashboard AI chain (`workers/script_assist.ask_json`: Azure, then the disclosed Sarvam
+   fallback) reads the business's own description of itself, redacted (D-127 G-1/G-2),
+   and suggests ONE type with a short reason. It is stored for the operator's "Business
+   type not confirmed" prompt and changes nothing by itself. Metered as
+   `ASSIST_FEATURE_BUSINESS_TYPE`, absorbed.
+
+`suggest_only` (the operator's "Suggest again", `admin/business_type.queue_suggestion`)
+runs step 3 alone and asks even when a suggestion is on file. Every run logs
+`business_type_suggestion` with whether it asked and the outcome, ids and codes only.
 """
 
 from __future__ import annotations
@@ -100,21 +105,44 @@ def carries_clinic_default(fields: list[ExtractionField]) -> bool:
     return bool(fields) and {f.key for f in fields} <= CLINIC_DEFAULT_KEYS
 
 
-async def _refit_fields(tenant_id: UUID, *, replace_clinic_default: bool) -> tuple[bool, int]:
-    """Step 1. Returns (still unconfirmed, agents whose fields were written)."""
+#: Why step 3 did not ask, or what came of asking. Logged as `outcome`.
+SKIP_CONFIRMED: Final = "skipped_confirmed"
+SKIP_ALREADY_SUGGESTED: Final = "skipped_already_suggested"
+OUTCOME_STORED: Final = "stored"
+OUTCOME_NOT_STORED: Final = "not_stored_confirmed_meanwhile"
+OUTCOME_UNAVAILABLE: Final = "unavailable"
+
+
+async def _suggestion_state(tenant_id: UUID) -> tuple[bool, bool]:
+    """(still unconfirmed, a suggestion is on file). A missing account reads as confirmed."""
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT unconfirmed_business_type IS NOT NULL, "
+                    "suggested_business_type IS NOT NULL FROM organizations "
+                    "WHERE id = :tid AND deleted_at IS NULL"
+                ),
+                {"tid": tenant_id},
+            )
+        ).first()
+    return (False, False) if row is None else (bool(row[0]), bool(row[1]))
+
+
+async def _refit_fields(tenant_id: UUID, *, replace_clinic_default: bool) -> int:
+    """Step 1. Returns the number of agents whose fields were written."""
     async with tenant_session(tenant_id) as session:
         org = (
             await session.execute(
                 text(
-                    "SELECT vertical_template, unconfirmed_business_type, "
-                    "business_type_suggested_at FROM organizations WHERE id = :tid "
-                    "AND deleted_at IS NULL"
+                    "SELECT vertical_template, unconfirmed_business_type "
+                    "FROM organizations WHERE id = :tid AND deleted_at IS NULL"
                 ),
                 {"tid": tenant_id},
             )
         ).first()
         if org is None:
-            return False, 0
+            return 0
         vertical = None if org[0] is None else str(org[0])
         unconfirmed = org[1] is not None
         if unconfirmed:
@@ -137,7 +165,7 @@ async def _refit_fields(tenant_id: UUID, *, replace_clinic_default: bool) -> tup
                 session, fields=target, agent_ids=[*fill, *replace]
             )
             written = sum(1 for w in writes if w.changed)
-        return unconfirmed and org[2] is None, written
+        return written
 
 
 async def _recompile_scripts(tenant_id: UUID) -> tuple[int, int, int]:
@@ -171,8 +199,14 @@ async def _recompile_scripts(tenant_id: UUID) -> tuple[int, int, int]:
     return replaced, changed, refused
 
 
-async def _suggest(tenant_id: UUID) -> str | None:
-    """Step 3. Returns the suggested type, or None when no model could answer."""
+async def _suggest(tenant_id: UUID, *, again: bool = False) -> str:
+    """Step 3. Asks for a suggestion when the account is unconfirmed and has none on file
+    (or `again`), and returns the outcome it logged."""
+    unconfirmed, on_file = await _suggestion_state(tenant_id)
+    if not unconfirmed:
+        return _log_suggestion(tenant_id, asked=False, outcome=SKIP_CONFIRMED)
+    if on_file and not again:
+        return _log_suggestion(tenant_id, asked=False, outcome=SKIP_ALREADY_SUGGESTED)
     description, _ = await business_context(tenant_id, include_type=False)
     try:
         answer: JsonAnswer[tuple[str, str]] = await ask_json(
@@ -184,8 +218,7 @@ async def _suggest(tenant_id: UUID) -> str | None:
             temperature=0.0,
         )
     except ProblemError as exc:
-        log.info("business_type_suggestion_unavailable", extra={"reason": exc.code})
-        return None
+        return _log_suggestion(tenant_id, asked=True, outcome=OUTCOME_UNAVAILABLE, code=exc.code)
     business_type, reason = answer.value
     async with tenant_session(tenant_id) as session:
         await crm_assist.meter_assist(
@@ -198,17 +231,36 @@ async def _suggest(tenant_id: UUID) -> str | None:
         stored = await record_suggestion(
             session, tenant_id=tenant_id, business_type=business_type, reason=reason
         )
-    return business_type if stored else None
+    return _log_suggestion(
+        tenant_id,
+        asked=True,
+        outcome=OUTCOME_STORED if stored else OUTCOME_NOT_STORED,
+        code=business_type if stored else None,
+    )
+
+
+def _log_suggestion(tenant_id: UUID, *, asked: bool, outcome: str, code: str | None = None) -> str:
+    """One line per run of step 3, so "No suggestion yet" can always be explained."""
+    log.info(
+        "business_type_suggestion",
+        extra={"tenant_id": str(tenant_id), "asked": asked, "outcome": outcome, "code": code},
+    )
+    return outcome
 
 
 async def apply_business_type(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
-    needs_suggestion, written = await _refit_fields(
+    if payload.get("suggest_only"):
+        await _suggest(tenant_id, again=True)
+        return "done"
+    written = await _refit_fields(
         tenant_id, replace_clinic_default=bool(payload.get("replace_clinic_default"))
     )
     replaced, recompiled, refused = await _recompile_scripts(tenant_id)
-    suggested = await _suggest(tenant_id) if needs_suggestion else None
+    # Read again AFTER the refit, never from the refit's own read: the suggestion step's
+    # condition is the account's state when it runs, and a skip is logged with its reason.
+    suggestion = await _suggest(tenant_id)
     log.info(
         "business_type_applied",
         extra={
@@ -217,7 +269,7 @@ async def apply_business_type(ctx: dict[str, Any], payload: dict[str, Any]) -> s
             "starters_replaced": replaced,
             "scripts_recompiled": recompiled,
             "scripts_refused": refused,
-            "suggested": suggested,
+            "suggestion": suggestion,
         },
     )
     return "done" if not refused else "partial"

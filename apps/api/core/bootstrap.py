@@ -29,6 +29,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.console_links import (
     ADMIN_CONSOLE_BASE,
     ADMIN_ORIGIN_PREFIXES,
+    APEX_CREDENTIALED_PREFIXES,
     CONSOLE_BASE,
     VIEW_AS_HANDOFF_PATHS,
 )
@@ -62,7 +63,8 @@ _Handler = Callable[[int, FrameType | None], Any] | int | signal.Handlers | None
 # for want of `Access-Control-Allow-Origin`, and the API would refuse the request as
 # cross-site even if the browser did not. Both readers go through
 # `credentialed_origins_for_path`, which narrows admin-realm paths to the admin console's
-# origin alone (`admin_origins_for_env`); this list is what every other path accepts.
+# origin alone (`admin_origins_for_env`) and every client path outside
+# `APEX_CREDENTIALED_PREFIXES` to the two consoles (`console_origins_for_env`, D-732).
 #
 # THE APEX WAS MISSING, AND IT BROKE SIGN-IN, PASSWORD RESET AND THE MARKETING HEADER.
 # Reported from the live site as "we could not reach Calevate" on correct credentials —
@@ -80,8 +82,11 @@ _Handler = Callable[[int, FrameType | None], Any] | int | signal.Handlers | None
 # `return 301` to the apex, so the browser follows the redirect before any of our script
 # runs and `www` never becomes a document origin. Adding an origin that cannot occur
 # widens the CSRF allowlist for nothing.
+#: The marketing site, which also serves the sign-in, forgot-password and reset screens.
+MARKETING_ORIGIN = "https://calevate.tech"
+
 DEFAULT_CORS_ORIGINS = [
-    "https://calevate.tech",
+    MARKETING_ORIGIN,
     CONSOLE_BASE,
     ADMIN_CONSOLE_BASE,
 ]
@@ -108,13 +113,18 @@ _LOCAL_DEV_ORIGIN = "http://localhost:3000"
 
 
 def cors_origins_for_env() -> list[str]:
-    """The origins allowed to send credentialed requests, for THIS deployment.
-
-    The production three everywhere, plus the dev origin only when `APP_ENV=local`. Both
-    the CORS layer and the CSRF Origin check call this, so the two can never disagree —
-    which they would the first time somebody filtered the list at one of the two sites.
+    """Every origin this deployment serves pages from: the production three, plus the dev
+    origin only when `APP_ENV=local`. Credentialed on `APEX_CREDENTIALED_PREFIXES` only;
+    `credentialed_origins_for_path` narrows every other client path to the consoles, and
+    the CORS layer and the CSRF Origin check both ask that one function.
     """
     return _with_local_dev(DEFAULT_CORS_ORIGINS)
+
+
+def console_origins_for_env() -> list[str]:
+    """The origins every client path outside `APEX_CREDENTIALED_PREFIXES` accepts: the two
+    consoles, plus the dev origin locally (D-732)."""
+    return _with_local_dev([o for o in DEFAULT_CORS_ORIGINS if o != MARKETING_ORIGIN])
 
 
 def admin_origins_for_env() -> list[str]:
@@ -151,7 +161,9 @@ def credentialed_origins_for_path(path: str) -> list[str]:
         return view_as_origins_for_env()
     if path.startswith(ADMIN_ORIGIN_PREFIXES):
         return admin_origins_for_env()
-    return cors_origins_for_env()
+    if path.startswith(APEX_CREDENTIALED_PREFIXES):
+        return cors_origins_for_env()
+    return console_origins_for_env()
 
 
 def _with_local_dev(origins: list[str]) -> list[str]:
@@ -496,6 +508,7 @@ def create_app(
             cors_origins=cors_origins or cors_origins_for_env(),
             admin_cors_origins=admin_origins_for_env(),
             view_as_cors_origins=view_as_origins_for_env(),
+            console_cors_origins=None if cors_origins else console_origins_for_env(),
         )
 
     # ADDED LAST, SO IT IS THE OUTERMOST, and that position is the whole point: the
@@ -530,9 +543,12 @@ def create_app(
 
 
 __all__ = [
+    "APEX_CREDENTIALED_PREFIXES",
     "DEFAULT_CORS_ORIGINS",
+    "MARKETING_ORIGIN",
     "SettingsScopeMiddleware",
     "admin_origins_for_env",
+    "console_origins_for_env",
     "cors_origins_for_env",
     "create_app",
     "credentialed_origins_for_path",

@@ -49,7 +49,7 @@ from calevate_shared.call_script import (
     StageBranch,
 )
 from calevate_shared.languages import get_language
-from calevate_shared.spoken_style import example_exchange, opening_in
+from calevate_shared.spoken_style import example_exchange, native_reviewed, opening_in
 from scripts.seed import CUSTOM_EXTRACTION_FIELDS, VERTICAL_TEMPLATES
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -296,7 +296,8 @@ class Starter:
             objections=[Objection(objection=o, response=r) for o, r in self.objections],
             ending=self.ending,
             example_exchange=[ExampleLine(speaker=t.speaker, text=t.text) for t in example],
-            example_needs_review=bool(example),
+            # Reviewed once the founder publishes this language as reviewed (D-744).
+            example_needs_review=bool(example) and not native_reviewed(language),
         )
 
     def sections(self) -> list[ConversationStage]:
@@ -373,7 +374,10 @@ def _answer_calls(vertical: str, trade: Trade) -> Starter:
             ),
             StarterStep(
                 title="Take their details",
-                instruction=f"Ask for their name and, as the conversation allows, {trade.capture}.",
+                instruction=(
+                    "Ask for their name, then one thing per turn as the call allows: "
+                    f"{trade.capture}."
+                ),
                 exit_when="You have their name and what they need.",
             ),
             StarterStep(
@@ -448,7 +452,7 @@ def _call_leads(vertical: str, trade: Trade) -> Starter:
             ),
             StarterStep(
                 title="Find out what they need",
-                instruction=f"Ask what they are looking for: {trade.capture}.",
+                instruction=f"Ask what they are looking for, one thing per turn: {trade.capture}.",
                 exit_when="You know what they want, or that they are not interested.",
             ),
             StarterStep(

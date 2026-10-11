@@ -43,9 +43,11 @@ import pytest
 import pytest_asyncio
 from apps.api.admin import service as admin_service
 from apps.api.admin.routes import view_as_confirmation
+from apps.api.authn import otp
+from apps.api.authn import service as authn_service
 from apps.api.authn.cookies import cookie_name
 from apps.api.authn.sessions import issue_session
-from apps.api.authn.stepup import REAUTH_MAX_AGE
+from apps.api.authn.stepup import REAUTH_MAX_AGE, record_action_proof
 from apps.api.core import impersonation as grant_module
 from apps.api.core.impersonation import (
     ACTOR_CLAIM,
@@ -97,9 +99,10 @@ async def operator() -> AsyncIterator[uuid.UUID]:
         yield admin_id
     finally:
         async with credential_session() as session:
-            await session.execute(
-                text("DELETE FROM auth_sessions WHERE subject_id = :s"), {"s": admin_id}
-            )
+            for table in ("auth_otp_challenges", "auth_sessions"):
+                await session.execute(
+                    text(f"DELETE FROM {table} WHERE subject_id = :s"), {"s": admin_id}
+                )
         async with untenanted_session() as session:
             await session.execute(text("DELETE FROM admin_users WHERE id = :s"), {"s": admin_id})
 
@@ -133,6 +136,11 @@ async def _make_org() -> dict[str, Any]:
     )
 
 
+async def _prove(admin_id: uuid.UUID, slug: str) -> None:
+    """A code entered for entering `slug` (D-730), recorded as `step-up/verify` records it."""
+    await record_action_proof(realm="admin", subject_id=admin_id, action=view_as_confirmation(slug))
+
+
 async def _mint(
     http: AsyncClient,
     cookie: str,
@@ -140,7 +148,10 @@ async def _mint(
     *,
     confirm: str | None = None,
     renew: str | None = None,
+    prove_for: uuid.UUID | None = None,
 ) -> Any:
+    if prove_for is not None:
+        await _prove(prove_for, slug)
     body: dict[str, Any] = {"slug": slug}
     if renew is not None:
         body["renew"] = renew
@@ -305,7 +316,11 @@ async def test_a_fresh_factor_opens_the_door_and_the_grant_dates_it(
     with caplog.at_level(logging.INFO, logger="apps.api.compliance.audit"):
         async with _client() as http:
             response = await _mint(
-                http, cookie, str(org["slug"]), confirm=view_as_confirmation(str(org["slug"]))
+                http,
+                cookie,
+                str(org["slug"]),
+                confirm=view_as_confirmation(str(org["slug"])),
+                prove_for=operator,
             )
 
     assert response.status_code == 200, response.text
@@ -330,6 +345,115 @@ async def test_a_fresh_factor_opens_the_door_and_the_grant_dates_it(
     assert summaries[0].auth_time == auth_time.isoformat()
 
 
+# ═══════════════ D-730: a code typed for THIS entry, not a recent sign-in ═══════════════
+
+
+@pytest.mark.asyncio
+async def test_a_fresh_sign_in_without_a_code_for_this_entry_is_refused(
+    operator: uuid.UUID,
+) -> None:
+    """Freshness alone no longer opens the door: a console left open within half an hour of
+    sign-in is exactly the case this closes. Nothing is minted and nothing is audited."""
+    cookie = await _cookie_for(operator, factor_age=timedelta(seconds=5))
+    org = await _make_org()
+
+    async with _client() as http:
+        response = await _mint(
+            http, cookie, str(org["slug"]), confirm=view_as_confirmation(str(org["slug"]))
+        )
+
+    assert response.status_code == 403, response.text
+    assert response.json()["type"].endswith("/reauthentication_required")
+    assert '"action": "view_as:' in response.json()["remediation"]
+    assert await _started_rows(uuid.UUID(str(org["id"]))) == []
+
+
+@pytest.mark.asyncio
+async def test_a_code_opens_one_entry_to_one_client_once(operator: uuid.UUID) -> None:
+    """The proof is bound to the client it was typed for and spent by the mint it opens."""
+    cookie = await _cookie_for(operator, factor_age=timedelta(seconds=5))
+    tenant_a = await _make_org()
+    tenant_b = await _make_org()
+    await _prove(operator, str(tenant_a["slug"]))
+
+    async with _client() as http:
+        other = await _mint(
+            http, cookie, str(tenant_b["slug"]), confirm=view_as_confirmation(str(tenant_b["slug"]))
+        )
+        first = await _mint(
+            http, cookie, str(tenant_a["slug"]), confirm=view_as_confirmation(str(tenant_a["slug"]))
+        )
+        again = await _mint(
+            http, cookie, str(tenant_a["slug"]), confirm=view_as_confirmation(str(tenant_a["slug"]))
+        )
+
+    assert other.status_code == 403, other.text
+    assert first.status_code == 200, first.text
+    assert again.status_code == 403, again.text
+    assert len(await _started_rows(uuid.UUID(str(tenant_a["id"])))) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_code_answered_at_step_up_verify_with_the_action_opens_the_door(
+    operator: uuid.UUID,
+) -> None:
+    """End to end over HTTP: the code is answered naming the action, and the mint passes."""
+    cookie = await _cookie_for(operator, factor_age=REAUTH_MAX_AGE + timedelta(minutes=5))
+    org = await _make_org()
+    action = view_as_confirmation(str(org["slug"]))
+    async with credential_session() as session:
+        code = (
+            await otp.issue_challenge(
+                session, purpose=authn_service.STEP_UP, realm="admin", subject_id=operator
+            )
+        ).code
+
+    async with _client() as http:
+        verified = await http.post(
+            "/v1/auth/admin/step-up/verify",
+            cookies={ADMIN_COOKIE: cookie},
+            json={"code": code, "action": action},
+        )
+        assert verified.status_code == 200, verified.text
+        rotated = verified.cookies.get(ADMIN_COOKIE) or http.cookies.get(ADMIN_COOKIE)
+        assert rotated
+        minted = await _mint(http, rotated, str(org["slug"]), confirm=action)
+
+    assert minted.status_code == 200, minted.text
+
+
+@pytest.mark.asyncio
+async def test_renewal_is_its_own_route_and_never_starts_a_session(operator: uuid.UUID) -> None:
+    """`/impersonation-grants/renew` is what the client console may call; it continues a
+    grant and refuses anything else rather than falling back to a fresh entry."""
+    org = await _make_org()
+    fresh = await _cookie_for(operator, factor_age=timedelta(seconds=30))
+    async with _client() as http:
+        first = await _mint(
+            http,
+            fresh,
+            str(org["slug"]),
+            confirm=view_as_confirmation(str(org["slug"])),
+            prove_for=operator,
+        )
+        assert first.status_code == 200, first.text
+        renewed = await http.post(
+            f"{GRANT_PATH}/renew",
+            cookies={ADMIN_COOKIE: fresh},
+            json={"slug": str(org["slug"]), "renew": first.json()["grant"]},
+        )
+        junk = await http.post(
+            f"{GRANT_PATH}/renew",
+            cookies={ADMIN_COOKIE: fresh},
+            json={"slug": str(org["slug"]), "renew": "not-a-grant"},
+        )
+
+    assert renewed.status_code == 200, renewed.text
+    assert _auth_time_of(renewed.json()["grant"]) == _auth_time_of(first.json()["grant"])
+    assert junk.status_code == 403, junk.text
+    assert junk.json()["type"].endswith("/view_as_renewal_refused")
+
+
 # ═══════════════ renewal: the reason this is not an OTP every 14 minutes ═══════════════
 
 
@@ -350,7 +474,11 @@ async def test_a_live_grant_renews_without_a_second_factor(
     with caplog.at_level(logging.INFO, logger="apps.api.compliance.audit"):
         async with _client() as http:
             first = await _mint(
-                http, fresh, str(org["slug"]), confirm=view_as_confirmation(str(org["slug"]))
+                http,
+                fresh,
+                str(org["slug"]),
+                confirm=view_as_confirmation(str(org["slug"])),
+                prove_for=operator,
             )
             assert first.status_code == 200, first.text
             held = first.json()["grant"]
@@ -389,7 +517,7 @@ async def test_a_renewal_inherits_auth_time_rather_than_restamping_it(
     confirm = view_as_confirmation(str(org["slug"]))
 
     async with _client() as http:
-        first = await _mint(http, fresh, str(org["slug"]), confirm=confirm)
+        first = await _mint(http, fresh, str(org["slug"]), confirm=confirm, prove_for=operator)
         assert first.status_code == 200, first.text
         one = first.json()["grant"]
 
@@ -451,7 +579,11 @@ async def test_another_tenants_grant_renews_nothing(operator: uuid.UUID) -> None
 
     async with _client() as http:
         first = await _mint(
-            http, fresh, str(tenant_a["slug"]), confirm=view_as_confirmation(str(tenant_a["slug"]))
+            http,
+            fresh,
+            str(tenant_a["slug"]),
+            confirm=view_as_confirmation(str(tenant_a["slug"])),
+            prove_for=operator,
         )
         assert first.status_code == 200, first.text
         grant_a = first.json()["grant"]

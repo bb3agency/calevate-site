@@ -13,6 +13,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
+import { accountAction, withAccountCode } from "./accountCode";
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
@@ -83,8 +84,16 @@ export function useConnectionsStatus(session: Session): UseQueryResult<Connectio
 export function useCreateCredential(session: Session) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (body: NewCredential) =>
-      apiRequest<IntegrationCredential>(session, CREDS_PATH, { method: "POST", body }),
+    mutationFn: (body: NewCredential) => {
+      const confirmAction = accountAction(session, "create_credential");
+      return withAccountCode(confirmAction, "Saving a key for your agent to use.", () =>
+        apiRequest<IntegrationCredential>(session, CREDS_PATH, {
+          method: "POST",
+          body,
+          confirmAction,
+        }),
+      );
+    },
     onSuccess: () =>
       void client.invalidateQueries({ queryKey: actionKeys.credentials(session.orgSlug) }),
   });

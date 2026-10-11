@@ -1,6 +1,8 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { OPS_INR_LLM_PRICES } from "./fixtures/opsInrLlmPrices";
+import { STYLE_LIST, TELUGU_STYLE } from "./fixtures/spokenStyle";
+import { ADMIN_FORWARDING, CODES, READY_TO_FORWARD, SETTLED_TEST, WITH_LINE } from "./fixtures/forwarding";
 
 import type { AiQuota } from "@/lib/api/aiQuota";
 import type { Margin } from "@/lib/api/admin";
@@ -18,6 +20,7 @@ import ClientForgotPasswordPage from "@/app/(auth)/auth/forgot-password/page";
 import ClientResetPasswordPage from "@/app/(auth)/auth/reset-password/page";
 import ClientFirstPartySignInPage from "@/app/(auth)/auth/sign-in/page";
 import ClientHealthPage from "@/app/admin/health/page";
+import ViewAsStartPage from "@/app/admin/view-as/page";
 import FleetSpendPage from "@/app/admin/spend/page";
 import TenantSpendPage from "@/app/admin/tenants/[tenantId]/spend/page";
 import CommercialsPage from "@/app/admin/tenants/[tenantId]/commercials/page";
@@ -37,6 +40,7 @@ import OpsAlertsPage from "@/app/admin/ops/alerts/page";
 import OpsHealerPage from "@/app/admin/ops/healer/page";
 import PaymentsPage from "@/app/admin/payments/page";
 import EngineLatencyPage from "@/app/admin/ops/engine-latency/page";
+import SpokenStylePage from "@/app/admin/ops/spoken-style/page";
 import VoicesPage from "@/app/admin/ops/voices/page";
 import OperatorsPage from "@/app/admin/operators/page";
 import OpsConfigPage from "@/app/admin/ops/config/page";
@@ -84,6 +88,8 @@ import QaSamplingPage from "@/app/admin/qa-sampling/page";
 import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
 import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
 import LineProtectionPage from "@/app/c/[slug]/settings/line-protection/page";
+import PhoneNumbersSettingsPage from "@/app/c/[slug]/settings/phone-numbers/page";
+import ExistingNumberPage from "@/app/c/[slug]/setup/existing-number/page";
 import BusinessProfilePage from "@/app/c/[slug]/settings/business/page";
 import LeadDetailsPage from "@/app/c/[slug]/settings/lead-details/page";
 import SetupPage from "@/app/c/[slug]/setup/page";
@@ -492,6 +498,13 @@ const TENANT_SPEND = {
   margin_inr: "4149.00",
   margin_pct: "66.40",
   legs_unpriced: 0,
+  trial_cost_inr: "0.00",
+  trial_in_month: false,
+  paid_cost_inr: "2100.00",
+  paid_margin_inr: "4149.00",
+  paid_margin_pct: "66.40",
+  trial_calls: 0,
+  trial_minutes: "0.00",
   cost_currency: "INR",
   cost_currency_stated: false,
   unattributed: { minutes: "0.0000", cost_inr: "120.00" },
@@ -502,6 +515,8 @@ const TENANT_SPEND = {
       cost_inr: "700.00",
       margin_inr: "500.00",
       cost_currency_assumed: true,
+      trial_cost_inr: "0.00",
+      paid_margin_inr: "500.00",
     },
   ],
   top_calls: [
@@ -510,6 +525,7 @@ const TENANT_SPEND = {
       cost_inr: "540.00",
       margin_inr: "360.00",
       cost_currency_assumed: true,
+      trial_covered: false,
     },
   ],
 };
@@ -576,6 +592,10 @@ const FLEET_SPEND = {
   margin_pct: null,
   ai_absorbed_inr: "0.81",
   legs_unpriced: 0,
+  trial_cost_inr: "0.00",
+  paid_cost_inr: "7100.00",
+  paid_margin_inr: "-851.00",
+  paid_margin_pct: null,
   tenants: [
     {
       tenant_id: "t2",
@@ -591,6 +611,11 @@ const FLEET_SPEND = {
       ai_absorbed_inr: "0.81",
       ai_requests: 3,
       legs_unpriced: 0,
+      trial_cost_inr: "0.00",
+      trial_in_month: false,
+      paid_cost_inr: "5000.00",
+      paid_margin_inr: "-5000.00",
+      paid_margin_pct: null,
     },
     {
       tenant_id: "t1",
@@ -606,6 +631,11 @@ const FLEET_SPEND = {
       ai_absorbed_inr: "0.00",
       ai_requests: 0,
       legs_unpriced: 0,
+      trial_cost_inr: "0.00",
+      trial_in_month: false,
+      paid_cost_inr: "2100.00",
+      paid_margin_inr: "4149.00",
+      paid_margin_pct: "66.40",
     },
   ],
 };
@@ -1745,6 +1775,11 @@ const TENANT_ROUTES: Routes = {
     margin_inr: "613549.50",
     margin_pct: "60.39",
     legs_unpriced: 0,
+    trial_cost_inr: "0.00",
+    trial_in_month: false,
+    paid_cost_inr: "402350.50",
+    paid_margin_inr: "613549.50",
+    paid_margin_pct: "60.39",
     tiers: {
       // BOTH SPELLINGS, because that is what the wire carries for one release
       // (hard rule 8 step 1, D-558): `*_base_rung` / `*_second_rung` are the
@@ -1794,6 +1829,7 @@ const TENANT_ROUTES: Routes = {
     minutes_used: "812.00",
     spend_used_inr: "5002.40",
     capped: false,
+    trial_active: false,
   },
 };
 
@@ -1962,6 +1998,30 @@ const HEALER_PROPOSALS = {
 
 const CLIENT_SCREENS: Screen[] = [
   {
+    // D-746: a working line with both findings, quiet for three days, the codes open on
+    // Airtel, one settled test, and the save-our-number switch.
+    file: "c/[slug]/settings/phone-numbers/page.tsx",
+    realm: "client",
+    element: () => <PhoneNumbersSettingsPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/forwarding": WITH_LINE,
+      "/v1/forwarding/codes": CODES,
+      "/v1/forwarding/lines/l1/tests?limit=5": [SETTLED_TEST],
+      "/v1/forwarding/save-number": { enabled: true },
+    },
+  },
+  {
+    // D-746: the onboarding guide's first step (a Calevate number, no existing number).
+    file: "c/[slug]/setup/existing-number/page.tsx",
+    realm: "client",
+    element: () => <ExistingNumberPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/forwarding": READY_TO_FORWARD,
+    },
+  },
+  {
     // A held line with a caller to ring back, a saved backup phone and a pending script
     // rollback: every part of the screen renders.
     file: "c/[slug]/settings/line-protection/page.tsx",
@@ -2033,6 +2093,8 @@ const CLIENT_SCREENS: Screen[] = [
     realm: "client",
     element: () => <DashboardPage params={slug} />,
     routes: {
+      // A Calevate number and no existing number yet, so the forwarding prompt is swept.
+      "/v1/forwarding": READY_TO_FORWARD,
       // Setup not finished, so the dashboard's setup checklist is swept.
       "/v1/business-profile": businessProfileFixture({
         setup: {
@@ -2115,7 +2177,7 @@ const CLIENT_SCREENS: Screen[] = [
           {
             idx: 0,
             speaker: "agent",
-            start_approximate: false,
+            start_approximate: false, likely_cut_off: false,
             text: "Namaskaram, Sri Clinic.",
             start_ms: 0,
             redacted: true,
@@ -2123,7 +2185,7 @@ const CLIENT_SCREENS: Screen[] = [
           {
             idx: 1,
             speaker: "caller",
-            start_approximate: false,
+            start_approximate: false, likely_cut_off: false,
             text: "I need a Tuesday slot.",
             start_ms: 2400,
             redacted: true,
@@ -2160,8 +2222,12 @@ const CLIENT_SCREENS: Screen[] = [
         ],
         summary_state: "ready",
         test_call: false,
+        caller_id_hidden: false,
+        forwarding_test: false,
         translation_state: "not_needed",
         language: "te-IN",
+        quality: null,
+        signals: [],
       } satisfies CallDetail,
       "/v1/calls/c1/callback": { eligible: false, reason: "consent_missing" },
     },
@@ -2947,6 +3013,7 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <PhoneNumberPage />,
     routes: {
       "/v1/me": ME,
+      "/v1/forwarding": READY_TO_FORWARD,
       "/v1/campaigns/numbers": [
         {
           id: "num-1",
@@ -3640,6 +3707,15 @@ const ADMIN_SCREENS: Screen[] = [
     },
   },
   {
+    // The view-as start page (D-730), in the state it renders without starting anything:
+    // a link that names no client. The working state asks for a code and navigates away.
+    file: "admin/view-as/page.tsx",
+    realm: "admin",
+    element: () => <ViewAsStartPage />,
+    search: "slug=",
+    routes: {},
+  },
+  {
     file: "admin/health/page.tsx",
     realm: "admin",
     element: () => <ClientHealthPage />,
@@ -4139,6 +4215,21 @@ const ADMIN_SCREENS: Screen[] = [
     },
   },
   {
+    // Ops > Spoken style (D-744): one entry of every kind and every status, so the chips,
+    // the retired row, the example lines and the publish form are all swept.
+    file: "admin/ops/spoken-style/page.tsx",
+    realm: "admin",
+    element: () => <SpokenStylePage />,
+    routes: {
+      "/v1/admin/me": {
+        ...ADMIN_ME,
+        permissions: [...ADMIN_ME.permissions, "ops:manage"],
+      },
+      "/v1/ops/spoken-style": STYLE_LIST,
+      "/v1/ops/spoken-style/te-IN": TELUGU_STYLE,
+    },
+  },
+  {
     // EVERY ROW SHAPE THIS TABLE HAS, because each one renders different markup and the
     // ones that matter are the unhappy ones: an enabled stock voice with live agents on it
     // (the reassurance sentence), a DISABLED clone that nobody has reviewed (the origin
@@ -4351,6 +4442,8 @@ const ADMIN_SCREENS: Screen[] = [
     element: () => <TenantNumbersPage params={tenant} />,
     routes: {
       ...TENANT_ROUTES,
+      // The client's existing number with every finding, quiet, and the message on (D-746).
+      "/v1/admin/forwarding/tenants/t1?limit=5": ADMIN_FORWARDING,
       // One number we bought and one the client brought that has NO vendor handle: the
       // second is what renders the "link and route" input, which is the only form on the
       // page and therefore the only thing with a label for axe to judge.

@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, LifeBuoy } from "lucide-react";
+import { ChevronRight } from "lucide-react";
+
+import { NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
 
 import type { Session } from "@/lib/api/client";
 import { useLineIncidents } from "@/lib/api/healer";
@@ -33,23 +35,22 @@ export function LineNotice({ session, href }: { session: Session; href: string }
   return (
     <Link
       href={href}
-      className="flex items-start justify-between gap-3 rounded-md border border-warn-line bg-warn-soft px-4 py-3 text-body text-warn transition-colors duration-(--duration-fast) ease-out hover:bg-[color-mix(in_srgb,var(--warn-soft),var(--warn-line)_40%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn focus-visible:ring-offset-2"
+      className={`${NOTICE_BASE} ${NOTICE_BAR.warn} flex items-start justify-between gap-3 transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2`}
     >
       <span className="flex min-w-0 items-start gap-2">
-        <LifeBuoy aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
         <span className="min-w-0">
-          <span className="block font-semibold">{first.headline}</span>
-          <span className="block">{first.what_we_did}</span>
+          <span className="block font-medium">{first.headline}</span>
+          <span className="block text-ink-muted">{first.what_we_did}</span>
           {more > 0 && (
-            <span className="block">
+            <span className="block text-ink-muted">
               {more === 1 ? "One more line needs a look." : `${more} more lines need a look.`}
             </span>
           )}
         </span>
       </span>
-      <span className="flex shrink-0 items-center gap-1 font-medium">
+      <span className="flex shrink-0 items-center gap-1 font-medium text-brand-strong">
         Details
-        <ArrowRight aria-hidden className="h-3.5 w-3.5" />
+        <ChevronRight aria-hidden className="h-3.5 w-3.5" />
       </span>
     </Link>
   );

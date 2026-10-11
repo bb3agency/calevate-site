@@ -1,18 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { Store } from "lucide-react";
 
 import { useAdminAccess } from "@/app/admin/access";
-import { FIELD, FIELD_LABEL, NoticeBox, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
-import { useAdminBusinessType, useConfirmBusinessType } from "@/lib/api/businessType";
+import { TEXT_ACTION } from "@/components/console/section";
+import { FIELD, NoticeBox, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
+import {
+  useAdminBusinessType,
+  useBusinessTypePoll,
+  useConfirmBusinessType,
+  useSuggestBusinessTypeAgain,
+} from "@/lib/api/businessType";
 import type { BusinessType } from "@/lib/businessTypes";
 
 /**
- * "Confirm business type" (D-722). An account created while the wizard pre-selected a type
- * was given that type without anybody choosing it, and now runs on the neutral lead details
- * until an operator confirms one. The AI's suggestion is pre-selected and its reason shown;
- * nothing changes until Confirm is pressed.
+ * "Business type not confirmed" (D-722), as one quiet bar: the line, the AI's suggestion,
+ * and the picker with Confirm inline. Why it matters sits behind the ⓘ. Nothing changes
+ * until Confirm is pressed. "Suggest again" asks the AI once more (ops:manage, audited,
+ * our cost) and polls for the answer.
  *
  * Renders nothing while loading, for an account with a chosen type, or on a failed read:
  * the tenant page carries on without it.
@@ -20,7 +25,11 @@ import type { BusinessType } from "@/lib/businessTypes";
 export function BusinessTypeBanner({ tenantId }: { tenantId: string }) {
   const state = useAdminBusinessType(tenantId);
   const confirm = useConfirmBusinessType(tenantId);
+  const suggest = useSuggestBusinessTypeAgain(tenantId);
+  const [askedAt, setAskedAt] = useState<number | null>(null);
+  useBusinessTypePoll(tenantId, askedAt);
   const write = useAdminAccess("admin:tenants", "confirm a client's business type");
+  const ask = useAdminAccess("ops:manage", "ask the AI for a business type again");
   const [picked, setPicked] = useState<string | null>(null);
 
   if (state.isPending || state.isError) return null;
@@ -28,76 +37,103 @@ export function BusinessTypeBanner({ tenantId }: { tenantId: string }) {
   if (!pending) {
     return confirm.isSuccess ? (
       <p className="text-body text-ink-muted" role="status">
-        Business type confirmed as {state.data.business_type_label}. Their agents now collect
-        its lead details from the next call.
+        Business type confirmed as {state.data.business_type_label}. Agents collect its lead
+        details from the next call.
       </p>
     ) : null;
   }
 
   const choice = picked ?? pending.suggested ?? "";
+  const waiting =
+    askedAt !== null &&
+    Date.now() - askedAt < 60_000 &&
+    !(pending.suggested_at && Date.parse(pending.suggested_at) >= askedAt);
   return (
-    <NoticeBox
-      tone="warn"
-      icon={<Store aria-hidden className="h-5 w-5" />}
-      title="Confirm business type"
-    >
-      <p className="mt-1">
-        This account was set up as “{pending.given_label}” without anyone choosing it. Until you
-        confirm a type, its calls collect only the standard details (name, what they want,
-        preferred time, other number, language, notes).
-      </p>
-      {pending.suggested_label ? (
-        <p className="mt-2">
-          Suggested from what the business says about itself:{" "}
-          <span className="font-medium text-ink">{pending.suggested_label}</span>
-          {pending.reason ? ` (${pending.reason})` : ""}
-        </p>
-      ) : (
-        <p className="mt-2 text-ink-muted">No suggestion yet. Choose the type yourself.</p>
-      )}
-      <form
-        noValidate
-        className="mt-3 flex flex-wrap items-end gap-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!choice) return;
-          confirm.mutate({ business_type: choice as BusinessType });
-        }}
-      >
-        <label className="w-full flex-1 sm:w-auto">
-          <span className={FIELD_LABEL}>Business type</span>
-          <select
-            className={FIELD}
-            value={choice}
-            onChange={(event) => setPicked(event.target.value)}
-            disabled={!write.allowed || confirm.isPending}
+    <div className="space-y-2">
+      <NoticeBox
+        tone="warn"
+        title="Business type not confirmed"
+        info={
+          <>
+            <p>
+              This account was set up as “{pending.given_label}” without anyone choosing it.
+            </p>
+            <p>
+              Until a type is confirmed, calls collect only the standard details: name, what
+              they want, preferred time, other number, language and notes.
+            </p>
+          </>
+        }
+        action={
+          <form
+            noValidate
+            className="flex w-full items-center gap-2 sm:w-auto"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!choice) return;
+              confirm.mutate({ business_type: choice as BusinessType });
+            }}
           >
-            <option value="" disabled>
-              Choose a type
-            </option>
-            {state.data.choices.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
+            <label className="sr-only" htmlFor={`business-type-${tenantId}`}>
+              Business type
+            </label>
+            <select
+              id={`business-type-${tenantId}`}
+              className={FIELD.replace("mt-1 w-full", "min-w-0 flex-1 sm:w-auto sm:min-w-48 sm:flex-none")}
+              value={choice}
+              onChange={(event) => setPicked(event.target.value)}
+              disabled={!write.allowed || confirm.isPending}
+            >
+              <option value="" disabled>
+                Choose a type
               </option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="submit"
-          className={PRIMARY_BUTTON}
-          disabled={!write.allowed || !choice || confirm.isPending}
-        >
-          {confirm.isPending ? "Confirming…" : "Confirm"}
-        </button>
-      </form>
-      {!write.allowed && write.reason && (
-        <p className="mt-2 text-ink-muted">{write.reason}</p>
-      )}
-      {confirm.isError && (
-        <div className="mt-3">
-          <ProblemNotice error={confirm.error} />
-        </div>
-      )}
-    </NoticeBox>
+              {state.data.choices.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              className={PRIMARY_BUTTON}
+              disabled={!write.allowed || !choice || confirm.isPending}
+            >
+              {confirm.isPending ? "Confirming…" : "Confirm"}
+            </button>
+          </form>
+        }
+      >
+        <p>Calls collect standard details until you choose one.</p>
+        <p className="flex flex-wrap items-center gap-x-3">
+          <span>
+            {waiting ? (
+              "Asking for a suggestion…"
+            ) : pending.suggested_label ? (
+              <>
+                Suggested: <span className="font-medium text-ink">{pending.suggested_label}</span>
+                {pending.reason ? ` (${pending.reason})` : ""}
+              </>
+            ) : (
+              "No suggestion yet."
+            )}
+          </span>
+          {ask.allowed && !waiting && (
+            <button
+              type="button"
+              className={TEXT_ACTION}
+              disabled={suggest.isPending}
+              onClick={() =>
+                suggest.mutate(undefined, { onSuccess: () => setAskedAt(Date.now()) })
+              }
+            >
+              Suggest again
+            </button>
+          )}
+        </p>
+        {!write.allowed && write.reason && <p>{write.reason}</p>}
+      </NoticeBox>
+      <ProblemNotice error={confirm.error} />
+      <ProblemNotice error={suggest.error} />
+    </div>
   );
 }

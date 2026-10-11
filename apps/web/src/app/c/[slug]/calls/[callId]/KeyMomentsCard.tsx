@@ -7,6 +7,7 @@ import {
   CATEGORY_LABEL,
   momentClock,
   momentSeekMs,
+  spokenClock,
 } from "@/lib/callMoments";
 
 /**
@@ -76,7 +77,7 @@ export function KeyMomentsCard({
                 <button
                   type="button"
                   onClick={() => onPlay(start)}
-                  aria-label={`Play from ${clock}: ${moment.label}${
+                  aria-label={`Play from ${spokenClock(moment.at_ms, moment.precision === "approximate")}: ${moment.label}${
                     moment.source === "model" ? " (suggested)" : ""
                   }`}
                   aria-current={active ? "true" : undefined}

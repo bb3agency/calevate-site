@@ -164,7 +164,7 @@ async def test_an_admin_sees_the_workspace_buys_releases_and_forgets(
         bought = await http.post(
             f"{base}/numbers/purchase",
             json={"number": first["number"], "request_key": f"key-{uuid.uuid4().hex}"},
-            headers=headers,
+            headers={**headers, "X-Confirm-Action": f"buy_number:{tenant_id}"},
         )
         assert bought.status_code == 201, bought.text
         number_id = bought.json()["number_id"]
@@ -174,11 +174,16 @@ async def test_an_admin_sees_the_workspace_buys_releases_and_forgets(
         )
         assert "engine_number_still_held" in still.text
         released = await http.post(
-            f"{base}/numbers/{number_id}/release", json={"confirm": True}, headers=headers
+            f"{base}/numbers/{number_id}/release",
+            json={"confirm": True},
+            headers={**headers, "X-Confirm-Action": f"release_number:{tenant_id}:{number_id}"},
         )
         assert released.json()["released"] is True
 
-        again = await http.post(f"{base}/provision", headers=headers)
+        again = await http.post(
+            f"{base}/provision",
+            headers={**headers, "X-Confirm-Action": f"provision_workspace:{tenant_id}"},
+        )
         assert again.status_code == 200 and again.json()["status"] == "active"
 
 

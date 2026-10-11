@@ -78,6 +78,7 @@ export function EngineNumbersPanel({
                     tenantId={tenantId}
                     numberId={number.number_id}
                     e164={number.e164}
+                    platformHeld={Boolean(number.platform_held)}
                     canWrite={canWrite}
                   />
                 </div>

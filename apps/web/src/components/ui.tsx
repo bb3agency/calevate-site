@@ -17,6 +17,7 @@ import type { ReactNode } from "react";
 
 import { lookup } from "@/lib/lookup";
 import { InfoTip } from "@/components/console/infoTip";
+import { TEXT_ACTION } from "@/components/console/section";
 
 import { ApiProblem } from "@/lib/api/client";
 
@@ -859,76 +860,47 @@ export function ProblemNotice({
       ? problem.title
       : null;
   return (
-    <div
-      role="alert"
-      className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
-    >
-      {headline && (
-        <p className="break-words text-[15px] font-semibold leading-snug">{headline}</p>
-      )}
-      <p
-        className={
-          headline
-            ? "mt-1 break-words text-rose-900 dark:text-rose-200"
-            : "break-words text-[15px] font-semibold leading-snug"
-        }
-      >
+    <div role="alert" data-notice="stop" className={clsx(NOTICE_BASE, NOTICE_BAR.stop)}>
+      {headline && <p className="break-words font-semibold text-ink">{headline}</p>}
+      <p className={headline ? "break-words text-ink-muted" : "break-words font-semibold text-ink"}>
         {title}
       </p>
       {problem?.remediation && (
-        <p className="mt-1 break-words text-rose-800 dark:text-rose-300">
-          {problem.remediation}
-        </p>
+        <p className="break-words text-ink-muted">{problem.remediation}</p>
       )}
       {problem === null && (
-        /* WHAT WE KNOW IS THAT NO REPLY WAS PARSED — NOT WHY, AND NOT THAT NOTHING
-           HAPPENED. This said "We could not reach Calevate. Check your connection and try
-           again", which names a cause this branch cannot observe and an outcome it cannot
-           know. `problem === null` means only that the thrown thing was not an
-           `ApiProblem`: every non-2xx becomes one (`problemFrom`), a timeout becomes
-           `TimeoutProblem`, and a `fetch` that REJECTED now becomes `TransportProblem` —
-           which carries its own sentence, its own reference and, in `reason`, the one
-           thing the browser told us about the failure. So this arm is no longer the
-           transport's: what reaches it is a plain `Error` thrown by a screen. The copy
-           stays as it is because it is still the honest thing to say about one of those —
-           it names no cause and promises no outcome. */
-        <p className="mt-1 break-words text-rose-800 dark:text-rose-300">
-          No reply reached this page, so we could not confirm what happened.
-          Check your connection and try again.
+        /* A plain `Error` thrown by a screen reaches this arm, never a transport failure
+           (those arrive as `TransportProblem`). So it names no cause and promises no
+           outcome. */
+        <p className="break-words text-ink-muted">
+          No reply reached this page, so we could not confirm what happened. Check your connection and try again.
         </p>
       )}
       {problem?.fields?.length ? (
-        <ul className="mt-2 list-inside list-disc">
+        /* The noun is the server's `label` or nothing: `f.field` is a wire path, and
+           printing it put our schema's word in front of the person's own. */
+        <ul className="mt-1 list-inside list-disc text-ink-muted">
           {problem.fields.map((f) => (
-            /* The NOUN comes from the server (`label`) or is left off entirely. It used
-               to be derived here from `f.field`, which is a wire path — that derivation
-               printed `password: String should have at least 12 characters` in the
-               photographed box, our schema's word for the thing in front of the person's
-               own word for it. The path is still sent, and is still used to mark the
-               right input; it is not for reading. */
             <li key={f.field} className="break-words">
-              {f.label ? (
-                <span className="break-words font-medium">{f.label}: </span>
-              ) : null}
+              {f.label ? <span className="break-words font-medium text-ink">{f.label}: </span> : null}
               {f.message}
             </li>
           ))}
         </ul>
       ) : null}
-      {canRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="press mt-2 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-ink hover:bg-ink/[0.04] touch:min-h-11"
-        >
-          Try again
-        </button>
-      )}
-      {ours && problem.traceId && (
-        <p className="mt-2 break-words text-[11px] text-rose-700 dark:text-rose-400">
-          If you tell us about this, quote{" "}
-          <span className="break-all font-mono">{problem.traceId}</span>
-        </p>
+      {(canRetry || (ours && problem.traceId)) && (
+        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+          {canRetry && (
+            <button type="button" onClick={onRetry} className={TEXT_ACTION}>
+              Try again
+            </button>
+          )}
+          {ours && problem.traceId && (
+            <p className="break-words text-meta text-ink-faint">
+              Reference <span className="break-all font-mono">{problem.traceId}</span>
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -949,35 +921,62 @@ export function ProblemNotice({
 export function RestrictionNote({ reason }: { reason: string | null }) {
   if (!reason) return null;
   return (
-    <p className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-muted">
+    <p data-notice="neutral" className={clsx("border-l-2 bg-surface py-1 pl-3 text-body text-ink-muted", NOTICE_BAR.neutral)}>
       {reason}
     </p>
   );
 }
 
 /**
- * The four tones a compliance verdict box can carry, in one table.
- *
- * `ok` / `warn` / `stop` / `neutral` are the vocabulary the API already speaks about a
- * client's own state — cleared, lapsing, refused, nothing on file — so the colours live
- * here rather than being re-picked per screen. It started as a private constant on
- * `/verification`; `/campaign-review` needed the identical four, and two screens
- * describing the same four states in two colour tables is where the drift starts.
- *
- * A token map rather than a component: the verdict boxes differ in what they say and in
- * how many paragraphs they say it in, and only the palette is common.
+ * The four tones a status can carry: cleared, needs a look, refused, nothing on file.
+ * They are the vocabulary the API already speaks about a client's own state, so the
+ * colours live here rather than being re-picked per screen.
  */
 export type NoticeTone = "ok" | "warn" | "stop" | "neutral";
 
-// On the palette's own roles (REDESIGN-2), so a verdict box and a status badge that say
-// the same thing are the same colour. Ink stays dark on each tint (the tints carry the
-// tone; the text has to stay readable at 4.5:1 on all of them).
+/**
+ * Tinted classes for a SMALL status mark only: a pill, a badge, a table cell. Never for a
+ * block of text. A full tinted card with every line in the tone colour made every notice
+ * look equally urgent (founder, 11 Oct 2026); notices use `NoticeBox` / `NOTICE_BAR`.
+ */
 export const NOTICE_TONES: Record<NoticeTone, string> = {
   ok: "border-brand/25 bg-brand-soft text-brand-deep",
   warn: "border-warn-line bg-warn-soft text-warn",
   stop: "border-danger-line bg-danger-soft text-danger",
   neutral: "border-line bg-ink/[0.03] text-ink-muted",
 };
+
+/**
+ * The tone of a notice is its LEFT RULE and nothing else. Chart fills, not text tokens:
+ * the rule is a mark beside words that carry the meaning, so it is not held to 4.5:1.
+ */
+export const NOTICE_BAR: Record<NoticeTone, string> = {
+  ok: "border-brand",
+  warn: "border-chart-warn",
+  stop: "border-chart-danger",
+  neutral: "border-chart-neutral",
+};
+
+/** The matching status dot, for a caller that wants one beside a title. */
+export const NOTICE_DOT: Record<NoticeTone, string> = {
+  ok: "bg-brand",
+  warn: "bg-chart-warn",
+  stop: "bg-chart-danger",
+  neutral: "bg-chart-neutral",
+};
+
+/**
+ * The quiet notice frame: the page's own white ground, a 2px tone rule on the left, ink
+ * text. Exported for the few hand-rolled notices that cannot take `NoticeBox` (a
+ * `<label>`, a `<li>`); `tests/noticeStyle.test.ts` rejects tinted notice cards.
+ */
+/**
+ * A site-wide strip above the content (offline, maintenance, view-as): a hairline under
+ * white, ink text, and a tone dot before the sentence. Never a tinted band.
+ */
+export const SITE_STRIP = "flex items-start gap-2 border-b border-line bg-surface px-4 py-2 text-sm text-ink lg:px-8";
+
+export const NOTICE_BASE = "space-y-1 border-l-2 bg-surface py-1 pl-3 text-body text-ink";
 
 /*
  * FORM AND BUTTON CLASSES, once.
@@ -1115,47 +1114,78 @@ export const MODAL_ACTIONS =
   "mt-5 flex flex-col-reverse gap-2 *:justify-center sm:flex-row sm:flex-wrap sm:justify-end";
 
 /**
- * A verdict, in the tone the verdict deserves.
+ * ONE MESSAGE, said quietly: a tone rule on the left, the title in ink, the detail in
+ * muted ink, and the one action inline at the end.
  *
- * `NOTICE_TONES` above argued against a component, on the grounds that the boxes differ
- * in what they say and only the palette is common. That held while there were two of
- * them. There are now eight call sites across both realms, and the design pass added a
- * SECOND common part — the icon medallion — so each site was independently choosing a
- * gap, a padding, a radius and an icon size, and they had already drifted: `rounded-xl`
- * on one admin screen against `rounded-card` on the client ones, `gap-2` against
- * `gap-3`, `p-3` against `p-4`. The palette map stays exported, because a few callers
- * legitimately want the classes alone (a one-line badge, a table cell).
+ * Not a tinted card. The old box (cream or rose fill, border, icon medallion, bold
+ * coloured title, every line in the tone colour) made every notice look equally urgent
+ * and read as generated (founder, 11 Oct 2026). Colour now marks only the rule, the
+ * optional dot and whatever the caller makes actionable.
  *
- * `title` is optional: several of these are a single sentence, and forcing a heading
- * would make callers invent one.
+ * - `title`: the one line. Short, plain, no em dash, no "This account is…".
+ * - `children`: at most a line of detail. Anything longer goes in `info` (an ⓘ).
+ * - `action`: a button or link, rendered inline at the end of the bar.
+ * - Several blockers or steps are not one message: use `ChecklistRows`.
+ * - `icon` is accepted for old callers and NOT rendered: the medallion was the slop.
  */
 export function NoticeBox({
   tone,
-  icon,
   title,
   children,
+  action,
+  info,
+  infoLabel,
+  dot = false,
+  role,
   className,
 }: {
   tone: NoticeTone;
+  /** Accepted and ignored. See the docstring. */
   icon?: ReactNode;
   title?: ReactNode;
   children?: ReactNode;
+  action?: ReactNode;
+  info?: ReactNode;
+  /** What the ⓘ is about ("About <infoLabel>"); defaults to the title when it is text. */
+  infoLabel?: string;
+  dot?: boolean;
+  role?: "status" | "alert" | "note";
   className?: string;
 }) {
+  const tipLabel = infoLabel ?? (typeof title === "string" ? title : "this notice");
   return (
     <div
+      data-notice={tone}
+      role={role}
       className={clsx(
-        "flex items-start gap-3 rounded-md border px-4 py-3 text-body",
-        NOTICE_TONES[tone],
+        "flex flex-wrap items-center gap-x-4 gap-y-2 border-l-2 bg-surface py-1 pl-3 text-body text-ink",
+        NOTICE_BAR[tone],
         className,
       )}
     >
-      {icon && <span className="mt-0.5 shrink-0">{icon}</span>}
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 basis-60">
         {/* A div, not a p: callers pass a heading (FailureScreen's <h1>), and a p cannot hold one. */}
-        {title && <div className="font-semibold">{title}</div>}
-        {children}
+        {title && (
+          <div className="flex items-center gap-2 font-medium text-ink">
+            {dot && <span aria-hidden className={clsx("h-2 w-2 shrink-0 rounded-full", NOTICE_DOT[tone])} />}
+            <div className="min-w-0">{title}</div>
+            {info && <InfoTip label={tipLabel}>{info}</InfoTip>}
+          </div>
+        )}
+        {children && (
+          <div className={clsx("min-w-0", title ? "mt-0.5 text-ink-muted" : "text-ink")}>
+            {children}
+          </div>
+        )}
       </div>
+      {/* With no title, the ⓘ sits with the action rather than inside the sentence: its
+          44px touch target would otherwise open a gap in the line it interrupts. */}
+      {(action || (!title && info)) && (
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
+          {!title && info && <InfoTip label={tipLabel}>{info}</InfoTip>}
+          {action}
+        </div>
+      )}
     </div>
   );
 }

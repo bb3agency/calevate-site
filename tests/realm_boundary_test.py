@@ -241,7 +241,11 @@ async def test_a_blank_impersonate_header_is_a_request_defect_not_a_view_as_sess
     }
 
     async with _client() as http:
-        absent = await http.post("/v1/admin/tenants", headers=auth, json=body)
+        absent = await http.post(
+            "/v1/admin/tenants",
+            headers={**auth, "X-Confirm-Action": "create_tenant"},
+            json=body,
+        )
         blank = await http.post(
             "/v1/admin/tenants", headers={**auth, "X-Impersonate-Org": ""}, json=body
         )
@@ -489,6 +493,10 @@ async def test_every_writable_route_is_actually_reached_while_impersonating() ->
                 continue
             code = str(body.get("type", "")).rsplit("/", 1)[-1]
             detail = str(body.get("detail", ""))
+            if code == "step_up_required":
+                # The route's own confirmation (D-731), asked inside the handler: the view-as
+                # gate already let the request through, which is what this sweep measures.
+                continue
             if code == "impersonation_not_available_here":
                 # The OTHER withholding mechanism, and the older one: `realm="client"`,
                 # refused by `current_principal` before any permission is read. It covers

@@ -633,6 +633,32 @@ async def test_a_callback_on_an_outbound_call_confirms_then_books_our_dialled_nu
     assert booked == [("+919876511107", ours, vendor_call)]
 
 
+async def test_a_callback_the_backup_model_asks_for_again_is_booked_once(
+    vendor: FakeThinnest,
+) -> None:
+    """ThinnestAI re-runs a failed turn on its backup model, which can call the same action
+    again (email of 11 Oct 2026): the repeat answers as the first did and books nothing."""
+    tenant_id, agent_id, ref, secret = await _published(vendor)
+    vendor_call, row = _live(ref, phone="919876511109")
+    vendor.live.append(row)
+    day = (datetime.now(UTC).astimezone(IST) + timedelta(days=2)).date().isoformat()
+    ask = {"callback_date": day, "callback_time": "11:00", "confirmed": "yes"}
+    first = await _post("callback", ref, secret, {**ask, "note": "price"}, call_id=vendor_call)
+    again = await _post(
+        "callback", ref, secret, {**ask, "note": "the price list"}, call_id=vendor_call
+    )
+    assert first.json()["status"] == "booked"
+    assert again.json() == first.json()
+    async with tenant_session(tenant_id) as session:
+        booked = (
+            await session.execute(
+                text("SELECT count(*) FROM scheduled_callbacks WHERE agent_id = :a"),
+                {"a": agent_id},
+            )
+        ).scalar_one()
+    assert booked == 1
+
+
 async def test_cancel_with_nothing_booked_says_so(vendor: FakeThinnest) -> None:
     _t, _a, ref, secret = await _published(vendor)
     call_id, row = _live(ref, phone="919876511108")

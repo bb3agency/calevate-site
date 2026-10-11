@@ -52,6 +52,16 @@ the truthful-answer block. Instructions are in English; only what the agent says
 call's language. The v1 template below is kept for scripts saved before v2, which compile
 unchanged until they are saved again.
 
+**Turn shape and a voice's punctuation (D-739, 11 Oct 2026).** On ThinnestAI nothing filters
+between the model and the voice, so HOW TO SPEAK says: one or two short sentences a turn,
+one point or one question and then wait, only the agent's own part, nothing in brackets and
+never the time, no pressing a reluctant caller, punctuation written for a voice ("?" on every
+question, no dashes, slashes or ellipses) and prices and quantities in words. A step that
+collects several details carries "Ask for one of these details per turn." The test loop
+fails a reply that breaks any of these before the AI judge reads it
+(`apps/api/agents/turn_checks.py`), textbook words from `spoken_style.json` included. A deploy
+that changes this platform text queues one live apply of every live agent at worker start.
+
 **`[STYLE]` IS PLATFORM-OWNED AND AUTO-INJECTED — DO NOT HAND-AUTHOR IT (D-479).** The
 speech-register guidance below is emitted on EVERY agent by `compose_engine_prompt`
 (`VOICE_STYLE_GUIDANCE` in `packages/shared/src/calevate_shared/engine.py`), which is the

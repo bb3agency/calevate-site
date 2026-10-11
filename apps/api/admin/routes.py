@@ -40,13 +40,14 @@ from apps.api.admin.business_type import queue_apply as queue_business_type_appl
 from apps.api.agents import service as agents_service
 from apps.api.agents.languages import OfferedLanguage
 from apps.api.authn.service import enqueue_invitation_email, find_subject_for_session
-from apps.api.authn.stepup import REAUTH_MAX_AGE
 from apps.api.billing import credit_packs
 from apps.api.billing import rates as billing_rates
 from apps.api.billing import service as billing
 from apps.api.billing import terms as billing_terms
+from apps.api.billing.attribution import month_trial_cost_inr, paid_margin
 from apps.api.billing.cap_routes import MAX_CLIENT_CAP_MIN, MAX_CLIENT_CAP_SPEND_INR
-from apps.api.billing.plans import IST, ist_billing_month, parse_billing_month
+from apps.api.billing.plans import IST, ist_billing_month, ist_month_window, parse_billing_month
+from apps.api.billing.trials import trial_overlaps
 from apps.api.campaigns import engine_numbers
 from apps.api.campaigns import service as campaigns_service
 from apps.api.campaigns.engine_numbers import SyncOutcome
@@ -60,13 +61,14 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.impersonation import (
     GRANT_TTL,
     VIEW_AS_MAX_AGE,
+    ImpersonationGrant,
     mint_grant,
     renewable_grant,
 )
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta, role_has
 from apps.api.core.settings import get_settings
-from apps.api.core.stepup import StepUpGate
+from apps.api.core.stepup import AdminActionCode, StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.db.transition import transition_status
 from apps.api.kb import service as kb_service
@@ -808,7 +810,9 @@ async def read_tenant_profile(
 async def create_tenant(
     payload: CreateOrgIn,
     request: Request,
+    step_up: StepUpGate,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+    x_confirm_action: str | None = Header(default=None),
 ) -> CreateOrgOut:
     """The audit row is the birth transaction's LAST WRITE, not a second transaction.
 
@@ -823,6 +827,7 @@ async def create_tenant(
     give the second transaction a session, and a dependency nobody reads is a session
     opened per request for nothing.
     """
+    step_up.require(x_confirm_action, CREATE_TENANT_CONFIRMATION)
     # `derive_slug` REFUSES rather than inventing one when the name yields no ASCII —
     # which on a Telugu-first product is the ordinary case, not an edge one. See it for
     # what the old constant fallback did to the second client with a Telugu name.
@@ -893,7 +898,9 @@ async def invite_member(
     tenant_id: UUID,
     payload: InviteIn,
     request: Request,
+    step_up: StepUpGate,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+    x_confirm_action: str | None = Header(default=None),
 ) -> InviteOut:
     """One transaction: the key and the record of who cut it.
 
@@ -915,6 +922,7 @@ async def invite_member(
     is a person who is never told, and a mail sent for a row that rolled back is a link that
     does not work.
     """
+    step_up.require(x_confirm_action, invite_member_confirmation(tenant_id))
     async with tenant_session(tenant_id) as scoped:
         invitation_id, token = await service.create_invitation(
             scoped,
@@ -1330,6 +1338,25 @@ async def get_owner_status(
     return OwnerStatusOut(owner_present=status.owner_present, invite_pending=status.invite_pending)
 
 
+#: The step-up strings for the operator writes D-731 put behind a second factor: creating a
+#: client, inviting someone into one, recording a number for one, and recording its KYC.
+#: Each is bound to the tenant it changes (creation has no tenant yet), so a confirmation
+#: captured for one account cannot be replayed against another.
+CREATE_TENANT_CONFIRMATION: Final = "create_tenant"
+
+
+def invite_member_confirmation(tenant_id: UUID) -> str:
+    return f"invite_member:{tenant_id}"
+
+
+def provision_number_confirmation(tenant_id: UUID) -> str:
+    return f"provision_number:{tenant_id}"
+
+
+def record_kyc_confirmation(tenant_id: UUID) -> str:
+    return f"record_kyc:{tenant_id}"
+
+
 def view_as_confirmation(slug: str) -> str:
     """The step-up string for ENTERING one client's account (D-210).
 
@@ -1400,15 +1427,14 @@ class ImpersonationGrantOut(BaseModel):
         "grant anyone access to their account, give a consent, accept an agreement or "
         "file an erasure — those stay with the client, and the platform surfaces stay in "
         "the operator console.\n\n"
-        "STARTING a view-as session needs step-up: a second factor proved in the last "
-        # Interpolated, never typed: this is a PUBLIC description of a control, and it
-        # said "five minutes" for as long as the constant said five. D-473 moved the
-        # constant; a sentence that has to be found and edited by hand is a sentence that
-        # eventually lies to an integrator about what the API will accept.
-        f"{int(REAUTH_MAX_AGE.total_seconds() // 60)} minutes AND the header "
-        "`X-Confirm-Action: view_as:<slug>`. EXTENDING one "
-        "does not — send the grant currently held as `renew` and it is continued, for up "
-        "to an hour from the second factor that started it."
+        "STARTING a view-as session needs a code entered for it (D-730): request one at "
+        "`POST /v1/auth/admin/step-up`, answer it at `/v1/auth/admin/step-up/verify` with "
+        "`action: view_as:<slug>`, then send this request with the header "
+        "`X-Confirm-Action: view_as:<slug>`. The proof is spent by the mint it was typed "
+        "for, and this route is accepted from the operator console's origin only. "
+        "EXTENDING a session takes no code — send the grant currently held as `renew`, "
+        "here or at `/impersonation-grants/renew`, and it is continued for up to an hour "
+        "from the code that started it."
     ),
 )
 async def mint_impersonation_grant(
@@ -1418,6 +1444,7 @@ async def mint_impersonation_grant(
     # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
     # open transaction — `core/stepup.py` on `max_overflow=0`.
     step_up: StepUpGate,
+    action_code: AdminActionCode,
     principal: Principal = Depends(requires("admin:impersonate", realm="admin")),
     x_confirm_action: str | None = Header(default=None),
 ) -> ImpersonationGrantOut:
@@ -1500,6 +1527,10 @@ async def mint_impersonation_grant(
         auth_time = renewed.auth_time
     else:
         step_up.require(x_confirm_action, view_as_confirmation(payload.slug))
+        # A RECENT SIGN-IN IS NOT ENOUGH TO ENTER A CLIENT (D-730): the operator typed a
+        # code for THIS entry. The proof names the slug the grant below is resolved from
+        # and bound to by immutable id, and it is spent here, so it opens one door once.
+        await action_code.require(x_confirm_action, view_as_confirmation(payload.slug))
         # `verified_at` is the instant the second factor was proved, and `require` has just
         # established it is inside `REAUTH_MAX_AGE`. It is `None` only on the local
         # `dev:` branch that `require` waves through (`APP_ENV=local` with no
@@ -1507,9 +1538,105 @@ async def mint_impersonation_grant(
         # the window starts at this request, which is the strictest reading available.
         auth_time = step_up.verified_at or now
 
-    token, grant = mint_grant(
-        tenant_id=UUID(str(tenant_id)), admin_id=admin_id, auth_time=auth_time
+    return await _issue_grant(
+        session,
+        request,
+        principal,
+        slug=payload.slug,
+        tenant_id=UUID(str(tenant_id)),
+        admin_id=admin_id,
+        auth_time=auth_time,
+        renewed=renewed,
     )
+
+
+class ImpersonationGrantRenewIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str = Field(min_length=1, max_length=100)
+    #: The live grant this one continues. Required: this route renews and never starts.
+    renew: str = Field(min_length=1, max_length=4096)
+
+
+@router.post(
+    "/impersonation-grants/renew",
+    openapi_extra=permission_meta("admin:impersonate"),
+    summary="Extend a view-as session the operator already holds (D-730)",
+    description=(
+        "Continues a view-as session from the grant currently held, for up to an hour "
+        "from the code that started it. It never STARTS one: a missing, foreign, expired "
+        "or out-of-window grant is refused, and the operator re-enters the client from "
+        "the operator console. This is the one grant route the client console may call."
+    ),
+)
+async def renew_impersonation_grant(
+    payload: ImpersonationGrantRenewIn,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("admin:impersonate", realm="admin")),
+) -> ImpersonationGrantOut:
+    """The renewal half of `mint_impersonation_grant`, on its own path (D-730).
+
+    The client console runs a view-as session and has to keep it alive past the fifteen
+    minute grant, but it must not be able to START one: an injected script on the client
+    console would otherwise turn the operator's cookie into a grant for any tenant. A path
+    that only renews is what the client origin may call; starting stays on the operator
+    console's origin behind a code typed for the entry.
+    """
+    if principal.impersonating:
+        raise ProblemError.forbidden(
+            "Start view-as from the operator console, not from inside another account."
+        )
+    admin_id = principal.user_id
+    if admin_id is None:
+        raise ProblemError.forbidden("This account has no admin access.")
+    tenant_id = (
+        await session.execute(
+            text("SELECT id FROM organizations WHERE slug = :slug AND deleted_at IS NULL"),
+            {"slug": payload.slug},
+        )
+    ).scalar()
+    if tenant_id is None:
+        raise ProblemError.not_found("Organization")
+    renewed = renewable_grant(
+        payload.renew,
+        admin_id=admin_id,
+        tenant_id=UUID(str(tenant_id)),
+        now=datetime.now(UTC),
+    )
+    if renewed is None:
+        raise ProblemError(
+            kind="permission",
+            code="view_as_renewal_refused",
+            title="Open this client again",
+            detail="This view-as session has ended and cannot be extended from here.",
+            remediation="Open the client again from the operator console.",
+        )
+    return await _issue_grant(
+        session,
+        request,
+        principal,
+        slug=payload.slug,
+        tenant_id=UUID(str(tenant_id)),
+        admin_id=admin_id,
+        auth_time=renewed.auth_time,
+        renewed=renewed,
+    )
+
+
+async def _issue_grant(
+    session: AsyncSession,
+    request: Request,
+    principal: Principal,
+    *,
+    slug: str,
+    tenant_id: UUID,
+    admin_id: UUID,
+    auth_time: datetime,
+    renewed: ImpersonationGrant | None,
+) -> ImpersonationGrantOut:
+    """Mint one grant and write its start row: the two halves no path may separate."""
+    token, grant = mint_grant(tenant_id=tenant_id, admin_id=admin_id, auth_time=auth_time)
     # In the SAME transaction as nothing else: the row is the whole side effect, and it
     # commits with the response. A grant handed out whose start row rolled back is the
     # exact defect this route exists to remove.
@@ -1539,7 +1666,7 @@ async def mint_impersonation_grant(
             "window_s": int(VIEW_AS_MAX_AGE.total_seconds()),
         },
     )
-    return ImpersonationGrantOut(slug=payload.slug, grant=token, expires_at=grant.expires_at)
+    return ImpersonationGrantOut(slug=slug, grant=token, expires_at=grant.expires_at)
 
 
 # --- Knowledge base: the MUTATING half (FLOWS §7) ------------------------------
@@ -1805,6 +1932,14 @@ class MarginOut(BaseModel):
     #: the flattering direction, on the number D-12 says G2 gates on.
     legs_unpriced: int
     tiers: TierSplitOut
+    #: The trial split the Spend page publishes (`billing/attribution.paid_margin`): our cost
+    #: of calls a free trial covered, kept out of the margin on paid calling. Defaulted only
+    #: so older generated types stay valid; the route always sets them.
+    trial_cost_inr: str = "0.00"
+    trial_in_month: bool = False
+    paid_cost_inr: str = "0.00"
+    paid_margin_inr: str = "0.00"
+    paid_margin_pct: str | None = None
 
 
 @router.get(
@@ -1842,6 +1977,13 @@ async def tenant_margin(
         # land either side of a month boundary, publishing a cost total and a rung split
         # for different months on one card.
         tiers = await billing.tier_usage(scoped, tenant_id=tenant_id, month=str(margin["month"]))
+        trial_cost = await month_trial_cost_inr(
+            scoped, tenant_id=tenant_id, month=str(margin["month"])
+        )
+        window_start, window_next = ist_month_window(str(margin["month"]))
+        trial_in_month = trial_cost > 0 or await trial_overlaps(
+            scoped, tenant_id=tenant_id, start=window_start, end=window_next
+        )
         # D-482 L-1, last in the transaction (the chain lock is held until COMMIT).
         await record_admin_tenant_read(
             scoped, request=request, principal=principal, tenant_id=tenant_id
@@ -1855,6 +1997,16 @@ async def tenant_margin(
     # things that are not meant to add up. Naming the fields once means a field added to
     # either side is a KeyError here, not a silently missing tile.
     flat["tiers"] = {name: str(tiers[name]) for name in TierSplitOut.model_fields}
+    paid = paid_margin(
+        revenue_inr=Decimal(str(margin["revenue_inr"])),
+        cost_inr=Decimal(str(margin["cost_inr"])),
+        trial_cost_inr=trial_cost,
+    )
+    flat["trial_cost_inr"] = str(trial_cost)
+    flat["trial_in_month"] = trial_in_month
+    flat["paid_cost_inr"] = str(paid.cost_inr)
+    flat["paid_margin_inr"] = str(paid.margin_inr)
+    flat["paid_margin_pct"] = None if paid.margin_pct is None else str(paid.margin_pct)
     return MarginOut.model_validate(flat)
 
 
@@ -2109,7 +2261,9 @@ async def provision_number(
     payload: ProvisionNumberIn,
     session: AdminSession,
     request: Request,
+    step_up: StepUpGate,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+    x_confirm_action: str | None = Header(default=None),
 ) -> NumberCreatedOut:
     """Recording the client's own connection — and why a mistyped uuid is a 404.
 
@@ -2132,6 +2286,7 @@ async def provision_number(
     running: a ThinnestAI number recorded on a Pipecat deployment is one no call there can
     present (founder decision: ThinnestAI numbers on ThinnestAI only, Vobiz on Pipecat).
     """
+    step_up.require(x_confirm_action, provision_number_confirmation(tenant_id))
     engine_held = set(ENGINE_NUMBER_PROVIDER.values())
     if payload.provider in engine_held and (
         ENGINE_NUMBER_PROVIDER.get(get_settings().engine) != payload.provider
@@ -2521,7 +2676,9 @@ async def record_kyc_verification(
     payload: KycRecordIn,
     session: AdminSession,
     request: Request,
+    step_up: StepUpGate,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+    x_confirm_action: str | None = Header(default=None),
 ) -> KycRecordOut:
     """Ops's half of SURFACES §2b's "Number purchase + KYC: gated".
 
@@ -2535,6 +2692,7 @@ async def record_kyc_verification(
     naming the missing field instead of a 500 out of an IntegrityError. Same device
     `record_dlt_registration` uses for `pe_registration_id_required`.
     """
+    step_up.require(x_confirm_action, record_kyc_confirmation(tenant_id))
     if payload.status == "verified" and not (payload.document_ref or "").strip():
         raise ProblemError(
             kind="validation",

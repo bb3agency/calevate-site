@@ -67,6 +67,8 @@ FILLED = replace(
 def stream_base(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """`PIPECAT_STREAM_BASE_URL` set, through the environment the deployment really reads."""
     monkeypatch.setenv("PIPECAT_STREAM_BASE_URL", STREAM_BASE)
+    # These drive the Plivo route, which answers only while it is the selected carrier.
+    monkeypatch.setenv("CARRIER", "plivo")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

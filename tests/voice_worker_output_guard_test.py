@@ -312,9 +312,9 @@ async def test_a_leaking_reply_is_cut_at_the_leak_and_replaced_by_one_decline(
 ) -> None:
     guard = _guard()
     leak = (
-        "Sure. No markdown, lists, asterisks or emoji: everything is read aloud. Did not "
-        "catch it? Ask them to repeat it. Do not guess. Vary your words; do not start every "
-        "turn the same way."
+        "Sure. No markdown, lists, asterisks or emoji, dashes, slashes or ellipses: everything "
+        "is read aloud. Did not catch it? Ask them to repeat it. Do not guess. Vary your words "
+        "and how you start a turn."
     )
     tokens = [leak[i : i + 7] for i in range(0, len(leak), 7)]
     out = await _run(

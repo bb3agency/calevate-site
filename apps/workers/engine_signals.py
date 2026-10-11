@@ -20,19 +20,23 @@ job's commit — before the next dispatch tick (hard rule 5).
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Final, NoReturn, Protocol, runtime_checkable
 from uuid import UUID
 
 from arq import Retry
 from calevate_shared.engine_scope import scope_of
-from calevate_shared.events import EngineNotice
+from calevate_shared.events import EngineNotice, EngineProblem
 from sqlalchemy import text
 
+from apps.api.billing.engine_minutes import BYOK_VOICE_RATE_KEY
 from apps.api.compliance.optout import DETECTED_BY_ENGINE, OptOutSignal, record_call_optout
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.thinnest_workspace import in_workspace
@@ -221,7 +225,17 @@ async def _notice(payload: dict[str, Any]) -> str:
         notice = engine.parse_notice(body)
     if notice is None:
         raise _unreadable("the delivered document is not a notice")
-    tenant_id = await _tenant_of(engine_name, str(payload["engine_agent_ref"]))
+    route = await _route_of(engine_name, str(payload["engine_agent_ref"]))
+    attached = False
+    if route is not None and notice.engine_call_id is not None:
+        # On a handed call the notice names the agent the call was handed to, and arrives
+        # on that agent's endpoint; it is filed on the call it carries either way.
+        attached = await _file_signal(
+            route,
+            engine_call_id=notice.engine_call_id,
+            kind=notice.kind,
+            occurred_at=notice.occurred_at,
+        )
     # Ids only (hard rule 6): what the vendor wrote about the lead is the caller's data,
     # and our own extraction over the transcript is the record of it.
     log.info(
@@ -230,8 +244,9 @@ async def _notice(payload: dict[str, Any]) -> str:
             "engine": engine_name,
             "kind": notice.kind,
             "notice_id": notice.notice_id,
-            "tenant_id": str(tenant_id) if tenant_id else None,
+            "tenant_id": str(route.tenant_id) if route else None,
             "engine_call_id": notice.engine_call_id,
+            "attached": attached,
         },
     )
     return notice.kind
@@ -240,9 +255,9 @@ async def _notice(payload: dict[str, Any]) -> str:
 async def ingest_engine_notice(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Normalise, attribute and record one `lead.captured` / `conversation.escalated`.
 
-    Recorded as an id-only log line and nothing more: no surface of ours consumes these
-    yet (the lead is our own extraction's, the hand-over our own roster's), so the seam ends
-    at the record rather than at a guess about what the vendor's `data` holds.
+    Filed on the call it names (`call_engine_signals`, kind and time only) and logged by id.
+    The lead itself is our own extraction's and the hand-over our own roster's, so nothing
+    else consumes it.
     """
     attempt = int(ctx.get("job_try", 1))
     try:
@@ -265,11 +280,183 @@ async def _abandon_notice(payload: dict[str, Any], exc: Exception, attempt: int)
     raise exc
 
 
+@dataclass(frozen=True, slots=True)
+class _Route:
+    tenant_id: UUID
+    agent_id: UUID
+    #: The rate the agent was last published on; `byok_voice` is a Studio agent.
+    rate_key: str | None
+
+
+_ROUTE_FULL_SQL: Final = (
+    "SELECT tenant_id, agent_id, engine_rate_key FROM engine_agent_routes "
+    "WHERE engine = :engine AND engine_agent_ref = :ref"
+)
+
+_SIGNAL_SQL: Final = (
+    "INSERT INTO call_engine_signals (id, tenant_id, agent_id, engine_call_id, kind, "
+    "occurred_at, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, :kind, :at, "
+    "now(), now()) ON CONFLICT (tenant_id, engine_call_id, kind) DO NOTHING RETURNING id"
+)
+
+
+async def _route_of(engine: str, ref: str) -> _Route | None:
+    async with untenanted_session() as session:
+        row = (await session.execute(text(_ROUTE_FULL_SQL), {"engine": engine, "ref": ref})).first()
+    if row is None:
+        return None
+    return _Route(
+        tenant_id=UUID(str(row[0])),
+        agent_id=UUID(str(row[1])),
+        rate_key=str(row[2]) if row[2] is not None else None,
+    )
+
+
+async def _file_signal(
+    route: _Route, *, engine_call_id: str, kind: str, occurred_at: datetime | None
+) -> bool:
+    """Record one signal on its call. True the first time; a repeat of the same kind on the
+    same call (a re-send, a second notice) changes nothing."""
+    async with tenant_session(route.tenant_id) as session:
+        inserted = (
+            await session.execute(
+                text(_SIGNAL_SQL),
+                {
+                    "id": uuid7(),
+                    "tid": route.tenant_id,
+                    "aid": route.agent_id,
+                    "ecid": engine_call_id,
+                    "kind": kind,
+                    "at": occurred_at,
+                },
+            )
+        ).scalar()
+    return inserted is not None
+
+
+# --- problems on a live call ----------------------------------------------------------
+
+#: Enqueued by voice-runtime (`signed_intake.ENGINE_PROBLEM_JOB`); equal by test.
+ENGINE_PROBLEM_JOB: Final = "ingest_engine_problem"
+
+
+@runtime_checkable
+class ReadsProblems(Protocol):
+    """An adapter that turns a verified problem delivery into OUR `EngineProblem`."""
+
+    def parse_problem(self, payload: dict[str, Any]) -> EngineProblem | None: ...
+
+
+#: A Studio call speaks on our own voice key, and a call on our own keys never falls back to
+#: the platform's own (THINNEST-INTEGRATION §4a), so a failure there is ours to fix.
+STUDIO_NO_FALLBACK_KINDS: Final = frozenset({"own_key_failed", "voice_failed"})
+
+
+def _alarm_problem(problem: EngineProblem, route: _Route) -> None:
+    ids = {"tenant_id": str(route.tenant_id), "agent_id": str(route.agent_id)}
+    if route.rate_key == BYOK_VOICE_RATE_KEY and problem.kind in STUDIO_NO_FALLBACK_KINDS:
+        alert(
+            "WORKER_DELIVERY",
+            "studio_call_voice_failed",
+            detail=(
+                f"a Studio call reported {problem.kind}: the caller may have heard silence or "
+                "an apology. Studio speaks on our own voice key and has no fallback voice. "
+                "Check the Cartesia key and its balance in ops Voices (Studio ready reads the "
+                "key back), then place a test call on this agent."
+            ),
+            episode=str(route.agent_id),
+            **ids,
+        )
+    elif problem.kind == "voice_failed":
+        alert(
+            "WORKER_DELIVERY",
+            "engine_call_voice_failed",
+            detail=(
+                "the voice platform reported that a call's voice connection failed: the caller "
+                "may have heard silence or been cut off. If several agents report it, check "
+                "the platform's status; otherwise place a test call on this agent."
+            ),
+            episode=str(route.agent_id),
+            **ids,
+        )
+    elif problem.kind in ("no_answer_from_model", "own_key_failed"):
+        alert(
+            "WORKER_DELIVERY",
+            "engine_call_model_unanswered",
+            detail=(
+                f"the voice platform reported {problem.kind} on a live call: the agent could "
+                "not get an answer, even from its backup model, and apologised to the caller. "
+                "If it repeats, check the agent's model choice and the platform's status."
+            ),
+            episode=str(route.agent_id),
+            **ids,
+        )
+    # `slow_reply` raises nothing on its own: the healer counts it against the agent.
+
+
+async def _problem(payload: dict[str, Any]) -> str:
+    engine_name = str(payload["engine"])
+    unit = str(payload["execution_id"])
+    delivery = payload.get("delivery")
+    if not isinstance(delivery, dict):
+        raise _unreadable("the job carried no delivery")
+    document = open_delivery(delivery, engine=engine_name, execution_id=unit)
+    try:
+        body = json.loads(document)
+    except ValueError as exc:
+        raise _unreadable("the delivered document is not JSON") from exc
+    engine = get_engine()
+    if not isinstance(engine, ReadsProblems) or not isinstance(body, dict):
+        raise _unreadable(f"the {engine.name} adapter cannot read a call problem")
+    with in_workspace(scope_of(str(payload["engine_agent_ref"]))):
+        problem = engine.parse_problem(body)
+    if problem is None:
+        raise _unreadable("the delivered document is not a call problem")
+    route = await _route_of(engine_name, str(payload["engine_agent_ref"]))
+    if route is None:
+        log.warning("engine_problem_unattributable", extra={"engine": engine_name})
+        return "unattributable"
+    first = await _file_signal(
+        route,
+        engine_call_id=problem.engine_call_id,
+        kind=problem.kind,
+        occurred_at=problem.occurred_at,
+    )
+    if first:
+        _alarm_problem(problem, route)
+    log.info(
+        "engine_problem_received",
+        extra={
+            "kind": problem.kind,
+            "tenant_id": str(route.tenant_id),
+            "agent_id": str(route.agent_id),
+            "engine_call_id": problem.engine_call_id,
+            "first": first,
+        },
+    )
+    return problem.kind
+
+
+async def ingest_engine_problem(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """File one `call.problem` on its call, and alarm the kinds an operator must act on."""
+    attempt = int(ctx.get("job_try", 1))
+    try:
+        kind = await _problem(payload)
+    except Exception as exc:
+        await _abandon_notice(payload, exc, attempt)
+    await _settle_inbox(payload.get("inbox_row_id"), error=None)
+    return kind
+
+
 __all__ = [
     "ENGINE_NOTICE_JOB",
     "ENGINE_OPT_OUT_JOB",
     "ENGINE_OPT_OUT_RULE",
+    "ENGINE_PROBLEM_JOB",
+    "STUDIO_NO_FALLBACK_KINDS",
     "ReadsNotices",
+    "ReadsProblems",
     "ingest_engine_notice",
     "ingest_engine_opt_out",
+    "ingest_engine_problem",
 ]

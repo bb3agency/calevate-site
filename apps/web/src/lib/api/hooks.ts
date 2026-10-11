@@ -32,6 +32,8 @@ import { unscopedClientSession } from "@/lib/authn/realmSessions";
 import { callStillFillingIn } from "@/lib/callReview";
 import { saveCsv } from "@/lib/csvDownload";
 
+import { accountAction, withAccountCode } from "./accountCode";
+
 import { aiQuotaKey } from "./aiQuota";
 import {
   apiRequest,
@@ -325,8 +327,14 @@ export function useCallsLog(
  */
 export function useExportCalls(session: Session) {
   return useMutation({
-    mutationFn: (filters: CallsLogFilters) =>
-      apiRequest<string>(session, `/v1/calls/export.csv${query(callsLogQuery(filters))}`),
+    mutationFn: (filters: CallsLogFilters) => {
+      const confirmAction = accountAction(session, "export_calls");
+      return withAccountCode(confirmAction, "Exporting your calls.", () =>
+        apiRequest<string>(session, `/v1/calls/export.csv${query(callsLogQuery(filters))}`, {
+          confirmAction,
+        }),
+      );
+    },
     onSuccess: (csv) => saveCsv(csv, "calls"),
   });
 }

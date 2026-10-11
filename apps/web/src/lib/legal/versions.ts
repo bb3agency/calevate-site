@@ -305,6 +305,15 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:2830baec1a2a90641a62572cc10611206a2b43a9b5ea5b606c5a7ef91b2f3f64",
       },
+      // D-727: the dearer voice quality's company has received the agent's spoken words
+      // since 11 Oct 2026 (revision 20 said nothing had been sent). Also business-neutral
+      // examples. MATERIAL: caller personal data reaches a company said to receive nothing.
+      {
+        revision: "21",
+        material: true,
+        contentHash:
+          "sha256:fe0b85ce047cbfd5847ec6b8c2d5e0459427dfe0dadb5cdc2b7e34045b48df22",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -553,6 +562,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:e33de3746cd3d2aaaefe1362c30986740b77a5863e483f21276240200dfbeaec",
       },
+      // D-727: clauses 2, 5 and 9 say the dearer voice quality's company has received
+      // agents' words since 11 Oct 2026, still with no agreement represented; Annex A says
+      // "preferred time". MATERIAL: a sub-processor without a recorded agreement now
+      // processes the Client's personal data.
+      {
+        revision: "13",
+        material: true,
+        contentHash:
+          "sha256:57bfecf301319d618516161a2b05138a6291985513c2a6e6d1fab67ae14642c4",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -756,6 +775,15 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:2aefcc7f92c580d5860d5c8d19e4b37bbacb7c4f9f326a463836de7507bb2773",
+      },
+      // D-727: text-to-speech ENABLED for the dearer quality since 11 Oct 2026; the staff
+      // voice clone (written consent, no caller or client data); a calendar booking.
+      // MATERIAL: caller personal data reaches a company said to receive nothing.
+      {
+        revision: "20",
+        material: true,
+        contentHash:
+          "sha256:3dbec85e06c9a9097567a832884171a7661de4834f8c7717a8265ac99d814635",
       },
     ],
     effectiveDate: "2026-09-02",

@@ -59,6 +59,7 @@ from calevate_shared.call_script import (
     StageBranch,
 )
 from calevate_shared.engine import SARVAM_DEFAULT_LLM, azure_openai_base_url
+from calevate_shared.spoken_style import writer_guidance
 from pydantic import ValidationError
 
 from apps.api.core import provider_health
@@ -94,10 +95,15 @@ _SYSTEM_INSTRUCTION = (
     "knowledge documents, and the owner's own short answers. Fill EVERY section.\n"
     "Write instructions (identity, goal, stage instructions and exit conditions, "
     "objections, ending) in plain English. Write the words the agent will SAY (opening_line, "
-    "sample_phrases, example_exchange) in the call language as people really speak it on "
-    "the phone in that register, with the English words they use (order, delivery, "
-    "booking, price), never formal written language, in the script that language is "
-    "normally written in. Keep every spoken line to one short sentence.\n"
+    "sounds_like, sample_phrases, example_exchange) in the call language as people really "
+    "speak it on the phone, in the script that language is normally written in, with the "
+    "English words they use kept in English letters (order, delivery, booking, price), "
+    "never formal written language. Follow the spoken-style guide in the brief exactly: use "
+    "the spoken word and never its formal form, use its tags and fillers lightly, say "
+    "prices, quantities and times as its number rules say, and copy how its example "
+    "exchanges sound, never their facts. Keep every spoken line to one short sentence with "
+    'a comma where you breathe and a "?" on every question; no dashes, slashes, brackets, '
+    "ellipses or dotted abbreviations.\n"
     "Rules: NEVER invent prices, stock, hours, addresses, phone numbers, offers or any fact "
     "the owner did not give; facts live in the knowledge base, which the agent searches. "
     "quick_facts only restates facts the owner wrote. The example_exchange shows style "
@@ -129,6 +135,10 @@ CONVERT_INSTRUCTION = (
     "order), push-back handling in objections, facts in quick_facts and the close in "
     "ending. Leave a field empty when the prompt says nothing for it. Do not write about "
     "being an AI, recording, call backs, transfers or do-not-call: the platform adds those. "
+    "The words the agent will SAY (opening_line, sounds_like, sample_phrases, "
+    "example_exchange) follow the spoken-style guide in the brief: where the owner's line "
+    "uses a formal word the guide lists, use the spoken word instead and keep the meaning; "
+    "English words stay in English letters; numbers and punctuation as the guide says. "
     "Return ONLY JSON matching the schema."
 )
 
@@ -139,7 +149,9 @@ EDIT_INSTRUCTION = (
     "shape, with only that change made: keep every other field, every section and every "
     "section id as it is, and give any new section a new short lowercase id. Instructions "
     "stay in plain English; words the agent says stay in the call language, spoken, with "
-    "the English words people use. Never invent prices or facts. Do not write about being "
+    "the English words people use, following the spoken-style guide in the brief (spoken "
+    "words, never their formal forms; its number and punctuation rules). Never invent "
+    "prices or facts. Do not write about being "
     "an AI, recording, call backs, transfers or do-not-call. Return ONLY JSON."
 )
 
@@ -248,7 +260,13 @@ class ScriptBrief:
             _DIRECTION_SENTENCES.get(self.direction, _DIRECTION_SENTENCES["inbound"]),
             f"Call language: {self.language}",
         ]
-        if self.register:
+        # The spoken-style guide for the call language (D-744): every swap, the tags and
+        # fillers, the number and punctuation rules and example exchanges, so draft,
+        # convert and edit all write the founder's reviewed style.
+        guide = writer_guidance(self.language, self.business_type)
+        if guide:
+            lines.append(f"Spoken-style guide for {self.language}:\n{guide}")
+        elif self.register:
             lines.append(f"Spoken register: {self.register}")
         if self.collect:
             lines.append("Details to collect: " + "; ".join(self.collect))

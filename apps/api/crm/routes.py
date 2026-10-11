@@ -18,7 +18,7 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from calevate_shared.extraction import OutcomeTag
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.sse import EventSourceResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +36,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
+from apps.api.core.stepup import ActionCode, ClientActionCode, client_confirmation
 from apps.api.crm import assist, lead_search, live_speaking, saved_views, service, translation
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.attention import attention_queue
@@ -164,6 +165,24 @@ def _call_filters(
     )
 
 
+ConfirmAction = Annotated[str | None, Header(alias="X-Confirm-Action")]
+
+
+async def _require_export_code(
+    code: ActionCode, principal: Principal, request: Request, confirm: str | None, verb: str
+) -> None:
+    """A code typed for this export (D-730): the file carries every number in full out of
+    the building, so a session left open must not be enough to take it.
+
+    An operator in a view-as session is not asked: entering the account already took a
+    code typed for that entry (`admin/routes.py::mint_impersonation_grant`), within the
+    hour the grant lives, and their session holds no client cookie to prove one against.
+    """
+    if principal.impersonating:
+        return
+    await code.require(confirm, client_confirmation(request, verb))
+
+
 @router.get(
     "/calls/export.csv",
     # Declared before `/calls/{call_id}`, which would otherwise take "export.csv" as an id.
@@ -177,6 +196,7 @@ async def export_calls(
     session: Session,
     request: Request,
     principal: Annotated[Principal, Depends(requires("calls:read_raw"))],
+    code: ClientActionCode,
     status: str | None = None,
     agent_id: UUID | None = None,
     outcome: OutcomeTag | None = None,
@@ -184,7 +204,9 @@ async def export_calls(
     since: datetime | None = None,
     until: datetime | None = None,
     test_calls: bool = True,
+    x_confirm_action: ConfirmAction = None,
 ) -> Response:
+    await _require_export_code(code, principal, request, x_confirm_action, "export_calls")
     filters = _call_filters(status, agent_id, outcome, direction, since, until, test_calls)
     export = await service.export_calls_csv(session, filters)
     await write_audit(
@@ -1225,7 +1247,9 @@ async def export_leads(
     payload: LeadLensIn,
     session: Session,
     request: Request,
+    code: ClientActionCode,
     principal: Principal = Depends(requires("calls:read_raw")),
+    x_confirm_action: ConfirmAction = None,
 ) -> Response:
     """The SAME filters `GET /v1/leads` takes, with the same meanings, so "export what I
     am looking at" is expressible. It accepted `agent_id` alone once, so a client who
@@ -1240,6 +1264,7 @@ async def export_leads(
     the file must not disagree about which rows and which columns, because the file is the
     one carrying the whole contact list out of the building in a single click.
     """
+    await _require_export_code(code, principal, request, x_confirm_action, "export_leads")
     export, summary = await _export_and_summary(session, payload)
     # An export leaves our redaction behind (SEC-COMP §4 says redaction runs BEFORE any
     # transcript leaves the system — a lead export is contact data, not transcript, and
@@ -1273,6 +1298,7 @@ async def export_leads_filtered(
     session: Session,
     request: Request,
     principal: Annotated[Principal, Depends(requires("calls:read_raw"))],
+    code: ClientActionCode,
     agent_id: UUID | None = None,
     status: str | None = None,
     # Declared so it can be REFUSED. FastAPI drops an undeclared query parameter
@@ -1284,8 +1310,10 @@ async def export_leads_filtered(
     assigned_to: UUID | None = None,
     columns: str | None = _COLUMNS_Q,
     f: list[str] = _FIELD_FILTER_Q,
+    x_confirm_action: ConfirmAction = None,
 ) -> Response:
     _refuse_search_in_query(search)
+    await _require_export_code(code, principal, request, x_confirm_action, "export_leads")
     lens = LeadLensIn(
         status=status, agent_id=agent_id, assigned_to=assigned_to, columns=columns, f=f
     )

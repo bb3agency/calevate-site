@@ -55,6 +55,7 @@ const STAFF: Me = {
 
 const CAPS: Caps = {
   capped: false,
+  trial_active: false,
   month: "2026-08",
   minutes_used: "120.5",
   spend_used_inr: "0.30",

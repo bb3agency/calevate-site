@@ -116,7 +116,10 @@ async def _set_via_route(
     async with _client() as http:
         return await http.put(
             _path(tenant_id, flag),
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"set_feature_flag:{tenant_id}:{flag}",
+            },
             json={"enabled": enabled, "reason": reason},
         )
 
@@ -453,15 +456,9 @@ async def test_the_write_needs_admin_tenants_and_the_read_does_not() -> None:
         assert "org:read" in ROLE_PERMISSIONS[role]
 
 
-async def test_the_write_takes_no_step_up_header() -> None:
-    """A DECISION, pinned so removing it is deliberate (`flags/routes.py` argues it).
-
-    Step-up is reserved for actions a replayed live session must not be able to perform:
-    the big red switch, a cap RAISE, raw-transcript access. The neighbouring per-tenant
-    compliance writes — releasing an account for outbound dialling, recording a KYC
-    verification — take none, and a flag is a smaller act than either. If a flag ever
-    needs one, it is gating something that should not be a flag.
-    """
+async def test_the_write_takes_step_up() -> None:
+    """D-731: a flag is a step-up write. Without the confirmation it is refused before
+    anything is read, so nothing moves and nothing is audited."""
     org = await _tenant()
     token, _ = await _make_admin()
     async with _client() as http:
@@ -470,7 +467,8 @@ async def test_the_write_takes_no_step_up_header() -> None:
             headers={"Authorization": f"Bearer {token}"},
             json={"enabled": True, "reason": "No confirmation header sent, on purpose."},
         )
-    assert response.status_code == 200, response.text
+    assert response.status_code == 403, response.text
+    assert response.json()["type"].endswith("/step_up_required")
 
 
 # ------------------------------------------------------------------------------ audit
@@ -632,7 +630,10 @@ async def test_a_malformed_flag_name_never_reaches_the_database() -> None:
     async with _client() as http:
         response = await http.put(
             _path(org["id"], "Not-A-Flag"),
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"set_feature_flag:{org['id']}:Not-A-Flag",
+            },
             json={"enabled": None, "reason": "Attempted with a malformed name."},
         )
     assert response.status_code == 422, response.text
@@ -731,7 +732,10 @@ async def test_a_mistyped_tenant_is_a_404_not_a_cheerful_nothing() -> None:
         read = await http.get(_path(missing), headers={"Authorization": f"Bearer {token}"})
         write = await http.put(
             _path(missing, FLAG),
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"set_feature_flag:{missing}:{FLAG}",
+            },
             json={"enabled": True, "reason": "Meant for a different client."},
         )
     assert read.status_code == 404, read.text
@@ -751,7 +755,10 @@ async def test_a_reason_is_required_in_both_directions() -> None:
         ):
             response = await http.put(
                 _path(org["id"], FLAG),
-                headers={"Authorization": f"Bearer {token}"},
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-Confirm-Action": f"set_feature_flag:{org['id']}:{FLAG}",
+                },
                 json=body,
             )
             assert response.status_code == 422, (body, response.text)

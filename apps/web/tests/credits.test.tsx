@@ -1275,7 +1275,7 @@ describe("the states that are not a balance", () => {
         }),
       }),
     );
-    await screen.findByText("This account is moving to prepaid calling credit");
+    await screen.findByText("Moving to prepaid calling credit");
     await screen.findByText(/honoured as issued/);
     // THE DEAD END IS THE DEFECT. This branch used to name two other screens in prose and
     // offer nothing; now the three money questions each have a link, because an invoiced

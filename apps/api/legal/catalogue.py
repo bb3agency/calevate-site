@@ -408,6 +408,17 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "Limited Use (required for OAuth app verification). NOT MATERIAL: it narrows "
                 "how we may use data the notice already described.",
             ),
+            # D-727, D-715, D-722.
+            Revision(
+                "21",
+                True,
+                "Section 6 and the dearer voice quality's entry say that company has "
+                "received the agent's spoken words since 11 October 2026, which can include "
+                "personal data a caller gave, where revision 20 said nothing had been sent "
+                "to it. Also business-neutral examples (no symptom or appointment slot; a "
+                "calendar booking). MATERIAL: caller personal data now reaches a company the "
+                "previous revision said received nothing.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -718,6 +729,17 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "signed; clause 2 relays its training statement as its own; clause 9 "
                 "describes it as the live call path. MATERIAL: a narrowed warranty.",
             ),
+            # D-727, D-715, D-722.
+            Revision(
+                "13",
+                True,
+                "Clauses 2, 5 and 9 say the dearer voice quality's company has received the "
+                "words of agents on that quality since 11 October 2026, where revision 12 "
+                "said nothing had been sent to it; clause 5 still does not represent a "
+                "data-processing agreement with it. Annex A says 'preferred time' instead of "
+                "'appointment preference'. MATERIAL: a sub-processor without a recorded "
+                "agreement now processes the Client's personal data.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -925,6 +947,20 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "only the spreadsheets it picks, instead of a document shared with our "
                 "service account. NOT MATERIAL: the client's own processor, acting for it, "
                 "with narrower access than before.",
+            ),
+            # D-727, D-715, D-722.
+            Revision(
+                "20",
+                True,
+                "The text-to-speech row is ENABLED for the dearer quality since 11 October "
+                "2026 (paid and trial accounts): it receives the agent's spoken words, which "
+                "can include personal data a caller gave, where revision 19 said nothing had "
+                "been sent; section 3.6 agrees. The row also says that company holds one "
+                "voice clone our staff made from a staff member's own voice with written "
+                "consent, offered as a voice option (no caller or client data in it). The "
+                "integrations row says a calendar booking rather than an appointment. "
+                "MATERIAL: caller personal data now reaches a company the previous revision "
+                "said received nothing.",
             ),
         ),
         effective_date="2026-09-02",

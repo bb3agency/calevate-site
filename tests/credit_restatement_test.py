@@ -162,7 +162,7 @@ async def _credit(token: str, tenant_id: uuid.UUID, amount: str, ref: str) -> st
     async with _client() as http:
         posted = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": amount, "payment_ref": ref},
         )
     assert posted.status_code == 200, posted.text
@@ -706,7 +706,7 @@ async def test_the_conflict_that_reveals_the_shortfall_names_the_route_that_repa
     async with _client() as http:
         clash = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "50000.00", "payment_ref": "UTR-DISCOVER"},
         )
     assert clash.status_code == 409, clash.text
@@ -733,7 +733,7 @@ async def test_the_over_credit_conflict_still_points_at_the_adjustment() -> None
     async with _client() as http:
         clash = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "5000.00", "payment_ref": "UTR-OVER"},
         )
     assert clash.status_code == 409, clash.text
@@ -757,13 +757,13 @@ async def test_reposting_a_restated_payment_at_the_corrected_figure_is_a_replay(
     async with _client() as http:
         confirmed = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "50000.00", "payment_ref": "UTR-CONFIRMABLE"},
         )
         # …and the pre-correction figure is now the conflict, which is the truth.
         stale = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "5000.00", "payment_ref": "UTR-CONFIRMABLE"},
         )
 
@@ -785,7 +785,7 @@ async def test_an_ordinary_replay_is_unchanged_by_any_of_this() -> None:
     async with _client() as http:
         again = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "2500.10", "payment_ref": "UTR-ORDINARY"},
         )
 

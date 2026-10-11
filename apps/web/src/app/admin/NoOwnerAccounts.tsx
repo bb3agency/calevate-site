@@ -1,9 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { UserPlus } from "lucide-react";
-
-import { NoticeBox } from "@/components/ui";
+import { ChecklistRows } from "@/components/console/checklist";
 import { useUnfinishedOnboardings } from "@/lib/api/onboarding";
 
 /**
@@ -20,24 +17,16 @@ export function NoOwnerAccounts() {
   const orphans = unfinished.data.filter((row) => !row.owner_present && !row.invite_pending);
   if (orphans.length === 0) return null;
   return (
-    <NoticeBox
+    <ChecklistRows
+      heading={orphans.length === 1 ? "1 account has no owner invited yet" : `${orphans.length} accounts have no owner invited yet`}
       tone="warn"
-      icon={<UserPlus aria-hidden className="h-5 w-5" />}
-      title={orphans.length === 1 ? "1 account has no owner invited yet" : `${orphans.length} accounts have no owner invited yet`}
-    >
-      <ul className="mt-1 space-y-1">
-        {orphans.map((row) => (
-          <li key={row.tenant_id} className="min-w-0 truncate">
-            <Link
-              href={`/admin/tenants/${row.tenant_id}`}
-              className="font-medium underline-offset-2 hover:underline"
-            >
-              {row.name}
-            </Link>{" "}
-            — invite the owner
-          </li>
-        ))}
-      </ul>
-    </NoticeBox>
+      rows={orphans.map((row) => ({
+        id: row.tenant_id,
+        label: row.name,
+        status: "not_started",
+        statusText: "No owner",
+        link: { href: `/admin/tenants/${row.tenant_id}`, label: "Invite" },
+      }))}
+    />
   );
 }

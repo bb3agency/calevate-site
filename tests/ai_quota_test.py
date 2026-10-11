@@ -1610,7 +1610,14 @@ def test_the_enum_is_derived_from_the_classification_and_not_the_other_way_round
 
     assert (*CLIENT_BILLED_UNIT_TYPES, *PLATFORM_ABSORBED_UNIT_TYPES) == UNIT_TYPES
     assert not set(CLIENT_BILLED_UNIT_TYPES) & set(PLATFORM_ABSORBED_UNIT_TYPES)
-    assert set(PLATFORM_ABSORBED_UNIT_TYPES) == set(AI_ASSIST_UNIT_TYPES)
+    # The AI units, and the console's speech-to-text we absorb (founder, 11 Oct 2026).
+    assert set(PLATFORM_ABSORBED_UNIT_TYPES) == {
+        *AI_ASSIST_UNIT_TYPES,
+        "ai_stt_min",
+        # The forwarding test call and our own WhatsApp sends (D-746).
+        "forwarding_test_min",
+        "whatsapp_msg",
+    }
     assert len(set(UNIT_TYPES)) == len(UNIT_TYPES), "a unit type is listed twice"
 
 

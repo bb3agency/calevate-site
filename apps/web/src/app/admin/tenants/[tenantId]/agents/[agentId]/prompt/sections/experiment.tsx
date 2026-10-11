@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle } from "lucide-react";
 
 import { useFormValidation } from "@/components/formValidation";
 import { StatusPill } from "@/components/admin/kit";
@@ -187,7 +186,6 @@ function ExperimentResults({ experiment }: { experiment: Experiment }) {
         // and a green box over "not enough data" would say the opposite of the words in
         // it.
         tone={experiment.verdict === "winner" ? "ok" : "neutral"}
-        icon={<AlertTriangle className="h-5 w-5" />}
         title={experiment.headline}
       >
         {/* The server's own caveat, verbatim. It is about repeated reading, which is

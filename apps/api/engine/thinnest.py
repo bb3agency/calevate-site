@@ -43,6 +43,7 @@ import re
 import uuid
 from collections import Counter
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Final, Literal, get_args
@@ -82,9 +83,12 @@ from calevate_shared.engine_scope import raw_of, scoped_handle
 from calevate_shared.events import (
     CallDirection,
     CallEvent,
+    CallQuality,
     CallStatus,
     EngineNotice,
     EngineNoticeKind,
+    EngineProblem,
+    EngineProblemKind,
     Speaker,
     TranscriptTurn,
 )
@@ -117,15 +121,25 @@ from apps.api.engine.catalogue import (
 )
 from apps.api.engine.charges import EngineCharge, EngineChargeListing
 from apps.api.engine.document import engine_document
+from apps.api.engine.forwarding_test import (
+    FORWARDING_TEST_AGENT_NAMES,
+    TEST_CALL_INSTRUCTIONS,
+    TEST_CALL_MAX_SECONDS,
+    TEST_CALL_PURPOSE,
+    ForwardingLegReport,
+)
+from apps.api.engine.health import PlatformStatus
 from apps.api.engine.recording_source import EngineRecordingSource, RecordingFetchRules
 from apps.api.engine.test_chat import TEST_CHAT_UNAVAILABLE, TestChatTool, TestChatTurn
 from apps.api.engine.text_split import split_for_text_cap
 from apps.api.engine.thinnest_workspace import (
     trial_agent_allowed,
+    trial_agent_in_developer_workspace,
     workspace_headers,
     workspace_not_provisioned,
     workspace_of,
 )
+from apps.api.engine.trial_line import TRIAL_LINE_AGENT_NAME, TrialLineAgent
 from apps.api.engine.vendor_http import (
     REQUEST_TIMEOUT_S,
     EngineRejectedError,
@@ -467,6 +481,80 @@ def _agent_ref_of(payload: dict[str, Any]) -> str | None:
     if isinstance(agent, dict):
         return _str(agent.get("id"))
     return _str(agent) or _str(payload.get("agent_id"))
+
+
+def _call_id_of(payload: dict[str, Any]) -> str | None:
+    """The id Get Call takes. `id` is the place-call id (`out_…`/`sch_…`) that dispatch
+    stored; `call.completed` sends it only for a call placed through the API and `callRef`
+    on every call, so an inbound call is named by `callRef` (docs.thinnest.ai
+    api-reference/webhooks "call.completed", read 11 Oct 2026)."""
+    return _str(payload.get("id")) or _str(payload.get("callRef"))
+
+
+def _whole(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return int(value) if value >= 0 else None
+
+
+def _spread(value: Any) -> tuple[int | None, int | None, int | None]:
+    """`{median, p90, max}` in milliseconds; any part may be null."""
+    if not isinstance(value, dict):
+        return None, None, None
+    return _whole(value.get("median")), _whole(value.get("p90")), _whole(value.get("max"))
+
+
+def parse_quality(value: Any) -> CallQuality | None:
+    """The call's `quality` block (docs.thinnest.ai api-reference/webhooks "Call quality",
+    read 11 Oct 2026) in our names, or None when the engine measured nothing. Numbers only:
+    a field that is not a non-negative number is read as not measured."""
+    if not isinstance(value, dict):
+        return None
+    reply = _spread(value.get("responseMs"))
+    first = _spread(value.get("firstTokenMs"))
+    silence = value.get("longestSilenceSeconds")
+    longest = (
+        float(silence)
+        if isinstance(silence, int | float) and not isinstance(silence, bool) and silence >= 0
+        else None
+    )
+    return CallQuality(
+        turns=_whole(value.get("turns")),
+        reply_ms_median=reply[0],
+        reply_ms_p90=reply[1],
+        reply_ms_max=reply[2],
+        first_token_ms_median=first[0],
+        first_token_ms_p90=first[1],
+        first_token_ms_max=first[2],
+        long_silences=_whole(value.get("longSilences")),
+        longest_silence_s=longest,
+        interruptions=_whole(value.get("interruptions")),
+        model_errors=_whole(value.get("modelErrors")),
+        backup_answers=_whole(value.get("rescues")),
+    )
+
+
+#: The one value of the status read's parts that means healthy.
+STATUS_OPERATIONAL: Final = "operational"
+#: The status read sits inside the healer's tick; a slow answer is no answer.
+STATUS_TIMEOUT_S: Final = 3.0
+_STATUS_WORD_RE: Final = re.compile(r"^[a-z_]{1,24}$")
+
+
+def _status_word(value: Any) -> str:
+    """A status part fit for an operator's alarm line: a short lower-case word or `other`."""
+    word = value if isinstance(value, str) else ""
+    return word if _STATUS_WORD_RE.match(word) else "other"
+
+
+#: `call.problem`'s `kind` in our vocabulary (webhooks "Problems on a live call").
+#: `byok_failed` is "your own model key failed", so it is named for the key, not the voice.
+_PROBLEM_KINDS: Final[dict[str, EngineProblemKind]] = {
+    "no_answer_from_model": "no_answer_from_model",
+    "byok_failed": "own_key_failed",
+    "slow_reply": "slow_reply",
+    "voice_failed": "voice_failed",
+}
 
 
 def _turn_start_ms(
@@ -819,7 +907,44 @@ def _tools_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
             drifted.append("handOver.line")
     elif have.get("phone") is not None:
         drifted.append("handOver.phone")
+    if have.get("agents") and not want.get("agents"):
+        drifted.append("handOver.agents")
     return drifted
+
+
+@dataclass(frozen=True, slots=True)
+class HandoffTarget:
+    """Another of the client's agents a live call may be passed to."""
+
+    engine_agent_ref: str
+    #: True for a Studio agent (our own voice key), False for Clear.
+    own_voice_key: bool | None
+    #: When to pass it, in a sentence the agent reads.
+    when: str
+
+
+def handoff_agents_body(
+    source_own_voice_key: bool | None, targets: Sequence[HandoffTarget]
+) -> list[dict[str, str]]:
+    """`handOver.agents` for an agent, refusing a target on the other rung.
+
+    ThinnestAI bills a handed call once, at the rate it started at, and keeps the call
+    rather than pass it to an agent set to run on different keys (our own versus theirs) or
+    on a premium model when the call started at the standard rate (docs.thinnest.ai
+    channels/voice "Handing a call on", read 11 Oct 2026; ThinnestAI's email of 11 Oct 2026
+    says the save is refused). A Clear agent is on their keys and a Studio agent on ours,
+    so a Clear-Studio pair would never hand over: refused here, with a sentence a client
+    can act on, rather than saved and silently ignored on a call.
+    """
+    for target in targets:
+        if bool(target.own_voice_key) != bool(source_own_voice_key):
+            raise ProblemError.business_rule(
+                "handoff_across_voice_tiers",
+                "A call can only be passed to an agent on the same voice as the agent that "
+                "answered it: Clear to Clear, or Studio to Studio.",
+                remediation="Choose an agent on the same voice, or change one agent's voice.",
+            )
+    return [{"agent": raw_of(t.engine_agent_ref), "when": t.when} for t in targets]
 
 
 #: Our setting label (`agents/engine_settings.AGENT_SETTING_LABELS`) -> the agent field that
@@ -1090,11 +1215,14 @@ class ThinnestEngine:
         base_url: str = BASE_URL,
         client: httpx.AsyncClient | None = None,
         signing_secret_for: SigningSecretResolver | None = None,
+        status_transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url
         self._client = client
         self._signing_secret_for = signing_secret_for
+        #: The status read goes out without our key, so it never uses `client`.
+        self._status_transport = status_transport
 
     def holds_credentials(self) -> bool:
         return bool(self._api_key) or self._client is not None
@@ -1345,8 +1473,14 @@ class ThinnestEngine:
         phone and the line the agent says first; otherwise it is off and `handOver` is
         cleared, so a number entered in the vendor console cannot receive our callers
         (snapshots/2026-10-08/pages/api-reference/tools/update-built-in-tools.md:553-637).
+
+        `handOver.agents`, passing a live call to another of the client's agents, is sent
+        empty: the product offers no agent-to-agent hand-off. The empty list also clears one
+        typed in the vendor console, and the read-back reports one it finds
+        (`handOver.agents`). Any list goes through `handoff_agents_body`.
         """
         handoff = cfg.handoff
+        agents = handoff_agents_body(cfg.engine_own_voice_key, ())
         return {
             "tools": {
                 "call_them_now": False,
@@ -1368,9 +1502,10 @@ class ThinnestEngine:
                         what="hand-over line",
                     )
                     or None,
+                    "agents": agents,
                 }
                 if handoff is not None
-                else {"mode": "chat", "phone": None, "line": None}
+                else {"mode": "chat", "phone": None, "line": None, "agents": agents}
             ),
         }
 
@@ -1419,6 +1554,193 @@ class ThinnestEngine:
                 remediation="Try publishing again. If it keeps failing, contact us.",
             )
         return None
+
+    # --- the shared trial number's line ------------------------------------------------
+
+    async def read_trial_line_agent(self) -> TrialLineAgent | None:
+        """The developer workspace's agent named `TRIAL_LINE_AGENT_NAME`, or None."""
+        rows, reason, _ = await self._walk("/agents", route="/agents", workspace=None)
+        for row in rows:
+            if _str(row.get("name")) == TRIAL_LINE_AGENT_NAME:
+                voice = row.get("voice")
+                held = voice if isinstance(voice, dict) else {}
+                return TrialLineAgent(
+                    ref=_str(row.get("id")) or "",
+                    answers_calls=held.get("answersCalls") is True,
+                    message=_str(held.get("unavailableMessage")),
+                    message_note=_str(held.get("unavailableMessageNote")),
+                )
+        if reason is not None:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_listing_incomplete",
+                title="The voice platform's agent list could not be read in full",
+                detail="We could not confirm whether the trial line's agent already exists.",
+                remediation="Try again in a few minutes.",
+            )
+        return None
+
+    async def converge_trial_line_agent(self, message: str) -> TrialLineAgent:
+        """Make the developer workspace hold one agent that never answers and speaks
+        `message` to whoever rings the shared trial number (D-742). Found by its fixed name,
+        so a repeat finds it rather than making a second; repaired when found answering or
+        saying something else.
+
+        `voice.answersCalls: false` with `voice.unavailableMessage` (≤300 characters, a
+        longer one is a 400, never cut) is read by the phone provider's own Indian-English
+        voice on Plivo and Twilio numbers (docs.thinnest.ai api-reference/agents/create-agent
+        `AgentVoiceInput`, channels/voice "When Answer calls is off", read 11 Oct 2026).
+        Sending any voice field on create makes a voice channel switched OFF. `byok: off`:
+        it is no Studio agent, and the developer workspace runs our voice key (D-727).
+        """
+        wanted_voice = {"answersCalls": False, "unavailableMessage": message}
+        held = await self.read_trial_line_agent()
+        if held is None:
+            with trial_agent_in_developer_workspace():
+                row = await self._request(
+                    "POST",
+                    "/agents",
+                    route="/agents",
+                    workspace=None,
+                    json={"name": TRIAL_LINE_AGENT_NAME, "byok": "off", "voice": wanted_voice},
+                )
+            ref = _str(row.get("id"))
+            if ref is None:
+                raise _bad_response("a created agent without its id")
+            log.info("thinnest_trial_line_agent_created")
+        elif held.answers_calls or held.message != message:
+            ref = held.ref
+            await self._request(
+                "PATCH",
+                f"/agents/{ref}",
+                route="/agents/{ref}",
+                workspace=None,
+                json={"voice": wanted_voice},
+            )
+            log.info("thinnest_trial_line_agent_repaired")
+        else:
+            return held
+        after = await self.read_trial_line_agent()
+        if after is None or after.answers_calls or after.message != message:
+            raise ProblemError(
+                kind="dependency",
+                code="trial_line_agent_not_held",
+                title="The trial line's agent did not take its settings",
+                detail="The voice platform did not keep the trial number's message.",
+                remediation="Try again; if it repeats, check the agent in the platform console.",
+            )
+        return after
+
+    async def set_line_answering(self, ref: str, *, on: bool) -> None:
+        """Switch a developer-workspace agent's Answer calls on or off, nothing else."""
+        await self._request(
+            "PATCH",
+            f"/agents/{ref}",
+            route="/agents/{ref}",
+            workspace=None,
+            json={"voice": {"answersCalls": on}},
+        )
+
+    # --- the forwarding verification call (D-746) --------------------------------------
+
+    async def converge_forwarding_test_agent(self, leg: int) -> str:
+        """The developer-workspace agent that places test leg `leg` (1 or 2), made once and
+        found by its fixed name. Voice is switched on so it may call out; it is never a
+        number's answering agent, so it answers nothing. `byok: off` for the trial line's
+        reason. Whether an agent with no instructions of its own places a call carrying only
+        `purpose` and `overrides.callInstructions` is UNVERIFIED (OPERATIONS gate F-5)."""
+        name = FORWARDING_TEST_AGENT_NAMES[leg - 1]
+        rows, reason, _ = await self._walk("/agents", route="/agents", workspace=None)
+        for row in rows:
+            if _str(row.get("name")) == name:
+                ref = _str(row.get("id"))
+                if ref is not None:
+                    return ref
+        if reason is not None:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_listing_incomplete",
+                title="The voice platform's agent list could not be read in full",
+                detail="We could not confirm whether the test-call agent already exists.",
+                remediation="Try again in a few minutes.",
+            )
+        with trial_agent_in_developer_workspace():
+            row = await self._request(
+                "POST",
+                "/agents",
+                route="/agents",
+                workspace=None,
+                json={"name": name, "byok": "off", "voice": {"answersCalls": True}},
+            )
+        ref = _str(row.get("id"))
+        if ref is None:
+            raise _bad_response("a created agent without its id")
+        await self.set_line_answering(ref, on=True)
+        log.info("thinnest_forwarding_test_agent_created", extra={"leg": leg})
+        return ref
+
+    async def place_forwarding_test_call(
+        self, *, agent_ref: str, from_e164: str, to_e164: str, reference: str
+    ) -> str:
+        """`POST /calls` from a platform number to a client's published number, in the
+        developer workspace. `purpose` is what a person hears first; the shortest per-call
+        limit (60 s) bounds a leg we fail to hang up. `ifOutsideHours: refuse`, so a request
+        outside 09:00-21:00 is a 409 rather than a call queued for later. The idempotency key
+        is the leg's own id, so a retried request places no second call."""
+        body: dict[str, Any] = {
+            "to": to_e164,
+            "purpose": TEST_CALL_PURPOSE,
+            "agent": agent_ref,
+            "from": from_e164,
+            "ifOutsideHours": "refuse",
+            "overrides": {
+                "maxCallSeconds": TEST_CALL_MAX_SECONDS,
+                "callInstructions": TEST_CALL_INSTRUCTIONS,
+            },
+            "metadata": {"calevate_forwarding_leg": reference},
+            "reference": reference,
+        }
+        try:
+            data = await self._request(
+                "POST",
+                "/calls",
+                route="/calls",
+                workspace=None,
+                json=body,
+                headers={IDEMPOTENCY_HEADER: f"calevate-fwd-{reference}"},
+                extra_refused_statuses=frozenset({402, 409}),
+            )
+        except EngineRejectedError as exc:
+            refusal = _dial_refusal(exc)
+            if refusal is exc:
+                raise
+            raise refusal from exc
+        handle = _str(data.get("id"))
+        if handle is None:
+            raise _bad_response("The voice platform did not return a call id.")
+        return handle
+
+    async def read_forwarding_leg(self, handle: str) -> ForwardingLegReport:
+        snapshot = await self.get_execution(handle)
+        seconds = snapshot.duration_s
+        return ForwardingLegReport(
+            ended=snapshot.terminal,
+            answered=None if seconds is None else seconds > 0,
+            seconds=seconds,
+        )
+
+    async def hang_up_forwarding_leg(self, handle: str) -> None:
+        """`DELETE /calls/{id}` whatever its state: a ringing or connected call "is ended on
+        the line" (cancel-call.md:7, 384-385). Unlike `end_call` a connected leg IS ended:
+        nobody is talking on a test leg. A 409 is a call already over."""
+        raw_call, workspace = self._at(handle)
+        try:
+            await self._request(
+                "DELETE", f"/calls/{raw_call}", route="/calls/{id}", workspace=workspace
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_status != 409:
+                raise
 
     async def _apply_own_key_voice(self, raw: str, workspace: str | None, cfg: AgentConfig) -> None:
         """`PUT /agents/{id}/byok-voice` for an agent speaking a voice of our own voice key
@@ -1533,83 +1855,6 @@ class ThinnestEngine:
         await self._request(
             "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=body
         )
-
-    async def forward_line(
-        self,
-        ref: EngineAgentRef,
-        *,
-        phone_e164: str,
-        line: str,
-        opening_line: str,
-        system_prompt: str,
-    ) -> None:
-        """Hand every caller of this agent to `phone_e164` (the auto-healer, D-701).
-
-        The documented API has no number-level forward (`api-reference/phone-numbers/
-        update-phone-number.md:439-468` takes only label, agent and callingAgent), so this
-        is the closest supported behaviour: the line stays on, the agent greets and is told
-        to escalate at once, and `handOver` names the client's phone
-        (`api-reference/tools/update-built-in-tools.md:597-624`; transfer works only on
-        numbers rented from the platform and Plivo/Telnyx numbers, `channels/voice.md:
-        483-492`). Whether the agent escalates on the first turn is UNVERIFIED (OPERATIONS
-        gate T-26); the healer falls back to a pause when forwarded calls still fail. The
-        tools are read back like a publish's, so a refused or partial hand-over raises.
-        The restoring publish rewrites both the script and the tools."""
-        raw, workspace = self._at(ref)
-        script: dict[str, Any] = {
-            "greeting": self._within(
-                opening_line.strip(),
-                GREETING_MAX_CHARS,
-                code="engine_greeting_too_long",
-                what="hand-over opening line",
-            ),
-            "instructions": self._within(
-                system_prompt,
-                INSTRUCTIONS_MAX_CHARS,
-                code="engine_prompt_too_long",
-                what="hand-over script",
-            ),
-            "voice": {"answersCalls": True, "unavailableMessage": None},
-            "escalation": {"onNoAnswer": False, "onRequest": True},
-        }
-        await self._request(
-            "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=script
-        )
-        wanted: dict[str, Any] = {
-            "tools": {
-                "call_them_now": False,
-                "send_sms": False,
-                "send_whatsapp": False,
-                "reply_by_email": False,
-                "capture_lead": False,
-                "schedule_callback": False,
-                "escalate_to_human": True,
-            },
-            "handOver": {
-                "mode": "call",
-                "phone": phone_e164,
-                "line": self._within(
-                    line.strip(),
-                    HANDOVER_LINE_MAX_CHARS,
-                    code="engine_handover_line_too_long",
-                    what="hand-over line",
-                ),
-            },
-        }
-        try:
-            saved = await self._request(
-                "PATCH",
-                f"/agents/{raw}/tools",
-                route="/agents/{ref}/tools",
-                workspace=workspace,
-                json=wanted,
-            )
-        except EngineRejectedError as exc:
-            if exc.vendor_status != 400:
-                raise
-            raise _tools_not_pinned() from exc
-        if _tools_drift(wanted, saved):
-            raise _tools_not_pinned()
 
     async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
         """`GET /agents/{id}` (agents.md:80), with the agent's documents from its knowledge
@@ -2542,7 +2787,7 @@ class ThinnestEngine:
         lose that transcript. The link is valid before the audio lands (it answers 404 for a
         minute or so), so it is passed on and the recording copy retries.
         """
-        raw_call = _str(payload.get("id"))
+        raw_call = _call_id_of(payload)
         call_id = scoped_handle(raw_call, workspace) if raw_call else fallback_id
         raw_status = (_str(payload.get("status")) or "").lower()
         hangup = _str(payload.get("hangup"))
@@ -2598,6 +2843,10 @@ class ThinnestEngine:
             engine_summary=((_str(payload.get("summary")) or "").strip() or None)
             if analysed
             else None,
+            quality=parse_quality(payload.get("quality")),
+            # `forwardedTo` is the phone a number forward put the call through to, absent or
+            # null otherwise (api-reference/webhooks "call.completed", read 11 Oct 2026).
+            forwarded=bool(_str(payload.get("forwardedTo"))),
             engine=self.name,
         )
 
@@ -2743,7 +2992,7 @@ class ThinnestEngine:
         recording = call.get("recording")
         recording_url = _str(recording.get("url")) if isinstance(recording, dict) else None
         return CallEvent(
-            call_id=_scoped(_str(call.get("id")), workspace_of(None)) or "",
+            call_id=_scoped(_call_id_of(call), workspace_of(None)) or "",
             engine_agent_ref=_scoped(_agent_ref_of(call), workspace_of(None)),
             direction=direction,
             status=_our_status(raw_status, hangup),
@@ -2758,14 +3007,14 @@ class ThinnestEngine:
 
     def parse_notice(self, payload: dict[str, Any]) -> EngineNotice | None:
         """A VERIFIED `lead.captured` or `conversation.escalated` delivery as our notice, or
-        None for any other event (`{id, event, sentAt, data}`, snapshots/2026-10-08/pages/
-        api-reference/webhooks.md:70-99). Call it after `verify_webhook` has passed.
+        None for any other event. Call it after `verify_webhook` has passed.
 
-        UNVERIFIED: the mirror prints these two bodies as `data: { … }`. The agent is read
-        the way a call object carries it (`agent: {id}`, or `agentId`), and the call from
-        `callId`, the field `contact.opted_out` documents (:85); either may be absent, and
-        a chat escalation has no call. Nothing else in `data` is read: the lead's name and
-        number are the caller's personal data and our extraction pass is the record.
+        `data.agentId` is the agent that ran the tool (on a handed call, the agent the call
+        was handed to) and `data.callId` the call it was on, null off a call
+        (docs.thinnest.ai api-reference/webhooks "lead.captured" and
+        "conversation.escalated", read 11 Oct 2026). Nothing else in `data` is read: the
+        lead's name and number are the caller's personal data and our extraction pass is
+        the record.
         """
         kind = _NOTICE_KINDS.get(str(payload.get("event")))
         notice_id = _str(payload.get("id"))
@@ -2782,6 +3031,59 @@ class ThinnestEngine:
             engine_call_id=_scoped(_str(body.get("callId")), workspace_of(None)),
             occurred_at=_parse_dt(payload.get("sentAt")),
             engine=self.name,
+        )
+
+    def parse_problem(self, payload: dict[str, Any]) -> EngineProblem | None:
+        """A VERIFIED `call.problem` delivery as our problem, or None for any other event, an
+        unknown `kind` or a delivery naming no call (docs.thinnest.ai api-reference/webhooks
+        "call.problem", read 11 Oct 2026). `detail`, the vendor's own sentence, is not
+        read."""
+        if payload.get("event") != "call.problem":
+            return None
+        problem_id = _str(payload.get("id"))
+        data = payload.get("data")
+        body: dict[str, Any] = data if isinstance(data, dict) else {}
+        kind = _PROBLEM_KINDS.get(str(body.get("kind")))
+        call = _scoped(_str(body.get("callId")), workspace_of(None))
+        if problem_id is None or kind is None or call is None:
+            return None
+        return EngineProblem(
+            kind=kind,
+            problem_id=problem_id,
+            engine_agent_ref=_scoped(_str(body.get("agentId")), workspace_of(None)),
+            engine_call_id=call,
+            occurred_at=_parse_dt(body.get("at")) or _parse_dt(payload.get("sentAt")),
+            engine=self.name,
+        )
+
+    async def platform_status(self) -> PlatformStatus:
+        """ThinnestAI's own reading of its health: `GET {origin}/api/status`, no key.
+
+        UNDOCUMENTED: named in ThinnestAI's email of 11 Oct 2026 and absent from
+        docs.thinnest.ai (searched 11 Oct 2026). The shape is the one the endpoint answered
+        on 11 Oct 2026, `{checkedAt, database, voiceEngine}` with `"operational"`; any other
+        value of either part is read as not operational, and no answer as unknown.
+        """
+        if self._api_key is None and self._status_transport is None:
+            # An adapter with no key is not talking to the platform at all.
+            return PlatformStatus(reachable=False)
+        origin = self._base_url.rstrip("/").removesuffix("/v1")
+        try:
+            async with httpx.AsyncClient(
+                timeout=STATUS_TIMEOUT_S, transport=self._status_transport
+            ) as client:
+                response = await client.get(f"{origin}/status")
+            body = response.json() if response.status_code == 200 else None
+        except (httpx.HTTPError, ValueError):
+            body = None
+        if not isinstance(body, dict):
+            return PlatformStatus(reachable=False)
+        calls, data = body.get("voiceEngine"), body.get("database")
+        return PlatformStatus(
+            reachable=True,
+            calls_operational=calls == STATUS_OPERATIONAL,
+            data_operational=data == STATUS_OPERATIONAL,
+            reported=f"voice {_status_word(calls)}, data {_status_word(data)}",
         )
 
 

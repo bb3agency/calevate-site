@@ -37,6 +37,12 @@ export function turnClock(startMs: number, approximate: boolean): string {
   return approximate ? `~${clock}` : clock;
 }
 
+/** The time as a screen reader should say it: "about 0:21" rather than "tilde 0:21". */
+export function spokenClock(startMs: number, approximate: boolean): string {
+  const clock = formatClock(startMs / 1000);
+  return approximate ? `about ${clock}` : clock;
+}
+
 export function momentClock(moment: Pick<CallMoment, "at_ms" | "precision">): string {
   return turnClock(moment.at_ms, moment.precision === "approximate");
 }

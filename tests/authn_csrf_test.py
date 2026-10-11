@@ -171,7 +171,7 @@ def test_the_pure_rule_and_the_raising_face_agree() -> None:
             sec_fetch_site="same-site",
             origin=DEFAULT_CORS_ORIGINS[0],
             own_origin=API_ORIGIN,
-            path="/x",
+            path="/v1/auth/client/login",
         )
         is None
     )

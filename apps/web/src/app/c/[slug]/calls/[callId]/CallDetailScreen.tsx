@@ -2,10 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
-import {
-  ArrowLeft,
-  ShieldAlert,
-} from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 import { NoticeBox, ProblemNotice } from "@/components/ui";
 import { LiveCallPanel } from "@/components/console/liveCallPanel";
@@ -31,6 +28,7 @@ import { AssistCard } from "./AssistCard";
 import { initialView, useRetryEnglish, type CallView } from "./callEnglish";
 import { CallDetailSkeleton } from "./CallDetailSkeleton";
 import { CallHeader } from "./CallHeader";
+import { CallQualityCard } from "./CallQualityCard";
 import { CallVerdict } from "./CallVerdict";
 import { CapturedDetails } from "./CapturedDetails";
 import { DisclosureNotice } from "./DisclosureNotice";
@@ -91,7 +89,7 @@ export function CallDetailScreen({
   startAt?: number | null;
 }) {
   // `href` keeps the D-22 operator session across in-realm links (session.tsx).
-  const { session, href } = useClientRealm();
+  const { session, href, viewAsRequested } = useClientRealm();
   const call = useCall(session, callId);
   const eligibility = useCallbackEligibility(session, callId);
   const callback = useCallBack(session, callId);
@@ -260,7 +258,7 @@ export function CallDetailScreen({
     // resolved with nothing, which is a broken premise rather than a call with no
     // content. Say we have nothing rather than describing the call as having none.
     return (
-      <NoticeBox tone="neutral" icon={<ShieldAlert className="h-5 w-5" />} title="Nothing to show">
+      <NoticeBox tone="neutral" title="Nothing to show">
         We could not read this call. Reload the page, or go back to the call log.
       </NoticeBox>
     );
@@ -365,6 +363,8 @@ export function CallDetailScreen({
         />
 
         <aside aria-label="More about this call" className="space-y-8 lg:col-start-2 lg:row-start-2">
+          {/* The admin view of a call: how it went, from the voice platform's own figures. */}
+          {viewAsRequested && <CallQualityCard detail={detail} />}
           {detail.moments.length > 0 && (
             <KeyMomentsCard
               moments={detail.moments}

@@ -131,7 +131,12 @@ async def test_staff_cannot_read_transcript_content_through_the_calls_list() -> 
 
     async with _client() as http:
         response = await http.get(
-            "/v1/calls", headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
+            "/v1/calls",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Org-Slug": slug,
+                "X-Confirm-Action": "export_leads:" + slug,
+            },
         )
 
     assert response.status_code == 200
@@ -162,7 +167,11 @@ async def test_staff_cannot_read_transcript_content_through_the_call_detail() ->
     async with _client() as http:
         response = await http.get(
             f"/v1/calls/{call_id}",
-            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Org-Slug": slug,
+                "X-Confirm-Action": "export_leads:" + slug,
+            },
         )
 
     assert response.status_code == 200
@@ -184,7 +193,11 @@ async def test_the_summary_never_says_more_than_the_redacted_transcript_it_came_
     async with _client() as http:
         detail = await http.get(
             f"/v1/calls/{call_id}",
-            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Org-Slug": slug,
+                "X-Confirm-Action": "export_leads:" + slug,
+            },
         )
 
     body = detail.json()
@@ -205,7 +218,11 @@ async def test_the_audited_raw_view_still_returns_the_unredacted_summary() -> No
     async with _client() as http:
         raw = await http.get(
             f"/v1/calls/{call_id}/transcript/raw",
-            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Org-Slug": slug,
+                "X-Confirm-Action": "export_leads:" + slug,
+            },
         )
 
     assert raw.status_code == 200
@@ -255,7 +272,11 @@ async def test_the_lead_csv_export_carries_no_call_summary_column() -> None:
     async with _client() as http:
         response = await http.get(
             "/v1/leads/export.csv",
-            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Org-Slug": slug,
+                "X-Confirm-Action": "export_leads:" + slug,
+            },
         )
 
     assert response.status_code == 200

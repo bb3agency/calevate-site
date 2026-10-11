@@ -601,6 +601,12 @@ def refuse(reason: str, *, carrier: str, surface: str) -> ProblemError:
     )
 
 
+#: Carriers whose routes are refused unless `Settings.carrier` selects them (D-733): the
+#: ones with neither a callback secret (`CALLBACK_SECRET_SETTINGS`) nor a request signature
+#: we verify. Vobiz is not here, so a call in flight across a carrier switch still settles.
+DORMANT_UNLESS_SELECTED: Final = frozenset({"plivo"})
+
+
 def admit(
     carrier: str, request: Request, *, surface: str
 ) -> tuple[CarrierAnswerContract, CarrierAuthVerdict]:
@@ -612,6 +618,11 @@ def admit(
     contract = CARRIER_ANSWER_CONTRACT.get(carrier) if is_carrier(carrier) else None
     if contract is None:
         raise refuse("carrier_unknown", carrier=carrier, surface=surface)
+    if carrier in DORMANT_UNLESS_SELECTED and get_settings().carrier != carrier:
+        # A carrier this deployment does not use answers nothing (D-733). Plivo has no
+        # callback secret and no signature we can check, so while it is not the selected
+        # carrier its routes would be an unauthenticated way to mint a worker stream.
+        raise refuse("carrier_not_selected", carrier=carrier, surface=surface)
     verdict = authenticate(carrier, request)
     if not verdict.ok:
         # Alerted, not only logged: a vendor renumber or a rotated token refuses EVERY

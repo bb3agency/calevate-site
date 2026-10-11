@@ -281,6 +281,9 @@ _APPEND_ONLY_PROBE_SET = {
     # protected for the wrong reason (`fx_rate_observations`' own note). `occurred_at` has
     # no constraint and is not part of the idempotency key.
     "platform_ai_usage": "occurred_at = occurred_at + interval '1 second'",
+    # D-744: platform-scoped, no `tenant_id`. `approved` and `note` carry no constraint.
+    "spoken_style_revisions": "approved = NOT approved",
+    "spoken_style_publications": "note = coalesce(note, '') || 'x'",
 }
 
 
@@ -815,6 +818,11 @@ class RestoreDrill:
             "INSERT INTO platform_inr_llm_prices (model, effective_from, in_inr_per_mtok, "
             "out_inr_per_mtok, attested_by, source_note) VALUES ('sarvam-105b', now(), "
             f"29.280000, 73.200000, '{ADMIN_ID}', 'restore-drill fixture')",
+            # D-744: one spoken-style revision and one publication, for the same reason.
+            "INSERT INTO spoken_style_revisions (language, kind, entry_key, value, approved, "
+            f"created_by) VALUES ('te-IN', 'swap', 'drill', NULL, false, '{ADMIN_ID}')",
+            "INSERT INTO spoken_style_publications (language, through_revision, "
+            f"reviewer_name, published_by) VALUES ('te-IN', 0, 'restore drill', '{ADMIN_ID}')",
             # D-678: one attested engine minute price, for the same reason. A FIXTURE.
             "INSERT INTO platform_engine_minute_prices (engine, rate_key, effective_from, "
             "inr_per_min, attested_by, source_note) VALUES ('thinnest', 'platform', now(), "

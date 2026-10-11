@@ -161,6 +161,14 @@ class SecondFactorIn(BaseModel):
     code: str = Field(min_length=1, max_length=16)
 
 
+class StepUpVerifyIn(SecondFactorIn):
+    #: The `X-Confirm-Action` string of the request this code is for (D-730). Present, and
+    #: the answer also records a single-use proof for that one action; the routes that
+    #: demand a code typed for them accept nothing less. Absent, it only restamps the
+    #: admin second factor, as before.
+    action: str | None = Field(default=None, min_length=1, max_length=stepup.ACTION_MAX_CHARS)
+
+
 class SessionOut(BaseModel):
     """Who this session is, as ids and state.
 
@@ -652,56 +660,61 @@ def _realm_router(realm: str) -> APIRouter:
         )
         return Response(status_code=204)
 
-    if realm == stepup.STEP_UP_REALM:
+    @router.post(
+        "/step-up",
+        status_code=202,
+        response_model=None,
+        # An empty 202 — see the sibling routes above for why `response_class`
+        # matters here (D-303).
+        response_class=Response,
+        summary="Email a code to confirm it is still you before a dangerous action",
+    )
+    async def step_up_request(
+        request: Request, verified: VerifiedSession = Depends(authed)
+    ) -> Response:
+        """The first half of C-09 (D-178), on both realms since D-730.
 
-        @router.post(
-            "/step-up",
-            status_code=202,
-            response_model=None,
-            # An empty 202 — see the sibling routes above for why `response_class`
-            # matters here (D-303).
-            response_class=Response,
-            summary="Email a code to re-prove this operator's second factor before a "
-            "dangerous action",
-        )
-        async def step_up_request(
-            request: Request, verified: VerifiedSession = Depends(authed)
-        ) -> Response:
-            """The first half of C-09 (D-178).
+        On the admin realm the answer re-proves the second factor. On the client realm,
+        which has no second factor (`service.MFA_REQUIRED_REALMS`), the code is asked for
+        by the few actions that hand out a client's data or credentials, and answering it
+        buys one proof for the action it names.
 
-            ADMIN REALM ONLY, declared rather than refused — same structural choice as
-            `/bootstrap/confirm`. The client realm requires no second factor
-            (`service.MFA_REQUIRED_REALMS`), so a client-realm step-up would be a route
-            with nothing to re-prove and nobody to call it.
+        Depends on `authed`, not `live`: step-up RE-proves a factor, so a session that has
+        never proved one is at the ordinary sign-in gate, not this one.
+        """
+        _require_enabled()
+        enforce_same_origin(request)
+        await service.request_step_up(verified=verified, ip=client_request_ip(request))
+        return Response(status_code=202)
 
-            Depends on `authed`, not `live`: step-up RE-proves a factor, so a session that
-            has never proved one is at the ordinary sign-in gate, not this one.
-            """
-            _require_enabled()
-            enforce_same_origin(request)
-            await service.request_step_up(verified=verified, ip=client_request_ip(request))
-            return Response(status_code=202)
-
-        @router.post(
-            "/step-up/verify",
-            response_model=SessionOut,
-            summary="Answer the step-up code, restamping this session's second factor",
-        )
-        async def step_up_verify(
-            payload: SecondFactorIn,
-            request: Request,
-            response: Response,
-            verified: VerifiedSession = Depends(authed),
-        ) -> SessionOut:
-            """Rotates the session — see `service.complete_step_up` on why re-proving a
-            factor is a privilege change and why it cannot extend the absolute bound."""
-            _require_enabled()
-            enforce_same_origin(request)
-            rotated = await service.complete_step_up(
-                verified=verified, code=payload.code, ip=client_request_ip(request)
-            )
+    @router.post(
+        "/step-up/verify",
+        response_model=SessionOut,
+        summary="Answer the step-up code, optionally for one named action",
+    )
+    async def step_up_verify(
+        payload: StepUpVerifyIn,
+        request: Request,
+        response: Response,
+        verified: VerifiedSession = Depends(authed),
+    ) -> SessionOut:
+        """On the admin realm this rotates the session — see `service.complete_step_up` on
+        why re-proving a factor is a privilege change and why it cannot extend the absolute
+        bound. On both realms, a named `action` is recorded as a single-use proof that the
+        route for that action spends (`stepup.record_action_proof`, D-730)."""
+        _require_enabled()
+        enforce_same_origin(request)
+        ip = client_request_ip(request)
+        if realm == stepup.STEP_UP_REALM:
+            rotated = await service.complete_step_up(verified=verified, code=payload.code, ip=ip)
             _set_cookie(response, request, realm, rotated)
-            return await _session_out(realm, verified.subject_id, mfa_complete=True)
+        else:
+            await service.answer_action_code(verified=verified, code=payload.code, ip=ip)
+        if payload.action is not None:
+            await stepup.record_action_proof(
+                realm=realm, subject_id=verified.subject_id, action=payload.action
+            )
+        return await _session_out(realm, verified.subject_id, mfa_complete=True)
 
     if realm == bootstrap.ADMIN_REALM:
 

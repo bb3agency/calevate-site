@@ -238,7 +238,7 @@ async def _invite(tenant_id: UUID, token: str) -> str:
     async with _client() as http:
         invited = await http.post(
             INVITATIONS.format(tenant_id=tenant_id),
-            headers=_auth(token),
+            headers={**_auth(token), "X-Confirm-Action": f"invite_member:{tenant_id}"},
             json={"email": f"owner-{uuid.uuid4().hex[:8]}@example.com", "role": "owner"},
         )
     assert invited.status_code == 201, invited.text

@@ -60,15 +60,14 @@ export type TeamTableContext = {
  */
 export function IssuedInvite({ invitation }: { invitation: CreatedInvitation }) {
   return (
-    <NoticeBox tone="ok" title={`Invitation sent to ${invitation.email}`}>
-      <p>
-        We have emailed them a link. It works once, only from that address, and stops
-        working {formatIST(invitation.expires_at)}.
-      </p>
-      <p className="mt-2 text-meta">
-        If it does not arrive, ask them to check their spam folder, or use Send again
-        below. A new link goes out and the one in the earlier email stops working.
-      </p>
+    <NoticeBox
+      tone="ok"
+      title={`Invitation sent to ${invitation.email}`}
+      info="Sending again mails a new link, and the one in the earlier email stops working."
+      infoLabel="sending an invitation again"
+    >
+      <p>The link works once, only from that address, until {formatIST(invitation.expires_at)}.</p>
+      <p>Not arrived? Ask them to check spam, or use Send again below.</p>
     </NoticeBox>
   );
 }

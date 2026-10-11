@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 
 import {
   DANGER_BUTTON,
@@ -72,7 +72,6 @@ export function Erasure({
     <div>
       <NoticeBox
         tone="stop"
-        icon={<AlertTriangle aria-hidden className="h-5 w-5" />}
         title="This cannot be undone"
       >
         <p className="mt-1">
@@ -83,7 +82,7 @@ export function Erasure({
         </p>
         <p className="mt-1">
           Some things are kept, and the certificate names each one with the rule that
-          required it — the consent ledger that proves the calls were lawful, the
+          required it: the consent ledger that proves the calls were lawful, the
           billing ledger, any do-not-call entry, and the call audio, which Indian
           telecom rules require to be retained.
         </p>

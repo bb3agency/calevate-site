@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { StepUpPrompt } from "@/components/authn/stepUpPrompt";
 import {
   IMPERSONATION_GRANT_PATH,
+  IMPERSONATION_RENEW_PATH,
   clearImpersonationGrants,
   viewAsConfirmation,
   viewAsSession,
@@ -107,24 +108,28 @@ describe("the view-as mint carries what the step-up gate asks for", () => {
 
   it("offers the grant it is replacing as `renew`, so staying in does not re-challenge", async () => {
     let issued = 0;
+    const grant = () => {
+      issued += 1;
+      return {
+        slug: SLUG,
+        grant: `grant-${issued}`,
+        // Expires INSIDE the console's 60s refresh margin, so the second read re-mints
+        // rather than reusing — which is the moment `renew` exists for.
+        expires_at: new Date(Date.now() + 5_000).toISOString(),
+      };
+    };
     const calls = mountPrompt({
-      [`POST ${IMPERSONATION_GRANT_PATH}`]: () => {
-        issued += 1;
-        return {
-          slug: SLUG,
-          grant: `grant-${issued}`,
-          // Expires INSIDE the console's 60s refresh margin, so the second read re-mints
-          // rather than reusing — which is the moment `renew` exists for.
-          expires_at: new Date(Date.now() + 5_000).toISOString(),
-        };
-      },
+      [`POST ${IMPERSONATION_GRANT_PATH}`]: grant,
+      // D-730: a renewal has its own route, the one grant route the client console may call.
+      [`POST ${IMPERSONATION_RENEW_PATH}`]: grant,
       "/v1/agents": [],
     });
 
     await readThroughViewAs();
     await readThroughViewAs();
 
-    const [first, second] = mints(calls);
+    const first = mints(calls)[0];
+    const second = calls.find((call) => call.path === IMPERSONATION_RENEW_PATH);
     expect(JSON.parse(first?.body ?? "{}")).toEqual({ slug: SLUG });
     // The renewal names the grant it continues. Without it the API would demand a second
     // factor on every re-mint — an emailed code roughly every fourteen minutes, which is

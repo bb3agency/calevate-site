@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { KeyRound, Mail, TriangleAlert } from "lucide-react";
+import { Mail, TriangleAlert } from "lucide-react";
 
 import { ActionButton } from "@/components/actionButton";
 import { useFormValidation } from "@/components/formValidation";
@@ -270,12 +270,11 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
           {sentTo && (
             <NoticeBox
               tone="ok"
-              icon={<KeyRound aria-hidden className="h-5 w-5" />}
               title="Invitation sent"
             >
               <p className="mt-1">
                 The link is on its way to <MonoValue>{sentTo}</MonoValue>. It is not shown
-                here and cannot be read again — only a fingerprint of it is stored.
+                here and cannot be read again. Only a fingerprint of it is stored.
               </p>
               <p className="mt-2 flex items-start gap-2">
                 <TriangleAlert aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />

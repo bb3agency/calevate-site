@@ -158,7 +158,8 @@ def test_a_price_from_a_pinned_fact_passes_without_a_lookup() -> None:
     scenario = Scenario(key="k", title="Price", category="business", turns=("ఎంత?",), expect="")
     result = decide(
         scenario,
-        [_turn("1 kg మిర్చి price ₹450 అండి.")],
+        # In words, as a shop says it: "₹450" and "1 kg" fail the speech check (D-739).
+        [_turn("ఒక కిలో మిర్చి నాలుగు వందల యాభై రూపాయలు అండి.")],
         Judged(verdict="passed", reason="Matches the pinned fact."),
         language="te-IN",
         unjudged_reason="n/a",
@@ -190,7 +191,7 @@ def test_stop_calling_without_the_opt_out_action_fails_whatever_the_judge_says()
     assert recorded["verdict"] == "passed"
 
 
-def test_textbook_words_from_the_spoken_style_list_need_a_fix() -> None:
+def test_textbook_words_from_the_spoken_style_list_fail_whatever_the_judge_says() -> None:
     scenario = Scenario(key="k", title="Thanks", category="business", turns=("ok",), expect="")
     result = decide(
         scenario,
@@ -199,7 +200,9 @@ def test_textbook_words_from_the_spoken_style_list_need_a_fix() -> None:
         language="te-IN",
         unjudged_reason="",
     )
-    assert result["verdict"] == "needs_fix" and result["fix"] == "style"
+    # A hard fail since D-739, with the spoken word to use in the reason.
+    assert result["verdict"] == "failed" and result["fix"] == "style"
+    assert "sorry అండి" in result["reason"]
     assert {"క్షమించండి", "ధర", "ధన్యవాదాలు"} <= set(result["formal_words"])
 
 

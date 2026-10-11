@@ -64,6 +64,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import Depends, Request
 
@@ -91,13 +92,7 @@ class StepUp:
         header is told so without being asked about anything else.
         """
         if confirm != action:
-            raise ProblemError(
-                kind="permission",
-                code="step_up_required",
-                title="Confirmation required",
-                detail="This action needs an explicit confirmation.",
-                remediation=f"Repeat the request with the header X-Confirm-Action: {action}",
-            )
+            raise _confirmation_required(action)
         from apps.api.authn.stepup import is_fresh, reauthentication_required
 
         if not self.present:
@@ -144,4 +139,94 @@ async def step_up_gate(request: Request) -> StepUp:
 StepUpGate = Annotated[StepUp, Depends(step_up_gate)]
 
 
-__all__ = ["StepUp", "StepUpGate", "step_up_gate"]
+def _confirmation_required(action: str) -> ProblemError:
+    return ProblemError(
+        kind="permission",
+        code="step_up_required",
+        title="Confirmation required",
+        detail="This action needs an explicit confirmation.",
+        remediation=f"Repeat the request with the header X-Confirm-Action: {action}",
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ActionCode:
+    """A code entered FOR ONE ACTION, demanded by the few routes where a recent sign-in is
+    not enough (D-730): minting a view-as grant, and on the client realm handing out
+    exported data or storing a credential.
+
+    `StepUp` asks "was a factor proved in the last half hour"; a console left open after
+    sign-in answers yes. This asks "was a code typed for exactly this action", and the
+    proof (`authn/stepup.record_action_proof`) is spent by the request it was typed for.
+
+    `subject_id` is the first-party session's subject for `realm`, or `None` when the
+    request carries no such cookie — which off a local box means it authenticated some
+    other way and is refused, exactly as `StepUp.require` refuses.
+    """
+
+    realm: str
+    subject_id: UUID | None
+
+    async def require(self, confirm: str | None, action: str) -> None:
+        if confirm != action:
+            raise _confirmation_required(action)
+        from apps.api.authn.stepup import action_code_required, spend_action_proof
+
+        if self.subject_id is None:
+            if dev_tokens_permitted():
+                return
+            raise action_code_required(action, realm=self.realm)
+        if not await spend_action_proof(
+            realm=self.realm, subject_id=self.subject_id, action=action
+        ):
+            raise action_code_required(action, realm=self.realm)
+
+
+def client_confirmation(request: Request, verb: str) -> str:
+    """`<verb>:<org slug>` — a client-realm action string bound to the account (D-730).
+
+    The slug is the `X-Org-Slug` the principal's tenant was resolved from on this very
+    request, so the binding and the authorisation cannot name different accounts, and the
+    browser already holds it where it does not hold the tenant id.
+    """
+    from apps.api.core.context import ORG_HEADER
+
+    return f"{verb}:{request.headers.get(ORG_HEADER, '')}"
+
+
+async def _subject_for(request: Request, realm: str) -> UUID | None:
+    from apps.api.authn.cookies import read_token
+    from apps.api.authn.sessions import verify_session
+
+    token = read_token(request, realm)
+    if not token:
+        return None
+    outcome = await verify_session(token=token, realm=realm)
+    return None if outcome.session is None else outcome.session.subject_id
+
+
+async def admin_action_code(request: Request) -> ActionCode:
+    return ActionCode(realm="admin", subject_id=await _subject_for(request, "admin"))
+
+
+async def client_action_code(request: Request) -> ActionCode:
+    return ActionCode(realm="client", subject_id=await _subject_for(request, "client"))
+
+
+#: The two realms' declarations, resolved before the handler opens a transaction for the
+#: reason the module docstring gives for `StepUpGate`.
+AdminActionCode = Annotated[ActionCode, Depends(admin_action_code)]
+ClientActionCode = Annotated[ActionCode, Depends(client_action_code)]
+
+
+__all__ = [
+    "ActionCode",
+    "AdminActionCode",
+    "ClientActionCode",
+    "StepUp",
+    "StepUpGate",
+    "admin_action_code",
+    "client_action_code",
+    "client_confirmation",
+    "step_up_gate",
+]

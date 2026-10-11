@@ -162,6 +162,7 @@ async def test_publish_registers_once_and_stores_the_secret_sealed(vendor: FakeT
     assert row["events"] == [
         "call.analysed",
         "call.completed",
+        "call.problem",
         "contact.opted_out",
         "conversation.escalated",
         "lead.captured",
@@ -341,6 +342,7 @@ async def test_an_endpoint_registered_before_the_opt_out_event_is_resubscribed_i
     assert sorted(vendor.endpoints[webhook_id]["events"]) == [
         "call.analysed",
         "call.completed",
+        "call.problem",
         "contact.opted_out",
         "conversation.escalated",
         "lead.captured",

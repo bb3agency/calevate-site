@@ -45,7 +45,7 @@
 import type { ReactNode } from "react";
 
 import Link from "next/link";
-import { PhoneOff, TriangleAlert } from "lucide-react";
+import { PhoneOff } from "lucide-react";
 
 import { DisconnectedCall } from "@/components/illustration/disconnectedCall";
 import { MonoValue, NoticeBox, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
@@ -142,7 +142,6 @@ export function FailureScreen({
       <NoticeBox
         tone="stop"
         className="text-left"
-        icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
         title={<h1 className="text-base font-semibold">{heading}</h1>}
       >
         <p className="mt-1">{detail}</p>

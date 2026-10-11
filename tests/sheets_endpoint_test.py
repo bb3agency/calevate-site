@@ -51,6 +51,7 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import JsonFormatter
 from apps.api.core.settings import get_settings
+from apps.api.core.stepup import ActionCode
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.integrations import service
@@ -123,6 +124,19 @@ def _request() -> Request:
             "client": ("127.0.0.1", 1234),
         }
     )
+
+
+class _CodeEntered(ActionCode):
+    """A code already typed for this act (D-730). These tests are about what the route does
+    once past its gate, some under a deployment where the local `dev:` waiver is off; the
+    gate itself is pinned by `tests/security_gates_test.py`."""
+
+    async def require(self, confirm: str | None, action: str) -> None:
+        assert confirm == action
+
+
+_CODE = _CodeEntered(realm="client", subject_id=None)
+_CONFIRM = "create_endpoint:"
 
 
 def _principal(tenant_id: UUID) -> Principal:
@@ -343,6 +357,8 @@ async def test_a_deployment_with_no_sheets_provider_refuses_to_create_one(
                 session,
                 _request(),
                 _principal(tenant_id),
+                _CODE,
+                _CONFIRM,
             )
 
     problem = excinfo.value.as_problem()
@@ -374,6 +390,8 @@ async def test_the_refusal_never_names_the_provider_or_the_environment(
                 session,
                 _request(),
                 _principal(tenant_id),
+                _CODE,
+                _CONFIRM,
             )
     body = json.dumps(excinfo.value.as_problem())
     assert "some-vendor" not in body and "prod" not in body
@@ -401,6 +419,8 @@ async def test_a_client_can_configure_a_sheet_where_delivery_exists(
             session,
             _request(),
             _principal(tenant_id),
+            _CODE,
+            _CONFIRM,
         )
 
     assert created.kind == service.SHEET_KIND
@@ -440,6 +460,8 @@ async def test_the_route_reports_the_connection_it_attached(
             session,
             _request(),
             _principal(tenant_id),
+            _CODE,
+            _CONFIRM,
         )
     assert created.credential_attached is True
 
@@ -460,6 +482,8 @@ async def test_the_default_worksheet_is_the_one_the_worker_would_use(
             session,
             _request(),
             _principal(tenant_id),
+            _CODE,
+            _CONFIRM,
         )
         # A tab name that is only whitespace is the same as not naming one — storing it
         # would leave a config row whose mapping disagrees with the tab we append to.
@@ -473,6 +497,8 @@ async def test_the_default_worksheet_is_the_one_the_worker_would_use(
             session,
             _request(),
             _principal(tenant_id),
+            _CODE,
+            _CONFIRM,
         )
     assert created.worksheet == service.DEFAULT_WORKSHEET
     assert blank.worksheet == service.DEFAULT_WORKSHEET
@@ -502,6 +528,8 @@ async def test_a_url_that_is_not_a_spreadsheet_is_refused(
                     session,
                     _request(),
                     _principal(tenant_id),
+                    _CODE,
+                    _CONFIRM,
                 )
         assert excinfo.value.as_problem()["type"].rsplit("/", 1)[-1] == "invalid_spreadsheet_ref"
     assert await _endpoint_rows(tenant_id) == []
@@ -537,6 +565,8 @@ async def test_an_event_with_no_column_order_is_refused_at_configuration_time(
                 session,
                 _request(),
                 _principal(tenant_id),
+                _CODE,
+                _CONFIRM,
             )
     problem = excinfo.value.as_problem()
     assert problem["type"].rsplit("/", 1)[-1] == "sheet_column_order_unknown"
@@ -571,6 +601,8 @@ async def test_the_route_neither_accepts_nor_returns_a_credential(
             session,
             _request(),
             _principal(tenant_id),
+            _CODE,
+            _CONFIRM,
         )
     body = created.model_dump_json()
     assert "sm://" not in body
@@ -595,6 +627,8 @@ async def test_what_the_route_creates_is_a_real_subscriber(
             session,
             _request(),
             _principal(tenant_id),
+            _CODE,
+            _CONFIRM,
         )
     async with tenant_session(tenant_id) as session:
         fanned = await service.enqueue_event(
@@ -645,6 +679,8 @@ async def test_the_client_can_turn_off_what_they_configured(
             session,
             _request(),
             _principal(tenant_id),
+            _CODE,
+            _CONFIRM,
         )
     async with tenant_session(tenant_id) as session:
         await deactivate_endpoint(created.id, session, _request(), _principal(tenant_id))
@@ -682,6 +718,8 @@ async def test_the_row_the_route_writes_is_the_row_the_worker_reads(
             session,
             _request(),
             _principal(tenant_id),
+            _CODE,
+            _CONFIRM,
         )
 
     delivery_id = uuid7()
@@ -763,6 +801,8 @@ async def test_another_tenants_endpoints_are_zero_rows_on_this_screen(
             session,
             _request(),
             _principal(owner),
+            _CODE,
+            _CONFIRM,
         )
 
     async with tenant_session(owner) as session:
@@ -800,6 +840,8 @@ async def test_the_session_not_the_principal_decides_whose_endpoint_this_is(
                 session,
                 _request(),
                 _principal(victim),
+                _CODE,
+                _CONFIRM,
             )
     assert await _endpoint_rows(victim) == []
     assert await _endpoint_rows(attacker) == []
@@ -885,6 +927,8 @@ async def test_the_capability_is_true_exactly_where_the_create_route_succeeds(
             session,
             _request(),
             _principal(tenant_id),
+            _CODE,
+            _CONFIRM,
         )
     assert isinstance(created, SheetEndpointOut)
 
@@ -915,6 +959,8 @@ async def test_the_capability_is_false_exactly_where_the_create_route_refuses(
                 session,
                 _request(),
                 _principal(tenant_id),
+                _CODE,
+                _CONFIRM,
             )
     assert excinfo.value.as_problem()["type"].rsplit("/", 1)[-1] == "sheets_delivery_unavailable"
 
@@ -947,6 +993,8 @@ async def test_a_client_that_believes_sheets_are_available_is_still_refused(
                 session,
                 _request(),
                 _principal(tenant_id),
+                _CODE,
+                _CONFIRM,
             )
     assert excinfo.value.as_problem()["type"].rsplit("/", 1)[-1] == "sheets_delivery_unavailable"
     assert await _endpoint_rows(tenant_id) == [], "a refused create writes nothing"

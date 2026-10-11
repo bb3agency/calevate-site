@@ -1,6 +1,5 @@
 "use client";
 
-import { CheckCircle2, CircleHelp, TriangleAlert } from "lucide-react";
 
 import { InfoTip } from "@/components/console/infoTip";
 import { NoticeBox, Skeleton, formatCount, formatIST } from "@/components/ui";
@@ -89,44 +88,34 @@ export function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
         {drift.status === "unreadable" && (
           <NoticeBox
             tone="warn"
-            icon={<CircleHelp aria-hidden className="h-5 w-5" />}
             title="We do not know what the voice platform is running"
           >
-            <p className="mt-1">
-              This is read with the platform state, and that read failed — so this screen
-              will not tell you every agent is in sync. The error above says what stopped
-              it.
-            </p>
+            <p>Sync is unknown, not confirmed. The error above says why.</p>
           </NoticeBox>
         )}
 
         {read !== null && !swept && (
           <NoticeBox
             tone="warn"
-            icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
             title="No agent has been checked yet"
           >
-            <p className="mt-1">
-              Nothing below is evidence: the counts are what the last check recorded, and it
-              has not recorded anything. If this lasts more than half an hour, the check has
-              stopped running and no agent on the platform is being watched.
-            </p>
+            <p>The counts below are not evidence yet. After half an hour, the check has stopped running.</p>
           </NoticeBox>
         )}
 
         {read !== null && read.out_of_sync > 0 && (
           <NoticeBox
             tone="warn"
-            icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
             title={`${formatCount(read.out_of_sync)} of ${formatCount(read.live_agents)} live agents are running something else`}
           >
             <p className="mt-1">
               Oldest divergence: <span className="font-semibold">{formatIST(read.oldest_drift_at)}</span>.
-              These agents are answering callers with a script, greeting or voice other
-              than the one we published. Open each agent to see what differs &mdash;
-              publishing again from here would overwrite whatever is live now, which may
-              be a deliberate emergency change made while our side was the thing that was
-              down.
+              Open each agent to see what differs.{" "}
+              <InfoTip label="a drifted agent">
+                These agents answer with a script, greeting or voice other than the one we
+                published. Publishing again from here would overwrite what is live, which may be
+                a deliberate emergency change made while our side was down.
+              </InfoTip>
             </p>
           </NoticeBox>
         )}
@@ -134,12 +123,11 @@ export function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
         {read !== null && swept && read.out_of_sync === 0 && (
           <NoticeBox
             tone="ok"
-            icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
             title="Every checked agent is running what we published"
           >
             <p className="mt-1">
               {read.undetermined > 0
-                ? `${formatCount(read.undetermined)} could not be read back — that is not a drifted agent, and it will be retried on the next sweep. It means the voice platform did not answer for them: on a rented platform that is usually the supplier, and on the runtime we host ourselves it means no worker has reported what it is running, so check that the worker is up if it persists.`
+                ? `${formatCount(read.undetermined)} could not be read back and will be retried on the next sweep. If it persists, check the supplier, or that our worker is up.`
                 : "No divergence found."}
             </p>
           </NoticeBox>

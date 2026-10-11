@@ -195,10 +195,14 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "reaches it today. Until 18 September 2026 the cheaper quality was spoken by the " +
       "speech-to-text company; it no longer synthesises anything.",
     receives:
-      "The words the agent is about to speak, sent as text a turn at a time — which can " +
-      "include a detail the caller has just given, where the agent repeats it back to " +
-      "confirm it. Not the caller's own audio, not the transcript of what the caller said, " +
-      "not the recording, and nothing from your dashboard.",
+      "The words the agent speaks, sent as text while it speaks them — which can include " +
+      "personal data the caller has given, such as their name or the details of an order, " +
+      "wherever the agent says it back. Not the caller's own audio, not the transcript of what the caller said, " +
+      "not the recording, and nothing from your dashboard. The dearer quality's company " +
+      "also holds one voice clone that our own staff made from a staff member's own " +
+      "voice, recorded with that person's written consent, which we offer to clients as " +
+      "one of the voices they can choose: it is not a caller's or a client's voice, and " +
+      "no client data goes into it.",
     location:
       "NOT VERIFIED for either, and we would rather say so than name a country. Neither " +
       "company's own pages can be read from our build environment. For the dearer " +
@@ -211,11 +215,11 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "published software package, which names an address and no region. Assume " +
       "processing outside India.",
     status:
-      "Configured, not enabled, for both, and nothing has ever been sent to either. The " +
-      "dearer quality's company starts receiving the words of agents on that quality once " +
-      "we install our key with the hosted voice platform and a client chooses one of its " +
-      "voices. The second company is not used while calls run on the hosted voice " +
-      "platform. Section 3.6 is what a client should read before choosing the dearer " +
+      "Enabled for the dearer quality since 11 October 2026, on paid and trial accounts " +
+      "alike: whenever an agent on that quality speaks on a call, its words go to the " +
+      "dearer quality's company. Configured, not enabled, for the second company: it is " +
+      "not used while calls run on the hosted voice platform, and nothing has ever been " +
+      "sent to it. Section 3.6 is what a client should read before choosing the dearer " +
       "quality.",
   },
   {
@@ -450,7 +454,7 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "under your own terms with each company — they are YOUR processors, not ours: Google " +
       "Sheets (writes each new lead, or a caller's answers, into a sheet you own, and " +
       "looks a caller up in it), Google Calendar (reads free time on a calendar you own " +
-      "and books an appointment on it), Zoho CRM and HubSpot (look a caller up by their " +
+      "and adds a booking to it as a calendar event), Zoho CRM and HubSpot (look a caller up by their " +
       "number and create or update their record), Razorpay (creates a payment link on " +
       "your own Razorpay account, paid to you, which your agent sends on your WhatsApp), " +
       "and Meta Lead Ads (retrieves the answers a person submitted on your Facebook or " +
@@ -460,7 +464,7 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
     receives:
       "Sheets: the lead's fields, including name and — depending on the option you choose " +
       "— the phone number in raw or masked form, or the answers your action collects. " +
-      "Calendar: the appointment's start and end time, its title, and the caller's " +
+      "Calendar: the event's start and end time, its title, and the caller's " +
       "number in its description. Zoho CRM and HubSpot: the caller's number and the " +
       "fields your action fills. Razorpay: the amount, your description and the caller's " +
       "number. Lead Ads: the lead form answers, including name and phone number. Never " +
@@ -578,10 +582,12 @@ export const SUBPROCESSORS: LegalDocument = {
             "NOT VERIFIED. That is not an oversight we forgot to fill in: those are " +
             "companies nobody here has been able to confirm, on a page whose only job is " +
             "telling you where data goes, and inventing a plausible country would be " +
-            "worse than the gap. Every one of them is switched off or one you would have " +
-            "to switch on yourself, so nothing reaches it unless somebody decides it does " +
-            "— and for the two voice-synthesis companies, section 3.6 says what we do " +
-            "know about them and what we still do not.",
+            "worse than the gap. Every one of them is switched off or reached only " +
+            "through a choice made for your account, so nothing reaches it unless " +
+            "somebody decides it does. The one in use is the dearer voice quality's " +
+            "company, which receives an agent's words once that agent is put on that " +
+            "quality — and for both voice-synthesis companies, section 3.6 says what we " +
+            "do know about them and what we still do not.",
         },
       ],
     },
@@ -965,7 +971,7 @@ export const SUBPROCESSORS: LegalDocument = {
               text:
                 "What we have NOT established, listed rather than left for you to " +
                 "assume. We have not established where this vendor processes the text " +
-                "we would send it: its published documents, as read to us, name no " +
+                "we send it: its published documents, as read to us, name no " +
                 "region and make no residency commitment, so the Location cell says so " +
                 "instead of naming a country. We have not established the retention " +
                 "periods that apply on a plan we could actually buy — only that they " +
@@ -990,16 +996,16 @@ export const SUBPROCESSORS: LegalDocument = {
             {
               kind: "para",
               text:
-                "Two limits on all of the above, both of which cut in your favour. " +
-                "First, nothing has been sent to either of these companies from this " +
-                "system: no voice of either company can be selected yet, and the " +
-                "product refuses rather than silently working. The dearer quality's " +
-                "company becomes selectable only once we install our key with the hosted " +
-                "voice platform. Second, when one of them does become selectable it " +
-                "receives only the words your agent speaks — never the caller's audio, " +
-                "the transcript, the recording, or anything from your dashboard — so the " +
-                "material above bears on what your agent says, which can include a " +
-                "detail it repeats back to a caller, and not on the call as a whole. " +
+                "Two limits on all of the above. " +
+                "First, of these companies only the dearer quality's receives anything " +
+                "from this system, and only for agents a client has put on that " +
+                "quality: it has received their words since 11 October 2026. Nothing " +
+                "has been sent to the third company. Second, the dearer quality's " +
+                "company receives only the words your agent speaks — never the caller's " +
+                "audio, the transcript, the recording, or anything from your dashboard " +
+                "— so the material above bears on what your agent says, which can " +
+                "include personal data a caller gave, such as a name or the details of " +
+                "an order, where the agent says it back, and not on the call as a whole. " +
                 "This paragraph used to end by telling a client who would rather it did " +
                 "not apply to them at all that they could keep every agent on the other " +
                 "voice quality. That is withdrawn, not reworded: since 18 September 2026 " +
@@ -1011,9 +1017,7 @@ export const SUBPROCESSORS: LegalDocument = {
                 "either company in this section: its voice is made by that platform and " +
                 "the providers it uses, which it has not named to us voice by voice, so " +
                 "that is not a refuge either — only a different recipient, described in " +
-                "the voice-platform row. What is true of both companies here, and is the " +
-                "limit that matters today, is the sentence this paragraph opens with: " +
-                "nothing has been sent to either of them.",
+                "the voice-platform row.",
             },
           ],
         },

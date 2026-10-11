@@ -220,6 +220,7 @@ async def test_switching_recording_off_stops_it_on_the_next_call(env: Env) -> No
 
 
 async def test_plivo_never_records(env: Env) -> None:
+    env(CARRIER="plivo")
     assert carrier_routes.CARRIER_ANSWER_CONTRACT["plivo"].session_recording is False
     response = await _get(f"/carrier/v1/plivo/answer/{quote(_ref(), safe='')}/{RECORDED_SEGMENT}")
     assert response.status_code == 200

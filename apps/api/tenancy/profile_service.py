@@ -35,6 +35,7 @@ from apps.api.agents.languages import OfferedLanguage
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
+from apps.api.forwarding.service import assert_not_forwarded
 from apps.api.tenancy.business_profile import (
     DAYS,
     MAX_BRANCHES,
@@ -161,6 +162,9 @@ async def save_contacts(
     name and number are refreshed in the same transaction: the dialling path reads them.
     """
     numbers = [c.phone_e164 for c in contacts]
+    # A contact is where agents hand callers to a person; one that forwards to the Calevate
+    # number would send them straight back (D-746).
+    await assert_not_forwarded(session, numbers)
     if len(set(numbers)) != len(numbers):
         raise ProblemError.business_rule(
             "contact_duplicate_number",

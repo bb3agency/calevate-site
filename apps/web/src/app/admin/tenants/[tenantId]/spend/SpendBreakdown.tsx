@@ -7,7 +7,13 @@ import { formatCount, formatINR, formatIST } from "@/components/ui";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import type { AgentSpend, CallSpend, TenantSpend, UnitSpend } from "@/lib/api/spend";
+import {
+  isZeroMoney,
+  type AgentSpend,
+  type CallSpend,
+  type TenantSpend,
+  type UnitSpend,
+} from "@/lib/api/spend";
 
 type View = "agents" | "calls" | "units";
 
@@ -95,7 +101,23 @@ function AgentsTable({ rows }: { rows: AgentSpend[] }) {
         </span>
       ),
     },
-    { id: "margin", header: "Margin", align: "right", cell: (agent) => <MarginCell value={agent.margin_inr} /> },
+    {
+      id: "margin",
+      header: "Margin",
+      align: "right",
+      // On paid calls: what a free trial covered is named under it, never subtracted as a loss.
+      cell: (agent) => (
+        <>
+          <MarginCell value={agent.paid_margin_inr} />
+          {!isZeroMoney(agent.trial_cost_inr) && (
+            <span className="block whitespace-nowrap text-meta text-ink-muted">
+              {" "}
+              {formatINR(agent.trial_cost_inr)} trial covered
+            </span>
+          )}
+        </>
+      ),
+    },
   ];
   return (
     <DataTable
@@ -127,7 +149,18 @@ function CallsTable({ rows }: { rows: CallSpend[] }) {
         </span>
       ),
     },
-    { id: "margin", header: "Margin", align: "right", cell: (call) => <MarginCell value={call.margin_inr} /> },
+    {
+      id: "margin",
+      header: "Margin",
+      align: "right",
+      // A free trial call charged nothing by design: its cost is ours to carry, not a loss.
+      cell: (call) =>
+        call.trial_covered ? (
+          <span className="whitespace-nowrap text-ink-muted">Free trial</span>
+        ) : (
+          <MarginCell value={call.margin_inr} />
+        ),
+    },
   ];
   return <DataTable rows={rows} columns={columns} getRowId={(call) => call.call_id} label="Costliest calls" />;
 }

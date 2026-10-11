@@ -151,6 +151,7 @@ _DEDUPE_TTL_S = 3600
 INGEST_JOB = "ingest_engine_event"
 ENGINE_OPT_OUT_JOB = "ingest_engine_opt_out"
 ENGINE_NOTICE_JOB = "ingest_engine_notice"
+ENGINE_PROBLEM_JOB = "ingest_engine_problem"
 
 # Hard rule 3's number, in one place so the metric, the alert and the docs agree.
 _ACK_BUDGET_MS = 500.0
@@ -905,6 +906,8 @@ def _signed_job_id(keyed: SignedEvent, engine: str) -> str:
         return job_id_for(ENGINE_OPT_OUT_JOB, engine, keyed.execution_id, keyed.event_name)
     if keyed.job == ENGINE_NOTICE_JOB:
         return job_id_for(ENGINE_NOTICE_JOB, engine, keyed.execution_id, keyed.event_name)
+    if keyed.job == ENGINE_PROBLEM_JOB:
+        return job_id_for(ENGINE_PROBLEM_JOB, engine, keyed.execution_id, keyed.event_name)
     return job_id_for(INGEST_JOB, engine, keyed.execution_id, keyed.event_name)
 
 

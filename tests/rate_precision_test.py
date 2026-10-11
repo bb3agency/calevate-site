@@ -90,6 +90,12 @@ UNIT_RATE_SHAPE: dict[str, str] = {
     "llm_ktok_out": "struck",
     "ai_assist_ktok_in": "struck",
     "ai_assist_ktok_out": "struck",
+    # The Saaras card per minute, for speech-to-text the console runs and we absorb.
+    "ai_stt_min": "struck",
+    # The forwarding test's minutes: the attested per-minute rate with the fee (D-746).
+    "forwarding_test_min": "derived",
+    # One of our own WhatsApp sends at the operator-attested per-message price (D-746).
+    "whatsapp_msg": "struck",
 }
 
 

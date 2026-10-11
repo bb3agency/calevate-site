@@ -1,7 +1,6 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CircleAlert, CircleHelp } from "lucide-react";
 
 import { minutesLine } from "@/components/admin/credit";
 import { NoticeBox, formatINR, formatIST } from "@/components/ui";
@@ -65,18 +64,12 @@ export function WalletSummary({
       {wallet.is_low && (
         <NoticeBox
           tone="warn"
-          icon={<CircleAlert aria-hidden className="h-5 w-5" />}
           title={`Below the low-balance line of ${formatINR(wallet.low_balance_threshold_inr)}`}
+          info="Every client pays from a wallet. Callers hear a short apology that gives no reason. A client inside a trial period is on us and is stopped by neither, however empty this wallet is."
+          infoLabel="the low-balance line"
         >
-          <p className="mt-1">
-            An empty wallet stops this client calling and being called. Every account that
-            pays from a wallet — which is every client — has its
-            outgoing calls refused by the compliance gate at a balance of zero or below,
-            and its agents stop answering incoming ones: callers hear a short apology that
-            gives no reason. Record the payment below and both start again. A client
-            inside a trial period is on us and
-            is stopped by neither, however empty this wallet is.
-          </p>
+          At zero or below, outgoing calls are refused and the agents stop answering incoming
+          ones. Record the payment below and both start again.
         </NoticeBox>
       )}
     </section>
@@ -94,17 +87,15 @@ export function LedgerUnreadable() {
   return (
     <NoticeBox
       tone="warn"
-      icon={<CircleHelp aria-hidden className="h-5 w-5" />}
       title="We could not read this wallet, so nothing can be credited to it here"
     >
-      <p className="mt-1">
-        This screen will not tell you the balance is zero and it will not tell you the
-        ledger is empty — it does not know either. The error above says what stopped the
-        read; retry it and the form comes back with it.{" "}
+      <p>
+        The balance and the ledger are unknown, not zero. Retry the read above and the form
+        comes back with it.{" "}
         <InfoTip label="Why the forms are withheld">
           The form is withheld rather than merely blank on purpose. A top-up recorded
           against a ledger nobody can see is a top-up recorded without the one check that
-          catches a payment already credited — and no entry on this ledger can be taken
+          catches a payment already credited, and no entry on this ledger can be taken
           back.
         </InfoTip>
       </p>

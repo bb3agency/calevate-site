@@ -51,6 +51,7 @@ from apps.api.authn.subjects import (
     mark_email_verified,
     resolve_by_email,
 )
+from apps.api.core.console_links import client_console_redirect
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings, resolve_hmac_key
@@ -105,7 +106,8 @@ def configured() -> bool:
 
 
 def _redirect_uri() -> str | None:
-    return get_settings().google_signin_redirect_uri
+    # The callback page is served on the client console only (D-732).
+    return client_console_redirect(get_settings().google_signin_redirect_uri)
 
 
 def _unavailable() -> ProblemError:

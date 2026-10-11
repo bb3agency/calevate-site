@@ -1,15 +1,9 @@
 "use client";
 
+import { InfoTip } from "@/components/console/infoTip";
 import { Section } from "@/components/console/section";
 import { useState } from "react";
-import {
-  CheckCircle2,
-  CircleHelp,
-  Lock,
-  PackageOpen,
-  RefreshCw,
-  TriangleAlert,
-} from "lucide-react";
+import { Lock, RefreshCw, TriangleAlert } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
 import {
@@ -152,18 +146,12 @@ export function OutboxReplayPanel({
         {queue.status === "unreadable" && (
           <NoticeBox
             tone="warn"
-            icon={<CircleHelp aria-hidden className="h-5 w-5" />}
             title="We do not know how many messages are stuck"
+            info="The count is read with the platform state, and that read failed. The error above says why."
+            infoLabel="the unknown count"
           >
-            <p className="mt-1">
-              The count is read together with the platform state, and that read failed — so
-              this screen will not tell you nothing is stuck, and it will not tell you how
-              large a resend would be. The error above says what stopped it.
-            </p>
-            <p className="mt-2">
-              The button below still works. It will resend{" "}
-              <span className="font-semibold">every type</span> — up to 100, oldest first.
-            </p>
+            The button below still works and resends <span className="font-semibold">every type</span>,
+            up to 100, oldest first.
           </NoticeBox>
         )}
 
@@ -179,13 +167,9 @@ export function OutboxReplayPanel({
         {sized !== null && sized.depth === 0 && sized.deferred === 0 && (
           <NoticeBox
             tone="ok"
-            icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
             title="Nothing is stuck"
           >
-            <p className="mt-1">
-              No outbound message has failed, so there is nothing to resend and the button
-              below is disabled. Refreshes every 30 seconds.
-            </p>
+            <p>No outbound message has failed. Refreshes every 30 seconds.</p>
           </NoticeBox>
         )}
 
@@ -195,19 +179,16 @@ export function OutboxReplayPanel({
         {sized !== null && sized.deferred > 0 && (
           <NoticeBox
             tone="warn"
-            icon={<CircleHelp aria-hidden className="h-5 w-5" />}
             title={`${formatCount(sized.deferred)} messages are waiting to retry on their own`}
           >
-            <p className="mt-1">
-              These are not stuck — the system will retry them by itself in a short while.
-              A number here that keeps climbing means the whole queue is unreachable, not
-              that any one message is bad; that&apos;s a separate alert, covered by the
-              webhook-delivery runbook.
-            </p>
-            <p className="mt-2">
-              Resending does nothing for these — it only acts on messages that have already
-              failed. If they run out of automatic retries before the queue recovers, they
-              become stuck, and then resending will apply.
+            <p>
+              Not stuck: they retry by themselves shortly. Resending does nothing for these.{" "}
+              <InfoTip label="messages waiting to retry">
+                Resending acts only on messages that have already failed. If these run out of
+                retries before the queue recovers, they become stuck and resending applies. A
+                number that keeps climbing means the whole queue is unreachable, a separate
+                alert covered by the webhook-delivery runbook.
+              </InfoTip>
             </p>
           </NoticeBox>
         )}
@@ -221,13 +202,11 @@ export function OutboxReplayPanel({
         {sized !== null && sized.depth > 0 && (
           <NoticeBox
             tone="warn"
-            icon={<PackageOpen aria-hidden className="h-5 w-5" />}
             title={`${formatCount(sized.depth)} messages are stuck`}
           >
-            <p className="mt-1">
-              Oldest: <span className="font-semibold">{formatIST(sized.oldest_at)}</span>.
-              Resending sends them again; an old one may reach a client who has already
-              dealt with it another way.
+            <p>
+              Oldest: <span className="font-semibold">{formatIST(sized.oldest_at)}</span>. An old
+              one may reach a client who already dealt with it another way.
             </p>
             {/* The scroll container every other table in this repo already has. Its
                 three columns (a job name, a count, an IST timestamp) do not fit 320px,
@@ -265,16 +244,15 @@ export function OutboxReplayPanel({
         {replay.data && (
           <NoticeBox
             tone={replay.data.replayed > 0 ? "ok" : "neutral"}
-            icon={<RefreshCw aria-hidden className="h-5 w-5" />}
             title={
               replay.data.replayed > 0
                 ? `${formatCount(replay.data.replayed)} messages queued to resend`
                 : "Nothing was stuck"
             }
           >
-            <p className="mt-1">
+            <p>
               {replay.data.replayed > 0
-                ? "Each one gets a fresh set of attempts. Keep an eye on the count above rather than assuming they all land — the webhook-delivery runbook covers the follow-up."
+                ? "Each gets a fresh set of attempts. Watch the count above; the webhook-delivery runbook covers the follow-up."
                 : "No message had failed, so nothing was resent."}
             </p>
             {/* The scope the SERVER applied, not the one this form thinks it sent: a

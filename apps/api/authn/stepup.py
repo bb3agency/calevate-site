@@ -85,8 +85,10 @@ was about to say thirty. `tests/step_up_window_mirror_test.py` compares the two.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Final
+from uuid import UUID
 
 from fastapi import Request
 
@@ -97,10 +99,10 @@ from apps.api.core.logging import get_logger
 
 log = get_logger(__name__)
 
-#: The realm dangerous mutations live in. Step-up is declared on the admin router only
-#: (`authn/routes.py`), so this is not a parameter — a client-realm step-up endpoint would
-#: be a route nobody calls, and a client-realm freshness check would have no `mfa_verified_at`
-#: to read because `service.MFA_REQUIRED_REALMS` does not include that realm.
+#: The realm whose step-up RE-PROVES a second factor and restamps `mfa_verified_at`. The
+#: client realm has step-up routes too since D-730, but it has no second factor
+#: (`service.MFA_REQUIRED_REALMS`), so there a code buys a single-use action proof and no
+#: freshness.
 STEP_UP_REALM: Final = "admin"
 
 #: How recently a second factor must have been proved. See the module docstring.
@@ -152,6 +154,78 @@ def reauthentication_required(action: str) -> ProblemError:
     )
 
 
+#: How long a code entered FOR ONE ACTION stays spendable (D-730). Long enough to switch
+#: back to the screen and press the button again; short enough that a proof is about the
+#: request in front of the person rather than a session-wide pass.
+ACTION_PROOF_TTL: Final = timedelta(minutes=5)
+
+#: The longest action string a proof may name. Every action string in the tree is a short
+#: `<verb>:<id>` (`core/stepup.py`), and the bound keeps a hostile body from becoming a
+#: large Redis key.
+ACTION_MAX_CHARS: Final = 200
+
+_PROOF_PREFIX: Final = "calevate:stepup-proof"
+
+
+def _proof_key(realm: str, subject_id: UUID, action: str) -> str:
+    # Hashed so the key is fixed-width and never echoes a caller-supplied string.
+    digest = hashlib.sha256(action.encode()).hexdigest()
+    return f"{_PROOF_PREFIX}:{realm}:{subject_id}:{digest}"
+
+
+async def record_action_proof(*, realm: str, subject_id: UUID, action: str) -> None:
+    """A code was just entered for `action`: let ONE request for it through (D-730).
+
+    Freshness (`is_fresh`) says "a code was proved in the last half hour" and is satisfied
+    by any recent sign-in. The routes that demand a proof want more: a code typed FOR THIS
+    ACTION, so a console left open after sign-in cannot reach them on freshness alone. The
+    proof is keyed on the subject, not the session, because answering an admin step-up
+    rotates the session id.
+    """
+    from apps.api.core.redis import get_redis
+
+    ttl = int(ACTION_PROOF_TTL.total_seconds())
+    await get_redis().set(_proof_key(realm, subject_id, action), "1", ex=ttl)
+
+
+async def spend_action_proof(*, realm: str, subject_id: UUID, action: str) -> bool:
+    """Consume the proof for `action`, if there is one. Single use; fails CLOSED.
+
+    `GETDEL` makes spending atomic, so two requests racing on one code cannot both pass.
+    With Redis unreachable the answer is "no proof": the person is asked for a code again,
+    which is recoverable, where letting the request through is not.
+    """
+    from apps.api.core.redis import get_redis
+
+    try:
+        spent = await get_redis().getdel(_proof_key(realm, subject_id, action))
+    except Exception:
+        log.warning("step_up_proof_store_unavailable", extra={"realm": realm})
+        return False
+    return spent is not None
+
+
+def action_code_required(action: str, *, realm: str) -> ProblemError:
+    """The refusal when a route wants a code entered for THIS action and none was.
+
+    The same `reauthentication_required` code as the freshness refusal, so every console
+    that already raises the code prompt on that code raises it here too; the remediation
+    names the one extra field the verify call must carry.
+    """
+    log.warning("step_up_action_code_required", extra={"action": action, "realm": realm})
+    return ProblemError(
+        kind="permission",
+        code="reauthentication_required",
+        title="Confirm it is still you",
+        detail="This action needs a code entered for it.",
+        remediation=(
+            f"POST /v1/auth/{realm}/step-up to have a code emailed, POST the code with "
+            f'"action": "{action}" to /v1/auth/{realm}/step-up/verify, then repeat this '
+            f"request with X-Confirm-Action: {action}"
+        ),
+    )
+
+
 def is_fresh(verified_at: datetime | None, *, now: datetime | None = None) -> bool:
     """Was a second factor proved inside the window? `None` — never proved — is NOT fresh.
 
@@ -164,9 +238,14 @@ def is_fresh(verified_at: datetime | None, *, now: datetime | None = None) -> bo
 
 
 __all__ = [
+    "ACTION_MAX_CHARS",
+    "ACTION_PROOF_TTL",
     "REAUTH_MAX_AGE",
     "STEP_UP_REALM",
+    "action_code_required",
     "current_admin_session",
     "is_fresh",
     "reauthentication_required",
+    "record_action_proof",
+    "spend_action_proof",
 ]

@@ -102,3 +102,21 @@ def test_an_edit_keeps_the_current_script_and_its_section_ids() -> None:
     assert edited.goal == "Take orders warmly." and edited.stages[0].id == "need"
     # A shape no save would accept is no draft, never half an edit.
     assert _edited_script({"stages": [{"id": "Bad Id"}]}, current) is None
+
+
+def test_every_writer_follows_the_spoken_style_guide() -> None:
+    """D-744: draft, convert and edit all receive the call language's spoken-style guide
+    (every swap, the tags, the number and punctuation rules and example exchanges), and
+    each instruction tells the model to follow it."""
+    from apps.workers.script_assist import CONVERT_INSTRUCTION, EDIT_INSTRUCTION
+
+    for instruction in (_SYSTEM_INSTRUCTION, CONVERT_INSTRUCTION, EDIT_INSTRUCTION):
+        assert "spoken-style guide" in instruction
+    message = ScriptBrief(language="te-IN", business_type="retail").user_message()
+    assert "Spoken-style guide for te-IN" in message
+    assert "ధన్యవాదాలు -> thanks అండి" in message
+    assert "one twenty rupees" in message
+    assert "(retail)" in message and "Agent:" in message
+    # A language with no style row falls back to the register text it was given.
+    other = ScriptBrief(language="xx-XX", register="Plain").user_message()
+    assert "Spoken register: Plain" in other

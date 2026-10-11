@@ -33,7 +33,9 @@ Most of an agent's recent real calls failed or ended inside ten seconds. The pla
 
 1. repairs the agent's own settings, call-event endpoint and in-call actions once;
 2. if calls still fail fifteen minutes later, holds the line: callers are handed to the
-   client's backup phone where the voice platform can do it (OPERATIONS gate T-26),
+   client's backup phone where the voice platform can do it (on ThinnestAI the agent is
+   paused and each of its numbers forwarded with `forwardTo`, cleared again on restore,
+   D-743; `healer_forward_refused` if the platform will not ring that phone),
    otherwise they hear the neutral can't-take-your-call sentence; the agent's running
    campaigns are paused under `campaigns.paused_by_heal_id`; the client is told by
    dashboard notice, email and (once H-1 is closed) WhatsApp;

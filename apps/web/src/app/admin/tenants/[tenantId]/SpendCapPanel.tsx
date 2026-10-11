@@ -1,8 +1,8 @@
 "use client";
 
+import { InfoTip } from "@/components/console/infoTip";
 import Link from "next/link";
 import { useState } from "react";
-import { AlertTriangle, ReceiptIndianRupee, ShieldCheck } from "lucide-react";
 
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
@@ -96,34 +96,28 @@ export function SpendCapPanel({
         <div className="space-y-4">
           <NoticeBox
             tone={data.capped ? "stop" : "ok"}
-            icon={
-              data.capped ? (
-                <AlertTriangle className="h-5 w-5" />
-              ) : (
-                <ShieldCheck className="h-5 w-5" />
-              )
-            }
             title={
               data.capped
                 ? "Outbound calling is STOPPED for this client by the spend cap"
-                : "Not capped — the spend cap is not stopping this client"
+                : "Not capped. The spend cap is not stopping this client"
             }
           >
             <p className="mt-1">
               {data.capped
-                ? "Every outbound call is refused by the spend cap. Inbound calls are unaffected — their receptionist keeps answering."
+                ? "Every outbound call is refused. Inbound calls are unaffected."
                 : "The spend cap is not refusing their calls. Any other blocker on this account is listed above."}
             </p>
             {/* The two flags come from different predicates and CAN disagree; when they
                 do, the reason is almost always a row still stamped with a closed billing
                 month. Saying so turns a confusing screen into a diagnosis. */}
             {directoryCapped !== data.capped && (
-              <p className="mt-2">
-                The client directory shows this account as{" "}
-                {directoryCapped ? "capped" : "not capped"}, which disagrees. That badge
-                reads the flag without checking its billing month; this one applies the
-                same month test the compliance gate does. A row left over from a closed
-                month is the usual cause, and the recompute below writes nothing for it.
+              <p>
+                The client directory shows this account as {directoryCapped ? "capped" : "not capped"},
+                which disagrees. A row left from a closed month is the usual cause.{" "}
+                <InfoTip label="the directory badge">
+                  The badge reads the flag without checking its billing month; this panel applies
+                  the gate&apos;s month test. The recompute below writes nothing for such a row.
+                </InfoTip>
               </p>
             )}
           </NoticeBox>
@@ -134,7 +128,11 @@ export function SpendCapPanel({
             <CapFact
               label={`Spent · ${data.month}`}
               value={formatINR(data.spend_used_inr)}
-              note={`${data.minutes_used} minutes`}
+              note={
+                data.trial_active
+                  ? `${data.minutes_used} minutes, free trial: no rupees count against the cap`
+                  : `${data.minutes_used} minutes`
+              }
             />
             <CapFact
               label="Ceiling in force"
@@ -182,13 +180,12 @@ export function SpendCapPanel({
           {recompute.data && (
             <NoticeBox
               tone={recompute.data.capped ? "warn" : "ok"}
-              icon={<ReceiptIndianRupee className="h-5 w-5" />}
               title={
                 recompute.data.capped
-                  ? "Recomputed — this client is still capped"
+                  ? "Recomputed. This client is still capped"
                   : recompute.data.capped_before
-                    ? "Recomputed — the cap is released"
-                    : "Recomputed — this client was not capped and still is not"
+                    ? "Recomputed. The cap is released"
+                    : "Recomputed. This client was not capped and still is not"
               }
             >
               <p className="mt-1">

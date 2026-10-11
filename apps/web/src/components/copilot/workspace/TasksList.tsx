@@ -20,8 +20,8 @@ const STATUS: Record<string, { words: string; tone: string }> = {
 /**
  * THE BACKGROUND TASKS: requests bigger than one answer, and every routine run (D-694).
  * Each shows what it has done, how it ended, and — while it runs — a Stop that halts it
- * before its next step. What it already did stays done, and stays undoable from the
- * activity log.
+ * before its next step. A task changes nothing itself: every change it reached waits in
+ * Approvals (D-729).
  */
 export function TasksList({
   session,

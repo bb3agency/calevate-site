@@ -324,6 +324,11 @@ ERASURE_EXEMPT: dict[str, str] = {
         "data of any kind, and it is what makes the other clock run."
     ),
     # ── operator and client prose that is not about a caller ───────────────────────────
+    "spoken_style_publications": (
+        "Platform-scoped (D-744): the founder's publication of a language's reviewed spoken "
+        "style. Its free text is the reviewer's own name for the stamp and their note on the "
+        "change; it names no caller and belongs to no tenant."
+    ),
     "credit_ledger": (
         "Append-only money (hard rules 4 and 7). Its `reason` is an authored code or an "
         "operator's note about a top-up or an adjustment — the client's commercial record, "
@@ -440,6 +445,12 @@ ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
             "screen (prices, hours, delivery areas), never a caller's words; a caller's "
             "deletion request has nothing to match here. It ends with the engagement, which "
             "`execute_tenant_erasure` covers."
+        ),
+        "forwarded_lines": (
+            "The business's OWN published phone number, forwarded to its Calevate number "
+            "(D-746), recorded by the account owner who confirmed it belongs to the "
+            "business: never a caller's. A caller's deletion request has nothing to match "
+            "here; the row ends with the engagement, which `execute_tenant_erasure` covers."
         ),
         "heal_fallback_phones": (
             "The phone the client's own team answers while the healer holds their agent "

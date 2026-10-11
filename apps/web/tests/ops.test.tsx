@@ -1920,7 +1920,7 @@ describe("the audit chain verification", () => {
 
     fireEvent.click(await armVerify());
 
-    await screen.findByText("TAMPER CHECK FAILED");
+    await screen.findByText("Tamper check failed");
     expect(container.textContent).toContain(
       "0192f0aa-7777-7000-8000-00000000dead",
     );
@@ -1962,7 +1962,7 @@ describe("the audit chain verification", () => {
     );
 
     fireEvent.click(await armVerify());
-    await screen.findByText("TAMPER CHECK FAILED");
+    await screen.findByText("Tamper check failed");
 
     // BOTH ids, because the second one is the whole point of the change.
     expect(container.textContent).toContain(
@@ -2000,7 +2000,7 @@ describe("the audit chain verification", () => {
     );
 
     fireEvent.click(await armVerify());
-    await screen.findByText("TAMPER CHECK FAILED");
+    await screen.findByText("Tamper check failed");
 
     expect(container.textContent).toContain("47 places");
     expect(container.textContent).toContain("46 more");
@@ -2024,7 +2024,7 @@ describe("the audit chain verification", () => {
 
     fireEvent.click(await armVerify());
 
-    await screen.findByText("TAMPER CHECK FAILED");
+    await screen.findByText("Tamper check failed");
     expect(container.textContent).toContain("an entry it did not name");
   });
 
@@ -2045,7 +2045,7 @@ describe("the audit chain verification", () => {
     expect(
       screen.queryByText("No tampering found in the entries checked"),
     ).toBeNull();
-    expect(screen.queryByText("TAMPER CHECK FAILED")).toBeNull();
+    expect(screen.queryByText("Tamper check failed")).toBeNull();
   });
 
   it("does not let an intact verdict read as 'the whole log is verified'", async () => {
@@ -2143,7 +2143,7 @@ describe("the audit chain verification", () => {
 
     fireEvent.click(await armVerify());
 
-    await screen.findByText("TAMPER CHECK FAILED");
+    await screen.findByText("Tamper check failed");
     expect(container.textContent).toContain(
       "3 entries verified under a retired signing key",
     );
@@ -2191,7 +2191,7 @@ describe("our own telemarketer registration", () => {
     // D-692: the server's is_live wins over a reassuring status, and not live is no
     // longer a launch blocker.
     await screen.findByText("Not required for outbound");
-    expect(screen.queryByText("LIVE — on record")).toBeNull();
+    expect(screen.queryByText("LIVE. On record")).toBeNull();
   });
 
   it("keeps the registration form dead while the session lacks the permission", async () => {

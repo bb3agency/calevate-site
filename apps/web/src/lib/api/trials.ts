@@ -45,6 +45,9 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { needsReauthentication } from "@/lib/authn/problems";
+import { withActionCode } from "@/lib/authn/stepUpPrompt";
+
 import { apiRequest, type Session } from "./client";
 import { creditsKey } from "./credits";
 
@@ -195,20 +198,27 @@ export interface TrialEndDraft {
  * `stopped` (we ended it; a tenant erasure is scheduled for the end of the grace period
  * agreed when the trial was opened).
  *
- * NO step-up header, because the route asks for none, and a header the API ignores is a
- * confirmation of nothing. The screen still states the consequence before the click: what
- * differs between the two outcomes is whether this client's leads, calls and transcripts
- * survive, which is not a thing to discover afterwards.
+ * Step-up since D-731, bound to the outcome: `stopped` schedules this client's erasure.
+ * The screen still states the consequence before the click: what differs between the two
+ * outcomes is whether this client's leads, calls and transcripts survive.
  */
 export function useEndTrial(session: Session, tenantId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ outcome, reason }: TrialEndDraft) => {
       const body: TrialEndIn = { outcome, reason: reason.trim() };
-      return apiRequest<Trial>(session, `${trialPath(tenantId)}/end`, {
-        method: "POST",
-        body,
-      });
+      const confirmAction = `end_trial:${tenantId}:${outcome}`;
+      return withActionCode(
+        confirmAction,
+        "Ending this client's trial.",
+        () =>
+          apiRequest<Trial>(session, `${trialPath(tenantId)}/end`, {
+            method: "POST",
+            body,
+            confirmAction,
+          }),
+        needsReauthentication,
+      );
     },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: trialKey(tenantId) });

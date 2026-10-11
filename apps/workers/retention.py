@@ -2733,6 +2733,17 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         # was issued.
         callbacks_erased = await _erase_scheduled_callbacks(session, phone=phone)
 
+        # The "save our number" claim for this caller (D-746): keyed on a keyed hash of the
+        # number, so the hash is derived here and the row deleted. A later booking would
+        # then send the message again, which the erasure itself makes correct: nothing of
+        # the earlier send remains to say otherwise.
+        from apps.api.forwarding.save_number import caller_ref
+
+        await session.execute(
+            text("DELETE FROM save_number_messages WHERE caller_ref = :ref"),
+            {"ref": caller_ref(tenant_id, phone)},
+        )
+
         # THE VECTOR STORE (D-503), and it is a THIRD reach rather than a consequence of
         # the two above. Scrubbing `transcript_turns` and emptying `call_extractions.data`
         # does not touch `caller_chunks`: an embedding is a copy of the sentence in a form
@@ -3495,6 +3506,14 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         counts["copilot_jobs_erased"] = int(rowcount_of(copilot_jobs) or 0)
         # The auto-healer's backup phone (D-701): a staff number, gone with the account.
         await session.execute(text("DELETE FROM heal_fallback_phones"))
+        # Forwarded numbers (D-746): the business's own numbers and their tests (which go with
+        # their line), the platform legs of those tests, and the once-per-caller message
+        # claims (keyed hashes of callers' numbers).
+        await session.execute(text("DELETE FROM forwarded_lines"))
+        await session.execute(
+            text("DELETE FROM forwarding_test_legs WHERE tenant_id = :tid"), {"tid": tenant_id}
+        )
+        await session.execute(text("DELETE FROM save_number_messages"))
         # The teach box and the improvement loop: saved tests hold callers' redacted lines,
         # and the facts, teachings and waiting rules are the business's own words. Test runs
         # carry copies of those saved lines.

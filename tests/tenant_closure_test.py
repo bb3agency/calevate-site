@@ -517,7 +517,10 @@ async def _invite(token: str, tenant_id: UUID, email: str) -> UUID:
         response = await http.post(
             INVITES.format(tenant_id=tenant_id),
             json={"email": email, "role": "owner"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"invite_member:{tenant_id}",
+            },
         )
     assert response.status_code == 201, response.text
     return UUID(str(response.json()["id"]))

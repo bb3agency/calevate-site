@@ -63,6 +63,7 @@ FREE_TEXT: Final[dict[str, str]] = {
     "object_store_bucket": "a bucket name chosen when the storage was created",
     "cartesia_from_number_id": "an id from Cartesia's console; no API here lists them",
     "vobiz_callback_ips": "a list of network addresses Vobiz publishes",
+    "thinnest_action_source_ips": "a list of network addresses ThinnestAI tells us it calls from",
     "azure_openai_resource": "the resource name chosen in the Azure portal",
     "azure_openai_deployment": "a deployment id chosen in the Azure portal",
     "azure_openai_deployments": "model=deployment pairs chosen in the Azure portal",

@@ -4,7 +4,7 @@ import { Section } from "@/components/console/section";
 
 import { useState } from "react";
 import Link from "next/link";
-import { LifeBuoy, PhoneCall } from "lucide-react";
+import { PhoneCall } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptyState } from "@/components/console/emptyState";
@@ -281,7 +281,7 @@ function Suggestions({
 
   return (
     <Section title="Suggested fixes">
-      <NoticeBox tone="neutral" icon={<LifeBuoy aria-hidden className="h-5 w-5" />}>
+      <NoticeBox tone="neutral">
         <p>Nothing changes until you approve it.</p>
       </NoticeBox>
       <ul className="mt-4 divide-y divide-line">

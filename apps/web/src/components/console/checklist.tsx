@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowRight, Check, ChevronDown, Clock3, Lock } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, ChevronRight, Clock3, Lock } from "lucide-react";
+
+import { InfoTip } from "./infoTip";
+import { TEXT_ACTION } from "./section";
+import { StatusPill } from "./statusPill";
+import { NOTICE_BAR, type NoticeTone } from "@/components/ui";
 
 export type ChecklistState = "done" | "todo" | "waiting" | "blocked";
 
@@ -197,6 +202,106 @@ export function Checklist({
         <Progress label={label} done={done} total={total} />
       </div>
       {list}
+    </section>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────────── */
+
+export type ChecklistRowStatus = "done" | "waiting" | "not_started" | "blocked";
+
+const ROW_STATUS: Record<ChecklistRowStatus, { text: string; tone: NoticeTone }> = {
+  done: { text: "Done", tone: "ok" },
+  waiting: { text: "Waiting", tone: "neutral" },
+  not_started: { text: "Not started", tone: "warn" },
+  blocked: { text: "Blocked", tone: "stop" },
+};
+
+export type ChecklistRow = {
+  id: string;
+  /** A short noun: "Identity (KYC)", "First campaign". */
+  label: ReactNode;
+  status: ChecklistRowStatus;
+  /** A more exact word for the pill than the default ("Not filed", "In review"). */
+  statusText?: string;
+  /** The explanation, behind an ⓘ. Never a compliance sentence or a refusal. */
+  info?: ReactNode;
+  /** ONE action: a link ("Open"), or any control. */
+  link?: { href: string; label: string };
+  action?: ReactNode;
+};
+
+/** The text action a checklist row carries: "Open ›". */
+export function RowLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link href={href} className={TEXT_ACTION}>
+      {children}
+      <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
+    </Link>
+  );
+}
+
+/**
+ * SEVERAL BLOCKERS OR STEPS, one row each: a short label, a status pill, an optional ⓘ
+ * and one action. The notice counterpart of `NoticeBox`: a list a person can scan,
+ * rather than blockers crammed into a paragraph (founder, 11 Oct 2026).
+ *
+ * The heading is a real heading (`headingLevel`), the rows a list between hairlines, and
+ * each status is said in words inside the pill, so colour is never the only signal.
+ * `tone` puts the same left rule a `NoticeBox` has beside the whole block.
+ */
+export function ChecklistRows({
+  heading,
+  headingLevel = 3,
+  info,
+  summary,
+  rows,
+  tone,
+  footer,
+  className = "",
+}: {
+  heading: string;
+  headingLevel?: 2 | 3 | 4;
+  info?: ReactNode;
+  /** One short line under the heading. */
+  summary?: ReactNode;
+  rows: ChecklistRow[];
+  tone?: NoticeTone;
+  /** A closing line or a single action for the whole list ("Review & release"). */
+  footer?: ReactNode;
+  className?: string;
+}) {
+  const Heading = headingLevel === 2 ? "h2" : headingLevel === 4 ? "h4" : "h3";
+  return (
+    <section
+      aria-label={heading}
+      data-notice={tone ?? "checklist"}
+      className={`${tone ? `border-l-2 pl-3 ${NOTICE_BAR[tone]}` : ""} ${className}`}
+    >
+      <div className="flex items-center gap-1">
+        <Heading className="text-body font-semibold text-ink">{heading}</Heading>
+        {info && <InfoTip label={heading}>{info}</InfoTip>}
+      </div>
+      {summary && <p className="mt-0.5 text-body text-ink-muted">{summary}</p>}
+      <ul className="mt-2 divide-y divide-line border-y border-line">
+        {rows.map((row) => {
+          const status = ROW_STATUS[row.status];
+          const action = row.link ? <RowLink href={row.link.href}>{row.link.label}</RowLink> : row.action;
+          return (
+            <li key={row.id} className="flex items-center gap-3 py-2">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="min-w-0 text-body font-medium text-ink">{row.label}</span>
+                <StatusPill tone={status.tone}>{row.statusText ?? status.text}</StatusPill>
+                {row.info && (
+                  <InfoTip label={typeof row.label === "string" ? row.label : heading}>{row.info}</InfoTip>
+                )}
+              </div>
+              {action && <span className="shrink-0">{action}</span>}
+            </li>
+          );
+        })}
+      </ul>
+      {footer && <div className="mt-2 flex flex-wrap items-center gap-3 text-body text-ink-muted">{footer}</div>}
     </section>
   );
 }

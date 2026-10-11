@@ -236,11 +236,7 @@ export function TopUp({ session }: { session: Session }) {
           {creditLanded ? (
             <p role="status">The credit has been added to your balance.</p>
           ) : (
-            <p>
-              We have confirmed this payment with the provider. Your balance updates as
-              soon as the payment provider confirms it to us — usually within a minute.
-              Nothing else is needed from you.
-            </p>
+            <p>Your balance updates when the payment provider confirms it, usually within a minute.</p>
           )}
         </NoticeBox>
       )}
@@ -252,11 +248,9 @@ export function TopUp({ session }: { session: Session }) {
           <ProblemNotice error={confirm.error} />
           <NoticeBox tone="warn" title="What happens next">
             <p>
-              We could not verify this payment here, so we are not treating it as
-              successful. If the amount has left your account, your credit is still added
-              automatically when the payment provider confirms the payment to us — that
-              confirmation does not come through this page. Do not pay again; send us the
-              reference below if the balance has not moved.
+              We could not verify this payment here. If the money has left your account, the
+              credit is added when the provider confirms it. Do not pay again. Send us the
+              reference below if your balance does not move.
             </p>
           </NoticeBox>
         </div>

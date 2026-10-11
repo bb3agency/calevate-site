@@ -378,6 +378,33 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_agent_retire_failed": "attention",
     "engine_action_workspace_mismatch": "attention",
     "engine_number_rent_unfunded": "attention",
+    # A number moving into a client's workspace that could not be moved after its retries:
+    # it still answers where it was, or nobody; one operator task.
+    "engine_number_move_failed": "attention",
+    # What the voice platform reports about a live call (`call.problem`). One caller heard
+    # silence or an apology; a run of them is the healer's to score and page on. A Studio
+    # call has no fallback voice, so its failure names our own key as the thing to check.
+    "studio_call_voice_failed": "attention",
+    "engine_call_voice_failed": "attention",
+    "engine_call_model_unanswered": "attention",
+    # The platform's own status says its records are degraded while calls work: results
+    # arrive late and the sweeps catch up. A platform that says calls are down opens the
+    # outage incident, which pages through `engine_platform_outage`.
+    "engine_platform_status_degraded": "attention",
+    # An authenticated in-call action from an address ThinnestAI did not name (D-743): served,
+    # because the secret is the credential; an operator confirms the move or rotates.
+    "engine_action_source_unexpected": "attention",
+    # The healer's number forward (D-743). A refused forward leaves the line on the polite
+    # pause, one client and recoverable; a forward left on a restored agent keeps every
+    # caller away from it, so it wakes somebody.
+    "healer_forward_refused": "attention",
+    # A forwarded number that normally brings calls has had none for three days (D-746): one
+    # client, and the client is told in the product too. Once per episode.
+    "forwarded_line_quiet": "attention",
+    # The shared trial number's paused line did not take its settings (D-742): callers who
+    # ring it back hear the platform's standard sentence; test calls go on.
+    "trial_line_agent_not_held": "attention",
+    "healer_forward_not_cleared": "page",
     # A purchase the vendor did not answer clearly. Nothing charged; the client's repeat of the
     # same request finishes it or says it did not happen. A trend, not a page.
     "engine_number_purchase_unconfirmed": "record",

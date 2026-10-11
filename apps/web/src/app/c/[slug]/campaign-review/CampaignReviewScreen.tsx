@@ -11,6 +11,8 @@ import {
   Skeleton,
   formatIST,
   type NoticeTone,
+  NOTICE_BAR,
+  NOTICE_BASE,
 } from "@/components/ui";
 import {
   firstCampaignState,
@@ -232,7 +234,7 @@ function VerdictBox({ hold, state }: { hold: FirstCampaignHold; state: FirstCamp
       <div className="space-y-2 pl-7 text-body text-ink-muted">
         <p>{verdict.next}</p>
         {refusal && (
-          <p className="rounded-md border border-danger-line bg-danger-soft p-3 text-ink">
+          <p className={`${NOTICE_BASE} ${NOTICE_BAR.stop}`}>
             <span className="font-semibold">What the reviewer said:</span> {refusal}
           </p>
         )}

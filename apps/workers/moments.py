@@ -35,7 +35,7 @@ default view (hard rule 5).
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from typing import Any, Final, Literal, Protocol
 
 from calevate_shared.extraction import (
@@ -155,15 +155,19 @@ def derive_moments(
     extraction: dict[str, Any],
     field_labels: dict[str, str],
     opt_out_turn_idx: int | None = None,
+    unheard: Collection[int] = (),
 ) -> list[dict[str, Any]]:
     """The markers provable from what the pipeline already has, in time order.
 
     `field_labels` maps an extraction key to the client's own label, so a marker reads
-    "Appointment slot captured", not "appointment_slot captured".
+    "Appointment slot captured", not "appointment_slot captured". `unheard` holds the
+    agent turns the caller probably spoke over (`calevate_shared.cut_off`): no marker is
+    placed on one, because what the caller may not have heard is not a moment of the call.
     """
     out: list[dict[str, Any]] = []
+    heard = [turn for turn in turns if turn.idx not in unheard]
     for key, value in extraction.items():
-        turn = anchor_turn(value, turns)
+        turn = anchor_turn(value, heard)
         if turn is None:
             continue
         out.append(
@@ -217,6 +221,7 @@ def model_moments(
     line_turns: Sequence[Turn],
     field_labels: dict[str, str],
     redact: Callable[[str], str],
+    unheard: Collection[int] = (),
 ) -> list[dict[str, Any]]:
     """The model's suggestions, placed on their turns. Unplaceable ones are dropped.
 
@@ -230,7 +235,7 @@ def model_moments(
         if not 1 <= candidate.line <= len(line_turns):
             continue
         turn = line_turns[candidate.line - 1]
-        if turn.start_ms is None:
+        if turn.start_ms is None or turn.idx in unheard:
             continue
         if candidate.kind == "field_captured" and candidate.field:
             label = _field_label(candidate.field, field_labels)

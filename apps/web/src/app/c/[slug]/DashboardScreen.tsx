@@ -27,6 +27,7 @@ import { SpendThisMonth } from "./SpendThisMonth";
 import { TrialCallPanel } from "./TrialCallPanel";
 import { WhatNeedsYou } from "./WhatNeedsYou";
 import { WeekRecap } from "./WeekRecap";
+import { ExistingNumberPrompt } from "@/components/forwarding/ExistingNumberPrompt";
 
 /**
  * The client's home screen.
@@ -225,6 +226,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
       <div className="space-y-4 empty:hidden">
         <LineNotice session={session} href={href(`/c/${slug}/settings/line-protection`)} />
         <SetupChecklist />
+        <ExistingNumberPrompt session={session} href={href} />
         <TrialCallPanel slug={slug} />
       </div>
 

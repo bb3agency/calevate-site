@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Info, Lock, TriangleAlert } from "lucide-react";
+import { Lock, TriangleAlert } from "lucide-react";
 
 import {
   FIELD,
@@ -142,12 +142,11 @@ export function RestatementForm({
         {payment && (
           <NoticeBox
             tone="neutral"
-            icon={<Info aria-hidden className="h-5 w-5" />}
             title={`${payment.payment_ref} credits ${formatINR(payment.credited_inr)} today`}
           >
             <p className="mt-1">
               Enter the <span className="font-semibold">total the bank moved</span>, not
-              the difference — the amount to credit is worked out on the server, from
+              the difference. The amount to credit is worked out on the server, from
               this figure. Recorded on {formatIST(payment.first_at)}
               {payment.entries > 1 ? (
                 <>
@@ -315,15 +314,14 @@ function RestatementOutcome({
     return (
       <NoticeBox
         tone="neutral"
-        icon={<Info aria-hidden className="h-5 w-5" />}
-        title="Already restated — nothing was credited"
+        title="Already restated. Nothing was credited"
       >
         <p className="mt-1">
           <span className="font-mono">{result.payment_ref}</span> was already restated to{" "}
           {formatINR(result.credited_inr)}, so no second entry was written and the balance
           did not move. It stands at {formatINR(result.balance_inr)}.{" "}
           <span className="font-semibold">
-            This client has not been credited twice — this is the restatement&apos;s own
+            This client has not been credited twice. This is the restatement&apos;s own
             reference doing its job.
           </span>
         </p>
@@ -338,12 +336,11 @@ function RestatementOutcome({
   return (
     <NoticeBox
       tone="ok"
-      icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
-      title={`Restated — ${formatINR(result.added_inr)} credited to ${clientName}`}
+      title={`Restated: ${formatINR(result.added_inr)} credited to ${clientName}`}
     >
       <p className="mt-1">
         <span className="font-mono">{result.payment_ref}</span> now credits{" "}
-        {formatINR(result.credited_inr)} — one bank transfer, whatever it took on the
+        {formatINR(result.credited_inr)}. One bank transfer, whatever it took on the
         ledger to record it. The wallet holds {formatINR(result.balance_inr)}
         {result.is_low ? ", which is still under the low-balance line." : "."}
       </p>

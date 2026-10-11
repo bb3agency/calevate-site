@@ -87,18 +87,11 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
         <div className="mt-4 space-y-4">
           <NoticeBox
             tone={current.messageable ? "ok" : "neutral"}
-            icon={
-              current.messageable ? (
-                <BellRing aria-hidden className="h-5 w-5" />
-              ) : (
-                <BellOff aria-hidden className="h-5 w-5" />
-              )
-            }
             title={
               current.messageable
                 ? "The owner receives WhatsApp hot-lead alerts"
                 : current.status === "withdrawn"
-                  ? "The owner has WITHDRAWN — do not record an older agreement over this"
+                  ? "The owner has WITHDRAWN. Do not record an older agreement over this"
                   : "Nobody on this account has agreed to WhatsApp alerts"
             }
           >

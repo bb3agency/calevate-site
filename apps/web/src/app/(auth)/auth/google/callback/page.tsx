@@ -98,11 +98,8 @@ export default function GoogleCallbackPage() {
             <div className="space-y-4">
               <AuthHeading title="You are signed in" />
               <NoticeBox tone="warn" title="The invitation was for another email address">
-                <p className="mt-1">
-                  The Google account you chose uses a different email address from the one
-                  the invitation was sent to, so you have not joined that workspace. Open the
-                  invitation again and choose the Google account for that address.
-                </p>
+                You have not joined. Open the invitation again and choose the Google account for
+                the address it was sent to.
               </NoticeBox>
               <a href={view.destination} className={`${PRIMARY_BUTTON} w-full justify-center`}>
                 Continue

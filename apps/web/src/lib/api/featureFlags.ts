@@ -16,7 +16,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest, featureFlagConfirmation } from "./admin";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
 
@@ -86,10 +86,11 @@ export function useSetFeatureFlag(tenantId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ flag, ...body }: FeatureFlagIn & { flag: string }) =>
-      apiRequest<FeatureFlagChange>(adminSession(), featureFlagPath(tenantId, flag), {
-        method: "PUT",
-        body,
-      }),
+      confirmedAdminRequest<FeatureFlagChange>(
+        featureFlagPath(tenantId, flag),
+        { method: "PUT", body, confirmAction: featureFlagConfirmation(tenantId, flag) },
+        "Changing a feature flag for this client.",
+      ),
     onSuccess: () =>
       void client.invalidateQueries({ queryKey: featureFlagsQueryKey(tenantId) }),
   });

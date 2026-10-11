@@ -996,7 +996,7 @@ describe("the payment window", () => {
     );
     expect(container.textContent).toContain("What happens next");
     expect(container.textContent).toContain(
-      "your credit is still added automatically when the payment provider confirms",
+      "the credit is added when the provider confirms it",
     );
     // Nothing that reads as a completed payment.
     expect(screen.queryByText("Payment received")).toBeNull();

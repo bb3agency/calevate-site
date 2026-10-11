@@ -1,6 +1,5 @@
 "use client";
 
-import { CircleHelp } from "lucide-react";
 
 import { NoticeBox } from "@/components/ui";
 
@@ -17,26 +16,15 @@ export function UnknownStatePanel({ reason }: { reason: string | null }) {
   return (
     <NoticeBox
       tone="warn"
-      icon={<CircleHelp aria-hidden className="h-5 w-5" />}
       title="We do not know whether outbound calling is halted"
     >
-      <p className="mt-1">
-        The platform state could not be read, so this screen will not tell you it is
-        running and it will not tell you it is stopped. Treat the switch as unknown until
-        this loads — the error above says what stopped it.
-      </p>
+      <p>Treat the switch as unknown until this loads. The error above says why.</p>
       {/* The load-shed mode lives on the same row and failed with it. Its control is
           absent for the same reason the halt's is: a mode selected against a current mode
           nobody read is a change whose direction is a guess. */}
-      <p className="mt-2">
-        The load-shed mode is on that same row, so it is unknown too, and neither switch
-        is offered here while that is true.
-      </p>
+      <p>The load-shed mode is on that same row, so it is unknown too. Neither switch is offered.</p>
       {reason && <p className="mt-2">{reason}</p>}
-      <p className="mt-2 text-meta">
-        If calls have stopped and you need the switch now, the “calls stopped” runbook
-        walks through sending it by hand.
-      </p>
+      <p className="text-meta">Need the switch now? The “calls stopped” runbook sends it by hand.</p>
     </NoticeBox>
   );
 }

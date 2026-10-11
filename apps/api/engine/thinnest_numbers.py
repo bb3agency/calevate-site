@@ -89,6 +89,8 @@ class EngineNumber:
     answering_agent: str | None
     #: The agent lent it for calling out (`callingAgent`), which "may differ from `agent`".
     calling_agent: str | None
+    #: The phone every call to it is forwarded to (`forwardTo`), or None.
+    forward_to: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +183,7 @@ def _number(row: dict[str, Any], workspace: str | None) -> EngineNumber | None:
         rented=row.get("source") == "rented",
         answering_agent=_scoped(_str(row.get("agent")), workspace),
         calling_agent=_scoped(_str(row.get("callingAgent")), workspace),
+        forward_to=_str(row.get("forwardTo")),
     )
 
 
@@ -386,6 +389,55 @@ class ThinnestNumbers:
         if parsed is None:
             raise _bad("a rented number without its `number`")
         return parsed
+
+    async def set_forward(self, number: str, phone_e164: str | None) -> EngineNumber:
+        """Forward every call to `number` to `phone_e164`, or stop forwarding (None). Read
+        first and sent only when it differs. A forward replaces an answering agent and
+        answers itself when none does or the agent's Answer calls is off; it declines only
+        on our plan, balance or busy lines. Refusals keep their `code`:
+        `forward_destination_not_allowed`, `forward_loop`, `number_cannot_forward`
+        (docs.thinnest.ai channels/phone-numbers "Forwarding a whole line" and
+        api-reference/phone-numbers/update-phone-number, read 11 Oct 2026)."""
+        current = await self.get_number(number)
+        if current.forward_to == phone_e164:
+            return current
+        row = await self._request(
+            "PATCH",
+            f"/phone-numbers/{digits(number)}",
+            route="/phone-numbers/{number}",
+            workspace=scope_of(number),
+            json={"forwardTo": phone_e164},
+        )
+        state = _number(row, scope_of(number))
+        if state is None:
+            raise _bad("an updated number without its `number`")
+        return state
+
+    async def move(self, number: str, to_workspace: str) -> tuple[str, bool]:
+        """Move `number` into `to_workspace`, keeping its digits. Answers its handle there and
+        whether it is rented from the platform (`source: rented`) rather than brought.
+
+        Sent as the workspace that holds it now (the handle's; none for our developer
+        workspace). It arrives answered by nobody. A repeat of a move that already succeeded
+        answers the same 200 for a day. Refusals keep their `code`: 409
+        `number_on_live_call`, `number_move_in_progress`, `number_move_same_workspace`,
+        `number_move_needs_business_details`, `number_move_legacy_number`,
+        `number_move_carrier_account`; 403 `number_move_needs_developer` / `plan_required`;
+        404 `workspace_not_found`; 410 `workspace_deleted`; 503 `number_move_unavailable`
+        (docs.thinnest.ai api-reference/phone-numbers/move-phone-number, read 11 Oct 2026).
+        """
+        row = await self._request(
+            "POST",
+            f"/phone-numbers/{digits(number)}/move",
+            route="/phone-numbers/{number}/move",
+            workspace=scope_of(number),
+            json={"toWorkspace": to_workspace},
+            extra_refused_statuses=frozenset({403, 404, 409, 410}),
+        )
+        moved_to = _str(row.get("to"))
+        if moved_to is not None and moved_to != to_workspace:
+            raise _bad("a moved number that landed in another workspace")
+        return scoped_handle(digits(number), to_workspace), row.get("source") == "rented"
 
     async def release(self, number: str) -> None:
         """Give `number` up for good. Absent is success: the postcondition holds."""

@@ -444,9 +444,11 @@ class Settings(BaseSettings):
     #: calls "count toward the same concurrency ceiling as calls people make to you"
     #: (`thinnest-findings/mirror/pages/api-reference/place-call.md:333-336`) and a dial over
     #: it is refused with `429` (`place-call.md:288-291`). 5 is the pay-as-you-go ceiling,
-    #: raised by ThinnestAI on request by email (FOUNDER-RELAYED, 7 Oct 2026); set this to
-    #: the raised figure when they confirm it. The dial gate keeps `inbound_reserved_lines`
-    #: of it free for callers (`engine/carrier_pacing.outbound_line_pool`).
+    #: raised by ThinnestAI on request by email (FOUNDER-RELAYED, 7 Oct 2026); Pro is 10 and
+    #: raised free on request (VENDOR-STATED, ThinnestAI's email of 11 Oct 2026). Set this to
+    #: the figure they confirm for our account, on the day they confirm it. The dial gate
+    #: keeps `inbound_reserved_lines` of it free for callers
+    #: (`engine/carrier_pacing.outbound_line_pool`).
     thinnest_max_concurrent_calls: int = Field(default=5, ge=1, le=1000)
     #: Which ThinnestAI plan our developer account is on, as an operator attests it (D-693). It
     #: sets how many customer workspaces we may hold: 3 on pay-as-you-go, 100 on Pro, 1,000
@@ -463,12 +465,19 @@ class Settings(BaseSettings):
     thinnest_developer_workspace_id: str | None = Field(
         default=None, max_length=128, pattern=r"^org_[^@\s]{1,120}$"
     )
+    #: Where ThinnestAI's in-call action requests come from, comma-separated (D-743). Named in
+    #: ThinnestAI's email of 11 Oct 2026 (VENDOR-STATED; not in the docs, read 11 Oct 2026).
+    #: A SOFT check: a request from elsewhere is still served when its per-agent secret is
+    #: valid, and alarms `engine_action_source_unexpected` once per episode, so a vendor
+    #: renumbering never breaks a booking.
+    thinnest_action_source_ips: str = Field(
+        default="34.47.220.98", max_length=500, pattern=r"^[0-9A-Fa-f:., ]*$"
+    )
     #: THE SHARED TRIAL NUMBER (D-697): the one number every free-trial test call rings
     #: from. It must be a number held in our developer workspace (a platform-held number) and
     #: recorded against no client; a trial call lends it to the calling agent
-    #: (`callingAgent`) and sets nothing to answer it (`agent: null`,
-    #: `thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/phone-numbers/
-    #: update-phone-number.md:451-470`). Unset, trial calling says it is not available yet.
+    #: (`callingAgent`), and its own line is a never-answering agent that tells a caller who
+    #: rings back what the number is (D-742). Unset, trial calling says it is not available yet.
     trial_caller_number: str | None = Field(default=None, max_length=13, pattern=r"^\+91\d{10}$")
     #: How many test calls one trial account may place per IST day (D-697).
     trial_daily_call_cap: int = Field(default=10, ge=1, le=100)
@@ -481,10 +490,21 @@ class Settings(BaseSettings):
     #: synthesis; once reached, a Studio test call is refused and Clear ones go on. 0 refuses
     #: every Studio test call.
     trial_studio_minutes: int = Field(default=15, ge=0, le=1000)
+    #: The second platform number the forwarding test rings from (D-746), so two calls can
+    #: reach a client's published number at once. Held in the developer workspace like the
+    #: shared trial number; unset, a test places one call and reports concurrency untested.
+    forwarding_test_second_number: str | None = Field(
+        default=None, max_length=13, pattern=r"^\+91\d{10}$"
+    )
+    #: How many forwarding tests one client may run per IST day (D-746).
+    forwarding_test_daily_cap: int = Field(default=3, ge=1, le=20)
+    #: What one WhatsApp from Calevate's own business account costs us, as the operator
+    #: attests it from Meta's rate card (D-746). Unset, a send is metered unpriced.
+    whatsapp_message_inr: Decimal | None = Field(default=None, ge=0, le=Decimal("10"))
     #: The free trial a business gets the moment it signs itself up (D-703); an operator
     #: still sets each managed client's trial by hand. Bounded like `billing/trials`.
     self_serve_trial_days: int = Field(default=7, ge=1, le=365)
-    self_serve_trial_free_minutes: int = Field(default=15, ge=1, le=1000)
+    self_serve_trial_free_minutes: int = Field(default=30, ge=1, le=1000)
     #: The Gnani TTS key (D-618), read by `apps/voice-worker` and by nothing on this host.
     #:
     #: **A `Settings` FIELD THAT THIS DEPLOYMENT NEVER READS THE VALUE OF, FOR D-614's

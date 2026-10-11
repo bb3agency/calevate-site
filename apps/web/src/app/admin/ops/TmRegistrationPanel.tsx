@@ -2,7 +2,7 @@
 
 import { Section } from "@/components/console/section";
 import { useState } from "react";
-import { CheckCircle2, CircleAlert, Landmark, Lock, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Lock, TriangleAlert } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
 import {
@@ -130,14 +130,7 @@ export function TmRegistrationPanel({
             and no consequence has to remember the rule; reading it here, they do not. */}
         <NoticeBox
           tone={live ? "ok" : "warn"}
-          icon={
-            live ? (
-              <Landmark aria-hidden className="h-5 w-5" />
-            ) : (
-              <CircleAlert aria-hidden className="h-5 w-5" />
-            )
-          }
-          title={live ? "LIVE — on record" : "Not required for outbound"}
+          title={live ? "LIVE. On record" : "Not required for outbound"}
         >
           <p className="mt-1">
             {live

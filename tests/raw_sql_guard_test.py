@@ -252,7 +252,7 @@ class TestCalibration:
         self, modules: list[guard.Module]
     ) -> None:
         """`billing/service.py::_NOT_AI_UNITS` is `"…ARRAY[" + ", ".join(f"'{u}'" for u in
-        AI_ASSIST_UNIT_TYPES) + "]"` — a module constant whose text comes through a loop
+        PLATFORM_ABSORBED_UNIT_TYPES) + "]"` — a module constant whose text comes through a loop
         variable. Refusing it would push people to hand-write the array, which is the
         drift the constant exists to prevent."""
         billing = next(m for m in modules if m.rel == "apps/api/billing/service.py")

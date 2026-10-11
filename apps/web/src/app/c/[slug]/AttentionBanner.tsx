@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, CircleAlert } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
-import { formatCount } from "@/components/ui";
+import { formatCount, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
 import type { useAttention } from "@/lib/api/attention";
 
 /**
@@ -41,10 +41,9 @@ export function AttentionBanner({
     attention.data.total > 0 && (
       <Link
         href={href}
-        className="flex items-center justify-between gap-3 rounded-md border border-warn-line bg-warn-soft px-4 py-3 text-body text-warn transition-colors duration-(--duration-fast) ease-out hover:bg-[color-mix(in_srgb,var(--warn-soft),var(--warn-line)_40%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn focus-visible:ring-offset-2"
+        className={`${NOTICE_BASE} ${NOTICE_BAR.warn} flex items-center justify-between gap-3 transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2`}
       >
         <span className="flex items-center gap-2">
-          <CircleAlert aria-hidden className="h-4 w-4 shrink-0" />
           <span>
             <span className="font-semibold tabular-nums">
               {formatCount(attention.data.total)}
@@ -52,9 +51,9 @@ export function AttentionBanner({
             {attention.data.total === 1 ? "thing needs" : "things need"} your attention
           </span>
         </span>
-        <span className="flex shrink-0 items-center gap-1 font-medium">
+        <span className="flex shrink-0 items-center gap-1 font-medium text-brand-strong">
           Review
-          <ArrowRight aria-hidden className="h-3.5 w-3.5" />
+          <ChevronRight aria-hidden className="h-3.5 w-3.5" />
         </span>
       </Link>
     )

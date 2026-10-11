@@ -1,7 +1,6 @@
 "use client";
 
 import { Section } from "@/components/console/section";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import { NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -113,7 +112,6 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
                a telecom gate nobody saw open. A retry is the cheaper failure. */
             <NoticeBox
               tone="warn"
-              icon={<AlertTriangle className="h-5 w-5" />}
               title="Cannot record while the current state is unreadable"
             >
               <p className="mt-1 text-meta opacity-90">
@@ -141,7 +139,7 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
               </div>
               {save.error != null && <ProblemNotice error={save.error} />}
               {save.data && (
-                <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
+                <NoticeBox tone="ok">
                   <p>
                     Recorded as{" "}
                     <span className="font-medium">

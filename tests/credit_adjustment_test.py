@@ -150,7 +150,7 @@ async def _credit(token: str, tenant_id: uuid.UUID, amount: str, ref: str) -> st
     async with _client() as http:
         posted = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": amount, "payment_ref": ref},
         )
     assert posted.status_code == 200, posted.text
@@ -899,7 +899,7 @@ async def test_the_topup_refusal_points_at_a_route_that_exists() -> None:
     async with _client() as http:
         refused = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits",
-            headers=_headers(token),
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
             json={"amount_inr": "-500.00", "payment_ref": "UTR-POINTS-AT"},
         )
         assert refused.status_code == 422, refused.text

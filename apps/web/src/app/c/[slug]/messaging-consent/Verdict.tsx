@@ -8,7 +8,7 @@ import {
   MessageSquareOff,
 } from "lucide-react";
 
-import { MonoValue, NOTICE_TONES, formatIST, type NoticeTone } from "@/components/ui";
+import { MonoValue, NOTICE_BAR, NOTICE_BASE, formatIST, type NoticeTone } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import {
   CONSENT_SOURCES,
@@ -114,8 +114,7 @@ function describeCapture(state: MessagingConsent): string {
 }
 
 /**
- * The verdict box. Palette from `NOTICE_TONES` (ui.tsx) — the four states this product
- * already has words for — rather than a fifth private copy of the same four colours.
+ * The verdict, as a quiet notice: the tone is the left rule (`NOTICE_BAR`), the text is ink.
  */
 function Box({
   tone,
@@ -127,8 +126,8 @@ function Box({
   children: ReactNode;
 }) {
   return (
-    <div className={`flex items-start gap-2 rounded-md border px-3 py-2 text-body ${NOTICE_TONES[tone]}`}>
-      <span className="mt-0.5 shrink-0" aria-hidden>
+    <div className={`flex items-start gap-2 ${NOTICE_BASE} ${NOTICE_BAR[tone]}`}>
+      <span className="mt-0.5 shrink-0 text-ink-faint" aria-hidden>
         {icon}
       </span>
       <div>{children}</div>

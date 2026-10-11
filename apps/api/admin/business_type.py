@@ -29,6 +29,7 @@ from scripts.seed import BUSINESS_TYPE_LABELS, VERTICAL_TEMPLATES
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.ai_quota import platform_brake_tripped
 from apps.api.core.errors import ProblemError
 from apps.api.db.result import rowcount_of
 from apps.api.reliability.service import enqueue_outbox
@@ -96,6 +97,35 @@ async def queue_apply(
     )
 
 
+async def queue_suggestion(session: AsyncSession, *, tenant_id: UUID) -> None:
+    """Ask the AI for a business type again ("Suggest again"), after the caller's commit.
+
+    Only an unconfirmed account has anything to suggest for. The worker runs the suggestion
+    step alone (`suggest_only`) and replaces any suggestion on file. The cost is ours
+    (`ASSIST_FEATURE_BUSINESS_TYPE` is absorbed), so the client's AI allowance is not
+    consulted; the platform-wide AI brake is, and refuses while it is tripped.
+    """
+    state = await read_state(session, tenant_id=tenant_id)
+    if state.unconfirmed is None:
+        raise ProblemError.business_rule(
+            "business_type_already_chosen",
+            "This client's business type is already chosen, so there is nothing to suggest.",
+        )
+    if await platform_brake_tripped(session):
+        raise ProblemError(
+            kind="transient",
+            code="ai_paused_platform_wide",
+            title="AI help is paused",
+            detail="AI help is paused across Calevate while usage is checked.",
+            remediation="Choose the type yourself, or try again once the AI brake is released.",
+        )
+    await enqueue_outbox(
+        session,
+        job=APPLY_JOB,
+        payload={"tenant_id": str(tenant_id), "suggest_only": True},
+    )
+
+
 async def confirm(session: AsyncSession, *, tenant_id: UUID, business_type: str) -> str | None:
     """Set the account's business type as a person's choice. Returns the type it replaced
     (the unconfirmed one when there was one).
@@ -151,6 +181,7 @@ __all__ = [
     "Unconfirmed",
     "confirm",
     "queue_apply",
+    "queue_suggestion",
     "read_state",
     "record_suggestion",
 ]

@@ -50,6 +50,8 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { formatRupeeRate } from "@/components/ui";
+import { needsReauthentication } from "@/lib/authn/problems";
+import { withActionCode } from "@/lib/authn/stepUpPrompt";
 import { lookup } from "@/lib/lookup";
 
 import { apiRequest, type Session } from "./client";
@@ -316,10 +318,19 @@ export function useRecordTopUp(session: Session, tenantId: string) {
         payment_ref: normalizeReference(paymentRef),
         note,
       };
-      return apiRequest<TopUpResult>(session, creditsPath(tenantId), {
-        method: "POST",
-        body,
-      });
+      // Step-up since D-731: recorded credit is spendable the moment it lands.
+      const confirmAction = `record_payment:${tenantId}`;
+      return withActionCode(
+        confirmAction,
+        "Recording a payment onto this client's wallet.",
+        () =>
+          apiRequest<TopUpResult>(session, creditsPath(tenantId), {
+            method: "POST",
+            body,
+            confirmAction,
+          }),
+        needsReauthentication,
+      );
     },
     // The balance and the ledger both moved — and on a replay neither did, which is
     // just as important to re-read: the screen must show the ledger as it IS, not the

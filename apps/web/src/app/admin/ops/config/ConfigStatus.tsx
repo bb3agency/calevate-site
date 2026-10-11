@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, CircleHelp, Lock, ShieldCheck, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Lock, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import { MonoValue, TestOutcome } from "@/app/admin/ops/opsLanguage";
 import { NoticeBox, ProblemNotice, SECONDARY_BUTTON_SM, formatIST } from "@/components/ui";
@@ -42,7 +42,6 @@ function StoreHealth({ config }: { config: ConfigList }) {
     return (
       <NoticeBox
         tone="stop"
-        icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
         title="This process has never read the configuration store"
       >
         <p className="mt-1">
@@ -58,12 +57,11 @@ function StoreHealth({ config }: { config: ConfigList }) {
     return (
       <NoticeBox
         tone="warn"
-        icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
         title="The last refresh of the configuration failed"
       >
         <p className="mt-1">
           The values below are the last ones read successfully, so they are real rather
-          than invented — but a change made recently may not have reached this process. It
+          than invented, but a change made recently may not have reached this process. It
           keeps serving them deliberately: a configuration lookup must never be able to
           take the phone system down.
         </p>
@@ -78,12 +76,11 @@ export function ConfigUnreadable() {
   return (
     <NoticeBox
       tone="warn"
-      icon={<CircleHelp aria-hidden className="h-5 w-5" />}
       title="We could not read the platform configuration"
     >
       <p className="mt-1">
         This screen will not show you values it did not receive. The error above says what
-        stopped the read — nothing here has changed, and the settings currently in force are
+        stopped the read. Nothing here has changed, and the settings currently in force are
         unaffected by this screen failing to load.
       </p>
     </NoticeBox>

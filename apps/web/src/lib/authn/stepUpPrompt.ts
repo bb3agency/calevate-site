@@ -37,8 +37,14 @@
  * become an unhandled rejection.
  */
 
-/** What a subscriber is told. `null` = no prompt is open. */
-export type StepUpPromptState = { readonly reason: string } | null;
+/**
+ * What a subscriber is told. `null` = no prompt is open.
+ *
+ * `action` is the `X-Confirm-Action` string of the request waiting on this prompt. When
+ * present, the answer is sent with it and the API records a single-use proof for exactly
+ * that request (D-730); without it the answer only restamps the admin second factor.
+ */
+export type StepUpPromptState = { readonly reason: string; readonly action?: string } | null;
 
 type Listener = () => void;
 
@@ -61,7 +67,7 @@ function publish(next: StepUpPromptState): void {
  * second caller joining a live prompt is told about the action already on screen, rather
  * than having the sentence change under the person reading it.
  */
-export function requireStepUp(reason: string): Promise<boolean> {
+export function requireStepUp(reason: string, action?: string): Promise<boolean> {
   if (pending) return pending.promise;
   let settle!: (proved: boolean) => void;
   const promise = new Promise<boolean>((resolve) => {
@@ -70,8 +76,31 @@ export function requireStepUp(reason: string): Promise<boolean> {
   // Installed BEFORE anything is published, so a synchronous subscriber reacting to the
   // open state cannot observe a prompt with no promise behind it.
   pending = { promise, settle };
-  publish({ reason });
+  publish(action === undefined ? { reason } : { reason, action });
   return promise;
+}
+
+/**
+ * Run `send`, and if the API asks for a code, ask for one FOR `action` and send once more.
+ *
+ * Only for requests the API refuses before doing anything, which every step-up gate does
+ * (`core/stepup.py`: both refusals happen before any work). `needsReauth` is passed in so
+ * this module stays free of the problem vocabulary.
+ */
+export async function withActionCode<T>(
+  action: string,
+  reason: string,
+  send: () => Promise<T>,
+  needsReauth: (error: unknown) => boolean,
+): Promise<T> {
+  try {
+    return await send();
+  } catch (error) {
+    if (!needsReauth(error)) throw error;
+    const proved = await requireStepUp(reason, action);
+    if (!proved) throw error;
+    return await send();
+  }
 }
 
 function close(proved: boolean): void {

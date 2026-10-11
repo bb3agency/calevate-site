@@ -175,9 +175,9 @@ export function NumberAssignment({
                 Try again, and tell us if it keeps happening.
               </p>
             ) : result.agent_id === null ? (
-              <p>Done — this number is no longer on any agent and will not be answered.</p>
+              <p>Done. This number is on no agent now and will not be answered.</p>
             ) : (
-              <p>Done — that agent now uses this number.</p>
+              <p>Done. That agent now uses this number.</p>
             )}
           </NoticeBox>
         </div>

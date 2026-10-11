@@ -571,6 +571,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "thinnest_max_concurrent_calls": AppliesRule(LIVE),
     # Read by the ops dashboard and the provisioning alarm each time (D-693).
     "thinnest_customer_plan": AppliesRule(LIVE),
+    "thinnest_action_source_ips": AppliesRule(LIVE),
     # Compared on every workspace header and every own-workspace check (D-693).
     "thinnest_developer_workspace_id": AppliesRule(LIVE),
     # The free-trial test-call settings (D-697), read on every trial call.
@@ -578,6 +579,10 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "trial_daily_call_cap": AppliesRule(LIVE),
     "trial_call_max_seconds": AppliesRule(LIVE),
     "trial_studio_minutes": AppliesRule(LIVE),
+    # The forwarding test (D-746), read on every test and every "save our number" send.
+    "forwarding_test_second_number": AppliesRule(LIVE),
+    "forwarding_test_daily_cap": AppliesRule(LIVE),
+    "whatsapp_message_inr": AppliesRule(LIVE),
     "self_serve_trial_days": AppliesRule(LIVE),  # tenancy/signup, per signup
     "self_serve_trial_free_minutes": AppliesRule(LIVE),
     # Where ThinnestAI's in-call actions call us. Written into each action at publish

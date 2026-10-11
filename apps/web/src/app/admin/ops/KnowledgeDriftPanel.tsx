@@ -1,6 +1,5 @@
 "use client";
 
-import { CheckCircle2, CircleHelp, TriangleAlert } from "lucide-react";
 
 import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION } from "@/components/console/section";
@@ -84,14 +83,9 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
         {drift.status === "unreadable" && (
           <NoticeBox
             tone="warn"
-            icon={<CircleHelp aria-hidden className="h-5 w-5" />}
             title="We do not know what knowledge the voice platform is holding"
           >
-            <p className="mt-1">
-              This is read with the platform state, and that read failed — so this screen
-              will not tell you every agent&apos;s knowledge is in sync. The error above
-              says what stopped it.
-            </p>
+            <p>Sync is unknown, not confirmed. The error above says why.</p>
           </NoticeBox>
         )}
 
@@ -114,43 +108,34 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
         {read !== null && !read.engine_supports_knowledge_base && (
           <NoticeBox
             tone="neutral"
-            icon={<CircleHelp aria-hidden className="h-5 w-5" />}
             title="This engine has no built-in knowledge base"
           >
-            <p className="mt-1">
-              There is nothing here for the sweep to watch, so it records nothing and the
-              counts below stay at zero. Agents answer from the prompt they were published
-              with, and the configuration check beside this one is what watches that.
-            </p>
+            <p>The counts below stay at zero. The configuration check beside this one watches the prompt.</p>
           </NoticeBox>
         )}
 
         {read !== null && read.engine_supports_knowledge_base && !swept && (
           <NoticeBox
             tone="warn"
-            icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
             title="No agent's knowledge has been checked yet"
           >
-            <p className="mt-1">
-              Nothing below is evidence: the counts are what the last check recorded, and it
-              has not recorded anything. If this lasts more than an hour, the knowledge check
-              has stopped running and nobody is watching what the agents answer from.
-            </p>
+            <p>The counts below are not evidence yet. After an hour, the knowledge check has stopped running.</p>
           </NoticeBox>
         )}
 
         {read !== null && read.out_of_sync > 0 && (
           <NoticeBox
             tone="warn"
-            icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
             title={`${formatCount(read.out_of_sync)} of ${formatCount(read.live_agents)} live agents hold knowledge we did not publish`}
           >
             <p className="mt-1">
               Oldest divergence: <span className="font-semibold">{formatIST(read.oldest_drift_at)}</span>.
-              Either the platform is serving text that never went through approval, or a
-              version we approved is no longer there. Open each agent&apos;s knowledge tab —
-              removing a document from here would delete it at the vendor, and if it was
-              added on their console this is the only copy.
+              Open each agent&apos;s knowledge tab.{" "}
+              <InfoTip label="drifted knowledge">
+                Either the platform serves text that never went through approval, or a version we
+                approved is gone. Removing a document from here deletes it at the vendor, and if
+                it was added on their console that is the only copy.
+              </InfoTip>
             </p>
           </NoticeBox>
         )}
@@ -158,12 +143,11 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
         {read !== null && swept && read.out_of_sync === 0 && (
           <NoticeBox
             tone="ok"
-            icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
             title="Every checked agent is answering from what we published"
           >
             <p className="mt-1">
               {read.undetermined > 0
-                ? `${formatCount(read.undetermined)} could not be decided — either the voice platform did not answer, or it reported no knowledge for an agent that should have some and nothing proved its listing is per-agent. That is a question about the vendor, not a drifted client.`
+                ? `${formatCount(read.undetermined)} could not be decided: the platform did not answer, or listed no knowledge for an agent that should have some. A vendor question, not a drifted client.`
                 : "No divergence found."}
             </p>
           </NoticeBox>
@@ -269,7 +253,6 @@ function OrphanReport({ report }: { report: KbOrphanReport }) {
       {!report.listing_complete && (
         <NoticeBox
           tone="warn"
-          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
           title="The platform's listing could not be read to the end"
         >
           <p className="mt-1">

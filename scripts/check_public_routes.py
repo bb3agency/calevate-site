@@ -380,6 +380,22 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="verify_session",
     ),
+    "POST /v1/auth/client/step-up": PublicRoute(
+        why=(
+            "The client realm's action code (D-730). Mails a `step_up`-purpose code to the "
+            "mailbox on file for the caller's OWN subject — no address parameter — so it "
+            "grants nothing a live client session does not already have. Always 202."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/client/step-up/verify": PublicRoute(
+        why=(
+            "Answers the code above and records a single-use proof for the one action it "
+            "names (exports, credentials, outbound endpoints). Cookie plus code, attempts "
+            "capped in Redis; it changes no session."
+        ),
+        credential="verify_session",
+    ),
     "POST /v1/auth/admin/password/reset/request": PublicRoute(
         why=(
             "GENUINELY OPEN, and it must be: a person who cannot log in is the entire audience. "

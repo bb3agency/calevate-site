@@ -36,7 +36,8 @@ from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
-from apps.api.engine.health import SPIKE_THRESHOLD
+from apps.api.engine import get_engine
+from apps.api.engine.health import SPIKE_THRESHOLD, PlatformStatus, ReportsPlatformStatus
 from apps.api.healer import health, incidents, ledger, notices, proposals, protection
 from apps.api.healer.incidents import Incident
 from apps.api.healer.playbooks import (
@@ -292,9 +293,51 @@ async def _engine_failures(minutes: int) -> int:
     return int(value)
 
 
+async def platform_status() -> PlatformStatus | None:
+    """The voice platform's own reading of its health, or None when its adapter publishes
+    none. Never raises: the scorer must run whatever the platform's status page does."""
+    engine = get_engine()
+    if not isinstance(engine, ReportsPlatformStatus):
+        return None
+    try:
+        return await engine.platform_status()
+    except Exception as exc:
+        log.warning("healer_platform_status_unreadable", extra={"reason": type(exc).__name__})
+        return PlatformStatus(reachable=False)
+
+
+def _status_words(status: PlatformStatus | None) -> str:
+    if status is None:
+        return "The platform publishes no status reading."
+    if not status.reachable:
+        return "The platform's own status reading did not answer."
+    if status.calls_operational:
+        return (
+            f"The platform reports itself operational ({status.reported}), so look at our "
+            "side first: webhook intake, the API key, our network."
+        )
+    return f"The platform itself reports a fault ({status.reported})."
+
+
 async def _detect_outage(broken_tenants: set[UUID], tally: Counter[str]) -> None:
     failures = await _engine_failures(OUTAGE_WINDOW_MIN)
-    if len(broken_tenants) < OUTAGE_TENANTS and failures < OUTAGE_ENGINE_FAILURES:
+    status = await platform_status()
+    platform_says_down = status is not None and status.calls_operational is False
+    if status is not None and status.data_operational is False and not platform_says_down:
+        alert(
+            "CORE_LOGIC",
+            "engine_platform_status_degraded",
+            detail=(
+                f"{_status_words(status)} Calls are reported working; records such as call "
+                "results may arrive late. The reconciliation sweeps catch up once it clears."
+            ),
+            engine=get_settings().engine,
+        )
+    if (
+        len(broken_tenants) < OUTAGE_TENANTS
+        and failures < OUTAGE_ENGINE_FAILURES
+        and not platform_says_down
+    ):
         return
     async with untenanted_session() as session:
         _, opened = await incidents.open_incident(
@@ -313,9 +356,9 @@ async def _detect_outage(broken_tenants: set[UUID], tally: Counter[str]) -> None
             "engine_platform_outage",
             detail=(
                 f"{len(broken_tenants)} client(s) with broken lines and {failures} failed "
-                f"voice-platform requests in {OUTAGE_WINDOW_MIN} minutes. There is no second "
-                "platform to move calls to: every line is being protected and the status "
-                "page is posted."
+                f"voice-platform requests in {OUTAGE_WINDOW_MIN} minutes. "
+                f"{_status_words(status)} There is no second platform to move calls to: "
+                "every line is being protected and the status page is posted."
             ),
             engine=get_settings().engine,
         )

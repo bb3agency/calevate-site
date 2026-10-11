@@ -642,7 +642,7 @@ describe("the rate card an operator is about to date", () => {
     fireEvent.change(screen.getByPlaceholderText("4.00"), { target: { value: "4.00" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save change$/ }));
 
-    await screen.findByText(/The rate card was refused — nothing was saved/);
+    await screen.findByText(/The rate card was refused. Nothing was saved/);
     // BOTH causes, split back into the sentences the server wrote — each names the pack,
     // the voice and the numbers, which is what an operator acts on.
     expect(container.textContent).toContain(

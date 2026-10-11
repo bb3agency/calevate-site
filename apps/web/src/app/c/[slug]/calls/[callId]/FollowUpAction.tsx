@@ -62,9 +62,9 @@ export function FollowUpAction({
   if (callback.data?.status === "queued") {
     return (
       <div className="space-y-3">
-        <NoticeBox tone="ok" icon={<PhoneForwarded className="h-5 w-5" />}>
-          Calling back now — follow-up #{callback.data.follow_up_number}. It will appear in your
-          call log in a moment.
+        <NoticeBox tone="ok">
+          Calling back now, follow-up #{callback.data.follow_up_number}. It shows in your call log
+          in a moment.
         </NoticeBox>
         {lead}
       </div>

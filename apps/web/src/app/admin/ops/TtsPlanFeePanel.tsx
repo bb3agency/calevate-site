@@ -2,7 +2,7 @@
 
 import { Section } from "@/components/console/section";
 import { useState } from "react";
-import { CheckCircle2, CircleAlert, Lock } from "lucide-react";
+import { CheckCircle2, Lock } from "lucide-react";
 
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
@@ -134,7 +134,6 @@ function PlanFeeSlot({
       {!current && (
         <NoticeBox
           tone="warn"
-          icon={<CircleAlert aria-hidden className="h-5 w-5" />}
           title={`No fee recorded for ${month}`}
         >
           <p className="mt-1">The spend board shows no plan row for this month until one is.</p>

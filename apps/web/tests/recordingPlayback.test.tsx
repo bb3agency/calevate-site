@@ -75,6 +75,8 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     outcome_tag: "call_back_booked",
     summary_state: "ready",
     test_call: false,
+    caller_id_hidden: false,
+    forwarding_test: false,
     translation_state: "not_needed",
     language: "te-IN",
     summary: "Caller asked for a Tuesday slot.",
@@ -84,12 +86,14 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     has_recording: true,
     disclosure_played: true,
     moments: [],
+    quality: null,
+    signals: [],
     captured: [],
     transcript: [
       {
         idx: 0,
         speaker: "agent",
-        start_approximate: false,
+        start_approximate: false, likely_cut_off: false,
         text: "Namaskaram.",
         redacted: true,
         start_ms: 0,
@@ -97,7 +101,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
       {
         idx: 1,
         speaker: "caller",
-        start_approximate: false,
+        start_approximate: false, likely_cut_off: false,
         text: "I need an appointment.",
         redacted: true,
         start_ms: 8000,
@@ -105,7 +109,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
       {
         idx: 2,
         speaker: "agent",
-        start_approximate: false,
+        start_approximate: false, likely_cut_off: false,
         text: "Tuesday at four?",
         redacted: true,
         start_ms: 21000,
@@ -236,6 +240,32 @@ describe("the recording player", () => {
     expect(container.querySelector("audio")?.currentTime).toBe(8);
   });
 
+  it("shows a line's rough time once and names its control in words", async () => {
+    // The bubble used to read "Play from ~0:09~0:09": a screen-reader span and the visible
+    // time were both text in the button. Visible: "~0:09" once. Name: "Play from about 0:09".
+    await openPlayer(
+      {},
+      detail({
+        transcript: [
+          {
+            idx: 0,
+            speaker: "agent",
+            start_approximate: true, likely_cut_off: false,
+            text: "Namaskaram.",
+            redacted: true,
+            start_ms: 9000,
+          },
+        ],
+      }),
+    );
+    const turn = screen.getByRole("button", { name: "Play from about 0:09" });
+    expect(turn.textContent).toBe("Namaskaram.~0:09");
+    expect(turn.getAttribute("aria-describedby")).toBeTruthy();
+    expect(document.getElementById(turn.getAttribute("aria-describedby")!)?.textContent).toBe(
+      "Namaskaram.",
+    );
+  });
+
   it("leaves a turn as plain text when there is no audio loaded", async () => {
     // The link is never minted, so nothing can be sought. A clickable turn here would
     // be a control that silently does nothing — worse than no control.
@@ -256,7 +286,7 @@ describe("the recording player", () => {
           {
             idx: 0,
             speaker: "agent",
-            start_approximate: false,
+            start_approximate: false, likely_cut_off: false,
             text: "Namaskaram.",
             redacted: true,
             start_ms: 0,
@@ -264,7 +294,7 @@ describe("the recording player", () => {
           {
             idx: 1,
             speaker: "caller",
-            start_approximate: false,
+            start_approximate: false, likely_cut_off: false,
             text: "No offsets here.",
             redacted: true,
           },
@@ -432,7 +462,7 @@ describe("key moments in the call", () => {
     const { container } = await openPlayer({}, detail({ moments: MOMENTS }));
     fireEvent.click(screen.getByRole("button", { name: /play from 0:34/i }));
     expect(container.querySelector("audio")?.currentTime).toBe(34);
-    fireEvent.click(screen.getByRole("button", { name: /play from ~0:21/i }));
+    fireEvent.click(screen.getByRole("button", { name: /play from about 0:21/i }));
     expect(container.querySelector("audio")?.currentTime).toBe(19);
   });
 

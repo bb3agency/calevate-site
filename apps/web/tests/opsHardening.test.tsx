@@ -479,14 +479,14 @@ describe("two operators, one key", () => {
     fireEvent.click(saveButton());
 
     await screen.findByText(
-      "Someone changed this setting first — nothing was saved",
+      "Someone changed this setting first. Nothing was saved",
     );
 
     // WHAT IT IS NOW, WHO, WHEN — all three, from the server's own re-read rather than
     // from anything the console remembered, inside the box that stops the write.
     const box = screen
-      .getByText("Someone changed this setting first — nothing was saved")
-      .closest("div.rounded-md.border") as HTMLElement;
+      .getByText("Someone changed this setting first. Nothing was saved")
+      .closest("[data-notice]") as HTMLElement;
     expect(box.textContent).toContain("₹7.25 per minute");
     expect(box.textContent).toContain("Changed by Priya");
     expect(box.textContent).toContain("board approved the Q3 rate");
@@ -517,7 +517,7 @@ describe("two operators, one key", () => {
     fireEvent.click(saveButton());
 
     await screen.findByText(
-      "Someone changed this setting first — nothing was saved",
+      "Someone changed this setting first. Nothing was saved",
     );
     // Roles and names, so a `<div onClick>` that no keyboard can reach would fail here.
     expect(
@@ -587,7 +587,7 @@ describe("two operators, one key", () => {
     });
     fireEvent.click(saveButton());
     await screen.findByText(
-      "Someone changed this setting first — nothing was saved",
+      "Someone changed this setting first. Nothing was saved",
     );
 
     fireEvent.click(
@@ -700,7 +700,7 @@ describe("two operators, one key", () => {
     ).toBeNull();
     expect(
       screen.queryByText(
-        "Someone changed this setting first — nothing was saved",
+        "Someone changed this setting first. Nothing was saved",
       ),
     ).toBeNull();
   });
@@ -1317,11 +1317,11 @@ function secretInput(): HTMLInputElement {
   return input;
 }
 
-/** The tone classes of the `NoticeBox` a title sits in. */
+/** The tone of the `NoticeBox` a title sits in (`ok`, `warn`, `stop`, `neutral`). */
 function noticeToneOf(title: HTMLElement): string {
-  const box = title.closest("div.rounded-md.border");
+  const box = title.closest("[data-notice]");
   if (!box) throw new Error("that title is not inside a NoticeBox");
-  return box.className;
+  return box.getAttribute("data-notice") ?? "";
 }
 
 function testVerdict(over: Partial<SecretTest> = {}): SecretTest {
@@ -1431,7 +1431,7 @@ describe("the four outcomes of a test, kept apart", () => {
     // The green box is what a hurried operator reads instead of the words, so the tone is
     // asserted on THIS box — the key-management panel has a legitimate green one on the
     // same screen, and a container-wide class count would be answering about that.
-    expect(noticeToneOf(title)).not.toContain("emerald");
+    expect(noticeToneOf(title)).not.toBe("ok");
   });
 
   it("keeps the tick available for a verdict that IS confirmed", () => {
@@ -1456,7 +1456,7 @@ describe("the four outcomes of a test, kept apart", () => {
     expect(container.textContent).not.toContain("REFUSED");
     // A refusal is red. "We could not ask" is not, because it must not send an operator
     // to find a different key.
-    expect(noticeToneOf(title)).not.toContain("rose");
+    expect(noticeToneOf(title)).not.toBe("stop");
   });
 
   it("says a missing probe is a missing probe, without a caveat arguing with itself", async () => {
@@ -1736,7 +1736,7 @@ describe("the states that only exist after a click are still operable", () => {
     });
     fireEvent.click(saveButton());
     await screen.findByText(
-      "Someone changed this setting first — nothing was saved",
+      "Someone changed this setting first. Nothing was saved",
     );
 
     // The form under test is in a drawer, portalled outside the page root.

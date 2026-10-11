@@ -19,7 +19,13 @@ import { InfoTip } from "@/components/console/infoTip";
 import { Metric } from "@/components/console/metric";
 import { PageHeader } from "@/components/console/pageHeader";
 import { currentISTMonth } from "@/lib/api/invoice";
-import { useFleetSpend, type FleetSpend, type FleetTenant } from "@/lib/api/spend";
+import {
+  isZeroMoney,
+  marginPctLabel,
+  useFleetSpend,
+  type FleetSpend,
+  type FleetTenant,
+} from "@/lib/api/spend";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
@@ -27,7 +33,9 @@ import { VoiceCostModel } from "./VoiceCostModel";
 
 /**
  * THE MONEY BOARD — every live client's month, worst margin first. It answers one question:
- * **which client is costing us money?**
+ * **which client is costing us money?** The margin is the margin on PAID calling: a free
+ * trial's calls charge nothing by design, so their cost is its own column and total ("Trial
+ * cost we cover"), an acquisition cost, and a trial client never reads as losing money.
  *
  * NOTHING TRUNCATES. The server walks every live client one `tenant_session` at a time
  * (`usage_events` is FORCE RLS'd, so a cross-tenant `SUM` is unaskable in app code), so it is
@@ -68,8 +76,19 @@ export function FleetSpendScreen() {
           { key: "clients", label: "Live clients walked", value: String(data.clients) },
           { key: "revenue_inr", label: "Fleet revenue (₹)", value: data.revenue_inr },
           { key: "cost_inr", label: "What the fleet cost us (₹)", value: data.cost_inr },
-          { key: "margin_inr", label: "Fleet margin (₹)", value: data.margin_inr },
-          { key: "margin_pct", label: "Fleet margin (%)", value: data.margin_pct ?? "nothing billed this month" },
+          { key: "paid_cost_inr", label: "What the fleet's paid calls cost us (₹)", value: data.paid_cost_inr },
+          {
+            key: "trial_cost_inr",
+            label: "Free trial calls we covered across the fleet (₹), an acquisition cost outside the margin",
+            value: data.trial_cost_inr,
+          },
+          { key: "paid_margin_inr", label: "Fleet margin on paid calls (₹)", value: data.paid_margin_inr },
+          {
+            key: "paid_margin_pct",
+            label: "Fleet margin on paid calls (%)",
+            value: data.paid_margin_pct ?? "nothing billed this month",
+          },
+          { key: "margin_inr", label: "Fleet margin all in, trial cost included (₹)", value: data.margin_inr },
           {
             key: "ai_absorbed_inr",
             label: "Dashboard AI we absorbed across the fleet (₹), outside revenue, cost and margin",
@@ -78,7 +97,7 @@ export function FleetSpendScreen() {
           {
             key: "loss_making",
             label: "Clients whose month is losing money",
-            value: String(data.tenants.filter((row) => losing(row.margin_inr)).length),
+            value: String(data.tenants.filter((row) => losing(row.paid_margin_inr)).length),
           },
         ]
       : [
@@ -141,11 +160,22 @@ function losing(margin: string): boolean {
 }
 
 function Totals({ data }: { data: FleetSpend }) {
-  const negative = losing(data.margin_inr);
+  const negative = losing(data.paid_margin_inr);
+  const trialCost = !isZeroMoney(data.trial_cost_inr);
   return (
     <MetricRow>
       <Metric label={`Revenue · ${data.month}`} value={formatINR(data.revenue_inr)} />
-      <Metric label="Our cost" value={formatINR(data.cost_inr)} />
+      <Metric
+        label={trialCost ? "Our cost of paid calls" : "Our cost"}
+        value={formatINR(data.paid_cost_inr)}
+      />
+      {trialCost && (
+        <Metric
+          label="Trial cost we cover"
+          value={formatINR(data.trial_cost_inr)}
+          hint="Free trial calls: an acquisition cost, not in the margin."
+        />
+      )}
       <Metric
         label="Margin"
         tone={negative ? "danger" : "default"}
@@ -153,14 +183,14 @@ function Totals({ data }: { data: FleetSpend }) {
           <>
             {/* Colour is never the only signal that a month is losing money (F-18). */}
             {negative && <span className="sr-only">Losing money: </span>}
-            {formatINR(data.margin_inr)}
+            {formatINR(data.paid_margin_inr)}
           </>
         }
       />
       {/* null, not 0%: "nothing billed across the fleet" and "we made nothing" differ. */}
       <Metric
         label="Margin %"
-        value={data.margin_pct === null ? "not billed yet" : `${data.margin_pct}%`}
+        value={data.paid_margin_pct === null ? "not billed yet" : `${data.paid_margin_pct}%`}
         hint={`${formatCount(data.clients)} live ${data.clients === 1 ? "client" : "clients"} walked.`}
       />
       {/* Outside the margin: the assistant has no matching revenue (AbsorbedAiSpendOut). */}
@@ -205,20 +235,31 @@ function ClientTable({ data }: { data: FleetSpend }) {
     { id: "calls", header: "Calls", align: "right", hideBelow: "md", cell: (tenant) => <span className={num}>{formatCount(tenant.calls)}</span> },
     { id: "minutes", header: "Minutes", align: "right", hideBelow: "lg", cell: (tenant) => <span className={`${num} text-ink-muted`}>{tenant.minutes_used}</span> },
     { id: "revenue", header: "Revenue", align: "right", cell: (tenant) => <span className={num}>{formatINR(tenant.revenue_inr)}</span> },
-    { id: "cost", header: "Our cost", align: "right", hideBelow: "sm", cell: (tenant) => <span className={`${num} text-ink-muted`}>{formatINR(tenant.cost_inr)}</span> },
+    { id: "cost", header: "Our cost", align: "right", hideBelow: "sm", cell: (tenant) => <span className={`${num} text-ink-muted`}>{formatINR(tenant.paid_cost_inr)}</span> },
+    {
+      id: "trial",
+      header: "Trial cost we cover",
+      align: "right",
+      hideBelow: "md",
+      cell: (tenant) => (
+        <span className={`${num} text-ink-muted`}>
+          {isZeroMoney(tenant.trial_cost_inr) && !tenant.trial_in_month ? "—" : formatINR(tenant.trial_cost_inr)}
+        </span>
+      ),
+    },
     {
       id: "margin",
       header: "Margin",
       align: "right",
       cell: (tenant) => (
         <span className={`${num} font-semibold`}>
-          {losing(tenant.margin_inr) && (
+          {losing(tenant.paid_margin_inr) && (
             <>
               <TriangleAlert aria-hidden className="mr-1 inline h-3.5 w-3.5" />
               <span className="sr-only">Losing money: </span>
             </>
           )}
-          {formatINR(tenant.margin_inr)}
+          {formatINR(tenant.paid_margin_inr)}
         </span>
       ),
     },
@@ -230,6 +271,8 @@ function ClientTable({ data }: { data: FleetSpend }) {
       cell: (tenant) => (
         <span className={`${num} text-ink-muted`}>
           {formatINR(tenant.ai_absorbed_inr)}
+          {/* The space keeps the count a separate word for screen readers and copy-paste. */}
+          {tenant.ai_requests > 0 && " "}
           {tenant.ai_requests > 0 && (
             <span className="block text-meta">
               {formatCount(tenant.ai_requests)} {tenant.ai_requests === 1 ? "action" : "actions"}
@@ -245,7 +288,7 @@ function ClientTable({ data }: { data: FleetSpend }) {
       hideBelow: "sm",
       cell: (tenant) => (
         <span className={`${num} text-ink-muted`}>
-          {tenant.margin_pct === null ? "not billed yet" : `${tenant.margin_pct}%`}
+          {marginPctLabel(tenant.paid_margin_pct, tenant.trial_in_month)}
         </span>
       ),
     },
@@ -256,7 +299,7 @@ function ClientTable({ data }: { data: FleetSpend }) {
       columns={columns}
       getRowId={(tenant) => tenant.tenant_id}
       label="Every live client's month"
-      rowClassName={(tenant) => (losing(tenant.margin_inr) ? "bg-danger-soft/60 text-danger" : "")}
+      rowClassName={(tenant) => (losing(tenant.paid_margin_inr) ? "bg-danger-soft/60 text-danger" : "")}
     />
   );
 }

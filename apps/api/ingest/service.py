@@ -75,6 +75,7 @@ from apps.api.ingest.lead_policy import (
     load_plan,
     when_to_call,
 )
+from apps.api.ingest.sealed_secret import open_source_secret, seal_source_secret
 from apps.api.integrations import service as integrations
 
 log = get_logger(__name__)
@@ -247,14 +248,16 @@ async def load_config(session: AsyncSession, webhook_id: UUID) -> IngestConfig |
     ).first()
     if row is None:
         return None
+    # Opened here, once, so every verifier below compares the secret itself (D-735).
+    secret = open_source_secret(row[5], tenant_id=row[1], webhook_id=row[0])
     return IngestConfig(
         id=row[0],
         tenant_id=row[1],
         agent_id=row[2],
         source=row[3],
         mapping=row[4] or {},
-        secret_ref=row[5],
-        previous_secret_ref=row[6],
+        secret_ref=secret or "",
+        previous_secret_ref=open_source_secret(row[6], tenant_id=row[1], webhook_id=row[0]),
         previous_secret_expires_at=row[7],
     )
 
@@ -1151,7 +1154,10 @@ async def create_lead_source(
             # than by this line (hard rule 1).
             "tid": tenant_id,
             "source": source,
-            "secret": supplied_secret or minted,
+            # Sealed at rest (D-735); `minted` is still returned once, in the clear.
+            "secret": seal_source_secret(
+                supplied_secret or minted or "", tenant_id=tenant_id, webhook_id=webhook_id
+            ),
             "aid": agent_id,
             "mapping": _json(cleaned),
         },
@@ -1167,8 +1173,8 @@ async def list_lead_sources(session: AsyncSession, *, limit: int = 200) -> list[
         await session.execute(
             text(
                 "SELECT id, source, agent_id, active, mapping, secret_ref, "
-                "previous_secret_ref, previous_secret_expires_at, created_at, updated_at "
-                "FROM inbound_webhooks ORDER BY created_at DESC LIMIT :limit"
+                "previous_secret_ref, previous_secret_expires_at, created_at, updated_at, "
+                "tenant_id FROM inbound_webhooks ORDER BY created_at DESC LIMIT :limit"
             ),
             {"limit": limit},
         )
@@ -1184,7 +1190,9 @@ async def list_lead_sources(session: AsyncSession, *, limit: int = 200) -> list[
             # The VALUE never leaves the database after creation; this says only which
             # secret we hold, which is what answers "is the one in my form the current
             # one" without disclosing either.
-            secret_fingerprint=integrations.secret_fingerprint(str(row[5])),
+            secret_fingerprint=integrations.secret_fingerprint(
+                open_source_secret(str(row[5]), tenant_id=row[10], webhook_id=row[0]) or ""
+            ),
             # Reported only while it is still true. A window that closed an hour ago is
             # not a rotation in progress, and rendering it as one would have a client
             # waiting for something that already happened.
@@ -1232,6 +1240,18 @@ async def rotate_secret(
             fields=[{"field": "grace_minutes", "rule": "range", "message": str(grace_minutes)}],
         )
     minted = None if supplied_secret else mint_secret()
+    # The tenant is the sealing context's (D-735). Read first: it never changes, so this
+    # read cannot race the rotation below, which stays one statement.
+    tenant_id = (
+        await session.execute(
+            text("SELECT tenant_id FROM inbound_webhooks WHERE id = :id"), {"id": webhook_id}
+        )
+    ).scalar()
+    if tenant_id is None:
+        raise ProblemError.not_found("Lead source")
+    sealed = seal_source_secret(
+        supplied_secret or minted or "", tenant_id=tenant_id, webhook_id=webhook_id
+    )
     row = (
         await session.execute(
             text(
@@ -1243,7 +1263,7 @@ async def rotate_secret(
                 "  updated_at = now() "
                 "WHERE id = :id RETURNING previous_secret_expires_at"
             ),
-            {"id": webhook_id, "new": supplied_secret or minted, "grace": grace_minutes},
+            {"id": webhook_id, "new": sealed, "grace": grace_minutes},
         )
     ).first()
     if row is None:

@@ -40,9 +40,8 @@
  */
 
 import type { ReactNode } from "react";
-import { CalendarClock, Wrench } from "lucide-react";
 
-import { NoticeBox, formatIST } from "@/components/ui";
+import { NOTICE_DOT, NoticeBox, SITE_STRIP, formatIST } from "@/components/ui";
 import { maintenanceFromProblem, useMaintenanceBanner } from "@/lib/api/maintenance";
 import { useClientRealm } from "@/lib/api/session";
 
@@ -81,29 +80,26 @@ export function MaintenanceBanner() {
   return (
     <div
       role="status"
-      className="flex items-start gap-3 border-b border-warn-line bg-warn-soft px-4 py-2 text-sm text-warn lg:px-8"
+      className={SITE_STRIP}
     >
-      <CalendarClock className="mt-0.5 h-4 w-4 shrink-0" />
+      <span aria-hidden className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${NOTICE_DOT.warn}`} />
       <p className="min-w-0">
         {state === "scheduled" ? (
           <>
-            <span className="font-semibold">
+            <span className="font-medium">
               Planned maintenance {formatIST(window.data?.starts_at)} to{" "}
               {formatIST(window.data?.ends_at)}.
             </span>{" "}
-            Your dashboard will be unavailable during that time. Your phone numbers keep
-            ringing — callers are answered and told when to call back.
+            The dashboard is closed then. Your phone numbers keep ringing, and callers are
+            told when to call back.
           </>
         ) : (
           <>
-            <span className="font-semibold">
-              Maintenance is starting; the dashboard closes shortly.
-            </span>{" "}
-            Nothing you have already done is affected, and anything still running is being
-            allowed to finish. Back by {formatIST(window.data?.ends_at)}.
+            <span className="font-medium">Maintenance is starting. The dashboard closes shortly.</span>{" "}
+            Nothing you have done is affected. Back by {formatIST(window.data?.ends_at)}.
           </>
         )}{" "}
-        {reason !== "" && <span className="text-warn">{reason}</span>}
+        {reason !== "" && <span className="text-ink-muted">{reason}</span>}
       </p>
     </div>
   );
@@ -125,7 +121,6 @@ export function MaintenanceGate({ children }: { children: ReactNode }) {
     <div className="mx-auto max-w-2xl py-10">
       <NoticeBox
         tone="warn"
-        icon={<Wrench className="h-5 w-5" />}
         title="Calevate is down for planned maintenance"
       >
         {/* THE OPERATOR'S OWN SENTENCE, VERBATIM. It is what the client was emailed and
@@ -134,7 +129,7 @@ export function MaintenanceGate({ children }: { children: ReactNode }) {
         <p className="mt-2">{shut.detail}</p>
         <p className="mt-3">
           We expect to be back <span className="font-semibold">{backIn(shut.retryAfterSeconds)}</span>.
-          This page will not update itself — reload it then.
+          This page will not update itself. Reload it then.
         </p>
         <ul className="mt-3 list-disc space-y-1 pl-5">
           <li>

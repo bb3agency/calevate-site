@@ -93,6 +93,52 @@ class EngineNotice(BaseModel):
     engine: str
 
 
+EngineProblemKind = Literal["no_answer_from_model", "own_key_failed", "slow_reply", "voice_failed"]
+#: The problems a caller heard as silence, an apology or a cut-off, rather than a wait.
+CALLER_HEARD_FAILURE: frozenset[EngineProblemKind] = frozenset(
+    {"no_answer_from_model", "own_key_failed", "voice_failed"}
+)
+
+
+class EngineProblem(BaseModel):
+    """Something the engine reports going wrong on a call while it is still live.
+
+    Kind and time only: the engine's own sentence about it is not carried, so nothing a
+    vendor writes can reach a screen or a log through this model.
+    """
+
+    kind: EngineProblemKind
+    #: The engine's id for the delivery, stable across its retries.
+    problem_id: str
+    engine_agent_ref: str | None = None
+    engine_call_id: str
+    occurred_at: datetime | None = None
+    engine: str
+
+
+class CallQuality(BaseModel):
+    """How a call went, in numbers the engine measured once it ended. Every figure may be
+    None: the engine could not measure it on that call."""
+
+    #: Caller turns the agent answered.
+    turns: int | None = None
+    #: Caller stops speaking -> the agent's first audio, milliseconds.
+    reply_ms_median: int | None = None
+    reply_ms_p90: int | None = None
+    reply_ms_max: int | None = None
+    #: The model's share of that wait: turn reaches the model -> its first word.
+    first_token_ms_median: int | None = None
+    first_token_ms_p90: int | None = None
+    first_token_ms_max: int | None = None
+    long_silences: int | None = None
+    longest_silence_s: float | None = None
+    interruptions: int | None = None
+    #: Turns the agent apologised for because no model answered.
+    model_errors: int | None = None
+    #: Turns a backup model answered after the first choice failed.
+    backup_answers: int | None = None
+
+
 class TranscriptTurn(BaseModel):
     """One turn of a conversation.
 
@@ -116,12 +162,16 @@ class TranscriptTurn(BaseModel):
 
 
 __all__ = [
+    "CALLER_HEARD_FAILURE",
     "TERMINAL_STATUSES",
     "CallDirection",
     "CallEvent",
+    "CallQuality",
     "CallStatus",
     "EngineNotice",
     "EngineNoticeKind",
+    "EngineProblem",
+    "EngineProblemKind",
     "Speaker",
     "TranscriptTurn",
 ]

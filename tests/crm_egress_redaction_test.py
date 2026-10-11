@@ -106,7 +106,11 @@ class Fixture:
 
     @property
     def headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.token}", "X-Org-Slug": self.slug}
+        return {
+            "Authorization": f"Bearer {self.token}",
+            "X-Org-Slug": self.slug,
+            "X-Confirm-Action": "export_leads:" + self.slug,
+        }
 
 
 async def _fixture(role: str = "owner") -> Fixture:
@@ -317,7 +321,11 @@ async def test_the_raw_transcript_route_is_the_only_door_and_it_writes_an_audit_
         allowed = await http.get(f"/v1/calls/{owner.call_id}/transcript/raw", headers=owner.headers)
         refused = await http.get(
             f"/v1/calls/{owner.call_id}/transcript/raw",
-            headers={"Authorization": f"Bearer {staff_token}", "X-Org-Slug": staff_slug},
+            headers={
+                "Authorization": f"Bearer {staff_token}",
+                "X-Org-Slug": staff_slug,
+                "X-Confirm-Action": "export_leads:" + staff_slug,
+            },
         )
 
     assert allowed.status_code == 200, allowed.text
@@ -823,7 +831,11 @@ async def test_a_neighbour_sees_none_of_it() -> None:
     """Zero rows, not a filtered view — on every surface this file tests."""
     fx = await _fixture()
     _, other_slug, other_token = await _make_tenant()
-    headers = {"Authorization": f"Bearer {other_token}", "X-Org-Slug": other_slug}
+    headers = {
+        "Authorization": f"Bearer {other_token}",
+        "X-Org-Slug": other_slug,
+        "X-Confirm-Action": "export_leads:" + other_slug,
+    }
 
     async with _client() as http:
         for path in ("/v1/leads", "/v1/calls", "/v1/attention"):

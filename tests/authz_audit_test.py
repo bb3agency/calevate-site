@@ -373,6 +373,10 @@ READS_SHAPED_AS_POSTS: dict[str, str] = {
         "non-mutating: D-22 forbids gating a read on a mutating permission, and every "
         "read an operator makes inside a client account is gated on this one"
     ),
+    "/v1/admin/impersonation-grants/renew": (
+        "continues a view-as grant the operator already holds (D-730), on the same "
+        "non-mutating `admin:impersonate` for the same reason as the mint above"
+    ),
 }
 
 

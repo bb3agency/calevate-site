@@ -673,6 +673,48 @@ async def low_credit(session: AsyncSession) -> AttentionSource:
     return AttentionSource(kind="credit_low", items=[item], total=1)
 
 
+#: What the client is told when their forwarded number has gone quiet (D-746).
+FORWARDED_QUIET_DETAIL = (
+    "Calls to this number normally reach your agent, and none has for three days. The "
+    "forward on your phone may be off. Run the forwarding test again."
+)
+
+
+async def forwarded_line_quiet(
+    session: AsyncSession, *, limit: int = DEFAULT_LIMIT
+) -> AttentionSource:
+    """A forwarded number that normally brings calls and has been silent for three days (a
+    LIVE state, like `inbound_stopped`): the episode `forwarding/quiet.py` opened and an
+    inbound call or a working test closes."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, e164, quiet_since, count(*) OVER () AS matching "
+                "FROM forwarded_lines WHERE quiet_since IS NOT NULL "
+                "ORDER BY quiet_since DESC, id LIMIT :limit"
+            ),
+            {"limit": limit},
+        )
+    ).all()
+    return AttentionSource(
+        kind="forwarded_line_quiet",
+        items=[
+            AttentionItem(
+                kind="forwarded_line_quiet",
+                id=str(row[0]),
+                # The business's own published number, not a caller's.
+                title=f"No calls from {row[1]} for three days",
+                detail=FORWARDED_QUIET_DETAIL,
+                rule=None,
+                occurred_at=row[2],
+                href="/settings/phone-numbers",
+            )
+            for row in rows
+        ],
+        total=_matching(rows),
+    )
+
+
 async def attention_queue(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> dict[str, Any]:
     """Every source, newest first, with per-kind counts for the nav badge.
 
@@ -733,6 +775,7 @@ async def attention_queue(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) 
         await broken_actions(session, limit=limit),
         await hot_leads(session, limit=limit),
         await failed_calls(session, limit=limit),
+        await forwarded_line_quiet(session, limit=limit),
         await low_credit(session),
     ]
     items = sorted(

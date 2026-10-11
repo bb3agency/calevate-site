@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
-import { CheckCircle2, PhoneOutgoing, ShieldAlert } from "lucide-react";
+import { CheckCircle2, PhoneOutgoing } from "lucide-react";
 
 import {
   Card,
@@ -13,6 +12,7 @@ import {
   ProblemNotice,
   formatIST,
 } from "@/components/ui";
+import { RowLink } from "@/components/console/checklist";
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import { useClientRealm } from "@/lib/api/session";
@@ -120,14 +120,10 @@ export function TrialCallCard({
         {!trial.pledge_accepted && (
           <NoticeBox
             tone="warn"
-            icon={<ShieldAlert aria-hidden className="h-4 w-4" />}
             title="One step before your first test call"
+            action={<RowLink href={verifyHref}>Verify your business</RowLink>}
           >
-            Accept the no-cold-calls promise on{" "}
-            <Link href={verifyHref} className="font-semibold underline underline-offset-2">
-              Verify your business
-            </Link>
-            .
+            Accept the no-cold-calls promise.
           </NoticeBox>
         )}
 
@@ -210,18 +206,12 @@ export function TrialCallCard({
         )}
         {place.error && <ProblemNotice error={place.error} />}
 
-        <NoticeBox tone="neutral" title="Ready to go live?">
-          <p>
-            Adding credit ends the trial and opens business verification, your own phone
-            number, answering calls and campaigns.
-          </p>
-          <Link
-            href={creditsHref}
-            className="mt-2 inline-block font-semibold underline underline-offset-2"
-          >
-            Add credit to go live
-          </Link>
-        </NoticeBox>
+        <NoticeBox
+          tone="neutral"
+          title="Ready to go live?"
+          action={<RowLink href={creditsHref}>Add credit to go live</RowLink>}
+          info="Adding credit ends the trial and opens business verification, your own phone number, answering calls and campaigns."
+        />
       </div>
     </Card>
   );

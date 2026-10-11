@@ -71,7 +71,6 @@ async def preview_approval(
         or row.pending_args is None
         or expires_at <= datetime.now(UTC)
         or tool is None
-        or tool.tier != "confirm"
     ):
         return refused("This is no longer waiting", "This has already been decided or has expired.")
     if not await may_act(session, actor, tool.permission):
