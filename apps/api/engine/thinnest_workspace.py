@@ -86,6 +86,7 @@ TENANT_ONLY_ROUTES: Final[frozenset[tuple[str, str]]] = frozenset(
         ("GET", "/phone-numbers/available"),
         ("GET", "/phone-numbers/available/cities"),
         ("POST", "/do-not-call"),
+        ("DELETE", "/do-not-call/{phone}"),
         ("GET", "/contacts"),
         ("DELETE", "/contacts/{id}"),
     }

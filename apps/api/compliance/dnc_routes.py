@@ -17,6 +17,10 @@ themselves, and may not delete one that records a consumer's opt-out (see
 have produced an unreachable route — `admin:tenants` is a MUTATING permission and D-22
 refuses those while impersonating, so no admin principal both sees a tenant's rows and
 may write them.
+
+A consumer's opt-out is RESTORED rather than removed (`POST /{id}/restore`): a separate
+route that takes an attested ground, refuses on a newer opt-out the client was not shown,
+and is withheld from a view-as session. `GET /{id}/evidence` shows what was recorded first.
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import dnc
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
@@ -76,6 +80,8 @@ class DncEntryOut(Strict):
     added_at: datetime
     # False for global entries: the UI should not offer a button that RLS will refuse.
     removable: bool
+    # A person-sourced opt-out that may be restored on an attested ground (`dnc.restore_optout`).
+    restorable: bool
 
 
 class CheckIn(Strict):
@@ -152,6 +158,7 @@ async def list_entries(
             source=entry.source,
             added_at=entry.added_at,
             removable=entry.removable,
+            restorable=entry.restorable,
         )
         for entry in entries
     ]
@@ -213,6 +220,103 @@ async def remove(
         object_id=str(entry_id),
         ip=client_request_ip(request),
         summary={"source": removal.source, "subject_ref": removal.subject_ref},
+    )
+
+
+class OptOutEvidenceOut(Strict):
+    """One recorded opt-out behind a list entry, shown before anyone restores it."""
+
+    id: UUID
+    recorded_at: datetime
+    #: The call it was recorded on, for a link to that call's page; None when unknown.
+    call_id: UUID | None
+    #: `in_call_tool` and `engine_platform` mean the agent recorded it during the call;
+    #: `post_call_transcript` means our check of the transcript found the words.
+    detected_by: str | None
+    #: The caller's words as stored, redacted. None when the agent recorded it without them.
+    matched_redacted: str | None
+
+
+class EntryEvidenceOut(Strict):
+    restorable: bool
+    #: Newest first, at most `dnc.MAX_OPTOUT_EVIDENCE`.
+    records: list[OptOutEvidenceOut] = Field(max_length=dnc.MAX_OPTOUT_EVIDENCE)
+
+
+class RestoreIn(Strict):
+    ground: Literal["never_asked", "asked_to_be_called"]
+    #: Required for `asked_to_be_called`: how and when they asked. Redacted before it is kept.
+    note: str | None = Field(default=None, max_length=dnc.RESTORE_NOTE_MAX * 2)
+    #: The newest record the person restoring was shown (None when there was none), so a
+    #: newer opt-out recorded meanwhile is refused rather than undone unseen.
+    latest_evidence_id: UUID | None
+
+
+@router.get(
+    "/{entry_id}/evidence",
+    response_model=EntryEvidenceOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="Why this number is on the list — the recorded opt-outs behind it",
+)
+async def evidence(entry_id: UUID, session: Session, _: Reader) -> EntryEvidenceOut:
+    found = await dnc.optout_evidence(session, entry_id=entry_id)
+    return EntryEvidenceOut(
+        restorable=found.restorable,
+        records=[
+            OptOutEvidenceOut(
+                id=record.id,
+                recorded_at=record.recorded_at,
+                call_id=record.call_id,
+                detected_by=record.detected_by,
+                matched_redacted=record.matched,
+            )
+            for record in found.records
+        ],
+    )
+
+
+@router.post(
+    "/{entry_id}/restore",
+    status_code=204,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Restore a person's opt-out recorded by mistake or since withdrawn — attested",
+)
+async def restore(
+    entry_id: UUID,
+    payload: RestoreIn,
+    session: Session,
+    request: Request,
+    principal: Dispatcher,
+) -> None:
+    """204, for `remove`'s reason: the row just deleted holds a phone number.
+
+    The ground is an attestation by a named person at the client, so a view-as session may
+    not make it (`rbac.VIEW_AS_WITHHELD_ACTS["compliance.dnc_optout_restore"]`).
+    """
+    assert_view_as_may(principal, "compliance.dnc_optout_restore")
+    assert principal.tenant_id is not None
+    restoration = await dnc.restore_optout(
+        session,
+        tenant_id=principal.tenant_id,
+        entry_id=entry_id,
+        ground=payload.ground,
+        note=payload.note,
+        latest_evidence_id=payload.latest_evidence_id,
+    )
+    await write_audit(
+        session,
+        action=dnc.restore_audit_action(payload.ground),
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="dnc_list",
+        object_id=str(entry_id),
+        ip=client_request_ip(request),
+        summary={
+            "source": restoration.source,
+            "subject_ref": restoration.subject_ref,
+            "ground": payload.ground,
+            "note": restoration.note,
+        },
     )
 
 

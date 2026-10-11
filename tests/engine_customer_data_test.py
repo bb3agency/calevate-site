@@ -48,6 +48,7 @@ class FakeWorkspaceVendor:
         self.requests: list[tuple[str, str, str | None, Any]] = []
         self.contacts: list[str] = ["cust_1"]
         self.delete_status = 204
+        self.dnc_remove_status = 204
         self.fail = False
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -60,6 +61,12 @@ class FakeWorkspaceVendor:
             return httpx.Response(503, json={"error": "down", "code": "unavailable"})
         if path == "/do-not-call":
             return httpx.Response(201, json={"phone": body["phone"]})
+        if path.startswith("/do-not-call/"):
+            if self.dnc_remove_status == 404:
+                return httpx.Response(
+                    404, json={"error": "That number is not on your do-not-call list."}
+                )
+            return httpx.Response(204)
         if path == "/contacts":
             return httpx.Response(
                 200, json={"items": [{"id": c} for c in self.contacts], "nextCursor": None}
@@ -211,8 +218,110 @@ async def test_a_refused_push_is_retried_then_alarmed(
 
 def test_both_jobs_are_registered() -> None:
     registered = {getattr(fn, "__qualname__", "") for fn in WorkerSettings.functions}
-    assert {jobs.ENGINE_DNC_PUSH_JOB, jobs.ENGINE_CONTACT_ERASURE_JOB} <= registered
+    assert {
+        jobs.ENGINE_DNC_PUSH_JOB,
+        jobs.ENGINE_DNC_REMOVE_JOB,
+        jobs.ENGINE_CONTACT_ERASURE_JOB,
+    } <= registered
     assert jobs.ENGINE_DNC_PUSH_JOB == engine_dnc.ENGINE_DNC_PUSH_JOB
+
+
+# --- a restored opt-out leaves the client's own workspace list too ------------------------
+
+
+async def _restored(monkeypatch: pytest.MonkeyPatch) -> tuple[uuid.UUID, str, dict[str, Any]]:
+    from apps.api.compliance import dnc
+
+    monkeypatch.setattr(get_settings(), "engine", "thinnest")
+    _provisioned(monkeypatch)
+    tenant_id = await _tenant()
+    phone = _phone()
+    async with tenant_session(tenant_id) as session:
+        await add_to_dnc(session, tenant_id=tenant_id, phone_e164=phone, source="call_optout")
+        entry_id = (
+            await session.execute(
+                text("SELECT id FROM dnc_list WHERE tenant_id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+        await dnc.restore_optout(
+            session,
+            tenant_id=tenant_id,
+            entry_id=uuid.UUID(str(entry_id)),
+            ground=dnc.RESTORE_NEVER_ASKED,
+            note=None,
+            latest_evidence_id=None,
+        )
+    [payload] = await _outbox(engine_dnc.ENGINE_DNC_REMOVE_JOB, tenant_id)
+    return tenant_id, phone, payload
+
+
+async def test_a_restore_takes_the_number_off_the_clients_own_workspace_list(
+    monkeypatch: pytest.MonkeyPatch, vendor: FakeWorkspaceVendor
+) -> None:
+    _tenant_id, phone, payload = await _restored(monkeypatch)
+    # Sealed: the outbox row never holds the number in clear.
+    assert phone not in json.dumps(payload) and phone.lstrip("+") not in json.dumps(payload)
+
+    assert await jobs.remove_engine_dnc({}, payload) == "removed"
+    [(method, path, header, _body)] = vendor.requests
+    assert (method, path, header) == ("DELETE", f"/do-not-call/{phone.lstrip('+')}", WORKSPACE)
+
+
+async def test_a_number_already_off_the_platform_list_counts_as_removed(
+    monkeypatch: pytest.MonkeyPatch, vendor: FakeWorkspaceVendor
+) -> None:
+    _tenant_id, _phone_e164, payload = await _restored(monkeypatch)
+    vendor.dnc_remove_status = 404
+    assert await jobs.remove_engine_dnc({}, payload) == "removed"
+
+
+async def test_a_number_suppressed_again_is_left_on_the_platform_list(
+    monkeypatch: pytest.MonkeyPatch, vendor: FakeWorkspaceVendor
+) -> None:
+    tenant_id, phone, payload = await _restored(monkeypatch)
+    async with tenant_session(tenant_id) as session:
+        await add_to_dnc(session, tenant_id=tenant_id, phone_e164=phone, source="call_optout")
+    assert await jobs.remove_engine_dnc({}, payload) == "suppressed_again"
+    assert [r for r in vendor.requests if r[0] == "DELETE"] == []
+
+
+async def test_a_restore_is_not_queued_without_a_workspace_of_the_clients_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.compliance import dnc
+
+    monkeypatch.setattr(get_settings(), "engine", "thinnest")
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await add_to_dnc(session, tenant_id=tenant_id, phone_e164=_phone(), source="call_optout")
+        entry_id = (
+            await session.execute(
+                text("SELECT id FROM dnc_list WHERE tenant_id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+        await dnc.restore_optout(
+            session,
+            tenant_id=tenant_id,
+            entry_id=uuid.UUID(str(entry_id)),
+            ground=dnc.RESTORE_NEVER_ASKED,
+            note=None,
+            latest_evidence_id=None,
+        )
+    assert await _outbox(engine_dnc.ENGINE_DNC_REMOVE_JOB, tenant_id) == []
+
+
+async def test_a_refused_removal_is_retried_then_alarmed(
+    monkeypatch: pytest.MonkeyPatch, vendor: FakeWorkspaceVendor
+) -> None:
+    _tenant_id, _phone_e164, payload = await _restored(monkeypatch)
+    vendor.fail = True
+    raised: list[str] = []
+    monkeypatch.setattr(jobs, "alert", lambda _k, code, **_kw: raised.append(code))
+    with pytest.raises(Retry):
+        await jobs.remove_engine_dnc({"job_try": 1}, payload)
+    with pytest.raises(ProblemError):
+        await jobs.remove_engine_dnc({"job_try": 3}, payload)
+    assert raised == ["engine_dnc_remove_failed"]
 
 
 # --- erasure ----------------------------------------------------------------------------------

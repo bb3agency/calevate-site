@@ -41,7 +41,7 @@ from apps.workers.whatsapp import (
 log = get_logger(__name__)
 
 #: The hourly sweep's minute: one no other fleet-wide walk uses.
-FORWARDING_SWEEP_MINUTE: Final = 53
+FORWARDING_SWEEP_MINUTE: Final = 26
 #: A test still `placing` this long after it was created never got its legs reported.
 STALE_PLACING_S: Final = 600
 

@@ -80,6 +80,10 @@ class BoundedByConstruction:
 
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    # --- do-not-call: the evidence shown before an opt-out is restored ---------------------
+    "GET /v1/dnc/{entry_id}/evidence": BoundedByConstruction(
+        by="`compliance.dnc.MAX_OPTOUT_EVIDENCE` in the LIMIT, and the schema's `max_length`."
+    ),
     # --- forwarded lines (D-746) ------------------------------------------------------------
     "GET /v1/forwarding": BoundedByConstruction(
         by=(

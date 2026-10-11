@@ -23,9 +23,9 @@ export const SOURCE_COPY: Record<string, { label: string; hint: string }> = {
 };
 
 /**
- * The four reasons, ordered by how often they are used. Only `manual` is reversible —
+ * The four reasons, ordered by how often they are used. Only `manual` is removable —
  * that is `REMOVABLE_SOURCES` on the server, and the form says it out loud, because
- * picking the wrong reason here is a decision that cannot be taken back from this screen.
+ * a person's request can only be RESTORED later, with a stated reason.
  */
 export const SOURCE_OPTIONS: { value: DncSource; label: string; note: string }[] = [
   {
@@ -36,12 +36,12 @@ export const SOURCE_OPTIONS: { value: DncSource; label: string; note: string }[]
   {
     value: "customer_request",
     label: "They asked us to stop",
-    note: "Permanent — a person's request cannot be undone from here.",
+    note: "Stays on the list. If it was a mistake, restore it later and say why.",
   },
   {
     value: "call_optout",
     label: "They opted out on a call",
-    note: "Permanent — a person's request cannot be undone from here.",
+    note: "Stays on the list. If it was a mistake, restore it later and say why.",
   },
   {
     value: "regulator",

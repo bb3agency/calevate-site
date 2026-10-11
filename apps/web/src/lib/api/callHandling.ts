@@ -47,7 +47,7 @@ export const callHandlingKeys = {
 export const PAUSE_PRESETS: readonly { ms: number; label: string; hint: string }[] = [
   { ms: 250, label: "Quick", hint: "Replies as soon as the caller stops." },
   { ms: 500, label: "Relaxed", hint: "A short breath before replying." },
-  { ms: 700, label: "Patient", hint: "Good for callers reading out numbers." },
+  { ms: 700, label: "Unhurried", hint: "Good for callers reading out numbers." },
 ];
 
 /** "0.25 s", "0.7 s", "1.2 s": a pause as people read it. */

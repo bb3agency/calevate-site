@@ -660,6 +660,11 @@ VIEW_AS_WITHHELD_ACTS: Mapping[str, str] = MappingProxyType(
             "live call, and that is the owner's decision. You can set an action up and leave "
             "it off; ask the owner to switch it on from their own console."
         ),
+        "compliance.dnc_optout_restore": (
+            "Restoring a number a person opted out with is the business's statement that "
+            "they never asked to stop, or have since asked to be called. Ask the client to "
+            "restore it from their own console — they are the ones who know."
+        ),
         "leads.saved_view": (
             "A saved view belongs to one signed-in person of this account, and a view-as "
             "session is not one of them — there is no `users` row for it to belong to."

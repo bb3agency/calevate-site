@@ -76,6 +76,7 @@ import hashlib
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Any, Final
 
 from calevate_shared.config import Settings
 from cryptography.exceptions import InvalidTag
@@ -554,6 +555,36 @@ def rewrap(envelope: Envelope, *, context: str, ring: KekRing | None = None) -> 
     )
 
 
+_SEALED_FIELDS: Final = ("ciphertext", "nonce", "dek_wrapped", "dek_nonce")
+
+
+def seal_to_fields(plaintext: str, *, context: str) -> dict[str, Any]:
+    """`seal`, as a JSON-safe dict, for a value that has to ride a job payload (a person's
+    number in an outbox row). `context` binds it to the one job it was sealed for."""
+    envelope = seal(plaintext, context=context)
+    sealed: dict[str, Any] = {
+        name: base64.b64encode(getattr(envelope, name)).decode() for name in _SEALED_FIELDS
+    }
+    sealed["kek_id"] = envelope.kek_id
+    return sealed
+
+
+def open_fields(sealed: Any, *, context: str) -> str:
+    """The inverse of `seal_to_fields`. ValueError when the dict is missing or malformed,
+    so the caller can name the job it belongs to; `unseal`'s own refusals pass through."""
+    try:
+        envelope = Envelope(
+            ciphertext=base64.b64decode(sealed["ciphertext"], validate=True),
+            nonce=base64.b64decode(sealed["nonce"], validate=True),
+            dek_wrapped=base64.b64decode(sealed["dek_wrapped"], validate=True),
+            dek_nonce=base64.b64decode(sealed["dek_nonce"], validate=True),
+            kek_id=int(sealed["kek_id"]),
+        )
+    except (KeyError, TypeError, ValueError, binascii.Error) as exc:
+        raise ValueError("sealed value is missing fields or unreadable") from exc
+    return unseal(envelope, context=context)
+
+
 #: Below this length a "last four" IS the secret, so there is nothing to show.
 _LAST_FOUR_MIN = 8
 MASKED = "••••"
@@ -583,9 +614,11 @@ __all__ = [
     "build_ring",
     "kek_ring",
     "last_four",
+    "open_fields",
     "rewrap",
     "seal",
     "seal_bytes",
+    "seal_to_fields",
     "unseal",
     "unseal_bytes",
 ]

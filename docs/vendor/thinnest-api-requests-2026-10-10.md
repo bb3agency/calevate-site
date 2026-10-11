@@ -185,6 +185,38 @@ Open items from our earlier emails:
     copies already made are deleted, as offered for pay-as-you-go.
 21. **Forwarded calls.** Could we schedule the test calls you offered, to confirm the caller
     ID that Airtel, Jio, Vi and BSNL pass on forwarded calls?
+23. **Reasoning text spoken on calls.** On a call of 11 Oct 2026 an agent on GPT-OSS 120B
+    spoke "We should end? Caller may ask more." followed by three different goodbyes, then
+    hung up before the caller said goodbye. Is the model's reasoning removed before the voice
+    reads the reply, for GPT-OSS 120B and GPT-5 Nano? Do Prana and Prana [Voice] reason
+    before replying, and can reasoning be switched off per agent?
+24. **Own-key voice settings over the API.** Your console shows speed, volume, emotion and
+    model for an own-key voice. Can we set these through the API, do they survive a
+    `PATCH` of the agent, and can emotion change per sentence during a call?
+25. **Time to the first word.** On outbound test calls of 11 Oct 2026 the opening line
+    started 2 to 3 seconds after pickup. What makes up that
+    time, does the greeting wait for our `voice.callStartUrl` answer, and what can we
+    change to shorten it?
+26. **Gemini.** Will you host Gemini 2.5 Flash or Flash-Lite as a call-capable model, or offer
+    a scope of our own voice and our own model with your speech recognition? Under scope `all`
+    with a `google` key, which Gemini ids pass your check for calls, and do you send
+    `thinkingBudget: 0` on calls?
+27. **Allowed models with our own voice.** Is GPT-5.4 Nano `voiceOnlyByok` (your console lists
+    it, your docs do not)? What is GPT-OSS 120B's model id? Under scope `voice`, does an agent
+    set to a model that is not allowed run its calls on Prana or on GPT-OSS 120B? Your pages say
+    both.
+28. **Reply settings on calls.** Do `temperature` and `maxReplyTokens` apply on calls, including
+    for reasoning models?
+29. **End of turn.** Can the Smart / Timer / Ear end-of-turn mode be set through the API, what is
+    its default, and how does it combine with `turnSilenceSeconds`?
+30. **Built-in do-not-call.** Can it be narrowed per agent, or report the words that triggered it?
+    Today `contact.opted_out` gives us no phrase. On one of our test calls it fired on "cut the
+    call" in Telugu.
+31. **Speech recognition for Telugu.** Which recogniser runs for `te-IN`, do you have accuracy
+    figures, and can it be chosen per agent without bringing all three keys?
+32. **Price with our own voice.** Does `callPricePerMinuteMicro` mean a `voiceOnlyByok` model can
+    cost more than ₹1.50/min under scope `voice`, or is that rate flat?
+33. **Prana.** Do Prana and Prana [Voice] reason before replying, and how do they score on Telugu?
 
 Two things we have built against your live docs, for you to confirm:
 

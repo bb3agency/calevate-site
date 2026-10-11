@@ -369,6 +369,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # D-691, a person-level write the client's own workspace did not take. Our own list and
     # erasure already did their part; the remaining copy is one task for an operator.
     "engine_dnc_push_failed": "attention",
+    "engine_dnc_remove_failed": "attention",
     "engine_contact_erasure_failed": "attention",
     # D-693, each client's own ThinnestAI customer workspace. A client without one cannot
     # publish or buy a number, which is one client and recoverable in the day by an operator

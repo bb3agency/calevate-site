@@ -285,8 +285,9 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "voice-engine",
         "thinnest",
         "In-call language model for agents with none chosen",
-        "Clear and Studio agents with no model of their own answer calls on it; empty keeps "
-        "Prana [Voice]. Must be call-capable, priced and allowed with Studio voices.",
+        "Clear and Studio agents with no model of their own answer calls on it; an agent "
+        "given a model in its own Model section keeps that one. Empty keeps Prana [Voice]. "
+        "Must be call-capable, priced and allowed with Studio voices.",
         _THINNEST,
     ),
     "pipecat_stream_base_url": _m(
@@ -1224,7 +1225,7 @@ HIGH_RISK: Final[dict[str, str]] = {
     "model and voice keys, and every agent's voice and model choice is locked.",
     "thinnest_clear_voice_band": "Changes which ThinnestAI band clients are sold as Clear.",
     "thinnest_in_call_default_model": "Changes the language model every agent with none of its "
-    "own answers calls with at its next publish.",
+    "own answers calls with, from its next call.",
     "thinnest_developer_workspace_id": "Decides which workspace is ours, not a client's.",
     "carrier": "New calls are dialled on the carrier you choose.",
     "vobiz_signature_required": "Turning it on before signing is set up refuses every call.",

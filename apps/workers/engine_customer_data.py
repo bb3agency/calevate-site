@@ -19,20 +19,22 @@ The person's number reaches this job sealed under the platform key, never in cle
 
 from __future__ import annotations
 
-import base64
-import binascii
 from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
 from sqlalchemy import text
 
+from apps.api.compliance.engine_dnc import (
+    ENGINE_DNC_REMOVE_JOB,
+    removal_context,
+)
 from apps.api.compliance.processor_erasure import (
     record_answer,
     record_engine_contact_progress,
 )
 from apps.api.core.alerting import alert
-from apps.api.core.envelope import Envelope, seal, unseal
+from apps.api.core.envelope import open_fields, seal_to_fields
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
@@ -46,7 +48,6 @@ ENGINE_DNC_PUSH_JOB: Final = "push_engine_dnc"
 ENGINE_CONTACT_ERASURE_JOB: Final = "erase_engine_contact"
 
 _RETRY_AFTER_S: Final = (60.0, 600.0)
-_FIELDS: Final = ("ciphertext", "nonce", "dek_wrapped", "dek_nonce")
 
 
 def _context(request_id: UUID) -> str:
@@ -55,31 +56,19 @@ def _context(request_id: UUID) -> str:
 
 def seal_subject(phone_e164: str, *, request_id: UUID) -> dict[str, Any]:
     """The erasure subject's number, sealed and bound to its request, for the outbox."""
-    envelope = seal(phone_e164, context=_context(request_id))
-    sealed: dict[str, Any] = {
-        name: base64.b64encode(getattr(envelope, name)).decode() for name in _FIELDS
-    }
-    sealed["kek_id"] = envelope.kek_id
-    return sealed
+    return seal_to_fields(phone_e164, context=_context(request_id))
 
 
 def _open_subject(sealed: Any, *, request_id: UUID) -> str:
     try:
-        envelope = Envelope(
-            ciphertext=base64.b64decode(sealed["ciphertext"], validate=True),
-            nonce=base64.b64decode(sealed["nonce"], validate=True),
-            dek_wrapped=base64.b64decode(sealed["dek_wrapped"], validate=True),
-            dek_nonce=base64.b64decode(sealed["dek_nonce"], validate=True),
-            kek_id=int(sealed["kek_id"]),
-        )
-    except (KeyError, TypeError, ValueError, binascii.Error) as exc:
+        return open_fields(sealed, context=_context(request_id))
+    except ValueError as exc:
         raise ProblemError(
             kind="validation",
             code="engine_erasure_subject_unreadable",
             title="A queued erasure could not be read",
             detail="The job carried an erasure subject with fields missing or unreadable.",
         ) from exc
-    return unseal(envelope, context=_context(request_id))
 
 
 def _retry_if_worth_it(exc: Exception, attempt: int) -> None:
@@ -130,6 +119,62 @@ async def push_engine_dnc(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         raise
     log.info("engine_dnc_pushed", extra={"tenant_id": str(tenant_id), "count": len(phones)})
     return f"pushed={len(phones)}"
+
+
+_STILL_SUPPRESSED: Final = (
+    "SELECT 1 FROM dnc_list WHERE phone_e164 = :phone "
+    "AND (tenant_id = :tid OR tenant_id IS NULL) LIMIT 1"
+)
+
+
+async def remove_engine_dnc(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """Take a number the client restored off its own workspace's do-not-call list.
+
+    Asked against OUR list first: if the number went back on it after the restore (the
+    person opted out again, or someone re-added it), the platform's entry is now the right
+    one and is left in place.
+    """
+    tenant_id = UUID(str(payload["tenant_id"]))
+    entry_id = UUID(str(payload["entry_id"]))
+    workspace = await own_workspace(tenant_id)
+    if workspace is None:
+        log.info("engine_dnc_remove_skipped", extra={"tenant_id": str(tenant_id)})
+        return "not_provisioned"
+    try:
+        try:
+            phone = open_fields(payload.get("subject"), context=removal_context(entry_id))
+        except ValueError as exc:
+            raise ProblemError(
+                kind="validation",
+                code="engine_dnc_removal_unreadable",
+                title="A queued do-not-call removal could not be read",
+                detail="The job carried a number with fields missing or unreadable.",
+            ) from exc
+        async with tenant_session(tenant_id) as session:
+            again = (
+                await session.execute(text(_STILL_SUPPRESSED), {"phone": phone, "tid": tenant_id})
+            ).first()
+        if again is not None:
+            log.info("engine_dnc_remove_superseded", extra={"tenant_id": str(tenant_id)})
+            return "suppressed_again"
+        await thinnest_customer_data().remove_do_not_call(workspace, phone)
+    except Exception as exc:
+        _retry_if_worth_it(exc, int(ctx.get("job_try", 1)))
+        alert(
+            "WORKER_TERMINAL",
+            "engine_dnc_remove_failed",
+            detail=(
+                "a number the client took off its do-not-call list is still on its own voice "
+                "platform workspace list, so the platform's agent and campaigns still refuse "
+                "it. Our list no longer does; remove it in the client's workspace by hand"
+                f" ({type(exc).__name__})"
+            ),
+            tenant_id=str(tenant_id),
+            entry_id=str(entry_id),
+        )
+        raise
+    log.info("engine_dnc_removed", extra={"tenant_id": str(tenant_id), "entry_id": str(entry_id)})
+    return "removed"
 
 
 # --- erasure --------------------------------------------------------------------------------
@@ -218,7 +263,9 @@ async def erase_engine_contact(ctx: dict[str, Any], payload: dict[str, Any]) -> 
 __all__ = [
     "ENGINE_CONTACT_ERASURE_JOB",
     "ENGINE_DNC_PUSH_JOB",
+    "ENGINE_DNC_REMOVE_JOB",
     "erase_engine_contact",
     "push_engine_dnc",
+    "remove_engine_dnc",
     "seal_subject",
 ]

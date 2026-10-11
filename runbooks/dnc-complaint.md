@@ -153,8 +153,9 @@ Everything that touched the suppression is in `audit_log` (INSERT-only, hash-cha
 SELECT at, action, actor_type, actor_id, object_id
 FROM audit_log
 WHERE tenant_id = :tenant_id
-  AND action IN ('dnc.added', 'dnc.removed', 'campaign.launched',
+  AND (action IN ('dnc.added', 'dnc.removed', 'campaign.launched',
                  'compliance.call_optout_recorded')
+       OR action LIKE 'dnc.optout_restored.%')
 ORDER BY at DESC
 LIMIT 50;
 ```
@@ -168,6 +169,13 @@ opt-out (`dnc_consumer_optout`) and refuses global entries (`dnc_global_entry`).
 `dnc.removed` followed by a dial means someone deleted a hand-added suppression and then
 called. That is a legitimate action with a legitimate audit trail, and it is exactly what
 a regulator will ask about. `object_id` is the entry id; `actor_id` is who.
+
+**`dnc.optout_restored.<ground>` is the other one.** A consumer's opt-out comes off the
+list only through Restore, which names its ground in the action itself: `never_asked`
+(recorded by mistake) or `asked_to_be_called` (the person has since asked; the client's
+note of how and when is in the log stream keyed by the audit entry id). The opt-out's
+`consent_ledger` row is never removed, so the original request stays on the record beside
+the restore that answered it.
 
 The reply should state, in this order: when the suppression was recorded, by whom, what
 calls exist before it, and that no call exists after it. If a call DOES exist after it,

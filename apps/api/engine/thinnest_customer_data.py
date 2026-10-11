@@ -4,6 +4,8 @@ VERIFIED-VENDOR-DOCS, `thinnest-findings/mirror/snapshots/2026-10-08/pages/`:
 
 * `POST /do-not-call {phone, reason}` — 201 added, 200 already there and unchanged
   (`api-reference/do-not-call/add-do-not-call-number.md:7, :340-380`);
+* `DELETE /do-not-call/{phone}` — 204 removed, 404 not on the list
+  (`api-reference/do-not-call/remove-do-not-call-number.md:7, :327-367`);
 * `GET /contacts?phone=` — the contact on that number, "in any format a person would type
   it" (`api-reference/contacts/list-contacts.md:7, :355-363`);
 * `DELETE /contacts/{id}` — erases the contact, its conversations, calls and recordings;
@@ -83,6 +85,27 @@ class ThinnestCustomerData:
             route="/do-not-call",
             json={"phone": phone_e164, "reason": DNC_REASON},
         )
+
+    async def remove_do_not_call(self, workspace: str, phone_e164: str) -> None:
+        """Take a number off the workspace's list (`DELETE /do-not-call/{phone}`, full key;
+        `api-reference/do-not-call/remove-do-not-call-number.md:7, :327-367`).
+
+        Sent as digits only, which the path parameter accepts, so no `+` has to survive URL
+        encoding. A 404 for the NUMBER means it is already off the list, which is what was
+        asked; a 404 for the WORKSPACE removed nothing and must not read as removed.
+        """
+        digits = phone_e164.removeprefix("+")
+        try:
+            await self._request(
+                workspace,
+                "DELETE",
+                f"/do-not-call/{digits}",
+                route="/do-not-call/{phone}",
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_status == 404 and exc.vendor_code != "workspace_not_found":
+                return
+            raise
 
     async def contact_ids(self, workspace: str, phone_e164: str) -> list[str]:
         payload = await self._request(

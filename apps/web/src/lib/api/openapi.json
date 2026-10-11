@@ -13654,6 +13654,10 @@
             "title": "Removable",
             "type": "boolean"
           },
+          "restorable": {
+            "title": "Restorable",
+            "type": "boolean"
+          },
           "scope": {
             "title": "Scope",
             "type": "string"
@@ -13676,7 +13680,8 @@
           "scope",
           "source",
           "added_at",
-          "removable"
+          "removable",
+          "restorable"
         ],
         "title": "DncEntryOut",
         "type": "object"
@@ -15267,6 +15272,29 @@
           "action"
         ],
         "title": "EntryChangeIn",
+        "type": "object"
+      },
+      "EntryEvidenceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/OptOutEvidenceOut"
+            },
+            "maxItems": 5,
+            "title": "Records",
+            "type": "array"
+          },
+          "restorable": {
+            "title": "Restorable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "restorable",
+          "records"
+        ],
+        "title": "EntryEvidenceOut",
         "type": "object"
       },
       "EntryOut": {
@@ -26585,6 +26613,65 @@
         "title": "OperatorsOut",
         "type": "object"
       },
+      "OptOutEvidenceOut": {
+        "additionalProperties": false,
+        "description": "One recorded opt-out behind a list entry, shown before anyone restores it.",
+        "properties": {
+          "call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          },
+          "detected_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected By"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "matched_redacted": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Redacted"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "recorded_at",
+          "call_id",
+          "detected_by",
+          "matched_redacted"
+        ],
+        "title": "OptOutEvidenceOut",
+        "type": "object"
+      },
       "OrganizationCallHandlingIn": {
         "additionalProperties": false,
         "description": "Both, required: the body states the whole resource, so `null` is \"follow Calevate\".",
@@ -31709,6 +31796,49 @@
           "lot_shortfall_inr"
         ],
         "title": "RestatementOut",
+        "type": "object"
+      },
+      "RestoreIn": {
+        "additionalProperties": false,
+        "properties": {
+          "ground": {
+            "enum": [
+              "never_asked",
+              "asked_to_be_called"
+            ],
+            "title": "Ground",
+            "type": "string"
+          },
+          "latest_evidence_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Evidence Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 400,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "ground",
+          "latest_evidence_id"
+        ],
+        "title": "RestoreIn",
         "type": "object"
       },
       "RetentionLineOut": {
@@ -59543,6 +59673,90 @@
           }
         },
         "summary": "Undo a hand-added suppression \u2014 never a consumer opt-out, always audited",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/dnc/{entry_id}/evidence": {
+      "get": {
+        "operationId": "evidence_v1_dnc__entry_id__evidence_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryEvidenceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Why this number is on the list \u2014 the recorded opt-outs behind it",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/dnc/{entry_id}/restore": {
+      "post": {
+        "description": "204, for `remove`'s reason: the row just deleted holds a phone number.\n\nThe ground is an attestation by a named person at the client, so a view-as session may\nnot make it (`rbac.VIEW_AS_WITHHELD_ACTS[\"compliance.dnc_optout_restore\"]`).",
+        "operationId": "restore_v1_dnc__entry_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Restore a person's opt-out recorded by mistake or since withdrawn \u2014 attested",
         "tags": [
           "compliance"
         ],

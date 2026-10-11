@@ -152,7 +152,11 @@ from apps.workers.dispatcher import (
 )
 from apps.workers.dnc_recall import recall_dials_for_dnc
 from apps.workers.engine_charges import CHARGE_SWEEP_MINUTES, reconcile_engine_charges
-from apps.workers.engine_customer_data import erase_engine_contact, push_engine_dnc
+from apps.workers.engine_customer_data import (
+    erase_engine_contact,
+    push_engine_dnc,
+    remove_engine_dnc,
+)
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
 from apps.workers.engine_signals import (
     ingest_engine_notice,
@@ -310,6 +314,8 @@ FUNCTIONS: list[Any] = [
         # Person-level writes in a client's OWN voice platform workspace, from the outbox
         # (D-691): its do-not-call additions and a DPDP erasure of its contact.
         push_engine_dnc,
+        # ...and a number the client restored, taken off that list again.
+        remove_engine_dnc,
         # An assistant background job (D-694), from the outbox (`copilot/jobs.create_job`).
         run_copilot_job,
         # A custom business's one AI draft of its lead fields (founder decision 15), from

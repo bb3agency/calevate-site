@@ -65,15 +65,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.callbacks.service import cancel_for_phones, cancel_for_phones_fleet_wide
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
-from apps.api.compliance.engine_dnc import queue_engine_dnc_push
+from apps.api.compliance.engine_dnc import queue_engine_dnc_push, queue_engine_dnc_removal
 from apps.api.compliance.export import subject_ref
 from apps.api.compliance.models import CALLBACK_SUPPRESSED_REASON, DNC_REMOVABLE_SOURCES
+from apps.api.compliance.optout import CALL_OPTOUT_SOURCE, OPTOUT_PURPOSE
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import admin_session
 from apps.api.ingest.service import normalize_phone
+from apps.workers.redaction import redact
 
 log = get_logger(__name__)
 
@@ -110,6 +112,7 @@ class DncEntryView:
     source: str | None
     added_at: Any
     removable: bool
+    restorable: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,6 +304,7 @@ async def list_entries(session: AsyncSession, *, limit: int = 100) -> list[DncEn
             source=row[3],
             added_at=row[4],
             removable=is_removable(scope=row[2], source=row[3]),
+            restorable=is_restorable(scope=row[2], source=row[3]),
         )
         for row in rows
     ]
@@ -419,7 +423,10 @@ def _consumer_optout_refusal() -> ProblemError:
     return ProblemError.business_rule(
         "dnc_consumer_optout",
         "This number asked not to be called. That request cannot be undone here.",
-        remediation="If this entry is a mistake, contact support with the details.",
+        remediation=(
+            "If it was recorded by mistake, or they have since asked to be called, use "
+            "Restore and say which."
+        ),
     )
 
 
@@ -474,6 +481,244 @@ async def remove_entry(session: AsyncSession, *, entry_id: UUID) -> Removal:
         # RLS refusing the write looks exactly like this. Do not report success.
         raise ProblemError.not_found("DNC entry")
     return Removal(source=str(source), subject_ref=subject_ref(row[2]))
+
+
+# --- restoring a person's opt-out -------------------------------------------------------
+#
+# An opt-out a person made is not the client's to delete (`remove_entry`), but one recorded
+# by MISTAKE is not the person's request at all: an agent filed "not interested" as "never
+# call me", or someone at the client picked the wrong reason. Leaving those permanent costs
+# the client the lead and gives the person nothing they asked for. So a person-sourced entry
+# may be restored, and only on one of two stated grounds, each of which a named person at the
+# client attests to and the audit chain records by name:
+#
+# * `never_asked` — the person never asked to stop being called;
+# * `asked_to_be_called` — they did, and have since asked to be called again. The note says
+#   how and when. TCCCPR bars SEEKING consent from an opted-out subscriber for 90 days; it
+#   does not bar the subscriber from giving it, and ThinnestAI's own API asks the same of
+#   us before removing a `source: call` entry ("be sure they have since agreed",
+#   `api-reference/do-not-call/remove-do-not-call-number.md:7`).
+#
+# `regulator` entries and platform-wide (`global`) ones are never restorable here.
+#
+# WHAT THE EVIDENCE TRAIL HOLDS AFTERWARDS. The opt-out's `consent_ledger` row stays — the
+# ledger is append-only (hard rule 4) and the row is a true record of what was detected.
+# No compensating ledger row is written, because neither ground has an honest one:
+# `never_asked` is not a consent statement by the person at all, and for
+# `asked_to_be_called` the only source a client employee can record is
+# `staff_recorded_request`, which `ck_consent_ledger_granted_consent_carries_evidence`
+# forbids on a `granted` row precisely so staff cannot assert a person's consent. The
+# reversal is recorded instead in the hash-chained `audit_log`, with the ground in the
+# action name itself (the chain hashes the action, not the summary), the actor, and the
+# entry id; the note and the number's one-way `subject_ref` ride the summary.
+
+#: Sources that record a PERSON's request and may be restored with an attestation.
+RESTORABLE_SOURCES: tuple[str, ...] = (CALL_OPTOUT_SOURCE, "customer_request")
+RESTORE_NEVER_ASKED = "never_asked"
+RESTORE_ASKED_TO_BE_CALLED = "asked_to_be_called"
+RESTORE_GROUNDS = (RESTORE_NEVER_ASKED, RESTORE_ASKED_TO_BE_CALLED)
+#: The note's bounds, in characters: long enough for "rang the office on 3 Oct asking for
+#: a call back", short enough that it stays a note rather than a transcript.
+RESTORE_NOTE_MIN = 5
+RESTORE_NOTE_MAX = 200
+#: How many opt-out records the evidence read returns, newest first.
+MAX_OPTOUT_EVIDENCE = 5
+
+
+def restore_audit_action(ground: str) -> str:
+    """The audit action for a restore on `ground` — the ground is in the hashed row."""
+    return f"dnc.optout_restored.{ground}"
+
+
+def is_restorable(*, scope: str, source: str | None) -> bool:
+    """The ONE definition of "may this opt-out be restored with an attestation"."""
+    return scope != "global" and source in RESTORABLE_SOURCES
+
+
+@dataclass(frozen=True, slots=True)
+class OptOutEvidence:
+    """One recorded opt-out for the number: when, on which call, who heard it, and the
+    caller's words as stored (already redacted, `optout.detect_opt_out`). `matched` is None
+    when the platform's own agent recorded it: it reports that it did, not what was said."""
+
+    id: UUID
+    recorded_at: Any
+    call_id: UUID | None
+    detected_by: str | None
+    matched: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class EntryEvidence:
+    restorable: bool
+    records: list[OptOutEvidence]
+
+
+async def optout_evidence(session: AsyncSession, *, entry_id: UUID) -> EntryEvidence:
+    """The opt-out records behind one list entry, newest first, capped. No records for an
+    entry with none (a hand-added one, a global one). 404 for an entry this tenant cannot
+    see."""
+    row = (
+        await session.execute(
+            text("SELECT tenant_id, phone_e164, scope, source FROM dnc_list WHERE id = :id"),
+            {"id": entry_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("DNC entry")
+    restorable = is_restorable(scope=row[2], source=row[3])
+    if row[0] is None:
+        return EntryEvidence(restorable=restorable, records=[])
+    records = await _evidence_rows(session, tenant_id=row[0], phone_e164=row[1])
+    return EntryEvidence(restorable=restorable, records=records)
+
+
+_EVIDENCE_SQL = (
+    "SELECT id, captured_at, call_id, evidence FROM consent_ledger "
+    "WHERE tenant_id = :tid AND phone_e164 = :phone AND purpose = :purpose "
+    "AND status = 'withdrawn' ORDER BY captured_at DESC, id DESC LIMIT :n"
+)
+
+
+async def _evidence_rows(
+    session: AsyncSession, *, tenant_id: UUID, phone_e164: str, limit: int = MAX_OPTOUT_EVIDENCE
+) -> list[OptOutEvidence]:
+    rows = (
+        await session.execute(
+            text(_EVIDENCE_SQL),
+            {"tid": tenant_id, "phone": phone_e164, "purpose": OPTOUT_PURPOSE, "n": limit},
+        )
+    ).all()
+    found: list[OptOutEvidence] = []
+    for ledger_id, captured_at, call_id, evidence in rows:
+        detail = evidence if isinstance(evidence, dict) else {}
+        matched = detail.get("matched")
+        found.append(
+            OptOutEvidence(
+                id=ledger_id,
+                recorded_at=captured_at,
+                call_id=call_id,
+                detected_by=str(detail["detected_by"]) if detail.get("detected_by") else None,
+                # Redacted again on the way out: rows written before the detector redacted
+                # its evidence can hold a number the caller quoted, and they cannot be edited.
+                matched=redact(str(matched)).text if matched else None,
+            )
+        )
+    return found
+
+
+@dataclass(frozen=True, slots=True)
+class Restoration:
+    """What the restore's audit row carries."""
+
+    source: str
+    subject_ref: str
+    note: str | None
+
+
+def _restore_note(ground: str, note: str | None) -> str | None:
+    cleaned = " ".join((note or "").split())
+    if ground == RESTORE_ASKED_TO_BE_CALLED and len(cleaned) < RESTORE_NOTE_MIN:
+        raise ProblemError.business_rule(
+            "dnc_restore_note_required",
+            "Say how and when they asked to be called again.",
+            remediation="For example: rang the office on 3 October asking for a call back.",
+        )
+    if len(cleaned) > RESTORE_NOTE_MAX:
+        raise ProblemError.business_rule(
+            "dnc_restore_note_too_long",
+            f"Keep the note under {RESTORE_NOTE_MAX} characters.",
+        )
+    # A note is what a person typed about a person, so the transcript redactor runs over
+    # it: a number quoted in it never reaches the log stream the audit summary goes to.
+    return redact(cleaned).text if cleaned else None
+
+
+async def restore_optout(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    entry_id: UUID,
+    ground: str,
+    note: str | None,
+    latest_evidence_id: UUID | None,
+) -> Restoration:
+    """Take a person-sourced entry off this tenant's list on an attested ground.
+
+    `latest_evidence_id` is the newest opt-out record the client was shown. If a newer one
+    exists, the person has opted out AGAIN since the screen was opened and the attestation
+    does not cover it, so the restore is refused (`dnc_restore_stale`). The entry row is
+    locked before the evidence is read: `add_to_dnc`'s ON CONFLICT DO UPDATE locks the row
+    even when its WHERE leaves it unchanged, so an opt-out being recorded right now commits
+    before this read (and is seen) or waits for this transaction and re-inserts the number
+    after it ("all rows will be locked when the ON CONFLICT DO UPDATE action is taken",
+    https://www.postgresql.org/docs/16/sql-insert.html, `condition`).
+    """
+    if ground not in RESTORE_GROUNDS:
+        raise ProblemError.business_rule(
+            "dnc_restore_unknown_ground",
+            "Choose why this number should come off the list.",
+        )
+    cleaned_note = _restore_note(ground, note)
+    row = (
+        await session.execute(
+            text("SELECT scope, source, phone_e164 FROM dnc_list WHERE id = :id"),
+            {"id": entry_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("DNC entry")
+    scope, source, phone = row[0], row[1], str(row[2])
+    if scope == "global":
+        raise ProblemError.business_rule(
+            "dnc_global_entry",
+            "This number is suppressed nationally, not by this account.",
+            remediation="Global suppressions are removed by operations, not from here.",
+        )
+    if source not in RESTORABLE_SOURCES:
+        raise ProblemError.business_rule(
+            "dnc_not_restorable",
+            "Only a person's own opt-out can be restored.",
+            remediation=(
+                "An entry your team added can be removed directly. A regulator's entry is "
+                "removed through support."
+            ),
+        )
+    # Locked only now: FOR UPDATE needs the UPDATE policy, which a global row never grants
+    # a tenant, so locking in the first read turned the named global refusal into a 404.
+    locked = (
+        await session.execute(
+            text("SELECT 1 FROM dnc_list WHERE id = :id AND scope = 'tenant' FOR UPDATE"),
+            {"id": entry_id},
+        )
+    ).first()
+    if locked is None:
+        raise ProblemError.not_found("DNC entry")
+    newest = await _evidence_rows(session, tenant_id=tenant_id, phone_e164=phone, limit=1)
+    newest_id = newest[0].id if newest else None
+    if newest_id != latest_evidence_id:
+        raise ProblemError.conflict(
+            "dnc_restore_stale",
+            "A newer opt-out was recorded for this number since you opened it.",
+            remediation="Close this, open the number again and read the newest record.",
+        )
+    result = await session.execute(
+        text(
+            "DELETE FROM dnc_list WHERE id = :id AND scope = 'tenant' AND source = ANY(:restorable)"
+        ),
+        {"id": entry_id, "restorable": list(RESTORABLE_SOURCES)},
+    )
+    if rowcount_of(result) != 1:
+        # RLS refusing the write looks exactly like this. Do not report success.
+        raise ProblemError.not_found("DNC entry")
+    await queue_engine_dnc_removal(
+        session, tenant_id=tenant_id, entry_id=entry_id, phone_e164=phone
+    )
+    log.info(
+        "dnc_optout_restored",
+        extra={"tenant_id": str(tenant_id), "entry_id": str(entry_id), "ground": ground},
+    )
+    return Restoration(source=str(source), subject_ref=subject_ref(phone), note=cleaned_note)
 
 
 #: Every LIVE client, for the one caller that has to reach all of them at once.
@@ -655,6 +900,7 @@ async def list_global_entries(session: AsyncSession, *, limit: int = 100) -> lis
             # rather than hardcoded, so the ops list and the client list answer the
             # question with the same function.
             removable=is_removable(scope=row[2], source=row[3]),
+            restorable=is_restorable(scope=row[2], source=row[3]),
         )
         for row in rows
     ]
@@ -698,19 +944,33 @@ __all__ = [
     "GLOBAL_SOURCES",
     "MAX_LIST",
     "MAX_NUMBERS_PER_ADD",
+    "MAX_OPTOUT_EVIDENCE",
     "REMOVABLE_SOURCES",
+    "RESTORABLE_SOURCES",
+    "RESTORE_ASKED_TO_BE_CALLED",
+    "RESTORE_GROUNDS",
+    "RESTORE_NEVER_ASKED",
+    "RESTORE_NOTE_MAX",
+    "RESTORE_NOTE_MIN",
     "SOURCES",
     "AddResult",
     "CheckResult",
     "DncEntryView",
+    "EntryEvidence",
+    "OptOutEvidence",
     "Removal",
+    "Restoration",
     "add_global_numbers",
     "add_numbers",
     "check_number",
     "is_removable",
+    "is_restorable",
     "list_entries",
     "list_global_entries",
     "live_tenant_ids",
+    "optout_evidence",
     "remove_entry",
     "remove_global_entry",
+    "restore_audit_action",
+    "restore_optout",
 ]

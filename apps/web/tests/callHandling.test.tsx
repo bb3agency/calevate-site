@@ -110,12 +110,12 @@ describe("organisation call handling", () => {
     await act(async () => {
       fireEvent.click(pauseChange);
     });
-    await pick(/Patient \(0\.7 s\)/);
+    await pick(/Unhurried \(0\.7 s\)/);
     await press("Save pause");
     await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
     const put = calls.find((c) => c.method === "PUT");
     expect(JSON.parse(put?.body ?? "{}")).toEqual({ turn_silence_ms: 700, end_call_on_finish: null });
-    await screen.findByText("Patient (0.7 s)");
+    await screen.findByText("Unhurried (0.7 s)");
   });
 
   it("says plainly, in one quiet line, that a finished call is charged while the hang-up is off", async () => {
@@ -157,7 +157,7 @@ describe("one agent's call handling", () => {
         turn_silence_source: "organization",
       }),
     });
-    await screen.findByText("Patient (0.7 s)");
+    await screen.findByText("Unhurried (0.7 s)");
     expect(screen.getByText("Set for this agent")).toBeTruthy();
     const [pauseChange] = screen.getAllByRole("button", { name: "Change" });
     await act(async () => {

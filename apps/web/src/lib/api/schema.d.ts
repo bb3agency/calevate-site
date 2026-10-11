@@ -6740,6 +6740,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/dnc/{entry_id}/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Why this number is on the list — the recorded opt-outs behind it */
+        get: operations["evidence_v1_dnc__entry_id__evidence_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dnc/{entry_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore a person's opt-out recorded by mistake or since withdrawn — attested
+         * @description 204, for `remove`'s reason: the row just deleted holds a phone number.
+         *
+         *     The ground is an attestation by a named person at the client, so a view-as session may
+         *     not make it (`rbac.VIEW_AS_WITHHELD_ACTS["compliance.dnc_optout_restore"]`).
+         */
+        post: operations["restore_v1_dnc__entry_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/forwarding": {
         parameters: {
             query?: never;
@@ -15678,6 +15718,8 @@ export interface components {
             phone_e164: string;
             /** Removable */
             removable: boolean;
+            /** Restorable */
+            restorable: boolean;
             /** Scope */
             scope: string;
             /** Source */
@@ -16319,6 +16361,13 @@ export interface components {
              */
             kind: "register" | "swap" | "filler" | "number_rule" | "punctuation" | "example" | "opening";
             value?: components["schemas"]["EntryValue"] | null;
+        };
+        /** EntryEvidenceOut */
+        EntryEvidenceOut: {
+            /** Records */
+            records: components["schemas"]["OptOutEvidenceOut"][];
+            /** Restorable */
+            restorable: boolean;
         };
         /** EntryOut */
         EntryOut: {
@@ -20872,6 +20921,28 @@ export interface components {
             operators: components["schemas"]["OperatorOut"][];
         };
         /**
+         * OptOutEvidenceOut
+         * @description One recorded opt-out behind a list entry, shown before anyone restores it.
+         */
+        OptOutEvidenceOut: {
+            /** Call Id */
+            call_id: string | null;
+            /** Detected By */
+            detected_by: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Matched Redacted */
+            matched_redacted: string | null;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+        };
+        /**
          * OrganizationCallHandlingIn
          * @description Both, required: the body states the whole resource, so `null` is "follow Calevate".
          */
@@ -22816,6 +22887,18 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** RestoreIn */
+        RestoreIn: {
+            /**
+             * Ground
+             * @enum {string}
+             */
+            ground: "never_asked" | "asked_to_be_called";
+            /** Latest Evidence Id */
+            latest_evidence_id: string | null;
+            /** Note */
+            note?: string | null;
         };
         /** RetentionLineOut */
         RetentionLineOut: {
@@ -38870,6 +38953,70 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    evidence_v1_dnc__entry_id__evidence_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryEvidenceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_v1_dnc__entry_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             204: {

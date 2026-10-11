@@ -70,6 +70,7 @@ function entry(over: Partial<DncEntry> = {}): DncEntry {
     phone_e164: PHONE,
     added_at: "2026-07-01T10:00:00Z",
     removable: true,
+    restorable: false,
     scope: "tenant",
     source: "manual",
     ...over,
@@ -243,6 +244,126 @@ describe("what the list says may be undone", () => {
     // The number does not travel at all: the row is addressed by its own id, so the
     // one string a URL must never carry (hard rule 6) is absent from it.
     expect(deletes()[0].url).not.toContain(PHONE_DIGITS);
+  });
+});
+
+describe("restoring a person's opt-out", () => {
+  const OPT_OUT_ID = "0192f0aa-4444-7000-8000-0000000000aa";
+  const CALL_ID = "0192f0aa-5555-7000-8000-000000000001";
+  const RECORD_ID = "0192f0aa-6666-7000-8000-000000000001";
+  const EVIDENCE_PATH = `/v1/dnc/${OPT_OUT_ID}/evidence`;
+  const RESTORE_KEY = `POST /v1/dnc/${OPT_OUT_ID}/restore`;
+  const optOut = () =>
+    entry({ id: OPT_OUT_ID, removable: false, restorable: true, source: "call_optout" });
+  const evidence = {
+    restorable: true,
+    records: [
+      {
+        id: RECORD_ID,
+        recorded_at: "2026-10-11T14:41:09Z",
+        call_id: CALL_ID,
+        detected_by: "engine_platform",
+        matched_redacted: null,
+      },
+    ],
+  };
+
+  async function openRestore(calls: { method: string }[]) {
+    await screen.findByText(SHOWN);
+    expect(removeButtons()).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: /^Restore / }));
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByText(/The agent recorded it on the call/);
+    expect(calls.filter((call) => call.method === "POST")).toEqual([]);
+    return dialog;
+  }
+
+  it("shows what was recorded and on which call before anything is restored", async () => {
+    const { calls } = await renderClientPage(<DoNotCallPage />, {
+      ...POLICY,
+      "/v1/me": ME,
+      [LIST_PATH]: [optOut()],
+      [EVIDENCE_PATH]: evidence,
+      [RESTORE_KEY]: noContent(),
+    });
+    const dialog = await openRestore(calls);
+
+    const link = within(dialog).getByRole("link", { name: "Open the call" });
+    expect(link.getAttribute("href")).toContain(`/calls/${CALL_ID}`);
+    expect(dialog.textContent).toContain("breaks the law");
+    // Nothing is attested until a reason is chosen.
+    const confirm = within(dialog).getByRole("button", { name: "Restore this number" });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(within(dialog).getByLabelText(/They never asked to stop/));
+    expect((confirm as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(confirm);
+
+    const posts = () => calls.filter((call) => call.method === "POST");
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    const [sent] = posts() as unknown as { url: string; body: string }[];
+    expect(sent.url).not.toContain(PHONE_DIGITS);
+    expect(JSON.parse(sent.body)).toEqual({
+      ground: "never_asked",
+      note: null,
+      latest_evidence_id: RECORD_ID,
+    });
+  });
+
+  it("asks how and when for a person who has since asked to be called", async () => {
+    const { calls } = await renderClientPage(<DoNotCallPage />, {
+      ...POLICY,
+      "/v1/me": ME,
+      [LIST_PATH]: [optOut()],
+      [EVIDENCE_PATH]: evidence,
+      [RESTORE_KEY]: noContent(),
+    });
+    const dialog = await openRestore(calls);
+    const confirm = within(dialog).getByRole("button", {
+      name: "Restore this number",
+    }) as HTMLButtonElement;
+
+    fireEvent.click(within(dialog).getByLabelText(/They have since asked to be called/));
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText("How and when did they ask?"), {
+      target: { value: "Rang the office on 3 Oct" },
+    });
+    expect(confirm.disabled).toBe(false);
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(calls.filter((call) => call.method === "POST")).toHaveLength(1));
+    const [sent] = calls.filter((call) => call.method === "POST") as unknown as { body: string }[];
+    expect(JSON.parse(sent.body)).toMatchObject({
+      ground: "asked_to_be_called",
+      note: "Rang the office on 3 Oct",
+    });
+  });
+
+  it("keeps the refusal inside the dialog when a newer opt-out landed meanwhile", async () => {
+    const { calls } = await renderClientPage(<DoNotCallPage />, {
+      ...POLICY,
+      "/v1/me": ME,
+      [LIST_PATH]: [optOut()],
+      [EVIDENCE_PATH]: evidence,
+      [RESTORE_KEY]: problem(409, {
+        type: "https://calevate.tech/problems/dnc_restore_stale",
+        title: "We could not complete that",
+        detail: "A newer opt-out was recorded for this number since you opened it.",
+      }),
+    });
+    const dialog = await openRestore(calls);
+    fireEvent.click(within(dialog).getByLabelText(/They never asked to stop/));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Restore this number" }));
+
+    await within(dialog).findByText(/A newer opt-out was recorded/);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  it("tells a viewer without the authority who can restore it, with no button", async () => {
+    const { container } = await renderList([optOut()], READ_ONLY_ME);
+    await screen.findByText(SHOWN);
+    expect(screen.queryByRole("button", { name: /^Restore / })).toBeNull();
+    expect(container.textContent).toContain("an owner can restore it");
   });
 });
 
@@ -661,8 +782,8 @@ describe("do not call — the compliance notice printed on the screen", () => {
     expect(container.textContent).toContain("no agent will call it");
   });
 
-  it("warns which reasons cannot be undone, before the reason is chosen", async () => {
-    // Three of the four are permanent, and the note is `aria-describedby` the select, so
+  it("says which reasons stay on the list, before the reason is chosen", async () => {
+    // Only a typed entry is removable, and the note is `aria-describedby` the select, so
     // it is read WITH the control rather than sitting beside it (WCAG 3.3.2).
     const { container } = await renderList([]);
     // The reason appears with the first number typed, before Add can be pressed.
@@ -672,7 +793,7 @@ describe("do not call — the compliance notice printed on the screen", () => {
     expect(select.getAttribute("aria-describedby")).toBe("dnc-source-note");
     fireEvent.change(select, { target: { value: "customer_request" } });
     expect(container.textContent).toContain(
-      "Permanent — a person's request cannot be undone from here.",
+      "Stays on the list. If it was a mistake, restore it later and say why.",
     );
   });
 });

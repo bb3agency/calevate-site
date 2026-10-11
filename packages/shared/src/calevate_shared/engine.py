@@ -2955,8 +2955,13 @@ def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
         f"{CANNOT_HELP_HEADER}\n"
         f"- No answer after searching: say so, then {follow_up}.\n"
         f"{person}\n"
-        "- Asked not to be called again: record it with your do-not-call tool, confirm, end "
-        "politely. Never argue.\n"
+        # The do-not-call tool is the voice platform's own, always attached and not
+        # describable by us (not in the switchable list, `api-reference/tools/
+        # update-built-in-tools.md:563-565`), so this line is its only trigger rule. A
+        # caller's "cut the call now, thank you" was filed as an opt-out and made the
+        # number undiallable; ending THIS call is not asking never to be called.
+        "- Use your do-not-call tool only if they ask never to be called again; not for no, "
+        "later or ending this call.\n"
         f"{ACTION_CLAIM_RULE}\n"
         f"{CALL_NUMBER_RULE}"
     ) + (f"\n{FORWARDED_LINE_RULE}" if cfg.forwarded_line else "")

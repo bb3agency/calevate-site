@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Lock, Trash2 } from "lucide-react";
+import { Lock, RotateCcw, Trash2 } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
@@ -24,6 +24,7 @@ import {
 } from "@/lib/api/dnc";
 import { lookup } from "@/lib/lookup";
 
+import { RestoreDialog } from "./RestoreDialog";
 import { SOURCE_COPY } from "./sources";
 
 /**
@@ -38,10 +39,12 @@ import { SOURCE_COPY } from "./sources";
  * different mechanism entirely (`preference_scrub.py`). This screen called it "the
  * national list" in three places, which told the one audience that quotes us back to a
  * complaining caller that our internal refusal was a statutory registration. An entry
- * that records a consumer's opt-out is permanent. Both are SHOWN — a number you cannot
- * un-suppress is still a number you should know is suppressed — and neither gets a Remove
- * button, because the API refuses those (`dnc_global_entry`, `dnc_consumer_optout`) and a
- * button that 400s teaches a client that our compliance rules are a bug.
+ * that records a consumer's opt-out is never REMOVED; when the server marks it `restorable`
+ * it gets a Restore action instead, which shows what was recorded and asks why it should
+ * come off (`RestoreDialog`). Both are SHOWN — a number you cannot un-suppress is still a
+ * number you should know is suppressed — and neither gets a Remove button, because the API
+ * refuses those (`dnc_global_entry`, `dnc_consumer_optout`) and a button that 400s teaches
+ * a client that our compliance rules are a bug.
  *
  * WHERE A NUMBER MAY GO, which D-436 changed in one direction only. The list renders
  * numbers IN FULL — a client checking "did we suppress the person shouting at me?"
@@ -79,6 +82,8 @@ export function SuppressedList({
    * rule is about. The dialog names the number, so it confirms target as well as intent.
    */
   const [unsuppressing, setUnsuppressing] = useState<DncEntry | null>(null);
+  /** The opt-out a client has asked to restore, held while the dialog shows its evidence. */
+  const [restoring, setRestoring] = useState<DncEntry | null>(null);
 
   /* `entries.data`, not `entries.data ?? []`: the difference between "the server said
      none" and "the server did not answer" is the whole of this screen's honesty, and an
@@ -136,6 +141,7 @@ export function SuppressedList({
           canSuppress={canSuppress}
           removing={remove.isPending && remove.variables === entry.id}
           onRemove={() => setUnsuppressing(entry)}
+          onRestore={() => setRestoring(entry)}
         />
       ),
     },
@@ -229,6 +235,9 @@ export function SuppressedList({
           </p>
         </ConfirmDialog>
       )}
+      {restoring && (
+        <RestoreDialog session={session} entry={restoring} onClose={() => setRestoring(null)} />
+      )}
     </>
   );
 }
@@ -238,15 +247,40 @@ function RowAction({
   canSuppress,
   removing,
   onRemove,
+  onRestore,
 }: {
   entry: DncEntry;
   canSuppress: boolean;
   removing: boolean;
   onRemove: () => void;
+  onRestore: () => void;
 }) {
-  // `removable` is the server's own `is_removable()` verdict, RENDERED rather than
-  // re-derived from `scope`/`source`: the direction a second rule drifts in is a Remove
-  // button on a consumer opt-out.
+  // `removable` and `restorable` are the server's own verdicts (`is_removable()`,
+  // `is_restorable()`), RENDERED rather than re-derived from `scope`/`source`: the
+  // direction a second rule drifts in is a Remove button on a consumer opt-out.
+  if (!entry.removable && entry.restorable) {
+    // A person's opt-out: never removed, but restorable with a stated reason when it was
+    // recorded by mistake or they have since asked to be called.
+    if (!canSuppress) {
+      return (
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-meta text-ink-faint">
+          <Lock className="h-3.5 w-3.5" aria-hidden />
+          opt-out — an owner can restore it
+        </span>
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={onRestore}
+        aria-label={`Restore ${formatPhone(entry.phone_e164)} — check why it was added first`}
+        className="press inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-meta font-medium text-ink-muted enabled:hover:bg-ink/[0.05] enabled:hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+      >
+        <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+        Restore
+      </button>
+    );
+  }
   if (!entry.removable) {
     return (
       <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-meta text-ink-faint">

@@ -37,6 +37,8 @@ because the regulatory half is the part that is not recoverable if wrong.
   has opted out, before ninety (90) days from the date of such opt-out". That is why
   `dnc.REMOVABLE_SOURCES` excludes `call_optout`: a client employee deleting the entry
   and re-dialling is the exact prohibited act, and the DNC module already refuses it.
+  What it allows instead is a RESTORE on an attested ground — the person never asked, or
+  has since asked to be called (`dnc.restore_optout`) — which is not seeking consent.
 * **WHOSE OBLIGATION.** The **Principal Entity — our client — is responsible for
   compliance regardless of whether a third-party telemarketer is used**; Calevate is the
   registered Telemarketer, performs the delivery and scrubbing functions, and must be
@@ -123,10 +125,13 @@ sometimes does.
 caller who did not ask: the client loses a lead and the caller is left alone — annoying,
 recoverable through support, and lawful. A false negative dials someone who asked us to
 stop: that is a TCCCPR violation with the client's own registration on the line. So the
-patterns are written to fire on the ambiguous middle rather than to be precise, and the
-one place precision IS enforced is Telugu's negative suffix — `call cheyandi` ("please
-call") and `call cheyakandi` ("don't call") differ by two letters, and matching the
-former would suppress the very caller who asked for a callback. Every pattern requires
+patterns fire on any phrasing of a request NOT TO BE CALLED — but not on an everyday
+refusal of the offer ("not interested", "vaddu", "abhi nahi") or a request for another
+time ("call me later", "ippudu call cheyakandi"). Those are a lead saying no today, and
+filing them made numbers permanently undiallable on a mistaken reading; a person who
+really meant "never" says so again, and the agent's own tool hears it. Telugu's negative
+suffix is the sharpest case — `call cheyandi` ("please call") and `call cheyakandi`
+("don't call") differ by two letters. Every pattern requires
 the CALLER to have said it: the agent's acknowledgement ("mee number ni do-not-call list
 lo pettanu") contains every keyword in the list and is not an opt-out.
 
@@ -258,31 +263,60 @@ def normalize_utterance(value: str) -> str:
 # The list. Each entry is (rule id, language, pattern). The rule id is what lands in the
 # ledger's evidence, so it has to name the thing a human would say the caller said.
 #
-# Recall over precision, on purpose (see the module docstring). Two rules are
-# deliberately narrow anyway, and both for the same reason: the negation carries the
-# whole meaning. Telugu `cheyakandi`/`cheyyoddu` ("do not do") vs `cheyandi` ("please
-# do"), and Hindi `mat karo` ("do not do") vs `karo` — a pattern that lost the negative
-# would suppress every caller who asked to be rung back.
+# Recall over precision (module docstring), but only over a request NOT TO BE CALLED. An
+# everyday refusal — "not interested", "vaddu", "abhi nahi", "call me later" — is a lead
+# saying no to this offer, not a person withdrawing from every call, and filing it here
+# makes the number permanently undiallable for the client. So three kinds of precision are
+# enforced, each with a negative fixture in `tests/call_optout_test.py`:
+#
+# * The negation carries the whole meaning: Telugu `cheyakandi`/`cheyyoddu` ("do not do")
+#   vs `cheyandi` ("please do"), Hindi `mat karo` vs `karo`.
+# * "Not NOW" is a request for another time: "ippudu call cheyakandi", "abhi call mat
+#   karo", "don't call me now" are refused: English by a lookahead after the phrase, the
+#   others by `_NOT_NOW` just before it, which can sit a word or two away.
+# * The words must be about OUR calls to them: "you never call me back" is a complaint,
+#   "phone band karo" is "hang up", "number teesi pettukondi" is "note the number down".
+_NOT_NOW_EN = (
+    r"(?! (?:now|right now|today|tonight|at work|before|after|till|until|during|in the|back"
+    r"|ill|i will|i ll|we ll|on this)\b)"
+)
 _PATTERNS: tuple[tuple[str, str, str], ...] = (
     # --- English --------------------------------------------------------------
-    ("stop_calling", "en", r"\bstop (calling|ringing|the calls|these calls|all calls)\b"),
-    ("do_not_call", "en", r"\b(dont|do not|never|no more|stop) (call|ring|phone|contact)\w*\b"),
+    (
+        "stop_calling",
+        "en",
+        r"\bstop (calling|ringing|phoning|contacting|the calls|these calls|all calls|calls)\b",
+    ),
+    (
+        "do_not_call",
+        "en",
+        # Atomic groups, so "dont call me now" cannot backtrack to "dont call" and slip
+        # past the lookahead.
+        r"\b(?:dont|do not) (?:call|ring|phone|contact)(?>(?: me| us| this number| my number)?)"
+        r"(?>(?: again| anymore| any more| ever)?)\b"
+        + _NOT_NOW_EN
+        + r"|\bnever (?:call|ring|phone|contact)(?: me| us| this number| my number)?"
+        r" (?:again|anymore|any more)\b"
+        r"|\bno more (?:calls|calling|phone calls)\b",
+    ),
     ("do_not_call_list", "en", r"\bdo not call list\b|\bdnc list\b"),
     ("remove_my_number", "en", r"\b(remove|delete|drop) (my|this|the) (number|phone|contact)\b"),
     ("take_me_off", "en", r"\btake (me|my number|my name) off\b"),
     ("unsubscribe", "en", r"\bunsubscribe\b|\bopt me out\b|\bopt out\b"),
     # --- Telugu (romanised) ---------------------------------------------------
-    # "call cheyakandi" / "phone cheyyoddu" / "call vaddu" — the negative form only.
+    # "call cheyakandi" / "phone cheyyoddu" / "calls vaddu" — the negative form only.
     (
         "call_cheyakandi",
         "te",
         r"\b(call|calls|phone|fone)\w*\s+(chey+a?kandi|chey+akandhi|chey+oddu|vad+u|vod+u)\b",
     ),
-    # "naa number teeseyandi" / "list lo nunchi teesivEyandi" — remove my number.
+    # "naa number teeseyandi" / "list lo nunchi teesivEyandi" — remove my number. A removal
+    # verb only: "number teesi pettukondi" (note the number down) is not one.
     (
         "number_teeseyandi",
         "te",
-        r"\b(number|nambar|nambaru)\b[\w ]{0,20}\b(t[eh]+se|tise|thise|t[eh]+si|tholaginch)\w*\b",
+        r"\b(number|nambar|nambaru)\b[\w ]{0,20}"
+        r"\b(t[eh]+se(?:y|yy)\w*|t[eh]+si\s*v[ea]\w*|tholaginch\w*)",
     ),
     # --- Hindi (romanised) ----------------------------------------------------
     (
@@ -292,17 +326,34 @@ _PATTERNS: tuple[tuple[str, str, str], ...] = (
         r"\w*(karo|kariye|kijiye|karna|karein|kare|kar)\b",
     ),
     ("number_hata_do", "hi", r"\b(number|nambar|list|suchi)\b[\w ]{0,25}\bhata\w*\b"),
-    ("band_karo", "hi", r"\b(call|phone|fone)\w*[\w ]{0,15}\bband kar\w*\b"),
+    # "calls band karo" / "call karna band karo". Not "phone band karo", which is "hang up".
+    (
+        "band_karo",
+        "hi",
+        r"\b(calls|call karna|phone karna|fone karna)\b[\w ]{0,15}\bband kar\w*\b",
+    ),
     # --- Native script --------------------------------------------------------
     # A SMALLER list than the romanised ones, and marked as such: every red-team fixture
     # we hold is romanised, so these are written from the language rather than from
     # observed STT output. They are additive — nothing depends on them being complete —
     # and the first native-script transcript from the pilot is what should grow them.
+    # Code-mixed "call చేయకండి" is matched too: Indian STT writes the English loanword
+    # in Latin script inside a Telugu sentence.
     ("do_not_call_deva", "hi", r"कॉल\s*(मत|न)\s*(करो|करें|कीजिए|करना)"),
     ("remove_number_deva", "hi", r"(नंबर|नम्बर)[^\n]{0,20}हटा"),
-    ("do_not_call_telu", "te", r"(కాల్|ఫోన్)\s*చేయ(కండి|వద్దు)"),
+    (
+        "do_not_call_telu",
+        "te",
+        r"(కాల్|ఫోన్|call|calls|phone)\s*(చేయ(కండి|వద్దు)|చేయొద్దు)",
+    ),
     ("remove_number_telu", "te", r"(నంబర్|నెంబర్)[^\n]{0,20}తీసే"),
 )
+
+#: "Now" in Telugu and Hindi, in the few words before a match: "ippudu call cheyakandi",
+#: "abhi call mat karo" ask for another time. Not "abhi se" ("from now on"), which is the
+#: opposite.
+_NOT_NOW = re.compile(r"\b(?:ippudu|ipudu|ipdu|abhi(?! se\b)|abi(?! se\b))\b|ఇప్పుడు|अभी(?! से)")
+_NOT_NOW_WINDOW = 25
 
 _COMPILED: tuple[tuple[str, str, re.Pattern[str]], ...] = tuple(
     (rule, language, re.compile(pattern, re.UNICODE)) for rule, language, pattern in _PATTERNS
@@ -334,6 +385,10 @@ def detect_opt_out(turns: Sequence[SpokenTurn]) -> OptOutSignal | None:
         for rule, language, pattern in _COMPILED:
             found = pattern.search(normalized)
             if found is None:
+                continue
+            if language != "en" and _NOT_NOW.search(
+                normalized, max(0, found.start() - _NOT_NOW_WINDOW), found.start()
+            ):
                 continue
             return OptOutSignal(
                 rule=rule,

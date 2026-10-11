@@ -100,6 +100,15 @@ class _Turn:
         ("Stop calling me.", "en"),
         ("Please remove my number from your list.", "en"),
         ("Put me on your do not call list.", "en"),
+        ("Don't call me again.", "en"),
+        ("Please don't call.", "en"),
+        ("Never call me again.", "en"),
+        ("మళ్ళీ call చేయకండి", "te"),
+        ("మళ్ళీ కాల్ చేయకండి", "te"),
+        ("मुझे दोबारा कॉल मत करना", "hi"),
+        ("Abhi se call mat karna.", "hi"),
+        ("Mere number 9876543210 pe calls band karo.", "hi"),
+        ("List lo nunchi naa number teesiveyandi.", "te"),
     ],
 )
 def test_an_opt_out_is_recognised_in_the_language_it_was_spoken_in(
@@ -138,6 +147,30 @@ def test_the_agent_saying_it_is_not_the_caller_asking_for_it(utterance: str) -> 
         "Naa data motham delete cheyandi.",
         # A denial about something else entirely.
         "Naa appointment cancel cheyakandi.",
+        # EVERYDAY REFUSALS of the offer. A lead saying no today is not a person asking
+        # never to be called by this business again; filing these made leads undiallable.
+        "Not interested.",
+        "No need, I don't need it.",
+        "Not now, call later.",
+        "వద్దు",
+        "ఇప్పుడు వద్దు",
+        "Vaddu andi, interest ledu.",
+        "बाद में",
+        "Abhi nahi.",
+        "Abhi call mat karo, shaam ko karna.",
+        "Ippudu call cheyakandi, repu cheyandi.",
+        "Don't call me now, call me in the evening.",
+        "Don't call me, I'll call you.",
+        "You never call me back.",
+        # ENDING THIS CALL is not asking never to be called. The founder's own test call
+        # (11 Oct 2026) was filed as an opt-out on the first of these.
+        "ఓకే అండి అంతే ఇంకా కట్ చేసేయండి థ్యాంక్ యూ",
+        "Okay that's all, you can cut the call.",
+        "You can hang up now, thank you.",
+        "Phone band karo, bas.",
+        "Phone pettandi, thank you.",
+        # "Note my number down" is not "remove my number".
+        "Naa number teesi pettukondi.",
     ],
 )
 def test_what_is_not_an_opt_out_does_not_become_one(utterance: str) -> None:
@@ -156,7 +189,7 @@ def test_what_is_not_an_opt_out_does_not_become_one(utterance: str) -> None:
         # matching shows up here as a failure rather than as a silently unproven claim.
         "naa number 9876543210 teeseyandi",
         "mera number 9876543210 hata do",
-        "phone 9876543210 band karo",
+        "calls 9876543210 pe band karo",
         "\u0928\u0902\u092c\u0930 9876543210 \u0939\u091f\u093e \u0926\u094b",
         "\u0c28\u0c02\u0c2c\u0c30\u0c4d 9876543210 "
         "\u0c24\u0c40\u0c38\u0c47\u0c2f\u0c02\u0c21\u0c3f",

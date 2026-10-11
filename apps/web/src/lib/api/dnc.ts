@@ -16,7 +16,8 @@
  *   cache key that outlives the answer, so the check is a mutation with a result the
  *   screen holds only as long as it is on screen.
  * - **`removable` comes from the server.** `is_removable()` is the ONE definition of
- *   "may this be undone here" (global entries: no; consumer opt-outs: no). The screen
+ *   "may this be undone here" (global entries: no; consumer opt-outs: no — those carry
+ *   `restorable` and go through Restore with a stated reason instead). The screen
  *   renders that flag rather than re-deriving the rule, so the list can never grow a
  *   button the endpoint refuses.
  */
@@ -96,6 +97,58 @@ export function useRemoveDncEntry(session: Session) {
   return useMutation({
     mutationFn: (entryId: string) =>
       apiRequest<void>(session, `/v1/dnc/${entryId}`, { method: "DELETE" }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: dncKeys.list(session.orgSlug) }),
+  });
+}
+
+export type DncEvidence = Schemas["EntryEvidenceOut"];
+export type DncEvidenceRecord = Schemas["OptOutEvidenceOut"];
+export type DncRestoreGround = Schemas["RestoreIn"]["ground"];
+
+/** Mirrors `dnc.RESTORE_NOTE_MAX`: the note the server keeps for "they asked to be called". */
+export const RESTORE_NOTE_MAX = 200;
+/** Mirrors `dnc.RESTORE_NOTE_MIN`. */
+export const RESTORE_NOTE_MIN = 5;
+
+/**
+ * What was recorded behind one entry, read when someone opens Restore on it — the screen
+ * shows the evidence before it lets anyone attest it was a mistake. Not on the list itself:
+ * most rows are never opened, and the list is read on every visit.
+ */
+export function useDncEvidence(session: Session, entryId: string | null) {
+  return useQuery({
+    queryKey: ["dnc-evidence", session.orgSlug, entryId] as const,
+    queryFn: () => apiRequest<DncEvidence>(session, `/v1/dnc/${entryId}/evidence`),
+    enabled: entryId != null,
+    // Read fresh every time the dialog opens: a newer opt-out is exactly what it must show.
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+/**
+ * Restore a person's opt-out on a stated ground. 204, like a removal: the row just
+ * deleted holds a phone number. `latest_evidence_id` is the newest record the dialog
+ * showed, so the server refuses (`dnc_restore_stale`) if a newer one landed meanwhile.
+ */
+export function useRestoreDncEntry(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      entryId,
+      ground,
+      note,
+      latestEvidenceId,
+    }: {
+      entryId: string;
+      ground: DncRestoreGround;
+      note: string | null;
+      latestEvidenceId: string | null;
+    }) =>
+      apiRequest<void>(session, `/v1/dnc/${entryId}/restore`, {
+        method: "POST",
+        body: { ground, note, latest_evidence_id: latestEvidenceId },
+      }),
     onSuccess: () => void client.invalidateQueries({ queryKey: dncKeys.list(session.orgSlug) }),
   });
 }
