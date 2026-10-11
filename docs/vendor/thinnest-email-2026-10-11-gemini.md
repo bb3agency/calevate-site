@@ -1,8 +1,8 @@
 # Email to Ashutosh (ThinnestAI), draft of 11 Oct 2026
 
 For the founder to send from the Calevate address. It carries the Gemini request and every
-question not yet sent: the ten queued after the 11 Oct production calls, questions 23-33, and
-the two confirmations in `thinnest-api-requests-2026-10-10.md`. Evidence behind it:
+question not yet sent: the ten queued after the 11 Oct production calls and questions 23-33.
+Questions already in the 10 Oct emails, still awaiting an answer, are left out. Evidence:
 `docs/evidence/in-call-model-trials-2026-10-11.md`, `in-call-model-research-2026-10-11.md`,
 `specimen-call-raghava-2026-10-11.md`. No key, secret, workspace id, phone number or margin is
 included, and no other telephony provider is named.
@@ -13,11 +13,12 @@ included, and no other telephony provider is named.
 
 Hi Ashutosh,
 
-Thank you for the reply on the 9 Oct email, and for the new `voice` fields in the API since
-last week: turn silence, interruption words, fillers, hang-up and the rest answer most of our
-10 Oct list. We are now running real Telugu test calls for our first client through your API,
-one customer workspace per client, and they have shown us where we need your help. The
-biggest is the language model.
+Thank you for the quick answers yesterday, and for confirming forwarding with the agent off,
+the fixed IP and the Pro limits. No rush on the 10 Oct emails; I see the new `voice` fields in
+your docs already cover most of them.
+
+We have now run our first real Telugu test calls through your API, and they raised a few new
+questions. None of these repeat the 10 Oct emails. The most important is the language model.
 
 ## 1. Gemini on our own key
 
@@ -69,9 +70,9 @@ allowed with our own voice, that would work for us too; please tell us the price
    The text we heard looked like the model's analysis channel. Can reasoning be turned off or
    down per agent?
 8. Do Prana and Prana [Voice] reason before replying, and have you measured them on Telugu?
-9. Is GPT-5.4 Nano allowed with our own voice (your console lists it, your docs do not)? What
-   is GPT-OSS 120B's model id? With our own voice, does an agent set to a model that is not
-   allowed run its calls on Prana or on GPT-OSS 120B? Your pages say both.
+9. Is GPT-5.4 Nano allowed with our own voice (your console lists it, your docs do not)? With
+   our own voice, does an agent set to a model that is not allowed run its calls on Prana or on
+   GPT-OSS 120B? Your pages say both.
 10. Do `temperature` and `maxReplyTokens` apply on calls, including for reasoning models?
 11. Does `callPricePerMinuteMicro` mean one of the models allowed with our own voice can cost
     more than ₹1.50 a minute, or is that rate flat?
@@ -106,9 +107,10 @@ allowed with our own voice, that would work for us too; please tell us the price
     Can an interrupted turn be marked and trimmed to what was actually spoken, in the transcript,
     in `call.analysed`, and in the model's context for the rest of the call?
 20. In one call a single agent turn held the same question three times glued together without
-    spaces. After an interruption, is the model run again with its earlier partial reply in its
-    context, and is the transcript turn several generations joined? Can the interrupted part be
-    dropped from the context, or kept only as what was heard?
+    spaces, and another call ended with several goodbyes glued the same way. Is the transcript
+    turn several generations joined: after an interruption, or when a turn re-runs on the backup
+    model as you described? Can the earlier part be dropped from the context, or kept only as
+    what was heard?
 21. With our own voice, is a sentence that was cut off still synthesised in full and charged to
     our Cartesia account, and how far ahead of playback do you send text to the voice?
 
@@ -126,12 +128,10 @@ allowed with our own voice, that would work for us too; please tell us the price
 
 ## 6. Test chat
 
-25. When an agent uses one of our custom actions during `POST /agents/{id}/test-chat`: (a) is an
-    `X-Call-Id` header sent, and with what id when there is no call? (b) What exactly is
-    `tools[].output` for a custom action: our response body as parsed JSON, as a string, or
-    shortened? (c) Is there any field or header telling our endpoint the request comes from a test
-    chat? (d) With the language set to Match the customer, does test chat detect the language the
-    way a call does? A Telugu message got an English reply.
+25. Two additions to my test-chat question of 11 Oct: (a) what exactly is `tools[].output` for
+    one of our custom actions: our response body as parsed JSON, as a string, or shortened? And
+    (b) with the language set to Match the customer, does test chat detect the language the way
+    a call does? A Telugu message got an English reply.
 
 ## 7. Automated-call notice (TRAI TCCCPR regulation 4)
 
@@ -147,20 +147,9 @@ allowed with our own voice, that would work for us too; please tell us the price
     (f) Once the Third Amendment's A2P provisions take effect, who records the declaration on the
     DLT platform?
 
-## 8. Two things to confirm
-
-- **Caller lookup (`voice.callStartUrl`).** We set it to our own per-agent https endpoint, store
-  the `callStartSecret` returned on that response, verify `x-thinnest-signature-v2` over
-  `<x-thinnest-delivered-at>.<body>` with a five-minute window, and answer within 0.8 s. Is the
-  secret returned on the response to a `PATCH` that sets a new address on an existing agent (not
-  only on create), and does `callStartSecret: "rotate"` with the same address return the new
-  secret the same way?
-- **`voice.ringSeconds`.** We send 30 on every agent and read it back. Is it live on every plan,
-  and does it apply to calls placed by campaigns and call backs as well as by Place Call?
-
 The Gemini question matters most to us; the rest can come as you have answers. Happy to get on
 a call if that is quicker.
 
 Thanks,
-[founder name]
+Umesh Chandra J
 Calevate
