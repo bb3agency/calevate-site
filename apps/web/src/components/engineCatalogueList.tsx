@@ -1,192 +1,189 @@
 "use client";
 
 import { useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { CheckCircle2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { PRIMARY_BUTTON_SM, ProblemNotice, Skeleton } from "@/components/ui";
+import { CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
+import { InfoTip } from "@/components/console/infoTip";
+import { ModelLogo } from "@/components/console/modelLogo";
+import { SaveBar } from "@/components/console/saveBar";
+import { ProblemNotice, Skeleton } from "@/components/ui";
 import { VoicePreviewButton } from "@/components/voicePreviewButton";
 import { viewAsSession } from "@/lib/api/admin";
-import { useAgent, useUpdateAgent, type Agent, type AgentUpdateIn } from "@/lib/api/agents";
+import { useAgent, useUpdateAgent, type Agent } from "@/lib/api/agents";
 import type { Session } from "@/lib/api/client";
 import {
   useEngineCatalogue,
   useTenantEngineCatalogue,
   type EngineCatalogue,
+  type EngineCatalogueModel,
 } from "@/lib/api/engineCatalogue";
 import { CLIENT_PREVIEW_PATH } from "@/lib/api/voicePreview";
 
-/** The two rungs, in the order a client reads them. Names only — never a vendor (D-679). */
+/**
+ * THE VOICE PLATFORM'S OWN VOICES, AND (FOR AN OPERATOR) ITS MODELS (D-678, D-687).
+ *
+ * Two pickers, each with its own save, because a voice and a model are two decisions and the
+ * founder split them (11 Oct 2026): a client chooses a voice here and a model TIER on the
+ * agent's Model section; only an operator sees the platform's real models (D-679).
+ *
+ * The voices are the ones an operator added and enabled, grouped by rung, Clear then Studio,
+ * as cards like the client voice picker (`agents/panels/voiceCards.tsx`): the same card, the
+ * same quiet treatment for a voice that cannot be chosen, the same save bar.
+ *
+ * "Platform default" sends `null`, which the server refuses by name once a choice has been
+ * published, because the platform keeps the last voice it was given. Where the account runs
+ * on its own keys the server says `choosable: false` and both pickers lock on `choice_note`.
+ */
+
+/** The two rungs, in the order a client reads them. Names only, never a vendor (D-679). */
 const RUNGS = [
   { value: "clear", label: "Clear", blurb: "Natural voices for everyday calls." },
   { value: "studio", label: "Studio", blurb: "Our most lifelike voices, billed at the Studio rate." },
 ] as const;
 
-/** The two fields this picker writes through `PATCH /v1/agents/{id}`. */
-export type EngineChoicePatch = Pick<AgentUpdateIn, "engine_voice_id" | "engine_model_id">;
-
-/** What the picker needs to save. Absent, the list is read-only. */
-export interface EngineChoiceControl {
-  voiceId: string | null;
-  modelId: string | null;
-  /** Why this reader may not change it, or null when they may. */
-  disabledReason: string | null;
-  saving: boolean;
-  error: Error | null;
-  onSave: (patch: EngineChoicePatch) => void;
-}
-
-/** What an operator reads under a model: its price band and reply speed, as the voice
- * platform's console shows them. Null for a client, whose read carries neither. */
-function modelFacts(entry: {
-  price_band?: "none" | "premium" | null;
-  latency_ms?: number | null;
-}): string | undefined {
-  const facts = [
-    entry.price_band === "premium"
-      ? "Calls bill at the Premium rate"
-      : entry.price_band === "none"
-        ? "No extra per-minute charge"
-        : null,
-    entry.latency_ms ? `Replies in about ${entry.latency_ms} ms` : null,
-  ].filter((fact): fact is string => fact !== null);
-  return facts.length > 0 ? facts.join(" · ") : undefined;
-}
-
 /** The value a radio carries for "the platform's own default". Never a catalogue id: the
  *  server bounds ids to non-whitespace, and this has a space. */
 const DEFAULT = "platform default";
 
-/**
- * The voice platform's own voices and models, each with whether it can be used today, and —
- * given `choice` — a picker that saves this agent's voice and model.
- *
- * Shown where the voice picker says the platform supplies its own voices (D-678). The voices
- * are the ones an operator added and enabled (D-687), grouped by rung — Clear, then Studio,
- * which is explained rather than listed while the account cannot have it
- * (`studio_available`) — each with a preview the reader can play before choosing. Every entry
- * is rendered; one the server says cannot be used is disabled with the server's own sentence
- * (an unpriced rung, a model too slow for a phone call, a model the plan does not include),
- * and a Studio voice beside a model that cannot run with one is disabled with that reason. The server checks the choice again when it saves and when it publishes, so this
- * screen composes no refusal of its own. "Platform default" sends `null`, which the server
- * refuses by name once a choice has been published, because the platform keeps the last
- * voice it was given. Where the account runs on its own keys the server says `choosable: false`
- * and the picker locks on its `choice_note`. Renders nothing on a platform that publishes no
- * catalogue of its own.
- */
-export function EngineCatalogueList({
+/** One sentence, shared with the client voice picker, because it is one promise. */
+const NEXT_CALL_NOTE = "Applies from the next call. A call in progress finishes as it started.";
+
+/** What a picker needs to save one field. Absent, the list is read-only. */
+interface SaveControl {
+  /** Why this reader may not change it, or null when they may. */
+  disabledReason: string | null;
+  saving: boolean;
+  error: Error | null;
+  onSave: (value: string | null, done: () => void) => void;
+}
+
+/** The first clause of a server reason, for the plain line; the whole sentence goes in an ⓘ. */
+function shortReason(reason: string): string {
+  const cut = reason.search(/[.;:]\s/);
+  return cut > 0 ? reason.slice(0, cut) : reason.replace(/[.;:]$/, "");
+}
+
+/** The catalogue read as a picker states it: a skeleton, a refusal, or the data. */
+function loadedState(catalogue: UseQueryResult<EngineCatalogue>, what: string) {
+  if (catalogue.isLoading) return { node: <Skeleton rows={2} /> };
+  if (catalogue.error || !catalogue.data) {
+    return {
+      node: (
+        <ProblemNotice
+          error={catalogue.error ?? new Error(`The voice platform's own ${what} did not load.`)}
+          onRetry={() => void catalogue.refetch()}
+        />
+      ),
+    };
+  }
+  return { data: catalogue.data };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+ * VOICES
+ * ═══════════════════════════════════════════════════════════════════════════════════ */
+
+export function EngineVoiceList({
   catalogue,
-  choice,
+  voiceId,
+  modelId,
+  control,
   previewSession,
+  audience,
 }: {
   catalogue: UseQueryResult<EngineCatalogue>;
-  choice?: EngineChoiceControl;
+  /** Who reads it: a client is never shown a model's name (D-679). */
+  audience: "client" | "operator";
+  /** The saved voice, or null for the platform default. */
+  voiceId: string | null;
+  /** The saved model, for the Studio rule. A client's catalogue lists no models. */
+  modelId: string | null;
+  control?: SaveControl;
   /** The session the preview clips are read through: the reader's own, or view-as. */
   previewSession?: Session;
 }) {
-  const [voice, setVoice] = useState<string | null>(null);
-  const [model, setModel] = useState<string | null>(null);
-
-  if (catalogue.isLoading) return <Skeleton rows={2} />;
-  if (catalogue.error || !catalogue.data) {
-    return (
-      <ProblemNotice
-        error={catalogue.error ?? new Error("The voice platform's own voices did not load.")}
-        onRetry={() => void catalogue.refetch()}
-      />
-    );
-  }
-  const data = catalogue.data;
+  const [picked, setPicked] = useState<string | null>(null);
+  const loaded = loadedState(catalogue, "voices");
+  const saved = voiceId ?? DEFAULT;
+  const selected = picked ?? saved;
+  const changed = selected !== saved;
+  if (!loaded.data) return loaded.node;
+  const data = loaded.data;
   if (!data.available) return null;
 
-  const savedVoice = choice?.voiceId ?? DEFAULT;
-  const savedModel = choice?.modelId ?? DEFAULT;
-  const selectedVoice = voice ?? savedVoice;
-  const selectedModel = model ?? savedModel;
-  const patch: EngineChoicePatch = {};
-  if (selectedVoice !== savedVoice) {
-    patch.engine_voice_id = selectedVoice === DEFAULT ? null : selectedVoice;
-  }
-  if (selectedModel !== savedModel) {
-    patch.engine_model_id = selectedModel === DEFAULT ? null : selectedModel;
-  }
-  const changed = Object.keys(patch).length > 0;
-  // The platform's own lock (the account runs on its own keys) before this reader's.
-  const lockReason = !data.choosable
-    ? (data.choice_note ?? null)
-    : (choice?.disabledReason ?? null);
-  const locked = !choice || lockReason !== null || choice.saving;
-  // A Studio voice and the model must agree, and the server refuses the pair by name
-  // (`engine_model_not_with_studio_voice`). The picker says so before the save: the model
-  // in the selection blocks Studio voices, and a Studio voice in the selection blocks the
-  // models that cannot run beside it.
-  const chosenModel = data.models.find((entry) => entry.model_id === selectedModel);
-  const studioBlockedBy =
-    chosenModel && !chosenModel.usable_with_studio_voice ? chosenModel.label : null;
-  const studioVoiceChosen =
-    data.voices.find((entry) => entry.voice_id === selectedVoice)?.rung === "studio";
+  const lockReason = !data.choosable ? (data.choice_note ?? null) : (control?.disabledReason ?? null);
+  const locked = !control || lockReason !== null || control.saving;
+  // A Studio voice runs only beside a model the platform allows with it; the server refuses
+  // the pair by name (`engine_model_not_with_studio_voice`) and this says so before the save.
+  const savedModel = data.models.find((entry) => entry.model_id === modelId);
+  // A client never reads a model name (D-679); an operator needs it to know what to change.
+  const studioBlocked =
+    savedModel === undefined || savedModel.usable_with_studio_voice
+      ? null
+      : audience === "client"
+        ? "Not available with the model this agent runs on."
+        : `This agent's model, ${savedModel.label}, cannot run with a Studio voice. Choose another model to use this voice.`;
 
-  const body = (
-    <>
-      <p className="text-xs text-ink-muted">
+  const cards = (
+    <div className="space-y-6">
+      <p className="text-meta text-ink-muted">
         {data.note}
         {!data.complete && " The platform's list was cut short, so some may be missing."}
       </p>
-      {choice && lockReason && <p className="text-xs text-ink-muted">{lockReason}</p>}
-      {choice?.error && <ProblemNotice error={choice.error} />}
-      {choice && (
-        <ul className="border-y border-line" aria-label="Default voice">
-          <Option
+      {control && lockReason && <p className="text-meta text-ink-muted">{lockReason}</p>}
+      {control?.error && <ProblemNotice error={control.error} />}
+      {control && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          <ChoiceCard
             name="engine-voice"
             value={DEFAULT}
             label="Platform default"
             detail="The voice the platform picks when none is chosen."
-            checked={selectedVoice === DEFAULT}
-            current={savedVoice === DEFAULT}
+            checked={selected === DEFAULT}
+            current={saved === DEFAULT}
             disabled={locked}
-            onChange={setVoice}
+            onChange={setPicked}
           />
-        </ul>
+        </div>
       )}
       {data.voices.length === 0 ? (
-        <p className="text-sm text-ink-muted">No voice is offered yet.</p>
+        <p className="text-body text-ink-muted">No voice is offered yet.</p>
       ) : (
         RUNGS.map((rung) => {
           const voices = data.voices.filter((entry) => entry.rung === rung.value);
           if (rung.value === "studio" && !data.studio_available && voices.length === 0) return null;
+          const headingId = `engine-voice-${rung.value}`;
           return (
-            <fieldset key={rung.value} className="space-y-1">
-              <legend className="text-meta font-semibold text-ink-muted">
+            <div key={rung.value} role="group" aria-labelledby={headingId}>
+              <h3 id={headingId} className="text-sm font-semibold text-ink">
                 {rung.label} voices
-              </legend>
-              <p className="text-xs text-ink-muted">{rung.blurb}</p>
+              </h3>
+              <p className="text-meta text-ink-muted">{rung.blurb}</p>
               {rung.value === "studio" && !data.studio_available ? (
-                <p className="mt-1 text-sm text-ink-muted">
-                  {/* The server's own reason: Studio is not ready on this deployment yet. */}
-                  {data.studio_note ??
-                    "Studio voices are not available on this account yet."}
+                <p className="mt-2 text-body text-ink-muted">
+                  {data.studio_note ?? "Studio voices are not available on this account yet."}
                 </p>
               ) : voices.length === 0 ? (
-                <p className="mt-1 text-sm text-ink-muted">No {rung.label} voice is offered yet.</p>
+                <p className="mt-2 text-body text-ink-muted">No {rung.label} voice is offered yet.</p>
               ) : (
-                <ul className="mt-1 divide-y divide-line border-y border-line">
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   {voices.map((entry) => {
-                    const blocked =
-                      entry.rung === "studio" && studioBlockedBy !== null
-                        ? `The language model chosen below, ${studioBlockedBy}, cannot be used with a Studio voice. Choose another model to use this voice.`
-                        : null;
+                    const blocked = entry.rung === "studio" ? studioBlocked : null;
                     return (
-                      <Option
+                      <ChoiceCard
                         key={entry.voice_id}
                         name="engine-voice"
-                        value={choice ? entry.voice_id : null}
+                        value={control ? entry.voice_id : null}
                         label={entry.label}
                         suffix={entry.is_custom ? "made for this platform" : undefined}
                         detail={entry.language_note}
                         reason={entry.offerable ? blocked : entry.reason}
-                        checked={selectedVoice === entry.voice_id}
-                        current={savedVoice === entry.voice_id}
+                        checked={selected === entry.voice_id}
+                        current={saved === entry.voice_id}
                         disabled={locked || !entry.offerable || blocked !== null}
-                        onChange={setVoice}
+                        onChange={setPicked}
                         extra={
                           entry.preview_available && previewSession ? (
                             <VoicePreviewButton
@@ -194,95 +191,188 @@ export function EngineCatalogueList({
                               path={CLIENT_PREVIEW_PATH}
                               voiceId={entry.voice_id}
                               label={entry.label}
+                              compact
                             />
                           ) : undefined
                         }
                       />
                     );
                   })}
-                </ul>
+                </div>
               )}
-            </fieldset>
+            </div>
           );
         })
       )}
-      <fieldset className="space-y-1">
-        <legend className="text-meta font-semibold text-ink-muted">
-          The platform&apos;s language models
-        </legend>
-        {data.models.length === 0 ? (
-          <p className="mt-1 text-sm text-ink-muted">The platform listed no models.</p>
-        ) : (
-          <ul className="mt-1 divide-y divide-line border-y border-line">
-            {choice && (
-              <Option
-                name="engine-model"
-                value={DEFAULT}
-                label="Platform default"
-                detail={
-                  data.default_model_label
-                    ? `${data.default_model_label} on Clear voices. Studio voices use the platform's standard model.`
-                    : "The model the platform picks when none is chosen."
-                }
-                checked={selectedModel === DEFAULT}
-                current={savedModel === DEFAULT}
-                disabled={locked}
-                onChange={setModel}
-              />
-            )}
-            {data.models.map((entry) => {
-              const clash =
-                studioVoiceChosen && !entry.usable_with_studio_voice
-                  ? "This model cannot be used with a Studio voice. Choose a Clear voice to use it."
-                  : null;
-              return (
-                <Option
-                  key={entry.model_id}
-                  name="engine-model"
-                  value={choice ? entry.model_id : null}
-                  label={entry.label}
-                  detail={modelFacts(entry)}
-                  reason={entry.offerable ? clash : entry.reason}
-                  checked={selectedModel === entry.model_id}
-                  current={savedModel === entry.model_id}
-                  disabled={locked || !entry.offerable || clash !== null}
-                  onChange={setModel}
-                />
-              );
-            })}
-          </ul>
-        )}
-      </fieldset>
-    </>
+    </div>
   );
 
-  if (!choice) return <div className="space-y-4">{body}</div>;
+  if (!control) return cards;
   return (
     <form
       className="space-y-4"
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
-        if (changed) choice.onSave(patch);
+        if (changed) control.onSave(selected === DEFAULT ? null : selected, () => setPicked(null));
       }}
     >
-      {body}
-      <button type="submit" disabled={locked || !changed} className={PRIMARY_BUTTON_SM}>
-        {choice.saving ? "Saving…" : "Save voice and model"}
-      </button>
+      {cards}
+      {(changed || control.saving) && (
+        <SaveBar
+          label="Use this voice"
+          saving={control.saving}
+          disabled={locked && !control.saving}
+          onCancel={() => setPicked(null)}
+          note={NEXT_CALL_NOTE}
+        />
+      )}
     </form>
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════════════
+ * MODELS, for an operator only. A client is sent none (D-679, D-750).
+ * ═══════════════════════════════════════════════════════════════════════════════════ */
+
+/** Whether a model costs extra, in the operator's words. A paid one is never listed (D-750). */
+function bandLine(entry: EngineCatalogueModel): string {
+  const band = entry.price_band === "none" ? "No extra charge" : "Not checked yet";
+  return entry.latency_ms ? `${band} · replies in about ${entry.latency_ms} ms` : band;
+}
+
+export function EngineModelList({
+  catalogue,
+  voiceId,
+  modelId,
+  control,
+  bandControl,
+}: {
+  catalogue: UseQueryResult<EngineCatalogue>;
+  /** The agent's saved voice, which decides the models it may run (Studio or Clear). */
+  voiceId: string | null;
+  /** The saved model, or null for the platform default. */
+  modelId: string | null;
+  control?: SaveControl;
+  /** The per-model band control, rendered at the end of each row. */
+  bandControl?: (entry: EngineCatalogueModel) => ReactNode;
+}) {
+  const [picked, setPicked] = useState<string | null>(null);
+  const loaded = loadedState(catalogue, "models");
+  const saved = modelId ?? DEFAULT;
+  const selected = picked ?? saved;
+  const changed = selected !== saved;
+  if (!loaded.data) return loaded.node;
+  const data = loaded.data;
+  if (!data.available) return null;
+
+  const lockReason = !data.choosable ? (data.choice_note ?? null) : (control?.disabledReason ?? null);
+  const locked = !control || lockReason !== null || control.saving;
+  // On a Studio voice the platform runs only the models it allows beside our own voice key;
+  // the rest are not offered at all rather than listed as refusals (founder, 11 Oct 2026).
+  const studio = data.voices.find((entry) => entry.voice_id === voiceId)?.rung === "studio";
+  // Calevate offers only models included in the per-minute price (D-750). The server already
+  // leaves a paid model out; this keeps a stale cache from showing one.
+  const free = data.models.filter((entry) => entry.price_band !== "premium");
+  const models = studio ? free.filter((entry) => entry.usable_with_studio_voice) : free;
+  const hidden = free.length - models.length;
+
+  const list = (
+    <div className="space-y-4">
+      {control && lockReason && <p className="text-meta text-ink-muted">{lockReason}</p>}
+      {control?.error && <ProblemNotice error={control.error} />}
+      {studio && hidden > 0 && (
+        <p className="flex items-center gap-1 text-meta text-ink-muted">
+          More models are available with a Clear voice.
+          <InfoTip label="Models on a Studio voice">
+            <p>
+              This agent speaks a Studio voice, which runs on our own voice key. The platform
+              allows only {models.length} of its {free.length} models beside that key, so
+              only those are listed. Choose a Clear voice to use the others.
+            </p>
+          </InfoTip>
+        </p>
+      )}
+      <div role="radiogroup" aria-label="Language model" className="space-y-2">
+        {control && (
+          <ChoiceCard
+            name="engine-model"
+            value={DEFAULT}
+            label="Platform default"
+            detail={
+              data.default_model_label
+                ? `${data.default_model_label} on Clear voices. Studio voices use the platform's standard model.`
+                : "The model the platform picks when none is chosen."
+            }
+            checked={selected === DEFAULT}
+            current={saved === DEFAULT}
+            disabled={locked}
+            onChange={setPicked}
+          />
+        )}
+        {models.length === 0 ? (
+          <p className="text-body text-ink-muted">The platform listed no models it can run here.</p>
+        ) : (
+          models.map((entry) => (
+            <ChoiceCard
+              key={entry.model_id}
+              name="engine-model"
+              value={control ? entry.model_id : null}
+              label={entry.label}
+              icon={<ModelLogo label={entry.label} />}
+              detail={bandLine(entry)}
+              reason={entry.offerable ? null : entry.reason}
+              checked={selected === entry.model_id}
+              current={saved === entry.model_id}
+              disabled={locked || !entry.offerable}
+              onChange={setPicked}
+              extra={bandControl?.(entry)}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  if (!control) return list;
+  return (
+    <form
+      className="space-y-4"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (changed) control.onSave(selected === DEFAULT ? null : selected, () => setPicked(null));
+      }}
+    >
+      {list}
+      {(changed || control.saving) && (
+        <SaveBar
+          label="Save model"
+          saving={control.saving}
+          disabled={locked && !control.saving}
+          onCancel={() => setPicked(null)}
+          note={NEXT_CALL_NOTE}
+        />
+      )}
+    </form>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+ * ONE OPTION
+ * ═══════════════════════════════════════════════════════════════════════════════════ */
+
 /**
- * One row: a radio when the list is a picker (`value` set), plain text when it is not.
- * `extra` (the preview button) sits OUTSIDE the label, so pressing play never changes the
- * selection. `current` marks what is saved now, which a moved radio no longer shows.
+ * One option as the kit's choice card: a radio when the list is a picker (`value` set), plain
+ * text when it is not. `extra` (a preview button, a band control) sits OUTSIDE the label, so
+ * pressing it never changes the selection. `current` marks what is saved now, which a moved
+ * radio no longer shows. A reason is a plain muted line with the whole sentence behind an ⓘ.
  */
-function Option({
+function ChoiceCard({
   name,
   value,
   label,
+  icon,
   suffix,
   detail,
   reason,
@@ -295,6 +385,7 @@ function Option({
   name: string;
   value: string | null;
   label: string;
+  icon?: ReactNode;
   suffix?: string;
   detail?: string;
   reason?: string | null;
@@ -304,67 +395,93 @@ function Option({
   onChange: (value: string) => void;
   extra?: ReactNode;
 }) {
+  const reasonText = reason ? shortReason(reason) : null;
+  // The whole sentence goes behind an ⓘ only when the plain line had to leave some out.
+  const reasonCut =
+    reason != null && reasonText !== null && reasonText.length < reason.replace(/[.;:]\s*$/, "").length;
   const text = (
-    <>
-      <span className="font-medium text-ink">{label}</span>
-      {suffix && <span className="text-ink-muted">{` · ${suffix}`}</span>}
-      {current && (
-        <span className="ml-2 inline-flex rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-brand-strong">
-          In use
-        </span>
-      )}
-      {reason ? (
-        <span className="mt-0.5 block text-xs font-medium text-warn">
-          Cannot be used — {reason}
-        </span>
-      ) : (
-        <span className="mt-0.5 block text-xs text-ink-muted">{detail ?? "Available"}</span>
-      )}
-    </>
+    <span className={`min-w-0 flex-1 ${reason ? "opacity-60" : ""}`}>
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {icon}
+        <span className="text-sm font-semibold text-ink">{label}</span>
+        {suffix && <span className="text-xs text-ink-muted">{suffix}</span>}
+        {current && (
+          <span className="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-muted">
+            In use
+          </span>
+        )}
+      </span>
+      {detail && <span className="mt-0.5 block text-xs text-ink-muted">{detail}</span>}
+      {reasonText && <span className="mt-0.5 block text-xs text-ink-muted">{reasonText}</span>}
+    </span>
   );
   return (
-    <li className="flex flex-wrap items-start justify-between gap-2 px-3 py-2 text-sm">
+    <div
+      className={`relative flex items-start gap-3 rounded-card border p-3 transition-colors ${
+        checked ? CHOICE_ON : CHOICE_OFF
+      }`}
+    >
       {value === null ? (
-        <span className="min-w-0 flex-1">{text}</span>
+        text
       ) : (
-        <label className="flex min-w-0 flex-1 items-start gap-2">
+        <label
+          className={`flex min-w-0 flex-1 items-start gap-3 rounded-md touch:min-h-11 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app ${
+            disabled ? "cursor-not-allowed" : "cursor-pointer"
+          }`}
+        >
           <input
             type="radio"
             name={name}
             value={value}
+            className="sr-only"
             checked={checked}
             disabled={disabled}
             onChange={() => onChange(value)}
-            className="mt-1"
           />
-          <span className="min-w-0">{text}</span>
+          {checked ? (
+            <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-strong" />
+          ) : (
+            <span aria-hidden className="mt-0.5 h-4 w-4 shrink-0 rounded-full border border-ink/25" />
+          )}
+          {text}
         </label>
       )}
+      {reason && reasonCut && (
+        <InfoTip label={`Why ${label} cannot be chosen`} align="end" className="-mr-1 -mt-1">
+          <p>{reason}</p>
+        </InfoTip>
+      )}
       {extra}
-    </li>
+    </div>
   );
 }
 
-function control(
-  agent: Agent | undefined,
+/* ═══════════════════════════════════════════════════════════════════════════════════
+ * MOUNTS
+ * ═══════════════════════════════════════════════════════════════════════════════════ */
+
+function saveControl(
   save: ReturnType<typeof useUpdateAgent>,
   disabledReason: string | null,
+  field: "engine_voice_id" | "engine_model_id",
   onSaved?: () => void,
-): EngineChoiceControl | undefined {
-  if (!agent) return undefined;
+): SaveControl {
   return {
-    voiceId: agent.engine_voice_id ?? null,
-    modelId: agent.engine_model_id ?? null,
     disabledReason,
     saving: save.isPending,
     error: save.error,
-    onSave: (patch) => save.mutate(patch, { onSuccess: onSaved }),
+    onSave: (value, done) =>
+      save.mutate({ [field]: value }, {
+        onSuccess: () => {
+          done();
+          onSaved?.();
+        },
+      }),
   };
 }
 
-/** The picker, through the console's view-as session for one tenant. Mounted only where the
- *  voice picker has already said the platform supplies its own voices. */
-export function TenantEngineCatalogue({
+/** The voices, through the console's view-as session for one tenant. */
+export function TenantEngineVoices({
   slug,
   agent,
   disabledReason = null,
@@ -377,26 +494,57 @@ export function TenantEngineCatalogue({
   const save = useUpdateAgent(viewAsSession(slug), agent?.id ?? "");
   // The console reads this agent from its own roster query, which the client hook's refresh
   // does not know about.
-  const refreshRoster = () =>
-    void client.invalidateQueries({ queryKey: ["admin", "agents", slug] });
+  const refreshRoster = () => void client.invalidateQueries({ queryKey: ["admin", "agents", slug] });
   return (
-    <EngineCatalogueList
+    <EngineVoiceList
       catalogue={useTenantEngineCatalogue(slug)}
-      choice={control(agent, save, disabledReason, refreshRoster)}
+      voiceId={agent?.engine_voice_id ?? null}
+      modelId={agent?.engine_model_id ?? null}
+      control={agent ? saveControl(save, disabledReason, "engine_voice_id", refreshRoster) : undefined}
       previewSession={viewAsSession(slug)}
+      audience="operator"
     />
   );
 }
 
-/** The picker, through a client's own session. Mounted under the same condition. */
-export function ClientEngineCatalogue({ session, agentId }: { session: Session; agentId: string }) {
+/** The models with their makers' marks, through the console's view-as session. */
+export function TenantEngineModels({
+  slug,
+  agent,
+  disabledReason = null,
+  bandControl,
+}: {
+  slug: string;
+  agent?: Agent;
+  disabledReason?: string | null;
+  bandControl?: (entry: EngineCatalogueModel) => ReactNode;
+}) {
+  const client = useQueryClient();
+  const save = useUpdateAgent(viewAsSession(slug), agent?.id ?? "");
+  const refreshRoster = () => void client.invalidateQueries({ queryKey: ["admin", "agents", slug] });
+  return (
+    <EngineModelList
+      catalogue={useTenantEngineCatalogue(slug)}
+      voiceId={agent?.engine_voice_id ?? null}
+      modelId={agent?.engine_model_id ?? null}
+      control={agent ? saveControl(save, disabledReason, "engine_model_id", refreshRoster) : undefined}
+      bandControl={bandControl}
+    />
+  );
+}
+
+/** The voices, through a client's own session. A client never sees the models (D-679). */
+export function ClientEngineVoices({ session, agentId }: { session: Session; agentId: string }) {
   const agent = useAgent(session, agentId);
   const save = useUpdateAgent(session, agentId);
   return (
-    <EngineCatalogueList
+    <EngineVoiceList
       catalogue={useEngineCatalogue(session)}
-      choice={control(agent.data, save, null)}
+      voiceId={agent.data?.engine_voice_id ?? null}
+      modelId={agent.data?.engine_model_id ?? null}
+      control={agent.data ? saveControl(save, null, "engine_voice_id") : undefined}
       previewSession={session}
+      audience="client"
     />
   );
 }

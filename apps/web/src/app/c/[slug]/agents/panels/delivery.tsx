@@ -38,7 +38,8 @@ import {
 } from "@/components/ui";
 import { TEXT_ACTION } from "@/components/console/section";
 import { SettingRow } from "@/components/console/settingRow";
-import { ClientEngineCatalogue } from "@/components/engineCatalogueList";
+import { ClientEngineVoices } from "@/components/engineCatalogueList";
+import { SaveBar } from "@/components/console/saveBar";
 import { useLanes, useSetMyCallCap, type PendingState } from "@/lib/api/publishing";
 import { useClientSession } from "@/lib/api/session";
 import { useSetMyAgentVoice, useVoiceCatalogue } from "@/lib/api/voices";
@@ -121,7 +122,7 @@ export function VoiceChoice({ agentId, state }: { agentId: string; state: Pendin
     return (
       <div className="space-y-3">
         <p className="text-sm text-ink-muted">{catalogue.data.note}</p>
-        <ClientEngineCatalogue session={session} agentId={agentId} />
+        <ClientEngineVoices session={session} agentId={agentId} />
       </div>
     );
   }
@@ -146,22 +147,12 @@ export function VoiceChoice({ agentId, state }: { agentId: string; state: Pendin
         onChange={setChoice}
       />
       {(changed || save.isPending) && (
-        // The negative offset cancels the shell's bottom padding (`SHELL_MAIN_CLASS`), so
-        // the bar sits on the window's edge instead of above a strip of scrolling cards.
-        <div className="settings-enter sticky -bottom-4 z-sticky -mx-1 flex flex-wrap items-center gap-3 border-t border-line bg-surface px-1 py-3 lg:-bottom-8">
-          <button type="submit" disabled={save.isPending} className={PRIMARY_BUTTON_SM}>
-            {save.isPending ? "Saving…" : "Use this voice"}
-          </button>
-          <button
-            type="button"
-            disabled={save.isPending}
-            onClick={() => setChoice(null)}
-            className={SECONDARY_BUTTON_SM}
-          >
-            Cancel
-          </button>
-          <span className="text-xs text-ink-muted">{NEXT_CALL_NOTE}</span>
-        </div>
+        <SaveBar
+          label="Use this voice"
+          saving={save.isPending}
+          onCancel={() => setChoice(null)}
+          note={NEXT_CALL_NOTE}
+        />
       )}
     </form>
   );
@@ -197,7 +188,7 @@ export function CallCapChoice({ agentId, state }: { agentId: string; state: Pend
         }
         info={
           <p>
-            A limit on how long a single call may go on — the guard against one call that
+            A limit on how long a single call may go on, the guard against one call that
             never ends. It cannot change a word the agent says. Leave it empty to use the
             standard limit
             {lanes.data ? ` (${formatCallCap(lanes.data.call_cap_default_s)})` : ""}; there is
@@ -252,7 +243,7 @@ export function CallCapChoice({ agentId, state }: { agentId: string; state: Pend
           </button>
           <span className="basis-full text-xs text-ink-muted">
             {parsed === null
-              ? "Empty — the standard limit applies."
+              ? "Empty: the standard limit applies."
               : `${formatCallCap(parsed)} per call.`}
             {/* A failed `lanes` read removes this input's bounds, so it says so. */}
             {lanes.isError

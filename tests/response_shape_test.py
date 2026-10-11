@@ -41,9 +41,12 @@ from apps.api.agents import prompts
 from apps.api.agents.llm_tiers import client_model_labels
 from apps.api.agents.prompt_routes import PromptVersionOut
 from apps.api.billing import service as billing
+from apps.api.billing.attribution import month_trial_cost_inr, paid_margin
 from apps.api.billing.gst import GST_STATUS_SENTENCE
 from apps.api.billing.invoice import build_invoice
+from apps.api.billing.plans import ist_month_window
 from apps.api.billing.routes import AdminInvoiceOut, InvoiceOut
+from apps.api.billing.trials import trial_overlaps
 from apps.api.crm.attention import attention_queue
 from apps.api.crm.performance import performance
 from apps.api.crm.schemas import AttentionOut, PerformanceOut, UsagePanelOut
@@ -780,10 +783,28 @@ async def test_the_margin_panel_answers_a_declared_model_with_money_as_strings()
     async with tenant_session(tenant_id) as session:
         margin = await billing.margin_for_tenant(session, tenant_id=tenant_id)
         tiers = await billing.tier_usage(session, tenant_id=tenant_id, month=str(margin["month"]))
+        trial_cost = await month_trial_cost_inr(
+            session, tenant_id=tenant_id, month=str(margin["month"])
+        )
+        start, end = ist_month_window(str(margin["month"]))
+        trial_in_month = trial_cost > 0 or await trial_overlaps(
+            session, tenant_id=tenant_id, start=start, end=end
+        )
+    # The trial split (D-747) is computed by the route from the same two helpers.
+    paid = paid_margin(
+        revenue_inr=Decimal(str(margin["revenue_inr"])),
+        cost_inr=Decimal(str(margin["cost_inr"])),
+        trial_cost_inr=trial_cost,
+    )
     expected = MarginOut.model_validate(
         {
             **{k: (str(v) if isinstance(v, Decimal) else v) for k, v in margin.items()},
             "tiers": {name: str(tiers[name]) for name in TierSplitOut.model_fields},
+            "trial_cost_inr": str(trial_cost),
+            "trial_in_month": trial_in_month,
+            "paid_cost_inr": str(paid.cost_inr),
+            "paid_margin_inr": str(paid.margin_inr),
+            "paid_margin_pct": None if paid.margin_pct is None else str(paid.margin_pct),
         }
     )
 

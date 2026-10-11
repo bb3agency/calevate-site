@@ -18,13 +18,15 @@ import {
 } from "@/components/ui";
 import { useTenantHealth, viewAsSession, type TenantSummary } from "@/lib/api/admin";
 import {
+  ON_TRIAL_LABEL,
   causeCta,
   causeHref,
   causeLabel,
-  severityTone,
   signalCopy,
   signalCount,
+  signalStatus,
   type HealthSignal,
+  type HealthStatus,
 } from "@/lib/api/clientHealth";
 import { useLineIncidents } from "@/lib/api/healer";
 import { useCalls } from "@/lib/api/hooks";
@@ -84,6 +86,13 @@ export function HealthSummary({ tenant }: { tenant: TenantSummary }) {
         title="What is wrong now"
         info="The same judgement as the Client health board, for this account only, plus line problems the auto-healer recorded and the state of the wallet."
       >
+        {/* A state, not a fault: shown beside the answer, never as a problem row. */}
+        {health.data?.on_trial && (
+          <p className="mb-3 flex items-center gap-2 text-meta text-ink-muted">
+            <StatusPill tone="neutral">{ON_TRIAL_LABEL}</StatusPill>
+            Campaigns and live calls open once they add credit.
+          </p>
+        )}
         {health.isLoading ? (
           <Skeleton rows={2} />
         ) : health.error || !health.data ? (
@@ -261,7 +270,7 @@ function SignalRow({ signal, tenant }: { signal: HealthSignal; tenant: TenantSum
   return (
     <li className="py-3 sm:px-2">
       <ProblemLine
-        tone={severityTone(signal.severity)}
+        status={signalStatus(signal)}
         // A signal this build cannot name still shows, as itself.
         label={copy?.label ?? signal.rule}
         detail={detail || "This console does not know this signal. The account is flagged by it all the same."}
@@ -294,23 +303,28 @@ function ProblemRow(props: Parameters<typeof ProblemLine>[0]) {
 
 function ProblemLine({
   tone,
+  status,
   label,
   detail,
   href,
   cta,
 }: {
-  tone: "stop" | "warn" | "ok" | "neutral";
+  /** For a row that is not a health signal: `stop` is broken now, `warn` needs attention. */
+  tone?: "stop" | "warn";
+  /** For a health signal, whose status (including "Waiting on client") is `signalStatus`. */
+  status?: HealthStatus;
   label: string;
   detail: string;
   href: string;
   cta: string;
 }) {
   const external = href.startsWith("http");
+  const pill = status ?? (tone === "stop" ? { label: "Broken now", tone: "stop" as const } : { label: "Needs attention", tone: "warn" as const });
   return (
     <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-1.5">
       <div className="min-w-0 flex-1 basis-72">
         <p className="flex flex-wrap items-center gap-2 text-body font-medium text-ink">
-          <StatusPill tone={tone}>{tone === "stop" ? "Broken now" : "Needs attention"}</StatusPill>
+          <StatusPill tone={pill.tone}>{pill.label}</StatusPill>
           {label}
         </p>
         <p className="mt-0.5 text-meta text-ink-muted">{detail}</p>

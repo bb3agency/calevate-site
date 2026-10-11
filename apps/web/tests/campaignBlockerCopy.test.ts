@@ -72,7 +72,7 @@ const RULE_SOURCES = ["apps/api/campaigns", "apps/api/compliance"];
 
 /** Every shape `compliance` names a rule with. See the header on why this over-matches. */
 const RULE_PATTERN =
-  /(?:LaunchBlocker\(|DispatchDecision\(|return \(|rule=)\s*"([a-z0-9_]+)"/g;
+  /(?:LaunchBlocker\(|DispatchDecision\(|return \(|\.append\(\(|rule=)\s*"([a-z0-9_]+)"/g;
 
 function pythonFiles(directory: string): string[] {
   const found: string[] = [];

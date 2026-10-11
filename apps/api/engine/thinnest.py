@@ -46,7 +46,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Final, Literal, get_args
+from typing import Any, Final, get_args
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -70,7 +70,6 @@ from calevate_shared.engine import (
     ListingIncompleteReason,
     LlmCredentialPlacement,
     LlmProvider,
-    LlmTier,
     NumberSearch,
     NumberSpec,
     ProvisionedNumber,
@@ -169,46 +168,34 @@ IDEMPOTENCY_HEADER: Final = "Idempotency-Key"
 _LISTING_PAGE_SIZE: Final = 100
 _LISTING_MAX_PAGES: Final = 20
 
-#: What ThinnestAI's own agent model dropdown shows for each model, keyed by the model's
-#: console name (`GET /models` `name` is "its name as the console shows it",
-#: list-models.md:483-485): the per-minute price tag, if any, and the reply latency.
-#: FOUNDER-RELAYED reading of the console, 10 Oct 2026. The API returns neither: `GET /models`
-#: carries id, name, voice, minPlan, available and voiceOnlyByok only (snapshots/2026-10-08/
-#: pages/api-reference/models/list-models.md:463-505, same on docs.thinnest.ai 10 Oct 2026),
-#: and the docs publish no per-model price. A model missing here has an UNKNOWN band and is
-#: never offered for calls (`agents/engine_catalogue_offer.py`); add it here once somebody
-#: has read its tag in the console.
-_MODEL_CONSOLE_READING: Final[dict[str, tuple[Literal["none", "premium"], int]]] = {
-    "Prana": ("none", 154),
-    "GPT-OSS 120B": ("none", 221),
-    "Prana [Voice]": ("none", 560),
-    "GPT-4.1 Nano": ("none", 578),
-    "GPT-5.4 Nano": ("none", 734),
-    # Tagged "premium ₹2.50/min voice calls" in the console: a call on it bills at the
-    # Premium band whatever the voice. Whether a dearer voice band and this tag combine
-    # as the higher of the two or as a sum is UNKNOWN; publish allows it only beside a
-    # voice whose own band is at least Premium (`agents/engine_choice._check_model`), and
-    # the hourly charge reconciliation compares every call's `costMicro`.
-    "GPT-5 Mini": ("premium", 823),
-    "GPT-5 Nano": ("none", 915),
-    "GPT-5.6 Luna": ("none", 1072),
+#: The reply latency ThinnestAI's own agent model dropdown shows for each model, in
+#: milliseconds, keyed by the model's console name (`GET /models` `name` is "its name as the
+#: console shows it", list-models.md:483-485). FOUNDER-RELAYED reading of the console,
+#: 10 Oct 2026, confirmed unchanged 11 Oct 2026; the API returns no latency
+#: (snapshots/2026-10-08/pages/api-reference/models/list-models.md:463-505). Shown to
+#: operators only. The per-minute BAND each model lifts a call to is not here: an operator
+#: records it in the ops console (`agents/engine_model_bands.py`), and this adapter returns
+#: none, so nothing here can make a model sellable.
+_MODEL_CONSOLE_LATENCY_MS: Final[dict[str, int]] = {
+    "Prana": 154,
+    "GPT-OSS 120B": 221,
+    "Prana [Voice]": 560,
+    "GPT-4.1 Nano": 578,
+    "GPT-5.4 Nano": 734,
+    "GPT-5 Mini": 823,
+    "GPT-5 Nano": 915,
+    "GPT-5.6 Luna": 1072,
 }
-
-#: Our tier word for a model's price band (D-680): no surcharge is Standard, Premium is Plus.
-_TIER_OF_SURCHARGE: Final[dict[str, LlmTier]] = {"none": "standard", "premium": "plus"}
 
 
 def _catalogue_model(model_id: str, label: str, row: dict[str, Any]) -> CatalogueModel:
-    surcharge, latency = _MODEL_CONSOLE_READING.get(label, (None, None))
     return CatalogueModel(
         model_id=model_id,
         label=label,
         call_capable=row.get("voice") is True,
         plan_allows=row.get("available") is True,
-        tier=_TIER_OF_SURCHARGE.get(surcharge) if surcharge is not None else None,
         voice_only_byok=row.get("voiceOnlyByok") is True,
-        surcharge=surcharge,
-        console_latency_ms=latency,
+        console_latency_ms=_MODEL_CONSOLE_LATENCY_MS.get(label),
     )
 
 
@@ -958,6 +945,7 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "max_call_seconds": ("voice.maxCallSeconds",),
     "caller_memory": ("voice.pastConversations",),
     "machine_detection": ("voice.detectMachines",),
+    "end_call_on_finish": ("voice.endCallOnFinish",),
     "ring_seconds": ("voice.ringSeconds",),
     "call_summaries": ("voice.summariseCalls",),
     "escalation": ("escalation",),
@@ -1388,6 +1376,13 @@ class ThinnestEngine:
             "ringSeconds": RING_SECONDS,
             "summariseCalls": True,
             "pastConversations": "recap" if cfg.caller_memory_enabled else "fresh",
+            # Release the line when the agent ends the conversation. A new agent starts with
+            # it OFF, so the line stays open, billed, until the caller hangs up, and the
+            # agent's goodbye releases nothing (docs.thinnest.ai api-reference/agents/
+            # update-agent `voice.endCallOnFinish` and channels/voice "Releasing the line",
+            # read 11 Oct 2026; the 8 Oct mirror still said it was on for every agent).
+            # When to end is the prompt's rule: only after a goodbye, never mid-question.
+            "endCallOnFinish": True,
         }
         if cfg.engine_voice_id and cfg.engine_byok_voice_id:
             raise _business_refusal(

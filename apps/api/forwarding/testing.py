@@ -348,10 +348,10 @@ async def place_legs(tenant_id: UUID, test_id: UUID, *, to_e164: str) -> None:
                 "forwarding_test_leg_refused",
                 extra={"tenant_id": str(tenant_id), "test_id": str(test_id), "code": exc.code},
             )
-            await _close_leg(leg_id, status="failed")
+            await _close_leg(tenant_id, leg_id, status="failed")
             continue
         placed += 1
-        async with untenanted_session() as session:
+        async with tenant_session(tenant_id) as session:
             await session.execute(
                 text(
                     "UPDATE forwarding_test_legs SET status = 'live', engine_call_ref = :ref, "
@@ -405,8 +405,8 @@ async def place_legs(tenant_id: UUID, test_id: UUID, *, to_e164: str) -> None:
     )
 
 
-async def _close_leg(leg_id: UUID, *, status: str) -> None:
-    async with untenanted_session() as session:
+async def _close_leg(tenant_id: UUID, leg_id: UUID, *, status: str) -> None:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "UPDATE forwarding_test_legs SET status = :status, updated_at = now() "
@@ -675,7 +675,7 @@ async def settle_test(tenant_id: UUID, test_id: UUID) -> str:
         answered_any = answered_any or bool(answered)
         if seconds:
             leg_seconds.append((int(leg), seconds))
-        async with untenanted_session() as session:
+        async with tenant_session(tenant_id) as session:
             await session.execute(
                 text(
                     "UPDATE forwarding_test_legs SET status = CASE WHEN status = 'failed' "

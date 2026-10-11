@@ -133,10 +133,20 @@ function healthy(numbers: TenantNumberCost[]): Routes {
   };
 }
 
+/** The numbers screen also shows the client's forwarded numbers (D-746): none here. */
+const NO_FORWARDING = {
+  [`/v1/admin/forwarding/tenants/${TENANT}?limit=5`]: {
+    lines: [],
+    recent_tests: [],
+    save_number_enabled: false,
+    save_number_sent: 0,
+  },
+};
+
 function render(routes: Routes) {
   return renderAdminRoute(
     <TenantNumbersPage params={routeParams({ tenantId: TENANT })} />,
-    routes,
+    { ...NO_FORWARDING, ...routes },
   );
 }
 

@@ -170,6 +170,7 @@ MomentKind = Literal[
     "strong_interest",
     "asked_delivery_or_payment",
     "will_buy_or_visit",
+    "claimed_not_done",
 ]
 
 #: Kind to category, and the plain label a kind falls back to when the model wrote none.
@@ -186,12 +187,14 @@ MOMENT_KINDS: dict[str, tuple[MomentCategory, str]] = {
     "strong_interest": ("buying", "Strong interest"),
     "asked_delivery_or_payment": ("buying", "Asked about delivery or payment"),
     "will_buy_or_visit": ("buying", "Said they will buy or visit"),
+    "claimed_not_done": ("attention", "Agent said it was done, but no action ran"),
 }
 
 #: The kinds the MODEL may return. `opt_out` stays with the deterministic detector, which is
 #: what stops the number being dialled; a model guess beside it would be a second, weaker
-#: answer to a compliance question.
-MODEL_MOMENT_KINDS: frozenset[str] = frozenset(MOMENT_KINDS) - {"opt_out"}
+#: answer to a compliance question. `claimed_not_done` is derived too: whether an action ran
+#: is a fact in our tables, not something the transcript can tell a model (D-749).
+MODEL_MOMENT_KINDS: frozenset[str] = frozenset(MOMENT_KINDS) - {"opt_out", "claimed_not_done"}
 
 #: Most moments one call shows. The panel exists to be shorter than the call.
 MAX_CALL_MOMENTS = 8

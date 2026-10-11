@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { InfoTip } from "@/components/console/infoTip";
-import { TenantEngineCatalogue } from "@/components/engineCatalogueList";
+import { TenantEngineVoices } from "@/components/engineCatalogueList";
 import { VoicePicker } from "@/components/voicePicker";
 import {
   PRIMARY_BUTTON,
@@ -149,7 +149,7 @@ export function VoicePanel({
           <>
             <VoiceInForce state={state} published={pending?.published} />
             <p className="text-meta text-ink-muted">{catalogue.data.note}</p>
-            <TenantEngineCatalogue
+            <TenantEngineVoices
               slug={slug}
               agent={agent}
               disabledReason={write.allowed ? null : write.reason}

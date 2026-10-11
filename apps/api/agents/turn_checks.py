@@ -26,8 +26,9 @@ it opens with a question word or ends with a yes/no ending.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Final, Literal
+from typing import Final, Literal, Protocol
 
 from calevate_shared.spoken_style import style_for
 
@@ -43,11 +44,35 @@ Kind = Literal[
     "several_questions",
     "unmarked_question",
     "too_long",
+    "wrong_language",
+    "third_person",
+    # The specimen call of 11 Oct 2026 (D-749): one reply's own problems,
+    "foreign_script",
+    "spoken_number",
+    # and those only the conversation shows (`conversation_problems`).
+    "unconfirmed_action",
+    "asked_known_number",
+    "partial_number",
+    "goodbye_while_asking",
+    "repeated_turn",
 ]
 
-#: Problems only the platform can fix (the model reading out context or notes); the rest
+#: Problems only the platform can fix (the model reading out context, notes or an action's
+#: answer, or leaving the caller's language, which the platform prompt decides); the rest
 #: are the agent's speaking style, which the owner's script and examples influence.
-PLATFORM_KINDS: Final = frozenset({"brackets", "time"})
+PLATFORM_KINDS: Final = frozenset(
+    {
+        "brackets",
+        "time",
+        "wrong_language",
+        "third_person",
+        "foreign_script",
+        "unconfirmed_action",
+        "asked_known_number",
+        "partial_number",
+        "goodbye_while_asking",
+    }
+)
 
 #: A turn's sentences, at most, unless the caller asked for detail (founder, 11 Oct 2026).
 MAX_SENTENCES: Final = 2
@@ -123,7 +148,13 @@ _EN_QUESTION: Final = re.compile(
 )
 _TE_YES_NO_ENDINGS: Final = ("దా", "లా", "రా", "నా", "సా")
 _HI_QUESTION: Final = re.compile(r"^क्या\s|\sक्या$")
-_SENTENCE_END: Final = re.compile(r"(?:(?<=[.!?।\uff1f])|(?<=[.!?।\uff1f][\])\"'”\u2019]))\s+")
+#: A sentence end, with or without the space after it: a reply the voice platform generated
+#: again after an interruption arrives glued together ("ఎంత కావాలి?మీకు", D-749). A full
+#: stop counts unspaced only before a letter, so "1.5" stays whole.
+_SENTENCE_END: Final = re.compile(
+    r"(?:(?<=[.!?।\uff1f])|(?<=[.!?।\uff1f][\])\"'\u201d\u2019]))\s+"
+    r"|(?<=[!?।\uff1f])(?=[^\s!?।\uff1f\])\"'\u201d\u2019])|(?<=\.)(?=[^\W\d_])"
+)
 #: Stripped from a word's ends. Words are split on spaces, not `\w`, because Python's `\w`
 #: does not match the vowel signs of Indic scripts and would break a Telugu word apart.
 _PUNCTUATION: Final = "\"'“”\u2018\u2019.,!?;:()[]{}।\uff1f…-\u2013—"
@@ -171,6 +202,21 @@ _FILLER: Final = frozenset(
         "आपको",
         "जी",
     ]
+)
+#: The script each language is written in, for the wrong-language rule. Only languages whose
+#: callers write a script of their own: an English or Latin-script reply to a caller who
+#: wrote Telugu letters is unambiguous, where two Latin-script languages are not.
+_SCRIPT_OF: Final[dict[str, tuple[str, re.Pattern[str]]]] = {
+    "te": ("Telugu", re.compile("[ఀ-౿]")),
+    "hi": ("Hindi", re.compile("[ऀ-ॿ]")),
+}
+_LATIN_WORD: Final = re.compile(r"[A-Za-z]{2,}")
+#: The agent talking ABOUT the person it is talking TO: an action's answer read out as it
+#: stands ("The caller's number has been added ..."). "This customer" is how an owner's own
+#: script may describe a caller to the agent, so only "the caller" and "the customer's" count.
+#: The apostrophe is matched straight or curly (written as an escape: RUF001).
+_THIRD_PERSON: Final = re.compile(
+    r"\bthe caller(?:['\u2019]s)?\b|\bthe customer['\u2019]s\b", re.IGNORECASE
 )
 #: Indic letters carry combining marks, so `\b` does not mark a word start: a formal word
 #: counts when it opens the reply or follows a space or punctuation.
@@ -362,6 +408,38 @@ def _question_problems(parts: list[str]) -> list[TurnProblem]:
     return found
 
 
+def _language_problems(reply: str, caller_said: str, language: str) -> list[TurnProblem]:
+    """A reply in another language than the caller's, and a reply that talks about the caller.
+
+    Wrong language only when the caller wrote the agent's own language in its own script
+    and the reply has none of that script and at least three Latin words: a code-mixed
+    reply keeps some of the language's letters, and an agent whose main language is not the
+    caller's may rightly answer in its own.
+    """
+    found: list[TurnProblem] = []
+    script = _SCRIPT_OF.get(language.split("-")[0].lower())
+    if (
+        script is not None
+        and len(script[1].findall(caller_said)) >= 3
+        and not script[1].search(reply)
+        and len(_LATIN_WORD.findall(reply)) >= MIN_COUNTED_WORDS
+    ):
+        found.append(
+            TurnProblem(
+                "wrong_language",
+                f"The caller spoke {script[0]} and it answered in English.",
+            )
+        )
+    if _THIRD_PERSON.search(reply):
+        found.append(
+            TurnProblem(
+                "third_person",
+                'It talked about "the caller" instead of speaking to them.',
+            )
+        )
+    return found
+
+
 def turn_problems(reply: str, *, caller_said: str = "", language: str = "") -> list[TurnProblem]:
     """Every problem in one agent reply, the platform's first. `caller_said` is the caller's
     line this reply answers; it decides whether a longer reply was asked for. `language`
@@ -369,6 +447,8 @@ def turn_problems(reply: str, *, caller_said: str = "", language: str = "") -> l
     if not reply.strip():
         return []
     found = _symbol_problems(reply)
+    found += _language_problems(reply, caller_said, language)
+    found += _script_and_number_problems(reply, language)
     formal = _formal_problem(reply, language)
     if formal:
         found.append(formal)
@@ -402,10 +482,297 @@ def turn_problems(reply: str, *, caller_said: str = "", language: str = "") -> l
     return found
 
 
+# --- the specimen call of 11 Oct 2026 (D-749) -----------------------------------------
+#
+# A Raghava Organics outbound call, kept as the standing specimen of what goes wrong on a
+# live call for any business and in any language (`docs/evidence/specimen-call-raghava-
+# 2026-10-11.md`). One reply shows a letter from another script or a number said the
+# native way; the conversation shows the rest: "done" with no action behind it, asking for
+# the number the call is on, a part of a number taken as the whole, goodbye while the
+# caller is still asking, and a whole turn repeated when the caller asked to hear it again.
+
+#: Letters of a script no agent of ours writes (a Korean syllable appeared mid-Telugu), and
+#: the Indic scripts, which are foreign unless they are the reply's own language's.
+_NON_INDIC_FOREIGN: Final = "Ͱ-ϿЀ-ӿ֐-׿؀-ۿ฀-๿ᄀ-ᇿ぀-ヿ㄰-㆏㐀-䶿一-鿿가-힯"
+#: Each Indic script's block; the danda (U+0964/5) is punctuation every Indic script uses.
+_INDIC_BLOCKS: Final[dict[str, tuple[str, str]]] = {
+    "hi": ("ऀ", "ॣ"),
+    "bn": ("ঀ", "৿"),
+    "pa": ("਀", "੿"),
+    "gu": ("઀", "૿"),
+    "or": ("଀", "୿"),
+    "ta": ("஀", "௿"),
+    "te": ("ఀ", "౿"),
+    "kn": ("ಀ", "೿"),
+    "ml": ("ഀ", "ൿ"),
+}
+
+_TE_NUMBER: Final = (
+    "ఒకటి|ఒక|రెండు|మూడు|నాలుగు|ఐదు|అయిదు|ఆరు|ఏడు|ఎనిమిది|తొమ్మిది|పది|ఇరవై|ముప్పై|నలభై|"
+    "యాభై|అరవై|డెబ్బై|ఎనభై|తొంభై|వంద|వందల|నూరు|నూట|వెయ్యి|వేల|వేలు"
+)
+_HI_NUMBER: Final = (
+    "एक|दो|तीन|चार|पाँच|पांच|छह|छः|सात|आठ|नौ|दस|बीस|तीस|चालीस|पचास|साठ|सत्तर|अस्सी|नब्बे|"
+    "सौ|हज़ार|हजार|डेढ़|ढाई"
+)
+#: A price in the language's own number words ("ఆరు నూరు రూపాయలు"): the founder's rule is
+#: the English way ("six hundred rupees"), as shops in Hyderabad say it (D-744).
+_NATIVE_PRICE: Final[dict[str, re.Pattern[str]]] = {
+    "te": re.compile(rf"(?:(?:{_TE_NUMBER})\s+)*(?:{_TE_NUMBER})\s*రూపాయ"),
+    "hi": re.compile(rf"(?:(?:{_HI_NUMBER})\s+)*(?:{_HI_NUMBER})\s*(?:रुपय|रुपए|रुपये|रूपये)"),
+}
+#: Digits beside a unit written in an Indian script ("1 కిలో"), which `_MONEY_DIGITS` (Latin
+#: units only) does not see.
+_DIGIT_UNIT: Final = re.compile(
+    r"\d+(?:[.,]\d+)?\s*(?:కిలో|కేజీ|రూపాయ|గ్రాము|లీటర్|ప్యాకెట్|किलो|रुपय|रुपए|रुपये|ग्राम|लीटर|पैकेट)"
+)
+
+
+def _foreign_letter(reply: str, language: str) -> str | None:
+    """Letters no voice of this language can say. Another Indian script counts only inside
+    a reply in the language's own script: a whole reply in Hindi from a Telugu agent is a
+    language switch an agent with Hindi may make, where one Hindi word mid-Telugu is not."""
+    own = language.split("-")[0].lower()
+    ranges = _NON_INDIC_FOREIGN
+    block = _INDIC_BLOCKS.get(own)
+    if block is not None and re.search(f"[{block[0]}-{block[1]}]", reply):
+        ranges += "".join(f"{lo}-{hi}" for tag, (lo, hi) in _INDIC_BLOCKS.items() if tag != own)
+    match = re.search(f"[{ranges}]+", reply)
+    return match.group(0) if match else None
+
+
+def _script_and_number_problems(reply: str, language: str) -> list[TurnProblem]:
+    found: list[TurnProblem] = []
+    foreign = _foreign_letter(reply, language)
+    if foreign:
+        found.append(
+            TurnProblem(
+                "foreign_script",
+                f"It wrote letters of another language's script ({_quoted(foreign)}), which "
+                "the voice cannot say.",
+            )
+        )
+    native = _NATIVE_PRICE.get(language.split("-")[0].lower())
+    said = (native.search(reply) if native else None) or _DIGIT_UNIT.search(reply)
+    if said:
+        found.append(
+            TurnProblem(
+                "spoken_number",
+                f"It said {_quoted(said.group(0))}. Say prices and quantities the English "
+                'way, as shops do ("six hundred rupees", "one kg"), never in digits.',
+            )
+        )
+    return found
+
+
+class Exchange(Protocol):
+    """One caller line and the agent's reply to it, with the tools the agent used."""
+
+    @property
+    def said(self) -> str: ...
+
+    @property
+    def reply(self) -> str: ...
+
+    @property
+    def tools(self) -> Sequence[str]: ...
+
+
+#: Words that say something is DONE: an order placed or noted, details saved, a booking
+#: made, a message sent. Past or perfect only: "I'll note it and the team will confirm" is
+#: the honest future the platform rule asks for (`ACTION_CLAIM_RULE`).
+_CLAIMS_DONE: Final = re.compile(
+    r"\b(?:i(?:['\u2019]ve| have)|we(?:['\u2019]ve| have)|it(?:['\u2019]s| is| has been)|(?:your )?"
+    r"(?:order|details|booking|number|request|name|slot)(?: is| are| has been| have "
+    r"been)) (?:now |already |all )?(?:placed|booked|saved|noted(?: down)?|recorded|sent|added|"
+    r"confirmed|registered|scheduled)\b"
+    r"|(?:నమోదు|సేవ్|save|నోట్|note|బుక్|book|రికార్డ్|record|confirm|కన్ఫర్మ్|place|ప్లేస్|add|"
+    r"యాడ్|ఆర్డర్ పెట్టే|order పెట్టే)\s*(?:చేసా|చేశా|చేసేసా|చేసేశా|అయిపోయింది|అయింది|ఐంది)"
+    r"|పంపాను|పంపాం|పంపించాను|పంపించాం|పంపేశాను|పంపేసాను|పంపేశాం|పంపేసాం"
+    r"|(?:सेव|नोट|बुक|दर्ज|रिकॉर्ड|कन्फर्म|प्लेस|ऐड|save|note|book|confirm|add)\s*"
+    r"(?:कर\s*(?:दिया|दी|दिए|लिया|ली|लिए)|हो\s*(?:गया|गई|गए))|भेज\s*(?:दिया|दी|दिए)",
+    re.IGNORECASE,
+)
+#: Tools that only look something up, so they confirm nothing was done.
+_LOOKUP_TOOL: Final = re.compile(r"knowledge|search|lookup|look_up", re.IGNORECASE)
+_PHONE_NUMBER: Final = re.compile(
+    r"(?:phone|mobile|contact|whatsapp|whats app)\s*(?:number|no\b)|"
+    r"(?:ఫోన్|మొబైల్|phone|mobile|కాంటాక్ట్)\s*(?:నంబర్|నెంబర్|నంబరు|నెంబరు|number)|"
+    r"(?:फ़ोन|फोन|मोबाइल|phone|mobile)\s*(?:नंबर|नम्बर|number)",
+    re.IGNORECASE,
+)
+_ASKS_FOR: Final = re.compile(
+    r"\?|ఇవ్వ|చెప్ప|ఇస్తారా|చెప్తారా|give|share|tell|send|दीजिए|बताइए|बताएं|दे दीजिए",
+    re.IGNORECASE,
+)
+#: "Shall we use this same number?" is the one question about a number the platform allows.
+_SAME_NUMBER: Final = re.compile(
+    r"(?:this|same)\s+number|ఇదే\s*(?:నంబర్|నెంబర్|number)|ఈ\s*(?:నంబర్|నెంబర్|number)|"
+    r"इसी\s*(?:नंबर|नम्बर|number)|यही\s*(?:नंबर|नम्बर)",
+    re.IGNORECASE,
+)
+#: The caller wants a number other than the one the call is on.
+_OTHER_NUMBER: Final = re.compile(
+    r"(?:another|different|other|second)\s+number|వేరే|ఇంకో\s*(?:నంబర్|నెంబర్)|दूसरा|दूसरे",
+    re.IGNORECASE,
+)
+_DIGIT_WORD: Final = re.compile(
+    r"\b(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)\b", re.IGNORECASE
+)
+#: A mobile number in India has ten digits.
+MOBILE_DIGITS: Final = 10
+#: What a reply says when it treats what it was given as complete.
+_WRAPS_UP: Final = re.compile(
+    r"thank|thanks|anything else|ధన్యవాద|థాంక్స్|థ్యాంక్స్|ఇంకేమైనా|ఇంకా ఏమైనా|धन्यवाद|"
+    r"शुक्रिया|और कुछ",
+    re.IGNORECASE,
+)
+_GOODBYE: Final = re.compile(
+    r"\bgood\s?bye\b|\bbye\b|గుడ్\s?బై|(?:^|[\s,.!?])బై(?=[\s,.!?]|$)|अलविदा|बाय",
+    re.IGNORECASE,
+)
+#: A caller line that closes the conversation, after which a goodbye is right.
+_CALLER_CLOSES: Final = re.compile(
+    r"\bbye\b|thank|that'?s all|nothing|\bno\b|not interested|\bok(?:ay)?\b|"
+    r"బై|థాంక్స్|థ్యాంక్స్|ధన్యవాద|లేదు|వద్దు|అంతే|సరే|"
+    r"नहीं|बस|धन्यवाद|शुक्रिया|ठीक है|बाय",
+    re.IGNORECASE,
+)
+#: A caller line that asks or complains, which is never a close however it ends.
+_CALLER_ASKS: Final = re.compile(
+    r"\?|ఎందుకు|ఏంటి|ఎలా|ఎప్పుడు|ఎక్కడ|\bwhy\b|\bwhat\b|\bhow\b|\bwhen\b|\bwhere\b|"
+    r"क्यों|क्या|कैसे|कब|कहाँ",
+    re.IGNORECASE,
+)
+_ASKS_REPEAT: Final = re.compile(
+    r"repeat|again|once more|pardon|మళ్ళా|మళ్ళీ|మళ్లీ|మరలా|ఇంకోసారి|फिर से|दोबारा|एक बार और",
+    re.IGNORECASE,
+)
+
+
+def claims_done(text: str) -> bool:
+    """Does this agent line say something was done (placed, saved, booked, sent)?"""
+    return bool(_CLAIMS_DONE.search(text))
+
+
+def _asks_for_number(reply: str) -> bool:
+    return any(
+        _PHONE_NUMBER.search(s) and _ASKS_FOR.search(s) and not _SAME_NUMBER.search(s)
+        for s in sentences(reply)
+    )
+
+
+def _digit_count(text: str) -> int:
+    """Digits a caller line gives towards a phone number. Fewer than three is a quantity or
+    a time ("2 kg"), not part of a number."""
+    count = sum(ch.isdigit() for ch in text) + len(_DIGIT_WORD.findall(text))
+    return count if count >= 3 else 0
+
+
+def _same_reply(a: str, b: str) -> bool:
+    left, right = _words(a), _words(b)
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    shared = len(set(left) & set(right)) / max(len(set(left)), len(set(right)))
+    return shared >= 0.9 and abs(len(left) - len(right)) <= max(2, len(left) // 10)
+
+
+def conversation_problems(
+    exchanges: Sequence[Exchange], *, number_known: bool = True
+) -> list[TurnProblem]:
+    """The problems only a whole conversation shows, each kind once, in order.
+
+    `number_known` is False only for a call whose number the network hid (D-746), where
+    asking for a number is right.
+    """
+    found: dict[str, TurnProblem] = {}
+    acted = False
+    caller_raised_number = False
+    awaiting: int | None = None  # digits given since the agent asked for a number
+    previous_reply = ""
+    for exchange in exchanges:
+        said, reply = exchange.said, exchange.reply
+        acted = acted or any(not _LOOKUP_TOOL.search(tool) for tool in exchange.tools)
+        caller_raised_number = caller_raised_number or bool(
+            _PHONE_NUMBER.search(said) or _OTHER_NUMBER.search(said)
+        )
+        if awaiting is not None:
+            awaiting += _digit_count(said)
+        elif _PHONE_NUMBER.search(said) or _OTHER_NUMBER.search(said):
+            awaiting = _digit_count(said)
+        if not reply.strip():
+            continue
+        if claims_done(reply) and not acted:
+            found.setdefault(
+                "unconfirmed_action",
+                TurnProblem(
+                    "unconfirmed_action",
+                    "It said something was done (saved, noted, booked or sent) when none of "
+                    "its actions did it. It should say what happens next instead.",
+                ),
+            )
+        if (
+            awaiting is not None
+            and 0 < awaiting < MOBILE_DIGITS
+            and (_WRAPS_UP.search(reply) or claims_done(reply) or _GOODBYE.search(reply))
+        ):
+            found.setdefault(
+                "partial_number",
+                TurnProblem(
+                    "partial_number",
+                    f"It took {awaiting} digits as a whole phone number. A mobile number "
+                    "has ten; it should ask for the rest and read it back.",
+                ),
+            )
+        if number_known and not caller_raised_number and _asks_for_number(reply):
+            found.setdefault(
+                "asked_known_number",
+                TurnProblem(
+                    "asked_known_number",
+                    "It asked for a phone number it already has, the one this call is on. "
+                    "At most it may ask whether to use this same number.",
+                ),
+            )
+        closes = _CALLER_CLOSES.search(said) and not _CALLER_ASKS.search(said)
+        if _GOODBYE.search(reply) and said.strip() and not closes:
+            found.setdefault(
+                "goodbye_while_asking",
+                TurnProblem(
+                    "goodbye_while_asking",
+                    "It said goodbye while the caller was still talking or asking something.",
+                ),
+            )
+        if previous_reply and _ASKS_REPEAT.search(said) and _same_reply(reply, previous_reply):
+            found.setdefault(
+                "repeated_turn",
+                TurnProblem(
+                    "repeated_turn",
+                    "Asked to say it again, it repeated the whole turn word for word. It "
+                    "should say it again shorter and simpler.",
+                ),
+            )
+        # Digits keep adding up while the number is taken a few at a time ("and the rest?");
+        # a reply that wraps up ends it.
+        if _asks_for_number(reply):
+            awaiting = awaiting or 0
+        elif awaiting is not None and (
+            _WRAPS_UP.search(reply) or claims_done(reply) or _GOODBYE.search(reply)
+        ):
+            awaiting = None
+        previous_reply = reply
+    return list(found.values())
+
+
 __all__ = [
     "MAX_SENTENCES",
+    "MOBILE_DIGITS",
     "PLATFORM_KINDS",
+    "Exchange",
     "TurnProblem",
+    "claims_done",
+    "conversation_problems",
     "formal_swaps",
     "sentences",
     "turn_problems",

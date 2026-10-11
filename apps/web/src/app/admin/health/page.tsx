@@ -17,12 +17,15 @@ import {
 } from "@/components/ui";
 import { useClientHealth } from "@/lib/api/admin";
 import {
+  ON_TRIAL_LABEL,
   causeCta,
   causeHref,
   causeLabel,
-  severityTone,
+  needsUs,
+  rowStatus,
   signalCopy,
   signalCount,
+  signalStatus,
   trendClaim,
   type ClientHealth,
   type HealthSignal,
@@ -74,6 +77,9 @@ export default function ClientHealthPage() {
   const board = useClientHealth();
   const rows = board.data ?? [];
   const breaking = rows.filter((row) => row.severity === "stop");
+  // An account waiting only on its own client is listed but does not need us.
+  const attention = rows.filter(needsUs);
+  const waiting = rows.length - attention.length;
 
   /*
    * THE WORK LIST, DECLARED TO THE SCREEN ASSISTANT.
@@ -100,9 +106,10 @@ export default function ClientHealthPage() {
           { key: "breaking", label: "Broken now (severity stop)", value: String(breaking.length) },
           {
             key: "warning",
-            label: "Will break (severity warn)",
-            value: String(rows.length - breaking.length),
+            label: "Will break (severity warn, ours to act on)",
+            value: String(attention.length - breaking.length),
           },
+          { key: "waiting", label: "Waiting on the client only", value: String(waiting) },
           {
             key: "rules",
             label: "Which rules fired, across all listed accounts",
@@ -148,9 +155,10 @@ export default function ClientHealthPage() {
           answered && rows.length > 0 ? (
             <>
               <span className="text-body font-medium text-ink">
-                {rows.length} {rows.length === 1 ? "account" : "accounts"} need attention
+                {attentionHeadline(attention.length)}
               </span>
               {breaking.length > 0 && <StatusPill tone="stop">{breaking.length} broken now</StatusPill>}
+              {waiting > 0 && <StatusPill tone="neutral">{waiting} waiting on client</StatusPill>}
             </>
           ) : undefined
         }
@@ -212,6 +220,7 @@ export default function ClientHealthPage() {
 
 function HealthRow({ row }: { row: ClientHealth }) {
   const trend = trendClaim(row);
+  const status = rowStatus(row.signals);
 
   return (
     <li className="grid gap-x-5 gap-y-3 py-4 sm:px-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_9rem_minmax(0,0.9fr)]">
@@ -223,9 +232,10 @@ function HealthRow({ row }: { row: ClientHealth }) {
           {row.name}
         </Link>
         <div className="truncate text-meta text-ink-muted">/c/{row.slug}</div>
-        <StatusPill tone={severityTone(row.severity)} className="mt-1.5">
-          {row.severity === "stop" ? "Broken now" : "Will break"}
-        </StatusPill>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <StatusPill tone={status.tone}>{status.label}</StatusPill>
+          {row.on_trial && <StatusPill tone="neutral">{ON_TRIAL_LABEL}</StatusPill>}
+        </div>
       </div>
       <ul className="min-w-0 space-y-2">
         {row.signals.map((signal) => (
@@ -260,6 +270,12 @@ function HealthRow({ row }: { row: ClientHealth }) {
       </div>
     </li>
   );
+}
+
+/** "1 account needs attention", "2 accounts need attention". */
+function attentionHeadline(count: number): string {
+  if (count === 0) return "No account needs attention";
+  return `${count} ${count === 1 ? "account needs" : "accounts need"} attention`;
 }
 
 /**
@@ -304,7 +320,7 @@ function SignalCell({ signal, row }: { signal: HealthSignal; row: ClientHealth }
     <li className="text-meta">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         {/* A signal added after this build keeps its row and prints as itself. */}
-        <StatusPill tone={severityTone(signal.severity)}>{copy?.label ?? signal.rule}</StatusPill>
+        <StatusPill tone={signalStatus(signal).tone}>{copy?.label ?? signal.rule}</StatusPill>
         {count && <span className="text-ink-muted">{count}</span>}
         {copy && (
           <InfoTip label={copy.label} align="start">
@@ -315,8 +331,8 @@ function SignalCell({ signal, row }: { signal: HealthSignal; row: ClientHealth }
       {/* The unknown signal's sentence stays visible: it is the instruction, not help. */}
       {!copy && (
         <p className="mt-0.5 text-ink-muted">
-          This console does not know this signal. The account is flagged by it all the same —
-          open the account.
+          This console does not know this signal. The account is flagged by it all the same,
+          so open the account.
         </p>
       )}
       {spend && <div className="mt-0.5 tabular-nums text-ink-faint">{spend}</div>}

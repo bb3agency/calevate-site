@@ -14,8 +14,9 @@
  * There is no sample to play: the catalogue carries no sample or preview URL.
  */
 
-import { Check } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 
+import { CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { InfoTip } from "@/components/console/infoTip";
 import { tierRateReading } from "@/components/voicePicker";
 import { LANGUAGE_NAMES } from "@/lib/agentState";
@@ -145,8 +146,8 @@ function VoiceCard({
   return (
     <div
       className={`relative flex items-start gap-3 rounded-card border p-3 transition-colors duration-(--duration-fast) ${
-        checked ? "border-brand bg-brand-soft" : "border-line bg-surface"
-      } ${blocked || disabled ? "" : "hover:border-ink/25"}`}
+        checked ? CHOICE_ON : CHOICE_OFF
+      }`}
     >
       <label
         className={`flex min-w-0 flex-1 items-start gap-3 rounded-md touch:min-h-11 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app ${
@@ -166,21 +167,18 @@ function VoiceCard({
             if (!blocked) onChange(voice.id);
           }}
         />
-        <span
-          aria-hidden
-          className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${
-            checked ? "bg-brand-strong text-white" : "border border-ink/25"
-          }`}
-        >
-          {checked && <Check className="h-3 w-3" strokeWidth={3} />}
-        </span>
+        {checked ? (
+          <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-strong" />
+        ) : (
+          <span aria-hidden className="mt-0.5 h-4 w-4 shrink-0 rounded-full border border-ink/25" />
+        )}
         <span className={`min-w-0 flex-1 ${blocked ? "opacity-60" : ""}`}>
           <span className="block text-sm font-semibold text-ink">{voice.label}</span>
           <span className="block text-xs text-ink-muted">
             {[gender, languageNames(voice.languages)].filter(Boolean).join(" · ")}
           </span>
           {blocked && (
-            <span id={reasonId} className="mt-1 block text-xs font-medium text-warn">
+            <span id={reasonId} className="mt-1 block text-xs text-ink-muted">
               {voice.unavailable_reason ?? "This voice is not available here."}
             </span>
           )}

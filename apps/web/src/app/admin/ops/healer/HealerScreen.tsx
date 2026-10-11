@@ -5,8 +5,11 @@ import { Section } from "@/components/console/section";
 import { useState } from "react";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { lookup } from "@/lib/lookup";
+import { StatusPill } from "@/components/admin/kit";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptyState } from "@/components/console/emptyState";
+import { InfoTip } from "@/components/console/infoTip";
 import { Metric } from "@/components/console/metric";
 import { PageHeader } from "@/components/console/pageHeader";
 import {
@@ -20,6 +23,7 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
+  type NoticeTone,
 } from "@/components/ui";
 import {
   useHealerActions,
@@ -28,6 +32,7 @@ import {
   usePostStatus,
   useResolveIncident,
   useRetryIncident,
+  type HealerAction,
   type HealerIncident,
   type HealerOverview,
   type StatusComponentKey,
@@ -40,11 +45,37 @@ const COMPONENTS: { value: StatusComponentKey; label: string }[] = [
   { value: "assistant", label: "Assistant" },
 ];
 
-const STATE_WORDS: Record<HealerIncident["state"], string> = {
-  open: "Detected",
-  mitigated: "Repairing",
-  escalated: "Needs a person",
-  resolved: "Resolved",
+/**
+ * The pill on an incident. The sentence beside it (`progress`) and the problem's own words
+ * (`kind`) come from the API's catalogue (`apps/api/healer/wording.py`), so this screen
+ * never turns a code into words itself.
+ */
+const STATE_PILL: Record<HealerIncident["state"], { text: string; tone: NoticeTone }> = {
+  open: { text: "Just found", tone: "neutral" },
+  mitigated: { text: "Being fixed", tone: "neutral" },
+  escalated: { text: "Needs you", tone: "warn" },
+  resolved: { text: "Closed", tone: "ok" },
+};
+
+/** The ledger's steps (`healer/ledger.Step`); a step not listed shows as itself. */
+const STEP_WORDS: Record<string, string> = {
+  schedule: "Ran its scheduled check",
+  act: "Tried a repair",
+  verify: "Checked the repair",
+  undo: "Undid a change",
+  escalate: "Handed it to you",
+  protect: "Held the line",
+  restore: "Gave the line back",
+  notify: "Sent a notice",
+  propose: "Suggested a fix to the client",
+  decide: "Recorded a decision",
+};
+
+const OUTCOME_WORDS: Record<HealerAction["outcome"], string> = {
+  ok: "done",
+  failed: "failed",
+  skipped: "skipped",
+  refused: "refused",
 };
 
 /**
@@ -58,7 +89,7 @@ export function HealerScreen() {
   const overview = useHealerOverview();
   return (
     <div className="max-w-4xl space-y-10 pb-12">
-      <PageHeader description="Repairs that run on their own, lines it is holding, and what needs you." />
+      <PageHeader description="Problems the platform found, what it fixed on its own, and what needs you." />
       {access.refused ? (
         <RestrictionNote reason={access.reason} />
       ) : (
@@ -74,11 +105,15 @@ export function HealerScreen() {
           <Incidents />
           <StatusPost />
           {overview.data && <Playbooks data={overview.data} />}
-          <Ledger />
+          <Ledger titles={playbookTitles(overview.data)} />
         </>
       )}
     </div>
   );
+}
+
+function playbookTitles(data: HealerOverview | undefined): Record<string, string> {
+  return Object.fromEntries((data?.playbooks ?? []).map((p) => [p.key, p.title]));
 }
 
 function Overview({ data }: { data: HealerOverview }) {
@@ -88,6 +123,7 @@ function Overview({ data }: { data: HealerOverview }) {
     paging.whatsapp_enabled &&
     paging.founder_number_set &&
     paging.founder_number_from_console;
+  const pausedRepairs = data.playbooks.filter((p) => p.paused).length;
   return (
     <div className="space-y-3">
       {!data.enabled && (
@@ -127,13 +163,27 @@ function Overview({ data }: { data: HealerOverview }) {
         </NoticeBox>
       )}
       <div className="grid grid-cols-2 gap-4 border-y border-line py-4 sm:grid-cols-3">
-        <Metric label="Open incidents" value={data.open_incidents} />
         <Metric
-          label="Need a person"
+          label="Open problems"
+          value={data.open_incidents}
+          hint="Not closed yet, including any waiting for you."
+        />
+        <Metric
+          label="Waiting for you"
           value={data.escalated_incidents}
           tone={data.escalated_incidents > 0 ? "warn" : "default"}
+          hint="The healer could not fix these on its own."
         />
-        <Metric label="Playbooks paused" value={data.paused.length} className="col-span-2 sm:col-span-1" />
+        <Metric
+          label="Repairs switched off"
+          value={pausedRepairs}
+          className="col-span-2 sm:col-span-1"
+          hint={
+            data.enabled
+              ? "Paused in configuration, so they do not run."
+              : "The whole auto-healer is off."
+          }
+        />
       </div>
     </div>
   );
@@ -145,62 +195,33 @@ function Incidents() {
   const resolve = useResolveIncident();
   const [resolving, setResolving] = useState<HealerIncident | null>(null);
   return (
-    <Section title="Incidents">
+    <Section title="Problems">
       {incidents.error != null && (
         <ProblemNotice error={incidents.error} onRetry={() => incidents.refetch()} />
       )}
       {retry.error != null && <ProblemNotice error={retry.error} />}
       {incidents.isLoading ? (
-        <Skeleton rows={3} label="Loading incidents" />
+        <Skeleton rows={3} label="Loading problems" />
       ) : !incidents.data ? null : incidents.data.items.length === 0 ? (
         <EmptyState message="Nothing in the last 7 days." />
       ) : (
         <ul className="divide-y divide-line">
           {incidents.data.items.map((incident) => (
-            <li key={incident.id} className="space-y-1.5 py-3 first:pt-0 last:pb-0">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-body font-semibold text-ink">
-                  {incident.playbook.replace(/_/g, " ")} ·{" "}
-                  <MonoValue>{incident.trigger_code}</MonoValue>
-                </p>
-                <span className="rounded-full border border-line px-2.5 py-0.5 text-meta font-medium text-ink-muted">
-                  {STATE_WORDS[incident.state]}
-                </span>
-              </div>
-              <p className="text-meta text-ink-muted">
-                Opened {formatIST(incident.opened_at)} · {incident.attempts} attempt
-                {incident.attempts === 1 ? "" : "s"}
-                {incident.last_outcome && <> · last: {incident.last_outcome}</>}
-                {incident.public && <> · on the status page</>}
-              </p>
-              {incident.resolved_at === null && (
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <button
-                    type="button"
-                    className={SECONDARY_BUTTON_SM}
-                    disabled={retry.isPending}
-                    onClick={() => retry.mutate(incident.id)}
-                  >
-                    Run next step now
-                  </button>
-                  <button
-                    type="button"
-                    className={SECONDARY_BUTTON_SM}
-                    onClick={() => setResolving(incident)}
-                  >
-                    Resolve
-                  </button>
-                </div>
-              )}
-            </li>
+            <IncidentRow
+              key={incident.id}
+              incident={incident}
+              retrying={retry.isPending}
+              onRetry={() => retry.mutate(incident.id)}
+              onResolve={() => setResolving(incident)}
+            />
           ))}
         </ul>
       )}
       {resolving && (
         <ConfirmDialog
-          title="Resolve this incident?"
-          confirmLabel="Resolve"
-          pendingLabel="Resolving…"
+          title="Mark this as handled?"
+          confirmLabel="Mark as handled"
+          pendingLabel="Marking…"
           pending={resolve.isPending}
           error={resolve.error}
           onCancel={() => setResolving(null)}
@@ -213,6 +234,87 @@ function Incidents() {
         </ConfirmDialog>
       )}
     </Section>
+  );
+}
+
+function IncidentRow({
+  incident,
+  retrying,
+  onRetry,
+  onResolve,
+}: {
+  incident: HealerIncident;
+  retrying: boolean;
+  onRetry: () => void;
+  onResolve: () => void;
+}) {
+  const pill = STATE_PILL[incident.state];
+  const { kind } = incident;
+  return (
+    <li className="space-y-1.5 py-3 first:pt-0 last:pb-0">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+        <div className="min-w-0 flex-1 basis-56">
+          <p className="text-meta text-ink-muted">{incident.group}</p>
+          <div className="flex items-center gap-1">
+            <p className="min-w-0 text-body font-semibold text-ink">{kind.title}</p>
+            <InfoTip label={kind.title}>
+              <p>{kind.meaning}</p>
+              <p>
+                <span className="font-medium text-ink">What to do: </span>
+                {kind.next_step}
+              </p>
+              <p>
+                Code for logs: <MonoValue>{incident.trigger_code}</MonoValue>
+              </p>
+            </InfoTip>
+          </div>
+        </div>
+        <StatusPill tone={pill.tone}>{pill.text}</StatusPill>
+      </div>
+      <p className="text-meta text-ink-muted">
+        {incident.progress} · Found {formatIST(incident.opened_at)}
+        {incident.resolved_at && <> · Closed {formatIST(incident.resolved_at)}</>}
+        {incident.public && <> · On the status page</>}
+      </p>
+      {incident.state === "escalated" && (
+        <p className="text-meta text-ink">
+          <span className="font-medium">What to do: </span>
+          {kind.next_step}
+        </p>
+      )}
+      {incident.resolved_at === null && (
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          {incident.automatic && (
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_SM}
+              disabled={retrying}
+              onClick={onRetry}
+            >
+              Check again now
+            </button>
+          )}
+          <button type="button" className={SECONDARY_BUTTON_SM} onClick={onResolve}>
+            Mark as handled
+          </button>
+          <InfoTip label={`the buttons for ${kind.title}`}>
+            {incident.automatic && (
+              <p>
+                <span className="font-medium text-ink">Check again now</span> runs this
+                problem&apos;s next step on the healer&apos;s next minute&apos;s check instead
+                of waiting. If the problem has cleared it closes; if a repair try is left, it
+                repairs again.
+              </p>
+            )}
+            <p>
+              <span className="font-medium text-ink">Mark as handled</span> closes it. Any
+              line it is holding is given back and any campaign it paused is resumed, so do
+              this only once the cause is fixed. You confirm first.
+            </p>
+          </InfoTip>
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -276,35 +378,44 @@ function StatusPost() {
 
 function Playbooks({ data }: { data: HealerOverview }) {
   return (
-    <Section title="Playbooks">
+    <Section title="What it can fix">
       <ul className="divide-y divide-line">
         {data.playbooks.map((p) => (
           <li key={p.key} className="space-y-1 py-3 first:pt-0 last:pb-0">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-body font-semibold text-ink">
-                {p.title} <MonoValue>{p.key}</MonoValue>
+                {p.title} <MonoValue className="text-meta font-normal text-ink-muted">{p.key}</MonoValue>
               </p>
-              <span className="rounded-full border border-line px-2.5 py-0.5 text-meta font-medium text-ink-muted">
-                {!p.automatic ? "Pages only" : p.paused ? "Paused" : p.pausable ? "On" : "Always on"}
-              </span>
+              <StatusPill tone={p.paused ? "warn" : "neutral"}>
+                {!p.automatic ? "Tells you only" : p.paused ? "Switched off" : p.pausable ? "On" : "Always on"}
+              </StatusPill>
             </div>
             <dl className="grid gap-x-3 gap-y-0.5 text-meta text-ink-muted sm:grid-cols-[8rem_1fr]">
               <dt className="font-medium text-ink">Does</dt>
               <dd>{p.action}</dd>
-              <dt className="font-medium text-ink">Proves it worked</dt>
+              <dt className="font-medium text-ink">How it checks</dt>
               <dd>{p.verify}</dd>
               <dt className="font-medium text-ink">Undo</dt>
               <dd>{p.undo}</dd>
-              <dt className="font-medium text-ink">Limits</dt>
-              <dd>
-                {p.max_attempts} attempt{p.max_attempts === 1 ? "" : "s"}, {Math.round(p.cooldown_s / 60)}{" "}
-                min apart · reaches one {p.blast_radius === "platform" ? "platform" : p.blast_radius}
-                {p.job && <> · runs on a schedule</>}
-              </dd>
-              {p.triggers.length > 0 && (
+              {p.automatic && (
                 <>
-                  <dt className="font-medium text-ink">Woken by</dt>
-                  <dd className="break-words">{p.triggers.join(", ")}</dd>
+                  <dt className="font-medium text-ink">Limits</dt>
+                  <dd>
+                    {p.max_attempts} tr{p.max_attempts === 1 ? "y" : "ies"},{" "}
+                    {Math.round(p.cooldown_s / 60)} min apart · a mistake could reach{" "}
+                    {p.blast_radius === "tenant"
+                      ? "one client"
+                      : p.blast_radius === "platform"
+                        ? "every client"
+                        : "one agent"}
+                    {p.job && <> · runs on a schedule</>}
+                  </dd>
+                </>
+              )}
+              {p.woken_by.length > 0 && (
+                <>
+                  <dt className="font-medium text-ink">Starts when</dt>
+                  <dd className="break-words">{p.woken_by.map((k) => k.title).join("; ")}</dd>
                 </>
               )}
             </dl>
@@ -315,7 +426,7 @@ function Playbooks({ data }: { data: HealerOverview }) {
   );
 }
 
-function Ledger() {
+function Ledger({ titles }: { titles: Record<string, string> }) {
   const actions = useHealerActions(null);
   return (
     <Section title="What it did">
@@ -323,7 +434,7 @@ function Ledger() {
         <ProblemNotice error={actions.error} onRetry={() => actions.refetch()} />
       )}
       {actions.isLoading ? (
-        <Skeleton rows={3} label="Loading the ledger" />
+        <Skeleton rows={3} label="Loading what it did" />
       ) : !actions.data ? null : actions.data.items.length === 0 ? (
         <EmptyState message="Nothing recorded yet." />
       ) : (
@@ -331,15 +442,20 @@ function Ledger() {
           {actions.data.items.map((a) => (
             <li key={a.id} className="py-2 first:pt-0 last:pb-0">
               <p className="text-ink">
-                <MonoValue>{a.playbook}</MonoValue> {a.step} —{" "}
+                {lookup(titles, a.playbook) ?? a.playbook}: {lookup(STEP_WORDS, a.step) ?? a.step},{" "}
                 <span className={a.outcome === "failed" ? "font-medium text-danger" : ""}>
-                  {a.outcome}
+                  {lookup(OUTCOME_WORDS, a.outcome) ?? a.outcome}
                 </span>
                 {a.actor_type !== "healer" && <> (by a person)</>}
               </p>
               <p className="break-words text-meta text-ink-muted">
                 {formatIST(a.at)}
-                {a.detail && <> · {a.detail}</>}
+                {a.detail && (
+                  <>
+                    {" "}
+                    · <MonoValue className="text-meta">{a.detail}</MonoValue>
+                  </>
+                )}
               </p>
             </li>
           ))}

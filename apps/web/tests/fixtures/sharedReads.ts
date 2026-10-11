@@ -448,6 +448,8 @@ export function clientLlmTiers(over: Partial<ClientLlmDefaults> = {}): ClientLlm
     effective_is_available: true,
     in_force_surcharge_inr_per_minute: "0",
     upgrade_surcharge_inr_per_minute: "1.5000",
+    tier_choosable: true,
+    tier_note: null,
     available: [
       {
         tier: "standard",
@@ -531,6 +533,7 @@ export function adminOverviewSummaryReads(tenantId: string) {
       tenant_id: tenantId,
       severity: null,
       signals: [],
+      on_trial: false,
       spend_used_inr: null,
       spend_cap_inr: null,
     },

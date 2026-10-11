@@ -30,7 +30,12 @@ from typing import Final
 from calevate_shared.engine import VoiceEngine
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.engine_catalogue_offer import NOT_ON_OFFER_CLIENT, model_unofferable_reason
+from apps.api.agents.engine_catalogue_offer import (
+    NOT_ON_OFFER_CLIENT,
+    PAID_MODEL_OPERATOR,
+    model_unofferable_reason,
+)
+from apps.api.agents.engine_model_bands import banded_catalogue
 from apps.api.agents.hosted_voices import (
     STUDIO_VOICE_PROVIDER,
     HostedVoiceRow,
@@ -43,7 +48,13 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.engine import get_engine
-from apps.api.engine.catalogue import EngineCatalogue, HoldsCatalogue, HostsVoices, ReportsOwnKeys
+from apps.api.engine.catalogue import (
+    CatalogueModel,
+    EngineCatalogue,
+    HoldsCatalogue,
+    HostsVoices,
+    ReportsOwnKeys,
+)
 from apps.api.engine.hosted_platform import engine_platform_label
 
 log = get_logger(__name__)
@@ -57,6 +68,8 @@ VOICE_TIER_UNPRICED: Final = "engine_voice_tier_unpriced"
 MODEL_NOT_IN_CATALOGUE: Final = "engine_model_not_in_catalogue"
 MODEL_NOT_CALL_CAPABLE: Final = "engine_model_not_call_capable"
 MODEL_NOT_ON_PLAN: Final = "engine_model_not_on_plan"
+#: A model whose recorded band is not "none": not included in the per-minute price (D-750).
+MODEL_PAID: Final = "engine_model_paid"
 #: A Studio voice runs the call on the engine's low-cost models only (D-687).
 MODEL_NOT_WITH_OWN_VOICE: Final = "engine_model_not_with_studio_voice"
 CHOICE_UNDER_BYOK: Final = "engine_choice_under_byok"
@@ -197,6 +210,14 @@ async def _check_voice(
     return HostedChoice(row=row)
 
 
+def _model_refusal_code(model: CatalogueModel) -> str:
+    if not model.call_capable:
+        return MODEL_NOT_CALL_CAPABLE
+    if model.surcharge is not None and model.surcharge != "none":
+        return MODEL_PAID
+    return MODEL_NOT_ON_PLAN
+
+
 def _check_model(
     catalogue: EngineCatalogue,
     model_id: str,
@@ -204,7 +225,6 @@ def _check_model(
     attested: frozenset[str],
     platform: str,
     with_own_voice: bool,
-    voice_rate_key: str | None = None,
 ) -> None:
     model = next((m for m in catalogue.models if m.model_id == model_id), None)
     if model is None:
@@ -220,20 +240,10 @@ def _check_model(
         model, attested=attested, platform=platform, audience="client"
     )
     if reason is not None:
-        code = MODEL_NOT_CALL_CAPABLE if not model.call_capable else MODEL_NOT_ON_PLAN
         raise _refusal(
-            code,
+            _model_refusal_code(model),
             title="This language model cannot be used",
             detail=reason,
-            remediation="Choose another model, or clear the choice to use the default.",
-        )
-    if model.surcharge == "premium" and voice_rate_key not in _AT_LEAST_PREMIUM:
-        # The model lifts the call to the Premium band; a voice sold below it would meter
-        # the minute at a lower rate than the engine charges.
-        raise _refusal(
-            MODEL_ABOVE_VOICE_RATE,
-            title="This language model costs more than this voice's rate",
-            detail="Calls on this model are charged at a higher rate than the chosen voice.",
             remediation="Choose another model, or clear the choice to use the default.",
         )
     if with_own_voice and not model.voice_only_byok:
@@ -304,23 +314,17 @@ async def require_engine_choice(
         choice = await _check_voice(session, voice_id, attested=attested, platform=platform)
     if model_id is not None and holder is not None:
         _check_model(
-            await holder.read_catalogue(),
+            await banded_catalogue(session, holder, engine=engine.name),
             model_id,
             attested=attested,
             platform=platform,
             with_own_voice=choice is not None and choice.speaks_own_key,
-            voice_rate_key=choice.rate_key if choice is not None else None,
         )
     return BASE_RATE_KEY if choice is None else choice.rate_key
 
 
 #: Refused when the in-call default setting names a model the engine would not run a call on.
 IN_CALL_DEFAULT_UNUSABLE: Final = "engine_in_call_default_unusable"
-#: A model that lifts the call to a dearer band than the chosen voice is sold at.
-MODEL_ABOVE_VOICE_RATE: Final = "engine_model_above_voice_rate"
-#: The voice rate keys a Premium-band model may run beside: the minute is metered at the
-#: voice's key, so it must be at least the band the model lifts the call to.
-_AT_LEAST_PREMIUM: Final = frozenset({"premium", "studio"})
 
 
 def in_call_default_model(engine: VoiceEngine, *, voice_id: str | None) -> str | None:
@@ -339,13 +343,14 @@ def in_call_default_model(engine: VoiceEngine, *, voice_id: str | None) -> str |
     return get_settings().thinnest_in_call_default_model
 
 
-async def resolve_in_call_default(value: str | None) -> str | None:
+async def resolve_in_call_default(session: AsyncSession, value: str | None) -> str | None:
     """The model id to store for the in-call default, or a refusal.
 
     Accepts the model's id or its console name ("GPT-OSS 120B"), because ThinnestAI
     documents names but not every id, and stores the id the live `GET /models` gives for it,
     so publish, drift and the read-back all compare ids. Refuses a model the engine does not
-    list as call-capable on our plan, whose price band is not on record, or that a Studio
+    list as call-capable on our plan, whose price band is not on record or is not "none"
+    (a paid model, D-750), or that a Studio
     agent may not run (`voiceOnlyByok` false: setting it on a voice-only BYOK agent is a 400,
     `bring-your-own-keys.md:60-63`), so the console cannot point any agent at a model the
     vendor would refuse or bill unpriced. The stricter rule is deliberate (D-717): applying
@@ -355,23 +360,29 @@ async def resolve_in_call_default(value: str | None) -> str | None:
     engine = get_engine()
     if value is None or engine.name != "thinnest" or not isinstance(engine, HoldsCatalogue):
         return value
-    catalogue = await engine.read_catalogue()
+    catalogue = await banded_catalogue(session, engine, engine=engine.name)
     wanted = value.strip()
     model = next((m for m in catalogue.models if m.model_id == wanted), None) or next(
         (m for m in catalogue.models if m.label.casefold() == wanted.casefold()), None
     )
-    clear_band = get_settings().thinnest_clear_voice_band
     if (
         model is not None
         and model.call_capable
         and model.plan_allows
-        and model.surcharge is not None
-        and (model.surcharge == "none" or clear_band in _AT_LEAST_PREMIUM)
+        and model.surcharge == "none"
         and model.voice_only_byok
     ):
         return model.model_id
     if model is None and not catalogue.complete:
         raise _incomplete()
+    if model is not None and model.surcharge is not None and model.surcharge != "none":
+        raise ProblemError(
+            kind="validation",
+            code=IN_CALL_DEFAULT_UNUSABLE,
+            title="That model cannot answer calls on this account",
+            detail=PAID_MODEL_OPERATOR,
+            remediation="Choose a model with no extra charge, such as GPT-OSS 120B.",
+        )
     raise ProblemError(
         kind="validation",
         code=IN_CALL_DEFAULT_UNUSABLE,
@@ -406,12 +417,12 @@ __all__ = [
     "IN_CALL_DEFAULT_UNUSABLE",
     "KEYS_MODE_MISMATCH",
     "KEYS_NOT_ON_SALE",
-    "MODEL_ABOVE_VOICE_RATE",
     "MODEL_CHOICE_NOT_OFFERED",
     "MODEL_NOT_CALL_CAPABLE",
     "MODEL_NOT_IN_CATALOGUE",
     "MODEL_NOT_ON_PLAN",
     "MODEL_NOT_WITH_OWN_VOICE",
+    "MODEL_PAID",
     "VOICE_CHOICE_NOT_OFFERED",
     "VOICE_NOT_IN_CATALOGUE",
     "VOICE_NOT_ON_OFFER",

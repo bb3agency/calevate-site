@@ -209,6 +209,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.config_sources import router as ops_config_sources_router
     from apps.api.ops.dashboard_data_use_routes import router as ops_data_use_router
     from apps.api.ops.engine_minute_routes import router as ops_engine_minute_prices_router
+    from apps.api.ops.engine_model_band_routes import router as ops_engine_model_bands_router
     from apps.api.ops.fx_routes import router as ops_fx_router
     from apps.api.ops.hosted_voice_routes import router as ops_hosted_voice_router
     from apps.api.ops.live_apply_routes import router as ops_live_apply_router
@@ -559,6 +560,7 @@ def _mount_routers(application: FastAPI) -> None:
     # The per-minute ENGINE price (D-678): an engine that reports no cost per call is
     # metered only at a rate an operator attested (`billing/engine_minutes.py`).
     application.include_router(ops_engine_minute_prices_router)
+    application.include_router(ops_engine_model_bands_router)
     # Ops > Spoken style: the founder reviews how agents speak each language (D-744).
     application.include_router(ops_spoken_style_router)
     # The ENCODER price attestation (D-608). Its own router for the voice one's reason and

@@ -55,6 +55,13 @@ const SUPERADMIN: AdminMe = {
 function routes(extra: Routes = {}): Routes {
   return {
     [ADMIN_ME_PATH]: SUPERADMIN,
+    // The numbers screen also shows the client's forwarded numbers (D-746): none here.
+    [`/v1/admin/forwarding/tenants/${TENANT}?limit=5`]: {
+      lines: [],
+      recent_tests: [],
+      save_number_enabled: false,
+      save_number_sent: 0,
+    },
     [TENANT_PATH]: {
       id: TENANT,
       name: "Console Clinic",

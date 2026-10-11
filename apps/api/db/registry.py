@@ -702,6 +702,18 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "id and a source note — no PII, no credential, no tenant data. Append-only (see "
         "APPEND_ONLY_TABLES)."
     ),
+    "platform_engine_model_bands": (
+        "platform-scoped, admin realm only. The per-minute band (`none` or `premium`) an "
+        "operator recorded for one of an ENGINE's own models, read off its console because "
+        "its API does not state it — one ThinnestAI account for the whole deployment, so "
+        "there is no tenant whose row this could be and it carries no tenant_id. It decides "
+        "whether a model may be offered and which voice rate it may run beside (hard rule "
+        "7). `agents/engine_model_bands.record_engine_model_band` is the only writer and "
+        "requires a step-up-confirmed caller writing the audit row on the same session "
+        "(`POST /v1/ops/engine-model-bands/{engine}/{model_id}`). Holds an engine name, a "
+        "model id, a band word, a recorder id and a source note — no PII, no credential, no "
+        "tenant data. Append-only (see APPEND_ONLY_TABLES)."
+    ),
     "platform_tts_plan_fees": (
         "platform-scoped, admin realm only (D-547, Phase D.3). What a voice vendor BILLED US "
         "for one IST month, attested by an operator off the invoice — one Cartesia account "
@@ -854,8 +866,9 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "line for the whole platform, so a free-trial call and a forwarding test must count "
         "each other's live legs across clients under one advisory lock, and the voice "
         "platform's report of a leg arrives before any tenant is known (the calling agent "
-        "is ours, not a client's). A tenant policy would hide exactly the rows both readers "
-        "need. No personal data: ids, a vendor call id, answered and seconds; never a number."
+        "is ours, not a client's). So the READ is global (`FOR SELECT USING (true)`); every "
+        "write is own-tenant only (`tenant_isolation`, migration f8a2d6c41e95). No personal "
+        "data: ids, a vendor call id, answered and seconds; never a number."
     ),
     "live_apply_runs": (
         "platform-scoped, admin realm only (D-720). One pass that brings the live agents in a "
@@ -1077,6 +1090,10 @@ APPEND_ONLY_TABLES = [
     # The attested per-minute engine price (D-678). Append-only for `platform_tts_prices`'
     # reason: an editable figure would silently re-price minutes already metered against it.
     "platform_engine_minute_prices",
+    # The recorded per-minute band of an engine's own model. Append-only for
+    # `platform_engine_minute_prices`' reason: the band decides which rate a minute is sold at,
+    # and an editable row would rewrite what a past publish was priced against.
+    "platform_engine_model_bands",
     # The ADMIN copilot's own AI spend (D-499). Append-only for `usage_events`' reason
     # rather than `platform_model_prices`': it is a LEDGER of money already paid to a
     # provider, and `platform_ai_spend` is the counter derived from it. A row somebody

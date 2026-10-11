@@ -13,6 +13,7 @@ import { useState } from "react";
 import { Wand2 } from "lucide-react";
 
 import { FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, ProblemNotice, SECONDARY_BUTTON, formatCount } from "@/components/ui";
+import { InfoTip } from "@/components/console/infoTip";
 import { useActAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { EMPTY_SCRIPT, useConvertScript, type CallScript, type ConvertOut } from "@/lib/api/script";
@@ -51,13 +52,17 @@ export function HandWritten({
   return (
     <div className="space-y-4">
       <div>
-        <label className={FIELD_LABEL} htmlFor="raw-script">
-          Your script
-        </label>
+        <div className="flex items-center gap-1">
+          <label className={FIELD_LABEL} htmlFor="raw-script">
+            Your script
+          </label>
+          <InfoTip label="writing it by hand" align="start">
+            The rules every agent follows, like always answering truthfully whether it is an AI
+            and whether the call is recorded, are added for you.
+          </InfoTip>
+        </div>
         <span className={FIELD_HINT}>
-          Write it the way you would brief a new member of staff. The rules every agent follows,
-          like always answering truthfully whether it is an AI and whether the call is
-          recorded, are added for you. Put the greeting on the line after one that reads
+          Brief it like a new member of staff. Put the greeting on the line after one that reads
           [OPENING].
         </span>
         <textarea
@@ -90,8 +95,7 @@ export function HandWritten({
             {convert.isPending ? "Reading your script…" : "Turn this into steps"}
           </button>
           <p className="text-meta text-ink-muted">
-            The AI suggests steps from your text and shows you every one before anything is
-            replaced. It uses your account&apos;s AI allowance.
+            You review every step before anything is replaced. Uses your AI allowance.
           </p>
         </div>
       )}

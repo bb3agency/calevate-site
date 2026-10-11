@@ -179,6 +179,7 @@ function LineSettings({
       {editing && (
         <form
           className="space-y-4"
+          noValidate
           onSubmit={(event) => {
             event.preventDefault();
             change.mutate(
@@ -270,7 +271,7 @@ function SaveNumber({ session }: { session: Session }) {
         <div className="space-y-2">
           <ToggleSwitch
             label="Send one message after a booking"
-            hint="When your agent books an appointment or a call back, the caller is asked to save the number reminders come from."
+            hint="When your agent makes a booking or arranges a call back, the caller is asked to save the number reminders come from."
             checked={state.data.enabled}
             disabled={!write.allowed || set.isPending}
             onChange={(next) => set.mutate(next)}

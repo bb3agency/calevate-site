@@ -496,9 +496,13 @@ export function useConvertScript(
 export type TestVerdict = "passed" | "needs_fix" | "failed" | "unjudged";
 export type FixKind = "script_step" | "knowledge" | "objection" | "style" | "settings" | "platform";
 
+/** A step the agent took in a turn, in our words. */
+export type TestAction = "knowledge" | "do_not_call" | "call_back" | "other";
+
 export interface TestTurn {
   said: string;
   reply: string;
+  actions?: TestAction[];
 }
 
 export interface TestResult {
@@ -518,6 +522,8 @@ export interface TestResult {
   formal_words: string[];
   /** The same test's verdict in the run being re-tested. */
   before: TestVerdict | null;
+  /** What a test chat cannot show for this check, in the owner's words. */
+  limit?: string | null;
 }
 
 export interface ProposedChange {
@@ -566,6 +572,10 @@ export interface TestRun {
   results: TestResult[];
   improvement: Improvement | null;
   note: string | null;
+  /** "Improve my agent" is being worked out; the screen polls until it arrives. */
+  improving?: boolean;
+  /** Why the last "Improve my agent" could not be made. */
+  improve_note?: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -582,6 +592,8 @@ export interface TestConversations {
   available: boolean;
   unavailable_reason: string | null;
   cost_note: string;
+  /** Why the agent under test is behind the instructions every agent gets. */
+  waiting_update?: string | null;
   latest: TestRun | null;
   history: TestHistoryEntry[];
 }
@@ -597,8 +609,9 @@ export function useTestConversations(
     queryKey: testsKey(session.orgSlug, agentId),
     queryFn: () => apiRequest<TestConversations>(session, `${base(agentId)}/tests`),
     refetchInterval: (query) => {
-      const status = query.state.data?.latest?.status;
-      return status === "queued" || status === "running" ? 3000 : false;
+      const latest = query.state.data?.latest;
+      const busy = latest?.status === "queued" || latest?.status === "running" || latest?.improving === true;
+      return busy ? 3000 : false;
     },
   });
 }
@@ -616,18 +629,21 @@ export function useRunTestConversations(
   });
 }
 
-/** "Improve my agent" (all failures) or "Fix this" (`keys`): a proposal, never applied. */
+/**
+ * "Improve my agent" (all failures) or "Fix this" (`keys`). Queued on the server (202); the
+ * run reads `improving` until the proposal arrives, and the tests query polls meanwhile.
+ */
 export function useImproveFromTests(
   session: Session,
   agentId: string,
-): UseMutationResult<Improvement, Error, { runId: string; keys?: string[] }> {
+): UseMutationResult<TestConversations, Error, { runId: string; keys?: string[] }> {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ runId, keys }) =>
-      apiRequest<Improvement>(session, `${base(agentId)}/tests/${runId}/improve`, {
+      apiRequest<TestConversations>(session, `${base(agentId)}/tests/${runId}/improve`, {
         method: "POST",
         body: keys ? { keys } : {},
       }),
-    onSuccess: () => client.invalidateQueries({ queryKey: testsKey(session.orgSlug, agentId) }),
+    onSuccess: (data) => client.setQueryData(testsKey(session.orgSlug, agentId), data),
   });
 }

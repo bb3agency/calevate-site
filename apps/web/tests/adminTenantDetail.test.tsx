@@ -215,6 +215,7 @@ const HEALTHY = {
   tenant_id: TENANT,
   severity: null,
   signals: [],
+  on_trial: false,
   spend_used_inr: null,
   spend_cap_inr: null,
 };
@@ -614,11 +615,49 @@ describe("the client's health summary", () => {
       [HEALTH_PATH]: {
         ...HEALTHY,
         severity: "stop",
-        signals: [{ rule: "deliveries_failing", severity: "stop", causes: [], count: 3 }],
+        signals: [
+          { rule: "deliveries_failing", severity: "stop", causes: [], count: 3, waiting_on: "calevate" },
+        ],
       },
     });
     expect(await screen.findByText(/3 failed deliveries/)).toBeTruthy();
     expect(screen.queryByText("Nothing is wrong with this account right now.")).toBeNull();
+  });
+
+  it("shows a trial as a state and outstanding agreements as waiting on the client, never broken", async () => {
+    // The false alarm of 11 Oct 2026: "Broken now: Cannot dial out" on a trial account
+    // whose test calls were completing.
+    render({
+      [HEALTH_PATH]: {
+        ...HEALTHY,
+        severity: "warn",
+        on_trial: true,
+        signals: [
+          {
+            rule: "outbound_waiting_on_client",
+            severity: "warn",
+            causes: ["agreements_not_accepted"],
+            count: null,
+            waiting_on: "client",
+          },
+        ],
+      },
+    });
+    expect(await screen.findByText("Needs to accept the updated agreements")).toBeTruthy();
+    expect(screen.getByText("On free trial: test calls only")).toBeTruthy();
+    expect(screen.getByText("Waiting on client")).toBeTruthy();
+    expect(screen.queryByText("Broken now")).toBeNull();
+    expect(screen.queryByText("Cannot dial out")).toBeNull();
+    expect(screen.queryByText(/refusing this account/)).toBeNull();
+  });
+
+  it("shows a healthy trial account as on trial with nothing wrong", async () => {
+    render({
+      [HEALTH_PATH]: { ...HEALTHY, on_trial: true },
+      "/v1/healer/incidents?days=30&limit=20": { items: [], open: 0 },
+    });
+    expect(await screen.findByText("Nothing is wrong with this account right now.")).toBeTruthy();
+    expect(screen.getByText("On free trial: test calls only")).toBeTruthy();
   });
 
   it("refuses in words when the judgement could not be read", async () => {

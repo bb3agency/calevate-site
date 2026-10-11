@@ -2840,7 +2840,7 @@ export interface paths {
         };
         /**
          * The voices an agent may be put on, and the platform's models, with availability
-         * @description On a voice platform that hosts its own voices: the voices an operator added and enabled, each with its rung (Clear or Studio), a language note, whether a preview can be played, and whether it can be chosen right now. The models are the platform's own list. On any other platform `available` is false and the voice picker at `/v1/agents/voices` is the one to read.
+         * @description On a voice platform that hosts its own voices: the voices an operator added and enabled, each with its rung (Clear or Studio), a language note, whether a preview can be played, and whether it can be chosen right now. To an operator, the platform's own models that can answer a call on our plan, with their recorded band; a client is sent no models. On any other platform `available` is false and the voice picker at `/v1/agents/voices` is the one to read.
          */
         get: operations["engine_catalogue_v1_agents_engine_catalogue_get"];
         put?: never;
@@ -3016,7 +3016,7 @@ export interface paths {
          * Rename an agent, change its calling direction or language, or pick its model
          * @description Applies immediately. A live agent is re-published to the voice platform in the same transaction — including the numbers it answers, so switching a two-way agent to outbound-only really does stop it picking up — and if that push fails nothing is saved.
          *
-         *     `llm_tier` is the one field where sending `null` MEANS something: it clears this agent's own AI model tier so it follows the account default again. Omit the field entirely to leave the current choice alone. A tier that is not switched on yet is refused with `llm_tier_not_available` — `GET /v1/organization/llm-defaults` marks those tiers `is_available: false`. Choosing the tier the agent is already on changes nothing.
+         *     `llm_tier` is the one field where sending `null` MEANS something: it clears this agent's own AI model tier so it follows the account default again. Omit the field entirely to leave the current choice alone. A tier that is not switched on yet is refused with `llm_tier_not_available` — `GET /v1/organization/llm-defaults` marks those tiers `is_available: false`. Choosing the tier the agent is already on changes nothing. Where that read says `tier_choosable: false`, any tier is refused with `llm_tier_not_chosen_here` and only `null` is accepted.
          *
          *     `engine_voice_id` and `engine_model_id` choose from the voice platform's own list (`GET /v1/agents/engine-catalogue`, whose model ids are opaque) where it supplies one; `null` clears a choice that has not yet been published. An entry that list marks unavailable is refused with its reason.
          *
@@ -3628,9 +3628,14 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Improve my agent: propose script and fact changes from a run's failures
-         * @description SUBJECT → GATE → RUN → METER, as the script helper. It proposes and never writes the
-         *     script: the owner keeps changes one by one in the builder's review.
+         * Improve my agent: queue script and fact changes from a run's failures
+         * @description Queues the proposal and answers at once; the run shows `improving` until the
+         *     proposal (or `improve_note`) arrives. It proposes and never writes the script: the owner
+         *     keeps changes one by one in the review.
+         *
+         *     A job, not an inline model call, because the proposal is the whole script and two legs
+         *     of it do not fit the request deadline; and because a route that read the allowance and
+         *     then waited on a model kept its transaction open across the wait (D-748).
          */
         post: operations["improve_from_tests_v1_agents__agent_id__script_tests__run_id__improve_post"];
         delete?: never;
@@ -8947,6 +8952,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/engine-model-bands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every engine model that can answer a call, with its recorded per-minute band */
+        get: operations["list_engine_model_bands_v1_ops_engine_model_bands_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/engine-model-bands/{engine}/{model_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record one engine model's per-minute band (step-up confirmed, audited)
+         * @description Records the band the voice platform's console shows for one of its models as a NEW row; the newest row is in force. `none`: the model is included in the per-minute price and may be offered. `premium`: the model lifts a call to a dearer band, so it is a paid model and is never offered (Calevate offers only models included in the per-minute price). Requires `X-Confirm-Action: record_engine_model_band:<engine>:<model_id>`. Only a model the platform lists as able to answer a call on our plan can be recorded.
+         */
+        post: operations["record_engine_model_band_route_v1_ops_engine_model_bands__engine___model_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/fx-rate": {
         parameters: {
             query?: never;
@@ -10075,7 +10117,7 @@ export interface paths {
          *
          *     A tier with `is_available: false` cannot be chosen yet; `unavailable_reason` says so.
          *
-         *     Send `null` to go back to following Calevate's default. A tier that is not switched on yet is refused with `llm_tier_not_available`. Choosing the tier the account is already on changes nothing.
+         *     Send `null` to go back to following Calevate's default. A tier that is not switched on yet is refused with `llm_tier_not_available`. Choosing the tier the account is already on changes nothing. Where `tier_choosable` is false (a voice platform that runs its own models, whose model is included in the per-minute price) any tier is refused with `llm_tier_not_chosen_here`; `null` is still accepted.
          *
          *     Every LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched — this sets what the others follow.
          */
@@ -12321,7 +12363,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "field_captured" | "booking_agreed" | "callback_agreed" | "price_quoted" | "asked_for_person" | "could_not_answer" | "complaint" | "frustrated" | "opt_out" | "strong_interest" | "asked_delivery_or_payment" | "will_buy_or_visit";
+            kind: "field_captured" | "booking_agreed" | "callback_agreed" | "price_quoted" | "asked_for_person" | "could_not_answer" | "complaint" | "frustrated" | "opt_out" | "strong_interest" | "asked_delivery_or_payment" | "will_buy_or_visit" | "claimed_not_done";
             /** Label */
             label: string;
             /**
@@ -13201,6 +13243,8 @@ export interface components {
             last_call_at: string | null;
             /** Name */
             name: string;
+            /** On Trial */
+            on_trial: boolean;
             /** Plan Tier */
             plan_tier: string;
             /**
@@ -13316,6 +13360,13 @@ export interface components {
             effective_tier_label: string;
             /** In Force Surcharge Inr Per Minute */
             in_force_surcharge_inr_per_minute: string;
+            /**
+             * Tier Choosable
+             * @default true
+             */
+            tier_choosable: boolean;
+            /** Tier Note */
+            tier_note?: string | null;
             /** Upgrade Surcharge Inr Per Minute */
             upgrade_surcharge_inr_per_minute: string;
         };
@@ -15921,6 +15972,52 @@ export interface components {
             /** Topup Fees */
             topup_fees: components["schemas"]["TopUpFeeOut"][];
         };
+        /** EngineModelBandIn */
+        EngineModelBandIn: {
+            /**
+             * Band
+             * @enum {string}
+             */
+            band: "none" | "premium";
+            /** Source Note */
+            source_note?: string | null;
+        };
+        /** EngineModelBandOut */
+        EngineModelBandOut: {
+            /** Band */
+            band: ("none" | "premium") | null;
+            /** Catalogue Id */
+            catalogue_id: string;
+            /** Engine */
+            engine: string;
+            /** Label */
+            label: string;
+            /** Latency Ms */
+            latency_ms: number | null;
+            /** Model Id */
+            model_id: string;
+            /** Recorded At */
+            recorded_at: string | null;
+            /** Recorded By */
+            recorded_by: string | null;
+            /** Source Note */
+            source_note: string | null;
+            /** Usable With Studio Voice */
+            usable_with_studio_voice: boolean;
+        };
+        /** EngineModelBandsOut */
+        EngineModelBandsOut: {
+            /** As Of */
+            as_of: string;
+            /** Available */
+            available: boolean;
+            /** Complete */
+            complete: boolean;
+            /** Engine */
+            engine: string | null;
+            /** Models */
+            models: components["schemas"]["EngineModelBandOut"][];
+        };
         /**
          * EngineNumberOut
          * @description One number the voice platform holds, from its own list.
@@ -17258,6 +17355,12 @@ export interface components {
              * @enum {string}
              */
             severity: "stop" | "warn";
+            /**
+             * Waiting On
+             * @default calevate
+             * @enum {string}
+             */
+            waiting_on: "calevate" | "client";
         };
         /** HeldLeadOut */
         HeldLeadOut: {
@@ -17560,21 +17663,40 @@ export interface components {
             /** Tenants Unreached */
             tenants_unreached: number;
         };
+        /**
+         * IncidentKindOut
+         * @description A problem the healer can open an incident for, in plain words (`healer/wording`).
+         */
+        IncidentKindOut: {
+            /** Code */
+            code: string;
+            /** Meaning */
+            meaning: string;
+            /** Next Step */
+            next_step: string;
+            /** Title */
+            title: string;
+        };
         /** IncidentOut */
         IncidentOut: {
             /** Agent Id */
             agent_id: string | null;
             /** Attempts */
             attempts: number;
+            /** Automatic */
+            automatic: boolean;
             /** Component */
             component: ("calls" | "dashboard" | "numbers" | "assistant") | null;
             /** Escalated At */
             escalated_at: string | null;
+            /** Group */
+            group: string;
             /**
              * Id
              * Format: uuid
              */
             id: string;
+            kind: components["schemas"]["IncidentKindOut"];
             /** Last Outcome */
             last_outcome: string | null;
             /** Mitigated At */
@@ -17588,6 +17710,8 @@ export interface components {
             opened_at: string;
             /** Playbook */
             playbook: string;
+            /** Progress */
+            progress: string;
             /** Public */
             public: boolean;
             /** Public Title */
@@ -21182,6 +21306,8 @@ export interface components {
             undo: string;
             /** Verify */
             verify: string;
+            /** Woken By */
+            woken_by: components["schemas"]["IncidentKindOut"][];
         };
         /**
          * PreferenceScrubIn
@@ -24596,6 +24722,8 @@ export interface components {
          *     board.
          */
         TenantHealthOut: {
+            /** On Trial */
+            on_trial: boolean;
             /** Severity */
             severity: ("stop" | "warn") | null;
             /** Signals */
@@ -24980,6 +25108,8 @@ export interface components {
             latest: components["schemas"]["TestRunOut"] | null;
             /** Unavailable Reason */
             unavailable_reason: string | null;
+            /** Waiting Update */
+            waiting_update?: string | null;
         };
         /** TestHistoryOut */
         TestHistoryOut: {
@@ -25013,6 +25143,8 @@ export interface components {
             formal_words: string[];
             /** Key */
             key: string;
+            /** Limit */
+            limit?: string | null;
             /** Probe */
             probe: string | null;
             /** Reason */
@@ -25047,7 +25179,14 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Improve Note */
+            improve_note?: string | null;
             improvement: components["schemas"]["ImprovementOut"] | null;
+            /**
+             * Improving
+             * @default false
+             */
+            improving: boolean;
             /** Is Current */
             is_current: boolean;
             /** Note */
@@ -26881,6 +27020,8 @@ export interface components {
         };
         /** TestTurnOut */
         apps__api__agents__script_routes__TestTurnOut: {
+            /** Actions */
+            actions?: ("knowledge" | "do_not_call" | "call_back" | "other")[];
             /** Reply */
             reply: string;
             /** Said */
@@ -33383,12 +33524,12 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImprovementOut"];
+                    "application/json": components["schemas"]["TestConversationsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -42651,6 +42792,73 @@ export interface operations {
             };
         };
     };
+    list_engine_model_bands_v1_ops_engine_model_bands_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineModelBandsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_engine_model_band_route_v1_ops_engine_model_bands__engine___model_id__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                engine: string;
+                model_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EngineModelBandIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineModelBandOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_fx_rate_v1_ops_fx_rate_get: {
         parameters: {
             query?: {
@@ -44374,15 +44582,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The signed consent document. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/pdf": unknown;
-                    "image/jpeg": unknown;
-                    "image/png": unknown;
+                    "application/pdf": string;
+                    "image/jpeg": string;
+                    "image/png": string;
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -3,9 +3,10 @@
 The voices are the operator's curated list, never the vendor's live catalogue: only a voice
 an operator ADDED and ENABLED, that the engine still lists, is returned, and it is offerable
 only while its minute is attested; a Studio voice is listed only while our Cartesia key is on
-in the workspace (D-688). The models are the engine's live list, refused by name where the
-engine says they are too slow or not on the plan. On any engine that does not host voices the
-route answers "no such catalogue", so the Pipecat path reads nothing new.
+in the workspace (D-688). The models are the engine's live list, to operators only (a client is
+sent none), refused by name where the engine says they are too slow or not on the plan. On
+any engine that does not host voices the route answers "no such catalogue", so the Pipecat
+path reads nothing new.
 """
 
 from __future__ import annotations
@@ -22,7 +23,6 @@ from apps.api.agents.hosted_voices import (
     hosted_voice_unofferable_reason,
     parse_hosted_voice_id,
 )
-from apps.api.agents.llm_tiers import engine_model_token
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.engine.catalogue import CatalogueModel, EngineCatalogue
@@ -209,8 +209,10 @@ async def test_the_route_lists_only_added_and_enabled_voices(
     assert by_id[offered].language_note == "Speaks the agent's language, with an accent: Hindi."
     # Our key is on (a Studio voice is listed): offered at the Studio rung.
     assert by_id[studio].rung == "studio" and by_id[studio].offerable
-    assert out.studio_available is True and out.complete is False
-    assert [m.usable_with_studio_voice for m in out.models][:2] == [True, False]
+    # The client realm reads no model list, so a short one cannot make it incomplete.
+    assert out.studio_available is True and out.complete is True
+    # A client chooses a tier and is sent no engine models (D-679).
+    assert out.models == []
 
 
 async def test_with_our_key_off_no_studio_voice_is_listed(
@@ -239,26 +241,6 @@ async def test_an_unpriced_rung_is_listed_and_refused(
     assert not row.offerable and row.reason == "Not available yet: this voice has not been priced."
 
 
-async def test_a_client_reads_the_engines_model_names_and_opaque_ids(
-    priced: set[str],
-) -> None:
-    """A client reads the engine's own model name with our tier where one is known (founder,
-    10 Oct 2026, overriding D-679 for this picker); the id stays opaque in both realms."""
-    tiered = PRANA.model_copy(update={"tier": "standard"})
-    unnamed = SLOW.model_copy(update={"tier": None})
-    engine = HostingEngine(models=(tiered, unnamed))
-    with selected(engine):
-        client_view = await engine_catalogue(_client())
-        operator_view = await engine_catalogue(_operator())
-    assert [m.label for m in client_view.models] == ["Prana · Standard", "Slow"]
-    assert [m.model_id for m in client_view.models] == [
-        engine_model_token("prana-voice"),
-        engine_model_token("gpt-slow"),
-    ]
-    assert all("gpt" not in m.model_id for m in client_view.models)
-    assert [m.label for m in operator_view.models] == ["Prana", "Slow"]
-
-
 async def test_no_voices_yet_is_said_plainly(
     priced: set[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -269,19 +251,6 @@ async def test_no_voices_yet_is_said_plainly(
     with selected(HostingEngine()):
         out = await engine_catalogue(_client())
     assert out.voices == [] and out.note == "No voices have been made available yet."
-
-
-def test_the_adapter_reads_price_band_and_latency_by_console_name() -> None:
-    """The band and latency come from the founder's reading of the console (10 Oct 2026),
-    keyed by the console name `GET /models` returns; an unread model has no band."""
-    from apps.api.engine import thinnest
-
-    mini = thinnest._catalogue_model("gpt-5-mini", "GPT-5 Mini", {"voice": True, "available": True})
-    assert (mini.surcharge, mini.tier, mini.console_latency_ms) == ("premium", "plus", 823)
-    prana = thinnest._catalogue_model("prana-voice", "Prana [Voice]", {"voice": True})
-    assert (prana.surcharge, prana.tier) == ("none", "standard")
-    unread = thinnest._catalogue_model("qwen", "Qwen3.6 27B", {"voice": True, "available": True})
-    assert unread.surcharge is None and unread.tier is None
 
 
 # --- the preview route -------------------------------------------------------------

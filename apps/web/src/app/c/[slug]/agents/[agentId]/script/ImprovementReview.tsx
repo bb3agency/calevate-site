@@ -11,9 +11,9 @@
  * Facts are saved through the knowledge routes the Knowledge screen uses: pinned, so every
  * agent has them at once. A fact whose answer only the owner knows waits for them to type it.
  *
- * Nothing goes live by itself: in the builder, kept changes land in the editor and wait for
- * Put it live; in the Try it drawer they are saved to the draft, or put live only when the
- * owner presses "Keep and put live".
+ * Nothing goes live by itself: kept changes land in the editor when `onKeepScript` is given;
+ * otherwise (the Test section) they are saved to the draft, or put live only when the owner
+ * presses "Keep and put live".
  */
 
 import { useMemo, useState } from "react";
@@ -87,7 +87,7 @@ export function ImprovementReview({
   const working: CallScript | undefined =
     current ?? loaded.data?.draft?.script ?? loaded.data?.script ?? undefined;
   const keptFacts = facts.filter((f) => f.keep);
-  // "Keep and put live" from the drawer only when there is no other unpublished draft, so
+  // "Keep and put live" from the Test section only when there is no other unpublished draft, so
   // pressing it can never put live an edit the owner did not review here.
   const hasDraft = Boolean(loaded.data?.draft);
   const factMissingAnswer = keptFacts.some((f) => f.answer.trim() === "");

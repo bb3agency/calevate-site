@@ -1,53 +1,74 @@
 "use client";
 
 /**
- * ADVANCED — the things set once: what the agent is, the model it thinks with, and
- * deleting it. Each set-once panel stays a closed `Disclosure` whose closed state names
- * the fact, so the section reads as three lines until one is opened. (What it can do on a
- * call is its own Actions section.)
+ * SETTINGS: what the agent is, and deleting it. Plain headed sections like every other part
+ * of the agent page (REDESIGN-2), not closed cards: each is short, and its controls show the
+ * facts they edit. The model has its own section.
  *
- * Delete is foreground, not disclosed: it is rare but high-consequence, and doctrine §3's
- * table never discloses those. Its consequences are stated above the button that does it.
+ * Delete is foreground, not disclosed: it is rare but high-consequence. While the agent is
+ * taking calls it cannot be deleted, and the notice carries the one move that changes that.
  */
 
-import { Settings2 } from "lucide-react";
-
-import { Disclosure } from "@/components/ui";
+import { Section, TEXT_ACTION } from "@/components/console/section";
+import { NoticeBox, ProblemNotice } from "@/components/ui";
 import { movesFor } from "@/lib/agentState";
-import type { Agent } from "@/lib/api/agents";
+import { useAgentLifecycle, type Agent } from "@/lib/api/agents";
+import { useWriteAccess } from "@/lib/api/hooks";
+import { useClientSession } from "@/lib/api/session";
 
 import { AgentIdentity } from "../../AgentIdentity";
 import { AgentLifecycle } from "../../AgentLifecycle";
-import { AgentModel } from "../../AgentModel";
 
-export function AdvancedSection({ agent, slug }: { agent: Agent; slug: string }) {
+export function AdvancedSection({ agent }: { agent: Agent; slug: string }) {
   const canDelete = movesFor(agent.status).includes("archive");
   return (
-    <div className="space-y-4">
-      <Disclosure
+    <div className="space-y-10">
+      <Section
+        headingLevel={3}
         title="What it is"
-        subtitle="Its name, which way its calls go, and the language it speaks. Changing what it does can stop it answering your numbers."
-        icon={<Settings2 className="h-4 w-4" />}
+        description="Its name, which way its calls go, and the language it speaks. Changing what it does can stop it answering your numbers."
       >
         <AgentIdentity agent={agent} />
-      </Disclosure>
+      </Section>
 
-      {/* Renders nothing on an API build that does not report a model. */}
-      <AgentModel agent={agent} slug={slug} />
+      <Section headingLevel={3} title="Delete this agent">
+        {canDelete ? (
+          <AgentLifecycle agent={agent} only={["archive"]} />
+        ) : (
+          <SwitchOffFirst agent={agent} />
+        )}
+      </Section>
+    </div>
+  );
+}
 
-
-      <section aria-label="Delete this agent" className="border-t border-line pt-5">
-        <div>
-          {canDelete ? (
-            <AgentLifecycle agent={agent} only={["archive"]} />
-          ) : (
-            <p className="text-sm text-ink-muted">
-              It is working right now. It has to be switched off before it can be deleted —
-              use Switch off in the menu at the top of this page.
-            </p>
-          )}
-        </div>
-      </section>
+/** Why there is no delete yet, with the switch-off beside it. */
+function SwitchOffFirst({ agent }: { agent: Agent }) {
+  const session = useClientSession();
+  const move = useAgentLifecycle(session, agent.id);
+  const write = useWriteAccess(session, "org:manage", "change whether this agent is working");
+  const canSwitchOff = movesFor(agent.status).includes("deactivate");
+  return (
+    <div className="space-y-3">
+      {move.error != null && <ProblemNotice error={move.error} />}
+      <NoticeBox
+        tone="neutral"
+        action={
+          canSwitchOff ? (
+            <button
+              type="button"
+              className={TEXT_ACTION}
+              disabled={!write.allowed || move.isPending}
+              title={write.reason ?? undefined}
+              onClick={() => move.mutate("deactivate")}
+            >
+              {move.isPending ? "Switching off…" : "Switch off"}
+            </button>
+          ) : undefined
+        }
+      >
+        It is taking calls. Switch it off before you delete it.
+      </NoticeBox>
     </div>
   );
 }

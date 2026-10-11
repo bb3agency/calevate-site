@@ -423,13 +423,13 @@ class Settings(BaseSettings):
     #: (10 Oct 2026); its id is not in the docs, so the console takes the model's name and
     #: stores the id `GET /models` returns for it (`agents/engine_choice.
     #: resolve_in_call_default`). Set through the environment, it must be the id. A write is
-    #: refused unless the live list marks it `voice: true` and
-    #: `available: true` and its per-minute price band is on record
-    #: (`engine/thinnest._MODEL_CONSOLE_READING`), because a model can lift a call to a
-    #: dearer band (GPT-5 Mini is tagged "premium", founder-relayed console reading,
-    #: 10 Oct 2026). Studio agents get it too (D-717), so it must be a model a voice-only BYOK
-    #: call may run (`voiceOnlyByok`, `bring-your-own-keys.md:44-58`). In-call leg only: the
-    #: platform's own model (`platform_llm_model`) is a different setting.
+    #: refused unless the live list marks it `voice: true` and `available: true` and an
+    #: operator has recorded its per-minute band (`agents/engine_model_bands.py`), because a
+    #: model can lift a call to a dearer band (GPT-5 Mini is tagged "premium",
+    #: founder-relayed console reading, 10 Oct 2026). Studio agents get it too (D-717), so it
+    #: must be a model a voice-only BYOK call may run (`voiceOnlyByok`,
+    #: `bring-your-own-keys.md:44-58`). In-call leg only: the platform's own model
+    #: (`platform_llm_model`) is a different setting.
     thinnest_in_call_default_model: str | None = Field(default=None, min_length=1, max_length=128)
     #: The public `https://` origin of `apps/api` (e.g. `https://api.calevate.tech`) that
     #: ThinnestAI's custom actions call for our in-call tools (`reliability/engine_actions.py`).

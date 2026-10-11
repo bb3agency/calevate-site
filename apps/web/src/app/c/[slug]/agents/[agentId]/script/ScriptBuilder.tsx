@@ -15,6 +15,13 @@
  * the server would refuse (an empty section name, a branch to nowhere) is not sent; the
  * save line says what to finish instead.
  *
+ * HOW THE PAGE IS ORDERED (founder, 11 Oct 2026: "all of it is too much to read"): by how
+ * often an owner needs each thing. The opening line and the steps are on the page, because
+ * they are what gets edited; the parts set once (role, goal, speech, push-backs, what it may
+ * do, ending, example) are a summary list whose rows open in place (`ScriptParts`); History,
+ * the full instructions and hand-writing are in the bar's ⋯ menu. Help is one line, with
+ * the reason behind an ⓘ. The bar's one filled button is "Put it live".
+ *
  * The truthful-answer rules are not on this screen and nothing here can remove them; "What
  * the agent reads" shows them added after the owner's script.
  */
@@ -35,6 +42,7 @@ import {
 } from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Drawer } from "@/components/console/drawer";
+import { InfoTip } from "@/components/console/infoTip";
 import { BELOW_PAGE_BAR_STICKY } from "@/components/console/stickyPageBar";
 import { TEXT_ACTION } from "@/components/console/section";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -58,20 +66,8 @@ import {
   type ScriptOut,
 } from "@/lib/api/script";
 
-import {
-  EndingSection,
-  ExampleSection,
-  GoalSection,
-  IdentitySection,
-  ObjectionsSection,
-  OpeningSection,
-  PoliciesSection,
-  StrictnessSection,
-  StyleSection,
-  VariableBar,
-  type Focusable,
-} from "./ScriptSections";
-import { TestConversationsPanel } from "./TestConversationsPanel";
+import { OpeningSection, StrictnessSection, VariableBar, type Focusable } from "./ScriptSections";
+import { ScriptParts } from "./ScriptParts";
 import { AssistPanel } from "./AssistPanel";
 import { CompiledPrompt, ScriptToolbar } from "./ScriptToolbar";
 import { scriptCopilotFields } from "./scriptSurface";
@@ -114,10 +110,13 @@ export function ScriptBuilder({
   agentId,
   backHref,
   knowledgeHref,
+  testHref,
 }: {
   agentId: string;
   backHref: string;
   knowledgeHref: string;
+  /** The agent's Test section, where practice callers run against what callers hear. */
+  testHref: string;
 }) {
   const session = useClientSession();
   const startAssist = useSearchParams().get("assist") === "1";
@@ -174,6 +173,7 @@ export function ScriptBuilder({
           out={loaded.data}
           backHref={backHref}
           knowledgeHref={knowledgeHref}
+          testHref={testHref}
           agentName={agent.data?.name ?? "This agent"}
           agentOn={agent.data ? agent.data.published && agent.data.status === "live" : false}
           startAssist={startAssist}
@@ -188,6 +188,7 @@ function Editor({
   out,
   backHref,
   knowledgeHref,
+  testHref,
   agentName,
   agentOn,
   startAssist,
@@ -196,6 +197,7 @@ function Editor({
   out: ScriptOut;
   backHref: string;
   knowledgeHref: string;
+  testHref: string;
   agentName: string;
   agentOn: boolean;
   startAssist: boolean;
@@ -226,6 +228,14 @@ function Editor({
   const [deleting, setDeleting] = useState<string | null>(null);
   const [toText, setToText] = useState(false);
   const [undoTo, setUndoTo] = useState<CallScript | null>(null);
+  // A link may name a part (`#policies`, from Knowledge's "Fix in script"). The page drew
+  // nothing while the script loaded, so the browser's own jump found no target: open that
+  // part and scroll to it once the editor is on screen.
+  const [arrivedAt] = useState(() => (typeof window === "undefined" ? null : window.location.hash.slice(1) || null));
+  useEffect(() => {
+    const target = arrivedAt ? document.getElementById(arrivedAt) : null;
+    (target?.closest("details") ?? target)?.scrollIntoView?.({ block: "start" });
+  }, [arrivedAt]);
 
   const adopt = (copy: SavedCopy) => {
     setScript(copy.script);
@@ -393,6 +403,15 @@ function Editor({
     />
   );
   const showCanvas = desktop && view === "flow";
+  // Whether callers hear this draft, in the same words the agent page uses.
+  const live: { text: string; tone: "ok" | "warn" | "neutral" } =
+    out.version === null
+      ? { text: unpublished ? "Not live yet" : "Not written yet", tone: "neutral" }
+      : unpublished
+        ? { text: "Changes not live yet", tone: "warn" }
+        : agentOn
+          ? { text: "Live", tone: "ok" }
+          : { text: "Ready · agent is off", tone: "neutral" };
 
   return (
     <div className="space-y-6">
@@ -406,10 +425,11 @@ function Editor({
         writeReason={write.reason}
         publishing={putLive.pending}
         helperOpen={helperOpen}
+        live={live}
         onPublish={() => setPublishing(true)}
-        onHistory={() => setHistoryOpen(true)}
         onHelper={() => setHelperOpen((o) => !o)}
         menu={[
+          { id: "history", label: "History", onSelect: () => setHistoryOpen(true) },
           {
             id: "compiled",
             label: "See what the agent reads",
@@ -477,10 +497,11 @@ function Editor({
         </NoticeBox>
       )}
       {out.stored_schema_version === 1 && !raw && (
-        <p className="text-meta text-ink-muted">
-          This script was written in the older format and is shown in steps here. Callers
-          keep hearing the old one until you put it live.
-        </p>
+        <NoticeBox
+          tone="neutral"
+          title="Shown in steps from the older format"
+          info="Callers keep hearing the old one until you put it live."
+        />
       )}
 
       {raw ? (
@@ -507,15 +528,20 @@ function Editor({
             <VariableBar standard={out.standard_variables} custom={script.variables} onInsert={insertVariable} />
           </fieldset>
 
-          <section id="stages" aria-labelledby="call-heading" className="scroll-mt-24 space-y-4 border-t border-line pt-6">
+          <section id="stages" aria-labelledby="call-heading" className="scroll-mt-24 space-y-4">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <h3 id="call-heading" className="text-sm font-semibold text-ink">
-                  How the call goes
-                </h3>
-                <p className="mt-1 text-sm text-ink-muted">
-                  {sections.length} of {limits.maxSections} steps. Step 1 starts the call; each
-                  one says where the call goes next.
+                <div className="flex items-center gap-1">
+                  <h3 id="call-heading" className="text-heading text-ink">
+                    How the call goes
+                  </h3>
+                  <InfoTip label="the steps" align="start">
+                    Step 1 starts the call, and each step says where the call goes next. Open a
+                    step to change what the agent does there.
+                  </InfoTip>
+                </div>
+                <p className="text-meta text-ink-muted">
+                  {sections.length} of {limits.maxSections} steps
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -546,8 +572,7 @@ function Editor({
               <div className="rounded-card border border-dashed border-line px-4 py-8 text-center">
                 <p className="text-body text-ink">No steps yet.</p>
                 <p className="mx-auto mt-1 max-w-md text-meta text-ink-muted">
-                  Most calls go: greet, find out what they need, answer or take the details, agree
-                  what happens next. Add a step for each, or let the AI helper draft them.
+                  Most calls go: greet, find out the need, help, agree what happens next.
                 </p>
                 {write.allowed && (
                   <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -611,11 +636,11 @@ function Editor({
                     ) : (
                       <div className="px-4 py-8 text-center">
                         <p className="text-body text-ink">Choose a step to edit it here.</p>
-                        <p className="mx-auto mt-1 max-w-64 text-meta text-ink-muted">
-                          {showCanvas
-                            ? "Click a step in the picture. Drag a step to move it, or drag its dot to another step to add a way out."
-                            : "Click a step in the list."}
-                        </p>
+                        {showCanvas && (
+                          <p className="mx-auto mt-1 max-w-64 text-meta text-ink-muted">
+                            Drag a step to move it, or its dot to another step to add a way out.
+                          </p>
+                        )}
                       </div>
                     )}
                   </aside>
@@ -632,41 +657,37 @@ function Editor({
                 {editor}
               </Drawer>
             )}
-            <fieldset disabled={!write.allowed} className="min-w-0 max-w-3xl pt-2">
-              <StrictnessSection value={script.adherence ?? "flexible"} onChange={(v) => setField("adherence", v)} />
-            </fieldset>
+            {sections.length > 0 && (
+              <fieldset disabled={!write.allowed} className="min-w-0 max-w-3xl">
+                <legend className="sr-only">How closely it follows the steps</legend>
+                <StrictnessSection value={script.adherence ?? "flexible"} onChange={(v) => setField("adherence", v)} />
+              </fieldset>
+            )}
           </section>
 
-          <fieldset disabled={!write.allowed} className="min-w-0 max-w-3xl space-y-6 border-t border-line pt-6">
+          <fieldset disabled={!write.allowed} className="min-w-0 max-w-3xl">
             <legend className="sr-only">About the agent and the call</legend>
-            <IdentitySection script={script} set={setField} trackFocus={trackFocus} />
-            <GoalSection script={script} set={setField} direction={context?.direction ?? "inbound"} trackFocus={trackFocus} />
-            <StyleSection style={script.style} onChange={(v) => setField("style", v)} context={context} trackFocus={trackFocus} />
-            <ObjectionsSection objections={script.objections} onChange={(v) => setField("objections", v)} trackFocus={trackFocus} />
-            <PoliciesSection policies={script.policies} onChange={(v) => setField("policies", v)} context={context} />
-            <EndingSection value={script.ending} onChange={(v) => setField("ending", v)} trackFocus={trackFocus} />
-            <p className="text-sm text-ink-muted">
-              Quick facts, like prices and timings, live in{" "}
-              <Link href={knowledgeHref} className="font-medium text-ink underline underline-offset-2">
-                Knowledge
-              </Link>
-              , where all your agents share them.
-            </p>
-            <ExampleSection
-              lines={script.example_exchange}
-              needsReview={script.example_needs_review}
-              onChange={(lines, stillNeedsReview) =>
-                edit((s) => ({ ...s, example_exchange: lines, example_needs_review: stillNeedsReview }))
-              }
+            <ScriptParts
+              script={script}
+              context={context}
+              issues={issues}
+              openPart={arrivedAt}
+              knowledgeHref={knowledgeHref}
+              setField={setField}
+              edit={edit}
               trackFocus={trackFocus}
             />
           </fieldset>
         </>
       )}
 
-      <div className="max-w-3xl border-t border-line pt-6">
-        <TestConversationsPanel agentId={agentId} current={script} onKeepScript={keep} />
-      </div>
+      <p className="max-w-3xl text-body text-ink-muted">
+        Put your changes live, then{" "}
+        <Link href={testHref} className="font-medium text-ink underline underline-offset-2">
+          test your agent
+        </Link>{" "}
+        to hear how callers are answered now.
+      </p>
 
       <Drawer
         open={helperOpen}

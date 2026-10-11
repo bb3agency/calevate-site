@@ -918,6 +918,10 @@ class AgentTestRun(PKMixin, TimestampMixin, Base):
     improvement: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     #: How the run went, in the owner's words (a fallback disclosure, the standard set).
     note: Mapped[str | None] = mapped_column(Text)
+    #: When "Improve my agent" was last asked for (D-748); cleared when the job finishes.
+    improve_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Why the last "Improve my agent" could not be made, in the owner's words.
+    improve_note: Mapped[str | None] = mapped_column(Text)
 
 
 class PhoneNumber(PKMixin, TimestampMixin, Base):

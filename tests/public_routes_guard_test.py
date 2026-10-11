@@ -279,8 +279,14 @@ class TestWiring:
 
         RAISED 58 -> 59 for `POST /v1/worker/engine-lookups/{engine}` (D-716): the voice
         platform's caller lookup, authenticated by its v2 signature under a secret it
-        minted per agent, read-only."""
-        assert len(exempt) <= 59, sorted(exempt)
+        minted per agent, read-only.
+
+        RAISED 59 -> 61 for the client realm's action code (D-730),
+        `POST /v1/auth/client/step-up` and `/step-up/verify`: the twins of the admin realm's
+        pair, exempt from the RBAC registry for the same reason (they prove a session is
+        still its owner rather than grant a permission). Each needs the caller's own live
+        session and grants it nothing it did not already have."""
+        assert len(exempt) <= 61, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

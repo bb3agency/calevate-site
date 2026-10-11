@@ -21,13 +21,19 @@ the platform can observe it HONESTLY. Six cleared it.
    quietly went back to answering the phone themselves, a receptionist agent taken off the
    IVR. Every other signal here explains a symptom; this one IS the churn. Its honesty
    caveat is the whole reason `CallVolume.basis` exists — see below.
-2. **`outbound_blocked`** — the platform is refusing this client's outbound calls right
-   now. Composed from the gates THEMSELVES (`campaigns.service.account_outbound_blockers`,
-   the account half of the launch screen), never from a second copy of their conditions,
-   so the board cannot tell an operator an account is fine while the client is staring at
-   a refusal. Reported only for accounts that
-   actually dial out (see `_dials_out`): telling the operator of a purely inbound clinic
-   that their outbound is blocked is noise about a capability they never bought.
+2. **`outbound_blocked`** / **`outbound_waiting_on_client`** — the platform is refusing
+   the outbound calls this account is allowed to place. Composed from the gates
+   THEMSELVES, never from a second copy of their conditions, so the board cannot tell an
+   operator an account is fine while the client is staring at a refusal, nor report a
+   refusal the dial would not make: a free-trial account is judged by the gate its test
+   calls meet (`compliance.service.account_dial_blockers`), every other account by the
+   account half of the launch screen (`campaigns.service.account_outbound_blockers`).
+   Each cause is then sorted by who clears it (`cause_owner`): ours is `outbound_blocked`
+   (broken now), the client's is `outbound_waiting_on_client`, and a STATE (a trial's
+   test-calls-only limit, a suspension we chose) is no signal at all. Reported only for
+   accounts that actually dial out (see `_dials_out`): telling the operator of a purely
+   inbound clinic that their outbound is blocked is noise about a capability they never
+   bought.
 3. **`spend_cap_near`** — the ceiling in force will stop this account before the billing
    month ends. This is the only forward-looking signal on the list, and it is here
    because it is the one blocker an operator can clear BEFORE the client notices: a cap
@@ -156,7 +162,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from time import perf_counter
-from typing import Literal
+from typing import Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -164,6 +170,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.caps import read_caps, read_spend_counters
 from apps.api.campaigns.service import account_outbound_blockers
+from apps.api.compliance.service import account_dial_blockers, account_stopped_blocker
+from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
 from apps.workers.pipeline import PIPELINE_STALL_AFTER
@@ -214,6 +222,47 @@ WALK_BUDGET_S = 5.0
 
 Severity = Literal["stop", "warn"]
 CallBasis = Literal["measured", "too_new", "no_baseline"]
+#: Who has to act for a signal to clear: Calevate (the platform or an operator) or the client.
+Owner = Literal["calevate", "client"]
+
+#: Who clears each account-level outbound refusal, by the gates' own rule names. `None` is a
+#: STATE rather than a fault: the account is doing what it is allowed to do, so it is not on
+#: the board for it. A rule missing from this table counts as ours, so a new gate shows up
+#: as broken until somebody decides otherwise rather than disappearing.
+CAUSE_OWNER: Final[dict[str, Owner | None]] = {
+    # States. A trial places test calls only (D-697) and meets a daily cap that resets at
+    # midnight IST; a suspended or closed account was stopped by us on purpose and carries
+    # its own banner on the account page.
+    "trial_campaigns_unavailable": None,
+    "trial_live_outbound_unavailable": None,
+    "trial_daily_cap": None,
+    "account_suspended": None,
+    "account_closed": None,
+    "account_missing": None,
+    # The client's move.
+    "agreements_not_accepted": "client",
+    "kyc_missing": "client",
+    "kyc_digilocker_required": "client",
+    "outbound_pledge_missing": "client",
+    "outbound_pledge_outdated": "client",
+    "first_campaign_review_rejected": "client",
+    "trial_ended": "client",
+    "trial_minutes_used": "client",
+    "no_credits": "client",
+    "platform_fee_overdue": "client",
+    # Ours. A filed identity record waits for our review, a first campaign for a reviewer;
+    # a spend cap that has bitten is raised from the account page; a payment dispute is
+    # ours to settle with the provider.
+    "kyc_not_verified": "calevate",
+    "first_campaign_review_pending": "calevate",
+    "spend_cap": "calevate",
+    "payment_dispute": "calevate",
+}
+
+
+def cause_owner(rule: str) -> Owner | None:
+    """Who clears this outbound refusal, or None when it is a state and not a fault."""
+    return CAUSE_OWNER.get(rule, "calevate")
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +283,7 @@ class HealthSignal:
     # The number behind a countable signal (failed deliveries, sources waiting), or None
     # for a signal that is a state rather than a count. None and 0 are different claims.
     count: int | None = None
+    waiting_on: Owner = "calevate"
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,6 +334,9 @@ class ClientHealth:
     severity: Severity
     signals: tuple[HealthSignal, ...]
     volume: CallVolume
+    # On a free trial (D-697): outbound is test calls only. A state the screens show
+    # neutrally, never a signal.
+    on_trial: bool
     # This month's metered spend and the ceiling in force, or None when no ceiling is.
     # NUMERIC all the way here (hard rule 7); the route stringifies at the boundary.
     spend_used_inr: Decimal
@@ -407,13 +460,18 @@ def _dials_out(*, outbound_agents: int, campaigns: int) -> bool:
     return outbound_agents > 0 or campaigns > 0
 
 
-async def _outbound_blocked(session: AsyncSession, *, tenant_id: UUID) -> HealthSignal | None:
-    """Can this account place an outbound call today, and if not, on whose desk is it?
+async def _outbound_signals(
+    session: AsyncSession, *, tenant_id: UUID, on_trial: bool
+) -> list[HealthSignal]:
+    """Can this account place the outbound calls it is allowed to, and if not, on whose
+    desk is it?
 
-    The causes are `campaigns.service.account_outbound_blockers`, the account half of the
-    client's own launch screen, so the board and that screen name the same conditions with
-    the same words in the same order. Since D-692 those are verified KYC and the
-    no-cold-calls pledge; the DLT entity chain is no longer asked anywhere.
+    A trial account is allowed test calls and nothing else, so it is asked exactly what a
+    test call is asked: `account_dial_blockers` with `trial_call=True`, after the lifecycle
+    state `check_dispatch` asks first. Asking it the launch screen's question instead
+    reported "Cannot dial out" for an account whose test calls were going through. Every
+    other account is asked the launch screen's account half, so the board and that screen
+    name the same conditions with the same words in the same order.
 
     Left out, each for its own reason:
 
@@ -424,10 +482,27 @@ async def _outbound_blocked(session: AsyncSession, *, tenant_id: UUID) -> Health
       autodialer notice) need a campaign to be about. They are the launch screen's subject
       and the client can see them there.
     """
-    causes = [rule for rule, _ in await account_outbound_blockers(session, tenant_id=tenant_id)]
-    if not causes:
-        return None
-    return HealthSignal(rule="outbound_blocked", severity="stop", causes=tuple(causes))
+    if on_trial:
+        stopped = await account_stopped_blocker(session, tenant_id=tenant_id)
+        refusals = [] if stopped is None else [stopped]
+        refusals += await account_dial_blockers(session, tenant_id=tenant_id, trial_call=True)
+    else:
+        refusals = await account_outbound_blockers(session, tenant_id=tenant_id)
+    ours = tuple(rule for rule, _ in refusals if cause_owner(rule) == "calevate")
+    theirs = tuple(rule for rule, _ in refusals if cause_owner(rule) == "client")
+    signals: list[HealthSignal] = []
+    if ours:
+        signals.append(HealthSignal(rule="outbound_blocked", severity="stop", causes=ours))
+    if theirs:
+        signals.append(
+            HealthSignal(
+                rule="outbound_waiting_on_client",
+                severity="warn",
+                causes=theirs,
+                waiting_on="client",
+            )
+        )
+    return signals
 
 
 def _cap_utilisation(
@@ -505,10 +580,9 @@ async def tenant_health(
     if volume_signal is not None:
         signals.append(volume_signal)
 
+    on_trial = await restricting_trial(session, tenant_id=account.tenant_id) is not None
     if _dials_out(outbound_agents=int(facts[5] or 0), campaigns=int(facts[6] or 0)):
-        blocked = await _outbound_blocked(session, tenant_id=account.tenant_id)
-        if blocked is not None:
-            signals.append(blocked)
+        signals += await _outbound_signals(session, tenant_id=account.tenant_id, on_trial=on_trial)
 
     unmetered = int(facts[7] or 0)
     if unmetered:
@@ -551,6 +625,7 @@ async def tenant_health(
         severity="stop" if any(s.severity == "stop" for s in signals) else "warn",
         signals=tuple(signals),
         volume=volume,
+        on_trial=on_trial,
         # THE CLIENT'S NUMBER, because its partner on the next line is the cap and a
         # used/cap pair denominated in two different currencies is not a pair. Our
         # supplier cost has a home and this is not it: the admin MARGIN panel reads
@@ -634,9 +709,10 @@ async def client_health(directory: AsyncSession) -> list[ClientHealth]:
     return sorted(board, key=_triage_order)
 
 
-def _triage_order(row: ClientHealth) -> tuple[int, int, str]:
+def _triage_order(row: ClientHealth) -> tuple[int, int, int, str]:
     """Worst first, and explainable in one sentence: the account with the most things
-    BROKEN, then the account with the most things about to break, then by name.
+    BROKEN, then the most things about to break, then the most things waiting on the
+    client, then by name.
 
     No score. A weighted number would have to be defended every time somebody disagreed
     with the weights, and it would put a figure on the screen that looks measured and is
@@ -648,12 +724,16 @@ def _triage_order(row: ClientHealth) -> tuple[int, int, str]:
     minutes is a list nobody can keep their place in.
     """
     stops = sum(1 for signal in row.signals if signal.severity == "stop")
-    warns = len(row.signals) - stops
-    return (-stops, -warns, row.name)
+    waiting = sum(
+        1 for signal in row.signals if signal.severity != "stop" and signal.waiting_on == "client"
+    )
+    warns = len(row.signals) - stops - waiting
+    return (-stops, -warns, -waiting, row.name)
 
 
 __all__ = [
     "CAP_WARN_PCT",
+    "CAUSE_OWNER",
     "TREND_BASELINE_MIN",
     "TREND_DECLINE_PCT",
     "WALK_BUDGET_S",
@@ -663,7 +743,9 @@ __all__ = [
     "CallVolume",
     "ClientHealth",
     "HealthSignal",
+    "Owner",
     "Severity",
+    "cause_owner",
     "client_health",
     "tenant_health",
 ]

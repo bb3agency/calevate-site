@@ -31,6 +31,8 @@ AGENT_HEALTH_DEGRADED: Final = "agent_health_degraded"
 AGENT_LINE_BROKEN: Final = "agent_line_broken"
 #: Engine failures across the fleet, or broken lines at several clients at once.
 ENGINE_PLATFORM_OUTAGE: Final = "engine_platform_outage"
+#: An operator posted a problem on the public status page by hand (`routes.post_status`).
+STATUS_POST: Final = "status_post"
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +62,7 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
     # ---- the seven repair sweeps, absorbed -----------------------------------------
     Playbook(
         key="engine_drift",
-        title="Agent settings drift repair",
+        title="Agent settings check",
         triggers=(),
         action="Read every live agent back from the voice platform; put our settings, "
         "in-call actions and voice key back where they moved.",
@@ -76,7 +78,7 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
     ),
     Playbook(
         key="engine_webhooks",
-        title="Call-event delivery repair",
+        title="Call updates from the voice platform",
         triggers=("engine_webhook_redelivery_failed", "engine_webhook_sweep_incomplete"),
         action="Re-register, re-enable or resubscribe each agent's call-event endpoint and "
         "ask the platform to redeliver the last seven days.",
@@ -89,7 +91,7 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
     ),
     Playbook(
         key="workspace_retry",
-        title="Client workspace retry",
+        title="Client workspace setup",
         triggers=("engine_workspace_provisioning_failed",),
         action="Queue the client's voice-platform workspace again.",
         verify="The client's workspace is active.",
@@ -114,7 +116,7 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
     ),
     Playbook(
         key="kb_drift",
-        title="Knowledge drift check",
+        title="Agent knowledge check",
         triggers=(),
         action="Compare each agent's knowledge on the platform with ours and record drift.",
         verify="The sweep finished its batch.",
@@ -126,7 +128,7 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
     ),
     Playbook(
         key="number_reconcile",
-        title="Phone number attachment repair",
+        title="Phone number check",
         triggers=(),
         action="Put each number's agent back where the platform moved it; alarm on numbers "
         "rented but unrecorded.",
@@ -139,7 +141,7 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
     ),
     Playbook(
         key="charge_reconcile",
-        title="Call charge reconciliation",
+        title="Call charge comparison",
         triggers=(),
         action="Compare what the platform charged per call with what we metered.",
         verify="The sweep finished its walk.",
@@ -152,7 +154,7 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
     # ---- woken by an alarm ------------------------------------------------------------
     Playbook(
         key="outbox_replay",
-        title="Dead-letter replay",
+        title="Failed background jobs",
         triggers=("outbox_dead_letter",),
         action="Put each job's dead letters back on the queue, one job at a time.",
         verify="That job's dead-letter count is back to zero.",
@@ -163,7 +165,7 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
     ),
     Playbook(
         key="agent_repair",
-        title="Agent plumbing repair",
+        title="Agent repair",
         triggers=(AGENT_HEALTH_DEGRADED,),
         action="Re-check and repair one agent's settings, call-event endpoint and in-call "
         "actions; propose a fix to the client when the cause is the agent's own behaviour.",
@@ -202,7 +204,7 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
     ),
     Playbook(
         key="money_review",
-        title="Money mismatch review",
+        title="Money: needs your review",
         triggers=("engine_charge_mismatch", "engine_charge_unmatched", "engine_call_cost_variance"),
         action="Open an incident and page. The healer never moves money.",
         verify="A person resolves the incident.",
@@ -213,8 +215,8 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
         automatic=False,
     ),
     Playbook(
-        key="status_post",
-        title="Status page post",
+        key=STATUS_POST,
+        title="Status page notice",
         triggers=(),
         action="An operator posted a problem on the public status page by hand.",
         verify="The operator resolves it.",
@@ -259,6 +261,7 @@ __all__ = [
     "PLAYBOOK_BY_JOB",
     "PLAYBOOK_BY_KEY",
     "PLAYBOOK_BY_TRIGGER",
+    "STATUS_POST",
     "BlastRadius",
     "Playbook",
     "may_run",

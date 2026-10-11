@@ -16,9 +16,10 @@ test chat (`agents/test_conversations.standard_scenarios`: a product question, t
 compliance probes, a vague answer, low interest, a price and quantity, a caller who goes
 quiet and, for an outbound agent, "not interested"), scores every reply with the test
 loop's hard checks (`hard_check`, which includes `agents/turn_checks`), optionally asks
-the AI judge, prints a table with each model's price band and latency as ThinnestAI's
-console lists them (`engine/thinnest._MODEL_CONSOLE_READING`, read by the founder 10 Oct
-2026), and puts the agent back on the model it started on, whatever happens.
+the AI judge, prints a table with each model's price band as an operator recorded it
+(`agents/engine_model_bands.py`) and its latency as ThinnestAI's console lists it
+(`engine/thinnest._MODEL_CONSOLE_LATENCY_MS`), and puts the agent back on the model it
+started on, whatever happens.
 
 THE AGENT ANSWERS REAL CALLS ON WHATEVER MODEL IT HOLDS, so `run` refuses without
 `--agent-takes-no-calls`: use an agent with no number and no running campaign (a copy of
@@ -43,6 +44,7 @@ from pathlib import Path
 from typing import Any, Final
 from uuid import UUID
 
+from apps.api.agents.engine_model_bands import banded_catalogue
 from apps.api.agents.test_conversations import (
     Scenario,
     Turn,
@@ -54,7 +56,7 @@ from apps.api.agents.test_conversations import (
 from apps.api.agents.test_window import send_test_message
 from apps.api.core.platform_config import refresh as refresh_platform_config
 from apps.api.core.settings import get_settings
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.catalogue import CatalogueModel, HoldsCatalogue
 from apps.api.engine.test_chat import RunsTestChat
@@ -233,7 +235,9 @@ async def run(
         raise SystemExit("The active engine is not ThinnestAI.")
     chat: RunsTestChat = engine  # type: ignore[assignment]
     ref, language, direction, _chosen = await _agent(tenant_id, agent_id)
-    catalogue = {m.label: m for m in (await engine.read_catalogue()).models}
+    async with untenanted_session() as session:
+        banded = await banded_catalogue(session, engine, engine=engine.name)
+    catalogue = {m.label: m for m in banded.models}
     candidates: list[CatalogueModel] = []
     for label in labels:
         model = catalogue.get(label)

@@ -46,7 +46,7 @@ Most of an agent's recent real calls failed or ended inside ten seconds. The pla
 4. if the line breaks again in that watch, holds it again and pages
    `healer_line_relapsed`; it will not give it back on its own after that.
 
-To give a line back by hand: Resolve the incident on `/admin/ops/healer` (step-up). The
+To give a line back by hand: press "Mark as handled" on the problem on `/admin/ops/healer` (step-up). The
 client can also press "Turn the line back on now" on their Line protection screen.
 
 The agent's script is never touched by the healer. If the cause is the script, the client
@@ -71,7 +71,7 @@ platform is still failing: the holds would be lifted onto a dead platform.
 A playbook ran out of attempts (`outbox_replay`, `engine_webhooks`, `workspace_retry`,
 `agent_repair`) or met something it never acts on (`money_review`). Read the incident's
 ledger rows on `/admin/ops/healer`, fix the cause with the runbook for the alarm that woke
-it (`runbooks/alarm-index.md`), then Resolve it. "Run next step now" re-runs its next step
+it (`runbooks/alarm-index.md`), then press "Mark as handled". "Check again now" runs its next step
 on the next tick.
 
 ## 5. Founder actions before every part works
@@ -111,5 +111,5 @@ on the next tick.
 ## 6. Turning it off
 
 Set `healer_enabled` to off on the configuration screen. Lines already held stay held
-(the hold is the safe state); give each back from `/admin/ops/healer` with Resolve once
+(the hold is the safe state); give each back from `/admin/ops/healer` with "Mark as handled" once
 you are ready.

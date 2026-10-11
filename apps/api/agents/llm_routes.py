@@ -53,10 +53,12 @@ from apps.api.agents.llm_models import (
 from apps.api.agents.llm_tiers import (
     LLM_TIER_DESCRIPTIONS,
     LLM_TIER_LABELS,
+    TIER_INCLUDED_NOTE,
     available_tiers,
     resolve_tier_choice,
     tier_label,
     tier_of_model,
+    tiers_choosable,
 )
 from apps.api.agents.roster import AGENT_ROSTER_LIMIT
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
@@ -205,6 +207,11 @@ class ClientLlmDefaultsOut(BaseModel):
     #: The plan's per-minute surcharge for an upgraded tier, `"0"` when the plan quotes none.
     #: An agent that `llm_surcharged` pays this; a screen multiplies nothing.
     upgrade_surcharge_inr_per_minute: str
+    #: May the client choose a tier on this deployment? False on an engine that runs its own
+    #: models, where the model is included in the per-minute price and `tier_note` says so
+    #: (D-750); a tier sent there is refused with `llm_tier_not_chosen_here`.
+    tier_choosable: bool = True
+    tier_note: str | None = None
     available: list[LlmTierOptionOut]
 
 
@@ -304,6 +311,7 @@ async def _read_client_defaults(session: AsyncSession) -> ClientLlmDefaultsOut:
         # and every catalogue model has a cost tier — so this is a broken invariant, not a
         # state to render.
         raise RuntimeError("the model in force has no tier")
+    choosable = tiers_choosable()
     in_force = (
         upgrade
         if llm_surcharge_applies(model=resolved.model, source=resolved.source)
@@ -316,6 +324,8 @@ async def _read_client_defaults(session: AsyncSession) -> ClientLlmDefaultsOut:
         effective_is_available=unofferable_reason(resolved.model) is None,
         in_force_surcharge_inr_per_minute=str(in_force),
         upgrade_surcharge_inr_per_minute=str(upgrade),
+        tier_choosable=choosable,
+        tier_note=None if choosable else TIER_INCLUDED_NOTE,
         available=[
             LlmTierOptionOut(
                 tier=option.tier,
@@ -448,7 +458,10 @@ async def get_organization_llm_defaults(session: Session, _: Reader) -> ClientLl
     description=(
         f"{_CLIENT_DESCRIPTION}\n\nSend `null` to go back to following Calevate's default. "
         "A tier that is not switched on yet is refused with `llm_tier_not_available`. "
-        "Choosing the tier the account is already on changes nothing."
+        "Choosing the tier the account is already on changes nothing. Where `tier_choosable` "
+        "is false (a voice platform that runs its own models, whose model is included in the "
+        "per-minute price) any tier is refused with `llm_tier_not_chosen_here`; `null` is "
+        "still accepted."
         f"{_APPLIES_NOW}"
     ),
 )

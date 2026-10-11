@@ -7,8 +7,12 @@ and the voice picker at `/v1/agents/voices` is the one to read.
 THE VOICES ARE THE OPERATOR'S LIST, NOT THE VENDOR'S. Only voices an operator added and
 enabled are returned (`agents/hosted_voices.py`), each with its rung, a language note and
 whether a preview can be played; the vendor's live catalogue is read by the sync, never by a
-picker render. The models are still the engine's live list, with availability from
-`agents/engine_catalogue_offer.py`. Sentences are in the reader's own audience
+picker render. The models are the engine's live list, operators only: a client chooses a
+tier and is sent no models at all (D-679). Only models the engine says can answer a call and
+our plan may pick, and that are not recorded as paid (D-750), are listed, each with the band
+an operator recorded (`agents/engine_model_bands.py`) and availability from
+`agents/engine_catalogue_offer.py`.
+Sentences are in the reader's own audience
 (`voice_routes._reason_audience` argues the realm rule).
 
 Mounted BEFORE `agents.routes.router`, for `voice_routes.py`'s reason: `/v1/agents/
@@ -29,6 +33,7 @@ from apps.api.agents.engine_choice import (
     byok_in_force,
     in_call_default_model,
 )
+from apps.api.agents.engine_model_bands import pickable_models, recorded_bands, with_recorded_bands
 from apps.api.agents.hosted_voices import (
     STUDIO_VOICE_PROVIDER,
     hosted_voice_unofferable_reason,
@@ -38,7 +43,7 @@ from apps.api.agents.hosted_voices import (
     studio_voices_ready,
 )
 from apps.api.agents.llm_models import LlmReasonAudience
-from apps.api.agents.llm_tiers import engine_model_labels, engine_model_token
+from apps.api.agents.llm_tiers import engine_model_token
 from apps.api.agents.voice_offer import tts_price_is_billable
 from apps.api.billing.engine_minutes import attested_rate_keys
 from apps.api.core.auth import requires
@@ -47,7 +52,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import untenanted_session
 from apps.api.engine import get_engine
-from apps.api.engine.catalogue import HoldsCatalogue, HostsVoices
+from apps.api.engine.catalogue import EngineCatalogue, HoldsCatalogue, HostsVoices
 from apps.api.engine.hosted_platform import engine_platform_label
 
 router = APIRouter(tags=["agents"])
@@ -97,17 +102,17 @@ class EngineCatalogueModelOut(BaseModel):
     #: `AgentOut.engine_model_id` carries and `PATCH /v1/agents/{agent_id}` accepts. An
     #: engine's model ids name the companies that make them (D-679).
     model_id: str
-    #: The engine's own name to an operator; to a client, OUR tier word (D-680).
+    #: The engine's own name. Operators only: a client is sent no models (D-679).
     label: str
     call_capable: bool
     plan_allows: bool
     #: May an agent on a Studio voice use it? A Studio voice runs the call on the
     #: platform's standard models only, and any other is refused at publish (D-687).
     usable_with_studio_voice: bool
-    #: Operators only (null to a client): the per-minute band the model lifts a call to,
-    #: "none" or "premium", or null when nobody has recorded it (then it is not offered).
+    #: The per-minute band an operator recorded for the model, "none" or "premium", or
+    #: null when nobody has (then it is not offered).
     price_band: Literal["none", "premium"] | None = None
-    #: Operators only: the reply latency the platform's console shows, in milliseconds.
+    #: The reply latency the platform's console shows, in milliseconds, when on record.
     latency_ms: int | None = None
     offerable: bool
     reason: str | None
@@ -133,9 +138,12 @@ class EngineCatalogueOut(BaseModel):
     studio_note: str | None = None
     #: What "Platform default" means for an agent on a Clear voice: the in-call model it is
     #: sent when none is chosen (`Settings.thinnest_in_call_default_model`), by the name the
-    #: reader is shown. Null when the platform's own default applies or the model is unlisted.
+    #: operator is shown. Always null to a client, who reads no model names (D-679), and null
+    #: when the platform's own default applies or the model is unlisted.
     default_model_label: str | None = None
     voices: list[EngineCatalogueVoiceOut]
+    #: The engine's models that can answer a call on our plan, to an operator. Always empty
+    #: to a client, who chooses a tier instead (`/v1/organization/llm-defaults`).
     models: list[EngineCatalogueModelOut]
 
 
@@ -157,9 +165,10 @@ def _studio_note(*, studio_ready: bool) -> str | None:
     description=(
         "On a voice platform that hosts its own voices: the voices an operator added and "
         "enabled, each with its rung (Clear or Studio), a language note, whether a preview "
-        "can be played, and whether it can be chosen right now. The models are the "
-        "platform's own list. On any other platform `available` is false and the voice "
-        "picker at `/v1/agents/voices` is the one to read."
+        "can be played, and whether it can be chosen right now. To an operator, the "
+        "platform's own models that can answer a call on our plan, with their recorded "
+        "band; a client is sent no models. On any other platform `available` is false and "
+        "the voice picker at `/v1/agents/voices` is the one to read."
     ),
 )
 async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
@@ -181,9 +190,23 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
         attested = await attested_rate_keys(session, engine=engine.name, at=datetime.now(UTC))
         rows = await offered_hosted_voices(session)
         studio_ready = await studio_voices_ready(session)
+        bands = await recorded_bands(session, engine=engine.name)
     studio_note = _studio_note(studio_ready=studio_ready)
-    catalogue = await engine.read_catalogue()
-    models = offered_models(catalogue, attested=attested, platform=platform, audience=audience)
+    is_client = audience == "client"
+    # A client chooses a tier, never one of the engine's models, and never reads their
+    # names (D-679; the 10 Oct 2026 exception that showed them was revoked 11 Oct 2026), so
+    # the client realm does not read the engine's model list at all.
+    catalogue = (
+        EngineCatalogue(models=[], complete=True)
+        if is_client
+        else with_recorded_bands(await engine.read_catalogue(), bands)
+    )
+    models = offered_models(
+        catalogue.model_copy(update={"models": pickable_models(catalogue.models)}),
+        attested=attested,
+        platform=platform,
+        audience=audience,
+    )
     reasons = [
         hosted_voice_unofferable_reason(
             row,
@@ -207,18 +230,13 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
         )
         for row, reason in zip(rows, reasons, strict=True)
     ]
-    client_labels = engine_model_labels(catalogue.models)
-    is_client = audience == "client"
     offerable = sum(1 for v in voices if v.offerable)
     byok = byok_in_force(engine)
     default_model = in_call_default_model(engine, voice_id=None)
-    default_label = next(
-        (
-            client_labels[m.model_id] if is_client else m.label
-            for m in catalogue.models
-            if m.model_id == default_model
-        ),
-        None,
+    default_label = (
+        None
+        if is_client
+        else next((m.label for m in catalogue.models if m.model_id == default_model), None)
     )
     return EngineCatalogueOut(
         available=True,
@@ -237,12 +255,12 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
         models=[
             EngineCatalogueModelOut(
                 model_id=engine_model_token(m.model.model_id),
-                label=client_labels[m.model.model_id] if is_client else m.model.label,
+                label=m.model.label,
                 call_capable=m.model.call_capable,
                 plan_allows=m.model.plan_allows,
                 usable_with_studio_voice=m.model.voice_only_byok,
-                price_band=None if is_client else m.model.surcharge,
-                latency_ms=None if is_client else m.model.console_latency_ms,
+                price_band=m.model.surcharge,
+                latency_ms=m.model.console_latency_ms,
                 offerable=m.offerable,
                 reason=m.reason,
             )

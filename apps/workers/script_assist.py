@@ -419,6 +419,7 @@ async def _json_via_azure(
     *,
     max_tokens: int = _DRAFT_MAX_TOKENS,
     temperature: float = 0.4,
+    timeout_s: float = ASSIST_TIMEOUT_S,
 ) -> _RawJson | None:
     """Ask Azure OpenAI for one JSON answer, or None if it holds no credential or did not
     answer.
@@ -445,7 +446,7 @@ async def _json_via_azure(
         outcome = await chat.complete(
             leg,
             messages,
-            timeout_s=ASSIST_TIMEOUT_S,
+            timeout_s=timeout_s,
             temperature=temperature,
             response_format=response_format,
             max_tokens=max_tokens,
@@ -465,7 +466,7 @@ async def _json_via_azure(
             outcome = await chat.complete(
                 leg,
                 messages,
-                timeout_s=ASSIST_TIMEOUT_S,
+                timeout_s=timeout_s,
                 temperature=temperature,
                 response_format={"type": "json_object"},
                 max_tokens=max_tokens,
@@ -503,6 +504,7 @@ async def _json_via_sarvam(
     *,
     max_tokens: int = _DRAFT_MAX_TOKENS,
     temperature: float = 0.4,
+    timeout_s: float = ASSIST_TIMEOUT_S,
 ) -> _RawJson | None:
     """The disclosed fallback: Sarvam's OpenAI-compatible chat, `json_object` + the belt.
 
@@ -524,7 +526,7 @@ async def _json_via_sarvam(
                 {"role": "system", "content": instruction},
                 {"role": "user", "content": description},
             ],
-            timeout_s=ASSIST_TIMEOUT_S,
+            timeout_s=timeout_s,
             temperature=temperature,
             response_format={"type": "json_object"},
             max_tokens=max_tokens,
@@ -589,6 +591,21 @@ class JsonAnswer[T]:
     usage: TokenUsage | None = None
 
 
+def _parsed[T](
+    parse: Callable[[dict[str, Any]], T | None], data: dict[str, Any] | None
+) -> T | None:
+    """The caller's parse of one model answer, or None. A model's JSON is untrusted input:
+    a value of the wrong type (a list where a string was asked for) must read as an
+    unusable answer, never escape as a 500."""
+    if data is None:
+        return None
+    try:
+        return parse(data)
+    except (TypeError, ValueError, KeyError, AttributeError) as failure:
+        log.warning("script_assist_answer_unusable", extra={"error": type(failure).__name__})
+        return None
+
+
 async def ask_json[T](
     description: str,
     instruction: str,
@@ -599,6 +616,7 @@ async def ask_json[T](
     quota_exhausted: bool = False,
     max_tokens: int = _DRAFT_MAX_TOKENS,
     temperature: float = 0.4,
+    timeout_s: float = ASSIST_TIMEOUT_S,
 ) -> JsonAnswer[T]:
     """THE dashboard AI ladder for a JSON answer: Azure first, the disclosed Sarvam leg if
     Azure cannot or does not answer, a refusal only when nothing can (`run_assist`'s rule).
@@ -608,6 +626,10 @@ async def ask_json[T](
     `response_format` Azure is asked for (a strict schema where the caller has one); Sarvam
     always gets `json_object`. The caller owns the prompt's content and its redaction
     (D-127 G-1/G-2): nothing here reads a transcript.
+
+    `timeout_s` bounds each leg. A route keeps the default, which nginx's deadline is
+    pinned against (`tests/assist_deadline_test.py`); a worker job may give a long answer
+    more time.
     """
     capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
     if not capability.available:
@@ -621,8 +643,9 @@ async def ask_json[T](
             azure_format or {"type": "json_object"},
             max_tokens=max_tokens,
             temperature=temperature,
+            timeout_s=timeout_s,
         )
-        value = parse(azure.data) if azure is not None and azure.data is not None else None
+        value = _parsed(parse, azure.data) if azure is not None else None
         if value is not None and azure is not None:
             return JsonAnswer(value=value, capability=capability, usage=azure.usage)
         # Billed as a request, refused as an answer: it rides the fallback to the meter.
@@ -634,9 +657,13 @@ async def ask_json[T](
             raise assist_unavailable(capability)
 
     sarvam = await _json_via_sarvam(
-        description, instruction, max_tokens=max_tokens, temperature=temperature
+        description,
+        instruction,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        timeout_s=timeout_s,
     )
-    value = parse(sarvam.data) if sarvam is not None and sarvam.data is not None else None
+    value = _parsed(parse, sarvam.data) if sarvam is not None else None
     if value is None:
         # Both legs silent: a refusal the owner can act on, not an empty answer.
         raise assist_unavailable(

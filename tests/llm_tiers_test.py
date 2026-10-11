@@ -26,7 +26,6 @@ from apps.api.agents.llm_tiers import (
     client_model_labels,
     cost_tier,
     engine_model_for_token,
-    engine_model_labels,
     engine_model_token,
     resolve_tier_choice,
     tier_model,
@@ -211,16 +210,16 @@ def test_engine_tokens_are_opaque_stable_and_round_trip() -> None:
     assert engine_model_for_token(catalogue, engine_model_token("gone")) is None
 
 
-def test_engine_models_show_their_own_name_with_our_tier_where_known() -> None:
-    models = [
-        CatalogueModel(model_id="a", label="Vendor A", call_capable=True, plan_allows=True),
-        CatalogueModel(
-            model_id="b", label="Vendor B", call_capable=True, plan_allows=True, tier="pro"
-        ),
-        CatalogueModel(model_id="c", label="Vendor C", call_capable=True, plan_allows=True),
-    ]
-    assert engine_model_labels(models) == {
-        "a": "Vendor A",
-        "b": "Vendor B · Pro",
-        "c": "Vendor C",
-    }
+def test_no_tier_is_chosen_on_an_engine_that_runs_its_own_models() -> None:
+    """D-750 (founder, 11 Oct 2026): on ThinnestAI the model is included in the per-minute
+    price, so a tier choice would change nothing and is refused; clearing one still works."""
+    from tests.hosted_voice_fakes import HostingEngine, selected
+
+    assert llm_tiers.tiers_choosable()
+    with selected(HostingEngine()):
+        assert not llm_tiers.tiers_choosable()
+        with pytest.raises(ProblemError) as refused:
+            llm_tiers.resolve_tier_choice("plus", current_model=None, field="llm_tier")
+        assert llm_tiers.resolve_tier_choice(None, current_model="gpt-4o-mini", field="x") is None
+    assert refused.value.code == llm_tiers.TIER_NOT_CHOSEN_HERE
+    assert refused.value.detail == llm_tiers.TIER_INCLUDED_NOTE

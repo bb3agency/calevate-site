@@ -400,6 +400,42 @@ class PlatformEngineMinutePrice(Base):
     source_note: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class PlatformEngineModelBand(Base):
+    """The per-minute band an operator recorded for one of an engine's own models.
+
+    ThinnestAI's `GET /models` does not say whether a model lifts a call to a dearer band,
+    so the band is read off its console and recorded here (founder decision, 11 Oct 2026);
+    the newest row per (engine, model_id) is in force (`agents/engine_model_bands.py`). A
+    model with no row is not offered (hard rule 7). Append-only and platform-scoped for
+    `PlatformEngineMinutePrice`'s reasons. `recorded_by` is NULL only on the rows migration
+    `e5b1c8d42a07` carried over from the code table it replaced.
+    """
+
+    __tablename__ = "platform_engine_model_bands"
+
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    engine: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The engine's raw model id (`gpt-5-mini`), never its console name.
+    model_id: Mapped[str] = mapped_column(Text, nullable=False)
+    #: `none` (the call bills at its voice's band) or `premium`.
+    band: Mapped[str] = mapped_column(Text, nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    recorded_by: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id")
+    )
+    source_note: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        CheckConstraint("band IN ('none', 'premium')", name="band"),
+        CheckConstraint("length(model_id) BETWEEN 1 AND 128", name="model_id_shape"),
+        CheckConstraint(
+            "source_note IS NULL OR length(btrim(source_note)) >= 3", name="source_note"
+        ),
+        CheckConstraint("recorded_by IS NOT NULL OR source_note IS NOT NULL", name="attributed"),
+        Index("ix_platform_engine_model_bands_model", "engine", "model_id", text("seq DESC")),
+    )
+
+
 #: RUPEES for ONE MONTH of a voice vendor's plan, as the invoice states it. NUMERIC(12,2)
 #: and NOT `INR_PER_KCHAR`'s six decimals: this figure is not a division, it is the amount
 #: on the bill, and an invoice is quoted to the paisa. Never a float (hard rule 7).
@@ -900,6 +936,7 @@ __all__ = [
     "PlatformDashboardDataUse",
     "PlatformEngineHealth",
     "PlatformEngineMinutePrice",
+    "PlatformEngineModelBand",
     "PlatformMaintenanceWindow",
     "PlatformModelPrice",
     "PlatformSecret",

@@ -41,7 +41,7 @@ from apps.api.billing.rates import is_surchargeable_llm_model
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine import get_engine
-from apps.api.engine.catalogue import CatalogueModel, EngineCatalogue, HoldsCatalogue
+from apps.api.engine.catalogue import EngineCatalogue, HoldsCatalogue
 
 #: Cheapest first; the order every picker renders in.
 LLM_TIERS: Final[tuple[LlmTier, ...]] = get_args(LlmTier)
@@ -173,6 +173,23 @@ def available_tiers(*, audience: LlmReasonAudience = "client") -> tuple[TierOpti
     )
 
 
+#: Refused when a client names a tier on an engine that runs its own models (D-750).
+TIER_NOT_CHOSEN_HERE: Final = "llm_tier_not_chosen_here"
+
+#: What a client reads in place of the tier picker there. No vendor and no model (D-679).
+TIER_INCLUDED_NOTE: Final = "The language model is included in your per-minute price."
+
+
+def tiers_choosable() -> bool:
+    """May a client choose a tier at all? Not on an engine that runs its own models
+    (ThinnestAI): the tier settings point at models that engine never runs, and Calevate
+    offers there only the engine's models included in the per-minute price, chosen by an
+    operator (founder, 11 Oct 2026, D-750). Refusing a choice, rather than storing one that
+    changes nothing, keeps the screen from claiming a control it does not have. Clearing a
+    choice (`None`) stays allowed so an old one can be removed."""
+    return not isinstance(get_engine(), HoldsCatalogue)
+
+
 def resolve_tier_choice(
     tier: LlmTier | None, *, current_model: str | None, field: str
 ) -> str | None:
@@ -184,6 +201,15 @@ def resolve_tier_choice(
     """
     if tier is None:
         return None
+    if not tiers_choosable():
+        raise ProblemError(
+            kind="business_rule",
+            code=TIER_NOT_CHOSEN_HERE,
+            title="The language model is not chosen on this account",
+            detail=TIER_INCLUDED_NOTE,
+            remediation="Nothing to choose: every agent already runs the included model.",
+            fields=[{"name": field, "reason": "not chosen on this account"}],
+        )
     if current_model is not None and tier_of_model(current_model) == tier:
         return current_model
     model = tier_model(tier)
@@ -242,27 +268,14 @@ async def engine_model_from_client(value: str | None) -> str | None:
     return engine_model_for_token(await engine.read_catalogue(), value) or value
 
 
-def engine_model_labels(models: Sequence[CatalogueModel]) -> dict[str, str]:
-    """What a client reads for each engine model, keyed by model id: the engine's own model
-    name, followed by our tier where the adapter classified one.
-
-    The real name is shown by founder decision (10 Oct 2026), a deliberate exception to
-    D-679 for this picker only: "Additional model N" told an owner nothing to choose by.
-    """
-    return {
-        model.model_id: (
-            model.label if model.tier is None else f"{model.label} · {LLM_TIER_LABELS[model.tier]}"
-        )
-        for model in models
-    }
-
-
 __all__ = [
     "ENGINE_MODEL_TOKEN_PREFIX",
     "LLM_TIERS",
     "LLM_TIER_DESCRIPTIONS",
     "LLM_TIER_LABELS",
     "PRO_INPUT_USD_PER_MTOK",
+    "TIER_INCLUDED_NOTE",
+    "TIER_NOT_CHOSEN_HERE",
     "UNTIERED_LABEL",
     "TierOption",
     "available_tiers",
@@ -271,11 +284,11 @@ __all__ = [
     "cost_tier",
     "engine_model_for_token",
     "engine_model_from_client",
-    "engine_model_labels",
     "engine_model_token",
     "resolve_tier_choice",
     "tier_label",
     "tier_model",
     "tier_models",
     "tier_of_model",
+    "tiers_choosable",
 ]

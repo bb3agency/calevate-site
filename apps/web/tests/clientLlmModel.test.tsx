@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import ClientLlmModelPage from "@/app/c/[slug]/settings/models/page";
@@ -11,16 +11,22 @@ import { problem, renderClientPage, stillLoading } from "./harness";
 import {
   AGENT_SPEND_PATH,
   LANES,
+  LEGAL_READY,
+  prepaidWallet,
   agentScript,
   clientLlmTiers,
   spendThisMonth,
   voiceCatalogue,
 } from "./fixtures/sharedReads";
+import { ENGINE_CATALOGUE_PATH } from "@/lib/api/engineCatalogue";
+import { businessProfileFixture } from "./businessProfileFixture";
+import { LIVE_ENGINE_MODELS, operatorEngineCatalogue } from "./fixtures/engineCatalogue";
 
-// An agent's own model is in the workspace's Advanced section (D-657); the settings page
-// reads no section, so the one mock serves both screens in this file.
+// An agent's own model is the workspace's Model section; the settings page reads no
+// section, so the one mock serves both screens in this file.
+const nav = vi.hoisted(() => ({ section: "model" }));
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams("section=advanced"),
+  useSearchParams: () => new URLSearchParams(`section=${nav.section}`),
   usePathname: () => "/c/acme/agents/agent-1",
   useRouter: () => ({
     push: vi.fn(),
@@ -45,8 +51,10 @@ vi.mock("next/navigation", () => ({
  * 2. **A price that has been through a float.** Every figure is a rate the client is billed
  *    at; asserted on the DIGITS and on the absence of the float artefact.
  * 3. **Inheritance shown as a choice, or a choice shown as inheritance.** `llm_tier_source`
- *    is the server's answer and the screen renders it rather than deriving it.
- * 4. **A save that looks like it worked.** No optimistic write.
+ *    is the server's answer and the screen renders it rather than deriving it. Following the
+ *    level above is its own first row and sends `null`; a tier row pins that tier.
+ * 4. **A save that looks like it worked.** No optimistic write, and no save offered until
+ *    something has changed.
  * 5. **A body that says more than the client moved.** `llm_tier: null` means "go back to
  *    inheriting" while OMITTING the field means "leave this agent alone".
  */
@@ -213,6 +221,7 @@ describe("the account's default model tier", () => {
       fireEvent.click(screen.getByRole("button", { name: /Save model/ }));
     });
 
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
     const put = calls.find((call) => call.method === "PUT");
     expect(JSON.parse(put?.body ?? "{}")).toEqual({ default_llm_tier: "plus" });
     await waitFor(() => {
@@ -237,12 +246,13 @@ describe("the account's default model tier", () => {
     );
 
     await act(async () => {
-      fireEvent.click(await screen.findByRole("radio", { name: /^Standard/ }));
+      fireEvent.click(await screen.findByRole("radio", { name: /^Calevate's default/ }));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Save model/ }));
     });
 
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
     const put = calls.find((call) => call.method === "PUT");
     expect(JSON.parse(put?.body ?? "{}")).toEqual({ default_llm_tier: null });
   });
@@ -270,7 +280,8 @@ describe("the account's default model tier", () => {
 
     const refusal = await screen.findByRole("alert");
     expect(refusal.textContent).toContain("Plus isn't switched on for your account yet.");
-    expect(radio(/^Standard/).closest("label")?.textContent).toContain("the model running now");
+    // Nothing moved: the account still follows Calevate's default, which is what runs now.
+    expect(radio(/^Calevate's default/).closest("label")?.textContent).toContain("the model running now");
     expect(container.textContent).not.toMatch(/saved/i);
   });
 
@@ -299,9 +310,9 @@ describe("the account's default model tier", () => {
       expect(container.textContent).toContain("so calls use our standard model"),
     );
     // Following the default stays possible; pinning a tier that cannot run does not.
-    await waitFor(() => expect(radio(/^Standard/).disabled).toBe(false));
-    const keep = screen.getByRole("checkbox", { name: /Keep Standard/ }) as HTMLInputElement;
-    expect(keep.disabled).toBe(true);
+    await waitFor(() => expect(radio(/^Calevate's default/).disabled).toBe(false));
+    expect(radio(/^Standard/).disabled).toBe(true);
+    expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
   it("shows a tier this platform cannot run, disabled, with the server's reason", async () => {
@@ -344,8 +355,10 @@ describe("the account's default model tier", () => {
 
     await screen.findByText(/Only an account owner can change which AI model/);
     expect(container.textContent).toContain("your agents use");
-    const save = screen.getByRole("button", { name: /Save model/ });
-    expect((save as HTMLButtonElement).disabled).toBe(true);
+    for (const option of screen.getAllByRole("radio")) {
+      expect((option as HTMLInputElement).disabled).toBe(true);
+    }
+    expect(screen.queryByRole("button", { name: /Save model/ })).toBeNull();
   });
 
   it("opens the picker to a view-as admin (D-587)", async () => {
@@ -482,11 +495,15 @@ describe("where one agent's model tier came from", () => {
   it("says an inheriting agent is following the account, and where to change that", async () => {
     const { container } = await renderClientPage(agentPage, agentRoutes());
 
-    await screen.findByText(/This agent follows your organisation default/);
+    await screen.findByText(/^Follows your organisation default\./);
     expect(screen.getByRole("link", { name: /Change it for every agent/ })).toBeTruthy();
-    const standard = await screen.findByRole("radio", { name: /^Standard/ });
-    expect((standard as HTMLInputElement).checked).toBe(true);
-    expect(standard.closest("label")?.textContent).toContain("Organisation default");
+    const follow = await screen.findByRole("radio", { name: /^Organisation default/ });
+    expect((follow as HTMLInputElement).checked).toBe(true);
+    expect(follow.closest("label")?.textContent).toContain("Standard now");
+    expect(follow.closest("label")?.textContent).toContain("the model running now");
+    expect((radio(/^Standard/) as HTMLInputElement).checked).toBe(false);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Save model/ })).toBeNull();
     expect(container.textContent).not.toContain("Follow my organisation");
     expect(container.textContent ?? "").not.toMatch(VENDOR_WORDS);
   });
@@ -497,9 +514,9 @@ describe("where one agent's model tier came from", () => {
       agentRoutes({ "/v1/agents/agent-1": agent(OWN_PLUS) }),
     );
 
-    await screen.findByText(/This agent has its own model/);
-    expect(container.textContent).toContain("ignores your organisation default");
-    expect(container.textContent).not.toContain("follows your organisation default");
+    await screen.findByText(/^Set for this agent\./);
+    expect(container.textContent).toContain("Your organisation default does not change it");
+    expect(screen.queryByText(/^Follows your organisation default\./)).toBeNull();
     const plus = await screen.findByRole("radio", { name: /^Plus/ });
     expect((plus as HTMLInputElement).checked).toBe(true);
     expect(plus.closest("label")?.textContent).toContain("+₹1.5000 / min");
@@ -516,10 +533,10 @@ describe("where one agent's model tier came from", () => {
     );
 
     await act(async () => {
-      fireEvent.click(await screen.findByRole("radio", { name: /^Standard/ }));
+      fireEvent.click(await screen.findByRole("radio", { name: /^Organisation default/ }));
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /Go back to the organisation default/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Save model/ }));
     });
 
     const patch = calls.find((call) => call.method === "PATCH");
@@ -563,28 +580,33 @@ describe("where one agent's model tier came from", () => {
       }),
     );
 
-    await screen.findByText(/This agent follows your organisation default/);
+    await screen.findByText(/^Follows your organisation default\./);
     expect(screen.queryByRole("radio", { name: /^Standard/ })).toBeNull();
     expect(container.textContent).toContain("part of the record of what it did");
   });
 });
 
 describe("each fact is said once", () => {
-  it("lists each tier once, with the default marked on its own row", async () => {
+  it("lists each tier once, after one row for following Calevate's default", async () => {
     const { container } = await renderClientPage(settingsPage, settingsRoutes());
 
-    const standard = await screen.findByRole("radio", { name: /^Standard/ });
-    expect((standard as HTMLInputElement).checked).toBe(true);
-    expect(standard.closest("label")?.textContent).toContain("Default");
-    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    const follow = await screen.findByRole("radio", { name: /^Calevate's default/ });
+    expect((follow as HTMLInputElement).checked).toBe(true);
+    expect(follow.closest("label")?.textContent).toContain("Standard now");
+    const standard = radio(/^Standard/);
+    expect(standard.checked).toBe(false);
+    expect(screen.getAllByRole("radio")).toHaveLength(4);
     const text = container.textContent ?? "";
     expect(text).not.toContain("In force now");
     expect(text).not.toContain("Use the Calevate default");
     expect(text).not.toContain("The tier we run by default");
-    expect(text.split("No extra charge")).toHaveLength(2);
+    // Once on the follow row and once on Standard, and nowhere else.
+    expect(text.split("No extra charge")).toHaveLength(3);
+    expect(follow.closest("label")?.textContent).toContain("No extra charge");
+    expect(standard.closest("label")?.textContent).toContain("No extra charge");
   });
 
-  it("pins the default tier only when the owner asks to keep it", async () => {
+  it("pins the default tier only when the owner picks its own row", async () => {
     const { calls } = await renderClientPage(
       settingsPage,
       settingsRoutes({
@@ -592,13 +614,17 @@ describe("each fact is said once", () => {
       }),
     );
 
+    // Owner access resolves after the first paint; a click on a still-disabled row is lost.
+    await waitFor(() => expect(radio(/^Standard/).disabled).toBe(false));
     await act(async () => {
-      fireEvent.click(await screen.findByRole("checkbox", { name: /Keep Standard even if/ }));
+      fireEvent.click(radio(/^Standard/));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Save model/ }));
     });
 
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
     const put = calls.find((call) => call.method === "PUT");
     expect(JSON.parse(put?.body ?? "{}")).toEqual({ default_llm_tier: "standard" });
   });
@@ -615,5 +641,85 @@ describe("each fact is said once", () => {
     expect(row).not.toContain("₹");
     expect(row).not.toContain("No extra charge");
     expect(row).not.toContain("Unavailable");
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+ * NO MODEL NAME ON ANY CLIENT SCREEN (D-679)
+ * ═══════════════════════════════════════════════════════════════════════════════════ */
+
+describe("a client's screens never name a model", () => {
+  afterEach(() => {
+    nav.section = "model";
+  });
+
+  /**
+   * The platform's real model names, as production lists them. The engine catalogue is
+   * served here in its OPERATOR shape, names and all, so this fails if any client surface
+   * renders what it is given rather than only what a client may read.
+   */
+  const NAMES = LIVE_ENGINE_MODELS.map((model) => model.name);
+  const leaking = (text: string) => NAMES.filter((name) => text.includes(name));
+
+  const voiceOnEngine = {
+    ...voiceCatalogue("client"),
+    selectable: false,
+    voices: [],
+    note: "Voices on this account are the voice platform's own.",
+  };
+
+  for (const section of ["overview", "voice", "model", "calls", "advanced"]) {
+    it(`renders none on the agent's ${section} section`, async () => {
+      nav.section = section;
+      const { container } = await renderClientPage(
+        agentPage,
+        agentRoutes({
+          [ENGINE_CATALOGUE_PATH]: operatorEngineCatalogue(),
+          "/v1/agents/voices": voiceOnEngine,
+          "/v1/agents/agent-1": agent({ engine_model_id: "engine-model:gpt-5-mini" }),
+          // What Overview and Call handling read besides the model and the voice.
+          "/v1/business-profile": businessProfileFixture(),
+          "/v1/legal/readiness": LEGAL_READY,
+          "/v1/billing/wallet": prepaidWallet(),
+          "/v1/calls?agent_id=agent-1&limit=5": [],
+        }),
+      );
+      await screen.findAllByText("Reception");
+      if (section === "voice") await screen.findByText("Anjali");
+      if (section === "model") await screen.findByRole("radio", { name: /^Standard/ });
+      expect(leaking(container.textContent ?? "")).toEqual([]);
+      expect(container.textContent ?? "").not.toMatch(VENDOR_WORDS);
+    });
+  }
+
+  it("renders none on the account's model settings", async () => {
+    const { container } = await renderClientPage(
+      settingsPage,
+      settingsRoutes({ [ENGINE_CATALOGUE_PATH]: operatorEngineCatalogue() }),
+    );
+    await screen.findByRole("radio", { name: /^Standard/ });
+    expect(leaking(container.textContent ?? "")).toEqual([]);
+  });
+});
+
+describe("on a voice platform whose model is included in the minute (D-750)", () => {
+  it("shows one quiet line and no tier to choose", async () => {
+    const { container } = await renderClientPage(
+      settingsPage,
+      settingsRoutes({
+        "/v1/organization/llm-defaults": defaults({
+          tier_choosable: false,
+          tier_note: "The language model is included in your per-minute price.",
+        }),
+      }),
+    );
+
+    expect(
+      await screen.findByText("The language model is included in your per-minute price."),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "About the language model" })).toBeTruthy();
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.queryByText("How the model is billed")).toBeNull();
+    expect(container.textContent ?? "").not.toMatch(VENDOR_WORDS);
   });
 });

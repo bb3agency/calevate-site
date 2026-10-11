@@ -14,7 +14,10 @@ priced, so every model is unavailable for that one reason.
 
 THE OTHER GROUNDS ARE THE ENGINE'S OWN STATEMENTS, read live from its catalogue
 (`voices-and-models.md:63-65`): a model it says is too slow to answer a call, or one the
-account's plan does not include, is shown and refused by name rather than hidden.
+account's plan does not include, is refused by name at publish; the pickers leave such a
+model out (`agents/engine_model_bands.listed_models`). The per-minute band ground reads the
+operator's record (`agents/engine_model_bands.py`), so the catalogue handed in must have
+come through `banded_catalogue`.
 
 The attested rate keys are an ARGUMENT (the route reads them in one query through
 `billing/engine_minutes.attested_minute_prices`), so every predicate here is pure.
@@ -53,6 +56,12 @@ def _no_base_rate_reason(platform: str, audience: LlmReasonAudience) -> str:
 #: The client's sentence for a voice that is not on offer. Plain, no vendor, no band jargon.
 NOT_ON_OFFER_CLIENT: Final = "This voice is not on offer yet."
 
+#: A model whose recorded band lifts the minute above the voice's price.
+PAID_MODEL_OPERATOR: Final = (
+    "Paid model: Calevate offers only models included in the per-minute price."
+)
+PAID_MODEL_CLIENT: Final = "Not available: this model is not included in the per-minute price."
+
 
 def model_unofferable_reason(
     model: CatalogueModel,
@@ -76,14 +85,20 @@ def model_unofferable_reason(
         )
     if model.surcharge is None:
         # Hard rule 7: a model can lift a call to a dearer band, and the engine's API does
-        # not say which ones do, so a model whose band nobody has read is not sold.
+        # not say which ones do, so a model whose band nobody has recorded is not sold.
         if audience == "client":
             return "Not available yet: calls on this model have not been priced."
         return (
-            f"{platform} does not publish this model's per-minute band and nobody has "
-            "recorded the price tag its console shows, so a call on it cannot be priced. "
-            "Record it in engine/thinnest._MODEL_CONSOLE_READING to offer it."
+            f"Not checked yet: {platform} does not publish this model's per-minute band and "
+            "nobody has recorded the price tag its console shows, so a call on it cannot be "
+            "priced. Record whether it costs extra from an agent's Model section to offer it."
         )
+    if model.surcharge != "none":
+        # Founder decision, 11 Oct 2026 (D-750): only models included in the per-minute price
+        # are sold, on either rung. The band record stays so a paid model is known as paid.
+        if audience == "client":
+            return PAID_MODEL_CLIENT
+        return PAID_MODEL_OPERATOR
     return None
 
 
@@ -108,6 +123,8 @@ def offered_models(
 
 __all__ = [
     "NOT_ON_OFFER_CLIENT",
+    "PAID_MODEL_CLIENT",
+    "PAID_MODEL_OPERATOR",
     "OfferedEngineModel",
     "model_unofferable_reason",
     "offered_models",

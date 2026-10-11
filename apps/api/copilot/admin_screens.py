@@ -91,6 +91,13 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "/admin/ops/voices", "Voices", "Platform", "The voices the platform offers.", "ops:manage"
     ),
     AdminScreen(
+        "/admin/ops/spoken-style",
+        "Spoken style",
+        "Platform",
+        "Review and publish how agents speak each language.",
+        "ops:manage",
+    ),
+    AdminScreen(
         "/admin/ops/maintenance",
         "Planned maintenance",
         "Platform",

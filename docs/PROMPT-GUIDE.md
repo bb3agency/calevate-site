@@ -47,7 +47,7 @@ order: `[BUSINESS]` `[IDENTITY]` `[GOAL]` `[OPENING]` `[SPEAKING STYLE]` `[CONVE
 in the call's language). Around it `compose_engine_prompt` adds, each said once: the
 preamble, HOW TO SPEAK, LANGUAGES, SPOKEN REGISTER (per-language guidance and a
 formal-to-spoken word list, `spoken_style.json`), BUSINESS FACTS (names the search tool),
-the notices, caller memory, then after the script WHEN YOU CANNOT HELP, CONFIDENTIALITY and
+the notices, caller memory, then after the script WHAT YOU CAN DO, CONFIDENTIALITY and
 the truthful-answer block. Instructions are in English; only what the agent says is in the
 call's language. The v1 template below is kept for scripts saved before v2, which compile
 unchanged until they are saved again.
@@ -61,6 +61,36 @@ collects several details carries "Ask for one of these details per turn." The te
 fails a reply that breaks any of these before the AI judge reads it
 (`apps/api/agents/turn_checks.py`), textbook words from `spoken_style.json` included. A deploy
 that changes this platform text queues one live apply of every live agent at worker start.
+
+**What a real call showed (D-749, 11 Oct 2026).** The specimen call is described in
+`docs/evidence/specimen-call-raghava-2026-10-11.md`. It added these rules, each said once.
+
+After the script, in WHAT YOU CAN DO, where a script cannot override them:
+- Nothing is "done" (an order noted, details saved, a booking, a message sent) unless a tool
+  confirmed it on this call; otherwise the agent says what happens next. An action the client
+  connected still confirms.
+- The agent already has the number the call is on. It never asks for it, at most "this same
+  number?". A forwarded line with a hidden number keeps its own rule.
+
+In HOW TO SPEAK:
+- Never write actions, notes or anything in brackets.
+- Take a number a few digits at a time; a mobile number has ten digits, never fewer.
+- Prices, quantities and times in English words ("six hundred rupees").
+- Asked to repeat, say it shorter.
+- If the caller talks over the agent, it stops, answers, then carries on where it was. It
+  never asks for what the caller already said.
+- Never end the call while the caller is talking or asking something.
+
+In BUSINESS FACTS:
+- Never guess or add to a fact, including what a product is or how it is made.
+- Say names of products, places and people as the facts give them, never translated.
+
+A client gives a product's local name in the script builder, under "Names and how to say
+them". It compiles as "Say these names exactly like this". It can also go in a pinned fact.
+
+The test loop checks each class (`turn_checks.conversation_problems`) and runs two of the
+standing callers (`agents/specimen_scenarios.py`) in every run. After a real call, the call
+page marks "Agent said it was done, but no action ran" (`claimed_not_done`).
 
 **`[STYLE]` IS PLATFORM-OWNED AND AUTO-INJECTED — DO NOT HAND-AUTHOR IT (D-479).** The
 speech-register guidance below is emitted on EVERY agent by `compose_engine_prompt`

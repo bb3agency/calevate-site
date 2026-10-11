@@ -72,6 +72,12 @@ ALLOWED: tuple[tuple[str, frozenset[str], str], ...] = (
         "the caller-memory refusal names why a clinic is refused",
     ),
     (
+        "apps/api/legal/catalogue.py",
+        frozenset({"symptom", "appointment"}),
+        "revision notes that record which clinic-only examples a legal revision removed; "
+        "the published text itself is business-neutral",
+    ),
+    (
         "scripts/check_deploy_env.py",
         frozenset({"symptom"}),
         "'symptom' of a misconfigured deploy, not a health word",

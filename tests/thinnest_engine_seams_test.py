@@ -20,7 +20,7 @@ from apps.api.admin import service as admin_service
 from apps.api.agents import engine_choice, lifecycle, prompts
 from apps.api.agents.service import publish_agent
 from apps.api.core.errors import ProblemError
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
 from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
 from apps.api.engine.thinnest import (
@@ -333,7 +333,7 @@ async def test_a_clear_voice_meters_at_its_band_and_a_studio_voice_at_its_own_ke
 ) -> None:
     clear = await hosted_rows.add("engine")
     studio = await hosted_rows.add("byok")
-    assert await _choose(voice_id=clear, model_id="gpt-4.1") == "premium"
+    assert await _choose(voice_id=clear, model_id="gpt-5.4-nano") == "premium"
     assert await _choose(voice_id=studio, model_id="prana-voice", for_publish=True) == (
         "byok_voice"
     )
@@ -394,7 +394,7 @@ async def test_a_studio_voice_runs_only_on_the_standard_models(
     models, and setting another is a 400."""
     voice = await hosted_rows.add("byok")
     with pytest.raises(ProblemError) as caught:
-        await _choose(voice_id=voice, model_id="gpt-4.1")
+        await _choose(voice_id=voice, model_id="gpt-5.4-nano")
     assert caught.value.code == engine_choice.MODEL_NOT_WITH_OWN_VOICE
 
 
@@ -898,8 +898,9 @@ async def test_the_in_call_default_must_be_a_model_studio_agents_may_run() -> No
     vendor's `voiceOnlyByok` models (bring-your-own-keys.md:44-63), so the console refuses a
     default outside them rather than leave Studio agents unpublishable."""
     with selected(HostingEngine()):
-        assert await engine_choice.resolve_in_call_default("Prana") == "prana-voice"
-        with pytest.raises(ProblemError) as caught:
-            await engine_choice.resolve_in_call_default("gpt-4.1")
+        async with untenanted_session() as session:
+            assert await engine_choice.resolve_in_call_default(session, "Prana") == "prana-voice"
+            with pytest.raises(ProblemError) as caught:
+                await engine_choice.resolve_in_call_default(session, "gpt-5.4-nano")
     assert caught.value.code == engine_choice.IN_CALL_DEFAULT_UNUSABLE
     assert "Studio" in (caught.value.detail or "")

@@ -14,11 +14,12 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.campaigns import engine_numbers
 from apps.api.core.context import Principal
-from apps.api.core.settings import get_settings
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.core.settings import Settings, get_settings
+from apps.api.db.session import tenant_session
 from apps.api.engine.forwarding_probe import ForwardingLegReport
 from apps.api.forwarding import service, testing
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 TRIAL_NUMBER = "+918000000501"
 SECOND_NUMBER = "+918000000502"
@@ -146,11 +147,17 @@ async def rig_fixture(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Rig]:
     monkeypatch.setattr(testing, "enqueue", _enqueue)
     monkeypatch.setattr(engine_numbers, "lend_platform_line", _lend)
     yield Rig(engine=engine, enqueued=enqueued, lent=lent)
-    # The legs share the platform's one trial line: end any this test left live.
-    async with untenanted_session() as session:
-        await session.execute(
-            text(
-                "UPDATE forwarding_test_legs SET status = 'ended' "
-                "WHERE status IN ('placing', 'live')"
+    # The legs share the platform's one trial line: end any this test left live. As the
+    # owner, because a leg is written only from its own tenant's session (f8a2d6c41e95)
+    # and this cleanup is for every tenant the test made.
+    owner = create_async_engine(Settings().alembic_database_url or "")
+    try:
+        async with owner.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE forwarding_test_legs SET status = 'ended' "
+                    "WHERE status IN ('placing', 'live')"
+                )
             )
-        )
+    finally:
+        await owner.dispose()

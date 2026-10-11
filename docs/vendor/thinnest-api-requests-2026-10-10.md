@@ -31,6 +31,40 @@ DPA with the sub-processor list, plus training off in writing.
    BYOK with Cartesia, can an agent carry a dictionary id that you pass on every speech
    request, so brand, product and place names are said correctly? Is there anything similar
    for your own voices?
+5. **Custom actions inside Test Chat** (from a test chat of 11 Oct 2026, D-748). When an
+   agent uses one of our custom actions during `POST /agents/{id}/test-chat`: (a) is an
+   `X-Call-Id` header sent, and if so, what id does it carry when there is no call?
+   (b) What exactly is `tools[].output` for a custom action: our response body as parsed
+   JSON, as a string, or wrapped or shortened? (c) Is there any field or header that tells
+   our endpoint the request comes from a test chat rather than a real conversation? And
+   (d) with the agent's language set to Match the customer, does test chat detect the
+   language from the customer's message the same way a call does? A Telugu message got an
+   English reply.
+6. **Notes in brackets after an interruption** (production call of 11 Oct 2026, 15:33 IST,
+   D-749). Agent turns in the transcript contained "[cut off before finishing]",
+   "[awaiting response]", "(Waiting for user response)", "[hang_up]" and "[call hang_up]".
+   Our instructions contain none of these. (a) Does your pipeline insert any of them into the
+   transcript, into the model's context for the rest of the call, or both? (b) Which of them
+   are yours, and which would be the model's own text? (c) Is any of it ever sent to speech?
+7. **Re-generation after the caller talks over the agent.** In the same call, one agent turn
+   held the same question three times glued together without spaces ("…ఎంత కావాలి?మీకు
+   powder ఎంత కావాలి?[cut off before finishing]మీకు powder ఎంత కావాలి?"), and another held
+   one proposal said twice. When a caller interrupts, is the model run again with its earlier
+   partial reply appended to its context, and is the transcript turn the concatenation of
+   several generations? If so, can the interrupted part be dropped from the context, or kept
+   only as what was actually heard?
+8. **How the agent ends a call.** When the agent decides the conversation is over, does the
+   model call a tool or write text? Is "[hang_up]" in a transcript your record of that, or the
+   model writing it? Your docs now say a new agent starts with `voice.endCallOnFinish` off
+   (docs.thinnest.ai `api-reference/agents/update-agent`, read 11 Oct 2026; the 8 Oct
+   snapshot said it was on for every agent): with it off, after the agent "ends" the
+   conversation, does it keep answering the caller? In our call it said goodbye four times
+   and kept answering. We now send `endCallOnFinish: true` on every agent.
+9. **The built-in call rules.** `voice.callInstructions` "REPLACES the built-in call rules
+   and is added after the agent's instructions in the call prompt" (same page). What do the
+   built-in rules say (we need to know whether anything in them conflicts with ours: how to
+   end a call, interruptions, the current time), and do they count towards the 8,000
+   characters of `instructions`?
 
 Context for our team: the agent Voice settings page in ThinnestAI's console has settings
 that the REST API does not expose (mapping in

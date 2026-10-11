@@ -192,7 +192,12 @@ async def test_redis_outage_fails_towards_recording(monkeypatch: Any) -> None:
 #: `admin.tenant_read` row, with the reason. The bar is that the route does not read one
 #: client's tenant-scoped rows — otherwise the entry is an exemption for exactly the case
 #: SEC-COMP §5 asks the ledger to hold.
-_NOT_A_PER_TENANT_READ: dict[str, str] = {}
+_NOT_A_PER_TENANT_READ: dict[str, str] = {
+    "GET /v1/ops/spoken-style/{language}": (
+        "the path names a LANGUAGE, not a client: it reads the platform's spoken-style "
+        "word list and its review history (D-744), which belong to no tenant"
+    ),
+}
 
 
 def test_every_direct_per_tenant_admin_read_records_one() -> None:

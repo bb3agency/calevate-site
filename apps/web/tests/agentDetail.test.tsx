@@ -1454,10 +1454,9 @@ async function pressable(
 /**
  * The panel with this heading, so a claim is read off the panel it is about.
  *
- * `section, details` and not `section` alone: after the hierarchy pass (UX-DOCTRINE §3)
- * the rarely-touched panels — what it is, what it can do during a call, the model it
- * thinks with — are `<Disclosure>`s, which are a native `<details>` whose `<summary>`
- * carries the same real `h2` a `Card` header does. The panel is still found by its
+ * `section, details` and not `section` alone: a panel may be a plain `<section>` (the
+ * agent page's sections) or a `<Disclosure>`, a native `<details>` whose `<summary>`
+ * carries the heading. The panel is still found by its
  * heading; only the element around it differs, which is exactly the seam a helper should
  * absorb rather than every test.
  *
@@ -1505,9 +1504,31 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     await renderClientPage(page, routes());
 
     await screen.findByText("Reception");
-    const panel = screen.getByRole("region", { name: "Delete this agent" });
+    const panel = card("Delete this agent");
     expect(within(panel).queryByRole("button", { name: /Delete/ })).toBeNull();
-    expect(panel.textContent).toContain("has to be switched off before it can be deleted");
+    expect(panel.textContent).toContain("Switch it off before you delete it.");
+    // A quiet notice, not a tinted card, with the one move beside it.
+    expect(panel.querySelector("[data-notice]")).not.toBeNull();
+    expect(within(panel).getByRole("button", { name: "Switch off" })).toBeTruthy();
+  });
+
+  it("switches a working agent off from the delete notice", async () => {
+    openSection("advanced");
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "POST /v1/agents/agent-1/deactivate": { agent_id: "agent-1", status: "paused", changed: true },
+      }),
+    );
+
+    await screen.findByText("Reception");
+    const panel = card("Delete this agent");
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /^Switch off$/));
+    });
+    await waitFor(() =>
+      expect(calls.find((call) => call.method === "POST")?.path).toBe("/v1/agents/agent-1/deactivate"),
+    );
   });
 
   it("offers a switched-off agent the delete the live one could not have", async () => {
@@ -1516,7 +1537,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
 
     await screen.findByText("Reception");
     expect((screen.getByRole("switch", { name: "Taking calls" }) as HTMLInputElement).checked).toBe(false);
-    const panel = screen.getByRole("region", { name: "Delete this agent" });
+    const panel = card("Delete this agent");
     expect(within(panel).getByRole("button", { name: /^Delete…$/ })).toBeTruthy();
   });
 
@@ -1556,7 +1577,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     );
 
     await screen.findByText("Reception");
-    const panel = screen.getByRole("region", { name: "Delete this agent" });
+    const panel = card("Delete this agent");
 
     // FIRST PRESS: the consequences, no request. The one a client most needs is that the
     // history survives — an owner who believes Delete erases their call log will leave a
@@ -1599,7 +1620,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     openSection("advanced");
     await renderClientPage(page, routes(SWITCHED_OFF));
     await screen.findByText("Reception");
-    const panel = screen.getByRole("region", { name: "Delete this agent" });
+    const panel = card("Delete this agent");
 
     const trigger = await pressable(panel, /^Delete…$/);
     // Focused the way a keyboard user arrives at it, then activated. `fireEvent.click`
@@ -1759,14 +1780,23 @@ describe("changing what an agent is", () => {
     expect(JSON.parse(patched?.body ?? "{}")).toEqual({ name: "Front desk" });
   });
 
-  it("will not save when nothing has been changed", async () => {
+  it("offers no save until something has been changed, and Cancel puts it back", async () => {
     const { calls } = await renderClientPage(page, routes());
 
     await screen.findByText("Reception");
     const panel = card("What it is");
-    const save = within(panel).getByRole("button", { name: /Save changes/ });
-    expect(save.hasAttribute("disabled")).toBe(true);
-    expect(panel.textContent).toContain("Nothing has been changed yet");
+    expect(within(panel).queryByRole("button", { name: /Save changes/ })).toBeNull();
+
+    const nameInput = within(panel).getByLabelText(/^Name/) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(nameInput, { target: { value: "Front desk" } });
+    });
+    expect(within(panel).getByRole("button", { name: /Save changes/ })).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole("button", { name: "Cancel" }));
+    });
+    expect(nameInput.value).toBe("Reception");
+    expect(within(panel).queryByRole("button", { name: /Save changes/ })).toBeNull();
     expect(calls.some((call) => call.method === "PATCH")).toBe(false);
   });
 
@@ -2085,13 +2115,25 @@ describe("progressive disclosure defaults", () => {
     return details !== null && !details.hasAttribute("open");
   }
 
-  it("keeps the set-once panels closed by default", async () => {
+  it("shows Settings as plain sections, like the rest of the agent page", async () => {
+    // REDESIGN-2: a headed section with its controls in view, not a closed card.
     openSection("advanced");
-    await renderClientPage(page, routes());
+    const { container } = await renderClientPage(page, routes());
 
     await screen.findByText("Reception");
-    expect(disclosed("What it is")).toBe(true);
-    expect(disclosed("The model it thinks with")).toBe(true);
+    expect(disclosed("What it is")).toBe(false);
+    expect(disclosed("Delete this agent")).toBe(false);
+    expect(container.querySelector("main details, [role='main'] details")).toBeNull();
+  });
+
+  it("gives the model its own section, beside Voice", async () => {
+    await renderClientPage(page, routes());
+    await screen.findByText("Reception");
+    const nav = screen.getByRole("navigation", { name: "Agent settings" });
+    const voice = within(nav).getByRole("link", { name: /^Voice/ });
+    const model = within(nav).getByRole("link", { name: /^Model/ });
+    expect(model.getAttribute("href")).toContain("section=model");
+    expect(voice.compareDocumentPosition(model) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("gives what the agent can do on a call its own section, not a closed panel", async () => {
@@ -2122,25 +2164,14 @@ describe("progressive disclosure defaults", () => {
     expect(disclosed("What it knows")).toBe(false);
   });
 
-  it("names what is inside a closed disclosure, so the fact survives the click", async () => {
-    // Some users never click a reveal (GOV.UK Details research, read 25 Aug 2026), so the
-    // FACT stays outside and only the CONTROL goes behind the click.
-    openSection("advanced");
+  it("states the tier in force on the Model section before any option", async () => {
+    openSection("model");
     await renderClientPage(page, routes());
 
     await screen.findByText("Reception");
-    const model = card("The model it thinks with");
-    expect(model.querySelector("summary")?.textContent).toContain("Standard");
-  });
-
-  it("is a native details/summary, so it is keyboard-operable with no JS", async () => {
-    openSection("advanced");
-    await renderClientPage(page, routes());
-
-    await screen.findByText("Reception");
-    const summary = card("What it is").querySelector("summary");
-    expect(summary).not.toBeNull();
-    expect(within(summary as HTMLElement).getByRole("heading")).toBeTruthy();
+    const row = await screen.findByText("Model it thinks with");
+    const summary = row.closest("div.flex") as HTMLElement;
+    expect(summary.parentElement?.parentElement?.textContent).toContain("Standard");
   });
 });
 

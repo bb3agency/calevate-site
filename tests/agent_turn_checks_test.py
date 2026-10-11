@@ -25,7 +25,7 @@ from calevate_shared.call_script import (
     native_steps,
 )
 from calevate_shared.engine import VOICE_STYLE_GUIDANCE
-from calevate_shared.spoken_style import style_for
+from calevate_shared.spoken_style import register_guidance, style_for
 
 RAGHAVA_TURN = (
     "మీకు whole chilli కావాలా, chilli powder కావాలా? Whole chilli or chilli powder? "
@@ -180,14 +180,16 @@ def test_the_prompt_says_the_turn_and_voice_rules() -> None:
     assert "one or two short sentences a turn" in block
     assert "one question" in block and "then wait" in block
     assert "never the caller's words" in block
-    assert "never say bracketed" in block and "the time" in block
+    assert "anything in brackets" in block and "say the time" in block
     assert "never re-ask" in block
     assert "offer once, then close politely" in block
     assert '"?" on every question' in block
-    assert "dashes, slashes or ellipses" in block
+    assert "dashes, slashes, ellipses" in block
     assert '"one twenty rupees"' in block and "never ₹ or digits" in block
-    assert "kept in english" in block
     assert 'never "uhm"' in block
+    # English words stay in English in each language's own register line (D-749).
+    assert "English letters" in register_guidance("te-IN")
+    assert "English letters" in register_guidance("hi-IN")
 
 
 def test_a_step_that_collects_several_details_asks_for_one_per_turn() -> None:

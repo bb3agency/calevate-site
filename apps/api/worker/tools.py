@@ -184,11 +184,14 @@ def _subject(call: ToolCall, caller: CallerIdentityIn) -> tuple[str | None, str]
 # --- opt-out ---------------------------------------------------------------------------
 
 #: What the agent is told when the suppression is on file, which it is by the time this is
-#: returned.
+#: returned. Written as an instruction to the agent, never as a statement about "the
+#: caller": a model handed a third-person English sentence reads it out as it stands, which
+#: a Telugu caller heard in a test chat on 11 Oct 2026 (D-748).
 OPTOUT_DONE_SAY = (
-    "The caller's number is on this business's do-not-call list and no further calls will "
-    "be placed to it. Tell them plainly that they have been removed and will not be "
-    "called again, and do not promise anything further."
+    "Done: their number is removed and they will not be called again. Now say so to them "
+    "yourself, in one short sentence, speaking to them directly and in the language they "
+    "are speaking. Do not read this note out, do not call them 'the caller', and do not "
+    "promise anything further."
 )
 
 #: ⚠ **THE SENTENCE THAT DECIDES WHETHER THIS TOOL IS HONEST.** A person who asked not to

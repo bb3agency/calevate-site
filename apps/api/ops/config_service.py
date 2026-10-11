@@ -623,7 +623,7 @@ async def set_value(
     if key == "thinnest_in_call_default_model":
         from apps.api.agents.engine_choice import resolve_in_call_default
 
-        stored = await resolve_in_call_default(stored)
+        stored = await resolve_in_call_default(session, stored)
     # The lock comes FIRST — before the read whose result the precondition is checked
     # against — or the check-then-write is not atomic and the precondition is decoration.
     await _lock_key(session, key)

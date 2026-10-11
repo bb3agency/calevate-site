@@ -29,6 +29,14 @@ from apps.api.main import app
 # no `X-Impersonate-Org` header. Impersonation never touches them, so gating them on a
 # mutating permission costs nobody a view.
 ADMIN_CONSOLE_GETS: dict[str, str] = {
+    "/v1/ops/engine-model-bands": (
+        "whether each of the voice platform's models costs extra (D-750): a platform "
+        "record an operator keeps, never a client view"
+    ),
+    "/v1/admin/forwarding/tenants/{tenant_id}": (
+        "the operator's view of one client's forwarded numbers (D-746); the client's own is "
+        "GET /v1/forwarding, which is org:read"
+    ),
     "/v1/ops/spoken-style": (
         "the platform's spoken-style table under the founder's review (D-744): how agents "
         "speak each language, platform-wide, never a client screen"

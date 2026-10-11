@@ -40,15 +40,17 @@ class CatalogueModel(BaseModel):
     call_capable: bool
     #: The engine account's plan may select it today.
     plan_allows: bool
-    #: OUR tier for this model (D-680), set by the adapter that knows the engine's ids; `None`
-    #: for a model it has not classified. A client is shown the tier, never `label`, because
-    #: an engine's model names are the names of the companies that make them (D-679).
+    #: OUR tier for this model (D-680), derived from `surcharge` by
+    #: `agents/engine_model_bands.with_recorded_bands`; an adapter leaves it `None`. A client
+    #: never reads `label`, because an engine's model names are the names of the companies
+    #: that make them (D-679).
     tier: LlmTier | None = None
     #: The engine lets a call run on this model while only the VOICE is our own key. An
     #: agent speaking a `byok` voice may be set to no other (D-687).
     voice_only_byok: bool = False
-    #: The per-minute price band the model lifts a call to, when we have it on record: `none`
-    #: (the call bills at its voice's band) or `premium`. `None` is UNKNOWN, and a model with
+    #: The per-minute price band the model lifts a call to, as an operator recorded it
+    #: (`agents/engine_model_bands.py`; an adapter leaves it `None`): `none` (the call bills
+    #: at its voice's band) or `premium`. `None` is UNKNOWN, and a model with
     #: an unknown band is never offered for calls (hard rule 7): a call on it could bill at
     #: a band nobody priced.
     surcharge: Literal["none", "premium"] | None = None

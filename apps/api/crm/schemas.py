@@ -148,6 +148,7 @@ MomentKindOut = Literal[
     "strong_interest",
     "asked_delivery_or_payment",
     "will_buy_or_visit",
+    "claimed_not_done",
 ]
 
 

@@ -8,8 +8,8 @@
  *   on the calling system, and is refused with the server's reason while there is no
  *   script or the agreements are outstanding); off is `POST .../deactivate`. No confirm
  *   step: the consequence is in the ⓘ beside it, and switching back is the same switch.
- * - **Try it** opens a side panel: ring my phone where the account can, and the test
- *   conversations, which test what callers hear now.
+ * - **Try it** opens a side panel: ring my phone where the account can, a chat with the agent,
+ *   and a link to the Test section.
  * - **Put it live** is the one filled button, and only while the script's draft differs
  *   from what callers hear. It is the same step as the builder's (`script/PutLive.tsx`).
  * - A deleted agent has one move: **Bring it back**.
@@ -18,12 +18,12 @@
  * above the button that does it.
  */
 
+import Link from "next/link";
 import { useState } from "react";
 import { FlaskConical } from "lucide-react";
 
 import { formatINR, ProblemNotice, PRIMARY_BUTTON, RestrictionNote, SECONDARY_BUTTON, ToggleSwitch } from "@/components/ui";
 import { Drawer } from "@/components/console/drawer";
-import { SavedTests } from "@/components/improvement/SavedTests";
 import { TryChat } from "@/components/improvement/TryChat";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -42,7 +42,6 @@ import { LiveBadge, liveState } from "../../AgentBadge";
 import { MOVE_COPY } from "../../AgentLifecycle";
 import { stagedScript, voiceTierLine } from "../../panels/publishing";
 import { PutLiveDialog, usePutLive } from "../script/PutLive";
-import { TestConversationsPanel } from "../script/TestConversationsPanel";
 import { hasUnpublished, workingCopy } from "../script/scriptDraft";
 import { TryIt } from "./tryIt";
 
@@ -246,9 +245,11 @@ function agentMonthLine(spend: Spend, agentId: string): string {
   return row ? `${formatINR(row.charged_inr)} this month` : "Nothing spent this month";
 }
 
-/** "Try it": ring my phone where the account can, and the test conversations. */
+/** "Try it": ring my phone where the account can, a chat with the agent, and the way to the
+ * Test section, where the practice callers and their fixes live (D-748). */
 function TryItPanel({ agent, slug, onClose }: { agent: Agent; slug: string; onClose: () => void }) {
   const session = useClientSession();
+  const { href } = useClientRealm();
   const wallet = useWallet(session);
   const [number, setNumber] = useState("");
   const write = useWriteAccess(session, "org:manage", "test this agent");
@@ -259,8 +260,13 @@ function TryItPanel({ agent, slug, onClose }: { agent: Agent; slug: string; onCl
       <div className="space-y-8">
         <TryIt agent={agent} slug={slug} onTrial={onTrial} number={number} onNumber={setNumber} />
         <TryChat agentId={agent.id} canWrite={write.allowed} />
-        <TestConversationsPanel agentId={agent.id} />
-        <SavedTests agentId={agent.id} canWrite={write.allowed} />
+        <p className="text-body text-ink-muted">
+          Practice callers and suggested fixes are in{" "}
+          <Link href={href(`/c/${slug}/agents/${agent.id}?section=test`)} className="font-medium text-ink underline underline-offset-2" onClick={onClose}>
+            Test
+          </Link>
+          .
+        </p>
       </div>
     </Drawer>
   );

@@ -167,8 +167,15 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         name="Agents",
         group=None,
         summary="The AI voice agents themselves — what they say, what they capture, whether "
-        "they are live.",
-        aliases=("bots", "ai agents", "voice agents", "assistants", "receptionist"),
+        "they are live, and each agent's Test section of practice callers and fixes.",
+        aliases=(
+            "bots",
+            "ai agents",
+            "voice agents",
+            "assistants",
+            "receptionist",
+            "test my agent",
+        ),
     ),
     Screen(
         route="/c/{slug}/calls",
@@ -209,7 +216,6 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
             "phone number",
             "my number",
             "forwarding",
-            "divert",
             "what number do i forward to",
             "did",
         ),

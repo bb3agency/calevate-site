@@ -958,7 +958,15 @@ async def record_hosted_clone_consent(
     response_class=Response,
     openapi_extra=permission_meta("ops:manage"),
     summary="Download the signed consent for one cloned voice (admin realm, audited)",
-    responses={200: {"content": {"application/pdf": {}, "image/jpeg": {}, "image/png": {}}}},
+    responses={
+        200: {
+            "description": "The signed consent document.",
+            "content": {
+                media: {"schema": {"type": "string", "format": "binary"}}
+                for media in ("application/pdf", "image/jpeg", "image/png")
+            },
+        }
+    },
 )
 async def hosted_clone_consent_document(
     session: GlobalSession,

@@ -65,7 +65,7 @@ from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.hosted_platform import hosted_agent_limits
-from apps.workers.agent_test_conversations import improve_run
+from apps.api.reliability.engine_actions import ACTION_NAMES, CALLBACK, CALLBACK_CANCEL, OPT_OUT
 from apps.workers.script_assist import (
     CONVERT_INSTRUCTION,
     OWNER_QUESTIONS,
@@ -522,6 +522,11 @@ class TestTurnOut(BaseModel):
     said: str
     #: What the agent answered in its test chat.
     reply: str
+    #: The steps it took in this turn, in our words: `knowledge` (looked something up),
+    #: `do_not_call` (its step that removes a number), `call_back`, or `other`.
+    actions: list[Literal["knowledge", "do_not_call", "call_back", "other"]] = Field(
+        default_factory=list
+    )
 
 
 class TestResultOut(BaseModel):
@@ -550,6 +555,8 @@ class TestResultOut(BaseModel):
     formal_words: list[str]
     #: This scenario's verdict in the run being re-tested, on a "Test again".
     before: TestVerdict | None
+    #: What a test chat cannot show for this check, in the owner's words, or null.
+    limit: str | None = None
 
 
 class ProposedChangeOut(BaseModel):
@@ -624,6 +631,10 @@ class TestRunOut(BaseModel):
     improvement: ImprovementOut | None
     #: How the run went, in the owner's words, when there is something to say.
     note: str | None
+    #: "Improve my agent" is being worked out; poll until `improvement` or `improve_note`.
+    improving: bool = False
+    #: Why the last "Improve my agent" could not be made, in the owner's words.
+    improve_note: str | None = None
     created_at: datetime
     completed_at: datetime | None
 
@@ -647,6 +658,8 @@ class TestConversationsOut(BaseModel):
     #: Why tests cannot run now, in the owner's words. Null exactly when `available`.
     unavailable_reason: str | None
     cost_note: str
+    #: Why the agent under test is behind the instructions we give every agent, or null.
+    waiting_update: str | None = None
     latest: TestRunOut | None
     #: Finished runs, newest first, for the score over time.
     history: list[TestHistoryOut]
@@ -657,13 +670,42 @@ def _score(run: test_conversations.TestRun) -> TestScoreOut:
     return TestScoreOut(passed=passed, judged=judged, total=len(run.results))
 
 
+TestAction = Literal["knowledge", "do_not_call", "call_back", "other"]
+
+_ACTION_KINDS: dict[str, TestAction] = {
+    ACTION_NAMES[OPT_OUT]: "do_not_call",
+    ACTION_NAMES[CALLBACK]: "call_back",
+    ACTION_NAMES[CALLBACK_CANCEL]: "call_back",
+}
+
+
+def _actions(tools: Any) -> list[TestAction]:
+    """A turn's tool names in the owner's vocabulary, each kind once. The tool names are
+    the engine's and ours; the screen never shows them."""
+    knowledge = hosted_agent_limits(get_engine()).knowledge_tool
+    out: list[TestAction] = []
+    for name in tools if isinstance(tools, list) else []:
+        kind: TestAction = (
+            "knowledge"
+            if knowledge is not None and name == knowledge
+            else _ACTION_KINDS.get(str(name), "other")
+        )
+        if kind not in out:
+            out.append(kind)
+    return out
+
+
 def _result_out(raw: dict[str, Any]) -> TestResultOut:
     """A stored result on today's wire. Runs before D-724 kept one `said`/`reply` pair and
     an `advice` sentence."""
     conversation = raw.get("conversation")
     turns = (
         [
-            TestTurnOut(said=str(t.get("said", "")), reply=str(t.get("reply", "")))
+            TestTurnOut(
+                said=str(t.get("said", "")),
+                reply=str(t.get("reply", "")),
+                actions=_actions(t.get("tools")),
+            )
             for t in conversation
             if isinstance(t, dict)
         ]
@@ -685,6 +727,7 @@ def _result_out(raw: dict[str, Any]) -> TestResultOut:
         step_id=raw.get("step_id") or None,
         formal_words=[str(w) for w in raw.get("formal_words") or []],
         before=test_conversations.result_verdict({"verdict": before}) if before else None,
+        limit=str(raw["limit"]) if raw.get("limit") else None,
     )
 
 
@@ -710,12 +753,16 @@ def _run_out(run: test_conversations.TestRun, live_version: int | None) -> TestR
         results=[_result_out(r) for r in run.results if isinstance(r, dict)],
         improvement=_improvement_out(run.improvement),
         note=run.note,
+        improving=run.improving,
+        improve_note=run.improve_note,
         created_at=run.created_at,
         completed_at=run.completed_at,
     )
 
 
-async def _tests_out(session: AsyncSession, agent_id: UUID) -> TestConversationsOut:
+async def _tests_out(
+    session: AsyncSession, agent_id: UUID, tenant_id: UUID
+) -> TestConversationsOut:
     ready = await test_conversations.readiness(session, agent_id)
     run = await test_conversations.latest_run(session, agent_id)
     history = await test_conversations.recent_runs(session, agent_id)
@@ -723,6 +770,7 @@ async def _tests_out(session: AsyncSession, agent_id: UUID) -> TestConversations
         available=ready.available,
         unavailable_reason=ready.reason,
         cost_note=test_conversations.COST_NOTE,
+        waiting_update=await test_conversations.waiting_update(session, tenant_id, agent_id),
         latest=_run_out(run, ready.live_version) if run is not None else None,
         history=[
             TestHistoryOut(
@@ -744,9 +792,10 @@ async def _tests_out(session: AsyncSession, agent_id: UUID) -> TestConversations
     summary="The agent's latest test conversations and its score over time",
 )
 async def get_test_conversations(
-    agent_id: UUID, session: Session, _: ScriptReader
+    agent_id: UUID, session: Session, principal: ScriptReader
 ) -> TestConversationsOut:
-    return await _tests_out(session, agent_id)
+    assert principal.tenant_id is not None
+    return await _tests_out(session, agent_id, principal.tenant_id)
 
 
 class RunTestsIn(BaseModel):
@@ -800,7 +849,7 @@ async def run_test_conversations(
             "auto_improve": body.auto_improve,
         },
     )
-    return await _tests_out(session, agent_id)
+    return await _tests_out(session, agent_id, principal.tenant_id)
 
 
 class ImproveIn(BaseModel):
@@ -812,9 +861,10 @@ class ImproveIn(BaseModel):
 
 @router.post(
     "/tests/{run_id}/improve",
-    response_model=ImprovementOut,
+    response_model=TestConversationsOut,
+    status_code=202,
     openapi_extra=permission_meta("org:manage"),
-    summary="Improve my agent: propose script and fact changes from a run's failures",
+    summary="Improve my agent: queue script and fact changes from a run's failures",
 )
 async def improve_from_tests(
     agent_id: UUID,
@@ -823,15 +873,22 @@ async def improve_from_tests(
     request: Request,
     principal: ScriptWriter,
     payload: ImproveIn | None = None,
-) -> ImprovementOut:
-    """SUBJECT → GATE → RUN → METER, as the script helper. It proposes and never writes the
-    script: the owner keeps changes one by one in the builder's review."""
+) -> TestConversationsOut:
+    """Queues the proposal and answers at once; the run shows `improving` until the
+    proposal (or `improve_note`) arrives. It proposes and never writes the script: the owner
+    keeps changes one by one in the review.
+
+    A job, not an inline model call, because the proposal is the whole script and two legs
+    of it do not fit the request deadline; and because a route that read the allowance and
+    then waited on a model kept its transaction open across the wait (D-748).
+    """
     assert principal.tenant_id is not None
     assert_view_as_may(principal, "billing.ai_assist")
     await test_conversations.get_run(session, agent_id, run_id)
     await require_ai_assist(session, tenant_id=principal.tenant_id)
-    record = await improve_run(
-        principal.tenant_id, agent_id, run_id, keys=payload.keys if payload else None
+    keys = payload.keys if payload else None
+    await test_conversations.request_improvement(
+        session, tenant_id=principal.tenant_id, agent_id=agent_id, run_id=run_id, keys=keys
     )
     await write_audit(
         session,
@@ -841,15 +898,9 @@ async def improve_from_tests(
         object_type="agent",
         object_id=str(agent_id),
         ip=client_request_ip(request),
-        summary={
-            "run_id": str(run_id),
-            "changes": len(record.get("changes") or []),
-            "facts": len(record.get("facts") or []),
-        },
+        summary={"run_id": str(run_id), "tests": len(keys) if keys else None},
     )
-    out = _improvement_out(record)
-    assert out is not None
-    return out
+    return await _tests_out(session, agent_id, principal.tenant_id)
 
 
 # --- the autosaved draft, "Put it live", versions, restore, convert (D-714) ------------

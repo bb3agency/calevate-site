@@ -9,7 +9,8 @@
 import { useId, useState } from "react";
 import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
 
-import { FIELD, FIELD_HINT, FIELD_LABEL, QUIET_ICON_BUTTON, formatCount } from "@/components/ui";
+import { Disclosure, FIELD, FIELD_HINT, FIELD_LABEL, QUIET_ICON_BUTTON, formatCount } from "@/components/ui";
+import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import type { ScriptContext } from "@/lib/api/script";
 
@@ -72,7 +73,13 @@ export function SectionEditor({
       </div>
 
       <fieldset>
-        <legend className={FIELD_LABEL}>How should it handle this part?</legend>
+        <legend className={`${FIELD_LABEL} flex items-center gap-1`}>
+          How should it handle this part?
+          <InfoTip label="exact words" align="start">
+            Only the opening line is said word for word every time. With exact words it keeps
+            to your line as closely as it can, but it may change a word or two.
+          </InfoTip>
+        </legend>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           <ModeOption
             name={field("mode")}
@@ -90,10 +97,7 @@ export function SectionEditor({
           />
         </div>
         {say && (
-          <p className="mt-2 text-meta text-ink-muted">
-            Only the opening line is said word for word every time. Here it keeps to your words
-            as closely as it can, but it may change a word or two.
-          </p>
+          <p className="mt-2 text-meta text-ink-muted">It may still change a word or two.</p>
         )}
       </fieldset>
 
@@ -121,26 +125,10 @@ export function SectionEditor({
           className={`mt-1 text-meta tabular-nums ${over ? "text-danger" : "text-ink-faint"}`}
         >
           {over
-            ? `${formatCount(used - limits.detailMax)} letters over. This box and the line below share ${formatCount(limits.detailMax)}.`
-            : `${formatCount(limits.detailMax - used)} of ${formatCount(limits.detailMax)} letters left, shared with the line below.`}
+            ? `${formatCount(used - limits.detailMax)} letters over, counting "Sounds like".`
+            : `${formatCount(limits.detailMax - used)} of ${formatCount(limits.detailMax)} letters left`}
         </p>
         <FieldErrors id={field("instruction-err")} issues={errors("instruction").filter((i) => !i.message.includes("too long"))} />
-      </div>
-
-      <div>
-        <label className={FIELD_LABEL} htmlFor={field("sounds")}>
-          Sounds like (optional)
-        </label>
-        <span className={FIELD_HINT}>One line in {language} showing how this part sounds on the phone.</span>
-        <input
-          id={field("sounds")}
-          className={FIELD}
-          value={section.sounds_like}
-          maxLength={limits.soundsLikeMax}
-          aria-invalid={errors("sounds_like").length > 0 || undefined}
-          onChange={(e) => onChange({ sounds_like: e.target.value })}
-        />
-        <FieldErrors id={field("sounds-err")} issues={errors("sounds_like")} />
       </div>
 
       <CollectEditor
@@ -245,6 +233,28 @@ export function SectionEditor({
         </label>
         <FieldErrors id={field("otherwise-err")} issues={errors("otherwise")} />
       </fieldset>
+
+      {/* Rarely needed, so folded; open whenever it holds something or needs fixing. */}
+      <Disclosure
+        variant="inline"
+        headingLevel={4}
+        title="Sounds like (optional)"
+        defaultOpen={section.sounds_like.trim() !== "" || errors("sounds_like").length > 0}
+      >
+        <label className={FIELD_LABEL} htmlFor={field("sounds")}>
+          An example line in {language}
+        </label>
+        <span className={FIELD_HINT}>How this part sounds on the phone.</span>
+        <input
+          id={field("sounds")}
+          className={FIELD}
+          value={section.sounds_like}
+          maxLength={limits.soundsLikeMax}
+          aria-invalid={errors("sounds_like").length > 0 || undefined}
+          onChange={(e) => onChange({ sounds_like: e.target.value })}
+        />
+        <FieldErrors id={field("sounds-err")} issues={errors("sounds_like")} />
+      </Disclosure>
 
       {!readOnly && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4">

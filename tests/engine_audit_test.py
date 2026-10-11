@@ -1612,6 +1612,21 @@ _VENDOR_ONLY_KEYS = frozenset(
         "voiceOnlyByok",
         # D-690: the built-in tools' hand-over object; ours is `HandoffSpec`.
         "handOver",
+        # D-743..D-749 camelCase nouns only ThinnestAI spells: the answering pause and its
+        # spoken message, a call's forwarding target and reference, the voice engine
+        # field, and the per-call quality report (latencies, silences, model errors).
+        # Ours are `CallQuality`, `HandoffSpec` and the agent snapshot's own fields.
+        "answersCalls",
+        "callRef",
+        "firstTokenMs",
+        "forwardedTo",
+        "longSilences",
+        "longestSilenceSeconds",
+        "modelErrors",
+        "responseMs",
+        "unavailableMessage",
+        "unavailableMessageNote",
+        "voiceEngine",
     }
 )
 # `next_page` was here and is gone with the Cartesia listing rewrite (D-270): their page
@@ -1886,6 +1901,16 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "seconds",
         "tier",
         "variables",
+        # D-743..D-749: plain words this product also uses (`agents` in every roster,
+        # `quality` on call reviews, percentile and count words in our own reports).
+        "agents",
+        "database",
+        "interruptions",
+        "max",
+        "median",
+        "p90",
+        "quality",
+        "rescues",
     }
 )
 

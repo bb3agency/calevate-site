@@ -30,16 +30,15 @@
  */
 
 import { useState } from "react";
-import { Save } from "lucide-react";
 
 import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
 } from "@/components/ui";
+import { SaveBar } from "@/components/console/saveBar";
 import { useFormValidation } from "@/components/formValidation";
 import { LANGUAGE_CHOICES, LANGUAGE_NAMES, isDeleted } from "@/lib/agentState";
 import {
@@ -52,6 +51,7 @@ import {
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { hasKey } from "@/lib/lookup";
+import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { DIRECTIONS, DirectionPicker } from "./DirectionChoice";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -116,26 +116,27 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
         },
   );
 
-  if (isDeleted(agent)) {
-    return (
-      <p className="text-sm text-ink-muted">
-        This agent is deleted, so its details are kept exactly as they were — they are part
-        of the record of what it did. Bring it back first if you want to change them.
-      </p>
-    );
-  }
-
   /**
    * ONLY what moved. The API treats an omitted field as "leave this alone", which is what
    * stops two edits on one screen racing each other into a read-modify-write — and it
-   * refuses a body that names nothing (`agent_update_empty`), which is why the button is
-   * dead until something differs.
+   * refuses a body that names nothing (`agent_update_empty`), which is why there is no
+   * save until something differs.
    */
   const patch: AgentUpdateIn = {};
   if (name.trim() && name !== agent.name) patch.name = name.trim();
   if (direction !== agent.direction) patch.direction = direction;
   if (language !== null && language !== agent.language_primary) patch.language_primary = language;
   const changed = Object.keys(patch).length > 0;
+  useUnsavedGuard(changed && !isDeleted(agent));
+
+  if (isDeleted(agent)) {
+    return (
+      <p className="text-sm text-ink-muted">
+        This agent is deleted, so its details are kept exactly as they were, as part
+        of the record of what it did. Bring it back first if you want to change them.
+      </p>
+    );
+  }
 
   return (
     <form
@@ -164,7 +165,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
             className={FIELD}
           />
           <span className={FIELD_HINT}>
-            Only you see this — it is how you tell your agents apart here and on your call
+            Only you see this. It is how you tell your agents apart here and on your call
             log. Callers never hear it.
           </span>
         </label>
@@ -209,20 +210,19 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
         </span>
       </label>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="submit"
-          disabled={!write.allowed || !changed || save.isPending}
+      {(changed || save.isPending) && (
+        <SaveBar
+          label="Save changes"
+          saving={save.isPending}
+          disabled={!write.allowed}
           title={write.reason ?? undefined}
-          className={PRIMARY_BUTTON}
-        >
-          <Save aria-hidden className="h-4 w-4" />
-          {save.isPending ? "Saving…" : "Save changes"}
-        </button>
-        {!changed && !save.isPending && (
-          <span className="text-xs text-ink-muted">Nothing has been changed yet.</span>
-        )}
-      </div>
+          onCancel={() => {
+            setName(agent.name);
+            setDirection(agent.direction);
+            setLanguage(hasKey(LANGUAGE_NAMES, agent.language_primary) ? agent.language_primary : null);
+          }}
+        />
+      )}
     </form>
   );
 }

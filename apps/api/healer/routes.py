@@ -48,9 +48,15 @@ from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.base import uuid7
 from apps.api.forwarding.service import assert_not_forwarded
-from apps.api.healer import incidents, ledger, notices, proposals, protection
+from apps.api.healer import incidents, ledger, notices, proposals, protection, wording
 from apps.api.healer import status as status_page
-from apps.api.healer.playbooks import PLAYBOOKS, paused_keys, unknown_paused_keys
+from apps.api.healer.playbooks import (
+    PLAYBOOK_BY_KEY,
+    PLAYBOOKS,
+    STATUS_POST,
+    paused_keys,
+    unknown_paused_keys,
+)
 
 router = APIRouter(prefix="/v1/healer", tags=["healer"])
 ops_router = APIRouter(prefix="/v1/ops/healer", tags=["ops"])
@@ -538,10 +544,28 @@ async def dismiss_proposal(
 # --- operator -------------------------------------------------------------------------------
 
 
+class IncidentKindOut(_Out):
+    """A problem the healer can open an incident for, in plain words (`healer/wording`)."""
+
+    code: str
+    title: str
+    meaning: str
+    next_step: str
+
+
+def _kind_out(code: str) -> IncidentKindOut:
+    kind = wording.incident_kind(code)
+    return IncidentKindOut(
+        code=code, title=kind.title, meaning=kind.meaning, next_step=kind.next_step
+    )
+
+
 class PlaybookOut(_Out):
     key: str
     title: str
     triggers: list[str]
+    #: `triggers`, each with its plain title.
+    woken_by: list[IncidentKindOut]
     action: str
     verify: str
     undo: str
@@ -609,6 +633,7 @@ async def healer_overview(session: GlobalSession, principal: Operator) -> Healer
                 key=p.key,
                 title=p.title,
                 triggers=list(p.triggers),
+                woken_by=[_kind_out(code) for code in p.triggers],
                 action=p.action,
                 verify=p.verify,
                 undo=p.undo,
@@ -653,6 +678,14 @@ class IncidentOut(_Out):
     mitigated_at: datetime | None
     escalated_at: datetime | None
     resolved_at: datetime | None
+    #: The problem in plain words; `trigger_code` stays for searching logs.
+    kind: IncidentKindOut
+    #: The playbook's plain title, which groups incidents on the page.
+    group: str
+    #: False when the healer never acts on this kind itself (money, a status post).
+    automatic: bool
+    #: Where it stands, in one plain line (`wording.progress`).
+    progress: str
 
 
 class IncidentsOut(_Out):
@@ -660,7 +693,19 @@ class IncidentsOut(_Out):
 
 
 def _incident_out(i: incidents.Incident) -> IncidentOut:
+    playbook = PLAYBOOK_BY_KEY.get(i.playbook)
+    automatic = playbook.automatic if playbook is not None else False
     return IncidentOut(
+        kind=_kind_out(i.trigger_code),
+        group=playbook.title if playbook is not None else i.playbook.replace("_", " "),
+        automatic=automatic,
+        progress=wording.progress(
+            playbook=i.playbook,
+            automatic=automatic,
+            state=i.state,
+            attempts=i.attempts,
+            last_outcome=i.last_outcome,
+        ),
         id=i.id,
         playbook=i.playbook,
         trigger_code=i.trigger_code,
@@ -894,8 +939,10 @@ async def post_status(
     step_up.require(x_confirm_action, status_confirmation(None))
     incident_id, _ = await incidents.open_incident(
         session,
-        key=incidents.dedupe_key("status_post", uuid7()),
-        playbook="status_post",
+        key=incidents.dedupe_key(STATUS_POST, uuid7()),
+        playbook=STATUS_POST,
+        # A literal: `scripts/check_alarm_wiring.py` reads alarm codes off `*_code` keywords
+        # and does not follow imports, so the constant would hide this alarm from it.
         trigger_code="status_post",
         scope="platform",
         component=payload.component,

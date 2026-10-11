@@ -5,7 +5,8 @@ complete. The migration is the schema of record.
 `forwarding_test_legs` is platform machinery: the legs ring from the shared trial number in
 our developer workspace, so a free-trial call and a forwarding test must see each other's
 live legs across clients under one lock, and the voice platform's report of a leg arrives
-before any tenant is known. It holds ids, a vendor call id and seconds, never a number.
+before any tenant is known. Reads are global; writes are own-tenant only (f8a2d6c41e95).
+It holds ids, a vendor call id and seconds, never a number.
 
 A test is a CAS-updated row rather than an append-only history: it moves through
 `placing -> ringing -> settled | failed`, and each run is also written to `audit_log`, which

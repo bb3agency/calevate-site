@@ -1,7 +1,9 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { useQuery } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ClientEngineCatalogue } from "@/components/engineCatalogueList";
+import { ClientEngineVoices, EngineModelList } from "@/components/engineCatalogueList";
+import { apiRequest } from "@/lib/api/client";
 import { ENGINE_CATALOGUE_PATH, type EngineCatalogue } from "@/lib/api/engineCatalogue";
 import { useClientSession } from "@/lib/api/session";
 import { CLIENT_PREVIEW_PATH, previewUrl } from "@/lib/api/voicePreview";
@@ -91,7 +93,7 @@ const CATALOGUE: EngineCatalogue = {
 };
 
 function Picker() {
-  return <ClientEngineCatalogue session={useClientSession()} agentId={AGENT} />;
+  return <ClientEngineVoices session={useClientSession()} agentId={AGENT} />;
 }
 
 describe("the platform voice picker", () => {
@@ -104,11 +106,11 @@ describe("the platform voice picker", () => {
 
     const anjali = (await screen.findByRole("radio", { name: /Anjali/ })) as HTMLInputElement;
     await waitFor(() => expect(anjali.checked).toBe(true));
-    expect(screen.getByRole("radio", { name: /Anjali/ }).closest("li")?.textContent).toContain("In use");
+    expect(screen.getByRole("radio", { name: /Anjali/ }).closest("div")?.textContent).toContain("In use");
     expect((screen.getByRole("radio", { name: /Priya/ }) as HTMLInputElement).disabled).toBe(true);
 
     fireEvent.click(screen.getByRole("radio", { name: /Kiran/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Save voice and model" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use this voice" }));
 
     await waitFor(() =>
       expect(calls.some((c) => c.path === AGENT_PATH && c.method === "PATCH")).toBe(true),
@@ -154,16 +156,11 @@ describe("the platform voice picker", () => {
 
     const meera = (await screen.findByRole("radio", { name: /Meera/ })) as HTMLInputElement;
     await waitFor(() => expect(meera.disabled).toBe(true));
-    expect(meera.closest("li")?.textContent).toContain("Rich, cannot be used with a Studio voice");
-
-    // Moving the model to one that can releases the Studio voice.
-    fireEvent.click(screen.getByRole("radio", { name: /^Standard/ }));
-    expect(meera.disabled).toBe(false);
-    fireEvent.click(meera);
-    // …and now the Studio voice blocks the model that cannot run beside it.
-    const rich = screen.getByRole("radio", { name: /^Rich/ }) as HTMLInputElement;
-    expect(rich.disabled).toBe(true);
-    expect(rich.closest("li")?.textContent).toContain("cannot be used with a Studio voice");
+    expect(meera.closest("div")?.textContent).toContain("Not available with the model this agent runs on");
+    expect(meera.closest("div")?.textContent).not.toContain("Rich");
+    // A client is never shown the models themselves (D-679).
+    expect(screen.queryByRole("radio", { name: /^Rich/ })).toBeNull();
+    expect(screen.queryByRole("radio", { name: /^Standard/ })).toBeNull();
   });
 
   it("puts the server's refusal on screen", async () => {
@@ -182,7 +179,7 @@ describe("the platform voice picker", () => {
       expect((screen.getByRole("radio", { name: /Anjali/ }) as HTMLInputElement).checked).toBe(true),
     );
     fireEvent.click(screen.getByRole("radio", { name: /Kiran/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Save voice and model" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use this voice" }));
 
     await screen.findByText(/not on offer to your account any more/);
   });
@@ -258,8 +255,53 @@ describe("the platform voice picker on an account running its own keys", () => {
     for (const radio of screen.getAllByRole("radio")) {
       expect((radio as HTMLInputElement).disabled).toBe(true);
     }
-    expect(
-      (screen.getByRole("button", { name: "Save voice and model" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    // Nothing can be picked, so no save is ever offered.
+    expect(screen.queryByRole("button", { name: "Use this voice" })).toBeNull();
+  });
+});
+
+describe("the platform model list, for an operator", () => {
+  function Models({ voiceId }: { voiceId: string | null }) {
+    const session = useClientSession();
+    const catalogue = useQuery({
+      queryKey: ["engine-catalogue", "test"],
+      queryFn: () => apiRequest<EngineCatalogue>(session, ENGINE_CATALOGUE_PATH),
+    });
+    return <EngineModelList catalogue={catalogue} voiceId={voiceId} modelId={null} />;
+  }
+
+  it("lists every model on a Clear voice, each with its maker's mark or a monogram", async () => {
+    const { container } = await renderClientPage(<Models voiceId="engine:3b7e" />, {
+      [ENGINE_CATALOGUE_PATH]: {
+        ...CATALOGUE,
+        models: [
+          ...CATALOGUE.models,
+          { ...CATALOGUE.models[0], model_id: "m_gpt", label: "GPT-5 Nano", price_band: "none", latency_ms: 915 },
+        ],
+      },
+    });
+
+    await screen.findByText("GPT-5 Nano");
+    expect(screen.getByText("Rich")).toBeTruthy();
+    expect(screen.queryByText(/More models are available/)).toBeNull();
+    const makers = [...container.querySelectorAll("[data-model-maker]")].map((n) =>
+      n.getAttribute("data-model-maker"),
+    );
+    expect(makers).toContain("OpenAI");
+    expect(makers).toContain("unknown");
+    expect(container.textContent).toContain("No extra charge · replies in about 915 ms");
+    expect(container.textContent).toContain("Not checked yet");
+  });
+
+  it("lists only the models a Studio voice can run with, and says more exist, quietly", async () => {
+    const { container } = await renderClientPage(<Models voiceId="byok:meera" />, {
+      [ENGINE_CATALOGUE_PATH]: CATALOGUE,
+    });
+
+    await screen.findByText("Standard");
+    expect(screen.queryByText("Rich")).toBeNull();
+    expect(screen.getByText(/More models are available with a Clear voice/)).toBeTruthy();
+    expect(container.textContent).not.toMatch(/cannot be used/i);
+    expect(container.querySelector(".text-warn")).toBeNull();
   });
 });

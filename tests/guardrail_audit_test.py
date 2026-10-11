@@ -555,6 +555,8 @@ class TestRlsCoverage:
             "platform_inr_llm_prices",
             # D-678: the attested per-minute engine price, `platform_tts_prices`' twin.
             "platform_engine_minute_prices",
+            # The operator-recorded per-minute band of an engine's own model.
+            "platform_engine_model_bands",
             "platform_tts_volume",
             # D-557: how many characters the fleet's agents spoke per minute of call —
             # three integers a month (calls, characters, seconds) and no text. Platform-

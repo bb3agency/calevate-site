@@ -25,6 +25,7 @@ export default function AgentScriptPage({
         agentId={agentId}
         backHref={href(`/c/${slug}/agents/${agentId}?section=script`)}
         knowledgeHref={href(`/c/${slug}/knowledge`)}
+        testHref={href(`/c/${slug}/agents/${agentId}?section=test`)}
       />
     </div>
   );

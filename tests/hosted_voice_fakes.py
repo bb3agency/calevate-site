@@ -34,6 +34,9 @@ from apps.api.tenancy.engine_workspace import StudioWorkspace
 from calevate_shared.engine import AgentConfig, AgentSnapshot, EngineAgentRef
 from sqlalchemy import text
 
+#: The bands below match the rows migration `e5b1c8d42a07` seeds for these ids, which is what
+#: a caller reading through `agents/engine_model_bands.banded_catalogue` sees; the pure
+#: predicates read them straight off these constants.
 PRANA = CatalogueModel(
     model_id="prana-voice",
     label="Prana",
@@ -42,8 +45,13 @@ PRANA = CatalogueModel(
     voice_only_byok=True,
     surcharge="none",
 )
-GPT41 = CatalogueModel(
-    model_id="gpt-4.1", label="GPT-4.1", call_capable=True, plan_allows=True, surcharge="none"
+#: A Standard model a Studio voice may not run beside (`voiceOnlyByok` false).
+NANO = CatalogueModel(
+    model_id="gpt-5.4-nano",
+    label="GPT-5.4 Nano",
+    call_capable=True,
+    plan_allows=True,
+    surcharge="none",
 )
 #: A model that lifts the call to the Premium band (the console tags GPT-5 Mini so).
 PREMIUM_MODEL = CatalogueModel(
@@ -56,7 +64,7 @@ PREMIUM_MODEL = CatalogueModel(
 UNPRICED = CatalogueModel(model_id="qwen", label="Qwen", call_capable=True, plan_allows=True)
 SLOW = CatalogueModel(model_id="gpt-slow", label="Slow", call_capable=False, plan_allows=True)
 LOCKED = CatalogueModel(model_id="gpt-x", label="X", call_capable=True, plan_allows=False)
-MODELS = (PRANA, GPT41, SLOW, LOCKED, PREMIUM_MODEL, UNPRICED)
+MODELS = (PRANA, NANO, SLOW, LOCKED, PREMIUM_MODEL, UNPRICED)
 
 READY_KEY = OwnVoiceKeyState(
     enabled=True, scope="voice", complete=True, using="own", voice_provider="cartesia"
@@ -335,12 +343,13 @@ class CatalogueRows:
 
 
 __all__ = [
-    "GPT41",
     "LOCKED",
     "MODELS",
     "MP3",
+    "NANO",
     "OFF_KEY",
     "PRANA",
+    "PREMIUM_MODEL",
     "READY_KEY",
     "SLOW",
     "WAV",

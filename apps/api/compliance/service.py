@@ -858,6 +858,73 @@ async def latest_call_consent(
     ).first()
 
 
+async def account_dial_blockers(
+    session: AsyncSession, *, tenant_id: UUID, trial_call: bool
+) -> list[tuple[str, str]]:
+    """Every ACCOUNT-level refusal of an outbound call, as `(rule, reason)`, in the order the
+    dial gate asks them.
+
+    `check_dispatch` refuses with the first one. The admin health board lists them all,
+    passing `trial_call` as "is this account on a free trial", so it judges the call the
+    account is actually allowed to place (a test call on a trial, a live call otherwise) and
+    cannot report a refusal the dial would not make. The account's lifecycle state is not
+    here: `check_dispatch` asks it before the agent, and `account_stopped_blocker` answers
+    it for anyone else.
+    """
+    found: list[tuple[str, str]] = []
+    # A FREE-TRIAL ACCOUNT PLACES TEST CALLS AND NOTHING ELSE (D-697), and only it does.
+    # First, because KYC is not open to a trial account and must not be the refusal it reads.
+    trial = await read_trial_access(session, tenant_id=tenant_id)
+    if trial_call and trial is None:
+        found.append((NOT_ON_TRIAL_RULE, NOT_ON_TRIAL_REASON))
+    if trial is not None and not trial_call:
+        found.append(TRIAL_REFUSALS["live_outbound"])
+    if trial is not None and trial.blocker is not None:
+        found.append(trial.blocker)
+
+    # Before the money questions on purpose: "we do not know who you are" outranks "you
+    # have run out of credit", and answering in the other order would tell an unverified
+    # account to top up when topping up will not let them dial. A test call is not asked:
+    # KYC opens only after payment.
+    if not trial_call:
+        blocked_on_kyc = await kyc_blocker(session, tenant_id=tenant_id)
+        if blocked_on_kyc is not None:
+            found.append(blocked_on_kyc)
+    # The no-cold-calls pledge (D-692), beside KYC because together they replace the DLT
+    # entity chain as "who may dial", and before the money for KYC's reason.
+    unpledged = await outbound_pledge_blocker(session, tenant_id=tenant_id)
+    if unpledged is not None:
+        found.append(unpledged)
+
+    # THE AGREEMENTS, after "who are you" and before the money for the same reason KYC is.
+    # An account that has not accepted its Data Processing Addendum is one we have no
+    # instrument to process its callers' personal data under, which outranks whether its
+    # wallet is full. This gate is the one that reaches the paths the campaign gates
+    # cannot: the D-21 "call this lead" button, the instant requested-callback webhook and
+    # the WhatsApp escalation all pass through `check_dispatch` and never through
+    # `launch_blockers`.
+    unaccepted = await agreements_blocker(session, tenant_id=tenant_id)
+    if unaccepted is not None:
+        found.append(unaccepted)
+
+    if await spend_capped(session, tenant_id=tenant_id):
+        found.append(("spend_cap", SPEND_CAP_REASON))
+    # A disputed payment (D-699) and an unpaid platform fee past its grace (D-707) pause
+    # OUTBOUND only; `check_dispatch` asks `agent_inbound_only` before this function, so an
+    # answering line is untouched. Paying the fee lifts it on the next dial: this reads the
+    # payments ledger, not a flag.
+    if await dispute_hold_active(session, tenant_id=tenant_id):
+        found.append(("payment_dispute", DISPUTE_HOLD_REASON))
+    if await platform_fee_paused(session, tenant_id=tenant_id):
+        found.append(("platform_fee_overdue", PLATFORM_FEE_PAUSE_REASON))
+    # Credits gate every account (D-707: one pricing model, prepaid credits), asked after
+    # `agent_inbound_only` for the same reason, which keeps an inbound line answering at a
+    # zero balance.
+    if await credits_exhausted(session, tenant_id=tenant_id):
+        found.append(("no_credits", NO_CREDITS_REASON))
+    return found
+
+
 async def check_dispatch(
     session: AsyncSession,
     *,
@@ -984,84 +1051,14 @@ async def check_dispatch(
         rule, reason = truthful
         return DispatchDecision(allowed=False, rule=rule, reason=reason)
 
-    # A FREE-TRIAL ACCOUNT PLACES TEST CALLS AND NOTHING ELSE (D-697), and only it does.
-    # After the agent checks, so a test call still meets hard rule 5; before the paperwork,
-    # because KYC is not open to a trial account and must not be the refusal it reads.
-    trial = await read_trial_access(session, tenant_id=tenant_id)
-    if trial_call and trial is None:
-        return DispatchDecision(allowed=False, rule=NOT_ON_TRIAL_RULE, reason=NOT_ON_TRIAL_REASON)
-    if trial is not None and not trial_call:
-        rule, reason = TRIAL_REFUSALS["live_outbound"]
+    # The account's paperwork and money, in the order `account_dial_blockers` asks them.
+    # After the agent checks, so a test call still meets hard rule 5.
+    account_refusals = await account_dial_blockers(
+        session, tenant_id=tenant_id, trial_call=trial_call
+    )
+    if account_refusals:
+        rule, reason = account_refusals[0]
         return DispatchDecision(allowed=False, rule=rule, reason=reason)
-    if trial is not None and trial.blocker is not None:
-        rule, reason = trial.blocker
-        return DispatchDecision(allowed=False, rule=rule, reason=reason)
-
-    # Before the money questions on purpose: "we do not know who you are" outranks "you
-    # have run out of credit", and answering in the other order would tell an unverified
-    # account to top up when topping up will not let them dial.
-    blocked_on_kyc = None if trial_call else await kyc_blocker(session, tenant_id=tenant_id)
-    if blocked_on_kyc is not None:
-        rule, reason = blocked_on_kyc
-        return DispatchDecision(allowed=False, rule=rule, reason=reason)
-    # The no-cold-calls pledge (D-692), beside KYC because together they replace the DLT
-    # entity chain as "who may dial", and before the money for KYC's reason.
-    unpledged = await outbound_pledge_blocker(session, tenant_id=tenant_id)
-    if unpledged is not None:
-        rule, reason = unpledged
-        return DispatchDecision(allowed=False, rule=rule, reason=reason)
-
-    # THE AGREEMENTS, and they sit HERE — after "who are you" and before the money — for
-    # the same reason KYC does. An account that has not accepted its Data Processing
-    # Addendum is one we have no instrument to process its callers' personal data under,
-    # which outranks whether its wallet is full; and telling such an account to top up
-    # would send them to a screen that cannot unblock them. One indexed read, on the same
-    # session, against at most four rows (`legal.service.agreements_blocker`).
-    #
-    # THIS GATE IS THE ONE THAT REACHES THE PATHS THE CAMPAIGN GATES CANNOT: the D-21
-    # "call this lead" button, the instant requested-callback webhook and the WhatsApp
-    # escalation all pass through here and never through `launch_blockers`. A client who
-    # has agreed to nothing must not be able to dial a single lead either.
-    unaccepted = await agreements_blocker(session, tenant_id=tenant_id)
-    if unaccepted is not None:
-        rule, reason = unaccepted
-        return DispatchDecision(allowed=False, rule=rule, reason=reason)
-
-    if await spend_capped(session, tenant_id=tenant_id):
-        return DispatchDecision(
-            allowed=False,
-            rule="spend_cap",
-            reason=SPEND_CAP_REASON,
-        )
-
-    # A disputed payment pauses OUTBOUND only (D-699); it is asked after
-    # `agent_inbound_only` above, so an answering line is untouched.
-    if await dispute_hold_active(session, tenant_id=tenant_id):
-        return DispatchDecision(
-            allowed=False,
-            rule="payment_dispute",
-            reason=DISPUTE_HOLD_REASON,
-        )
-
-    # An unpaid monthly platform fee past its grace period pauses OUTBOUND only (D-707),
-    # asked after `agent_inbound_only` above for the dispute hold's reason. Paying the fee
-    # lifts it on the next dial: this reads the payments ledger, not a flag.
-    if await platform_fee_paused(session, tenant_id=tenant_id):
-        return DispatchDecision(
-            allowed=False,
-            rule="platform_fee_overdue",
-            reason=PLATFORM_FEE_PAUSE_REASON,
-        )
-
-    # Credits gate every account (D-707: one pricing model, prepaid credits). It is
-    # asked AFTER `agent_inbound_only` above, which is what keeps an inbound line
-    # answering at a zero balance.
-    if await credits_exhausted(session, tenant_id=tenant_id):
-        return DispatchDecision(
-            allowed=False,
-            rule="no_credits",
-            reason=NO_CREDITS_REASON,
-        )
 
     if not within_calling_hours():
         return DispatchDecision(
@@ -1358,6 +1355,7 @@ __all__ = [
     "TRUTHFUL_ANSWER_DRIFT_REASON",
     "TRUTHFUL_ANSWER_DRIFT_RULE",
     "DispatchDecision",
+    "account_dial_blockers",
     "account_stopped_blocker",
     "add_to_dnc",
     "assert_dispatch_allowed",

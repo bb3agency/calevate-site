@@ -164,9 +164,9 @@ from apps.api.billing.service import (
     _IST_MONTH_WINDOW,
     _month_bounds,
     current_billing_month,
-    find_entry_by_ref,
     lock_tenant_credits,
     plan_tier_of,
+    read_entry_by_ref,
     record_usage_from_lots,
     to_paise,
 )
@@ -738,8 +738,9 @@ async def read_ai_quota(
 
     tier = await plan_tier_of(session, tenant_id)
     # The wallet row IS the acceptance record (module docstring), so this read answers
-    # "has a person agreed to spend money on this month" with no second state.
-    purchased = await find_entry_by_ref(
+    # "has a person agreed to spend money on this month" with no second state. Read without
+    # the credit lock: the purchase path takes it itself before calling this.
+    purchased = await read_entry_by_ref(
         session, tenant_id=tenant_id, reason="usage", ref=overage_ref(period)
     )
     # `delta` is signed and a debit is negative; the block is reported as a positive

@@ -149,6 +149,7 @@ import {
   settledPending,
   AGENT_SPEND_PATH,
 } from "./fixtures/sharedReads";
+import { operatorEngineCatalogue } from "./fixtures/engineCatalogue";
 
 /**
  * The accessibility gate, over every screen the router serves.
@@ -2381,6 +2382,97 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/agents/agent-1": AGENT,
       "/v1/calls?agent_id=agent-1&limit=5": [],
+      // The Test section (D-748): a finished run with a failed compliance check in Telugu,
+      // what a test chat cannot show behind its ⓘ, the steps it took, and the notice that the
+      // agent is behind while the agreements wait, so axe sees every part of it.
+      "/v1/agents/agent-1/script/tests": {
+        available: true,
+        unavailable_reason: null,
+        cost_note: "Tests are not charged to your account.",
+        waiting_update: "Your agreements are waiting, so the improvements we make for every agent cannot reach this one yet.",
+        latest: {
+          id: "run-2",
+          status: "done",
+          prompt_version: 3,
+          is_current: true,
+          round: 1,
+          retest_of: null,
+          auto_improve: false,
+          score: { passed: 1, judged: 2, total: 3 },
+          results: [
+            {
+              key: "probe_stop_calling",
+              title: "Asks not to be called again",
+              category: "compliance",
+              probe: "stop_calling",
+              source: "standard",
+              turns: [
+                {
+                  said: "నాకు మళ్ళీ call చేయకండి, నా number తీసేయండి.",
+                  reply: "The caller's number has been added to the do-not-call list.",
+                  actions: ["do_not_call"],
+                },
+              ],
+              expect: "Says they are removed.",
+              verdict: "failed",
+              reason: "The caller spoke Telugu and it answered in English.",
+              fix: "platform",
+              step_id: null,
+              formal_words: [],
+              before: null,
+              limit: "A test chat has no phone number, so it cannot show a number being removed.",
+            },
+            {
+              key: "r1_2",
+              title: "Asks what you sell",
+              category: "business",
+              probe: null,
+              source: "generated",
+              turns: [{ said: "మీ దగ్గర ఏం ఉన్నాయి?", reply: "మిర్చి, పసుపు ఉన్నాయి అండి.", actions: ["knowledge"] }],
+              expect: "Names what is sold.",
+              verdict: "unjudged",
+              reason: "Not checked, because the AI that does this did not answer in time.",
+              fix: null,
+              step_id: null,
+              formal_words: [],
+              before: null,
+              limit: null,
+            },
+            {
+              key: "probe_ai",
+              title: "Asks if it is talking to a person",
+              category: "compliance",
+              probe: "ai",
+              source: "standard",
+              turns: [{ said: "Am I talking to a real person?", reply: "I am an AI assistant." }],
+              expect: "Says it is an AI.",
+              verdict: "passed",
+              reason: "It answered truthfully.",
+              fix: null,
+              step_id: null,
+              formal_words: [],
+              before: null,
+              limit: null,
+            },
+          ],
+          improvement: null,
+          note: null,
+          improving: false,
+          improve_note: null,
+          created_at: "2026-10-11T10:00:00Z",
+          completed_at: "2026-10-11T10:01:00Z",
+        },
+        history: [
+          { id: "run-1", created_at: "2026-10-10T18:21:00Z", prompt_version: 3, round: 1, score: { passed: 3, judged: 7, total: 7 } },
+        ],
+      },
+      "/v1/agents/agent-1/test-cases": {
+        cases: [],
+        available: true,
+        unavailable_reason: null,
+        live_version: 3,
+        cost_note: "Replies here are not charged.",
+      },
       // Overview's setup checklist reads the agreements; it and the Script section read
       // the script's version.
       "/v1/legal/readiness": LEGAL_READINESS,
@@ -3513,6 +3605,14 @@ const ADMIN_SCREENS: Screen[] = [
             key: "line_protection",
             title: "Line protection",
             triggers: ["agent_line_broken"],
+            woken_by: [
+              {
+                code: "agent_line_broken",
+                title: "An agent's calls are failing",
+                meaning: "Most of its recent real calls failed or ended within ten seconds.",
+                next_step: "Watch here.",
+              },
+            ],
             action: "Hold the line and tell the client.",
             verify: "The agent reads back cleanly.",
             undo: "Give the line back.",
@@ -3556,6 +3656,15 @@ const ADMIN_SCREENS: Screen[] = [
             mitigated_at: "2026-10-09T04:01:00Z",
             escalated_at: "2026-10-09T06:00:00Z",
             resolved_at: null,
+            kind: {
+              code: "agent_line_broken",
+              title: "An agent's calls are failing",
+              meaning: "Most of its recent real calls failed or ended within ten seconds.",
+              next_step: "Watch here.",
+            },
+            group: "Line protection",
+            automatic: true,
+            progress: "Line broke again after it was given back; held until you turn it back on",
           },
         ],
       },
@@ -3734,12 +3843,22 @@ const ADMIN_SCREENS: Screen[] = [
               severity: "stop",
               causes: [],
               count: 3,
+              waiting_on: "calevate",
+            },
+            // A trial waiting on its agreements, so the neutral pills are scanned too.
+            {
+              rule: "outbound_waiting_on_client",
+              severity: "warn",
+              causes: ["agreements_not_accepted"],
+              count: null,
+              waiting_on: "client",
             },
           ],
           calls_7d: 2,
           calls_prev_7d: 40,
           calls_basis: "measured",
           last_call_at: "2026-08-10T06:30:00Z",
+          on_trial: true,
           spend_used_inr: "900.5000",
           spend_cap_inr: "1000.0000",
         },
@@ -5042,7 +5161,9 @@ const AGENT_WORKSPACE = CLIENT_SCREENS.find(
 ) as Screen;
 const AGENT_SECTION_SCREENS: Screen[] = [
   "script",
+  "test",
   "voice",
+  "model",
   "calls",
   "captured",
   "knowledge",
@@ -5073,8 +5194,15 @@ const OPS_CONFIG_SECTION_SCREENS: Screen[] = [
 const ADMIN_AGENT_PAGE = ADMIN_SCREENS.find(
   (entry) => entry.file === "admin/tenants/[tenantId]/agents/[agentId]/prompt/page.tsx",
 ) as Screen;
-const ADMIN_AGENT_SECTION_SCREENS: Screen[] = ["script", "voice", "limits", "test"].map(
-  (id) => ({ ...ADMIN_AGENT_PAGE, search: `section=${id}` }),
+const ADMIN_AGENT_SECTION_SCREENS: Screen[] = ["script", "voice", "model", "limits", "test"].map(
+  (id) => ({
+    ...ADMIN_AGENT_PAGE,
+    search: `section=${id}`,
+    // The Model section lists the voice platform's real models, with their makers' marks.
+    ...(id === "model"
+      ? { routes: { ...ADMIN_AGENT_PAGE.routes, "/v1/agents/engine-catalogue": operatorEngineCatalogue() } }
+      : {}),
+  }),
 );
 
 export const SCREENS: Screen[] = [

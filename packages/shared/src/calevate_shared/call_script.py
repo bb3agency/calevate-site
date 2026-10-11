@@ -820,7 +820,7 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
         style_lines.append(f"Phrases you can use, varied and never every turn: {phrases}")
     if style.pronunciations:
         said = "; ".join(f"{p.word.strip()} as {_quote(p.say_as)}" for p in style.pronunciations)
-        style_lines.append(f"Say these words like this: {said}")
+        style_lines.append(f"Say these names exactly like this: {said}")
     add(STYLE_HEADER, "\n".join(style_lines))
 
     stages = [s for s in script.stages if s.instruction.strip()]

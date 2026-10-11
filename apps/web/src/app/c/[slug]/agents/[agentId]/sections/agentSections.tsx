@@ -3,9 +3,10 @@
 /**
  * THE AGENT PAGE'S MENU, ordered by what an owner comes to do, with one line of state each.
  *
- * Script comes straight after Overview because it is the screen's main job. Knowledge,
+ * Script comes straight after Overview because it is the screen's main job, and Test beside
+ * it because testing is how a script change is checked (D-748). Knowledge,
  * Actions and the call log follow; then what it notes, the business's leads and calling
- * hours, its voice and call handling; Settings last. The call log and Leads & hours live on
+ * hours, its voice, its model and call handling; Settings last. The call log and Leads & hours live on
  * their own pages (the call list, and the business-wide calling setup, which is per client
  * and not per agent), so their entries link out rather than open in place.
  *
@@ -45,6 +46,7 @@ export function useAgentSections(agent: Agent, slug: string): SettingsSection[] 
   return [
     { id: "overview", label: "Overview", detail: working ? "Taking calls" : "Not taking calls" },
     { id: "script", label: "Script", detail: scriptLine },
+    { id: "test", label: "Test", detail: "Practice callers, and fixes" },
     { id: "knowledge", label: "Knowledge", detail: "Shared by all your agents" },
     { id: "actions", label: "Actions", detail: "What it can do on a call" },
     {
@@ -61,8 +63,9 @@ export function useAgentSections(agent: Agent, slug: string): SettingsSection[] 
       href: href(`/c/${slug}/lead-sources`),
     },
     { id: "voice", label: "Voice", detail: "How it sounds" },
+    { id: "model", label: "Model", detail: agent.llm_tier_label },
     { id: "calls", label: "Call handling", detail: "Hand-over, call length, memory" },
-    { id: "advanced", label: "Settings", detail: "What it is, its model, delete" },
+    { id: "advanced", label: "Settings", detail: "What it is, delete" },
   ];
 }
 

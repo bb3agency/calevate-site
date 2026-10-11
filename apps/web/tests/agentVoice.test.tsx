@@ -661,7 +661,7 @@ describe("the voice panel", () => {
     expect(container.textContent).toContain("Callers hear now");
   });
 
-  it("lists the platform's own voices and models with the reason each cannot be used", async () => {
+  it("lists the platform's own voices with the reason each cannot be used, quietly", async () => {
     // D-678. On a platform that speaks its own voices, what it offers is still worth seeing,
     // and an unpriced band says so in the server's words rather than being hidden.
     const { container } = await render({
@@ -672,9 +672,10 @@ describe("the voice panel", () => {
     await screen.findByText("Anjali");
     expect(container.textContent).toContain("1 of 2 voices can be chosen today.");
     expect(container.textContent).toContain(
-      "Cannot be used — No rupee-per-minute rate is attested for the Clear rung.",
+      "No rupee-per-minute rate is attested for the Clear rung",
     );
-    expect(container.textContent).toContain("too slow to answer a phone call");
+    expect(container.textContent).not.toContain("Cannot be used");
+    expect(container.querySelector(".text-warn")).toBeNull();
     // A picker now (D-678): the priced voice can be chosen, the unpriced one cannot.
     expect((screen.getByRole("radio", { name: /Anjali/ }) as HTMLInputElement).disabled).toBe(
       false,
@@ -682,9 +683,8 @@ describe("the voice panel", () => {
     expect((screen.getByRole("radio", { name: /Priya/ }) as HTMLInputElement).disabled).toBe(
       true,
     );
-    expect((screen.getByRole("radio", { name: /GPT-4\.1/ }) as HTMLInputElement).disabled).toBe(
-      true,
-    );
+    // The models are their own section now (founder, 11 Oct 2026), not part of Voice.
+    expect(screen.queryByRole("radio", { name: /GPT-4\.1/ })).toBeNull();
   });
 
   it("saves the platform voice it picks through the agent update route, as the client", async () => {
@@ -696,13 +696,13 @@ describe("the voice panel", () => {
       [`PATCH /v1/agents/${AGENT}`]: agentRow({ id: AGENT, engine_voice_id: "engine:3b7e" }),
     });
 
-    const save = await screen.findByRole("button", { name: "Save voice and model" });
-    // The roster row has no choice saved, so "Platform default" is checked.
-    const defaults = screen.getAllByRole("radio", { name: /Platform default/ });
-    expect((defaults[0] as HTMLInputElement).checked).toBe(true);
-    expect((save as HTMLButtonElement).disabled).toBe(true);
+    // The roster row has no choice saved, so "Platform default" is checked, and nothing has
+    // moved, so no save is offered yet.
+    const fallback = await screen.findByRole("radio", { name: /Platform default/ });
+    await waitFor(() => expect((fallback as HTMLInputElement).checked).toBe(true));
+    expect(screen.queryByRole("button", { name: "Use this voice" })).toBeNull();
     fireEvent.click(screen.getByRole("radio", { name: /Anjali/ }));
-    fireEvent.click(save);
+    fireEvent.click(await screen.findByRole("button", { name: "Use this voice" }));
 
     const path = `/v1/agents/${AGENT}`;
     await waitFor(() =>

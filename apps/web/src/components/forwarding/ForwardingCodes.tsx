@@ -13,6 +13,7 @@ import {
   type LineKind,
 } from "@/lib/api/forwarding";
 import type { Session } from "@/lib/api/client";
+import { lookup } from "@/lib/lookup";
 
 import { CARRIER_LABEL, CONDITION_LABEL } from "./copy";
 
@@ -59,7 +60,7 @@ function CodeList({
         const text = deactivate ? code.deactivate : renderCode(code.activate, numberE164, seconds);
         if (!text) return null;
         return (
-          <CodeRow key={`${code.condition}-${index}`} label={CONDITION_LABEL[code.condition] ?? code.condition} code={text} />
+          <CodeRow key={`${code.condition}-${index}`} label={lookup(CONDITION_LABEL, code.condition) ?? code.condition} code={text} />
         );
       })}
     </ul>

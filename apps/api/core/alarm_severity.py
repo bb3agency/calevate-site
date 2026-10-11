@@ -193,6 +193,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_number_purchase_unusable": "attention",
     "engine_caller_id_not_configured": "attention",
     "engine_publish_not_applied": "attention",
+    # An operator recording a model band while the engine returned only part of its model
+    # list: the record is refused, and nothing a client runs is affected.
+    "engine_catalogue_incomplete": "attention",
     "number_provisioning_not_configured": "attention",
     "number_resale_not_authorized": "attention",
     "payments_not_configured": "attention",
@@ -696,6 +699,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # outage reads as a WALL of these on `/admin/ops/alerts` — which is legible — rather
     # than as a bucket-emptying storm in an inbox, which is not.
     "unhandled_exception": "attention",
+    # A cancelled statement answered 503 "try again": the same family as a 500, recoverable.
+    "database_busy": "attention",
     "client_ip_unresolved": "attention",
     # THE FOUR DEPLOYS. See `docs/ROADMAP.md` D-591 and the note in `core/bootstrap.py`:
     # a handler only ever runs on SIGTERM/SIGINT, and both are an orchestrator or a person

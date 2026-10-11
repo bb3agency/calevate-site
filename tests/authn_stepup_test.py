@@ -502,7 +502,10 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # ONE MORE publishes a language's reviewed spoken style (D-744,
     # `ops/spoken_style_routes.py`, `publish_confirmation`, bound to the language): it
     # republishes every live agent with the new words.
-    assert sites == 75, f"found {sites} step-up call sites, expected 75; the census went stale"
+    # ONE MORE records an engine model's per-minute band (`ops/engine_model_band_routes.py`,
+    # `engine_model_band_confirmation`, bound to engine and model): it decides whether the
+    # model is sold and beside which voice rate.
+    assert sites == 76, f"found {sites} step-up call sites, expected 76; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

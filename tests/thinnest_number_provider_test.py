@@ -152,7 +152,11 @@ async def test_the_record_route_takes_thinnest_only_on_thinnest(
 ) -> None:
     tenant_id, _slug = await _tenant()
     token = await _make_admin()
-    headers = {"Authorization": f"Bearer {token}"}
+    # The record route is step-up confirmed (D-731), bound to the client.
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "X-Confirm-Action": f"provision_number:{tenant_id}",
+    }
     body = {"e164": _e164("140"), "series": "140", "provider": "thinnest", "direction": "both"}
     async with _client() as http:
         refused = await http.post(NUMBERS.format(tenant_id=tenant_id), json=body, headers=headers)

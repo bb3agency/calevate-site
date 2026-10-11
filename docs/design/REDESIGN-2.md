@@ -230,6 +230,14 @@ serif was taken (the brand decision wins).
   `app/admin/**`, `components/admin/**`, `adminNav.ts` and any backend it adds. It consumes the
   shared kit as it is, and builds admin-local primitives to promote later. Each agent keeps a
   route checklist that goes in its report.
+- **The Script page is ordered by use (founder, 11 Oct 2026: "too much to read").** On the
+  page: the opening line, then the steps as one-line summaries (name, what it does, where it
+  goes next) with the editor beside them or in a sheet, then the one-line strictness choice.
+  The parts set once (role, goal, speech, push-backs, what it may do, ending, example call)
+  are a summary list of inline `Disclosure` rows that say what they hold and open in place;
+  a row with something to finish says so while closed, and `#anchor` links open their row.
+  History, "See what the agent reads" and hand-writing are in the bar's ⋯ menu; the bar holds
+  a live-state pill, AI helper and the one primary, "Put it live". Help is one line plus ⓘ.
 - **The call transcript is a chat (founder, 11 Oct 2026).** It supersedes the "plain script, no
   bubbles" reading for the Conversation panel only. The agent is on the left beside its initial and
   the caller on the right, in quiet bubbles with the time in small text (`~` when the platform only

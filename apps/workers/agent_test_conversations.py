@@ -31,6 +31,7 @@ from sqlalchemy import text
 
 from apps.api.agents import script_builder
 from apps.api.agents.assist_leg import account_assist_leg
+from apps.api.agents.specimen_scenarios import specimen_scenarios
 from apps.api.agents.test_conversations import (
     ASSIST_FEATURE_TEST_GENERATE,
     ASSIST_FEATURE_TEST_IMPROVE,
@@ -52,6 +53,7 @@ from apps.api.agents.test_conversations import (
     needs_improving,
     queue_improvement,
     standard_scenarios,
+    store_improve_failure,
     store_improvement,
     wants_auto_improvement,
     within_budget,
@@ -88,15 +90,49 @@ PAUSE_S: Final = 4.0
 #: The most failures of the previous run asked again on "Test again".
 MAX_RETESTED: Final = 6
 
-#: What a run that could not ask the AI says, in the owner's words.
-NOT_WRITTEN_NOTE: Final = (
-    "AI help could not write new test callers this time, so the standard ones ran."
+#: Why AI help could not do its part, by the refusal's code (`extraction.assist_unavailable`
+#: answers `assist_<reason>`), in the owner's words with what to do. The log line beside each
+#: (`agent_tests_standard_set`, `agent_tests_not_judged`) carries the same code for us.
+_AI_REFUSAL: Final[dict[str, str]] = {
+    "assist_quota_exhausted": (
+        "this month's AI help allowance is used up. Add credit, or wait for next month."
+    ),
+    "assist_provider_unavailable": (
+        "the AI that does this did not answer in time. Test again in a few minutes; if it "
+        "keeps happening, contact us."
+    ),
+    "assist_no_credential": (
+        "AI help is not switched on for your account yet. Ask your Calevate team to switch it on."
+    ),
+    "assist_tenant_provider_unsupported": (
+        "AI help is not switched on for your account yet. Ask your Calevate team to switch it on."
+    ),
+}
+_AI_REFUSAL_OTHER: Final = "AI help was not available. Test again in a few minutes."
+
+
+def not_written_note(code: str) -> str:
+    """The run's note when the standard callers ran instead of new ones."""
+    why = _AI_REFUSAL.get(code, _AI_REFUSAL_OTHER)
+    return f"The standard test callers ran instead of new ones for your business, because {why}"
+
+
+def not_judged_reason(code: str) -> str:
+    """A result's reason when no AI could check it."""
+    why = _AI_REFUSAL.get(code, _AI_REFUSAL_OTHER)
+    return f"Not checked, because {why} Read the reply yourself."
+
+
+#: A result the AI checker answered for the others but not for this one.
+LEFT_OUT_REASON: Final = (
+    "Not checked: the AI checker gave no verdict on this one. Read the reply yourself."
 )
-NOT_JUDGED_REASON: Final = (
-    "Not checked: AI help is not available right now. Read the reply yourself."
-)
-ALLOWANCE_USED_REASON: Final = (
-    "Not checked: this month's AI help is used up. Read the reply yourself."
+
+
+#: The fallback when the improve job fails on something that is not an AI refusal.
+IMPROVE_FAILED_NOTE: Final = (
+    "Suggestions could not be worked out this time. Try again in a few minutes; if it keeps "
+    "happening, contact us."
 )
 
 Pause = Callable[[], Awaitable[None]]
@@ -215,7 +251,7 @@ async def write_scenarios(
     except ProblemError as refused:
         log.info("agent_tests_standard_set", extra={"reason": refused.code})
         standard = standard_scenarios(brief.language, brief.direction)
-        return ensure_probes(standard, brief.language, cap=count), NOT_WRITTEN_NOTE
+        return ensure_probes(standard, brief.language, cap=count), not_written_note(refused.code)
     await _meter(tenant_id, answer, ASSIST_FEATURE_TEST_GENERATE)
     return ensure_probes(answer.value, brief.language, cap=count), answer.capability.disclosure
 
@@ -247,12 +283,25 @@ async def talk(
             )
             session = reply.session or session
             results = reply.tool_results or tuple(TestChatTool(name=n) for n in reply.tools)
+            for tool in results:
+                # What each action answered, for us: the evidence for a verdict about an
+                # action (names and status words only, never the conversation).
+                log.info(
+                    "agent_tests_tool_used",
+                    extra={
+                        "agent_id": str(agent_id),
+                        "scenario": scenario.key,
+                        "tool": tool.name[:40],
+                        "ok": tool.ok,
+                        "status": tool.status,
+                    },
+                )
             turns.append(
                 Turn(
                     said=line,
                     reply=reply.reply,
                     tools=[tool.name for tool in results],
-                    statuses=[tool.status for tool in results],
+                    statuses=[tool.status if tool.ok else "error" for tool in results],
                     cut_short=reply.failed_part_way,
                 )
             )
@@ -284,9 +333,9 @@ async def judge_all(
         )
     except ProblemError as refused:
         log.info("agent_tests_not_judged", extra={"reason": refused.code})
-        return {}, ALLOWANCE_USED_REASON if exhausted else NOT_JUDGED_REASON
+        return {}, not_judged_reason(refused.code)
     await _meter(tenant_id, answer, ASSIST_FEATURE_TEST_JUDGE)
-    return answer.value, NOT_JUDGED_REASON
+    return answer.value, LEFT_OUT_REASON
 
 
 async def _store_saved_results(
@@ -368,7 +417,18 @@ async def run_agent_test_conversations(
         retested_probes = {s.probe for s in retests if s.probe}
         fresh = [s for s in fresh if s.probe is None or s.probe not in retested_probes]
         saved = await _saved_scenarios(tenant_id, agent_id)
-        scenarios = within_budget(retests + fresh + saved)
+        # Two standing callers for the failure classes of a real call (D-749), ahead of the
+        # AI-written ones so the message cap never drops them; a class being retested
+        # already runs.
+        retested = {s.key for s in retests}
+        specimen = [
+            s
+            for s in specimen_scenarios(
+                brief.language, brief.business_type, round_key=f"r{run_id.hex[-6:]}"
+            )
+            if s.key not in retested
+        ]
+        scenarios = within_budget(retests + specimen + fresh + saved)
         async with tenant_session(tenant_id) as session:
             await session.execute(
                 text(
@@ -492,16 +552,37 @@ async def improve_agent_test_run(ctx: dict[str, Any], payload: dict[str, Any]) -
         ).scalar()
     if agent_id is None:
         return "no_run"
+    raw_keys = payload.get("keys")
+    keys = [str(k) for k in raw_keys] if isinstance(raw_keys, list) else None
     try:
-        await improve_run(tenant_id, agent_id, run_id, keys=None)
+        await improve_run(tenant_id, agent_id, run_id, keys=keys)
     except ProblemError as refused:
         log.info(
-            "agent_tests_auto_improve_skipped",
-            extra={"run_id": str(run_id), "reason": refused.code},
+            "agent_tests_improve_refused", extra={"run_id": str(run_id), "reason": refused.code}
         )
+        note = (
+            _AI_REFUSAL_NOTE.format(why=_AI_REFUSAL[refused.code])
+            if refused.code in _AI_REFUSAL
+            else " ".join(p for p in (refused.detail, refused.remediation) if p)
+        )
+        await _improve_failed(tenant_id, agent_id, run_id, note)
         return "skipped"
-    log.info("agent_tests_auto_improved", extra={"run_id": str(run_id)})
+    except Exception:
+        # The screen waits on this run until a proposal or a note arrives, so a crash is
+        # written down for the owner as well as logged for us.
+        log.exception("agent_tests_improve_crashed", extra={"run_id": str(run_id)})
+        await _improve_failed(tenant_id, agent_id, run_id, IMPROVE_FAILED_NOTE)
+        return "failed"
+    log.info("agent_tests_improved", extra={"run_id": str(run_id)})
     return "proposed"
+
+
+_AI_REFUSAL_NOTE: Final = "Suggestions could not be worked out, because {why}"
+
+
+async def _improve_failed(tenant_id: UUID, agent_id: UUID, run_id: UUID, note: str) -> None:
+    async with tenant_session(tenant_id) as session:
+        await store_improve_failure(session, agent_id=agent_id, run_id=run_id, note=note)
 
 
 __all__ = [

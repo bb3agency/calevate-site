@@ -314,6 +314,11 @@ export const UNSWEPT_SCREENS: Record<string, string> = {
       "a server redirect into c/[slug]/billing (D-525) — it renders no markup to scan",
     ]),
   ),
+  "c/[slug]/agents/[agentId]/test/page.tsx": (
+    "a server redirect into the agent page's Test section, `?section=test` (D-748) — it " +
+    "renders no markup to scan, and under jsdom `redirect()` throws `NEXT_REDIRECT`. What it " +
+    "redirects TO is swept: the agent workspace under `section=test`."
+  ),
   "admin/tenants/[tenantId]/invitations/page.tsx": (
     "a server redirect into admin/tenants/[tenantId]/members (D-661), where members and " +
     "invitations are one People page — it renders no markup to scan, and under jsdom " +

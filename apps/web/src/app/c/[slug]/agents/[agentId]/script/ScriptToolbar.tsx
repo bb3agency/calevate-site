@@ -6,18 +6,20 @@
  * callers hear something different from the draft.
  *
  * There is no Save button. The draft saves itself; the line under the title says so in
- * words, and says why when it cannot. No version numbers are shown anywhere: History lists
- * entries by date and note.
+ * words, and says why when it cannot. The pill beside the title says whether callers hear
+ * this draft. No version numbers are shown anywhere. History sits in the ⋯ menu with the
+ * other occasional actions, so the bar holds two buttons: the helper and the one primary.
  *
  * Also here: the "full instructions" drawer, the exact text the calling system reads.
  */
 
 import Link from "next/link";
-import { ArrowLeft, History, Sparkles } from "lucide-react";
+import { ArrowLeft, Sparkles } from "lucide-react";
 
-import { PRIMARY_BUTTON, SECONDARY_BUTTON, formatCount, formatIST } from "@/components/ui";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON, formatCount, formatIST, type NoticeTone } from "@/components/ui";
 import { Drawer } from "@/components/console/drawer";
 import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
+import { StatusPill } from "@/components/console/statusPill";
 import { StickyPageBar } from "@/components/console/stickyPageBar";
 
 import type { SaveState } from "./scriptDraft";
@@ -50,9 +52,9 @@ export function ScriptToolbar({
   writeReason,
   publishing,
   helperOpen,
+  live,
   menu,
   onPublish,
-  onHistory,
   onHelper,
 }: {
   backHref: string;
@@ -64,9 +66,10 @@ export function ScriptToolbar({
   writeReason: string | null;
   publishing: boolean;
   helperOpen: boolean;
+  /** Whether callers hear this draft, in a word or two. */
+  live: { text: string; tone: NoticeTone };
   menu: RowMenuItem[];
   onPublish: () => void;
-  onHistory: () => void;
   onHelper: () => void;
 }) {
   const warn = save.kind === "held" || save.kind === "conflict" || save.kind === "failed";
@@ -82,7 +85,10 @@ export function ScriptToolbar({
             <ArrowLeft aria-hidden className="h-4 w-4" />
           </Link>
           <div className="min-w-0">
-            <h2 className="truncate text-heading text-ink">Script</h2>
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="truncate text-heading text-ink">Script</h2>
+              <StatusPill tone={live.tone}>{live.text}</StatusPill>
+            </div>
             <p role="status" className={`truncate text-meta ${warn ? "text-warn" : "text-ink-muted"}`}>
               {agentName} · {saveLine(save)}
             </p>
@@ -98,10 +104,6 @@ export function ScriptToolbar({
           >
             <Sparkles aria-hidden className="h-4 w-4" />
             AI helper
-          </button>
-          <button type="button" onClick={onHistory} className={`${SECONDARY_BUTTON} max-sm:flex-1`}>
-            <History aria-hidden className="h-4 w-4" />
-            History
           </button>
           {unpublished && (
             <button

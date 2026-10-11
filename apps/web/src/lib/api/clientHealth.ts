@@ -71,7 +71,7 @@ export interface SignalCopy {
 }
 
 /**
- * The six signals the board emits, each with the screen that acts on it.
+ * The signals the board emits, each with the screen that acts on it.
  *
  * A `Record<string, …>` rather than a `Record<Rule, …>`, for the reason `HOLD_RULES` is:
  * `rule` is a plain string on the wire because the set grows whenever a signal does, and
@@ -92,8 +92,15 @@ export const SIGNAL_COPY: Record<string, SignalCopy> = {
   outbound_blocked: {
     label: "Cannot dial out",
     meaning:
-      "The platform is refusing this account's outbound calls right now. Inbound answering " +
-      "is unaffected. The rules below are the same ones the client sees on their own launch screen.",
+      "Outgoing calls are refused until we clear the step below. Incoming calls are unaffected.",
+    screen: (tenantId) => `/admin/tenants/${tenantId}`,
+    cta: "Open the account",
+  },
+  outbound_waiting_on_client: {
+    label: "Client step needed",
+    meaning:
+      "Outgoing calls wait for the client's step below. Nothing on our side is broken, and " +
+      "incoming calls are unaffected.",
     screen: (tenantId) => `/admin/tenants/${tenantId}`,
     cta: "Open the account",
   },
@@ -154,11 +161,17 @@ export function signalCopy(rule: string): SignalCopy | null {
 const CAUSE_LABELS: Record<string, string> = {
   account_suspended: "Account suspended",
   account_closed: "Account closed",
-  trial_campaigns_unavailable: "On the free trial (test calls only)",
+  trial_campaigns_unavailable: "On free trial: test calls only",
+  trial_live_outbound_unavailable: "On free trial: test calls only",
+  trial_daily_cap: "Today's test calls used",
+  trial_ended: "Free trial ended: needs to add credit",
+  trial_minutes_used: "Free trial minutes used: needs to add credit",
   kyc_digilocker_required: "DigiLocker check required",
   outbound_pledge_missing: "No-cold-calls pledge not accepted",
   outbound_pledge_outdated: "No-cold-calls pledge needs accepting again",
-  agreements_not_accepted: "Agreements not accepted",
+  // The gate does not say whether this is a first acceptance or a re-acceptance of a
+  // changed document, so the wording fits both.
+  agreements_not_accepted: "Needs to accept the updated agreements",
   spend_cap: "Monthly spend cap reached",
   payment_dispute: "Payment dispute open",
   platform_fee_overdue: "Platform fee unpaid",
@@ -234,7 +247,7 @@ export type TrendClaim =
  */
 export function trendClaim(row: ClientHealth): TrendClaim {
   if (row.calls_basis === "too_new") {
-    return { kind: "unknown", why: "Too new to compare — no previous week yet." };
+    return { kind: "unknown", why: "Too new to compare: no previous week yet." };
   }
   if (row.calls_basis === "no_baseline") {
     return { kind: "unknown", why: "Too few calls last week for a comparison to mean anything." };
@@ -252,6 +265,40 @@ export function trendClaim(row: ClientHealth): TrendClaim {
 /** The tone a severity renders in. `stop` is broken now; `warn` will break. */
 export function severityTone(severity: Severity): NoticeTone {
   return severity === "stop" ? "stop" : "warn";
+}
+
+/** The neutral line a free-trial account carries: a state, never a fault (D-697). */
+export const ON_TRIAL_LABEL = "On free trial: test calls only";
+
+export interface HealthStatus {
+  label: "Broken now" | "Will break" | "Waiting on client";
+  tone: NoticeTone;
+}
+
+const BROKEN: HealthStatus = { label: "Broken now", tone: "stop" };
+const WILL_BREAK: HealthStatus = { label: "Will break", tone: "warn" };
+const WAITING: HealthStatus = { label: "Waiting on client", tone: "neutral" };
+
+/**
+ * One signal's status. Something waiting on the client is never "Broken now": the server
+ * says whose move it is (`waiting_on`), and the client's own step is not a fault of ours.
+ */
+export function signalStatus(signal: HealthSignal): HealthStatus {
+  if (signal.severity === "stop") return BROKEN;
+  return signal.waiting_on === "client" ? WAITING : WILL_BREAK;
+}
+
+/** A row's status: its worst signal, where waiting on the client is the mildest. */
+export function rowStatus(signals: readonly HealthSignal[]): HealthStatus {
+  const statuses = signals.map(signalStatus);
+  if (statuses.includes(BROKEN)) return BROKEN;
+  if (statuses.includes(WILL_BREAK)) return WILL_BREAK;
+  return WAITING;
+}
+
+/** Does this row need something from us (anything not waiting on the client)? */
+export function needsUs(row: ClientHealth): boolean {
+  return row.signals.some((signal) => signal.waiting_on !== "client");
 }
 
 /**

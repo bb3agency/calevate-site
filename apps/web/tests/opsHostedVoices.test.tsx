@@ -709,6 +709,20 @@ describe("a cloned voice of a real person (D-721)", () => {
     expect(sent.form.get("document")).toBeInstanceOf(File);
   });
 
+  it("switching an offered voice to cloned opens the consent form instead of a refusal", async () => {
+    const offered = voice({ ...PERSON_CLONE, person_clone: false, clone_blocker: null });
+    const { calls } = renderAdminPage(
+      <VoicesPage />,
+      routes({ [HOSTED_VOICES_PROBE_PATH]: hosted({ voices: [offered] }) }),
+    );
+
+    const drawer = await openVoice("Aditya");
+    fireEvent.click(within(drawer).getByRole("switch", { name: /A cloned voice of a real person/ }));
+    expect(await within(drawer).findByRole("button", { name: "Record consent" })).toBeTruthy();
+    expect(within(drawer).queryByText("Record the speaker's consent before offering this voice")).toBeNull();
+    expect(calls.some((c) => c.method === "PATCH" && c.path === OPS_PERSON_CLONE_PATH)).toBe(false);
+  });
+
   it("unmarking asks first, keeps the record, and carries its own step-up confirmation", async () => {
     const consented = voice({
       ...PERSON_CLONE,

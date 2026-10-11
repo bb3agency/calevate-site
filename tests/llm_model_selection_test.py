@@ -1327,3 +1327,35 @@ async def test_a_patch_that_names_nothing_is_refused(monkeypatch: pytest.MonkeyP
             f"/v1/agents/{agent_id}", headers={"Authorization": f"Bearer {bearer}"}, json={}
         )
     assert response.status_code == 422, response.text
+
+
+async def test_on_an_engine_that_runs_its_own_models_no_tier_is_chosen() -> None:
+    """D-750 (founder, 11 Oct 2026): on ThinnestAI the language model is included in the
+    per-minute price and only an operator chooses it, so the client read says there is no
+    choice and both tier writes refuse a tier; clearing a choice still works."""
+    from apps.api.agents.llm_tiers import TIER_INCLUDED_NOTE, TIER_NOT_CHOSEN_HERE
+    from tests.hosted_voice_fakes import HostingEngine, selected
+
+    _tenant_id, agent_id, bearer = await _tenant()
+    headers = {"Authorization": f"Bearer {bearer}"}
+    with selected(HostingEngine()):
+        async with _client(_app()) as client:
+            shown = await client.get("/v1/organization/llm-defaults", headers=headers)
+            put = await client.put(
+                "/v1/organization/llm-defaults", headers=headers, json={"default_llm_tier": "plus"}
+            )
+            patch = await client.patch(
+                f"/v1/agents/{agent_id}", headers=headers, json={"llm_tier": "standard"}
+            )
+            cleared = await client.put(
+                "/v1/organization/llm-defaults", headers=headers, json={"default_llm_tier": None}
+            )
+    assert shown.status_code == 200, shown.text
+    assert (shown.json()["tier_choosable"], shown.json()["tier_note"]) == (
+        False,
+        TIER_INCLUDED_NOTE,
+    )
+    for refused in (put, patch):
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["type"].rsplit("/", 1)[-1] == TIER_NOT_CHOSEN_HERE
+    assert cleared.status_code == 200, cleared.text

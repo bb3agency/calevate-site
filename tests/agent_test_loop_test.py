@@ -158,8 +158,9 @@ def test_a_price_from_a_pinned_fact_passes_without_a_lookup() -> None:
     scenario = Scenario(key="k", title="Price", category="business", turns=("ఎంత?",), expect="")
     result = decide(
         scenario,
-        # In words, as a shop says it: "₹450" and "1 kg" fail the speech check (D-739).
-        [_turn("ఒక కిలో మిర్చి నాలుగు వందల యాభై రూపాయలు అండి.")],
+        # In English words, as a shop says it: "₹450", "1 kg" (D-739) and "నాలుగు వందల
+        # యాభై రూపాయలు" (D-749) fail the speech check.
+        [_turn("ఒక కిలో మిర్చి four fifty rupees అండి.")],
         Judged(verdict="passed", reason="Matches the pinned fact."),
         language="te-IN",
         unjudged_reason="n/a",
@@ -169,18 +170,34 @@ def test_a_price_from_a_pinned_fact_passes_without_a_lookup() -> None:
 
 def test_stop_calling_without_the_opt_out_action_fails_whatever_the_judge_says() -> None:
     scenario = probe_scenario("stop_calling", "te-IN")
-    for turns in (
+    result = decide(
+        scenario,
         [_turn("website form లో fill చేయండి.")],
-        [_turn("సరే", OPT_OUT_TOOL, status="caller_not_matched")],
-    ):
-        result = decide(
+        Judged(verdict="passed", reason="ok"),
+        language="te-IN",
+        unjudged_reason="",
+    )
+    assert result["verdict"] == "failed" and result["fix"] == "platform"
+    # The step taken but nothing written: a test chat has no number to write (D-748), so
+    # the judge decides on what was said, and the result says what the test cannot show.
+    for status in ("caller_not_matched", None, "error"):
+        taken = decide(
             scenario,
-            turns,
+            [_turn("సరే అండి, మళ్ళీ call చేయము.", OPT_OUT_TOOL, status=status)],
             Judged(verdict="passed", reason="ok"),
             language="te-IN",
             unjudged_reason="",
         )
-        assert result["verdict"] == "failed" and result["fix"] == "platform"
+        assert taken["verdict"] == "passed"
+        assert taken["limit"] == test_conversations.OPT_OUT_TEST_LIMIT
+        judged_wrong = decide(
+            scenario,
+            [_turn("సరే", OPT_OUT_TOOL, status=status)],
+            Judged(verdict="failed", reason="It did not say they were removed.", fix="style"),
+            language="te-IN",
+            unjudged_reason="",
+        )
+        assert judged_wrong["verdict"] == "failed"
     recorded = decide(
         scenario,
         [_turn("మీ number తీసేశాం అండి.", OPT_OUT_TOOL, status="recorded_in_test")],
@@ -391,6 +408,10 @@ async def test_a_run_writes_talks_judges_meters_and_retests(
         "hosted_agent_limits",
         lambda engine: type("L", (), {"knowledge_tool": "search_knowledge"})(),
     )
+    # The standing specimen callers (D-749) rotate on the run's random id, and this fake
+    # agent gives one fixed reply, which a specimen like "asks to repeat" rightly fails. They
+    # have their own tests (`tests/specimen_call_test.py`); this one pins the loop.
+    monkeypatch.setattr(worker, "specimen_scenarios", lambda *args, **kwargs: [])
     generated = {
         "scenarios": [
             {
@@ -469,7 +490,7 @@ async def test_a_run_writes_talks_judges_meters_and_retests(
     assert done.status == "done"
     assert {r["probe"] for r in done.results if r.get("probe")} == set(PROBES)
     assert done.results[0]["verdict"] == "failed"  # failures first
-    assert done.score == (len(done.results) - 1, len(done.results))
+    assert done.score == (len(done.results) - 1, len(done.results)), done.results
     assert {"agent_test_generate", "agent_test_judge"} <= features
     # Auto-improve was asked for and a test failed: the proposal is queued.
     assert outbox == [test_conversations.IMPROVE_JOB]

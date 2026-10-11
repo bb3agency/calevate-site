@@ -542,6 +542,18 @@ def _problem_response(problem: dict[str, Any], headers: dict[str, str]) -> JSONR
     )
 
 
+def _dbapi_cause(exc: BaseException) -> BaseException:
+    """The driver's own exception under SQLAlchemy's wrapper, or `exc` itself."""
+    return getattr(exc, "orig", None) or exc
+
+
+def _database_busy(exc: BaseException) -> bool:
+    """A statement cancelled by `statement_timeout` or refused by `lock_timeout`."""
+    from psycopg import errors as pg_errors
+
+    return isinstance(_dbapi_cause(exc), pg_errors.QueryCanceled | pg_errors.LockNotAvailable)
+
+
 def unhandled_problem_response(path: str, exc: BaseException) -> JSONResponse:
     """The generic 500 for an exception that escaped every handler — log, alert, body.
 
@@ -553,6 +565,29 @@ def unhandled_problem_response(path: str, exc: BaseException) -> JSONResponse:
     incident, when the two halves of the same failure carry different codes and the alert
     fingerprints split.
     """
+    if _database_busy(exc):
+        # A statement the database cancelled (`statement_timeout`) or a lock it would not
+        # wait for. Nothing is broken that a retry cannot clear, so the person reads "try
+        # again" instead of "something went wrong", and an operator still hears of it,
+        # because a wait this long is contention that should not happen (D-748: a request
+        # waiting on a credit lock its own transaction held).
+        log.warning(
+            "database_busy", extra={"path": path, "error": type(_dbapi_cause(exc)).__name__}
+        )
+        alert(
+            "ROUTE_HANDLER",
+            f"database_busy:{type(_dbapi_cause(exc)).__name__}",
+            detail="a statement was cancelled waiting on the database; answered 503 try-again",
+            path=path,
+        )
+        busy = ProblemError(
+            kind="transient",
+            code="database_busy",
+            title="This is busy right now",
+            detail="This is busy right now, so nothing was changed.",
+            remediation="Try again in a moment.",
+        )
+        return _problem_response(busy.as_problem(path), {"Retry-After": "5"})
     # Full detail server-side (the logger redacts), generic body to the client.
     log.exception("unhandled_exception", extra={"path": path})
     # THE EXCEPTION TYPE IS PART OF THE ALERT'S IDENTITY, not a detail hanging off

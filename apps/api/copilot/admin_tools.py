@@ -128,9 +128,12 @@ async def _platform_health(
     board = await client_health(session)
     lines = [
         _clean(
-            f"{row.name} ({row.slug}, {row.plan_tier}) — {row.severity}: "
+            f"{row.name} ({row.slug}, {row.plan_tier}"
+            + (", free trial: test calls only" if row.on_trial else "")
+            + f") — {row.severity}: "
             + "; ".join(
                 signal.rule
+                + (" (waiting on the client)" if signal.waiting_on == "client" else "")
                 + (f" x{signal.count}" if signal.count is not None else "")
                 + (f" [{', '.join(signal.causes)}]" if signal.causes else "")
                 for signal in row.signals

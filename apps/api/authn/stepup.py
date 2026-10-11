@@ -220,8 +220,8 @@ def action_code_required(action: str, *, realm: str) -> ProblemError:
         detail="This action needs a code entered for it.",
         remediation=(
             f"POST /v1/auth/{realm}/step-up to have a code emailed, POST the code with "
-            f'"action": "{action}" to /v1/auth/{realm}/step-up/verify, then repeat this '
-            f"request with X-Confirm-Action: {action}"
+            f'"action": "{action}" to /v1/auth/{realm}/step-up/verify, then send the same '
+            f"call again with X-Confirm-Action: {action}"
         ),
     )
 

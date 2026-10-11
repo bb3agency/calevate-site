@@ -20,12 +20,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Final, Literal
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.core.auth import requires
+from apps.api.compliance.audit import write_audit
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
+from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
@@ -272,10 +275,11 @@ TRIAL_LINE_CONFIRMATION: Final = "set_up_trial_line"
 )
 async def set_up_trial_line(
     principal: TrialLineWriter,
+    session: Annotated[AsyncSession, Depends(global_db)],
+    request: Request,
     step_up: StepUpGate,
     x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> TrialLineOut:
-    del principal
     step_up.require(x_confirm_action, TRIAL_LINE_CONFIRMATION)
     if get_settings().engine != "thinnest" or get_settings().trial_caller_number is None:
         raise ProblemError.business_rule(
@@ -285,7 +289,17 @@ async def set_up_trial_line(
         )
     from apps.api.campaigns.engine_numbers import converge_trial_line
 
-    return _line_out(await converge_trial_line())
+    out = _line_out(await converge_trial_line())
+    await write_audit(
+        session,
+        action="platform.trial_line_set_up",
+        actor=principal,
+        object_type="trial_line",
+        object_id=TRIAL_NUMBER_KEY,
+        ip=client_request_ip(request),
+        summary={"state": out.state},
+    )
+    return out
 
 
 __all__ = [

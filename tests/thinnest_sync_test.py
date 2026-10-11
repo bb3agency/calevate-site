@@ -202,7 +202,8 @@ def test_every_switchable_tool_is_stated_off_without_a_handover() -> None:
         "schedule_callback": False,
         "escalate_to_human": False,
     }
-    assert body["handOver"] == {"mode": "chat", "phone": None, "line": None}
+    # `agents` is always sent empty, so one typed in the vendor console is cleared.
+    assert body["handOver"] == {"mode": "chat", "phone": None, "line": None, "agents": []}
 
 
 def test_an_on_duty_destination_is_a_live_transfer() -> None:
@@ -213,6 +214,7 @@ def test_an_on_duty_destination_is_a_live_transfer() -> None:
         "mode": "call",
         "phone": "+919811122233",
         "line": "Connecting you to our front desk now.",
+        "agents": [],
     }
     agent = ThinnestEngine(api_key="ta_live_test")._agent_body(cfg)
     assert agent["escalation"] == {"onNoAnswer": False, "onRequest": True}

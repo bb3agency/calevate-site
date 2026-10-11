@@ -44,6 +44,8 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         "max_call_seconds",
         "caller_memory",
         "machine_detection",
+        # On for every agent: the line is released when the agent ends the call (D-749).
+        "end_call_on_finish",
         # Fixed at 30 seconds on every agent (D-716).
         "ring_seconds",
         "call_summaries",

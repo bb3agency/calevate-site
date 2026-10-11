@@ -20,7 +20,7 @@ import { QUIET_ICON_BUTTON } from "@/components/ui";
 import type { ScriptContext } from "@/lib/api/script";
 
 import type { Issue, Section } from "./scriptModel";
-import { targetLabel, thenLabel } from "./sectionParts";
+import { thenLabel } from "./sectionParts";
 
 export function SectionList({
   sections,
@@ -173,7 +173,11 @@ export function SectionList({
   );
 }
 
-/** What a card says: name, what to do, its ways out, the details it finds out. */
+/**
+ * What a card says, in three short lines so the call scans top to bottom: the name, what
+ * to do (one line), and where it goes next with how many other ways out and what it finds
+ * out. The full ways out are one click away in the step's editor.
+ */
 function SectionSummary({
   sections,
   index,
@@ -193,24 +197,18 @@ function SectionSummary({
         {index === 0 && <span className="shrink-0 rounded-full bg-ink/[0.06] px-2 text-[11px] font-medium text-ink-muted">Start</span>}
         {s.mode === "say" && <span className="shrink-0 rounded-full bg-ink/[0.06] px-2 text-[11px] font-medium text-ink-muted">Exact words</span>}
       </span>
-      <span className="block line-clamp-2 text-meta text-ink-muted">
+      <span className="block truncate text-meta text-ink-muted">
         {s.instruction.trim() || "Nothing written yet."}
       </span>
-      {s.branches.length > 0 && (
-        <span className="block space-y-0.5">
-          {s.branches.map((b, i) => (
-            <span key={i} className="block truncate text-meta text-ink">
-              If {b.when.trim() || "…"} → {targetLabel(sections, b.target, context)}
-            </span>
-          ))}
-        </span>
-      )}
       <span className="block truncate text-meta text-ink">
         {s.branches.length ? "Otherwise" : "Then"} → {thenLabel(sections, index, context)}
+        {s.branches.length > 0 && (
+          <span className="text-ink-muted">
+            {" "}· {s.branches.length} other {s.branches.length === 1 ? "way" : "ways"} out
+          </span>
+        )}
+        {s.collect.length > 0 && <span className="text-ink-muted"> · Finds out: {s.collect.join(", ")}</span>}
       </span>
-      {s.collect.length > 0 && (
-        <span className="block truncate text-meta text-ink-muted">Finds out: {s.collect.join(", ")}</span>
-      )}
       {issues.length > 0 && (
         <span className="flex items-center gap-1 text-meta text-danger">
           <CircleAlert aria-hidden className="h-3.5 w-3.5 shrink-0" />

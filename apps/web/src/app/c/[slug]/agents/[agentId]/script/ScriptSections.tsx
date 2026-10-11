@@ -7,8 +7,10 @@
  * Each part answers one plain question an owner can answer about their own business: who
  * the agent is, what a good call achieves, how it opens, how it speaks, how it handles
  * push-back, what it may do, how it ends, how closely it follows the sections, and an
- * example call. Each part's element id is its anchor (`#policies`), which Knowledge's
- * "Fix in script" links to. They mirror `calevate_shared.call_script` section for section;
+ * example call. Most of them are set once and rarely changed, so `ScriptParts` shows them
+ * as a summary list whose rows open these bodies in place; the opening line and the
+ * strictness choice stay on the page. Each part's element id is its anchor (`#policies`),
+ * which Knowledge's "Fix in script" links to. They mirror `calevate_shared.call_script` section for section;
  * the platform's own rules (how to speak on a phone, where facts are, call backs and
  * hand-over, the truthful answers) are composed around them and are not edited here.
  *
@@ -29,6 +31,7 @@ import {
   SECONDARY_BUTTON_SM,
   ToggleSwitch,
 } from "@/components/ui";
+import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION } from "@/components/console/section";
 import type {
   CallScript,
@@ -45,27 +48,17 @@ import type {
 export type Focusable = HTMLInputElement | HTMLTextAreaElement;
 type Track = (el: Focusable | null) => void;
 
-/** One guided section: a question as its heading, one line of help, then the controls.
- *  Sections are separated by a rule rather than boxed, so nothing nests inside a card. */
-function Section({
-  id,
-  title,
-  hint,
-  children,
-}: {
-  id: string;
-  title: string;
-  hint?: ReactNode;
-  children: ReactNode;
-}) {
+/**
+ * The body of one part. Its heading is the row that opens it (`ScriptParts`), so the body
+ * carries no title of its own, only at most one line of help. The id is the part's anchor
+ * (`#policies`), which Knowledge's "Fix in script" links to.
+ */
+function Section({ id, hint, children }: { id: string; hint?: ReactNode; children: ReactNode }) {
   return (
-    <section id={id} aria-labelledby={`${id}-heading`} className="scroll-mt-24 border-t border-line pt-6 first:border-t-0 first:pt-0">
-      <h4 id={`${id}-heading`} className="text-sm font-semibold text-ink">
-        {title}
-      </h4>
-      {hint && <p className="mt-1 text-sm text-ink-muted">{hint}</p>}
-      <div className="mt-3 space-y-3">{children}</div>
-    </section>
+    <div id={id} className="scroll-mt-24 space-y-3">
+      {hint && <p className="text-meta text-ink-muted">{hint}</p>}
+      {children}
+    </div>
   );
 }
 
@@ -73,6 +66,7 @@ function TextBox({
   id,
   label,
   hint,
+  info,
   value,
   rows = 2,
   maxLength,
@@ -83,6 +77,8 @@ function TextBox({
   id: string;
   label: string;
   hint?: string;
+  /** The reasoning behind an ⓘ beside the label, so the hint stays one line. */
+  info?: ReactNode;
   value: string;
   rows?: number;
   maxLength?: number;
@@ -92,9 +88,20 @@ function TextBox({
 }) {
   return (
     <div>
-      <label className={FIELD_LABEL} htmlFor={id}>
-        {label}
-      </label>
+      {info ? (
+        <div className="flex items-center gap-1">
+          <label className={FIELD_LABEL} htmlFor={id}>
+            {label}
+          </label>
+          <InfoTip label={label} align="start">
+            {info}
+          </InfoTip>
+        </div>
+      ) : (
+        <label className={FIELD_LABEL} htmlFor={id}>
+          {label}
+        </label>
+      )}
       {hint && <span className={FIELD_HINT}>{hint}</span>}
       {rows === 1 ? (
         <input
@@ -195,11 +202,12 @@ export function IdentitySection({
   trackFocus: Track;
 }) {
   return (
-    <Section id="identity" title="Who is the agent?" hint="Who it works for and the job it does on the phone.">
+    <Section id="identity">
       <TextBox
         id="business-line"
         label="Your business in one line"
-        hint="Up to 200 characters. For example: an organic produce shop in Kukatpally."
+        hint="Up to 200 letters."
+        placeholder="For example: an organic produce shop in Kukatpally"
         rows={1}
         maxLength={200}
         value={script.business_line}
@@ -231,7 +239,7 @@ export function GoalSection({
 }) {
   const calls = direction === "outbound" || direction === "both";
   return (
-    <Section id="goal" title="What should a good call achieve?">
+    <Section id="goal">
       <TextBox
         id="goal-text"
         label="The goal"
@@ -244,7 +252,7 @@ export function GoalSection({
         <TextBox
           id="outbound-purpose"
           label="Why you are calling"
-          hint="One sentence the agent says early on a call it places. Up to 300 characters."
+          hint="Said early on calls it places. Up to 300 letters."
           rows={1}
           maxLength={300}
           value={script.outbound_purpose}
@@ -267,14 +275,12 @@ export function OpeningSection({
   trackFocus: Track;
 }) {
   return (
-    <Section
-      id="opening"
-      title="How does it open?"
-      hint="The greeting it starts every call with. If you have switched on the AI or recording notice, that is said just before it."
-    >
+    <Section id="opening">
       <TextBox
         id="opening-line"
         label="Opening line"
+        hint="The first thing it says on every call."
+        info="If you have switched on the AI or recording notice, that is said just before this line."
         value={value}
         placeholder="For example: Namaskaram andi, cheppandi, em kavali?"
         onChange={onChange}
@@ -306,11 +312,10 @@ export function StyleSection({
   return (
     <Section
       id="style"
-      title="How does it speak?"
       hint={
         context?.register_name
-          ? `It speaks ${context.register_name}, the way people talk on the phone, not textbook language.`
-          : "It speaks the way people talk on the phone, not textbook language."
+          ? `It speaks ${context.register_name}, the way people talk on the phone.`
+          : "It speaks the way people talk on the phone."
       }
     >
       <TextBox
@@ -368,8 +373,11 @@ export function StyleSection({
         trackFocus={trackFocus}
       />
       <div>
-        <span className={FIELD_LABEL}>Words it might say wrongly</span>
-        <span className={FIELD_HINT}>Names of products, places or people, and how to say them.</span>
+        <span className={FIELD_LABEL}>Names and how to say them</span>
+        <span className={FIELD_HINT}>
+          Products, places or people, and exactly what to call them on a call, such as a product&apos;s name in
+          your callers&apos; language. The agent never translates a name itself.
+        </span>
         {style.pronunciations.length > 0 && (
           <ul className="mt-2 space-y-2">
             {style.pronunciations.map((word, i) => (
@@ -424,11 +432,7 @@ export function ObjectionsSection({
   const update = (i: number, next: Partial<Objection>) =>
     onChange(objections.map((o, j) => (j === i ? { ...o, ...next } : o)));
   return (
-    <Section
-      id="objections"
-      title="When callers push back"
-      hint="What callers say when they hesitate, and how the agent should answer, in your own words."
-    >
+    <Section id="objections" hint="What callers say when they hesitate, and how to answer.">
       {objections.length > 0 && (
         <ul className="divide-y divide-line border-y border-line">
           {objections.map((o, i) => (
@@ -484,7 +488,6 @@ export function PoliciesSection({
   return (
     <Section
       id="policies"
-      title="What may it do?"
       hint="Stop-calling requests are always recorded, and the agent always answers truthfully whether it is an AI."
     >
       <ToggleSwitch
@@ -529,7 +532,7 @@ export function EndingSection({
   trackFocus: Track;
 }) {
   return (
-    <Section id="ending" title="How does it end the call?">
+    <Section id="ending">
       <TextBox
         id="ending-text"
         label="Ending"
@@ -556,18 +559,13 @@ export function ExampleSection({
   // Any edit by the owner is their own reading of it, so the review flag clears.
   const edit = (next: ExampleLine[]) => onChange(next, false);
   return (
-    <Section
-      id="example"
-      title="An example call"
-      hint="A few lines in your callers' language that show how a good call sounds. The agent copies the style, never the facts in it."
-    >
+    <Section id="example" hint="A few lines in your callers' language. It copies the style, never the facts.">
       {needsReview && lines.length > 0 && (
-        <NoticeBox tone="warn" title="Written by AI, waiting for a native speaker">
-          <p className="mt-1 text-meta">
-            Read it aloud. Change any line that does not sound like your callers; once you
-            edit it, it counts as yours.
-          </p>
-        </NoticeBox>
+        <NoticeBox
+          tone="warn"
+          title="Written by AI, waiting for a native speaker"
+          info="Read it aloud. Change any line that does not sound like your callers; once you edit it, it counts as yours."
+        />
       )}
       {lines.length > 0 && (
         <ul className="space-y-2">
@@ -622,14 +620,17 @@ export function VariableBar({
   onInsert: (key: string) => void;
 }) {
   const all = [...standard, ...custom.filter((c) => !standard.some((s) => s.key === c.key))];
+  if (all.length === 0) return null;
   return (
-    <div>
-      <span className={FIELD_LABEL}>Insert a merge field</span>
-      <span className={FIELD_HINT}>
-        Click a field to drop it where your cursor is. It is filled in from the lead when the
-        call is placed; if there is no value, it simply disappears.
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="flex items-center gap-1">
+        <span className={FIELD_LABEL}>Insert a merge field</span>
+        <InfoTip label="merge fields" align="start">
+          It goes where your cursor was in the last box you typed in. It is filled in from the
+          lead when the call is placed; if there is no value, it simply disappears.
+        </InfoTip>
       </span>
-      <div className="mt-2 flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2">
         {all.map((v) => (
           <button
             key={v.key}
@@ -666,31 +667,35 @@ export function StrictnessSection({
       hint: "It goes through them in order and keeps to your exact-words lines as closely as it can.",
     },
   ];
+  // One line on the page; what each choice does is behind the ⓘ, because an owner picks
+  // this once and the labels already say the difference.
   return (
-    <fieldset>
-      <legend className="text-sm font-semibold text-ink">How closely should it follow the steps?</legend>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <span className="flex items-center gap-1">
+        <span id="adherence-label" className="text-body font-medium text-ink">
+          How closely it follows them
+        </span>
+        <InfoTip label="how closely it follows the steps" align="start">
+          {options.map((option) => (
+            <p key={option.value}>
+              <span className="font-medium text-ink">{option.label}:</span> {option.hint}
+            </p>
+          ))}
+        </InfoTip>
+      </span>
+      <div role="radiogroup" aria-labelledby="adherence-label" className="flex flex-wrap gap-x-4">
         {options.map((option) => (
-          <label
-            key={option.value}
-            className={`flex cursor-pointer gap-2 rounded-md border px-3 py-2.5 touch:min-h-11 ${
-              value === option.value ? "border-brand bg-brand/[0.06]" : "border-line hover:bg-ink/[0.03]"
-            }`}
-          >
+          <label key={option.value} className="flex cursor-pointer items-center gap-2 text-body text-ink touch:min-h-11">
             <input
               type="radio"
               name="adherence"
-              className="mt-0.5"
               checked={value === option.value}
               onChange={() => onChange(option.value)}
             />
-            <span>
-              <span className="block text-body font-medium text-ink">{option.label}</span>
-              <span className="block text-meta text-ink-muted">{option.hint}</span>
-            </span>
+            {option.label}
           </label>
         ))}
       </div>
-    </fieldset>
+    </div>
   );
 }

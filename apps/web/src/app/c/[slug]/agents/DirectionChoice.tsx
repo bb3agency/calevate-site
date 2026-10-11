@@ -18,6 +18,7 @@
 
 import { CheckCircle2, PhoneCall, PhoneIncoming, PhoneOutgoing } from "lucide-react";
 
+import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import type { AgentDirection } from "@/lib/api/agents";
 
 export interface DirectionOption {
@@ -68,11 +69,7 @@ export function DirectionPicker({
         return (
           <label
             key={option.value}
-            className={`relative flex cursor-pointer flex-col rounded-card border p-3 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app ${
-              checked
-                ? "border-brand bg-brand-soft"
-                : "border-line bg-surface hover:bg-black/5 dark:hover:bg-white/5"
-            }`}
+            className={`${CHOICE_CARD} ${checked ? CHOICE_ON : CHOICE_OFF}`}
           >
             <input
               type="radio"
@@ -83,11 +80,11 @@ export function DirectionPicker({
               onChange={() => onChange(option.value)}
             />
             {checked && (
-              <CheckCircle2 aria-hidden className="absolute right-2 top-2 h-4 w-4 text-brand" />
+              <CheckCircle2 aria-hidden className="absolute right-2 top-2 h-4 w-4 text-brand-strong" />
             )}
-            <option.Icon aria-hidden className="h-4 w-4 text-brand" />
+            <option.Icon aria-hidden className="block h-4 w-4 text-ink-muted" />
             <span className="mt-2 block pr-6 text-sm font-semibold text-ink">{option.label}</span>
-            <span className="mt-0.5 block text-xs text-ink-faint">{option.hint}</span>
+            <span className="mt-0.5 block text-xs text-ink-muted">{option.hint}</span>
           </label>
         );
       })}

@@ -502,6 +502,20 @@ async def find_entry_by_ref(
     dropped the reason would answer for the wrong entry.
     """
     await lock_tenant_credits(session, tenant_id)
+    return await read_entry_by_ref(session, tenant_id=tenant_id, reason=reason, ref=ref)
+
+
+async def read_entry_by_ref(
+    session: AsyncSession, *, tenant_id: UUID, reason: CreditReason, ref: str
+) -> LedgerEntryRef | None:
+    """The same lookup WITHOUT the credit lock, for a caller that writes nothing after it.
+
+    A read that takes the lock holds it until its transaction ends, and a request that read
+    the AI allowance first and then waited on a model held every credit write for the tenant
+    (call charges included) for as long as the model took; a session it opened meanwhile
+    then waited on its own parent until `statement_timeout` (D-748). A writer calls
+    `find_entry_by_ref`, which is this inside the lock.
+    """
     row = (
         await session.execute(
             text(
@@ -3778,6 +3792,7 @@ __all__ = [
     "rate_card_at",
     "rate_to_display",
     "read_correctable_entry",
+    "read_entry_by_ref",
     "read_recorded_payment",
     "record_entry",
     "record_usage_from_lots",

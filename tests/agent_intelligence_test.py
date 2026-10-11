@@ -14,7 +14,7 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle, test_conversations
 from apps.api.agents.engine_choice import (
-    MODEL_ABOVE_VOICE_RATE,
+    MODEL_PAID,
     _check_model,
     in_call_default_model,
 )
@@ -111,7 +111,7 @@ def test_the_knowledge_tool_is_named_and_searched_before_i_dont_know() -> None:
         _cfg(compile_call_script(V2), facts_in_knowledge=True, knowledge_tool="search_knowledge")
     )
     assert "the search_knowledge tool" in prompt
-    assert "always before saying you do not know" in prompt
+    assert "before answering about the business or saying you do not know" in prompt
     # The FAQ is no longer an "answer ONLY from these" fence.
     assert "ONLY from" not in prompt
     assert "win over anything in your knowledge" in prompt
@@ -131,7 +131,7 @@ def test_no_person_on_duty_is_said_and_hand_over_is_only_on_request() -> None:
     """Said keyed to the tool, whose own description says when to hand over; the prompt
     itself does not change with the rota, or every turnover would move the config digests."""
     nobody = compose_engine_prompt(_cfg(compile_call_script(V2)))
-    assert "you have no hand-over tool: say nobody is free" in nobody
+    assert "with no hand-over tool: say nobody is free" in nobody
     on_duty = compose_engine_prompt(
         _cfg(
             compile_call_script(V2),
@@ -289,7 +289,14 @@ def test_the_in_call_default_is_unset_unless_the_console_sets_it(
     assert get_settings().platform_llm_model == "gemini-2.5-flash-lite"
 
 
-def test_premium_band_models_need_a_premium_voice_and_unread_ones_are_not_offered() -> None:
+def test_paid_models_are_never_offered_and_unread_ones_are_not_either() -> None:
+    """D-750 (founder, 11 Oct 2026): only models included in the per-minute price are sold, so
+    a Premium-band model is refused beside any voice, Premium voices included."""
+    from apps.api.agents.engine_catalogue_offer import (
+        PAID_MODEL_OPERATOR,
+        model_unofferable_reason,
+    )
+
     premium = CatalogueModel(
         model_id="gpt-5-mini",
         label="GPT-5 Mini",
@@ -300,24 +307,20 @@ def test_premium_band_models_need_a_premium_voice_and_unread_ones_are_not_offere
     catalogue = EngineCatalogue(models=[premium], complete=True)
     every = frozenset({"platform", "standard", "premium", "studio"})
     with pytest.raises(ProblemError) as refused:
-        _check_model(
-            catalogue,
-            "gpt-5-mini",
-            attested=every,
-            platform="P",
-            with_own_voice=False,
-            voice_rate_key="standard",
-        )
-    assert refused.value.code == MODEL_ABOVE_VOICE_RATE
+        _check_model(catalogue, "gpt-5-mini", attested=every, platform="P", with_own_voice=False)
+    assert refused.value.code == MODEL_PAID
+    assert (
+        model_unofferable_reason(premium, attested=every, platform="P", audience="operator")
+        == PAID_MODEL_OPERATOR
+    )
+    free = premium.model_copy(update={"surcharge": "none"})
     _check_model(
-        catalogue,
+        EngineCatalogue(models=[free], complete=True),
         "gpt-5-mini",
         attested=every,
         platform="P",
         with_own_voice=False,
-        voice_rate_key="premium",
     )
-    from apps.api.agents.engine_catalogue_offer import model_unofferable_reason
 
     unread = CatalogueModel(model_id="q", label="Qwen3.6 27B", call_capable=True, plan_allows=True)
     assert model_unofferable_reason(unread, attested=every, platform="P", audience="client")

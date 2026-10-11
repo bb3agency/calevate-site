@@ -20,6 +20,7 @@ import { CallCapPanel } from "./sections/callCap";
 import { ExperimentPanel } from "./sections/experiment";
 import { GoLivePanel, PublishingPanel } from "./sections/live";
 import { ScriptSection } from "./sections/script";
+import { ModelPanel } from "./sections/model";
 import { VoicePanel } from "./sections/voice";
 
 /**
@@ -44,6 +45,7 @@ const SECTIONS_BASE: SettingsSection[] = [
   { id: "live", label: "Live" },
   { id: "script", label: "Script" },
   { id: "voice", label: "Voice" },
+  { id: "model", label: "Model" },
   { id: "limits", label: "Call length" },
   { id: "test", label: "A/B test" },
 ];
@@ -211,6 +213,10 @@ export function AgentPromptScreen({ tenantId, agentId }: { tenantId: string; age
                   tenantLoading={tenant.isLoading || pending.isLoading}
                   write={write}
                 />
+              );
+            case "model":
+              return (
+                <ModelPanel tenantId={tenantId} slug={slug} agent={agent} write={write} />
               );
             case "limits":
               return (

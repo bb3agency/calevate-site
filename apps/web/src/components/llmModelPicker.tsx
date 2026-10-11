@@ -54,8 +54,16 @@
  * labels, visually hidden rather than replaced: arrow keys move between them, the group
  * announces itself from its `<legend>`, each option's accessible name is the whole row
  * INCLUDING its price, and what is painted is drawn from the input's own `checked` state so
- * the two cannot disagree. Same shape as `agents/DirectionChoice.tsx`, which is what keeps
- * this from being a second visual idiom.
+ * the two cannot disagree. The card is the kit's `console/choiceCard`, the one option card
+ * the console uses, so this is not a second visual idiom.
+ *
+ * ## Following a default is a row, not a box
+ *
+ * The screens put a row with `value: null` first: "Organisation default" on an agent,
+ * "Calevate's default" on the account. Choosing it follows that level, including after it
+ * changes; choosing a tier below it pins that tier, even when it is the same tier today. It
+ * replaced a "Keep X even if the default changes" checkbox under one row and a separate
+ * reset button, which made the one choice a reader has to understand into three controls.
  *
  * ## Grouped by provider, so three vendors read as three vendors (D-456)
  *
@@ -72,6 +80,7 @@
 
 import { CheckCircle2 } from "lucide-react";
 
+import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { formatRupeeRate } from "@/components/ui";
 import { providerLabel } from "@/lib/api/llmModels";
 import { compareRates, rateDifference } from "@/lib/llmRates";
@@ -201,7 +210,6 @@ export function ModelPicker({
   disabled,
   onChange,
   audience = "operator",
-  followDefault,
 }: {
   /** Scopes the radio group, so an agent screen and a settings screen never share one. */
   name: string;
@@ -223,51 +231,25 @@ export function ModelPicker({
    * and no price, since it cannot be bought. `"operator"` keeps both.
    */
   audience?: "client" | "operator";
-  /**
-   * The row that stands for "follow the level above". Choosing it sends `null`, so the
-   * list never carries a second, look-alike row for inheriting. A box under it pins the
-   * tier instead (sends `value`), for an owner who wants it kept if the default changes.
-   * Choosing it stays possible when its tier is unavailable: following is always allowed.
-   */
-  followDefault?: { value: string; badge: string; keepLabel: string };
 }) {
-  const shown = followDefault && value === null ? followDefault.value : value;
   const row = (choice: ModelChoice) => {
-    const isDefault = followDefault !== undefined && choice.value === followDefault.value;
-    const checked = choice.value === shown;
+    const checked = choice.value === value;
     const comparison = choice.baseline
       ? null
       : priceComparison(choice.surcharge, baselineSurcharge);
     // `!= null` covers both `null` and an absent property, and nothing else: an
     // empty string would be a reason the server sent and is not a state to swallow.
     const unavailable = choice.unavailable != null;
-    const blocked = unavailable && !isDefault;
     const priced = !(unavailable && audience === "client");
-    const label = (
+    return (
       <label
         key={choice.value ?? "__inherit__"}
-        /*
-         * `has-[:focus-visible]` — WCAG 2.4.7 Focus Visible (AA), and the failure this
-         * fixes is technique F78 verbatim: the `<input type="radio">` below is `sr-only`,
-         * which removes the browser's own focus ring, and the label styled only `checked`
-         * and `hover`. So a keyboard user tabbing into this group saw NOTHING move. On a
-         * native radio group arrowing moves the selection too, which hides the defect —
-         * until the group is disabled, or the user tabs in without arrowing, and then
-         * there is no indicator at all. On the control that picks which model the client
-         * pays for.
-         *
-         * `focus-visible` rather than `focus`, so a mouse click on a row does not leave a
-         * ring behind it. The ring is `ring-brand` on `ring-offset-app` — the same
-         * treatment `components/actionButton.tsx` already uses — so the two focus styles
-         * in this console are one style. axe cannot evaluate a focus indicator and jsdom
-         * has no layout, so `tests/contrast.test.ts` guards this at the source instead.
-         */
-        className={`flex flex-wrap items-start justify-between gap-3 rounded-card border p-3 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app ${
-          checked ? "border-brand bg-brand-soft" : "border-line bg-surface"
-        } ${
-          disabled || blocked
-            ? "cursor-not-allowed opacity-60"
-            : "cursor-pointer hover:bg-black/5 dark:hover:bg-white/5"
+        // The kit's option card (`console/choiceCard`), so this picker, the voice cards and
+        // every other card choice in the console select, focus and refuse the same way. A
+        // row that cannot be chosen is dimmed with its reason in muted ink: the same quiet
+        // treatment every unavailable option gets, never a coloured warning.
+        className={`${CHOICE_CARD} ${checked ? CHOICE_ON : CHOICE_OFF} ${
+          disabled || unavailable ? "cursor-not-allowed" : ""
         }`}
       >
         <input
@@ -275,79 +257,55 @@ export function ModelPicker({
           name={name}
           className="sr-only"
           checked={checked}
-          disabled={disabled || blocked}
-          onChange={() => onChange(isDefault ? null : choice.value)}
+          disabled={disabled || unavailable}
+          onChange={() => onChange(choice.value)}
         />
-        <span className="min-w-0 flex-1">
-          <span className="flex flex-wrap items-center gap-2">
-            {checked ? (
-              <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand" />
-            ) : (
-              <span aria-hidden className="h-4 w-4 shrink-0 rounded-full border border-line" />
+        <span
+          className={`flex flex-wrap items-start justify-between gap-x-3 gap-y-1 ${
+            unavailable ? "opacity-60" : ""
+          }`}
+        >
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-center gap-2">
+              {checked ? (
+                <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand-strong" />
+              ) : (
+                <span aria-hidden className="h-4 w-4 shrink-0 rounded-full border border-ink/25" />
+              )}
+              <span className="text-sm font-semibold text-ink">{choice.label}</span>
+              {choice.badge && (
+                <span className="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-muted">
+                  {choice.badge}
+                </span>
+              )}
+            </span>
+            {choice.detail && (
+              <span className="mt-0.5 block pl-6 text-xs text-ink-muted">{choice.detail}</span>
             )}
-            <span className="text-sm font-semibold text-ink">{choice.label}</span>
-            {(isDefault ? followDefault?.badge : choice.badge) && (
-              <span className="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-muted">
-                {isDefault ? followDefault?.badge : choice.badge}
+            {unavailable && (
+              <span className="mt-0.5 block pl-6 text-xs text-ink-muted">
+                {audience === "operator"
+                  ? `Cannot be chosen: ${choice.unavailable}`
+                  : asSentence(choice.unavailable ?? "")}
               </span>
             )}
           </span>
-          {/* The model-specific note, only when there IS one: a plain model row's provider
-              now lives in the group heading above it, so its second line is empty and is
-              not painted. */}
-          {choice.detail && (
-            <span className="mt-0.5 block pl-6 text-xs text-ink-faint">{choice.detail}</span>
-          )}
-          {/* The server's own words for why the row is dead, in the row. Amber
-              rather than muted: it is the difference between "this costs more" and
-              "this cannot be chosen at all", and a reader skimming prices must not
-              have to work out which rows are real. */}
-          {unavailable && audience === "operator" && (
-            <span className="mt-0.5 block pl-6 text-xs font-medium text-warn">
-              Cannot be chosen — {choice.unavailable}
-            </span>
-          )}
-          {unavailable && audience === "client" && (
-            <span className="mt-0.5 block pl-6 text-xs font-medium text-warn">
-              {asSentence(choice.unavailable ?? "")}
+          {/* WHAT THIS ROW ADDS TO THEIR BILL, as the server's own digits. A row that cannot
+              be chosen carries its reason, not a price for something the client cannot buy. */}
+          {priced && (
+            <span className="shrink-0 pl-6 text-left sm:pl-0 sm:text-right">
+              <span className="block text-sm font-semibold tabular-nums text-ink">
+                {surchargeLabel(choice.surcharge)}
+              </span>
+              {(choice.baseline || comparison !== null) && (
+                <span className="mt-0.5 block text-xs text-ink-muted">
+                  {choice.baseline ? "the model running now" : comparison}
+                </span>
+              )}
             </span>
           )}
         </span>
-        {/* WHAT THIS ROW ADDS TO THEIR BILL, as the server's own digits. `—` where
-            we cannot say: a model withdrawn from the catalogue, or a build whose
-            API does not carry the field. An absent figure is said as absent, never
-            as free — "No extra charge" is reserved for a surcharge we HAVE and
-            which is zero. */}
-        {/* A row that cannot be chosen carries its reason, not a price for something the
-            client cannot buy. */}
-        {priced && (
-          <span className="shrink-0 text-right">
-            <span className="block text-sm font-semibold tabular-nums text-ink">
-              {surchargeLabel(choice.surcharge)}
-            </span>
-            {(choice.baseline || comparison !== null) && (
-              <span className="mt-0.5 block text-xs text-ink-faint">
-                {choice.baseline ? "the model running now" : comparison}
-              </span>
-            )}
-          </span>
-        )}
       </label>
-    );
-    if (!isDefault || !followDefault || !checked) return label;
-    return (
-      <div key={choice.value ?? "__inherit__"} className="space-y-1.5">
-        {label}
-        <label className="flex items-center gap-2 pl-3 text-xs text-ink-muted touch:min-h-11">
-          <input
-            type="checkbox"
-            checked={value === followDefault.value}
-            disabled={disabled || unavailable}
-            onChange={(event) => onChange(event.target.checked ? followDefault.value : null)}
-          />
-          {followDefault.keepLabel}
-        </label>
-      </div>
     );
   };
 
@@ -366,9 +324,9 @@ export function ModelPicker({
 
   return (
     <fieldset>
-      <legend className="text-xs font-medium text-ink-muted">{legend}</legend>
-      {hint && <p className="mt-1 text-xs text-ink-faint">{hint}</p>}
-      {ungrouped.length > 0 && <div className="mt-2 space-y-2">{ungrouped.map(row)}</div>}
+      <legend className="text-body font-medium text-ink">{legend}</legend>
+      {hint && <p className="mt-0.5 text-meta text-ink-muted">{hint}</p>}
+      {ungrouped.length > 0 && <div className="mt-3 space-y-2">{ungrouped.map(row)}</div>}
       {groups.map((group, index) => {
         // Index rather than the provider key in the id: the key is the server's raw value
         // and an id built from it would carry whatever punctuation the server chose. The
@@ -376,10 +334,7 @@ export function ModelPicker({
         const headingId = `${name}-provider-${index}`;
         return (
           <div key={group.key} role="group" aria-labelledby={headingId} className="mt-4">
-            <p
-              id={headingId}
-              className="text-meta font-semibold text-ink-muted"
-            >
+            <p id={headingId} className="text-meta font-semibold text-ink-muted">
               {group.label}
             </p>
             <div className="mt-2 space-y-2">{group.rows.map(row)}</div>

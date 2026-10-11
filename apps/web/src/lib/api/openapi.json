@@ -5729,7 +5729,8 @@
               "opt_out",
               "strong_interest",
               "asked_delivery_or_payment",
-              "will_buy_or_visit"
+              "will_buy_or_visit",
+              "claimed_not_done"
             ],
             "title": "Kind",
             "type": "string"
@@ -7959,6 +7960,10 @@
             "title": "Name",
             "type": "string"
           },
+          "on_trial": {
+            "title": "On Trial",
+            "type": "boolean"
+          },
           "plan_tier": {
             "title": "Plan Tier",
             "type": "string"
@@ -8019,6 +8024,7 @@
           "calls_prev_7d",
           "calls_basis",
           "last_call_at",
+          "on_trial",
           "spend_used_inr",
           "spend_cap_inr"
         ],
@@ -8262,6 +8268,22 @@
           "in_force_surcharge_inr_per_minute": {
             "title": "In Force Surcharge Inr Per Minute",
             "type": "string"
+          },
+          "tier_choosable": {
+            "default": true,
+            "title": "Tier Choosable",
+            "type": "boolean"
+          },
+          "tier_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier Note"
           },
           "upgrade_surcharge_inr_per_minute": {
             "title": "Upgrade Surcharge Inr Per Minute",
@@ -14520,6 +14542,178 @@
         "title": "EngineMinutePricesOut",
         "type": "object"
       },
+      "EngineModelBandIn": {
+        "additionalProperties": false,
+        "properties": {
+          "band": {
+            "enum": [
+              "none",
+              "premium"
+            ],
+            "title": "Band",
+            "type": "string"
+          },
+          "source_note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Note"
+          }
+        },
+        "required": [
+          "band"
+        ],
+        "title": "EngineModelBandIn",
+        "type": "object"
+      },
+      "EngineModelBandOut": {
+        "additionalProperties": false,
+        "properties": {
+          "band": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "premium"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Band"
+          },
+          "catalogue_id": {
+            "title": "Catalogue Id",
+            "type": "string"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "recorded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded At"
+          },
+          "recorded_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By"
+          },
+          "source_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Note"
+          },
+          "usable_with_studio_voice": {
+            "title": "Usable With Studio Voice",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "engine",
+          "model_id",
+          "catalogue_id",
+          "label",
+          "band",
+          "recorded_at",
+          "recorded_by",
+          "source_note",
+          "latency_ms",
+          "usable_with_studio_voice"
+        ],
+        "title": "EngineModelBandOut",
+        "type": "object"
+      },
+      "EngineModelBandsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "engine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/EngineModelBandOut"
+            },
+            "title": "Models",
+            "type": "array"
+          }
+        },
+        "required": [
+          "engine",
+          "available",
+          "complete",
+          "models",
+          "as_of"
+        ],
+        "title": "EngineModelBandsOut",
+        "type": "object"
+      },
       "EngineNumberOut": {
         "additionalProperties": false,
         "description": "One number the voice platform holds, from its own list.",
@@ -18020,6 +18214,15 @@
             ],
             "title": "Severity",
             "type": "string"
+          },
+          "waiting_on": {
+            "default": "calevate",
+            "enum": [
+              "calevate",
+              "client"
+            ],
+            "title": "Waiting On",
+            "type": "string"
           }
         },
         "required": [
@@ -18885,6 +19088,36 @@
         "title": "InFlightOut",
         "type": "object"
       },
+      "IncidentKindOut": {
+        "additionalProperties": false,
+        "description": "A problem the healer can open an incident for, in plain words (`healer/wording`).",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "meaning": {
+            "title": "Meaning",
+            "type": "string"
+          },
+          "next_step": {
+            "title": "Next Step",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "title",
+          "meaning",
+          "next_step"
+        ],
+        "title": "IncidentKindOut",
+        "type": "object"
+      },
       "IncidentOut": {
         "additionalProperties": false,
         "properties": {
@@ -18903,6 +19136,10 @@
           "attempts": {
             "title": "Attempts",
             "type": "integer"
+          },
+          "automatic": {
+            "title": "Automatic",
+            "type": "boolean"
           },
           "component": {
             "anyOf": [
@@ -18933,10 +19170,17 @@
             ],
             "title": "Escalated At"
           },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/IncidentKindOut"
           },
           "last_outcome": {
             "anyOf": [
@@ -18980,6 +19224,10 @@
           },
           "playbook": {
             "title": "Playbook",
+            "type": "string"
+          },
+          "progress": {
+            "title": "Progress",
             "type": "string"
           },
           "public": {
@@ -19062,7 +19310,11 @@
           "opened_at",
           "mitigated_at",
           "escalated_at",
-          "resolved_at"
+          "resolved_at",
+          "kind",
+          "group",
+          "automatic",
+          "progress"
         ],
         "title": "IncidentOut",
         "type": "object"
@@ -27801,12 +28053,20 @@
           "verify": {
             "title": "Verify",
             "type": "string"
+          },
+          "woken_by": {
+            "items": {
+              "$ref": "#/components/schemas/IncidentKindOut"
+            },
+            "title": "Woken By",
+            "type": "array"
           }
         },
         "required": [
           "key",
           "title",
           "triggers",
+          "woken_by",
           "action",
           "verify",
           "undo",
@@ -36126,6 +36386,10 @@
         "additionalProperties": false,
         "description": "ONE client's health, for the top of its own admin page.\n\nThe board's judgement for one account (`health.tenant_health`, the same function the\nboard's walk calls), with the healthy case stated rather than absent: `severity` is\nnull and `signals` empty when nothing is wrong. Money as paise strings, as on the\nboard.",
         "properties": {
+          "on_trial": {
+            "title": "On Trial",
+            "type": "boolean"
+          },
           "severity": {
             "anyOf": [
               {
@@ -36180,6 +36444,7 @@
           "tenant_id",
           "severity",
           "signals",
+          "on_trial",
           "spend_used_inr",
           "spend_cap_inr"
         ],
@@ -37212,6 +37477,17 @@
               }
             ],
             "title": "Unavailable Reason"
+          },
+          "waiting_update": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting Update"
           }
         },
         "required": [
@@ -37316,6 +37592,17 @@
             "title": "Key",
             "type": "string"
           },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
           "probe": {
             "anyOf": [
               {
@@ -37415,6 +37702,17 @@
             "title": "Id",
             "type": "string"
           },
+          "improve_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Improve Note"
+          },
           "improvement": {
             "anyOf": [
               {
@@ -37424,6 +37722,11 @@
                 "type": "null"
               }
             ]
+          },
+          "improving": {
+            "default": false,
+            "title": "Improving",
+            "type": "boolean"
           },
           "is_current": {
             "title": "Is Current",
@@ -41885,6 +42188,19 @@
       "apps__api__agents__script_routes__TestTurnOut": {
         "additionalProperties": false,
         "properties": {
+          "actions": {
+            "items": {
+              "enum": [
+                "knowledge",
+                "do_not_call",
+                "call_back",
+                "other"
+              ],
+              "type": "string"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
           "reply": {
             "title": "Reply",
             "type": "string"
@@ -50236,7 +50552,7 @@
     },
     "/v1/agents/engine-catalogue": {
       "get": {
-        "description": "On a voice platform that hosts its own voices: the voices an operator added and enabled, each with its rung (Clear or Studio), a language note, whether a preview can be played, and whether it can be chosen right now. The models are the platform's own list. On any other platform `available` is false and the voice picker at `/v1/agents/voices` is the one to read.",
+        "description": "On a voice platform that hosts its own voices: the voices an operator added and enabled, each with its rung (Clear or Studio), a language note, whether a preview can be played, and whether it can be chosen right now. To an operator, the platform's own models that can answer a call on our plan, with their recorded band; a client is sent no models. On any other platform `available` is false and the voice picker at `/v1/agents/voices` is the one to read.",
         "operationId": "engine_catalogue_v1_agents_engine_catalogue_get",
         "responses": {
           "200": {
@@ -50509,7 +50825,7 @@
         "x-calevate-permission": "agents:read"
       },
       "patch": {
-        "description": "Applies immediately. A live agent is re-published to the voice platform in the same transaction \u2014 including the numbers it answers, so switching a two-way agent to outbound-only really does stop it picking up \u2014 and if that push fails nothing is saved.\n\n`llm_tier` is the one field where sending `null` MEANS something: it clears this agent's own AI model tier so it follows the account default again. Omit the field entirely to leave the current choice alone. A tier that is not switched on yet is refused with `llm_tier_not_available` \u2014 `GET /v1/organization/llm-defaults` marks those tiers `is_available: false`. Choosing the tier the agent is already on changes nothing.\n\n`engine_voice_id` and `engine_model_id` choose from the voice platform's own list (`GET /v1/agents/engine-catalogue`, whose model ids are opaque) where it supplies one; `null` clears a choice that has not yet been published. An entry that list marks unavailable is refused with its reason.\n\nAn archived agent is refused: restore it first.",
+        "description": "Applies immediately. A live agent is re-published to the voice platform in the same transaction \u2014 including the numbers it answers, so switching a two-way agent to outbound-only really does stop it picking up \u2014 and if that push fails nothing is saved.\n\n`llm_tier` is the one field where sending `null` MEANS something: it clears this agent's own AI model tier so it follows the account default again. Omit the field entirely to leave the current choice alone. A tier that is not switched on yet is refused with `llm_tier_not_available` \u2014 `GET /v1/organization/llm-defaults` marks those tiers `is_available: false`. Choosing the tier the agent is already on changes nothing. Where that read says `tier_choosable: false`, any tier is refused with `llm_tier_not_chosen_here` and only `null` is accepted.\n\n`engine_voice_id` and `engine_model_id` choose from the voice platform's own list (`GET /v1/agents/engine-catalogue`, whose model ids are opaque) where it supplies one; `null` clears a choice that has not yet been published. An entry that list marks unavailable is refused with its reason.\n\nAn archived agent is refused: restore it first.",
         "operationId": "update_agent_route_v1_agents__agent_id__patch",
         "parameters": [
           {
@@ -52210,7 +52526,7 @@
     },
     "/v1/agents/{agent_id}/script/tests/{run_id}/improve": {
       "post": {
-        "description": "SUBJECT \u2192 GATE \u2192 RUN \u2192 METER, as the script helper. It proposes and never writes the\nscript: the owner keeps changes one by one in the builder's review.",
+        "description": "Queues the proposal and answers at once; the run shows `improving` until the\nproposal (or `improve_note`) arrives. It proposes and never writes the script: the owner\nkeeps changes one by one in the review.\n\nA job, not an inline model call, because the proposal is the whole script and two legs\nof it do not fit the request deadline; and because a route that read the allowance and\nthen waited on a model kept its transaction open across the wait (D-748).",
         "operationId": "improve_from_tests_v1_agents__agent_id__script_tests__run_id__improve_post",
         "parameters": [
           {
@@ -52252,11 +52568,11 @@
           }
         },
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ImprovementOut"
+                  "$ref": "#/components/schemas/TestConversationsOut"
                 }
               }
             },
@@ -52269,7 +52585,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Improve my agent: propose script and fact changes from a run's failures",
+        "summary": "Improve my agent: queue script and fact changes from a run's failures",
         "tags": [
           "agents"
         ],
@@ -64663,6 +64979,113 @@
         "x-calevate-permission": "platform:config"
       }
     },
+    "/v1/ops/engine-model-bands": {
+      "get": {
+        "operationId": "list_engine_model_bands_v1_ops_engine_model_bands_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineModelBandsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every engine model that can answer a call, with its recorded per-minute band",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/engine-model-bands/{engine}/{model_id}": {
+      "post": {
+        "description": "Records the band the voice platform's console shows for one of its models as a NEW row; the newest row is in force. `none`: the model is included in the per-minute price and may be offered. `premium`: the model lifts a call to a dearer band, so it is a paid model and is never offered (Calevate offers only models included in the per-minute price). Requires `X-Confirm-Action: record_engine_model_band:<engine>:<model_id>`. Only a model the platform lists as able to answer a call on our plan can be recorded.",
+        "operationId": "record_engine_model_band_route_v1_ops_engine_model_bands__engine___model_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "engine",
+            "required": true,
+            "schema": {
+              "maxLength": 32,
+              "pattern": "^[a-z][a-z0-9_-]*$",
+              "title": "Engine",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "title": "Model Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EngineModelBandIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineModelBandOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record one engine model's per-minute band (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
     "/v1/ops/fx-rate": {
       "get": {
         "description": "What vendor costs are being converted at, and whether anyone should worry.",
@@ -67261,11 +67684,26 @@
         "responses": {
           "200": {
             "content": {
-              "application/pdf": {},
-              "image/jpeg": {},
-              "image/png": {}
+              "application/pdf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
             },
-            "description": "Successful Response"
+            "description": "The signed consent document."
           },
           "default": {
             "content": {
@@ -67645,7 +68083,7 @@
         "x-calevate-permission": "org:read"
       },
       "put": {
-        "description": "The AI model tier this account's agents run when the agent itself names none: `standard`, `plus` or `pro`. Which model answers each tier is Calevate's, and is not part of this response.\n\nResolution is three levels: the agent's own choice, then this account default, then Calevate's default. `effective_tier` is what an agent that has chosen nothing runs.\n\n`client_surcharge_inr_per_minute` on each tier is what choosing it ADDS to this account's bill for every minute it runs \u2014 the plan's own model surcharge, `0` when the plan quotes none and `0` on a tier that is not an upgrade. `in_force_surcharge_inr_per_minute` is what the tier in force adds now; following Calevate's default is never surcharged.\n\nA tier with `is_available: false` cannot be chosen yet; `unavailable_reason` says so.\n\nSend `null` to go back to following Calevate's default. A tier that is not switched on yet is refused with `llm_tier_not_available`. Choosing the tier the account is already on changes nothing.\n\nEvery LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched \u2014 this sets what the others follow.",
+        "description": "The AI model tier this account's agents run when the agent itself names none: `standard`, `plus` or `pro`. Which model answers each tier is Calevate's, and is not part of this response.\n\nResolution is three levels: the agent's own choice, then this account default, then Calevate's default. `effective_tier` is what an agent that has chosen nothing runs.\n\n`client_surcharge_inr_per_minute` on each tier is what choosing it ADDS to this account's bill for every minute it runs \u2014 the plan's own model surcharge, `0` when the plan quotes none and `0` on a tier that is not an upgrade. `in_force_surcharge_inr_per_minute` is what the tier in force adds now; following Calevate's default is never surcharged.\n\nA tier with `is_available: false` cannot be chosen yet; `unavailable_reason` says so.\n\nSend `null` to go back to following Calevate's default. A tier that is not switched on yet is refused with `llm_tier_not_available`. Choosing the tier the account is already on changes nothing. Where `tier_choosable` is false (a voice platform that runs its own models, whose model is included in the per-minute price) any tier is refused with `llm_tier_not_chosen_here`; `null` is still accepted.\n\nEvery LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched \u2014 this sets what the others follow.",
         "operationId": "set_organization_llm_default_v1_organization_llm_defaults_put",
         "requestBody": {
           "content": {

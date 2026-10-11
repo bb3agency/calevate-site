@@ -156,6 +156,7 @@ def derive_moments(
     field_labels: dict[str, str],
     opt_out_turn_idx: int | None = None,
     unheard: Collection[int] = (),
+    claimed_not_done_turn_idx: int | None = None,
 ) -> list[dict[str, Any]]:
     """The markers provable from what the pipeline already has, in time order.
 
@@ -192,6 +193,22 @@ def derive_moments(
                     turn=spoken,
                     kind="opt_out",
                     label=MOMENT_KINDS["opt_out"][1],
+                    source="derived",
+                    importance=3,
+                )
+            )
+
+    if claimed_not_done_turn_idx is not None:
+        # The agent told the caller something was done (an order noted, details saved)
+        # that no action of the call did (D-749): the owner must follow it up or the
+        # caller waits for something nobody started.
+        claim = next((t for t in heard if t.idx == claimed_not_done_turn_idx), None)
+        if claim is not None and claim.start_ms is not None:
+            out.append(
+                moment(
+                    turn=claim,
+                    kind="claimed_not_done",
+                    label=MOMENT_KINDS["claimed_not_done"][1],
                     source="derived",
                     importance=3,
                 )

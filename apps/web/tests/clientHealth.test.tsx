@@ -37,6 +37,7 @@ function signal(over: Partial<ClientHealth["signals"][number]> = {}) {
     severity: "stop" as const,
     causes: [],
     count: 3,
+    waiting_on: "calevate" as const,
     ...over,
   };
 }
@@ -56,6 +57,7 @@ function row(over: Partial<ClientHealth> = {}): ClientHealth {
     last_call_at: "2026-08-10T06:30:00Z",
     spend_used_inr: "900.5000",
     spend_cap_inr: "1000.0000",
+    on_trial: false,
     ...over,
   };
 }
@@ -69,7 +71,8 @@ describe("the client health board", () => {
     });
 
     await screen.findByText("Sri Traders");
-    expect(container.textContent).toContain("Too new to compare");
+    expect(container.textContent).toContain("Too new to compare: no previous week yet.");
+    expect(container.textContent).not.toContain("—");
     // The three ways a guess could get onto the screen, each excluded by name.
     expect(container.textContent).not.toContain("down ");
     expect(container.textContent).not.toContain("up ");
@@ -149,10 +152,11 @@ describe("the client health board", () => {
         row({
           signals: [
             signal({
-              rule: "outbound_blocked",
-              severity: "stop",
+              rule: "outbound_waiting_on_client",
+              severity: "warn",
               count: null,
               causes: ["kyc_missing", "outbound_pledge_missing", "no_credits"],
+              waiting_on: "client",
             }),
           ],
         }),
@@ -244,6 +248,70 @@ describe("the client health board", () => {
     expect(container.textContent).toContain("1 broken now");
     const text = container.textContent ?? "";
     expect(text.indexOf("Broken Co")).toBeLessThan(text.indexOf("Wobbling Co"));
+  });
+
+  it("says one account needs attention in the singular", async () => {
+    const { container } = renderAdminPage(<ClientHealthPage />, {
+      [CLIENT_HEALTH_PATH]: [row()],
+    });
+
+    await screen.findByText("Sri Traders");
+    expect(container.textContent).toContain("1 account needs attention");
+    expect(container.textContent).not.toContain("1 account need attention");
+  });
+
+  it("shows a trial account waiting on its agreements as waiting on the client, not broken", async () => {
+    // The false alarm of 11 Oct 2026: a trial account placing test calls read "Broken now:
+    // Cannot dial out". A trial is a state, and agreements are the client's step.
+    const { container } = renderAdminPage(<ClientHealthPage />, {
+      [CLIENT_HEALTH_PATH]: [
+        row({
+          severity: "warn",
+          on_trial: true,
+          signals: [
+            signal({
+              rule: "outbound_waiting_on_client",
+              severity: "warn",
+              count: null,
+              causes: ["agreements_not_accepted"],
+              waiting_on: "client",
+            }),
+          ],
+        }),
+      ],
+    });
+
+    await screen.findByText("Sri Traders");
+    const text = container.textContent ?? "";
+    expect(text).toContain("Waiting on client");
+    expect(text).toContain("On free trial: test calls only");
+    expect(text).toContain("Needs to accept the updated agreements");
+    expect(text).toContain("No account needs attention");
+    expect(text).toContain("1 waiting on client");
+    expect(text).not.toContain("Broken now");
+    expect(text).not.toContain("broken now");
+    expect(text).not.toContain("Cannot dial out");
+    expect(text).not.toContain("refusing");
+  });
+
+  it("keeps a refusal only we can clear broken now", async () => {
+    const { container } = renderAdminPage(<ClientHealthPage />, {
+      [CLIENT_HEALTH_PATH]: [
+        row({
+          signals: [
+            signal({ rule: "outbound_blocked", severity: "stop", count: null, causes: ["spend_cap"] }),
+          ],
+        }),
+      ],
+    });
+
+    await screen.findByText("Sri Traders");
+    const text = container.textContent ?? "";
+    expect(text).toContain("Broken now");
+    expect(text).toContain("Cannot dial out");
+    expect(text).toContain("Monthly spend cap reached");
+    expect(text).toContain("1 broken now");
+    expect(text).not.toContain("Waiting on client");
   });
 
   it("reads only the board, and renders no phone number", async () => {

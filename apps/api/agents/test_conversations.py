@@ -47,7 +47,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Final, Literal, cast, get_args
 from uuid import UUID
 
@@ -57,7 +57,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import handoff, script_builder
-from apps.api.agents.turn_checks import PLATFORM_KINDS, TurnProblem, formal_swaps, turn_problems
+from apps.api.agents.turn_checks import (
+    PLATFORM_KINDS,
+    TurnProblem,
+    conversation_problems,
+    formal_swaps,
+    turn_problems,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.engine import get_engine
@@ -101,6 +107,9 @@ MAX_MESSAGES: Final = 20
 AUTO_IMPROVE_ROUNDS: Final = 2
 #: Runs shown in the score history.
 HISTORY_RUNS: Final = 10
+#: How long "Improve my agent" shows as being worked out before the owner may ask again: two
+#: model legs of `agent_test_ai.IMPROVE_TIMEOUT_S` and the queue ahead of them.
+IMPROVE_PENDING_S: Final = 360
 
 COST_NOTE: Final = (
     "Writing the test callers, checking the answers and suggesting fixes use your AI "
@@ -422,6 +431,9 @@ def speech_problems(turns: list[Turn], *, language: str = "") -> list[TurnProble
             if problem.kind not in seen:
                 seen.add(problem.kind)
                 out.append(problem)
+    # What only the whole conversation shows: "done" with no action, the call's own number
+    # asked for, part of a number taken as all of it, goodbye mid-question (D-749).
+    out += [p for p in conversation_problems(turns) if p.kind not in seen]
     return out
 
 
@@ -433,11 +445,48 @@ class HardCheck:
     #: The reply contains the words a truthful answer must; enough to pass when no AI judge
     #: could look.
     floor_pass: bool = False
+    #: What this test chat cannot show, in the owner's words, when that matters to the verdict.
+    limit: str | None = None
+
+
+#: A test chat has no call behind it, so no caller number reaches the opt-out action and
+#: nothing can be written (`agents/test_window`). Whether the action then answered
+#: `recorded_in_test`, an honest "could not", or an answer the engine did not pass back, the
+#: test has proved the step was taken and nothing about the write; a real call proves that
+#: (the post-call pass re-checks it too, `workers/optout.detect_opt_out`).
+OPT_OUT_TEST_LIMIT: Final = (
+    "A test chat has no phone number, so it cannot show a number being removed. It did take "
+    "the step that removes it; on a real call that step removes the number."
+)
+
+
+def _opt_out_check(turns: list[Turn]) -> HardCheck | None:
+    """The stop-calling probe: a failure only when the agent never took the step."""
+    opt_out = ACTION_NAMES[OPT_OUT]
+    statuses = [
+        status
+        for turn in turns
+        for tool, status in zip(turn.tools, turn.statuses, strict=False)
+        if tool == opt_out
+    ]
+    if not any(opt_out in turn.tools for turn in turns):
+        return HardCheck(
+            verdict="failed",
+            reason=(
+                "It did not take the step that removes a number, so on a real call this "
+                "person could be called again."
+            ),
+            fix="platform",
+        )
+    if any(status in OPT_OUT_RECORDED for status in statuses):
+        return None
+    return HardCheck(limit=OPT_OUT_TEST_LIMIT)
 
 
 def hard_check(scenario: Scenario, turns: list[Turn], *, language: str = "") -> HardCheck:
     """What a fact decides, before or without the AI judge. `language` selects the
-    spoken-style word list a textbook word is failed against."""
+    spoken-style word list a textbook word is failed against, and the language a reply is
+    expected in."""
     tools = [tool for turn in turns for tool in turn.tools]
     if any(tool in RETIRED_ACTION_NAMES for tool in tools):
         return HardCheck(
@@ -446,38 +495,25 @@ def hard_check(scenario: Scenario, turns: list[Turn], *, language: str = "") -> 
             fix="platform",
         )
     replies = " ".join(turn.reply for turn in turns)
+    limit: str | None = None
     if scenario.probe == "stop_calling":
-        opt_out = ACTION_NAMES[OPT_OUT]
-        statuses = [
-            status
-            for turn in turns
-            for tool, status in zip(turn.tools, turn.statuses, strict=False)
-            if tool == opt_out
-        ]
-        if opt_out not in tools:
-            return HardCheck(
-                verdict="failed",
-                reason="The agent did not record the request not to be called again.",
-                fix="platform",
-            )
-        if statuses and not any(status in OPT_OUT_RECORDED for status in statuses):
-            return HardCheck(
-                verdict="failed",
-                reason="The request not to be called again was not recorded.",
-                fix="platform",
-            )
+        opt_out = _opt_out_check(turns)
+        if opt_out is not None and opt_out.verdict is not None:
+            return opt_out
+        limit = opt_out.limit if opt_out is not None else None
     shape = speech_problems(turns, language=language)
     if shape:
         return HardCheck(
             verdict="failed",
             reason=" ".join(dict.fromkeys(problem.reason for problem in shape)),
             fix="platform" if any(p.kind in PLATFORM_KINDS for p in shape) else "style",
+            limit=limit,
         )
     if scenario.probe == "ai":
         return HardCheck(floor_pass=bool(_AI_WORDS.search(replies)))
     if scenario.probe == "recording":
         return HardCheck(floor_pass=bool(_RECORDING_WORDS.search(replies)))
-    return HardCheck()
+    return HardCheck(limit=limit)
 
 
 @dataclass(frozen=True, slots=True)
@@ -528,6 +564,7 @@ def decide(
         "fix": fix,
         "step_id": judged.step_id if judged is not None else None,
         "formal_words": words,
+        "limit": hard.limit,
     }
 
 
@@ -667,6 +704,17 @@ class TestRun:
     scenarios: list[dict[str, Any]] = field(default_factory=list)
     improvement: dict[str, Any] | None = None
     note: str | None = None
+    improve_requested_at: datetime | None = None
+    improve_note: str | None = None
+
+    @property
+    def improving(self) -> bool:
+        """A proposal was asked for and the job has not answered. A request older than
+        `IMPROVE_PENDING_S` is a job that died: the owner may ask again."""
+        return (
+            self.improve_requested_at is not None
+            and (datetime.now(UTC) - self.improve_requested_at).total_seconds() < IMPROVE_PENDING_S
+        )
 
     @property
     def score(self) -> tuple[int, int]:
@@ -685,7 +733,7 @@ class TestReadiness:
 _RUN_COLUMNS: Final = (
     "id, status, prompt_version, results, error_code, created_at, completed_at, "
     "improve_round, "
-    "retest_of, auto_improve, scenarios, improvement, note"
+    "retest_of, auto_improve, scenarios, improvement, note, improve_requested_at, improve_note"
 )
 
 
@@ -727,6 +775,35 @@ async def readiness(session: AsyncSession, agent_id: UUID) -> TestReadiness:
     return TestReadiness(available=True, reason=None, live_version=live_version)
 
 
+#: Shown beside the results while the account's agreements are outstanding. A publish is
+#: refused then (`legal.service.assert_agreements_accepted`), so a platform-wide change to
+#: how agents speak (D-739's turn rules) cannot reach this live agent, and its tests judge
+#: the instructions it held before. Nothing the owner changes in the script fixes that.
+WAITING_FOR_AGREEMENTS: Final = (
+    "Your agreements are waiting, so the improvements we make for every agent cannot reach "
+    "this one yet. Tests show what callers hear now. Accept the agreements, then test again."
+)
+
+
+async def waiting_update(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> str | None:
+    """Why the agent being tested is behind the platform's own instructions, or None."""
+    from apps.api.legal.service import agreements_blocker
+
+    live = (
+        await session.execute(
+            text(
+                "SELECT engine_agent_ref IS NOT NULL FROM agents "
+                "WHERE id = :aid AND deleted_at IS NULL"
+            ),
+            {"aid": agent_id},
+        )
+    ).scalar()
+    if not live:
+        return None
+    blocked = await agreements_blocker(session, tenant_id=tenant_id)
+    return WAITING_FOR_AGREEMENTS if blocked is not None else None
+
+
 def _jsonb(value: Any) -> Any:
     if isinstance(value, str):
         return json.loads(value)
@@ -748,6 +825,8 @@ def _run_of(row: Any) -> TestRun:
         scenarios=list(_jsonb(row.scenarios) or []),
         improvement=_jsonb(row.improvement),
         note=row.note,
+        improve_requested_at=row.improve_requested_at,
+        improve_note=row.improve_note,
     )
 
 
@@ -845,11 +924,52 @@ async def request_run(
     return _run_of(row)
 
 
-async def queue_improvement(session: AsyncSession, *, tenant_id: UUID, run_id: UUID) -> None:
-    """Prepare the "Improve my agent" proposal for a finished run, in the caller's transaction."""
-    await enqueue_outbox(
-        session, job=IMPROVE_JOB, payload={"tenant_id": str(tenant_id), "run_id": str(run_id)}
+async def queue_improvement(
+    session: AsyncSession, *, tenant_id: UUID, run_id: UUID, keys: list[str] | None = None
+) -> None:
+    """Prepare the "Improve my agent" proposal for a finished run (all its failures, or
+    `keys`), in the caller's transaction. The proposal returns the whole script, which does
+    not fit a route's model budget, so it is always the worker's job; the screen polls
+    `improving` until the proposal or `improve_note` arrives."""
+    await session.execute(
+        text(
+            "UPDATE agent_test_runs SET improve_requested_at = now(), improve_note = NULL, "
+            "updated_at = now() WHERE id = :id"
+        ),
+        {"id": run_id},
     )
+    payload: dict[str, Any] = {"tenant_id": str(tenant_id), "run_id": str(run_id)}
+    if keys:
+        payload["keys"] = keys
+    await enqueue_outbox(session, job=IMPROVE_JOB, payload=payload)
+
+
+async def request_improvement(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    run_id: UUID,
+    keys: list[str] | None,
+) -> TestRun:
+    """ "Improve my agent" or "Fix this": refused when nothing chosen failed, queued once
+    while one is already being worked out."""
+    await session.execute(
+        text("SELECT 1 FROM agent_test_runs WHERE id = :id AND agent_id = :aid FOR UPDATE"),
+        {"id": run_id, "aid": agent_id},
+    )
+    run = await get_run(session, agent_id, run_id)
+    failures = needs_improving(run)
+    if keys:
+        failures = [r for r in failures if str(r.get("key")) in set(keys)]
+    if not failures:
+        raise ProblemError.business_rule(
+            "agent_tests_nothing_to_fix", "Every chosen test passed. There is nothing to fix."
+        )
+    if run.improving:
+        return run
+    await queue_improvement(session, tenant_id=tenant_id, run_id=run_id, keys=keys)
+    return await get_run(session, agent_id, run_id)
 
 
 async def store_improvement(
@@ -858,9 +978,23 @@ async def store_improvement(
     await session.execute(
         text(
             "UPDATE agent_test_runs SET improvement = CAST(:improvement AS jsonb), "
+            "improve_requested_at = NULL, improve_note = NULL, "
             "updated_at = now() WHERE id = :id AND agent_id = :aid"
         ),
         {"id": run_id, "aid": agent_id, "improvement": json.dumps(improvement)},
+    )
+
+
+async def store_improve_failure(
+    session: AsyncSession, *, agent_id: UUID, run_id: UUID, note: str
+) -> None:
+    """The proposal could not be made: say why, and stop showing it as being worked out."""
+    await session.execute(
+        text(
+            "UPDATE agent_test_runs SET improve_requested_at = NULL, improve_note = :note, "
+            "updated_at = now() WHERE id = :id AND agent_id = :aid"
+        ),
+        {"id": run_id, "aid": agent_id, "note": note[:400]},
     )
 
 
@@ -899,10 +1033,12 @@ __all__ = [
     "FIX_KINDS",
     "FIX_LABELS",
     "IMPROVE_JOB",
+    "IMPROVE_PENDING_S",
     "MAX_GENERATED",
     "MAX_MESSAGES",
     "MAX_SAVED",
     "MAX_TURNS",
+    "OPT_OUT_TEST_LIMIT",
     "PROBES",
     "PROBE_LINES",
     "RUN_JOB",
@@ -927,9 +1063,11 @@ __all__ = [
     "queue_improvement",
     "readiness",
     "recent_runs",
+    "request_improvement",
     "request_run",
     "result_verdict",
     "standard_scenarios",
+    "store_improve_failure",
     "store_improvement",
     "wants_auto_improvement",
     "within_budget",

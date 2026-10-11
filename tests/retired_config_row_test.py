@@ -10,9 +10,10 @@ import importlib.util
 import json
 import uuid
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from apps.api.core.settings import Settings
 from sqlalchemy import Connection, text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -28,10 +29,10 @@ def _upgrade(conn: Connection) -> None:
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    module.op = SimpleNamespace(  # type: ignore[attr-defined]
-        execute=conn.exec_driver_sql, get_bind=lambda: conn
-    )
-    module.upgrade()
+    # The real `op` proxy bound to this connection, so the migration runs exactly as it
+    # shipped, including `migration_offline.is_offline`, which reads the migration context.
+    with Operations.context(MigrationContext.configure(conn)):
+        module.upgrade()
 
 
 def _keys(conn: Connection) -> set[str]:

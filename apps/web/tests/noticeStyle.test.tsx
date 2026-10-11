@@ -142,11 +142,8 @@ const ALLOWED: Record<string, string> = {
   "components/marketing/solutions/solutionMockups.tsx": "marketing illustration",
   "lib/legal/document.tsx": "the legal document renderer, hashed content beside it",
   // A SELECTED option in a picker, not a notice: the tint marks the choice.
-  "components/llmModelPicker.tsx": "selected option",
   "components/voicePicker.tsx": "selected option",
   "components/copilot/workspace/Routines.tsx": "selected day toggle",
-  "app/c/[slug]/agents/DirectionChoice.tsx": "selected option",
-  "app/c/[slug]/agents/panels/voiceCards.tsx": "selected option",
   "app/c/[slug]/lead-sources/CallingPlan.tsx": "selected day and retry toggles",
 };
 

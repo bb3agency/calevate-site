@@ -12,10 +12,12 @@ judgement trustworthy rather than the arithmetic that produces it.
    `after_hours_basis` precedent applied to an accusation: a new account and an account
    with four calls last week both produce a small number, and neither is a collapse. The
    signal must be ABSENT, and the basis must say which of the two it is.
-2. **The signals are the GATES, not a copy of them.** `outbound_blocked` composes
-   `campaigns.service.account_outbound_blockers` — the account half of the launch screen,
-   KYC and the pledge since D-692 — so the board cannot disagree with the
-   refusal. Pinned by asserting the rule NAMES the launch preview uses.
+2. **The signals are the GATES, not a copy of them.** The outbound signals compose
+   `campaigns.service.account_outbound_blockers` (the account half of the launch screen)
+   or, for a free-trial account, `compliance.service.account_dial_blockers` (what a test
+   call meets), so the board cannot disagree with the refusal. Pinned by asserting the
+   rule NAMES those gates use. Who clears each one decides the signal: ours is broken now,
+   the client's is waiting on the client, and a trial's test-calls-only limit is a state.
 3. **Hard rule 1.** A cross-tenant read from the admin realm that widens nothing: the
    `app.admin` session still cannot see a call, a delivery or a knowledge source, and a
    client-realm session still sees zero rows of another tenant.
@@ -40,17 +42,22 @@ from apps.api.admin.health import (
     TREND_BASELINE_MIN,
     WINDOW_DAYS,
     Account,
+    CallVolume,
     ClientHealth,
+    HealthSignal,
+    _triage_order,
+    cause_owner,
     tenant_health,
 )
 from apps.api.billing.service import current_billing_month
+from apps.api.billing.trials import start_trial
 from apps.api.core.rbac import MUTATING_PERMISSIONS, iter_api_routes
 from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import _owner_of, accept_agreements, fund_wallet
 
 pytestmark = [pytest.mark.rls]
 
@@ -99,8 +106,17 @@ async def _make_member(tenant_id: uuid.UUID) -> str:
     return f"dev:client:{user_id}"
 
 
-async def _account(*, aged: bool = True, plan_tier: str = "managed") -> Account:
-    """A client, optionally old enough for a week-on-week comparison to be legitimate."""
+async def _account(
+    *,
+    aged: bool = True,
+    plan_tier: str = "managed",
+    agreements: bool = True,
+    kyc_and_pledge: bool = False,
+) -> Account:
+    """A client, optionally old enough for a week-on-week comparison to be legitimate.
+
+    `agreements=False` leaves the four blocking agreements unaccepted, the state of a client
+    that has not yet re-accepted a materially changed document."""
     created = await admin_service.create_organization(
         name=f"Health Motors {uuid.uuid4().hex[:6]}",
         slug=f"health-{uuid.uuid4().hex[:8]}",
@@ -113,7 +129,8 @@ async def _account(*, aged: bool = True, plan_tier: str = "managed") -> Account:
     # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
-    await accept_agreements(uuid.UUID(str(created["id"])), kyc_and_pledge=False)
+    if agreements:
+        await accept_agreements(uuid.UUID(str(created["id"])), kyc_and_pledge=kyc_and_pledge)
     tenant_id = uuid.UUID(str(created["id"]))
     created_at = datetime.now(UTC)
     async with tenant_session(tenant_id) as session:
@@ -173,6 +190,32 @@ async def _make_outbound(account: Account) -> None:
             text("UPDATE agents SET direction = 'both' WHERE tenant_id = :tid"),
             {"tid": account.tenant_id},
         )
+
+
+async def _start_trial(account: Account, *, pledged: bool = True) -> None:
+    """Put the account on an unpaid free trial (D-697), with the no-cold-calls pledge a
+    test call needs accepted unless `pledged=False`."""
+    from apps.api.compliance.outbound_pledge import (
+        PLEDGE_TEXT_SHA256,
+        PLEDGE_VERSION,
+        accept_pledge,
+    )
+
+    async with tenant_session(account.tenant_id) as session:
+        await start_trial(
+            session, tenant_id=account.tenant_id, days=14, actor_user_id=None, free_minutes=30
+        )
+    if pledged:
+        user_id = await _owner_of(account.tenant_id)
+        async with tenant_session(account.tenant_id) as session:
+            await accept_pledge(
+                session,
+                tenant_id=account.tenant_id,
+                user_id=user_id,
+                version=PLEDGE_VERSION,
+                text_sha256=PLEDGE_TEXT_SHA256,
+                ip=None,
+            )
 
 
 async def _kb_pending(account: Account, name: str = "Opening hours") -> None:
@@ -311,7 +354,7 @@ async def test_a_steady_account_carries_no_trend_signal() -> None:
 # --------------------------------------------- the signals ARE the gates, not a copy
 
 
-async def test_outbound_blocked_names_the_gates_own_rules() -> None:
+async def test_outbound_signals_name_the_gates_own_rules() -> None:
     """The board composes the predicates that refuse the dial.
 
     A fresh account with an outbound-capable agent has no verified KYC and no accepted
@@ -319,6 +362,7 @@ async def test_outbound_blocked_names_the_gates_own_rules() -> None:
     launch with since D-692. The board must use THOSE names, in that order — an operator
     and a client on the phone have to be naming one condition identically — and must not
     name the retired DLT entity chain, which the founder saw on this panel after D-692.
+    Both are the client's to clear, so they wait on the client and are not broken.
     """
     from apps.api.campaigns.service import account_outbound_blockers
 
@@ -331,14 +375,17 @@ async def test_outbound_blocked_names_the_gates_own_rules() -> None:
             for rule, _ in await account_outbound_blockers(session, tenant_id=account.tenant_id)
         ]
 
-    signal = _signal(row, "outbound_blocked")
+    signal = _signal(row, "outbound_waiting_on_client")
     assert signal is not None
-    assert signal.severity == "stop"
-    assert list(signal.causes) == launch
+    assert (signal.severity, signal.waiting_on) == ("warn", "client")
+    assert list(signal.causes) == [rule for rule in launch if cause_owner(rule) == "client"]
     assert "kyc_missing" in signal.causes
     assert "outbound_pledge_missing" in signal.causes
+    assert _signal(row, "outbound_blocked") is None, "nothing here is ours to fix"
+    assert row is not None and row.severity == "warn"
+    every_cause = [cause for each in row.signals for cause in each.causes]
     retired = {"pe_registration_missing", "pe_registration_not_active", "tm_link_not_active"}
-    assert retired.isdisjoint(signal.causes)
+    assert retired.isdisjoint(every_cause)
 
 
 async def test_a_self_serve_account_carries_the_holds_from_one_predicate() -> None:
@@ -353,12 +400,16 @@ async def test_a_self_serve_account_carries_the_holds_from_one_predicate() -> No
         holds = await read_tenant_holds(session, tenant_id=account.tenant_id)
         row = await tenant_health(session, account=account)
 
-    signal = _signal(row, "outbound_blocked")
-    assert signal is not None
-    assert set(holds.rules) <= set(signal.causes), (
+    assert row is not None
+    causes = {cause for signal in row.signals for cause in signal.causes}
+    assert set(holds.rules) <= causes, (
         "every gate holding this account must appear as a cause, from the same predicate"
     )
-    assert "kyc_missing" in signal.causes
+    blocked = _signal(row, "outbound_blocked")
+    assert blocked is not None and blocked.severity == "stop"
+    assert "first_campaign_review_pending" in blocked.causes, "a review we owe is ours"
+    waiting = _signal(row, "outbound_waiting_on_client")
+    assert waiting is not None and "kyc_missing" in waiting.causes
 
 
 async def test_an_inbound_only_account_is_not_told_its_outbound_is_broken() -> None:
@@ -370,6 +421,143 @@ async def test_an_inbound_only_account_is_not_told_its_outbound_is_broken() -> N
     row = await _judge(account)
 
     assert "outbound_blocked" not in _rules(row)
+
+
+# ------------------------------------------- a trial is a state; whose move it is decides
+
+
+async def test_a_trial_account_placing_test_calls_is_not_broken() -> None:
+    """The false alarm of 11 Oct 2026: a trial account whose test calls were completing
+    showed "Broken now: Cannot dial out", because it was judged by the campaign launch
+    screen, which refuses every trial campaign by design (D-697).
+
+    The board now asks what the test call itself is asked, and the test call is allowed, so
+    nothing is wrong with the account. The launch screen still refuses its campaigns: the
+    gate did not move, only the question the board asks.
+    """
+    from apps.api.campaigns.service import account_outbound_blockers
+    from apps.api.compliance.service import account_dial_blockers
+
+    account = await _account()
+    await _make_outbound(account)
+    await _start_trial(account)
+
+    async with tenant_session(account.tenant_id) as session:
+        test_call = await account_dial_blockers(
+            session, tenant_id=account.tenant_id, trial_call=True
+        )
+        launch = [
+            rule
+            for rule, _ in await account_outbound_blockers(session, tenant_id=account.tenant_id)
+        ]
+        row = await tenant_health(session, account=account)
+
+    assert test_call == [], "the dial gate lets this account's test calls through"
+    assert "trial_campaigns_unavailable" in launch, "campaigns are still refused on a trial"
+    assert row is None, "an account doing what its trial allows is not on the board"
+
+    token = await _make_admin()
+    async with _client() as http:
+        response = await http.get(
+            f"{BOARD_PATH}/{account.tenant_id}", headers={"Authorization": f"Bearer {token}"}
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body["severity"], body["signals"], body["on_trial"]) == (None, [], True)
+
+
+async def test_a_trial_waiting_on_its_agreements_is_waiting_on_the_client() -> None:
+    """Outstanding agreements DO refuse a test call (`check_dispatch` asks them on every
+    dial), so the board reports them, as the client's step and in the gate's own words, and
+    never as broken."""
+    from apps.api.compliance.service import account_dial_blockers
+
+    account = await _account(agreements=False)
+    await _make_outbound(account)
+    await _start_trial(account)
+
+    async with tenant_session(account.tenant_id) as session:
+        test_call = [
+            rule
+            for rule, _ in await account_dial_blockers(
+                session, tenant_id=account.tenant_id, trial_call=True
+            )
+        ]
+        row = await tenant_health(session, account=account)
+
+    assert "agreements_not_accepted" in test_call
+    assert row is not None and row.on_trial
+    waiting = _signal(row, "outbound_waiting_on_client")
+    assert waiting is not None
+    assert (waiting.severity, waiting.waiting_on) == ("warn", "client")
+    assert list(waiting.causes) == test_call
+    assert "outbound_blocked" not in _rules(row)
+    assert row.severity == "warn", "waiting on the client is never broken now"
+
+
+async def test_a_refusal_only_we_can_clear_is_broken_now() -> None:
+    """The signal that keeps its red: a verified, pledged, agreed account whose spend cap
+    has bitten is refused every dial until somebody raises the ceiling."""
+    account = await _account(kyc_and_pledge=True)
+    await _make_outbound(account)
+    await fund_wallet(account.tenant_id)
+    async with tenant_session(account.tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, "
+                "billed_inr, capped, created_at, updated_at) "
+                "VALUES (:t, :m, 0, 0, 0, true, now(), now())"
+            ),
+            {"t": account.tenant_id, "m": current_billing_month()},
+        )
+
+    row = await _judge(account)
+    signal = _signal(row, "outbound_blocked")
+    assert signal is not None
+    assert (signal.severity, signal.waiting_on, tuple(signal.causes)) == (
+        "stop",
+        "calevate",
+        ("spend_cap",),
+    )
+    assert "outbound_waiting_on_client" not in _rules(row)
+    assert row is not None and row.severity == "stop" and not row.on_trial
+
+
+def test_who_clears_each_cause() -> None:
+    """States are no signal, the client's steps wait on the client, and a rule nobody has
+    classified counts as ours, so a new gate shows up red rather than vanishing."""
+    assert cause_owner("trial_campaigns_unavailable") is None
+    assert cause_owner("trial_daily_cap") is None
+    assert cause_owner("agreements_not_accepted") == "client"
+    assert cause_owner("trial_ended") == "client"
+    assert cause_owner("first_campaign_review_pending") == "calevate"
+    assert cause_owner("a_gate_added_tomorrow") == "calevate"
+
+
+def test_waiting_on_the_client_ranks_below_what_will_break() -> None:
+    volume = CallVolume(calls_7d=0, calls_prev_7d=0, basis="no_baseline", last_call_at=None)
+
+    def row(name: str, *signals: HealthSignal) -> ClientHealth:
+        return ClientHealth(
+            tenant_id=uuid.uuid4(),
+            name=name,
+            slug=name,
+            plan_tier="prepaid",
+            status="active",
+            severity="warn",
+            signals=signals,
+            volume=volume,
+            on_trial=False,
+            spend_used_inr=Decimal(0),
+            spend_cap_inr=None,
+        )
+
+    waiting = row(
+        "a-waiting",
+        HealthSignal(rule="outbound_waiting_on_client", severity="warn", waiting_on="client"),
+    )
+    warned = row("b-warned", HealthSignal(rule="knowledge_waiting", severity="warn", count=1))
+    assert sorted([waiting, warned], key=_triage_order) == [warned, waiting]
 
 
 # --------------------------------------------------------------- the other signals
@@ -622,11 +810,12 @@ async def test_the_board_carries_accounts_and_rule_names_and_nothing_about_a_per
         "calls_prev_7d",
         "calls_basis",
         "last_call_at",
+        "on_trial",
         "spend_used_inr",
         "spend_cap_inr",
     }
     for signal in row["signals"]:
-        assert set(signal) == {"rule", "severity", "causes", "count"}
+        assert set(signal) == {"rule", "severity", "causes", "count", "waiting_on"}
     # `+919876500001` is on every call this fixture wrote. No board row may carry it.
     assert "9876500001" not in response.text
     assert isinstance(row["spend_used_inr"], str), "money is a string on the wire"

@@ -41,6 +41,16 @@ from apps.workers.extraction import TenantModelLeg
 from apps.workers.redaction import redact
 from apps.workers.script_assist import JsonAnswer, ask_json, edited_script
 
+#: Seconds per model leg for writing the callers and for judging. These run in a worker,
+#: not behind nginx, and ten code-mixed Telugu callers or a judgement of ten conversations is
+#: a long JSON answer for the 15 s a route allows a leg (`extraction.ASSIST_TIMEOUT_S`).
+#: Two steps of two legs each plus `MAX_MESSAGES` paced messages must fit the worker's
+#: 300 s `job_timeout` (`tests/agent_test_loop_fixes_test.py` checks the sum).
+WORKER_AI_TIMEOUT_S: Final = 35.0
+#: Seconds per leg for "Improve my agent", which returns the whole script and runs as its
+#: own job (two legs inside the 300 s `job_timeout`).
+IMPROVE_TIMEOUT_S: Final = 120.0
+
 _DIRECTION: Final[dict[str, str]] = {
     "inbound": "The agent answers calls.",
     "outbound": "The agent places calls to leads who asked to be contacted.",
@@ -235,6 +245,7 @@ async def generate_scenarios(
         max_tokens=3000,
         # Variety is the point: the same agent should meet different callers each run.
         temperature=0.9,
+        timeout_s=WORKER_AI_TIMEOUT_S,
     )
 
 
@@ -258,7 +269,11 @@ JUDGE_INSTRUCTION: Final = (
     "is right with no lookup; a fact in neither the pinned facts nor the knowledge is "
     "invented. It speaks as people talk on the phone, not in textbook words: one or two "
     "short sentences a turn unless asked for detail, one question and then it waits, only "
-    "its own part, nothing read out from brackets.\n"
+    "its own part, nothing read out from brackets. It answers in the caller's language and "
+    "speaks to them, never about them as 'the caller'.\n"
+    "These are TEST chats with no phone call behind them: an action can be used but has no "
+    "number to act on, so judge whether the agent used the right action and what it said, "
+    "never whether something was really written.\n"
     "For each conversation return: key (as given); verdict: passed, needs_fix (it got "
     "through but should be better) or failed (wrong, invented, or broke a platform rule); "
     "reason: one plain-English sentence a busy shop owner understands, saying what to "
@@ -358,6 +373,7 @@ async def judge_conversations(
         quota_exhausted=quota_exhausted,
         max_tokens=3000,
         temperature=0.1,
+        timeout_s=WORKER_AI_TIMEOUT_S,
     )
 
 
@@ -426,6 +442,16 @@ def _clip(value: Any, limit: int) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
+def _because(value: Any, keys: set[str]) -> str | None:
+    """The test a change fixes. The model is asked for one key and sometimes gives a list
+    of them (a change that fixes several tests); the first one we sent counts. A list used
+    to reach `in keys` as it stood, and `list in set` raised, which failed the request."""
+    for candidate in value if isinstance(value, list) else [value]:
+        if isinstance(candidate, str) and candidate in keys:
+            return candidate
+    return None
+
+
 def proposal_from_model(
     raw: dict[str, Any],
     *,
@@ -452,9 +478,7 @@ def proposal_from_model(
             changes.append(
                 {
                     "target": target,
-                    "because": _clip(row.get("because"), 64)
-                    if row.get("because") in keys
-                    else None,
+                    "because": _because(row.get("because"), keys),
                     "why": _clip(row.get("why"), 300),
                 }
             )
@@ -475,7 +499,7 @@ def proposal_from_model(
                 "fact_id": fact_id if action == "fix" else None,
                 "question": question,
                 "answer": _clip(row.get("answer"), MAX_PINNED_ANSWER_CHARS),
-                "because": _clip(row.get("because"), 64) if row.get("because") in keys else None,
+                "because": _because(row.get("because"), keys),
                 "why": _clip(row.get("why"), 300),
             }
         )
@@ -512,6 +536,7 @@ async def propose_improvement(
         quota_exhausted=quota_exhausted,
         max_tokens=6000,
         temperature=0.3,
+        timeout_s=IMPROVE_TIMEOUT_S,
     )
 
 

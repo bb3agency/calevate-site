@@ -444,11 +444,15 @@ function CloneSection({ voice }: { voice: HostedVoice }) {
       <SectionTitle>Cloned voice of a real person</SectionTitle>
       <ToggleSwitch
         label="A cloned voice of a real person"
-        hint="Clients see it under the name above. It is offered only with the speaker's recorded consent."
-        checked={voice.person_clone}
+        hint="Clients see it under the name above. Note the speaker's consent once, and it is kept on file."
+        checked={voice.person_clone || recording}
         disabled={mark.isPending}
         onChange={(on) => {
-          if (on) mark.mutate({ voice_id: voice.voice_id, person_clone: true });
+          // With no consent on file the server refuses the bare mark on an offered voice, so
+          // switching on opens the consent form; recording it sets the mark too.
+          if (on && consent) mark.mutate({ voice_id: voice.voice_id, person_clone: true });
+          else if (on) setRecording(true);
+          else if (recording && !voice.person_clone) setRecording(false);
           else {
             mark.reset();
             setUnmarking(true);
@@ -460,7 +464,7 @@ function CloneSection({ voice }: { voice: HostedVoice }) {
           <WriteFailure error={mark.error} actionLabel="Mark as a cloned voice" />
         </div>
       )}
-      {voice.person_clone && (
+      {(voice.person_clone || recording) && (
         <div className="mt-4 space-y-3">
           {consent && !recording ? (
             <>
@@ -495,7 +499,11 @@ function CloneSection({ voice }: { voice: HostedVoice }) {
               </button>
             </>
           ) : (
-            <ConsentForm voice={voice} onDone={() => setRecording(false)} onCancel={consent ? () => setRecording(false) : undefined} />
+            <ConsentForm
+              voice={voice}
+              onDone={() => setRecording(false)}
+              onCancel={consent || !voice.person_clone ? () => setRecording(false) : undefined}
+            />
           )}
         </div>
       )}

@@ -136,6 +136,10 @@ TRANSIENT_REFUSALS: dict[str, str] = {
     "kyc_digilocker_required": "the client completes DigiLocker, or an operator clears it",
     "outbound_pledge_missing": "the account owner accepts the no-cold-calls pledge",
     "outbound_pledge_outdated": "the account owner accepts the current pledge version",
+    # Only a test call can meet it, and the campaign dispatcher never places one, so it
+    # does not reach `_refuse_contact` in practice; transient because it is a fact about
+    # the account (it is not on a free trial), never about the person being called.
+    "trial_call_not_on_trial": "the account starts a free trial",
     # TRANSIENT, and it is the one entry here whose lifting fact is a MEASUREMENT rather
     # than something somebody sets (D-562/D-564). Two doors open it and both are real: the
     # client republishes the agent, whose read-back refuses unless the truthful-answer
@@ -317,7 +321,10 @@ def _membership_tuples(body: ast.AST) -> set[int]:
 
 
 def _blocker_rules_of(func: Any, *, seen: frozenset[str]) -> set[str]:
-    """The recursion step, keyed by the callee's own module so nesting keeps working."""
+    """The recursion step, keyed by the callee's own module so nesting keeps working.
+
+    It recurses too: `check_dispatch` reaches the pledge through `account_dial_blockers`
+    -> `outbound_pledge_blocker` -> `pledge_blocker`, three pair-returning hops."""
     module = inspect.getmodule(func)
     if module is None:
         return set()
@@ -330,6 +337,10 @@ def _blocker_rules_of(func: Any, *, seen: frozenset[str]) -> set[str]:
     for node in ast.walk(body):
         if isinstance(node, ast.Tuple) and node.elts and id(node) not in tested:
             rules |= _literal_or_module_constant(node.elts[0], module)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            inner = getattr(module, node.func.id, None)
+            if inner is not None and inner is not func and node.func.id not in seen:
+                rules |= _blocker_rules_of(inner, seen=seen | {node.func.id})
     return rules
 
 

@@ -63,6 +63,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import assignment
 from apps.api.agents.lead_fields import business_type_label
 from apps.api.agents.llm_models import resolve_llm_model
+from apps.api.agents.turn_checks import claims_done
 from apps.api.agents.voices import (
     VOICE_TIER_OF_PROVIDER,
     VoiceProvider,
@@ -1454,6 +1455,12 @@ async def _post_call_stages(
                 field_labels=field_labels,
                 opt_out_turn_idx=opt_out_signal.turn_idx if opt_out_signal else None,
                 unheard=likely_cut_off(snapshot.transcript),
+                claimed_not_done_turn_idx=await _claim_without_action(
+                    tenant_id,
+                    call_id,
+                    snapshot,
+                    acted=opt_out_signal is not None,
+                ),
             ),
             suggested,
         )
@@ -1996,6 +2003,53 @@ async def _load_moments_brief(tenant_id: UUID, agent_id: UUID) -> MomentsBrief:
         agent_goal=goal,
         script_steps=[name for name in names if name][:_BRIEF_MAX_STEPS],
     )
+
+
+#: `action_invocations.status` values that mean the action did what it is for
+#: (`actions/execution.py`); a 2xx `http_…` status is a custom request that succeeded.
+COMPLETED_ACTION_STATUSES: Final = frozenset(
+    {"delivered", "booked", "link_sent", "crm_saved", "row_added", "row_updated"}
+)
+
+
+async def _claim_without_action(
+    tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot, *, acted: bool
+) -> int | None:
+    """The first agent turn the caller heard that says something was done, when nothing
+    on this call did anything: no completed action, no call back booked, no opt-out (D-749).
+
+    On ThinnestAI nothing filters what the model says during a call, so this is where an
+    owner learns their agent told a caller "your order is recorded" with no action behind
+    it. Nothing is looked up when no turn makes such a claim.
+    """
+    unheard = set(likely_cut_off(snapshot.transcript))
+    claim = next(
+        (
+            t
+            for t in snapshot.transcript
+            if t.speaker == "agent" and t.idx not in unheard and claims_done(t.text)
+        ),
+        None,
+    )
+    if claim is None or acted:
+        return None
+    async with tenant_session(tenant_id) as session:
+        done = (
+            await session.execute(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM action_invocations WHERE call_ref = :ecid "
+                    "AND (status = ANY(:done) OR status LIKE 'http_2%')) "
+                    "OR EXISTS (SELECT 1 FROM scheduled_callbacks WHERE source_call_id = :cid "
+                    "OR source_execution_id = :ecid)"
+                ),
+                {
+                    "ecid": snapshot.engine_call_id,
+                    "cid": call_id,
+                    "done": list(COMPLETED_ACTION_STATUSES),
+                },
+            )
+        ).scalar()
+    return None if done else claim.idx
 
 
 async def _stored_model_moments(tenant_id: UUID, call_id: UUID) -> list[dict[str, Any]]:

@@ -313,6 +313,13 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "rate in force now, never the history."
         )
     ),
+    "GET /v1/ops/engine-model-bands": BoundedByConstruction(
+        by=(
+            "the selected engine's own model list (`HoldsCatalogue.read_catalogue`), which the "
+            "adapter walks at most `_LISTING_MAX_PAGES` pages of; one row per model, each the "
+            "band in force, never the history."
+        )
+    ),
     "GET /v1/billing/platform-fee": BoundedByConstruction(
         by=(
             "`charges` is the newest `platform_fee_routes.HISTORY_MONTHS` (12) months, a "

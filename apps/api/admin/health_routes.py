@@ -57,12 +57,14 @@ from apps.api.admin.health import (
     CallBasis,
     ClientHealth,
     HealthSignal,
+    Owner,
     Severity,
     client_health,
     read_account,
     tenant_health,
 )
 from apps.api.billing.service import to_paise
+from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.auth import record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
@@ -84,11 +86,12 @@ class HealthSignalOut(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    # `calls_stopped` | `outbound_blocked` | `spend_cap_near` | `deliveries_failing` |
-    # `knowledge_waiting` | `calls_unmetered`. A bare `str` rather than a Literal, for the reason
-    # `HeldTenantOut.holds` is: the set grows whenever a signal does, and a generated
-    # client that had to be regenerated before it could DISPLAY a new signal would drop
-    # the row instead. The console fails visible on a name it does not know.
+    # `calls_stopped` | `outbound_blocked` | `outbound_waiting_on_client` |
+    # `spend_cap_near` | `deliveries_failing` | `knowledge_waiting` | `calls_unmetered`.
+    # A bare `str` rather than a Literal, for the reason `HeldTenantOut.holds` is: the set
+    # grows whenever a signal does, and a generated client that had to be regenerated
+    # before it could DISPLAY a new signal would drop the row instead. The console fails
+    # visible on a name it does not know.
     rule: str
     # `stop` = broken now; `warn` = will break. The board's whole ordering rests on this
     # distinction, so it is the server's answer and never the console's arithmetic.
@@ -103,6 +106,9 @@ class HealthSignalOut(BaseModel):
     # The number behind a countable signal, or None where the signal is a state. None and
     # 0 are different claims and the screen keeps them apart.
     count: int | None = None
+    # Who has to act for it to clear. `client` is never "broken now": the account is
+    # waiting on its own step (agreements, KYC, the pledge, credit).
+    waiting_on: Owner = "calevate"
 
 
 class ClientHealthOut(BaseModel):
@@ -130,6 +136,8 @@ class ClientHealthOut(BaseModel):
     # ask a four-day-old account why its calls stopped.
     calls_basis: CallBasis
     last_call_at: datetime | None
+    # On a free trial: outbound is test calls only. A state, never a signal.
+    on_trial: bool
     # Money as STRING (hard rule 7 at the boundary — see the module docstring).
     #
     # `spend_cap_inr` is the RUPEE ceiling in force, and None means there is no rupee
@@ -150,6 +158,7 @@ def _signal(signal: HealthSignal) -> HealthSignalOut:
         severity=signal.severity,
         causes=list(signal.causes),
         count=signal.count,
+        waiting_on=signal.waiting_on,
     )
 
 
@@ -166,6 +175,7 @@ def _out(row: ClientHealth) -> ClientHealthOut:
         calls_prev_7d=row.volume.calls_prev_7d,
         calls_basis=row.volume.basis,
         last_call_at=row.volume.last_call_at,
+        on_trial=row.on_trial,
         # `to_paise`, for the same reason and with the same measurement as D-375 on the
         # client's own wallet — this is the SECOND surface that skipped the one rounding
         # function, and it is the operator's half of the same pair of screens.
@@ -226,6 +236,7 @@ class TenantHealthOut(BaseModel):
     tenant_id: UUID
     severity: Severity | None
     signals: list[HealthSignalOut]
+    on_trial: bool
     spend_used_inr: str | None
     spend_cap_inr: str | None
 
@@ -254,6 +265,12 @@ async def read_tenant_health(
         raise ProblemError.not_found("Client")
     async with tenant_session(tenant_id) as scoped:
         row = await tenant_health(scoped, account=account)
+        # The healthy case has no row to carry it, and a trial is shown even then.
+        on_trial = (
+            row.on_trial
+            if row is not None
+            else await restricting_trial(scoped, tenant_id=tenant_id) is not None
+        )
     # Unlike the board (no per-poll rows, see the module docstring), this read names ONE
     # client, so it is in the ledger like every other per-tenant admin read — coalesced
     # per (admin, tenant) per window by the helper. 404 paths disclose nothing and write
@@ -266,6 +283,7 @@ async def read_tenant_health(
             tenant_id=tenant_id,
             severity=None,
             signals=[],
+            on_trial=on_trial,
             spend_used_inr=None,
             spend_cap_inr=None,
         )
@@ -274,6 +292,7 @@ async def read_tenant_health(
         tenant_id=tenant_id,
         severity=out.severity,
         signals=out.signals,
+        on_trial=on_trial,
         spend_used_inr=out.spend_used_inr,
         spend_cap_inr=out.spend_cap_inr,
     )

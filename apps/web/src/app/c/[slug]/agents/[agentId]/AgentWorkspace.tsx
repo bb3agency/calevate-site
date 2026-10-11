@@ -54,6 +54,7 @@ import { AgentHeader } from "./sections/agentHeader";
 import { CallHandlingSection, VoiceSection } from "./sections/deliverySections";
 import { Overview } from "./sections/overview";
 import { ScriptSection } from "./sections/scriptSection";
+import { TestSection } from "./test/TestSection";
 import { SectionRows, useAgentSections } from "./sections/agentSections";
 
 
@@ -151,8 +152,12 @@ function LiveAgent({ agent, slug, leadsLink }: { agent: Agent; slug: string; lea
                   <ScriptSection agent={agent} slug={slug} />
                 </>
               );
+            case "test":
+              return <TestSection agent={agent} slug={slug} />;
             case "voice":
               return <VoiceSection agent={agent} />;
+            case "model":
+              return <AgentModel agent={agent} slug={slug} />;
             case "calls":
               return <CallHandlingSection agent={agent} />;
             case "captured":
