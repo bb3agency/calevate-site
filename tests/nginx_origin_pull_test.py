@@ -88,8 +88,9 @@ def test_the_deploy_renders_the_switch_and_defaults_it_off() -> None:
 def test_a_proxied_response_carries_one_hsts_header_the_edges() -> None:
     proxy = _uncommented((SNIPPETS / "calevate-proxy.conf").read_text("utf-8"))
     headers = _uncommented((SNIPPETS / "calevate-headers.conf").read_text("utf-8"))
-    assert "proxy_hide_header Strict-Transport-Security;" in proxy
-    assert len(re.findall(r"add_header Strict-Transport-Security ", headers)) == 1
+    for name in ("Strict-Transport-Security", "X-Content-Type-Options", "X-Frame-Options"):
+        assert f"proxy_hide_header {name};" in proxy
+        assert len(re.findall(rf"add_header {name} ", headers)) == 1
 
 
 @pytest.mark.parametrize(
