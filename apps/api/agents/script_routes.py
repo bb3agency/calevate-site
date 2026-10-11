@@ -53,6 +53,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import publishing, script_builder, test_conversations
 from apps.api.agents.assist_leg import account_assist_leg
+from apps.api.agents.engine_limits import too_long_sentence
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
@@ -194,6 +195,16 @@ class SaveScriptOut(BaseModel):
     staged: bool
 
 
+class SizePartOut(BaseModel):
+    """One part of the instructions and its length. Never its text."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    label: str
+    chars: int
+
+
 class PreviewIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -213,6 +224,31 @@ class PreviewOut(BaseModel):
     instructions_limit: int | None = None
     #: Stages sent as the engine's own step list (0 where they stay in the text).
     native_steps: int = 0
+    #: How far `instructions_chars` is over the limit (0 when it fits).
+    over_chars: int = 0
+    #: The sentence to show when it is over, null when it fits.
+    too_long: str | None = None
+    #: The instructions by layer (Calevate's rules and the script) and the script by
+    #: section, longest first, so the owner can see what to shorten. Counts only.
+    layers: list[SizePartOut] = Field(default_factory=list)
+    script_parts: list[SizePartOut] = Field(default_factory=list)
+
+
+def preview_out(preview: script_builder.Preview) -> PreviewOut:
+    size = preview.size
+    return PreviewOut(
+        compiled=preview.compiled,
+        instructions_chars=preview.instructions_chars,
+        instructions_limit=preview.instructions_limit,
+        native_steps=preview.native_steps,
+        over_chars=size.over,
+        too_long=None if size.fits else too_long_sentence(size),
+        layers=[SizePartOut(key=p.key, label=p.label, chars=p.chars) for p in size.layers],
+        script_parts=[
+            SizePartOut(key=p.key, label=p.label, chars=p.chars)
+            for p in sorted(size.script_parts, key=lambda p: p.chars, reverse=True)
+        ],
+    )
 
 
 class AssistIn(BaseModel):
@@ -360,13 +396,7 @@ async def _knowledge_titles(session: AsyncSession) -> tuple[str, ...]:
 async def preview_script(
     agent_id: UUID, payload: PreviewIn, session: Session, _: ScriptReader
 ) -> PreviewOut:
-    preview = await script_builder.compiled_preview(session, agent_id, payload.script)
-    return PreviewOut(
-        compiled=preview.compiled,
-        instructions_chars=preview.instructions_chars,
-        instructions_limit=preview.instructions_limit,
-        native_steps=preview.native_steps,
-    )
+    return preview_out(await script_builder.compiled_preview(session, agent_id, payload.script))
 
 
 @router.put(
@@ -383,6 +413,7 @@ async def save_script(
     principal: ScriptWriter,
 ) -> SaveScriptOut:
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    await script_builder.refuse_if_too_long(session, agent_id, payload.script)
     saved = await script_builder.save_agent_script(
         session,
         tenant_id=principal.tenant_id,
@@ -982,6 +1013,9 @@ async def publish_script(
                     "script_nothing_to_publish", "There are no unpublished changes to put live."
                 )
             script = draft.script
+        # Before the version is stored or anything reaches the calling system: a script that
+        # cannot fit is refused here with its length, and the draft is kept.
+        await script_builder.refuse_if_too_long(session, agent_id, script)
         saved = await script_builder.save_agent_script(
             session,
             tenant_id=tenant_id,

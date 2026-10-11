@@ -22,7 +22,33 @@ import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
 import { StatusPill } from "@/components/console/statusPill";
 import { StickyPageBar } from "@/components/console/stickyPageBar";
 
+import type { PartLength } from "@/components/heldBackNotice";
+import type { PreviewOut } from "@/lib/api/script";
+
 import type { SaveState } from "./scriptDraft";
+
+/** How full the calling system's instructions box is, from the server's preview. */
+export interface Room {
+  used: number;
+  limit: number;
+  /** The server's sentence when the script is over the box, or null. */
+  tooLong: string | null;
+  /** The script's longest sections, to shorten first. */
+  longest: PartLength[];
+}
+
+export function roomFrom(preview: PreviewOut): Room | null {
+  if (!preview.instructions_limit || preview.instructions_chars === undefined) return null;
+  return {
+    used: preview.instructions_chars,
+    limit: preview.instructions_limit,
+    tooLong: preview.too_long ?? null,
+    longest: (preview.script_parts ?? [])
+      .filter((part) => part.key !== "fence")
+      .slice(0, 3)
+      .map(({ label, chars }) => ({ label, chars })),
+  };
+}
 
 export function saveLine(state: SaveState): string {
   switch (state.kind) {
@@ -60,7 +86,7 @@ export function ScriptToolbar({
   backHref: string;
   agentName: string;
   save: SaveState;
-  room: { used: number; limit: number } | null;
+  room: Room | null;
   unpublished: boolean;
   canWrite: boolean;
   writeReason: string | null;
@@ -73,6 +99,7 @@ export function ScriptToolbar({
   onHelper: () => void;
 }) {
   const warn = save.kind === "held" || save.kind === "conflict" || save.kind === "failed";
+  const tooLong = room !== null && room.used > room.limit;
   return (
     <StickyPageBar>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -109,10 +136,16 @@ export function ScriptToolbar({
             <button
               type="button"
               className={`${PRIMARY_BUTTON} max-sm:flex-1`}
-              disabled={!canWrite || publishing || save.kind === "held" || save.kind === "conflict"}
+              disabled={
+                !canWrite || publishing || save.kind === "held" || save.kind === "conflict" || tooLong
+              }
               title={
                 writeReason ??
-                (save.kind === "held" ? "Finish the marked parts first." : undefined)
+                (save.kind === "held"
+                  ? "Finish the marked parts first."
+                  : tooLong
+                    ? "Shorten the script first."
+                    : undefined)
               }
               onClick={onPublish}
             >

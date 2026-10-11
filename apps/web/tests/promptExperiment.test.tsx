@@ -6,7 +6,7 @@ import type { Experiment, ExperimentState } from "@/lib/api/publishing";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { browserOffline, problem, type Routes } from "./harness";
-import { agentRow, voiceCatalogue } from "./fixtures/sharedReads";
+import { agentCallHandling, agentRow, voiceCatalogue } from "./fixtures/sharedReads";
 /*
  * The agent page is a settings layout (D-661, D-657): one section is mounted at a time,
  * chosen by `?section=`. Each describe opens the section that owns its subject.
@@ -173,6 +173,7 @@ function render(routes: Partial<Routes> = {}) {
         permissions: ["agents:read", "agents:write"],
       },
       [HISTORY_PATH]: VERSIONS,
+      [`/v1/agents/${AGENT}/call-handling`]: agentCallHandling(AGENT),
       [PENDING_PATH]: {
         agent_id: AGENT,
         agent_status: "live",

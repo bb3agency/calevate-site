@@ -962,7 +962,12 @@ def test_the_verdict_for_outstanding_agreements_is_its_own_sentence() -> None:
     assert legal_routes._verdict(True, 0) == "Nothing is holding up your outgoing calls."
     generic = legal_routes._verdict(False, 0)
     assert "whose move each one is" in generic
-    assert "Calls coming in are unaffected" in generic
+    # The screen says inbound is unaffected once, under its checklist
+    # (`apps/web/tests/agreements.test.tsx`); a verdict that said it too printed it twice.
+    assert all(
+        "coming in" not in legal_routes._verdict(may, n).lower()
+        for may, n in ((True, 0), (False, 2), (False, 0))
+    )
 
 
 @pytest.mark.asyncio

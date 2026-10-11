@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import UTC, datetime
 from typing import Any, Final
 from uuid import UUID
 
@@ -36,6 +37,7 @@ from apps.api.agents.live_apply import (
     MAX_FAILURES_KEPT,
     converge_agent,
     failure_code,
+    failure_detail,
     is_permanent,
     queue_agent_retry,
     queue_platform_prompt_apply,
@@ -124,8 +126,16 @@ async def _record_failure(
     agent_id: UUID,
     code: str,
     was_retrying: bool,
+    detail: dict[str, Any] | None = None,
 ) -> None:
-    failure = {"tenant_id": str(tenant_id), "agent_id": str(agent_id), "code": code}
+    failure: dict[str, Any] = {
+        "tenant_id": str(tenant_id),
+        "agent_id": str(agent_id),
+        "code": code,
+        # When, so an agent that went live again afterwards stops showing it.
+        "at": datetime.now(UTC).isoformat(),
+        **(detail or {}),
+    }
     async with tenant_session(tenant_id) as session:
         name = (
             await session.execute(text("SELECT name FROM agents WHERE id = :a"), {"a": agent_id})
@@ -217,6 +227,7 @@ async def apply_live_settings(ctx: dict[str, Any], payload: dict[str, Any]) -> s
                     tenant_id=tenant_id,
                     agent_id=agent_id,
                     code=failure_code(exc),
+                    detail=failure_detail(exc),
                     was_retrying=False,
                 )
             else:
@@ -294,6 +305,7 @@ async def apply_live_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             tenant_id=tenant_id,
             agent_id=agent_id,
             code=code,
+            detail=failure_detail(exc),
             was_retrying=True,
         )
         return "failed"

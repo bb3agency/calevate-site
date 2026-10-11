@@ -52,6 +52,8 @@ from calevate_shared.engine import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import prompt_size
+from apps.api.agents.engine_limits import PromptTooLongError
 from apps.api.agents.prompts import insert_prompt_version, write_prompt_version
 from apps.api.agents.t0_block import block_of, splice_t0_block
 from apps.api.compliance.trial_access import restricting_trial
@@ -313,6 +315,8 @@ class Preview:
     instructions_limit: int | None
     #: How many stages go as the engine's own step list (0 where they stay in the text).
     native_steps: int
+    #: The same count by layer and script section, and how far over the box it is.
+    size: prompt_size.PromptSize
 
 
 async def compiled_preview(session: AsyncSession, agent_id: UUID, script: CallScript) -> Preview:
@@ -324,11 +328,10 @@ async def compiled_preview(session: AsyncSession, agent_id: UUID, script: CallSc
     last — which is the point of showing it: a client can watch the platform rules ride
     underneath their own script and cannot make them disappear from the preview.
 
-    A minimal `AgentConfig` is built rather than reusing `agents/service._to_config`,
-    because the preview must work for a script that has NOT been saved yet (there is no
-    `prompt_versions.body` to join) and for a brand-new agent with no script at all. The
-    fields compose actually reads are the system prompt and the opening line; the rest carry
-    honest values from the agent row so the preview is not a lie about which agent it is.
+    The config is the publish's own (`prompt_size.publish_config`, over `service._to_config`)
+    with this unsaved script standing in for the applied one, so the length meter and the
+    publish refusal count the same text (D-752). A minimal config built from the agent row
+    serves only an agent a publish would refuse anyway, such as one with no script yet.
     """
     row = await _agent_or_404(session, agent_id)
     body = compile_call_script(
@@ -362,7 +365,7 @@ async def compiled_preview(session: AsyncSession, agent_id: UUID, script: CallSc
     # preview that showed the recorded wording on a leg that records nothing would be the
     # one screen a reviewer trusts, lying in the same direction as the bug it guards.
     call_is_recorded = engine_capabilities().records_audio
-    config = AgentConfig(
+    fallback = AgentConfig(
         tenant_id="preview",
         agent_id=str(agent_id),
         name=str(row.name),
@@ -376,16 +379,44 @@ async def compiled_preview(session: AsyncSession, agent_id: UUID, script: CallSc
         callbacks_offered=can_call_back,
         # The hand-over destination is decided at publish from who is on duty then, so the
         # preview shows the wording for nobody on duty.
+        script_steps=steps,
     )
+    # The meter counts what a publish sends, built the way a publish builds it (languages,
+    # caller memory, a forwarded line, who is on duty); `fallback` serves only an agent a
+    # publish would refuse for another reason, such as an empty script.
+    engine = get_engine()
+    try:
+        config = await prompt_size.publish_config(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            engine=engine,
+            body=body,
+            structured_script=script.model_dump(mode="json"),
+        )
+    except ProblemError:
+        config = fallback
     prompt = compose_engine_prompt(config)
+    size = prompt_size.measure_config(config, engine)
     # On an engine with its own step list the stages are sent there, not in the prompt.
-    compiled = f"{prompt}\n\n{render_steps(steps)}" if steps else prompt
+    sent_steps = config.script_steps
+    compiled = f"{prompt}\n\n{render_steps(sent_steps)}" if sent_steps else prompt
     return Preview(
         compiled=compiled,
         instructions_chars=len(prompt),
         instructions_limit=limits.prompt_chars,
-        native_steps=len(steps),
+        native_steps=len(sent_steps),
+        size=size,
     )
+
+
+async def refuse_if_too_long(session: AsyncSession, agent_id: UUID, script: CallScript) -> None:
+    """Refuse a save or a "Put it live" whose instructions would not fit the engine's box,
+    before anything is stored or sent (`engine_limits.PromptTooLongError`, the publish
+    refusal's own sentence). The autosaved draft is never refused: it reaches no call."""
+    size = (await compiled_preview(session, agent_id, script)).size
+    if not size.fits:
+        raise PromptTooLongError(size)
 
 
 async def recompile_collect(

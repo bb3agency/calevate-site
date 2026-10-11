@@ -114,6 +114,27 @@ export const WHATSAPP_NEVER_ASKED = {
   delivery_unavailable_reason: "no_credential",
 } satisfies AlertOptIn;
 
+/** One agent's pause before replying and hang-up (D-751), all on Calevate's defaults. */
+export function agentCallHandling(agentId = "agent-1") {
+  return {
+    agent_id: agentId,
+    turn_silence_ms: null,
+    turn_silence_ms_effective: 250,
+    turn_silence_source: "platform",
+    end_call_on_finish: null,
+    end_call_on_finish_effective: true,
+    end_call_on_finish_source: "platform",
+    organization_turn_silence_ms: null,
+    organization_end_call_on_finish: null,
+    bounds: {
+      turn_silence_min_ms: 200,
+      turn_silence_max_ms: 3000,
+      platform_turn_silence_ms: 250,
+      platform_end_call_on_finish: true,
+    },
+  };
+}
+
 /** The lane rules — `GET /v1/agents/lanes`, with the platform's call-cap bounds. */
 export const LANES = {
   precedence_rule: "Script decides content.",

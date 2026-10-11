@@ -946,6 +946,7 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "caller_memory": ("voice.pastConversations",),
     "machine_detection": ("voice.detectMachines",),
     "end_call_on_finish": ("voice.endCallOnFinish",),
+    "turn_silence": ("voice.turnSilenceSeconds",),
     "ring_seconds": ("voice.ringSeconds",),
     "call_summaries": ("voice.summariseCalls",),
     "escalation": ("escalation",),
@@ -1071,12 +1072,23 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
                 same = isinstance(have, list) and have == want
             elif key == "steps":
                 same = _steps_held(have) == want
+            elif key == "voice.turnSilenceSeconds":
+                same = _same_seconds(want, have)
             else:
                 same = present and have == want and type(have) is type(want)
             if not same:
                 drifted.append(label)
                 break
     return drifted
+
+
+def _same_seconds(wanted: Any, held: Any) -> bool:
+    """A pause read back as the same whole milliseconds we sent. A JSON number may come back
+    as `0.7` or `0.70`, an integer for whole seconds, or `null` after a console reset to
+    the vendor default, which is drift: we always state the value."""
+    if isinstance(held, bool) or not isinstance(held, int | float):
+        return False
+    return round(held * 1000) == round(float(wanted) * 1000)
 
 
 def other_surfaces(agent: dict[str, Any]) -> list[str]:
@@ -1376,13 +1388,17 @@ class ThinnestEngine:
             "ringSeconds": RING_SECONDS,
             "summariseCalls": True,
             "pastConversations": "recap" if cfg.caller_memory_enabled else "fresh",
-            # Release the line when the agent ends the conversation. A new agent starts with
-            # it OFF, so the line stays open, billed, until the caller hangs up, and the
-            # agent's goodbye releases nothing (docs.thinnest.ai api-reference/agents/
-            # update-agent `voice.endCallOnFinish` and channels/voice "Releasing the line",
-            # read 11 Oct 2026; the 8 Oct mirror still said it was on for every agent).
-            # When to end is the prompt's rule: only after a goodbye, never mid-question.
-            "endCallOnFinish": True,
+            # Release the line when the agent ends the conversation: a boolean, and a new
+            # agent starts with it OFF, so the line stays open, billed, until the caller
+            # hangs up (docs.thinnest.ai api-reference/agents/update-agent and create-agent
+            # `voice.endCallOnFinish`, read 11 Oct 2026). The client's setting, on unless
+            # they switch it off (D-749, D-751). When to end is the prompt's rule.
+            "endCallOnFinish": cfg.end_call_on_finish,
+            # Seconds of quiet that end the caller's turn, a number 0.2 to 3 that reads back
+            # null until set, "0.25 s on most lines" (same pages, read 11 Oct 2026). Always
+            # stated, so a console reset to null reads as drift. Whole milliseconds on our
+            # side (`agents/call_handling`), divided only here.
+            "turnSilenceSeconds": cfg.turn_silence_ms / 1000,
         }
         if cfg.engine_voice_id and cfg.engine_byok_voice_id:
             raise _business_refusal(

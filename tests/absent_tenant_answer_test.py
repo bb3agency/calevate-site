@@ -93,6 +93,11 @@ BODIES: dict[str, dict[str, Any] | None] = {
         "experiment_id": str(uuid.uuid4())
     },
     "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-cap": {"max_call_duration_s": 300},
+    # The pause before replying and the hang-up (D-751).
+    "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling": None,
+    "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling": {
+        "end_call_on_finish": False
+    },
     # THE TEAM ROSTER (D-602). A CAS body, so BOTH roles are required or the route answers
     # `kind=validation` before it ever looks the tenant up — which is exactly the mask this
     # census exists to strip off: a 422 there would hide whatever the route really does

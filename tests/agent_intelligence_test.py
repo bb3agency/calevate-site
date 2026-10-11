@@ -489,7 +489,7 @@ def test_instructions_over_the_console_ceiling_are_refused() -> None:
     with pytest.raises(ProblemError) as refused:
         refuse_over_engine_limits(_thinnest(), _cfg("word " * 1_800))
     assert refused.value.code == PROMPT_TOO_LONG
-    assert "8,000" in refused.value.detail
+    assert "characters too long for the calling system" in refused.value.detail
 
 
 # --- conversion round trip and the draft (founder decisions 4 and 6) -----------------------

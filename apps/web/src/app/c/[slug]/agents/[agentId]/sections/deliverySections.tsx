@@ -10,11 +10,13 @@
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import { SettingRows } from "@/components/console/settingRow";
 import type { Agent } from "@/lib/api/agents";
+import { pauseLabel, sourceLabel, useAgentCallHandling } from "@/lib/api/callHandling";
 import { usePendingChanges } from "@/lib/api/publishing";
 import { useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
+import { AgentCallHandlingRows } from "../../panels/callHandling";
 import { CallerContinuity } from "../../panels/callerContinuity";
 import { CallCapChoice, VoiceChoice } from "../../panels/delivery";
 import { Handover } from "../../panels/handover";
@@ -48,6 +50,9 @@ export function VoiceSection({ agent }: { agent: Agent }) {
 
 export function CallHandlingSection({ agent }: { agent: Agent }) {
   const pending = usePending(agent.id);
+  const session = useClientSession();
+  const handling = useAgentCallHandling(session, agent.id);
+  const unread = handling.error ? "could not be read" : "still loading";
   useCopilotSurface({
     route: "/c/{slug}/agents/{id}",
     title: "Agent: call handling",
@@ -66,6 +71,20 @@ export function CallHandlingSection({ agent }: { agent: Agent }) {
         value: pending.data ? (pending.data.worst_case_call_cost_inr ?? "no limit set") : "not loaded",
       },
       { key: "caller_memory", label: "Remembers callers between calls", value: agent.caller_memory_enabled ? "yes" : "no" },
+      {
+        key: "pause_before_reply",
+        label: "Pause before the agent replies",
+        value: handling.data
+          ? `${pauseLabel(handling.data.turn_silence_ms_effective)}, ${sourceLabel(handling.data.turn_silence_source).toLowerCase()}`
+          : unread,
+      },
+      {
+        key: "hang_up_when_finished",
+        label: "Hangs up when the conversation ends",
+        value: handling.data
+          ? `${handling.data.end_call_on_finish_effective ? "yes" : "no, the call stays connected and charged until the caller hangs up"}, ${sourceLabel(handling.data.end_call_on_finish_source).toLowerCase()}`
+          : unread,
+      },
     ],
     apply: noFill,
   });
@@ -84,6 +103,7 @@ export function CallHandlingSection({ agent }: { agent: Agent }) {
           <WorstCaseCost state={pending.data} />
         </SettingRows>
       )}
+      <AgentCallHandlingRows agentId={agent.id} />
       <Handover agent={agent} />
       <CallerContinuity agent={agent} />
     </div>

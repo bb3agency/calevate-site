@@ -15,6 +15,7 @@ import {
   formatIST,
 } from "@/components/ui";
 import type { useAdminAccess } from "@/app/admin/access";
+import { HeldBackNotice } from "@/components/heldBackNotice";
 import {
   useApplyChanges,
   usePublishAgent,
@@ -240,6 +241,7 @@ export function PublishingPanel({
         {error != null && <ProblemNotice error={error} onRetry={onRetry} />}
         {apply.error && <ProblemNotice error={apply.error} />}
         {undo.error && <ProblemNotice error={undo.error} />}
+        {pending?.held_back && <HeldBackNotice held={pending.held_back} />}
 
         {isLoading && !pending ? (
           <Skeleton rows={2} />

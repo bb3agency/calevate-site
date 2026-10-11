@@ -158,6 +158,13 @@ CALL_CAP_DEFAULT_S = 600
 CALL_CAP_MIN_S = 60
 CALL_CAP_MAX_S = 3600
 
+# The pause before an agent replies (D-751): ThinnestAI's `voice.turnSilenceSeconds` range,
+# 0.2 to 3 seconds (docs.thinnest.ai api-reference/agents/update-agent, read 11 Oct 2026), in
+# milliseconds. NULL inherits (`agents/call_handling.resolve_turn_silence`). Migration
+# c2e7a9d4f6b1; the account default on `organizations` carries the same range.
+TURN_SILENCE_MIN_MS = 200
+TURN_SILENCE_MAX_MS = 3000
+
 
 class Agent(PKMixin, TimestampMixin, Base):
     __tablename__ = "agents"
@@ -252,6 +259,11 @@ class Agent(PKMixin, TimestampMixin, Base):
             f"max_call_duration_s IS NULL OR (max_call_duration_s >= {CALL_CAP_MIN_S} "
             f"AND max_call_duration_s <= {CALL_CAP_MAX_S})",
             name="ck_agents_max_call_duration_range",
+        ),
+        CheckConstraint(
+            f"turn_silence_ms IS NULL OR (turn_silence_ms >= {TURN_SILENCE_MIN_MS} "
+            f"AND turn_silence_ms <= {TURN_SILENCE_MAX_MS})",
+            name="turn_silence_range",
         ),
         # A floor, not the offer (migration b7e2d94f1a30): which ids may be chosen is a
         # live catalogue read decided at publish by `agents/engine_choice.py`.
@@ -369,6 +381,10 @@ class Agent(PKMixin, TimestampMixin, Base):
     # NULL = the platform default (CALL_CAP_DEFAULT_S), NEVER unlimited. There is no
     # value of this column, and no absence of one, that publishes an uncapped agent.
     max_call_duration_s: Mapped[int | None] = mapped_column(Integer)
+    # The pause before the agent replies and whether it hangs up when it has finished
+    # (D-751). NULL inherits the account's default, then Calevate's.
+    turn_silence_ms: Mapped[int | None] = mapped_column(Integer)
+    end_call_on_finish: Mapped[bool | None] = mapped_column(Boolean)
     business_hours: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     escalation_config: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     # THE PER-AGENT MASTER SWITCH for in-call Actions/tools (migration

@@ -24,11 +24,11 @@ from datetime import UTC, datetime
 from calevate_shared.engine import (
     AgentConfig,
     VoiceEngine,
-    compose_engine_prompt,
     compose_first_utterance,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.prompt_size import PromptSize, measure
 from apps.api.billing.engine_minutes import (
     ATTESTED_MINUTE_ENGINES,
     BASE_RATE_KEY,
@@ -87,42 +87,55 @@ def refuse_over_engine_limits(engine: VoiceEngine, cfg: AgentConfig) -> None:
         )
 
 
+class PromptTooLongError(ProblemError):
+    """`engine_prompt_too_long`, carrying the measurement so a live-apply failure and a
+    screen can say how far over and which parts are longest (counts only)."""
+
+    def __init__(self, size: PromptSize) -> None:
+        self.size = size
+        longest = ", ".join(f"{p.label.lower()} {p.chars:,}" for p in size.longest_script_parts())
+        super().__init__(
+            kind="business_rule",
+            code=PROMPT_TOO_LONG,
+            title="This script is too long for the calling system",
+            detail=too_long_sentence(size),
+            remediation=(
+                "Shorten the longest parts of your script"
+                + (f" ({longest} characters)" if longest else "")
+                + ", or move product and price details into Knowledge, which the agent "
+                "searches. The rules Calevate adds cannot be shortened: they make the agent "
+                "answer truthfully about being an AI and about recording."
+            ),
+        )
+
+
+def too_long_sentence(size: PromptSize) -> str:
+    """The one sentence every surface shows for a script over the box."""
+    return too_long_message(size.over)
+
+
+def too_long_message(over: int) -> str:
+    return (
+        f"Your script is {over:,} characters too long for the calling system; "
+        "shorten it to put it live."
+    )
+
+
 def _check_prompt(engine: VoiceEngine, cfg: AgentConfig, cap: int) -> None:
-    composed = len(compose_engine_prompt(cfg))
-    if composed <= cap:
+    size = measure(cfg, cap)
+    if size.fits:
         return
-    script = len((cfg.system_prompt or "").strip())
-    over = composed - cap
-    # What the platform adds (rules, opening line, languages) is fixed by the agent's own
-    # settings, so the room left for the client's script is the cap minus that.
-    room = max(cap - (composed - script), 0)
     log.warning(
         "agent_publish_refused_engine_limit",
         extra={
             "agent_id": cfg.agent_id,
             "engine": engine.name,
             "reason": PROMPT_TOO_LONG,
-            "composed_chars": composed,
+            "composed_chars": size.total,
             "cap_chars": cap,
         },
     )
-    raise ProblemError(
-        kind="business_rule",
-        code=PROMPT_TOO_LONG,
-        title="This agent's instructions are too long to publish",
-        detail=(
-            f"With Calevate's required rules added, this agent's instructions come to "
-            f"{composed:,} characters, and the voice platform this account uses holds at "
-            f"most {cap:,}. Nothing was shortened and nothing was published."
-        ),
-        remediation=(
-            f"Shorten the agent's script by at least {over:,} characters (it can be up to "
-            f"{room:,} characters long), then publish again. Move prices, products and other "
-            "facts into Knowledge, which the agent searches, and keep quick facts and "
-            "objections short. The required rules cannot be shortened: they are what makes "
-            "the agent answer truthfully about being an AI and about recording."
-        ),
-    )
+    raise PromptTooLongError(size)
 
 
 def _opening_too_long(
@@ -153,8 +166,11 @@ __all__ = [
     "OPENING_REQUIRED",
     "OPENING_TOO_LONG",
     "PROMPT_TOO_LONG",
+    "PromptTooLongError",
     "refuse_over_engine_limits",
     "refuse_unpriced_engine",
+    "too_long_message",
+    "too_long_sentence",
 ]
 
 

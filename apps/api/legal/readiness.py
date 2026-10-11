@@ -112,7 +112,7 @@ ROW_COPY: dict[str, _Copy] = {
         actor="client",
         next_step=(
             "The account owner reads each agreement and accepts it on this screen. "
-            "Nobody else — not another admin here, not Calevate — can accept for them."
+            "Nobody else can accept for them: not another admin here, and not Calevate."
         ),
     ),
     "big_red_switch": _Copy(
@@ -195,42 +195,33 @@ ROW_COPY: dict[str, _Copy] = {
             "manager will tell you if the carrier needs anything more from you."
         ),
     ),
+    # The four notice steps say only what to DO. They are rendered beside the gate's own
+    # reason, which already says what the notice is, whose duty it is and that inbound is
+    # unaffected; repeating it here is what made the client screen print it twice.
     "autodialer_notice_missing": _Copy(
         title="Your autodialler notice to your access provider",
         actor="client",
         next_step=(
-            "Tell the provider that supplies your outbound line, in writing, that these "
-            "calls are placed by an automated dialler and what they are for, then record "
-            "the date here. TRAI puts that notice on the sender of the calls, which is "
-            "your business rather than Calevate, so it is not something we can send for "
-            "you. Answering incoming calls is unaffected."
+            "Send the notice, then record the provider, the date on it and the numbers it "
+            "names on your Agreements screen."
         ),
     ),
     "autodialer_notice_withdrawn": _Copy(
         title="Your autodialler notice has been withdrawn",
         actor="client",
-        next_step=(
-            "Give the notice to your access provider again and record it here to resume "
-            "outbound campaigns. Answering incoming calls is unaffected."
-        ),
+        next_step="Give the notice again, then record it on your Agreements screen.",
     ),
     "autodialer_notice_not_yet_effective": _Copy(
         title="Your autodialler notice has not taken effect yet",
         actor="client",
-        next_step=(
-            "Nothing is wrong with the paperwork — the date you recorded is in the "
-            "future. Outbound campaigns start once it arrives. Answering incoming calls "
-            "is unaffected."
-        ),
+        next_step="Nothing to fix. Outgoing calls can start on the date your notice bears.",
     ),
     "autodialer_notice_cli_undeclared": _Copy(
         title="A number your agents call from is not on your autodialler notice",
         actor="client",
         next_step=(
-            "Add the missing number to your notice, send the updated notice to the "
-            "provider that supplies your outbound line, and record it here. The notice "
-            "screen lists the numbers it does not yet name. Calls from them stay stopped "
-            "until then; answering incoming calls is unaffected."
+            "Add the number to your notice, send it again, then record it on your "
+            "Agreements screen, which lists the numbers the notice does not name yet."
         ),
     ),
     "tm_registration_missing": _Copy(

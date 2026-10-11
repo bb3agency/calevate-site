@@ -69,7 +69,8 @@ import {
 import { OpeningSection, StrictnessSection, VariableBar, type Focusable } from "./ScriptSections";
 import { ScriptParts } from "./ScriptParts";
 import { AssistPanel } from "./AssistPanel";
-import { CompiledPrompt, ScriptToolbar } from "./ScriptToolbar";
+import { CompiledPrompt, ScriptToolbar, roomFrom, type Room } from "./ScriptToolbar";
+import { HeldBackNotice, TooLongNotice } from "@/components/heldBackNotice";
 import { scriptCopilotFields } from "./scriptSurface";
 import {
   AUTOSAVE_DELAY_MS,
@@ -224,7 +225,7 @@ function Editor({
   const [publishing, setPublishing] = useState(false);
   const [published, setPublished] = useState<{ live: boolean } | null>(null);
   const [compiled, setCompiled] = useState<string | null>(null);
-  const [room, setRoom] = useState<{ used: number; limit: number } | null>(null);
+  const [room, setRoom] = useState<Room | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [toText, setToText] = useState(false);
   const [undoTo, setUndoTo] = useState<CallScript | null>(null);
@@ -304,19 +305,15 @@ function Editor({
     return () => clearTimeout(timer);
   }, [script, dirty, write.allowed, conflict, saveFailed, issues.length, pendingSave, publishing, store]);
 
-  // The room-left meter, from the server's own count of the instructions it would send.
+  // The room-left meter, from the server's own count of everything the calling system
+  // receives: Calevate's rules as well as the script, hand-written or in steps.
   const previewMutate = previewMut.mutate;
   useEffect(() => {
     if (issues.length > 0) return;
     const timer = setTimeout(
       () =>
         previewMutate(script, {
-          onSuccess: (r) =>
-            setRoom(
-              r.instructions_limit && r.instructions_chars !== undefined
-                ? { used: r.instructions_chars, limit: r.instructions_limit }
-                : null,
-            ),
+          onSuccess: (r) => setRoom(roomFrom(r)),
         }),
       PREVIEW_DELAY_MS,
     );
@@ -419,7 +416,7 @@ function Editor({
         backHref={backHref}
         agentName={agentName}
         save={save}
-        room={raw ? null : room}
+        room={room}
         unpublished={unpublished}
         canWrite={write.allowed}
         writeReason={write.reason}
@@ -472,6 +469,8 @@ function Editor({
       )}
       {saveDraft.error && !conflict && saveFailed && <ProblemNotice error={saveDraft.error} />}
       {previewMut.error && <ProblemNotice error={previewMut.error} />}
+      {pending.data?.held_back && <HeldBackNotice held={pending.data.held_back} />}
+      {room?.tooLong && <TooLongNotice message={room.tooLong} longest={room.longest} />}
       {published && (
         <NoticeBox tone="ok" title={published.live ? "It is live" : "Saved as the agent's script"}>
           <p className="mt-1 text-meta">

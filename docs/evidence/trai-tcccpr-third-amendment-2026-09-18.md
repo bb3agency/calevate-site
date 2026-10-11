@@ -82,3 +82,44 @@ known.
    settings surface, when one is built, takes its lower bound from the real appeal horizon
    (the complaint window, the resolution time and the 15-day appeal), which needs the
    operative text.
+
+## 4. Addendum, 11 Oct 2026: regulation 4 read from TRAI's own text
+
+TRAI's PDFs were readable from the dev workstation on 11 Oct 2026 (the build container
+still cannot reach `trai.gov.in`).
+
+* **PRIMARY-REGULATORY.** TCCCPR (Second Amendment) Regulations, 2025 (1 of 2025),
+  No. RG-25/(25)/2023-QoS, dated 12 Feb 2025
+  (<https://www.trai.gov.in/sites/default/files/2025-02/Regulation_12022025.pdf>), reg. 4
+  substitutes principal reg. 4 with: *"4. Intimation regarding use of Auto Dialer or
+  Robo-Calls.-- Every Sender shall notify the Originating Access Provider, in advance,
+  about the use of Auto Dialer or Robo-Calls as well as the intended objective of such
+  calls in writing."* In force thirty days after Gazette publication (reg. 1(3)). The
+  explanatory memorandum (§E para 18; analysis para 52) gives the purpose: so the access
+  provider can scrub such calls against customer preferences and block them. The quoted
+  text matches what this repository held as REPORTED since 13 Sep 2026.
+* **PRIMARY-REGULATORY (draft, not law).** TRAI consultation of 13 Mar 2026 on the Third
+  Amendment (<https://www.trai.gov.in/sites/default/files/2026-03/Draft_CP_13032026_0.pdf>),
+  Annexure II consolidated text: "Originating Access Provider" (OAP) means "the Access
+  Provider who has provided the telecom resources to a sender"; "Access Providers" are
+  the licensed basic, cellular, unified/universal access providers and VNOs; "Sender"
+  (reg. 2(bf)) includes whoever owns the number or header, asserts the CLI, causes the
+  call, or whose goods or services are offered. The draft reg. 4 would read: "Every Sender
+  shall declare to the Originating Access Provider, in advance, about the use of
+  Application-to-Person (A2P) calls", with a proviso that an undeclared call is UCC. The
+  draft drops "in writing" and "intended objective". A2P is defined (2(ea)) to include
+  "prerecorded/ artificial voice technologies".
+* **UNVERIFIED.** The final Third Amendment (05 of 2026, 18 Sep 2026,
+  `.../2026-09/Regulation_18092026.pdf`) is over 10 MB and was not read; TRAI's press
+  release No. 119/2026 is a scanned image with no text layer. Web-secondary summaries
+  (teamleaseregtech.com, cavalier.in, read 11 Oct 2026) say A2P calls must be declared in
+  advance to the OAP, with the CLIs, and recorded on the DLT platform. A search-engine
+  excerpt of the Gazette text says its reg. 4 (among others) commences sixty days after
+  publication; whether that is the A2P declaration is not confirmed.
+* **ThinnestAI.** Its docs name no telecom operator for rented numbers
+  (`thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/phone-numbers/rent-phone-number.md:628-634`:
+  `provider` is null for a rented number) and say only that the business details "go to
+  India's numbering authority in the business's name" (`send-business-details.md:340`).
+  So on `ENGINE=thinnest` the OAP for a client's calls is UNKNOWN, and a client has no
+  documented route to it. Asked: `docs/vendor/thinnest-api-requests-2026-10-10.md`,
+  queued item 10.

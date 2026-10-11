@@ -1817,6 +1817,134 @@
         "title": "AdminReplaceIn",
         "type": "object"
       },
+      "AgentCallHandlingIn": {
+        "additionalProperties": false,
+        "description": "Either or both. A field left out is untouched; `null` goes back to inheriting.",
+        "properties": {
+          "end_call_on_finish": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Call On Finish"
+          },
+          "turn_silence_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Silence Ms"
+          }
+        },
+        "title": "AgentCallHandlingIn",
+        "type": "object"
+      },
+      "AgentCallHandlingOut": {
+        "additionalProperties": false,
+        "description": "One agent's two settings: its own value (`null` inherits), the value in force and the\nlevel that chose it (`agent`, `organization` or `platform`).",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "bounds": {
+            "$ref": "#/components/schemas/CallHandlingBoundsOut"
+          },
+          "end_call_on_finish": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Call On Finish"
+          },
+          "end_call_on_finish_effective": {
+            "title": "End Call On Finish Effective",
+            "type": "boolean"
+          },
+          "end_call_on_finish_source": {
+            "enum": [
+              "agent",
+              "organization",
+              "platform"
+            ],
+            "title": "End Call On Finish Source",
+            "type": "string"
+          },
+          "organization_end_call_on_finish": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization End Call On Finish"
+          },
+          "organization_turn_silence_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Turn Silence Ms"
+          },
+          "turn_silence_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Silence Ms"
+          },
+          "turn_silence_ms_effective": {
+            "title": "Turn Silence Ms Effective",
+            "type": "integer"
+          },
+          "turn_silence_source": {
+            "enum": [
+              "agent",
+              "organization",
+              "platform"
+            ],
+            "title": "Turn Silence Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "turn_silence_ms",
+          "turn_silence_ms_effective",
+          "turn_silence_source",
+          "end_call_on_finish",
+          "end_call_on_finish_effective",
+          "end_call_on_finish_source",
+          "organization_turn_silence_ms",
+          "organization_end_call_on_finish",
+          "bounds"
+        ],
+        "title": "AgentCallHandlingOut",
+        "type": "object"
+      },
       "AgentChargeOut": {
         "additionalProperties": false,
         "description": "What one agent added to this month's bill. No cost field, and there never is one.",
@@ -5612,6 +5740,36 @@
           "signals"
         ],
         "title": "CallDetailOut",
+        "type": "object"
+      },
+      "CallHandlingBoundsOut": {
+        "additionalProperties": false,
+        "description": "What may be chosen and what Calevate's own defaults are.",
+        "properties": {
+          "platform_end_call_on_finish": {
+            "title": "Platform End Call On Finish",
+            "type": "boolean"
+          },
+          "platform_turn_silence_ms": {
+            "title": "Platform Turn Silence Ms",
+            "type": "integer"
+          },
+          "turn_silence_max_ms": {
+            "title": "Turn Silence Max Ms",
+            "type": "integer"
+          },
+          "turn_silence_min_ms": {
+            "title": "Turn Silence Min Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "turn_silence_min_ms",
+          "turn_silence_max_ms",
+          "platform_turn_silence_ms",
+          "platform_end_call_on_finish"
+        ],
+        "title": "CallHandlingBoundsOut",
         "type": "object"
       },
       "CallLeadIn": {
@@ -18232,6 +18390,79 @@
         "title": "HealthSignalOut",
         "type": "object"
       },
+      "HeldBackOut": {
+        "additionalProperties": false,
+        "description": "An update the live agent did not take, so callers still hear its previous settings.\n\nFrom the newest `live_apply_runs` failure for this agent since it last went live. The\nowner sees `message` on the Script page and the operator on the agent's page.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "failed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed At"
+          },
+          "limit_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Chars"
+          },
+          "longest": {
+            "items": {
+              "$ref": "#/components/schemas/SizeOut"
+            },
+            "title": "Longest",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "over_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Over Chars"
+          },
+          "total_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Chars"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "failed_at"
+        ],
+        "title": "HeldBackOut",
+        "type": "object"
+      },
       "HeldLeadOut": {
         "properties": {
           "agent_id": {
@@ -23856,17 +24087,55 @@
             "title": "Code",
             "type": "string"
           },
+          "limit_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Chars"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "over_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Over Chars"
+          },
           "tenant_id": {
             "format": "uuid",
             "title": "Tenant Id",
             "type": "string"
+          },
+          "total_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Chars"
           }
         },
         "required": [
           "tenant_id",
           "agent_id",
           "agent_name",
-          "code"
+          "code",
+          "message"
         ],
         "title": "LiveApplyFailureOut",
         "type": "object"
@@ -26316,6 +26585,87 @@
         "title": "OperatorsOut",
         "type": "object"
       },
+      "OrganizationCallHandlingIn": {
+        "additionalProperties": false,
+        "description": "Both, required: the body states the whole resource, so `null` is \"follow Calevate\".",
+        "properties": {
+          "end_call_on_finish": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Call On Finish"
+          },
+          "turn_silence_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Silence Ms"
+          }
+        },
+        "required": [
+          "turn_silence_ms",
+          "end_call_on_finish"
+        ],
+        "title": "OrganizationCallHandlingIn",
+        "type": "object"
+      },
+      "OrganizationCallHandlingOut": {
+        "additionalProperties": false,
+        "properties": {
+          "bounds": {
+            "$ref": "#/components/schemas/CallHandlingBoundsOut"
+          },
+          "end_call_on_finish": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Call On Finish"
+          },
+          "end_call_on_finish_effective": {
+            "title": "End Call On Finish Effective",
+            "type": "boolean"
+          },
+          "turn_silence_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Silence Ms"
+          },
+          "turn_silence_ms_effective": {
+            "title": "Turn Silence Ms Effective",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "turn_silence_ms",
+          "turn_silence_ms_effective",
+          "end_call_on_finish",
+          "end_call_on_finish_effective",
+          "bounds"
+        ],
+        "title": "OrganizationCallHandlingOut",
+        "type": "object"
+      },
       "OrganizationOut": {
         "additionalProperties": false,
         "properties": {
@@ -27375,6 +27725,16 @@
             "title": "Has Pending",
             "type": "boolean"
           },
+          "held_back": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HeldBackOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "pending": {
             "items": {
               "$ref": "#/components/schemas/PendingChangeOut"
@@ -28245,10 +28605,40 @@
             ],
             "title": "Instructions Limit"
           },
+          "layers": {
+            "items": {
+              "$ref": "#/components/schemas/SizePartOut"
+            },
+            "title": "Layers",
+            "type": "array"
+          },
           "native_steps": {
             "default": 0,
             "title": "Native Steps",
             "type": "integer"
+          },
+          "over_chars": {
+            "default": 0,
+            "title": "Over Chars",
+            "type": "integer"
+          },
+          "script_parts": {
+            "items": {
+              "$ref": "#/components/schemas/SizePartOut"
+            },
+            "title": "Script Parts",
+            "type": "array"
+          },
+          "too_long": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Too Long"
           }
         },
         "required": [
@@ -33368,6 +33758,50 @@
           "email"
         ],
         "title": "SignupStartIn",
+        "type": "object"
+      },
+      "SizeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "chars": {
+            "title": "Chars",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "chars"
+        ],
+        "title": "SizeOut",
+        "type": "object"
+      },
+      "SizePartOut": {
+        "additionalProperties": false,
+        "description": "One part of the instructions and its length. Never its text.",
+        "properties": {
+          "chars": {
+            "title": "Chars",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "chars"
+        ],
+        "title": "SizePartOut",
         "type": "object"
       },
       "SourceOut": {
@@ -45153,6 +45587,96 @@
         "x-calevate-permission": "admin:operators"
       }
     },
+    "/v1/admin/organizations/{org_id}/call-handling": {
+      "get": {
+        "description": "The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.",
+        "operationId": "admin_get_organization_call_handling_v1_admin_organizations__org_id__call_handling_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Org Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationCallHandlingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One client's default pause before replying and hang-up",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
+      "put": {
+        "description": "The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.",
+        "operationId": "admin_set_organization_call_handling_v1_admin_organizations__org_id__call_handling_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Org Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrganizationCallHandlingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationCallHandlingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set one client's default pause before replying and hang-up",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/organizations/{org_id}/llm-defaults": {
       "get": {
         "description": "The language model one client's agents run when the agent itself names none, with the real model identifiers the client realm never sees (it reads tiers).\n\nEach row carries TWO figures of different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to the client's bill per minute. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call. `tier` is the word the client reads for the model. `agents` lists each agent with the model it runs and the level that chose it.\n\nA row with `is_available: false` cannot be chosen; `unavailable_reason` says what is missing.",
@@ -46265,6 +46789,116 @@
         "summary": "Set the per-agent max call length \u2014 the cost-runaway guard (\u00a72b:107)",
         "tags": [
           "agents",
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling": {
+      "get": {
+        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.",
+        "operationId": "admin_get_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCallHandlingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One client agent's pause before replying and hang-up",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
+      "patch": {
+        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.",
+        "operationId": "admin_set_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentCallHandlingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCallHandlingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set one client agent's pause before replying and hang-up",
+        "tags": [
           "admin"
         ],
         "x-calevate-permission": "agents:write"
@@ -51431,6 +52065,96 @@
           "agents"
         ],
         "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/agents/{agent_id}/call-handling": {
+      "get": {
+        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.",
+        "operationId": "get_agent_call_handling_v1_agents__agent_id__call_handling_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCallHandlingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The pause before an agent replies, and whether it hangs up when finished",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "patch": {
+        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.",
+        "operationId": "set_agent_call_handling_v1_agents__agent_id__call_handling_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentCallHandlingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCallHandlingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set an agent's pause before replying and hang-up, or let it inherit",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/agents/{agent_id}/caller-memory": {
@@ -68052,6 +68776,72 @@
           "ops"
         ],
         "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/organization/call-handling": {
+      "get": {
+        "description": "The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.",
+        "operationId": "get_organization_call_handling_v1_organization_call_handling_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationCallHandlingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This account's default pause before replying and hang-up",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "put": {
+        "description": "The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.",
+        "operationId": "set_organization_call_handling_v1_organization_call_handling_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrganizationCallHandlingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationCallHandlingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set this account's default pause before replying and hang-up",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/organization/llm-defaults": {

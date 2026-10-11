@@ -157,6 +157,8 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         "summariseCalls": True,
         "pastConversations": "fresh",
         "endCallOnFinish": True,
+        # Always stated: 0.25 s, Calevate's default (D-751).
+        "turnSilenceSeconds": 0.25,
         "voice": None,
     }
     assert body["collectFields"] == [] and body["captureLeads"] is False

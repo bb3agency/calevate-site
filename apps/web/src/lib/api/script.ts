@@ -211,13 +211,27 @@ interface SaveScriptOut {
   staged: boolean;
 }
 
-interface PreviewOut {
+/** One part of what the calling system receives, and its length. Never its text. */
+export interface SizePart {
+  key: string;
+  label: string;
+  chars: number;
+}
+
+export interface PreviewOut {
   compiled: string;
-  /** Characters of the instructions text and the engine's ceiling (null: none). */
+  /** Characters of everything the calling system receives (Calevate's rules and the
+   *  script) and its ceiling (null: none). */
   instructions_chars?: number;
   instructions_limit?: number | null;
   /** Stages sent as the engine's own step list. */
   native_steps?: number;
+  /** How far over the ceiling, and the sentence to show then (null when it fits). */
+  over_chars?: number;
+  too_long?: string | null;
+  layers?: SizePart[];
+  /** The script's own sections, longest first. */
+  script_parts?: SizePart[];
 }
 
 /** The five short questions the owner answers; keys match the server's OWNER_QUESTIONS. */

@@ -245,7 +245,9 @@ async def update_fact(
     asked = current.question if question is None else question
     if to_pinned:
         q, a = pinned_store.clean_pinned(asked, answer)
-        await pinned_store.assert_room(session, adding=[(q or "", a)], replacing=fact_id)
+        await pinned_store.assert_room(
+            session, adding=[(q or "", a)], replacing=fact_id, tenant_id=tenant_id
+        )
     else:
         q, a = None, clean_fact(answer)
     position_sql = ""

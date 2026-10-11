@@ -41,6 +41,11 @@ function routes() {
   return { "/v1/me": OWNER, "/v1/compliance/autodialer-notice": MISSING_ONE };
 }
 
+/** The form starts closed; a client opens it before typing. */
+function openForm() {
+  fireEvent.click(screen.getByRole("button", { name: /Record a new notice/ }));
+}
+
 function fill(label: string, value: string) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 }
@@ -58,6 +63,7 @@ describe("the numbers on the autodialer notice", () => {
   it("will not record a notice that names no number", async () => {
     await renderClientPage(<AutodialerNoticePanel />, routes());
     await screen.findByText("+911409876543");
+    openForm();
 
     fill("Which operator did you tell?", "Airtel");
     fill("What is the date on your letter?", "2026-09-20");
@@ -70,6 +76,7 @@ describe("the numbers on the autodialer notice", () => {
   it("adds the missing numbers in one press and sends them", async () => {
     const { calls } = await renderClientPage(<AutodialerNoticePanel />, routes());
     await screen.findByText("+911409876543");
+    openForm();
 
     fill("Which operator did you tell?", "Airtel");
     fill("What is the date on your letter?", "2026-09-20");
@@ -99,6 +106,7 @@ describe("recording a new notice after a number was added", () => {
     // result declared the new number and UN-declared the one already on file.
     const { calls } = await renderClientPage(<AutodialerNoticePanel />, routes());
     await screen.findByText("+911409876543");
+    openForm();
 
     fill("Which operator did you tell?", "Airtel");
     fill("What is the date on your letter?", "2026-09-20");

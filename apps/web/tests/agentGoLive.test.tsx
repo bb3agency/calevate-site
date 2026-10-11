@@ -6,7 +6,7 @@ import { VOICES_PATH } from "@/lib/api/voices";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, stillLoading, type Routes } from "./harness";
-import { agentRow, voiceCatalogue } from "./fixtures/sharedReads";
+import { agentCallHandling, agentRow, voiceCatalogue } from "./fixtures/sharedReads";
 /*
  * The agent page is a settings layout (D-661): Live opens first and holds the publish
  * controls this file is about; the call-cap cases open Call length.
@@ -116,6 +116,7 @@ function render(over: Partial<Routes> = {}) {
     {
       [TENANT_PATH]: { id: TENANT, name: "Sunrise Clinic", slug: "sunrise" },
       "/v1/agents": [agentRow({ id: AGENT })],
+      [`/v1/agents/${AGENT}/call-handling`]: agentCallHandling(AGENT),
       [ME_PATH]: {
         realm: "admin",
         user_id: "0192f0aa-7777-7000-8000-0000000000f2",

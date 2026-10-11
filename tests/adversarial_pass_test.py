@@ -533,6 +533,10 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # mask it.
     ("PATCH", "/v1/agents/{agent_id}/voice", {"voice_id": _SWEEP_VOICE_ID}, {}),
     ("PATCH", "/v1/agents/{agent_id}/call-cap", {"max_call_duration_s": 120}, {}),
+    # D-751. Reaching a neighbour's agent would change how long it waits before replying and
+    # whether its finished calls stay connected, and billed, until the caller hangs up.
+    ("GET", "/v1/agents/{agent_id}/call-handling", {}, {}),
+    ("PATCH", "/v1/agents/{agent_id}/call-handling", {"end_call_on_finish": False}, {}),
     ("GET", "/v1/callbacks/{callback_id}", {}, {}),
     ("DELETE", "/v1/callbacks/{callback_id}", {}, {}),
     ("GET", "/v1/calls/{call_id}", {}, {}),

@@ -844,7 +844,8 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
                 line += " — needed"
             lines.append(line)
         add(
-            "[WHAT TO COLLECT] One per turn, when it fits. Ask for nothing else.",
+            # "One per turn" is HOW TO SPEAK's, said once for every agent (D-752).
+            "[WHAT TO COLLECT] When it fits. Ask for nothing else.",
             "\n".join(lines),
         )
 

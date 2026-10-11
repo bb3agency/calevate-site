@@ -133,10 +133,9 @@ describe("the screen renders the server's verdict and never its own", () => {
 
     await screen.findByText("Outgoing calls are blocked.");
     // The reassurance that has to survive every refusal on this screen: the receptionist
-    // is still answering. `check_dispatch` is outbound-only, by design (D-38).
-    expect(
-      screen.getAllByText(/Calls coming IN are unaffected/i).length,
-    ).toBeGreaterThan(0);
+    // is still answering. `check_dispatch` is outbound-only, by design (D-38). Said ONCE:
+    // the verdict, the section and the list each used to say it, and it read as noise.
+    expect(screen.getAllByText(/Calls coming in are unaffected/i)).toHaveLength(1);
 
     // The server's own sentence, not a composed one.
     expect(screen.getByText(readiness().verdict)).toBeTruthy();
@@ -264,7 +263,8 @@ describe("who may sign", () => {
     // Absent, not disabled. A disabled control with no explanation is the shape D-22
     // exists to stop, and this one has a contract ledger behind it.
     expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(screen.queryByRole("button", { name: /Accept/i })).toBeNull();
+    // Anchored: the blocker row's ⓘ is "About Agreements not accepted", which is not a control.
+    expect(screen.queryByRole("button", { name: /^Accept/i })).toBeNull();
   });
 });
 
@@ -296,5 +296,82 @@ describe("when the read does not land", () => {
 
     expect(container.querySelector(".animate-pulse")).toBeTruthy();
     expect(screen.queryByText(/agreements that bind/i)).toBeNull();
+  });
+});
+
+describe("the autodialler notice item", () => {
+  /** The server's own sentences for `autodialer_notice_missing` (gate reason, row step). */
+  const NOTICE_REASON =
+    "Your business has not recorded that it told its telecom access provider, in writing and in advance, that these calls are placed by an automated dialler and what they are for. TRAI requires the sender of the calls to give that notice, so it has to come from you rather than from Calevate. Send it to the provider that supplies your outbound line, then record the date here. Answering incoming calls is unaffected.";
+  const NOTICE_STEP =
+    "Send the notice, then record the provider, the date on it and the numbers it names on your Agreements screen.";
+  const blocked = readiness({
+    verdict:
+      "This account cannot make outgoing calls yet. What is in the way is listed below, with whose move each one is.",
+    outstanding_documents: 0,
+    blockers: [
+      {
+        rule: "autodialer_notice_missing",
+        title: "Your autodialler notice to your access provider",
+        reason: NOTICE_REASON,
+        actor: "client",
+        next_step: NOTICE_STEP,
+      },
+    ],
+  });
+  const routes = {
+    "/v1/me": OWNER_ME,
+    "/v1/compliance/autodialer-notice": {
+      ...AUTODIALER_NOTICE_RECORDED,
+      recorded: false,
+      state: null,
+      access_provider: null,
+      objective: null,
+      notified_on: null,
+      effective: false,
+      declared_clis: [],
+    },
+    [READINESS_PATH]: blocked,
+  };
+
+  it("is one plain line with whose move it is, and the server's sentences behind its ⓘ", async () => {
+    await renderClientPage(<AgreementsPage />, routes);
+    await screen.findByText("Outgoing calls are blocked.");
+
+    expect(screen.getByText("Your autodialler notice to your access provider")).toBeTruthy();
+    expect(screen.getByText("Your move")).toBeTruthy();
+    // Not on the page until asked for: the long explanation printed twice was the defect.
+    expect(screen.queryByText(NOTICE_REASON)).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "About Your autodialler notice to your access provider",
+      }),
+    );
+    expect(await screen.findByText(NOTICE_REASON)).toBeTruthy();
+    expect(screen.getByText(NOTICE_STEP)).toBeTruthy();
+    expect(screen.getByText(/Trial test calls come from Calevate's own number/)).toBeTruthy();
+  });
+
+  it("says inbound is unaffected once, and prints no em dash", async () => {
+    const { container } = await renderClientPage(<AgreementsPage />, routes);
+    await screen.findByText("Outgoing calls are blocked.");
+    expect(screen.getAllByText(/Calls coming in are unaffected/i)).toHaveLength(1);
+    expect(container.textContent).not.toContain("—");
+  });
+
+  it("opens the record form in place and puts the caret in its first field", async () => {
+    await renderClientPage(<AgreementsPage />, routes);
+    await screen.findByText("Outgoing calls are blocked.");
+
+    const toggle = await screen.findByRole("button", { name: /Record your notice/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    const field = screen.getByLabelText("Which operator did you tell?");
+    expect(field.closest("form")?.hidden).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Record it" }));
+    await waitFor(() => expect(field.closest("form")?.hidden).toBe(false));
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
   });
 });

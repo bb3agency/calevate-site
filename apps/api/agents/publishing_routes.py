@@ -106,6 +106,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import publishing
+from apps.api.agents.live_apply import HeldBack, held_back
 from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_MIN_S
 from apps.api.agents.service import call_cap_max_s
 from apps.api.agents.voices import VOICE_TIER_OF_PROVIDER, Voice, VoiceProvider
@@ -118,7 +119,7 @@ from apps.api.core.deps import admin_db, db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import engine_capabilities
 
 log = get_logger(__name__)
@@ -356,6 +357,28 @@ class VoiceTierRateOut(Strict):
     further_open_lots: int
 
 
+class SizeOut(Strict):
+    label: str
+    chars: int
+
+
+class HeldBackOut(Strict):
+    """An update the live agent did not take, so callers still hear its previous settings.
+
+    From the newest `live_apply_runs` failure for this agent since it last went live. The
+    owner sees `message` on the Script page and the operator on the agent's page."""
+
+    code: str
+    message: str
+    failed_at: datetime | None
+    #: For a script over the calling system's box: its length, the box and how far over.
+    total_chars: int | None = None
+    limit_chars: int | None = None
+    over_chars: int | None = None
+    #: The script's longest sections, to shorten first. Counts only.
+    longest: list[SizeOut] = Field(default_factory=list)
+
+
 class PendingOut(Strict):
     agent_id: UUID
     agent_status: str
@@ -379,6 +402,8 @@ class PendingOut(Strict):
     #: client rather than about the catalogue.
     voice_tier_rates: list[VoiceTierRateOut]
     precedence_rule: str
+    #: An update this live agent did not take, or null (D-752).
+    held_back: HeldBackOut | None = None
 
 
 class ApplyIn(Strict):
@@ -472,7 +497,14 @@ async def pending(agent_id: UUID, principal: PublishingReader) -> PendingOut:
     # billing table inside the query that decides what is staged.
     async with tenant_session(principal.tenant_id) as session:
         tiers = await voice_tier_rates(session, tenant_id=principal.tenant_id)
-    return _render(state, tier_rates=tiers)
+    # The newest update this live agent did not take since it last went live (D-752):
+    # live_apply_runs is platform machinery with no tenant policy, read only for an agent
+    # `pending_state_for` has already proved is this tenant's.
+    async with untenanted_session() as session:
+        held = await held_back(
+            session, agent_id=agent_id, since=state.engine_verification.verified_at
+        )
+    return _render(state, tier_rates=tiers, held=held)
 
 
 def _render_voice(voice: publishing.AgentVoice | None) -> AgentVoiceOut | None:
@@ -495,7 +527,12 @@ def _render_voice(voice: publishing.AgentVoice | None) -> AgentVoiceOut | None:
     )
 
 
-def _render(state: publishing.PendingState, *, tier_rates: list[TierRate]) -> PendingOut:
+def _render(
+    state: publishing.PendingState,
+    *,
+    tier_rates: list[TierRate],
+    held: HeldBack | None = None,
+) -> PendingOut:
     return PendingOut(
         agent_id=state.agent_id,
         agent_status=state.agent_status,
@@ -540,6 +577,17 @@ def _render(state: publishing.PendingState, *, tier_rates: list[TierRate]) -> Pe
             publishable=state.engine_verification.publishable,
         ),
         precedence_rule=state.precedence_rule,
+        held_back=None
+        if held is None
+        else HeldBackOut(
+            code=held.code,
+            message=held.message,
+            failed_at=held.failed_at,
+            total_chars=held.total_chars,
+            limit_chars=held.limit_chars,
+            over_chars=held.over_chars,
+            longest=[SizeOut(label=label, chars=chars) for label, chars in held.longest],
+        ),
     )
 
 

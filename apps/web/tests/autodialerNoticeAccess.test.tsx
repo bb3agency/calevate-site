@@ -49,6 +49,7 @@ describe("the autodialer notice form", () => {
       <AutodialerNoticePanel />,
       routes(me("owner", ["org:read", "org:manage"])),
     );
+    fireEvent.click(await screen.findByRole("button", { name: /Record a new notice/ }));
     const withdraw = await screen.findByRole("button", {
       name: "I have withdrawn this notice",
     });
@@ -64,6 +65,8 @@ describe("the autodialer notice form", () => {
     expect(
       await screen.findByText("Only an account owner can record or withdraw this notice."),
     ).toBeTruthy();
+    // Staff may open the form to read it; every control inside it stays closed.
+    fireEvent.click(screen.getByRole("button", { name: /Record a new notice/ }));
     const withdraw = screen.getByRole("button", { name: "I have withdrawn this notice" });
     expect(withdraw.matches(":disabled")).toBe(true);
     expect(

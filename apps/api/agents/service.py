@@ -131,6 +131,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
 from apps.api.agents import handoff as handoff_module
+from apps.api.agents.call_handling import resolve_end_call_on_finish, resolve_turn_silence
 from apps.api.agents.engine_choice import (
     byok_in_force,
     engine_rate_key_for,
@@ -520,6 +521,11 @@ class AgentRow(TypedDict):
     forwarded_line: NotRequired[bool]
     #: The applied version's authored `CallScript`, or NULL for a freeform one.
     structured_script: NotRequired[dict[str, Any] | None]
+    #: The agent's call handling values and the account's (D-751); NULL inherits.
+    turn_silence_ms: NotRequired[int | None]
+    end_call_on_finish: NotRequired[bool | None]
+    organization_turn_silence_ms: NotRequired[int | None]
+    organization_end_call_on_finish: NotRequired[bool | None]
 
 
 def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
@@ -579,7 +585,11 @@ async def _load_agent(
                 "o.default_llm_model, bp.languages, a.engine_voice_id, a.engine_model_id, "
                 # The authored form of the applied version, for an engine that takes the
                 # script's stages as its own step list (`_steps_for`).
-                "pv.structured_script "
+                "pv.structured_script, "
+                # The call handling settings and the account defaults they inherit (D-751),
+                # in this statement for `default_llm_model`'s reason.
+                "a.turn_silence_ms, a.end_call_on_finish, o.default_turn_silence_ms, "
+                "o.default_end_call_on_finish "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -648,6 +658,10 @@ async def _load_agent(
         "engine_voice_id": row[26],
         "engine_model_id": row[27],
         "structured_script": row[28],
+        "turn_silence_ms": row[29],
+        "end_call_on_finish": row[30],
+        "organization_turn_silence_ms": row[31],
+        "organization_end_call_on_finish": row[32],
         # A restricted free trial never places a call back (D-697), so its agents must not
         # offer one (founder decision 1, 10 Oct 2026).
         "callbacks_offered": await restricting_trial(session, tenant_id=tenant_id) is None,
@@ -1178,6 +1192,12 @@ def _to_config(
         callbacks_offered=bool(agent.get("callbacks_offered", True))
         and not call_backs_withheld(agent.get("prompt")),
         detect_machines=bool(agent.get("detect_machines", False)),
+        turn_silence_ms=resolve_turn_silence(
+            agent.get("turn_silence_ms"), agent.get("organization_turn_silence_ms")
+        ).ms,
+        end_call_on_finish=resolve_end_call_on_finish(
+            agent.get("end_call_on_finish"), agent.get("organization_end_call_on_finish")
+        ).enabled,
         forwarded_line=bool(agent.get("forwarded_line", False)),
         # THE NOTICES THE AGENT VOLUNTEERS BEFORE ITS OPENING LINE, composed from this
         # agent's two toggles by the one composer (D-163). The opening line itself (the

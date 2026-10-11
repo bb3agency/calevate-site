@@ -44,7 +44,7 @@ export function LiveApplyLine({ run }: { run: LiveApplyRun }) {
           {run.failures.map((failure) => (
             <li key={failure.agent_id}>
               {failure.agent_name ?? <MonoValue>{failure.agent_id}</MonoValue>} kept its previous
-              settings (<MonoValue>{failure.code}</MonoValue>). Fix the cause, then republish it.
+              settings: {failure.message} (<MonoValue>{failure.code}</MonoValue>)
             </li>
           ))}
         </ul>

@@ -416,6 +416,21 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=("model", "ai settings", "brain", "llm"),
     ),
     Screen(
+        route="/c/{slug}/settings/call-handling",
+        name="Call handling",
+        group=SETTINGS_GROUP,
+        summary="How long every agent waits after a caller stops before replying, and whether "
+        "it hangs up when the conversation ends, unless an agent has its own.",
+        aliases=(
+            "pause before replying",
+            "cut off",
+            "interrupts callers",
+            "hang up",
+            "end call",
+            "call stays connected",
+        ),
+    ),
+    Screen(
         route="/c/{slug}/integrations",
         name="Integrations",
         group=SETTINGS_GROUP,

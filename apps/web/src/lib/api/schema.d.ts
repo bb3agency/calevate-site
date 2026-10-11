@@ -1060,6 +1060,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/organizations/{org_id}/call-handling": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One client's default pause before replying and hang-up
+         * @description The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.
+         */
+        get: operations["admin_get_organization_call_handling_v1_admin_organizations__org_id__call_handling_get"];
+        /**
+         * Set one client's default pause before replying and hang-up
+         * @description The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.
+         */
+        put: operations["admin_set_organization_call_handling_v1_admin_organizations__org_id__call_handling_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/organizations/{org_id}/llm-defaults": {
         parameters: {
             query?: never;
@@ -1450,6 +1474,34 @@ export interface paths {
          *     `null` restores the platform default; it never means unlimited. Out-of-range values are refused with `call_cap_out_of_range`.
          */
         patch: operations["set_call_cap_v1_admin_tenants__tenant_id__agents__agent_id__call_cap_patch"];
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One client agent's pause before replying and hang-up
+         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.
+         *
+         *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.
+         */
+        get: operations["admin_get_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set one client agent's pause before replying and hang-up
+         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.
+         *
+         *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.
+         */
+        patch: operations["admin_set_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patch"];
         trace?: never;
     };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment": {
@@ -3200,6 +3252,34 @@ export interface paths {
          *     `null` restores the platform default; it never means unlimited. Out-of-range values are refused with `call_cap_out_of_range`.
          */
         patch: operations["set_my_agent_call_cap_v1_agents__agent_id__call_cap_patch"];
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/call-handling": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The pause before an agent replies, and whether it hangs up when finished
+         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.
+         *
+         *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.
+         */
+        get: operations["get_agent_call_handling_v1_agents__agent_id__call_handling_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set an agent's pause before replying and hang-up, or let it inherit
+         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.
+         *
+         *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.
+         */
+        patch: operations["set_agent_call_handling_v1_agents__agent_id__call_handling_patch"];
         trace?: never;
     };
     "/v1/agents/{agent_id}/caller-memory": {
@@ -10089,6 +10169,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/organization/call-handling": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This account's default pause before replying and hang-up
+         * @description The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.
+         */
+        get: operations["get_organization_call_handling_v1_organization_call_handling_get"];
+        /**
+         * Set this account's default pause before replying and hang-up
+         * @description The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.
+         */
+        put: operations["set_organization_call_handling_v1_organization_call_handling_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/organization/llm-defaults": {
         parameters: {
             query?: never;
@@ -10919,6 +11023,51 @@ export interface components {
             agent_ids?: string[] | null;
             /** Business Type */
             business_type?: ("retail" | "local_services" | "automobile" | "clinic" | "real_estate" | "insurance" | "education" | "custom") | null;
+        };
+        /**
+         * AgentCallHandlingIn
+         * @description Either or both. A field left out is untouched; `null` goes back to inheriting.
+         */
+        AgentCallHandlingIn: {
+            /** End Call On Finish */
+            end_call_on_finish?: boolean | null;
+            /** Turn Silence Ms */
+            turn_silence_ms?: number | null;
+        };
+        /**
+         * AgentCallHandlingOut
+         * @description One agent's two settings: its own value (`null` inherits), the value in force and the
+         *     level that chose it (`agent`, `organization` or `platform`).
+         */
+        AgentCallHandlingOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            bounds: components["schemas"]["CallHandlingBoundsOut"];
+            /** End Call On Finish */
+            end_call_on_finish: boolean | null;
+            /** End Call On Finish Effective */
+            end_call_on_finish_effective: boolean;
+            /**
+             * End Call On Finish Source
+             * @enum {string}
+             */
+            end_call_on_finish_source: "agent" | "organization" | "platform";
+            /** Organization End Call On Finish */
+            organization_end_call_on_finish: boolean | null;
+            /** Organization Turn Silence Ms */
+            organization_turn_silence_ms: number | null;
+            /** Turn Silence Ms */
+            turn_silence_ms: number | null;
+            /** Turn Silence Ms Effective */
+            turn_silence_ms_effective: number;
+            /**
+             * Turn Silence Source
+             * @enum {string}
+             */
+            turn_silence_source: "agent" | "organization" | "platform";
         };
         /**
          * AgentChargeOut
@@ -12303,6 +12452,20 @@ export interface components {
              * @enum {string}
              */
             translation_state: "pending" | "ready" | "failed" | "not_needed" | "unavailable";
+        };
+        /**
+         * CallHandlingBoundsOut
+         * @description What may be chosen and what Calevate's own defaults are.
+         */
+        CallHandlingBoundsOut: {
+            /** Platform End Call On Finish */
+            platform_end_call_on_finish: boolean;
+            /** Platform Turn Silence Ms */
+            platform_turn_silence_ms: number;
+            /** Turn Silence Max Ms */
+            turn_silence_max_ms: number;
+            /** Turn Silence Min Ms */
+            turn_silence_min_ms: number;
         };
         /**
          * CallLeadIn
@@ -17362,6 +17525,29 @@ export interface components {
              */
             waiting_on: "calevate" | "client";
         };
+        /**
+         * HeldBackOut
+         * @description An update the live agent did not take, so callers still hear its previous settings.
+         *
+         *     From the newest `live_apply_runs` failure for this agent since it last went live. The
+         *     owner sees `message` on the Script page and the operator on the agent's page.
+         */
+        HeldBackOut: {
+            /** Code */
+            code: string;
+            /** Failed At */
+            failed_at: string | null;
+            /** Limit Chars */
+            limit_chars?: number | null;
+            /** Longest */
+            longest?: components["schemas"]["SizeOut"][];
+            /** Message */
+            message: string;
+            /** Over Chars */
+            over_chars?: number | null;
+            /** Total Chars */
+            total_chars?: number | null;
+        };
         /** HeldLeadOut */
         HeldLeadOut: {
             /**
@@ -19618,11 +19804,19 @@ export interface components {
             agent_name: string | null;
             /** Code */
             code: string;
+            /** Limit Chars */
+            limit_chars?: number | null;
+            /** Message */
+            message: string;
+            /** Over Chars */
+            over_chars?: number | null;
             /**
              * Tenant Id
              * Format: uuid
              */
             tenant_id: string;
+            /** Total Chars */
+            total_chars?: number | null;
         };
         /** LiveApplyRunOut */
         LiveApplyRunOut: {
@@ -20677,6 +20871,28 @@ export interface components {
             /** Operators */
             operators: components["schemas"]["OperatorOut"][];
         };
+        /**
+         * OrganizationCallHandlingIn
+         * @description Both, required: the body states the whole resource, so `null` is "follow Calevate".
+         */
+        OrganizationCallHandlingIn: {
+            /** End Call On Finish */
+            end_call_on_finish: boolean | null;
+            /** Turn Silence Ms */
+            turn_silence_ms: number | null;
+        };
+        /** OrganizationCallHandlingOut */
+        OrganizationCallHandlingOut: {
+            bounds: components["schemas"]["CallHandlingBoundsOut"];
+            /** End Call On Finish */
+            end_call_on_finish: boolean | null;
+            /** End Call On Finish Effective */
+            end_call_on_finish_effective: boolean;
+            /** Turn Silence Ms */
+            turn_silence_ms: number | null;
+            /** Turn Silence Ms Effective */
+            turn_silence_ms_effective: number;
+        };
         /** OrganizationOut */
         OrganizationOut: {
             /**
@@ -21106,6 +21322,7 @@ export interface components {
             engine_verification: components["schemas"]["VerificationOut"];
             /** Has Pending */
             has_pending: boolean;
+            held_back?: components["schemas"]["HeldBackOut"] | null;
             /** Pending */
             pending: components["schemas"]["PendingChangeOut"][];
             /** Precedence Rule */
@@ -21376,11 +21593,22 @@ export interface components {
             instructions_chars: number;
             /** Instructions Limit */
             instructions_limit?: number | null;
+            /** Layers */
+            layers?: components["schemas"]["SizePartOut"][];
             /**
              * Native Steps
              * @default 0
              */
             native_steps: number;
+            /**
+             * Over Chars
+             * @default 0
+             */
+            over_chars: number;
+            /** Script Parts */
+            script_parts?: components["schemas"]["SizePartOut"][];
+            /** Too Long */
+            too_long?: string | null;
         };
         /**
          * ProfileBlockerOut
@@ -23485,6 +23713,25 @@ export interface components {
              * Format: email
              */
             email: string;
+        };
+        /** SizeOut */
+        SizeOut: {
+            /** Chars */
+            chars: number;
+            /** Label */
+            label: string;
+        };
+        /**
+         * SizePartOut
+         * @description One part of the instructions and its length. Never its text.
+         */
+        SizePartOut: {
+            /** Chars */
+            chars: number;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
         };
         /** SourceOut */
         SourceOut: {
@@ -28821,6 +29068,72 @@ export interface operations {
             };
         };
     };
+    admin_get_organization_call_handling_v1_admin_organizations__org_id__call_handling_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationCallHandlingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_set_organization_call_handling_v1_admin_organizations__org_id__call_handling_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationCallHandlingIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationCallHandlingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     admin_get_llm_defaults_v1_admin_organizations__org_id__llm_defaults_get: {
         parameters: {
             query?: never;
@@ -29473,6 +29786,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallCapOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_get_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCallHandlingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_set_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentCallHandlingIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCallHandlingOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -32726,6 +33107,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallCapOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_agent_call_handling_v1_agents__agent_id__call_handling_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCallHandlingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_agent_call_handling_v1_agents__agent_id__call_handling_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentCallHandlingIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCallHandlingOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -44850,6 +45297,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StudioVoicesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_organization_call_handling_v1_organization_call_handling_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationCallHandlingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_organization_call_handling_v1_organization_call_handling_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationCallHandlingIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationCallHandlingOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

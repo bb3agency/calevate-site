@@ -230,6 +230,9 @@ def _verdict(may_operate: bool, outstanding: int) -> str:
     The outstanding-agreements case gets its own wording rather than the generic one,
     because it is the only item on this screen the reader can clear in the next thirty
     seconds without leaving the page.
+
+    No verdict mentions inbound calls: the screen states that once, under the checklist,
+    for every blocked verdict alike.
     """
     if may_operate:
         return "Nothing is holding up your outgoing calls."
@@ -240,7 +243,7 @@ def _verdict(may_operate: bool, outstanding: int) -> str:
         )
     return (
         "This account cannot make outgoing calls yet. What is in the way is listed "
-        "below, with whose move each one is. Calls coming in are unaffected."
+        "below, with whose move each one is."
     )
 
 

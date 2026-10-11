@@ -65,6 +65,21 @@ DPA with the sub-processor list, plus training off in writing.
    built-in rules say (we need to know whether anything in them conflicts with ours: how to
    end a call, interruptions, the current time), and do they count towards the 8,000
    characters of `instructions`?
+10. **Advance notice of automated calls on numbers you rent (TCCCPR reg. 4).** TRAI's
+    regulation 4, as substituted on 12 Feb 2025, says every Sender "shall notify the
+    Originating Access Provider, in advance, about the use of Auto Dialer or Robo-Calls as
+    well as the intended objective of such calls in writing", and the Third Amendment
+    (18 Sep 2026) makes undeclared A2P calls, artificial voice included, count as UCC. Our
+    clients' numbers are rented through your API in each client's own customer workspace,
+    in the client's business name. (a) Which licensed access provider (telecom operator)
+    issues and originates those numbers? (b) Is that operator, or you on its behalf, the
+    "Originating Access Provider" for our clients' calls? (c) How should a client give the
+    notice: to you, through an endpoint or form we can call per customer workspace, or to
+    the operator directly, and at what address? (d) What acknowledgement or reference comes
+    back, so we can keep it as evidence? (e) Do you already declare A2P use, and the
+    numbers, to the operator for calls placed by your agents, and if so per workspace or
+    for your whole account? (f) Once the Third Amendment's A2P provisions take effect, will
+    the declaration be recorded on the DLT platform, and by whom?
 
 Context for our team: the agent Voice settings page in ThinnestAI's console has settings
 that the REST API does not expose (mapping in

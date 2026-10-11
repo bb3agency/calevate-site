@@ -17,6 +17,7 @@ import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { StatusPill, sentenceCase } from "@/components/admin/kit";
 import { AGENT_STATUS_TONE } from "../../../statePill";
 import { CallCapPanel } from "./sections/callCap";
+import { CallHandlingPanel } from "./sections/callHandling";
 import { ExperimentPanel } from "./sections/experiment";
 import { GoLivePanel, PublishingPanel } from "./sections/live";
 import { ScriptSection } from "./sections/script";
@@ -46,7 +47,7 @@ const SECTIONS_BASE: SettingsSection[] = [
   { id: "script", label: "Script" },
   { id: "voice", label: "Voice" },
   { id: "model", label: "Model" },
-  { id: "limits", label: "Call length" },
+  { id: "limits", label: "Call handling" },
   { id: "test", label: "A/B test" },
 ];
 
@@ -220,13 +221,16 @@ export function AgentPromptScreen({ tenantId, agentId }: { tenantId: string; age
               );
             case "limits":
               return (
-                <CallCapPanel
-                  tenantId={tenantId}
-                  agentId={agentId}
-                  slug={slug}
-                  pending={pending.data}
-                  write={write}
-                />
+                <>
+                  <CallCapPanel
+                    tenantId={tenantId}
+                    agentId={agentId}
+                    slug={slug}
+                    pending={pending.data}
+                    write={write}
+                  />
+                  <CallHandlingPanel tenantId={tenantId} agentId={agentId} slug={slug} write={write} />
+                </>
               );
             case "test":
               return (

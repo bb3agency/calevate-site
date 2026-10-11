@@ -94,6 +94,7 @@ import BusinessProfilePage from "@/app/c/[slug]/settings/business/page";
 import LeadDetailsPage from "@/app/c/[slug]/settings/lead-details/page";
 import SetupPage from "@/app/c/[slug]/setup/page";
 import ClientLlmModelPage from "@/app/c/[slug]/settings/models/page";
+import ClientCallHandlingPage from "@/app/c/[slug]/settings/call-handling/page";
 import TeamPage from "@/app/c/[slug]/settings/team/page";
 import BillingPage from "@/app/c/[slug]/billing/page";
 import AgreementsPage from "@/app/c/[slug]/agreements/page";
@@ -175,6 +176,28 @@ import { operatorEngineCatalogue } from "./fixtures/engineCatalogue";
  */
 
 const ORG = { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" };
+
+/** D-751: the bounds every call handling read carries. */
+const CALL_HANDLING_BOUNDS = {
+  turn_silence_min_ms: 200,
+  turn_silence_max_ms: 3000,
+  platform_turn_silence_ms: 250,
+  platform_end_call_on_finish: true,
+};
+
+/** An agent with its own pause and the hang-up switched OFF, so the quiet notice renders. */
+const AGENT_CALL_HANDLING = {
+  agent_id: "agent-1",
+  turn_silence_ms: 700,
+  turn_silence_ms_effective: 700,
+  turn_silence_source: "agent",
+  end_call_on_finish: false,
+  end_call_on_finish_effective: false,
+  end_call_on_finish_source: "agent",
+  organization_turn_silence_ms: 500,
+  organization_end_call_on_finish: null,
+  bounds: CALL_HANDLING_BOUNDS,
+};
 
 /** An owner: the role that can see the most, and therefore renders the most markup. */
 /**
@@ -2552,6 +2575,7 @@ const CLIENT_SCREENS: Screen[] = [
           },
         ],
       },
+      "/v1/agents/agent-1/call-handling": AGENT_CALL_HANDLING,
       "/v1/agents/agent-1/pending": {
         agent_id: "agent-1",
         agent_status: "live",
@@ -3323,6 +3347,21 @@ const CLIENT_SCREENS: Screen[] = [
     // The state with the most markup on it: an account still on the platform default, so
     // the "in force now" box, the inherit row AND every priced option are on screen at
     // once — including the comparison sentences, which only render beside a baseline.
+    file: "c/[slug]/settings/call-handling/page.tsx",
+    realm: "client",
+    element: () => <ClientCallHandlingPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/organization/call-handling": {
+        turn_silence_ms: null,
+        turn_silence_ms_effective: 250,
+        end_call_on_finish: false,
+        end_call_on_finish_effective: false,
+        bounds: CALL_HANDLING_BOUNDS,
+      },
+    },
+  },
+  {
     file: "c/[slug]/settings/models/page.tsx",
     realm: "client",
     element: () => <ClientLlmModelPage params={slug} />,
@@ -4976,6 +5015,7 @@ const ADMIN_SCREENS: Screen[] = [
       // other two client-realm GETs on this screen: a Studio voice on offer and the Clear
       // rung refused on its unattested price, which is this deployment's state.
       "/v1/agents/voices": voiceCatalogue("admin"),
+      "/v1/agents/agent-1/call-handling": AGENT_CALL_HANDLING,
       "/v1/agents/agent-1/pending": {
         agent_id: "agent-1",
         agent_status: "live",

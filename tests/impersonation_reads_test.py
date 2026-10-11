@@ -151,6 +151,15 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "looking at, and this path is the operator's door to the same resource for an "
         "account they are NOT impersonating (the `llm-defaults` case above, exactly)"
     ),
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling": (
+        "one agent's pause before replying and hang-up (D-751), the operator's door for an "
+        "account they are not impersonating; the client's own `GET /v1/agents/{agent_id}/"
+        "call-handling` is `agents:read`, which a view-as session holds"
+    ),
+    "/v1/admin/organizations/{org_id}/call-handling": (
+        "the account's call handling defaults (D-751), the operator's door; the client's "
+        "own `GET /v1/organization/call-handling` is `org:read` (the `llm-defaults` case)"
+    ),
     "/v1/admin/numbers/available": (
         "the voice platform's own for-sale inventory (D-537) — an ops purchasing screen, "
         "and the one list that is not about any client at all: it is what OUR vendor "

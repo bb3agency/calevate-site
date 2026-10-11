@@ -7,14 +7,14 @@ The ops console's "Applied to N of M live agents" line reads this, from the run 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.live_apply import LiveApplyRunView, recent_runs
+from apps.api.agents.live_apply import LiveApplyRunView, held_back_from, recent_runs
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
@@ -35,6 +35,12 @@ class LiveApplyFailureOut(BaseModel):
     agent_name: str | None
     #: Our refusal code, e.g. `engine_prompt_too_long`.
     code: str
+    #: What it means, in the sentence the client sees for the same refusal.
+    message: str
+    #: For `engine_prompt_too_long`: the composed length, the limit and how far over.
+    total_chars: int | None = None
+    limit_chars: int | None = None
+    over_chars: int | None = None
 
 
 class LiveApplyRunOut(BaseModel):
@@ -68,6 +74,20 @@ class LiveApplyRunsOut(BaseModel):
     runs: list[LiveApplyRunOut]
 
 
+def _failure_out(failure: dict[str, Any]) -> LiveApplyFailureOut:
+    held = held_back_from(failure, None)
+    return LiveApplyFailureOut(
+        tenant_id=failure["tenant_id"],
+        agent_id=failure["agent_id"],
+        agent_name=failure.get("agent_name"),
+        code=held.code,
+        message=held.message,
+        total_chars=held.total_chars,
+        limit_chars=held.limit_chars,
+        over_chars=held.over_chars,
+    )
+
+
 def _out(run: LiveApplyRunView) -> LiveApplyRunOut:
     return LiveApplyRunOut(
         id=run.id,
@@ -80,15 +100,7 @@ def _out(run: LiveApplyRunView) -> LiveApplyRunOut:
         applied=run.applied,
         failed=run.failed,
         retrying=run.retrying,
-        failures=[
-            LiveApplyFailureOut(
-                tenant_id=f["tenant_id"],
-                agent_id=f["agent_id"],
-                agent_name=f.get("agent_name"),
-                code=str(f.get("code", "")),
-            )
-            for f in run.failures
-        ],
+        failures=[_failure_out(f) for f in run.failures],
         created_at=run.created_at,
         finished_at=run.finished_at,
         superseded_by=run.superseded_by,

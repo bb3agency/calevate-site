@@ -396,6 +396,91 @@ def is_permanent(exc: BaseException) -> bool:
     )
 
 
+def failure_detail(exc: BaseException) -> dict[str, Any]:
+    """Counts a failure record keeps beside its code: for a script over the engine's box,
+    how long it is, the limit and its longest sections. Never text (hard rule 6)."""
+    from apps.api.agents.engine_limits import PromptTooLongError
+    from apps.api.agents.prompt_size import as_dict
+
+    return as_dict(exc.size) if isinstance(exc, PromptTooLongError) else {}
+
+
+#: What a recorded refusal means to the owner, for the codes a live apply records most. The
+#: too-long sentence is `engine_limits.too_long_sentence`, built from the recorded counts.
+HELD_BACK_MESSAGES: Final[dict[str, str]] = {
+    "agreements_not_accepted": (
+        "Your agent is still using its previous settings because this account's agreements "
+        "are not accepted. The account owner accepts them on the Agreements & readiness "
+        "screen; the update then goes live by itself."
+    ),
+}
+HELD_BACK_GENERIC: Final = (
+    "Your agent is still using its previous settings because the latest update could not be "
+    "put on it. We have been told, and it is retried with the next change."
+)
+
+
+@dataclass(frozen=True, slots=True)
+class HeldBack:
+    """The newest update a live agent did not take, since it last went live."""
+
+    code: str
+    message: str
+    failed_at: datetime | None
+    total_chars: int | None = None
+    limit_chars: int | None = None
+    over_chars: int | None = None
+    #: (label, chars) of the script's longest sections, for a script over the box.
+    longest: tuple[tuple[str, int], ...] = ()
+
+
+def held_back_from(failure: dict[str, Any], failed_at: datetime | None) -> HeldBack:
+    from apps.api.agents.engine_limits import PROMPT_TOO_LONG, too_long_message
+
+    code = str(failure.get("code", ""))
+    over = failure.get("over_chars")
+    if code == PROMPT_TOO_LONG and isinstance(over, int):
+        message = too_long_message(over)
+    else:
+        message = HELD_BACK_MESSAGES.get(code, HELD_BACK_GENERIC)
+    longest = tuple(
+        (str(p.get("label", "")), int(p.get("chars", 0)))
+        for p in failure.get("longest") or []
+        if isinstance(p, dict)
+    )
+    return HeldBack(
+        code=code,
+        message=message,
+        failed_at=failed_at,
+        total_chars=failure.get("total_chars"),
+        limit_chars=failure.get("limit_chars"),
+        over_chars=over if isinstance(over, int) else None,
+        longest=longest,
+    )
+
+
+_HELD_BACK: Final = text(
+    "SELECT f.value, COALESCE(CAST(f.value->>'at' AS timestamptz), r.updated_at) AS at "
+    "FROM live_apply_runs r CROSS JOIN LATERAL jsonb_array_elements(r.failures) AS f(value) "
+    "WHERE f.value->>'agent_id' = :aid "
+    "AND (CAST(:since AS timestamptz) IS NULL "
+    "OR COALESCE(CAST(f.value->>'at' AS timestamptz), r.updated_at) > CAST(:since AS timestamptz)) "
+    "ORDER BY at DESC LIMIT 1"
+)
+
+
+async def held_back(
+    session: AsyncSession, *, agent_id: UUID, since: datetime | None
+) -> HeldBack | None:
+    """The newest live-apply refusal for `agent_id` recorded after `since` (when the agent
+    last went live, `agents.live_verified_at`), or None. `session` may be untenanted: the
+    caller has already proved the agent is its tenant's."""
+    row = (await session.execute(_HELD_BACK, {"aid": str(agent_id), "since": since})).first()
+    if row is None:
+        return None
+    return held_back_from(dict(row[0]), row[1])
+
+
 def failure_code(exc: BaseException) -> str:
     if isinstance(exc, ProblemError | SettingsNotHeldError):
         return exc.code
@@ -406,13 +491,19 @@ __all__ = [
     "AGENT_JOB",
     "APPLY_JOB",
     "BATCH_SIZE",
+    "HELD_BACK_GENERIC",
+    "HELD_BACK_MESSAGES",
     "LEASE_S",
     "MAINTENANCE_CODE",
     "MAX_FAILURES_KEPT",
+    "HeldBack",
     "LiveApplyRunView",
     "Scope",
     "converge_agent",
     "failure_code",
+    "failure_detail",
+    "held_back",
+    "held_back_from",
     "is_permanent",
     "queue_agent_retry",
     "queue_live_apply",

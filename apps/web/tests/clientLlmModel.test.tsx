@@ -17,6 +17,7 @@ import {
   clientLlmTiers,
   spendThisMonth,
   voiceCatalogue,
+  agentCallHandling,
 } from "./fixtures/sharedReads";
 import { ENGINE_CATALOGUE_PATH } from "@/lib/api/engineCatalogue";
 import { businessProfileFixture } from "./businessProfileFixture";
@@ -455,6 +456,7 @@ function agentRoutes(over: Record<string, unknown> = {}) {
     "/v1/me": OWNER,
     "/v1/agents/agent-1": agent(),
     "/v1/agents/agent-1/pending": pending,
+    "/v1/agents/agent-1/call-handling": agentCallHandling(),
     "/v1/agents/agent-1/script": agentScript(),
     "/v1/kb/sources": [],
     "/v1/organization/llm-defaults": defaults(),

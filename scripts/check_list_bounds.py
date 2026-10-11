@@ -671,6 +671,11 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="one version copied into the draft: a `CallScript` under the same "
         "`calevate_shared.call_script` `max_length` ceilings as `GET .../script`."
     ),
+    "POST /v1/agents/{agent_id}/script/preview": BoundedByConstruction(
+        by="one composed prompt's size: `layers` is one row per prompt layer and "
+        "`script_parts` one row per `CallScript` section, both fixed sets in "
+        "`agents/prompt_size.py`, never a caller's row count."
+    ),
     "POST /v1/agents/{agent_id}/script/convert": BoundedByConstruction(
         by="one proposed `CallScript` (the `call_script` ceilings) and `unplaced`, lines of "
         "the one prompt being converted: `ConvertIn.raw_text` is capped at 20,000 "

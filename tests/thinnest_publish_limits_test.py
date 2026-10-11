@@ -127,11 +127,13 @@ def test_a_prompt_over_the_ceiling_is_refused_with_the_numbers_to_cut() -> None:
     problem = _refusal(_thinnest(), cfg)
     assert problem.code == PROMPT_TOO_LONG
     assert problem.status == 422
-    assert f"{composed:,}" in problem.detail and "8,000" in problem.detail
-    assert f"{composed - 8_000:,}" in (problem.remediation or "")
-    # The room left for the script is exact: a script that long fits, one longer does not.
+    # The owner's sentence (D-752): how far over, counting everything the system receives.
+    assert problem.detail == (
+        f"Your script is {composed - 8_000:,} characters too long for the calling system; "
+        "shorten it to put it live."
+    )
+    # The count is exact: a script that much shorter fits, one character longer does not.
     room = 8_000 - (composed - len(cfg.system_prompt.strip()))
-    assert f"{room:,}" in (problem.remediation or "")
     refuse_over_engine_limits(_thinnest(), _cfg(system_prompt="w" * room))
     with pytest.raises(ProblemError):
         refuse_over_engine_limits(_thinnest(), _cfg(system_prompt="w" * (room + 1)))

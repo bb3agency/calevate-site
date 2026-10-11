@@ -27,6 +27,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from apps.api.agents.models import TURN_SILENCE_MAX_MS, TURN_SILENCE_MIN_MS
 from apps.api.core.rbac import ADMIN_ROLES as RBAC_ADMIN_ROLES
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
@@ -120,6 +121,12 @@ class Organization(PKMixin, TimestampMixin, Base):
             "unconfirmed_business_type IS NULL OR vertical_template IS NULL",
             name="business_type_chosen_or_unconfirmed",
         ),
+        # The account's pause before replying (D-751), in the agents' range.
+        CheckConstraint(
+            f"default_turn_silence_ms IS NULL OR (default_turn_silence_ms >= {TURN_SILENCE_MIN_MS} "
+            f"AND default_turn_silence_ms <= {TURN_SILENCE_MAX_MS})",
+            name="default_turn_silence_range",
+        ),
     )
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -165,6 +172,11 @@ class Organization(PKMixin, TimestampMixin, Base):
     # claim a choice nobody made, and would then have to be kept in step with a live
     # console switch — the D-105 defect with a clock attached.
     default_llm_model: Mapped[str | None] = mapped_column(Text)
+    # The account's call handling defaults (D-751): the pause before an agent replies, and
+    # whether it hangs up when it has finished. NULL follows Calevate's
+    # (`agents/call_handling`); an agent's own value wins over both.
+    default_turn_silence_ms: Mapped[int | None] = mapped_column(Integer)
+    default_end_call_on_finish: Mapped[bool | None] = mapped_column(Boolean)
     # MAY THIS ACCOUNT'S `staff` MEMBERS CURATE KNOWLEDGE — the owner-controlled half of
     # the founder's decision ("give the staff perms allowing option to owner"). FALSE for
     # every account until that account's own owner turns it on, which is why the migration

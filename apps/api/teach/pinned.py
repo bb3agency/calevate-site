@@ -74,9 +74,14 @@ def section_chars(pairs: Sequence[tuple[str, str]]) -> int:
 
 
 async def assert_room(
-    session: AsyncSession, *, adding: Sequence[tuple[str, str]] = (), replacing: UUID | None = None
+    session: AsyncSession,
+    *,
+    adding: Sequence[tuple[str, str]] = (),
+    replacing: UUID | None = None,
+    tenant_id: UUID | None = None,
 ) -> None:
-    """Refuse a change that would grow the pinned section past `MAX_PINNED_CHARS`."""
+    """Refuse a change that would grow the pinned section past `MAX_PINNED_CHARS`, or, given
+    `tenant_id`, push a live agent past the calling system's box."""
     current = [f for f in await list_pinned(session) if f.id != replacing]
     before = section_chars(pairs_of(await list_pinned(session)))
     after = section_chars([*pairs_of(current), *adding])
@@ -90,6 +95,66 @@ async def assert_room(
                 "caller asks."
             ),
         )
+    if tenant_id is not None and after > before:
+        await _assert_live_agents_fit(
+            session, tenant_id=tenant_id, pairs=[*pairs_of(current), *adding]
+        )
+
+
+_LIVE_AGENTS: Final = (
+    "SELECT id, name FROM agents WHERE status = 'live' AND deleted_at IS NULL ORDER BY id"
+)
+
+
+async def _assert_live_agents_fit(
+    session: AsyncSession, *, tenant_id: UUID, pairs: Sequence[tuple[str, str]]
+) -> None:
+    """Refuse a pinned-facts change that would push a live agent's instructions past the
+    calling system's box (D-752). Pinned facts ride in every agent's instructions, so a
+    change accepted here and refused at the recompile's publish would leave that agent on
+    its old script with nobody told."""
+    from apps.api.agents.prompt_size import measure_config, publish_config
+    from apps.api.engine import get_engine
+    from apps.api.engine.hosted_platform import hosted_agent_limits
+
+    engine = get_engine()
+    if hosted_agent_limits(engine).prompt_chars is None:
+        return
+    for agent_id, name in (await session.execute(text(_LIVE_AGENTS))).all():
+        row = (
+            await session.execute(
+                text(
+                    "SELECT pv.body, pv.structured_script FROM agents a JOIN prompt_versions pv "
+                    "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) WHERE a.id = :aid"
+                ),
+                {"aid": agent_id},
+            )
+        ).first()
+        if row is None or not row[0]:
+            continue
+        try:
+            cfg = await publish_config(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                engine=engine,
+                body=splice_quick_facts(row[0], pairs),
+                structured_script=row[1],
+            )
+        except ProblemError:
+            continue
+        size = measure_config(cfg, engine)
+        if not size.fits:
+            raise ProblemError.business_rule(
+                "pinned_facts_too_long_for_agent",
+                f"Pinned facts go into every agent's script. With this change, the script of "
+                f"{name} would be {size.over:,} characters too long for the calling system, "
+                "so it could not be put live.",
+                remediation=(
+                    "Shorten or unpin a fact, or shorten that agent's script first. Facts "
+                    "that are not pinned are still found when a caller asks."
+                ),
+            )
 
 
 def clean_pinned(question: str | None, answer: str) -> tuple[str | None, str]:
@@ -135,7 +200,7 @@ async def add_pinned(
 ) -> UUID:
     q, a = clean_pinned(question, answer)
     await _lock(session, tenant_id)
-    await assert_room(session, adding=[(q or "", a)])
+    await assert_room(session, adding=[(q or "", a)], tenant_id=tenant_id)
     fact_id = uuid7()
     await session.execute(
         text(

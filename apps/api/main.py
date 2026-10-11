@@ -104,6 +104,8 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.admin.number_routes import router as number_supply_router
     from apps.api.admin.operator_routes import router as operator_router
     from apps.api.admin.routes import router as admin_router
+    from apps.api.agents.call_handling_routes import admin_router as call_handling_admin_router
+    from apps.api.agents.call_handling_routes import router as call_handling_router
     from apps.api.agents.engine_catalogue_routes import router as engine_catalogue_router
     from apps.api.agents.experiment_routes import router as experiment_router
     from apps.api.agents.extraction_routes import admin_router as extraction_admin_router
@@ -321,6 +323,10 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/agents/`.
     application.include_router(llm_defaults_router)
     application.include_router(llm_defaults_admin_router)
+    # The pause before replying and the hang-up (D-751): four-segment agent paths and
+    # `/v1/organization/...`, so mount order is not load-bearing.
+    application.include_router(call_handling_router)
+    application.include_router(call_handling_admin_router)
     # Editing an agent's extraction VARIABLES (D-460). The client router's
     # `/v1/agents/{agent_id}/extraction-schema` carries a fourth segment, so it never
     # collides with `/v1/agents/{agent_id}` on `agents_router`; the admin router names its

@@ -23,7 +23,8 @@
  * days would disagree with the gate for five and a half hours of every day.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 
 import { Section, TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
@@ -55,19 +56,19 @@ function stateLine(notice: AutodialerNotice): {
   if (!notice.recorded) {
     return {
       tone: "warn",
-      text: "You have not recorded this notice yet, so no outgoing call will go out. Answering incoming calls is not affected.",
+      text: "Not recorded yet, so no outgoing call will go out.",
     };
   }
   if (notice.state === "withdrawn") {
     return {
       tone: "warn",
-      text: "You withdrew this notice, so outgoing calls have stopped. Give the notice again and record it here to start them.",
+      text: "You withdrew this notice, so outgoing calls have stopped. Give the notice again and record it to start them.",
     };
   }
   if (!notice.effective) {
     return {
       tone: "warn",
-      text: "The date on your notice has not arrived yet. Nothing is wrong with your paperwork — outgoing calls start on that date.",
+      text: "The date on your notice has not arrived yet. Outgoing calls start on that date.",
     };
   }
   if (notice.undeclared_clis.length > 0) {
@@ -106,7 +107,14 @@ function withEveryCallingNumber(typed: string[], notice: AutodialerNotice): stri
   return out;
 }
 
-export function AutodialerNoticePanel({ readiness }: { readiness?: LegalReadiness }) {
+export function AutodialerNoticePanel({
+  readiness,
+  openRequest = 0,
+}: {
+  readiness?: LegalReadiness;
+  /** Bumped by the readiness list's "Record it": open the form and move to it. */
+  openRequest?: number;
+}) {
   const session = useClientSession();
   const notice = useAutodialerNotice(session);
   const record = useRecordAutodialerNotice(session);
@@ -118,6 +126,15 @@ export function AutodialerNoticePanel({ readiness }: { readiness?: LegalReadines
   const [objective, setObjective] = useState("");
   const [notifiedOn, setNotifiedOn] = useState("");
   const [numbers, setNumbers] = useState("");
+  // Closed until asked for: the panel's job on arrival is to say where the notice stands.
+  const [formOpen, setFormOpen] = useState(false);
+  // A new "Record it" press opens the form, adjusted while rendering rather than in an
+  // effect so the form is never painted closed for a frame after the press.
+  const [seenRequest, setSeenRequest] = useState(0);
+  if (openRequest !== seenRequest) {
+    setSeenRequest(openRequest);
+    setFormOpen(true);
+  }
 
   if (notice.isPending)
     return <Skeleton rows={4} label="Loading your notice" />;
@@ -132,7 +149,12 @@ export function AutodialerNoticePanel({ readiness }: { readiness?: LegalReadines
       writeReason={write.reason}
       record={record}
       draft={{ accessProvider, objective, notifiedOn, numbers }}
+      formOpen={formOpen}
+      setFormOpen={setFormOpen}
+      focusRequest={seenRequest}
       setDraft={(patch) => {
+        // The assistant fills a closed form too, so whatever it wrote is on screen.
+        setFormOpen(true);
         if (patch.accessProvider !== undefined) setAccessProvider(patch.accessProvider);
         if (patch.objective !== undefined) setObjective(patch.objective);
         if (patch.notifiedOn !== undefined) setNotifiedOn(patch.notifiedOn);
@@ -154,7 +176,14 @@ function NoticeForm({
   record,
   draft,
   setDraft,
+  formOpen,
+  setFormOpen,
+  focusRequest,
 }: {
+  formOpen: boolean;
+  setFormOpen: (open: boolean) => void;
+  /** Changes on each "Record it": move to the form's first field. */
+  focusRequest: number;
   readiness?: LegalReadiness;
   current: AutodialerNotice;
   canWrite: boolean;
@@ -170,6 +199,16 @@ function NoticeForm({
   const setNumbers = (v: string) => setDraft({ numbers: v });
   useAutodialerNoticeCopilot({ readiness, notice: current, draft, apply: setDraft, canWrite });
 
+  const firstField = useRef<HTMLInputElement>(null);
+  // After the opened form has rendered: bring it into view and put the caret in it.
+  useEffect(() => {
+    if (focusRequest === 0) return;
+    const field = firstField.current;
+    if (!field) return;
+    field.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    field.focus({ preventScroll: true });
+  }, [focusRequest]);
+
   const line = stateLine(current);
   const declared = parseDeclaredNumbers(numbers);
   const canSubmit =
@@ -179,18 +218,26 @@ function NoticeForm({
     declared.length > 0;
 
   return (
-    // The jump target of the checklist's "Record it below".
     <div id="autodialer-notice" className="scroll-mt-4">
-      <Section title="Your notice to your telecom access provider">
-        <p className="max-w-prose text-body text-ink-muted">
-          Every outgoing call we place for you is dialled automatically. The rules
-          put one duty on the business whose calls they are: tell your own telecom
-          operator, in writing and before the calls start, that you use an
-          automated dialler and what the calls are for. That letter is yours to
-          send — we cannot send it for you, because the operator holds your
-          business to it, not us. It must also name every number the calls will
-          come from. Send it, then record it here.
-        </p>
+      <Section
+        title="Your notice to your telecom access provider"
+        description="Your written notice that your calls are automated, what they are for, and the numbers they come from."
+        info={
+          <>
+            <p>
+              Every outgoing call we place for you is dialled automatically. TRAI&apos;s
+              rules put one duty on the business whose calls they are: tell your telecom
+              operator, in writing and before the calls start, that you use an automated
+              dialler and what the calls are for.
+            </p>
+            <p>
+              The notice must also name every number the calls come from. It is yours to
+              send. We cannot send it for you, because the operator holds your business to
+              it, not us.
+            </p>
+          </>
+        }
+      >
 
         <NoticeBox tone={line.tone} className="mt-4">
           {line.text}
@@ -227,9 +274,26 @@ function NoticeForm({
           </div>
         )}
 
+        <button
+          type="button"
+          className={`${TEXT_ACTION} mt-4`}
+          aria-expanded={formOpen}
+          aria-controls="autodialer-notice-form"
+          onClick={() => setFormOpen(!formOpen)}
+        >
+          {current.recorded ? "Record a new notice" : "Record your notice"}
+          <ChevronDown
+            aria-hidden
+            className={`h-4 w-4 transition-transform duration-(--duration-fast) motion-reduce:transition-none ${formOpen ? "rotate-180" : ""}`}
+          />
+        </button>
+
         <form
+          id="autodialer-notice-form"
+          hidden={!formOpen}
+          aria-label={current.recorded ? "Record a new notice" : "Record your notice"}
           noValidate
-          className="mt-6"
+          className="mt-4"
           onSubmit={(event) => {
             event.preventDefault();
             record.mutate({
@@ -242,12 +306,10 @@ function NoticeForm({
         >
           {/* A disabled <fieldset> closes every field and both buttons at once. */}
           <fieldset disabled={!canWrite} className="min-w-0 space-y-4">
-            <h3 className="text-body font-medium text-ink">
-              {current.recorded ? "Record a new notice" : "Record your notice"}
-            </h3>
             <label className="block max-w-md">
               <span className={FIELD_LABEL}>Which operator did you tell?</span>
               <input
+                ref={firstField}
                 className={FIELD}
                 value={accessProvider}
                 onChange={(event) => setAccessProvider(event.target.value)}
