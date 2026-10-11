@@ -8,6 +8,11 @@
  *                                                   an engine whose voices are our catalogue
  *   POST   /v1/ops/voices/hosted                   add one synced voice (arrives disabled)
  *   PATCH  /v1/ops/voices/hosted                   enable | disable | archive one
+ *   GET    /v1/ops/voices/hosted/agents            the agents set to one voice
+ *   PATCH  /v1/ops/voices/hosted/display-name      the name clients see
+ *   PATCH  /v1/ops/voices/hosted/person-clone      mark a cloned voice of a real person (step-up)
+ *   POST   /v1/ops/voices/hosted/clone-consent     record that person's consent (step-up)
+ *   GET    /v1/ops/voices/hosted/clone-consent/document  the signed consent
  *   POST   /v1/ops/voices/clones                   clone from a recording (step-up)
  *   DELETE /v1/ops/voices/clones                   delete one of our clones (step-up)
  *   POST   /v1/ops/voices/hosted/preview           upload a preview clip
@@ -48,11 +53,18 @@ export type DeleteCloneOut = Schemas["DeleteCloneOut"];
 export type StudioVoices = Schemas["StudioVoicesOut"];
 export type StudioEnableIn = Schemas["StudioEnableIn"];
 export type FetchPreviewIn = Schemas["FetchPreviewIn"];
+export type HostedVoiceAgents = Schemas["HostedVoiceAgentsOut"];
+export type CloneConsentRecord = Schemas["CloneConsentOut"];
 
 export const OPS_HOSTED_PATH = "/v1/ops/voices/hosted";
 export const OPS_CLONES_PATH = "/v1/ops/voices/clones";
 export const OPS_PREVIEW_UPLOAD_PATH = "/v1/ops/voices/hosted/preview";
 export const OPS_PREVIEW_FETCH_PATH = "/v1/ops/voices/hosted/preview/fetch";
+export const OPS_HOSTED_AGENTS_PATH = "/v1/ops/voices/hosted/agents";
+export const OPS_DISPLAY_NAME_PATH = "/v1/ops/voices/hosted/display-name";
+export const OPS_PERSON_CLONE_PATH = "/v1/ops/voices/hosted/person-clone";
+export const OPS_CLONE_CONSENT_PATH = "/v1/ops/voices/hosted/clone-consent";
+export const OPS_CLONE_CONSENT_DOCUMENT_PATH = "/v1/ops/voices/hosted/clone-consent/document";
 export const OPS_STUDIO_VOICES_PATH = "/v1/ops/voices/studio-voices";
 export const OPS_STUDIO_ENABLE_PATH = "/v1/ops/voices/studio-voices/enable";
 export const OPS_STUDIO_DISABLE_PATH = "/v1/ops/voices/studio-voices/disable";
@@ -62,6 +74,11 @@ export const CLONE_CONFIRMATION = "clone_voice";
 export const STUDIO_ENABLE_CONFIRMATION = "enable_studio_voices";
 export const STUDIO_DISABLE_CONFIRMATION = "disable_studio_voices";
 export const deleteCloneConfirmation = (voiceId: string) => `delete_voice_clone:${voiceId}`;
+export const consentConfirmation = (voiceId: string) => `record_voice_consent:${voiceId}`;
+export const personCloneConfirmation = (voiceId: string) => `set_voice_person_clone:${voiceId}`;
+
+/** What every consent record covers (the server stores the same sentence on each). */
+export const CONSENT_SCOPE = "Calls made by Calevate clients' agents.";
 
 /** The size the clone and preview routes accept (the API's own request limit). */
 export const MAX_SAMPLE_BYTES = 2 * 1024 * 1024;
@@ -71,7 +88,96 @@ export const hostedVoiceKeys = {
   all: ["admin", "ops", "voices", "hosted"] as const,
   scoped: (scope: HostedScope) => ["admin", "ops", "voices", "hosted", scope] as const,
   studio: ["admin", "ops", "voices", "studio-voices"] as const,
+  agents: (voiceId: string) => ["admin", "ops", "voices", "hosted", "agents", voiceId] as const,
 };
+
+/** The agents set to one voice, across every account; read when its detail opens. */
+export function useHostedVoiceAgents(voiceId: string | null): UseQueryResult<HostedVoiceAgents> {
+  return useQuery({
+    queryKey: hostedVoiceKeys.agents(voiceId ?? ""),
+    queryFn: () =>
+      apiRequest<HostedVoiceAgents>(
+        adminSession(),
+        `${OPS_HOSTED_AGENTS_PATH}?voice_id=${encodeURIComponent(voiceId ?? "")}`,
+      ),
+    enabled: voiceId !== null,
+  });
+}
+
+export function useSetDisplayName(): UseMutationResult<
+  HostedVoiceWrite,
+  Error,
+  { voice_id: string; display_label: string | null }
+> {
+  const invalidate = useInvalidateVoices();
+  return useMutation({
+    mutationFn: (body) =>
+      apiRequest<HostedVoiceWrite>(adminSession(), OPS_DISPLAY_NAME_PATH, { method: "PATCH", body }),
+    onSuccess: invalidate,
+  });
+}
+
+/** Mark or unmark a cloned voice of a real person (step-up; unmarking deletes its consent). */
+export function useSetPersonClone(): UseMutationResult<
+  HostedVoiceWrite,
+  Error,
+  { voice_id: string; person_clone: boolean }
+> {
+  const invalidate = useInvalidateVoices();
+  return useMutation({
+    mutationFn: (body) =>
+      apiRequest<HostedVoiceWrite>(adminSession(), OPS_PERSON_CLONE_PATH, {
+        method: "PATCH",
+        body,
+        confirmAction: personCloneConfirmation(body.voice_id),
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+export interface CloneConsentInput {
+  voiceId: string;
+  speakerName: string;
+  statement: string;
+  /** `YYYY-MM-DD`, the day the speaker consented (IST). */
+  consentedOn: string;
+  document: File | null;
+}
+
+/** Record the speaker's consent (step-up). Marks the voice as a person's clone too. */
+export function useRecordConsent(): UseMutationResult<HostedVoiceWrite, Error, CloneConsentInput> {
+  const invalidate = useInvalidateVoices();
+  return useMutation({
+    mutationFn: (input) => {
+      const form = new FormData();
+      form.set("voice_id", input.voiceId);
+      form.set("speaker_name", input.speakerName);
+      form.set("statement", input.statement);
+      form.set("consented_on", input.consentedOn);
+      if (input.document) form.set("document", input.document);
+      return apiUpload<HostedVoiceWrite>(adminSession(), OPS_CLONE_CONSENT_PATH, form, {
+        confirmAction: consentConfirmation(input.voiceId),
+      });
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/** The signed consent document, as a file the browser saves. */
+export async function downloadConsentDocument(voiceId: string, label: string): Promise<void> {
+  const blob = await apiRequest<Blob>(
+    adminSession(),
+    `${OPS_CLONE_CONSENT_DOCUMENT_PATH}?voice_id=${encodeURIComponent(voiceId)}`,
+    { responseType: "blob" },
+  );
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  const ext = blob.type === "application/pdf" ? "pdf" : blob.type === "image/png" ? "png" : "jpg";
+  link.download = `${label.replace(/[^A-Za-z0-9 _-]/g, "").trim() || "voice"} consent.${ext}`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 export function useHostedVoices(
   enabled: boolean,
@@ -253,11 +359,20 @@ export function useDisableStudioVoices(): UseMutationResult<StudioVoices, Error,
   });
 }
 
-/** What each curation state means, for the toggle's description. */
-export const HOSTED_STATE_MEANING: Record<string, string> = {
-  enabled: "Offered — clients can choose this voice for their agents.",
-  disabled: "Not offered — nobody can choose it. Agents already on it keep speaking it.",
-  archived: "Archived — not offered, and filed away. Agents already on it keep speaking it.",
+/**
+ * Each curation state as the switch names it, and what it means. The switch's label IS the
+ * state, so "Offered to clients" is never captioned "Archived".
+ */
+export const HOSTED_STATE: Record<string, { label: string; meaning: string }> = {
+  enabled: { label: "Offered to clients", meaning: "Clients can choose it for their agents." },
+  disabled: {
+    label: "Not offered",
+    meaning: "Clients cannot choose it. Agents already on it keep speaking it.",
+  },
+  archived: {
+    label: "Archived",
+    meaning: "Not offered, and kept out of the list. Agents already on it keep speaking it.",
+  },
 };
 
 /** The rung's name as the console prints it. The wire value is the key. */

@@ -7,6 +7,17 @@ call's cost is
 
     billed minutes = ceil(seconds / 30) x 0.5
     cost           = billed minutes x the ₹/min attested for that call's rate key
+                     x (1 + the wallet top-up fee), at `MONEY_Q`
+
+THE FEE IS OURS TO ADD, NOT THE OPERATOR'S. The attested rate is the platform's posted price
+per billed minute, which is what its price page and its per-call charge (`costMicro`) both
+state, and neither includes the top-up fee ThinnestAI takes on every rupee loaded into the
+wallet (VENDOR-STATED 8 Oct 2026, evaluation §12: 10% on pay-as-you-go, 9% on Pro). Every
+rupee a minute costs passed through that wallet first, so the fee is part of the minute's
+cost on every rate key, `byok_voice` included. Cartesia's synthesis on a Studio call is
+billed to our own key and never enters the wallet, so its `tts_kchars` row carries no fee.
+`topup_fee` is the one helper; the charge reconciler (`apps/workers/engine_charges.py`) uses
+the same one, so what we meter and what we compare against cannot drift apart.
 
 Hard rule 7's structural form, exactly as `ops/model_pricing.tts_price_is_billable` keeps
 it for a voice: the ONLY figure that reaches `unit_cost_paid` is one an operator attested
@@ -56,6 +67,38 @@ BYOK_VOICE_RATE_KEY: Final[EngineRateKey] = "byok_voice"
 
 #: Engines whose own voices are sold by band (D-687), keyed by the client rung map below.
 BAND_SOLD_ENGINES: Final = frozenset({"thinnest"})
+
+#: Engines paid from a prepaid wallet that charges a fee on each top-up.
+WALLET_TOPUP_ENGINES: Final = frozenset({"thinnest"})
+
+#: `usage_events.meta` key on a metered minute row: the top-up fee its cost includes. A row
+#: without it was metered before the fee was added.
+TOPUP_FEE_META_KEY: Final = "topup_fee"
+
+#: The plan each top-up fee belongs to, for a sentence an operator reads.
+TOPUP_FEE_PLAN_LABELS: Final[Mapping[Decimal, str]] = MappingProxyType(
+    {rates.THINNEST_PAYG_TOPUP_FEE: "pay-as-you-go", rates.THINNEST_WALLET_TOPUP_FEE: "Pro"}
+)
+
+
+def thinnest_topup_fee(clear_band: str | None = None) -> Decimal:
+    """The wallet top-up fee of the plan this deployment's ThinnestAI workspace is on, as a
+    fraction. The Studio band is listed only on Pro and above, so a deployment selling Clear on
+    it is on Pro (9%); otherwise pay-as-you-go (10%) — the same reading the cost floors make
+    (`billing/rates.THINNEST_CLEAR_COST_FLOOR_BY_BAND`)."""
+    band = clear_band if clear_band is not None else get_settings().thinnest_clear_voice_band
+    return rates.THINNEST_WALLET_TOPUP_FEE if band == "studio" else rates.THINNEST_PAYG_TOPUP_FEE
+
+
+def topup_fee(engine: str) -> Decimal:
+    """The fee on the rupees that pay for this engine's minutes, as a fraction; zero for an
+    engine not paid from a topped-up wallet."""
+    return thinnest_topup_fee() if engine in WALLET_TOPUP_ENGINES else Decimal(0)
+
+
+def cost_with_fee(amount: Decimal, *, fee: Decimal) -> Decimal:
+    """What `amount` paid from the wallet cost us once the top-up fee on it is added."""
+    return (amount * (Decimal(1) + fee)).quantize(rates.MONEY_Q, rounding=rates.ROUNDING)
 
 
 def client_rungs(engine: str) -> Mapping[str, rates.VoiceTier] | None:
@@ -270,8 +313,11 @@ async def record_engine_rate_key(
 class MinuteCost:
     rate_key: str
     billed_minutes: Decimal
-    #: None when the rate key is unattested: the minute is UNPRICED, not free.
+    #: The attested posted rate, before the top-up fee. None when the rate key is
+    #: unattested: the minute is UNPRICED, not free.
     inr_per_min: Decimal | None
+    #: The top-up fee `cost` includes, as a fraction.
+    topup_fee: Decimal
     cost: CostBreakdown
 
     @property
@@ -292,7 +338,8 @@ async def engine_minute_cost(
 
     The whole minute is ONE leg (`platform_inr`): ThinnestAI sells telephony, speech and
     model as one per-minute price (evaluation §2), so splitting it across our per-leg rows
-    would invent a breakdown nobody quoted.
+    would invent a breakdown nobody quoted. The wallet's top-up fee is added on top of the
+    attested rate (module docstring).
     """
     _require_engine(engine)
     stamped = (
@@ -309,18 +356,21 @@ async def engine_minute_cost(
     rate_key = str(stamped) if stamped else BASE_RATE_KEY
     minutes = billed_minutes(seconds, pulse_s=PULSE_SECONDS[engine])
     price = (await attested_minute_prices(session, engine=engine, at=at)).get(rate_key)
+    fee = topup_fee(engine)
     if price is None:
         return MinuteCost(
             rate_key=rate_key,
             billed_minutes=minutes,
             inr_per_min=None,
+            topup_fee=fee,
             cost=CostBreakdown(total_inr=Decimal(0), source_currency="INR"),
         )
-    total = minutes * price.inr_per_min
+    total = cost_with_fee(minutes * price.inr_per_min, fee=fee)
     return MinuteCost(
         rate_key=rate_key,
         billed_minutes=minutes,
         inr_per_min=price.inr_per_min,
+        topup_fee=fee,
         cost=CostBreakdown(total_inr=total, platform_inr=total, source_currency="INR"),
     )
 
@@ -332,6 +382,9 @@ __all__ = [
     "BYOK_VOICE_RATE_KEY",
     "ENGINE_RATE_KEYS",
     "PULSE_SECONDS",
+    "TOPUP_FEE_META_KEY",
+    "TOPUP_FEE_PLAN_LABELS",
+    "WALLET_TOPUP_ENGINES",
     "EngineMinutePrice",
     "EngineRateKey",
     "MinuteCost",
@@ -341,7 +394,10 @@ __all__ = [
     "billed_minutes",
     "client_rungs",
     "client_voice_tier",
+    "cost_with_fee",
     "engine_minute_cost",
     "engine_minute_is_billable",
     "record_engine_rate_key",
+    "thinnest_topup_fee",
+    "topup_fee",
 ]

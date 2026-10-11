@@ -47,6 +47,7 @@ import {
   changeAdminPassword,
 } from "@/lib/authn/adminAuthn";
 import { adminConsoleUrl } from "@/lib/consoleOrigin";
+import { useAdminMe } from "@/app/admin/access";
 import {
   AdminSessionGate,
   AdminSessionProvider,
@@ -85,6 +86,10 @@ function AdminGate({ children }: { children: ReactNode }) {
 
 function AdminSessionBody() {
   const { session, retry } = useAdminSession();
+  // The address on file, for "which account is this". Asked only once the second factor is
+  // done: before that the identity route refuses the session, and the row still says
+  // whether the address is verified.
+  const me = useAdminMe({ enabled: session?.mfa_complete === true });
 
   return (
     <>
@@ -107,6 +112,7 @@ function AdminSessionBody() {
           <SettingRows className="border-y border-line">
             <EmailRow
               authn={adminAuthn}
+              email={me.data?.email}
               verified={session?.email_verified ?? false}
               onVerified={retry}
             />

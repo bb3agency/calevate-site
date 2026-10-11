@@ -580,6 +580,65 @@ async def revoke_invitation(
     )
 
 
+class ResentInvitationOut(BaseModel):
+    """What a resend did. The token is not here, for `invite_member`'s reason (D-198)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    email: str
+    role: str
+    expires_at: datetime
+    last_sent_at: datetime
+    send_count: int
+    delivery: Literal["queued"]
+
+
+@router.post(
+    "/invitations/{invitation_id}/resend",
+    response_model=ResentInvitationOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Send a pending invitation again (owner only)",
+    description=(
+        "Mails the invitation again to the address it already has. The link in the "
+        "earlier email stops working and the 72-hour clock restarts. Limited to one send "
+        "every two minutes and ten sends in all; past that, revoke it and invite again. "
+        "404 if it has been accepted, revoked or has expired."
+    ),
+)
+async def resend_invitation(
+    invitation_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(MEMBERSHIP_WRITE),
+) -> ResentInvitationOut:
+    # The rotation and its mail share one transaction, for `invite_member`'s reason: a
+    # rotation committed without its email would kill a working link and replace it with
+    # nothing.
+    resent = await members_service.resend_team_invitation(
+        session, actor_role=principal.role, invitation_id=invitation_id
+    )
+    await enqueue_invitation_email(session, to=resent.email, token=resent.token)
+    await write_audit(
+        session,
+        action=f"member.invitation_resent:{resent.role}",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="invitation",
+        object_id=str(invitation_id),
+        ip=client_request_ip(request),
+    )
+    return ResentInvitationOut(
+        id=resent.id,
+        email=resent.email,
+        role=resent.role,
+        expires_at=resent.expires_at,
+        last_sent_at=resent.last_sent_at,
+        send_count=resent.send_count,
+        delivery="queued",
+    )
+
+
 @router.patch(
     "/members/{user_id}",
     response_model=MemberOut,

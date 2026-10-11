@@ -1,7 +1,7 @@
 import { Play, Plus } from "lucide-react";
 
 import { CallCard } from "./callCards";
-import { Chip, Panel, StatusPill, Tag, Waveform } from "./kit";
+import { Chip, Panel, StatusPill, Waveform } from "./kit";
 
 /**
  * One screen per step of "how it works": the list you write, the call it takes, the lead
@@ -56,14 +56,14 @@ export function CallMock() {
 
 /**
  * Step 03: the lead with its call attached — summary, the console's "Key points in this
- * call" (field-captured moments and one AI-suggested highlight, as `apps/workers/
- * moments.py` labels them) and the recording.
+ * call" (a captured field and two suggested moments, as `apps/workers/moments.py`
+ * labels them; times are approximate, as the voice platform's are) and the recording.
  */
 export function LeadRecordMock() {
   const moments = [
-    { at: "0:18", label: "Course captured", ai: false },
-    { at: "0:44", label: "Asked what the batch fee is", ai: true },
-    { at: "1:32", label: "Demo booked captured", ai: false },
+    { at: "~0:18", label: "Course captured", ai: false },
+    { at: "~0:44", label: "Asked what the batch fee is", ai: true },
+    { at: "~1:32", label: "Demo class booked", ai: true },
   ] as const;
   return (
     <Panel elevation="raised" className="mk-rise mk-s1 p-4">
@@ -82,9 +82,9 @@ export function LeadRecordMock() {
       <span className="mt-1.5 flex flex-col gap-1">
         {moments.map(({ at, label, ai }, i) => (
           <span key={at} className={`mk-rise mk-s${i + 2} flex items-center gap-2 text-[12px]`}>
-            <span className="w-8 shrink-0 font-mono text-[11px] text-brand-strong dark:text-brand-bright">{at}</span>
+            <span className="w-10 shrink-0 font-mono text-[11px] text-brand-strong dark:text-brand-bright">{at}</span>
             <span className="min-w-0 flex-1 truncate text-ink">{label}</span>
-            {ai && <Tag tone="violet">AI</Tag>}
+            {ai && <span className="shrink-0 text-[10px] text-ink-faint">Suggested</span>}
           </span>
         ))}
       </span>

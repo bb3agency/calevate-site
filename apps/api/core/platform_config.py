@@ -191,7 +191,7 @@ _SECRET_NAME_FRAGMENTS: tuple[str, ...] = tuple(
 #   * `scripts/check_config_applies.py` fails CI on any managed field with no entry, any
 #     entry naming a field that is no longer managed, and any entry with no reason.
 #
-# THE FOUR ANSWERS, and why four rather than two:
+# THE ANSWERS, one per thing an operator must still do after saving:
 
 #: Read through `get_settings()` at the point of use. In force everywhere within one
 #: poll interval, no restart.
@@ -199,12 +199,15 @@ LIVE = "live"
 #: Consumed once, at process start. The value WILL apply after a restart, and does
 #: nothing before one.
 ON_RESTART = "on_restart"
-#: Live for new work, but artefacts already created carry the old value. Neither `live`
-#: nor `on_restart`: a restart does not fix it and waiting does not either — something
-#: has to be re-published. Without this category the classification cannot be honest,
-#: because `webhook_base_url` is in it and is the field most likely to be changed during
-#: an incident.
-NEEDS_REPUBLISH = "needs_republish"
+#: Each live agent carries the value in its vendor-side config, so saving it queues a
+#: platform-wide live apply in the same transaction (`agents/live_apply.queue_live_apply`,
+#: D-720): every live agent is republished and read back at once, and a call already in
+#: progress finishes on the old value. Nobody republishes anything by hand.
+LIVE_AGENTS = "live_agents"
+#: Saving it is not enough and no republish helps: an operator must do the step the caveat
+#: names (re-install a credential in the engine's own store, rebind numbers at the other
+#: carrier, move the fleet to another engine). The caveat is the instruction.
+OPERATOR_STEP = "operator_step"
 #: The store can NEVER deliver this value, restart or not — the consumer reads the
 #: environment directly, or reads it before the store is reachable. Distinct from
 #: `on_restart`, which promises a restart is enough. `editable` is False for these and
@@ -215,7 +218,7 @@ ENV_ONLY = "env_only"
 UNCLASSIFIED = "unclassified"
 
 APPLIES_VALUES: frozenset[str] = frozenset(
-    {LIVE, ON_RESTART, NEEDS_REPUBLISH, ENV_ONLY, UNCLASSIFIED}
+    {LIVE, ON_RESTART, LIVE_AGENTS, OPERATOR_STEP, ENV_ONLY, UNCLASSIFIED}
 )
 
 
@@ -231,6 +234,12 @@ class AppliesRule:
     applies: str
     caveat: str | None = None
 
+
+#: The sentence every `LIVE_AGENTS` caveat ends with: what "now" means for a call.
+_NOW = (
+    " as soon as it is saved; a call already in progress finishes on the previous value and "
+    "the next call, including the next dial of a running campaign, uses the new one."
+)
 
 #: EVERY managed key, classified. The guardrail fails if this is not exhaustive.
 #:
@@ -283,21 +292,25 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         ON_RESTART,
         "read once at startup and held by each server process.",
     ),
-    # ---- needs_republish: live for new work, stale on what already exists ----------
+    # ---- live_agents: carried by each live agent, so saving it updates them all ----
     "webhook_base_url": AppliesRule(
-        NEEDS_REPUBLISH,
-        "each published agent carries this URL in its engine-side config; new publishes "
-        "use the new one.",
+        LIVE_AGENTS,
+        "each live agent carries this URL in its engine-side config, so saving it "
+        f"updates every live agent{_NOW}",
     ),
     # `get_engine()` switches the active adapter immediately, but every live agent was
     # created on the previous vendor: its `engine_agent_ref` means nothing to the new
     # engine and its webhook URL still ends in the old engine's name. Switching BACK
     # returns the adapter instance cached earlier in this process, with the credentials
     # and FX rate it was built with.
+    # OPERATOR_STEP rather than LIVE_AGENTS: republishing the fleet onto another vendor
+    # creates every agent there afresh while each number still answers at the old one, so
+    # it is a migration somebody runs on purpose, not a side effect of a save.
     "engine": AppliesRule(
-        NEEDS_REPUBLISH,
-        "each live agent was built on the previous engine and exists only there until "
-        "its next publish.",
+        OPERATOR_STEP,
+        "each live agent was built on the previous engine and exists only there; moving "
+        "them is a migration an operator runs (republish each agent on the new engine and "
+        "move its numbers), which saving this does not do.",
     ),
     # ---- live: read through get_settings() at the point of use ---------------------
     # The per-statement budget the app's sessions carry. `live`, and checked rather than
@@ -416,8 +429,9 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # ---- AZURE OPENAI (D-410). Both LLM surfaces, and NOT all one answer ---------
     #
     # THE ENDPOINT AND THE DEPLOYMENT ARE BAKED INTO EACH PUBLISHED AGENT, which is what
-    # makes them `needs_republish` rather than `live` and is the distinction this table
-    # exists for. `azure_openai_resource` becomes `ModelConfig.llm_base_url` and
+    # makes them `live_agents` rather than `live` and is the distinction this table
+    # exists for: saving either republishes every live agent (D-720).
+    # `azure_openai_resource` becomes `ModelConfig.llm_base_url` and
     # `azure_openai_deployment` becomes `ModelConfig.llm_model`; both travel into the
     # engine's own agent record at publish time, so an agent that is already live keeps
     # calling the resource it was published against however many times the console is
@@ -428,16 +442,15 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # resource in the Azure portal), so unlike the old Vertex hostname there is nothing in
     # `calevate_shared.engine.AZURE_LOCATION` or the AST for a guard to check against.
     "azure_openai_resource": AppliesRule(
-        NEEDS_REPUBLISH,
-        "this becomes each agent's LLM endpoint when the agent is published, so agents "
-        "already live keep calling the old resource until they are re-published — and "
-        "pointing it at a resource in a different region silently moves where calls are "
+        LIVE_AGENTS,
+        "this is each agent's LLM endpoint, so saving it moves every live agent to the new "
+        f"resource{_NOW} Pointing it at a resource in a different region silently "
+        "moves where calls are "
         "processed, which no automated check here can catch.",
     ),
     "azure_openai_deployment": AppliesRule(
-        NEEDS_REPUBLISH,
-        "it is the deployment id each agent was published with, so live agents keep "
-        "calling the old deployment until they are re-published",
+        LIVE_AGENTS,
+        f"it is the deployment id each agent calls, so saving it moves every live agent{_NOW}",
     ),
     # The deployments serving the models a CLIENT may select (D-454). Same answer as the
     # field above and for the same reason — it resolves to `ModelConfig.llm_model` at
@@ -448,11 +461,10 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # deployment their agents were published against, and the screen starts reporting the
     # choice as unavailable.
     "azure_openai_deployments": AppliesRule(
-        NEEDS_REPUBLISH,
-        "it decides which deployment each agent is published with, so live agents keep "
-        "calling the deployment they were published against until they are re-published "
-        "— adding an entry makes a model selectable at once, removing one does not move "
-        "any agent that is already live",
+        LIVE_AGENTS,
+        "it decides which deployment each agent calls; adding an entry makes a model "
+        "selectable at once, and saving it moves every live agent onto the deployments it "
+        f"names{_NOW}",
     ),
     # LIVE, and it is the ONE of the four that genuinely is: nothing sends this value to
     # anybody. It records which model the deployment was made from, `billing/` reads it
@@ -466,7 +478,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # resolves it per request, so "the model we run by default" moves within one poll. ⚠ A
     # LIVE AGENT MOVES ON ITS NEXT PUBLISH, not on the poll — `_to_config` resolves this rung
     # at publish time — which is the same shape `azure_openai_deployments` carries and is why
-    # that one is NEEDS_REPUBLISH. It is classified LIVE anyway because the two are not the
+    # that one is LIVE_AGENTS. It is classified LIVE anyway because the two are not the
     # same promise: an entry in that map decides WHICH DEPLOYMENT an agent is addressed by
     # and can leave a published agent calling a different model than the console reports,
     # while this one only decides what an account inherits — no agent that has ever been
@@ -534,25 +546,25 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # Whether the ThinnestAI workspace runs on its own keys (D-678). It decides which rate key
     # a publish stamps and whether a per-agent catalogue choice is allowed, both at publish.
     "thinnest_byok_enabled": AppliesRule(
-        NEEDS_REPUBLISH,
-        "each agent's per-minute rate is stamped when it is published, so live agents keep "
-        "the rate they were published with until they are re-published",
+        LIVE_AGENTS,
+        "each agent's per-minute rate is stamped when it is published, so saving it "
+        f"restamps every live agent{_NOW}",
     ),
     # Which ThinnestAI voice band is sold as Clear (D-688). The picker and the rate card
     # follow it at once; an agent already published keeps the rate key of the band its voice
     # was published on until it is re-published on a voice of the new band.
     "thinnest_clear_voice_band": AppliesRule(
-        NEEDS_REPUBLISH,
-        "an agent already published keeps billing at the band it was published on until it "
-        "is re-published on a voice of the new band",
+        LIVE_AGENTS,
+        "saving it republishes every live agent; an agent whose voice is not in the new "
+        "band keeps billing at its old band, and the console lists it as not applied until "
+        f"it is given a voice of the new band{_NOW}",
     ),
     # The in-call model a Clear agent with no model of its own is sent at publish. The
     # settings sweep (`agents/engine_settings.py`) also puts a live agent onto it, reporting
     # each agent it moves, so no agent stays on the old model for long either way.
     "thinnest_in_call_default_model": AppliesRule(
-        NEEDS_REPUBLISH,
-        "each agent is sent the model at its next publish; the half-hourly settings check "
-        "also moves live agents onto it and reports each one it moved",
+        LIVE_AGENTS,
+        f"saving it moves every live Clear agent with no model of its own onto it{_NOW}",
     ),
     # Read inside every ThinnestAI dial's intent transaction (`agents/service.dispatch_call`)
     # and once per dispatch tick for the outbound pool, like `carrier_concurrency`.
@@ -571,20 +583,19 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # (`reliability/engine_actions.py`); the drift check repairs a live agent's actions on
     # its next pass, and a republish does it at once.
     "engine_actions_base_url": AppliesRule(
-        NEEDS_REPUBLISH,
-        "each agent's in-call actions carry this address from when it was published, so "
-        "live agents keep calling the old one until they are re-published",
+        LIVE_AGENTS,
+        "each agent's in-call actions carry this address, so saving it updates every "
+        f"live agent{_NOW}",
     ),
-    # WHICH SARVAM TRANSCRIBER AGENTS ARE PUBLISHED WITH (D-583). `needs_republish` and not
+    # WHICH SARVAM TRANSCRIBER AGENTS ARE PUBLISHED WITH (D-583). `live_agents` and not
     # `live` for `azure_openai_deployment`'s reason, exactly: `in_call_speech` resolves it at
     # PUBLISH time into the agent object the engine stores, so an agent already live keeps
     # transcribing on the model it was published with however many times this is edited.
     # Saying `live` here would be the outage this file's header describes, on the leg that
     # decides what the caller is heard to have said.
     "sarvam_stt_model": AppliesRule(
-        NEEDS_REPUBLISH,
-        "it is the transcriber each agent was published with, so live agents keep "
-        "transcribing on the old model until they are re-published",
+        LIVE_AGENTS,
+        f"it is the transcriber each agent runs, so saving it moves every live agent{_NOW}",
     ),
     # Whether the transcriber is TOLD the language or DETECTS it (D-584). Same category and
     # the same reason as the model above — it is resolved at publish time — and the same
@@ -592,9 +603,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # said, and only on agents re-published afterwards, so a half-migrated fleet is two
     # different products until every one is re-published.
     "stt_autodetect_language": AppliesRule(
-        NEEDS_REPUBLISH,
-        "it is baked into each agent at publish time, so live agents keep pinning the "
-        "language they were published with until they are re-published",
+        LIVE_AGENTS,
+        f"it is part of each agent's speech settings, so saving it changes every live agent{_NOW}",
     ),
     # ---- CREDENTIALS. Same question, higher stakes -------------------------------
     #
@@ -637,7 +647,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # its call record read on the carrier stamped on its row (`calls.carrier`, D-663). A
     # number already bound at the other carrier keeps answering there until it is rebound.
     "carrier": AppliesRule(
-        NEEDS_REPUBLISH,
+        OPERATOR_STEP,
         "new calls are dialled on the new carrier at once and calls already under way "
         "finish on the carrier they started on, but every number already bound to the "
         "other carrier keeps answering there until it is bound again from the number's "
@@ -658,11 +668,10 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # URL says its disclosure announces a recording, so the ON half waits for a republish
     # by construction (hard rule 5: never record a caller the agent told otherwise).
     "carrier_recording_enabled": AppliesRule(
-        NEEDS_REPUBLISH,
-        "turning it off stops recording on the very next call, but agents published while "
-        "it was on keep telling callers the call is recorded until they are published "
-        "again; turning it on records nobody until each agent is published again, because "
-        "an agent only records once its opening and its answers say so",
+        LIVE_AGENTS,
+        "turning it off stops recording on the very next call; either way every live agent's "
+        "opening and answers about recording are republished to match, because an agent only "
+        f"records once its opening and its answers say so{_NOW}",
     ),
     "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
     # ⚠ THIS COMMENT SAID "nothing sends it anywhere" AND THAT HAS BEEN FALSE SINCE D-456.
@@ -691,7 +700,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # assist and no extraction pass. D-127 G-2 forbids raw PII on that leg and
     # `GEMINI_EXTRACTION_DEFAULT is False` is the greppable form of it.
     "gemini_api_key": AppliesRule(
-        NEEDS_REPUBLISH,
+        OPERATOR_STEP,
         "the model picker and the dashboard AI pick up the new key within seconds, but "
         "the in-call phone leg does not: a Gemini agent authenticates from the voice "
         "platform's own credential store, so a rotation here does not reach a live call "
@@ -719,7 +728,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # against the SHAPE of the leg (does a copy live somewhere we do not control?), which
     # cannot go stale that way.
     "openai_api_key": AppliesRule(
-        NEEDS_REPUBLISH,
+        OPERATOR_STEP,
         "the model picker and the dashboard AI pick up the new key within seconds, but "
         "the in-call phone leg does not: an OpenAI agent authenticates from the voice "
         "platform's own credential store, so a rotation here does not reach a live call "
@@ -736,7 +745,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # `live` is the answer that costs an outage (see this file's header), so the row
     # states the weaker of the two truths rather than the flattering one.
     "azure_openai_api_key": AppliesRule(
-        NEEDS_REPUBLISH,
+        OPERATOR_STEP,
         "the dashboard AI picks up the new key on its next request, but the in-call phone "
         "leg does not: the engine keeps its own copy, so a rotation here does not reach a "
         "live call until the new key is re-installed on the engine's credential store. "
@@ -889,8 +898,8 @@ class ConfigField:
     #: Whether `null` ("not set") is a value this field accepts.
     nullable: bool
     editable: bool
-    #: `live` | `on_restart` | `needs_republish` | `env_only` | `unclassified` — when a
-    #: change to this key actually takes effect. See `FIELD_APPLIES`.
+    #: `live` | `on_restart` | `live_agents` | `operator_step` | `env_only` | `unclassified`
+    #: — when a change to this key actually takes effect. See `FIELD_APPLIES`.
     applies: str
     #: What the operator still has to do after changing it, or `None`. Carries the
     #: reason for every classification except `live`, where there is nothing left to
@@ -1528,8 +1537,9 @@ __all__ = [
     "ENV_ONLY",
     "FIELD_APPLIES",
     "LIVE",
-    "NEEDS_REPUBLISH",
+    "LIVE_AGENTS",
     "ON_RESTART",
+    "OPERATOR_STEP",
     "UNCLASSIFIED",
     "AppliesRule",
     "ConfigField",

@@ -8,27 +8,31 @@
  * a script needs is small — at most twelve nodes, three end points, arrows with a label.
  *
  * It draws `script.stages` and writes back through the same calls the list uses: a click
- * selects a section for the side panel, dragging a section stores its `position`, and
- * dragging from a section's dot to another section adds a way out (`connect`). Every one of
- * those has a keyboard way too: Tab to a section, Enter to edit it, arrow keys to move it
- * (Shift for bigger steps), and the editor's "Add a way out" in place of the dot.
+ * selects a step for the side panel, dragging a step stores its `position`, and
+ * dragging from a step's dot to another step adds a way out (`connect`). Every one of
+ * those has a keyboard way too: Tab to a step, Enter to edit it, arrow keys to move it
+ * (Shift for bigger moves), and the editor's "Add a way out" in place of the dot.
  */
 
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { CircleAlert } from "lucide-react";
 
 import type { ScriptContext } from "@/lib/api/script";
 
 import {
   CALL_BACK,
+  DEFAULT_COLUMNS,
   END,
+  GAP_X,
+  GAP_Y,
   HAND_OVER,
+  MARGIN,
   NODE_H,
   NODE_W,
   SPECIAL_TARGETS,
+  columnsFor,
   edgesOf,
   positionOf,
-  type Edge,
   type Issue,
   type Section,
 } from "./scriptModel";
@@ -40,6 +44,92 @@ type Box = Point & { w: number; h: number };
 const END_W = 168;
 const END_H = 40;
 const PAD = 48;
+/** The lane between the last column of steps and the end-of-call column. */
+const CORRIDOR = 64;
+/** The canvas grows with its picture between these heights, then scrolls. */
+const MIN_HEIGHT = 280;
+const MAX_HEIGHT = 900;
+const CORNER = 8;
+
+/** A path through `points` with its corners rounded, so a route reads as one line. */
+function rounded(points: Point[]): string {
+  const pts = points.filter((p, i) => i === 0 || p.x !== points[i - 1].x || p.y !== points[i - 1].y);
+  if (pts.length < 2) return "";
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 1; i < pts.length - 1; i += 1) {
+    const [a, p, b] = [pts[i - 1], pts[i], pts[i + 1]];
+    const lenIn = Math.hypot(p.x - a.x, p.y - a.y);
+    const lenOut = Math.hypot(b.x - p.x, b.y - p.y);
+    const r = Math.min(CORNER, lenIn / 2, lenOut / 2);
+    const inPt = { x: p.x - ((p.x - a.x) / lenIn) * r, y: p.y - ((p.y - a.y) / lenIn) * r };
+    const outPt = { x: p.x + ((b.x - p.x) / lenOut) * r, y: p.y + ((b.y - p.y) / lenOut) * r };
+    d += ` L ${inPt.x} ${inPt.y} Q ${p.x} ${p.y} ${outPt.x} ${outPt.y}`;
+  }
+  const last = pts[pts.length - 1];
+  return `${d} L ${last.x} ${last.y}`;
+}
+
+/** The middle of the longest horizontal run, where a way out's label sits. */
+function labelPoint(points: Point[]): Point {
+  let best = { len: -1, at: points[0] };
+  for (let i = 1; i < points.length; i += 1) {
+    const [a, b] = [points[i - 1], points[i]];
+    const len = a.y === b.y ? Math.abs(b.x - a.x) : 0;
+    if (len > best.len) best = { len, at: { x: (a.x + b.x) / 2, y: a.y } };
+  }
+  if (best.len > 0) return best.at;
+  const [a, b] = [points[0], points[points.length - 1]];
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+/**
+ * The route of one arrow, drawn in the gaps between steps rather than across them: a
+ * neighbour to the right is a straight line; anything else leaves from the bottom (or the
+ * top, going up), runs along the gap between rows, and comes in from the top or bottom.
+ * A jump of more than one row drops down the gap beside the step it leaves. End-of-call
+ * targets in their own column (`isEnd`) are reached along the corridor in front of it;
+ * in a row under the steps they are routed like any other step.
+ *
+ * `lane` nudges arrows that share a gap apart, so two never draw as one.
+ */
+function route(a: Box, b: Box, isEnd: boolean, steps: Box[], corridorX: number, lane: number): Point[] {
+  const acx = a.x + a.w / 2;
+  const bcx = b.x + b.w / 2;
+  const acy = a.y + a.h / 2;
+  const bcy = b.y + b.h / 2;
+  const sameRow = Math.abs(a.y - b.y) < a.h / 2;
+  const clearRight = !steps.some((s) => s !== a && Math.abs(s.y - a.y) < a.h / 2 && s.x > a.x);
+
+  if (isEnd) {
+    if (clearRight) return [{ x: a.x + a.w, y: acy }, { x: corridorX, y: acy }, { x: corridorX, y: bcy }, { x: b.x, y: bcy }];
+    const gap = a.y + a.h + GAP_Y / 2 + lane;
+    return [{ x: acx, y: a.y + a.h }, { x: acx, y: gap }, { x: corridorX, y: gap }, { x: corridorX, y: bcy }, { x: b.x, y: bcy }];
+  }
+  if (sameRow && b.x > a.x && b.x - (a.x + a.w) <= GAP_X + 1) {
+    const midX = (a.x + a.w + b.x) / 2;
+    return [{ x: a.x + a.w, y: acy }, { x: midX, y: acy }, { x: midX, y: bcy }, { x: b.x, y: bcy }];
+  }
+  if (sameRow) {
+    const gap = Math.max(a.y + a.h, b.y + b.h) + GAP_Y / 2 + lane;
+    return [{ x: acx, y: a.y + a.h }, { x: acx, y: gap }, { x: bcx, y: gap }, { x: bcx, y: b.y + b.h }];
+  }
+  if (b.y > a.y) {
+    const below = a.y + a.h + GAP_Y / 2 + lane;
+    const above = b.y - GAP_Y / 2 + lane;
+    if (above - below <= 2 * Math.abs(lane) + 1) {
+      return [{ x: acx, y: a.y + a.h }, { x: acx, y: below }, { x: bcx, y: below }, { x: bcx, y: b.y }];
+    }
+    const colX = bcx >= acx ? a.x + a.w + GAP_X / 2 : a.x - GAP_X / 2;
+    return [{ x: acx, y: a.y + a.h }, { x: acx, y: below }, { x: colX, y: below }, { x: colX, y: above }, { x: bcx, y: above }, { x: bcx, y: b.y }];
+  }
+  const above = a.y - GAP_Y / 2 + lane;
+  const below = b.y + b.h + GAP_Y / 2 + lane;
+  if (above - below <= 2 * Math.abs(lane) + 1) {
+    return [{ x: acx, y: a.y }, { x: acx, y: above }, { x: bcx, y: above }, { x: bcx, y: b.y + b.h }];
+  }
+  const colX = bcx >= acx ? a.x + a.w + GAP_X / 2 : a.x - GAP_X / 2;
+  return [{ x: acx, y: a.y }, { x: acx, y: above }, { x: colX, y: above }, { x: colX, y: below }, { x: bcx, y: below }, { x: bcx, y: b.y + b.h }];
+}
 
 /** Where a line from `box`'s centre towards `to` leaves the box. */
 function anchor(box: Box, to: Point): Point {
@@ -50,10 +140,6 @@ function anchor(box: Box, to: Point): Point {
   if (dx === 0 && dy === 0) return { x: cx, y: cy };
   const t = Math.min(dx === 0 ? Infinity : box.w / 2 / Math.abs(dx), dy === 0 ? Infinity : box.h / 2 / Math.abs(dy));
   return { x: cx + dx * t, y: cy + dy * t };
-}
-
-function centre(box: Box): Point {
-  return { x: box.x + box.w / 2, y: box.y + box.h / 2 };
 }
 
 /** A gentle curve between two anchors, bent along the main direction of travel. */
@@ -91,29 +177,78 @@ export function FlowCanvas({
   onPosition: (id: string, at: Point) => void;
   onConnect: (from: string, to: string) => void;
 }) {
+  const frame = useRef<HTMLDivElement>(null);
   const plane = useRef<HTMLDivElement>(null);
   const [moving, setMoving] = useState<{ id: string; start: Point; origin: Point; at: Point; moved: boolean } | null>(null);
   const [linking, setLinking] = useState<{ from: string; to: Point } | null>(null);
   const [announce, setAnnounce] = useState("");
+  const [frameWidth, setFrameWidth] = useState(0);
 
-  const boxes = useMemo(() => {
-    const out = new Map<string, Box>();
-    sections.forEach((s, i) => {
-      const p = moving?.id === s.id ? moving.at : positionOf(s, i);
-      out.set(s.id, { x: Math.max(0, p.x), y: Math.max(0, p.y), w: NODE_W, h: NODE_H });
-    });
-    return out;
-  }, [sections, moving]);
+  // The canvas lays unplaced steps out to the width it actually has, so it follows the
+  // window rather than a fixed three to a row.
+  useEffect(() => {
+    const el = frame.current;
+    if (!el) return;
+    const measure = () => setFrameWidth(el.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const edges = edgesOf(sections);
   const usedEnds = SPECIAL_TARGETS.filter((t) => edges.some((e) => e.to === t));
-  const right = Math.max(PAD, ...[...boxes.values()].map((b) => b.x + b.w)) + 96;
-  const bottom = Math.max(...[...boxes.values()].map((b) => b.y + b.h), 0);
+  // The end points take a column on the right while that still leaves three steps to a
+  // row (or room for every step); on a narrower canvas they sit in a row under the steps,
+  // so the steps keep the width.
+  const besideCols = frameWidth ? columnsFor(frameWidth, usedEnds.length ? CORRIDOR + END_W : 0) : DEFAULT_COLUMNS;
+  const endsBeside = usedEnds.length === 0 || besideCols >= Math.min(3, sections.length);
+  const columns = Math.min(
+    Math.max(sections.length, 1),
+    endsBeside || !frameWidth ? besideCols : columnsFor(frameWidth),
+  );
+
+  const stepBoxMap = useMemo(() => {
+    const out = new Map<string, Box>();
+    sections.forEach((s, i) => {
+      const p = moving?.id === s.id ? moving.at : positionOf(s, i, columns);
+      out.set(s.id, { x: Math.max(0, p.x), y: Math.max(0, p.y), w: NODE_W, h: NODE_H });
+    });
+    return out;
+  }, [sections, moving, columns]);
+
+  // Steps and end points together; a new map each render, so the memoised step boxes are
+  // never mutated.
+  const boxes = new Map(stepBoxMap);
+  const stepBoxes = [...stepBoxMap.values()];
+  const stepsRight = Math.max(MARGIN, ...stepBoxes.map((b) => b.x + b.w));
+  const stepsBottom = Math.max(...stepBoxes.map((b) => b.y + b.h), 0);
+  const corridorX = stepsRight + CORRIDOR / 2;
   usedEnds.forEach((t, i) => {
-    boxes.set(t, { x: right, y: PAD / 2 + i * (END_H + 32), w: END_W, h: END_H });
+    boxes.set(
+      t,
+      endsBeside
+        ? { x: corridorX + CORRIDOR / 2, y: MARGIN + i * (END_H + 24), w: END_W, h: END_H }
+        : {
+            x: MARGIN + (i % columns) * (NODE_W + GAP_X) + (NODE_W - END_W) / 2,
+            y: stepsBottom + GAP_Y + Math.floor(i / columns) * (END_H + GAP_Y),
+            w: END_W,
+            h: END_H,
+          },
+    );
   });
-  const width = right + (usedEnds.length ? END_W : 0) + PAD;
-  const height = Math.max(bottom, usedEnds.length * (END_H + 32)) + PAD * 2;
+  const allBoxes = [...boxes.values()];
+  const width = Math.max(...allBoxes.map((b) => b.x + b.w), stepsRight) + MARGIN;
+  const height = Math.max(...allBoxes.map((b) => b.y + b.h), 0) + PAD;
+  const routes = edges.map((edge, i) => {
+    const a = boxes.get(edge.from);
+    const b = boxes.get(edge.to);
+    if (!a || !b) return null;
+    const lane = ((i % 3) - 1) * 6;
+    const toEnd = (SPECIAL_TARGETS as readonly string[]).includes(edge.to);
+    return route(a, b, toEnd && endsBeside, stepBoxes, corridorX, lane);
+  });
 
   const local = (e: { clientX: number; clientY: number }): Point => {
     const box = plane.current?.getBoundingClientRect();
@@ -132,7 +267,7 @@ export function FlowCanvas({
   const startMove = (e: ReactPointerEvent<HTMLButtonElement>, s: Section, i: number) => {
     if (readOnly || e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    const origin = positionOf(s, i);
+    const origin = positionOf(s, i, columns);
     setMoving({ id: s.id, start: local(e), origin, at: origin, moved: false });
   };
   const doMove = (e: ReactPointerEvent<HTMLButtonElement>) => {
@@ -152,16 +287,21 @@ export function FlowCanvas({
   };
 
   const nudge = (s: Section, i: number, dx: number, dy: number) => {
-    const p = positionOf(s, i);
+    const p = positionOf(s, i, columns);
     onPosition(s.id, { x: Math.max(0, p.x + dx), y: Math.max(0, p.y + dy) });
-    setAnnounce(`${s.name.trim() || "Section"} moved.`);
+    setAnnounce(`${s.name.trim() || "Step"} moved.`);
   };
 
   const endLabel: Record<string, string> = { [END]: "End the call", [HAND_OVER]: "Hand to a person", [CALL_BACK]: "Offer a call back" };
 
   return (
     <div
-      className="relative h-[min(640px,70dvh)] overflow-auto rounded-card border border-line bg-surface-muted"
+      ref={frame}
+      // Tall enough for the picture (+2 for the frame's border, so one that fits does not
+      // scroll by a hair), within the bounds; `h-full` lets it match the step editor beside
+      // it when that is taller, rather than leaving white space under a short canvas.
+      style={{ minHeight: Math.min(Math.max(height, MIN_HEIGHT), MAX_HEIGHT) + 2, maxHeight: MAX_HEIGHT + 2 }}
+      className="relative h-full overflow-auto rounded-card border border-line bg-surface-muted"
       role="region"
       aria-label="The call as a flow picture"
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a region that scrolls must take focus, or no key can scroll it
@@ -170,16 +310,28 @@ export function FlowCanvas({
       <p aria-live="polite" className="sr-only">
         {announce}
       </p>
-      <div ref={plane} className="relative" style={{ width, height, minWidth: "100%", minHeight: "100%" }}>
+      {/* Centred when the frame is wider than the picture, so spare width sits evenly. */}
+      <div ref={plane} className="relative mx-auto" style={{ width, height, minHeight: "100%" }}>
         <svg className="pointer-events-none absolute inset-0" width={width} height={height} aria-hidden>
           <defs>
             <marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" className="fill-ink-muted" />
             </marker>
           </defs>
-          {edges.map((edge, i) => (
-            <EdgePath key={`${edge.from}-${edge.kind}-${edge.branch ?? ""}-${i}`} edge={edge} boxes={boxes} />
-          ))}
+          {edges.map((edge, i) => {
+            const points = routes[i];
+            if (!points) return null;
+            return (
+              <path
+                key={`${edge.from}-${edge.kind}-${edge.branch ?? ""}-${i}`}
+                d={rounded(points)}
+                className={`fill-none ${edge.kind === "next" ? "stroke-ink-faint" : "stroke-ink-muted"}`}
+                strokeWidth={edge.kind === "next" ? 1.25 : 1.5}
+                strokeDasharray={edge.kind === "next" ? "5 4" : undefined}
+                markerEnd="url(#flow-arrow)"
+              />
+            );
+          })}
           {linking && boxes.get(linking.from) && (
             <path
               d={curve(anchor(boxes.get(linking.from) as Box, linking.to), linking.to)}
@@ -191,18 +343,18 @@ export function FlowCanvas({
         </svg>
 
         {edges.map((edge, i) => {
-          if (edge.kind === "next") return null;
-          const a = boxes.get(edge.from);
-          const b = boxes.get(edge.to);
-          if (!a || !b) return null;
-          const p1 = anchor(a, centre(b));
-          const p2 = anchor(b, centre(a));
+          const points = routes[i];
+          // "Otherwise" means something only beside a condition; alone it is just the way on.
+          const plainWayOn =
+            edge.kind === "otherwise" && !sections.find((s) => s.id === edge.from)?.branches.length;
+          if (edge.kind === "next" || plainWayOn || !points) return null;
+          const at = labelPoint(points);
           return (
             <span
               key={`label-${i}`}
               aria-hidden
               className="pointer-events-none absolute max-w-44 -translate-x-1/2 -translate-y-1/2 truncate rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] text-ink-muted"
-              style={{ left: (p1.x + p2.x) / 2, top: (p1.y + p2.y) / 2 }}
+              style={{ left: at.x, top: at.y }}
             >
               {edge.kind === "otherwise" ? "Otherwise" : short(edge.label)}
             </span>
@@ -236,7 +388,7 @@ export function FlowCanvas({
               <button
                 type="button"
                 aria-pressed={on}
-                aria-label={`${i + 1}. ${s.name.trim() || "Untitled section"}${own.length ? ", needs finishing" : ""}. Press Enter to edit, arrow keys to move.`}
+                aria-label={`${i + 1}. ${s.name.trim() || "Untitled step"}${own.length ? ", needs finishing" : ""}. Press Enter to edit, arrow keys to move.`}
                 className={`flex h-full w-full touch-none select-none flex-col rounded-card border bg-surface p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
                   on ? "border-brand ring-1 ring-brand" : "border-line hover:border-ink-faint"
                 } ${readOnly ? "" : "cursor-grab active:cursor-grabbing"} ${moving?.id === s.id && moving.moved ? "shadow-overlay" : ""}`}
@@ -269,7 +421,7 @@ export function FlowCanvas({
                     {i + 1}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-body font-semibold text-ink">
-                    {s.name.trim() || "Untitled section"}
+                    {s.name.trim() || "Untitled step"}
                   </span>
                   {own.length > 0 && <CircleAlert aria-hidden className="h-4 w-4 shrink-0 text-danger" />}
                 </span>
@@ -286,7 +438,7 @@ export function FlowCanvas({
               {!readOnly && (
                 <div
                   aria-hidden
-                  title="Drag to another section to add a way out"
+                  title="Drag to another step to add a way out"
                   className="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 cursor-crosshair touch-none rounded-full border-2 border-surface bg-brand-strong"
                   onPointerDown={(e) => {
                     if (e.button !== 0) return;
@@ -301,7 +453,7 @@ export function FlowCanvas({
                     setLinking(null);
                     if (target) {
                       onConnect(linking.from, target);
-                      setAnnounce(`Added a way out from ${s.name.trim() || "the section"}.`);
+                      setAnnounce(`Added a way out from ${s.name.trim() || "the step"}.`);
                     }
                   }}
                   onPointerCancel={() => setLinking(null)}
@@ -312,7 +464,7 @@ export function FlowCanvas({
         })}
       </div>
       <p className="sr-only">
-        {sections.length} sections.{" "}
+        {sections.length} steps.{" "}
         {edges
           .filter((e) => e.kind !== "next")
           .map((e) => `${targetLabel(sections, e.from, context)} goes to ${targetLabel(sections, e.to, context)}${e.kind === "branch" ? ` when ${e.label}` : " otherwise"}.`)
@@ -322,19 +474,3 @@ export function FlowCanvas({
   );
 }
 
-function EdgePath({ edge, boxes }: { edge: Edge; boxes: Map<string, Box> }) {
-  const a = boxes.get(edge.from);
-  const b = boxes.get(edge.to);
-  if (!a || !b) return null;
-  const from = anchor(a, centre(b));
-  const to = anchor(b, centre(a));
-  return (
-    <path
-      d={curve(from, to)}
-      className={`fill-none ${edge.kind === "next" ? "stroke-ink-faint" : "stroke-ink-muted"}`}
-      strokeWidth={edge.kind === "next" ? 1.25 : 1.5}
-      strokeDasharray={edge.kind === "next" ? "5 4" : undefined}
-      markerEnd="url(#flow-arrow)"
-    />
-  );
-}

@@ -34,7 +34,7 @@
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useEffect } from "react";
 
-import { formatIST } from "@/components/ui";
+import { formatINR, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 
 import { agreementsKey } from "./agreements";
@@ -337,6 +337,17 @@ export function minutesLeftPhrase(wallet: Pick<Wallet, "minutes_left">): string 
   if (high === 0) return "No minutes left";
   if (low === high) return `About ${n(low)} ${low === 1 ? "minute" : "minutes"} left`;
   return `About ${n(low)} to ${n(high)} minutes left`;
+}
+
+/**
+ * MINUTES FIRST, RUPEES SECOND, as one phrase: "About 140 minutes left (₹420.00)". Rupees
+ * alone when no minute figure may be quoted. The rupees are the server's own digits,
+ * formatted and never parsed (hard rule 7).
+ */
+export function creditLeftPhrase(wallet: Pick<Wallet, "minutes_left" | "balance_inr">): string {
+  const minutes = minutesLeftPhrase(wallet);
+  const rupees = formatINR(wallet.balance_inr);
+  return minutes ? `${minutes} (${rupees})` : `${rupees} left`;
 }
 
 /**

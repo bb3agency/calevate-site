@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { suggestedQuestions } from "@/lib/copilot/suggestions";
+import { openingLine, suggestedQuestions } from "@/lib/copilot/suggestions";
 
 /**
  * The assistant's empty panel offers questions worth asking ON THIS SCREEN (REDESIGN-2).
@@ -25,5 +25,23 @@ describe("suggested questions", () => {
 
   it("falls back for a screen it does not know and for the admin realm", () => {
     expect(suggestedQuestions("/admin/tenants")).toEqual(suggestedQuestions("/c/x/nowhere"));
+  });
+});
+
+describe("the empty panel's opening line", () => {
+  it("speaks to the screen it sits beside, and never counts anything", () => {
+    const calls = openingLine("/c/acme/calls", false);
+    const billing = openingLine("/c/acme/billing", false);
+    expect(calls).not.toBe(billing);
+    expect(calls).toMatch(/call/);
+    expect(billing).toMatch(/credit/);
+    for (const line of [calls, billing, openingLine("/c/acme/leads/l1", false)]) {
+      expect(line).not.toMatch(/\d/);
+    }
+  });
+
+  it("offers to fill in a form only on a screen that has fields", () => {
+    expect(openingLine("/c/acme/agents/a1", true)).toMatch(/fill in/);
+    expect(openingLine("/c/acme/agents/a1", false)).not.toMatch(/fill in/);
   });
 });

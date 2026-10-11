@@ -356,12 +356,13 @@ class ConfigFieldOut(BaseModel):
     #: no effect today. True for every setting with no scope.
     used_by_current_engine: bool
     editable: bool
-    #: `live` | `on_restart` | `needs_republish` | `env_only` | `unclassified` — when a
-    #: change actually takes effect. THE MOST LOAD-BEARING FIELD IN THIS MODEL: a key
+    #: `live` | `on_restart` | `live_agents` | `operator_step` | `env_only` | `unclassified`
+    #: — when a change actually takes effect. THE MOST LOAD-BEARING FIELD IN THIS MODEL: a key
     #: reported `live` that is really snapshotted at process start is a lie that costs an
     #: outage, so the console must render this verbatim and never assume a default.
-    #: `needs_republish` means a restart does NOT fix it — something must be published
-    #: again. `env_only` and `unclassified` always arrive with `editable: false`.
+    #: `live_agents` means saving it republishes every live agent at once (D-720);
+    #: `operator_step` means the caveat names a step somebody still has to take.
+    #: `env_only` and `unclassified` always arrive with `editable: false`.
     applies: str
     #: What the operator still has to do after changing it, or null. Non-null for every
     #: `applies` except `live`.
@@ -496,6 +497,9 @@ class ConfigWriteOut(BaseModel):
     #: The key's token AFTER this request, for the operator's next conditional write.
     #: Also returned in the `ETag` response header.
     etag: str
+    #: The run putting this change on every live agent (`GET /v1/ops/live-apply`), for a
+    #: key whose `applies` is `live_agents`; null otherwise (D-720).
+    live_apply_run_id: UUID | None = None
 
 
 EngineInForce = tuple[str, EngineCapabilities | None]
@@ -953,6 +957,7 @@ def _write_out(response: Response, result: WriteResult, tasks: BackgroundTasks) 
         config_version=result.version,
         recorded=result.recorded,
         etag=etag,
+        live_apply_run_id=result.live_apply_run_id,
     )
 
 

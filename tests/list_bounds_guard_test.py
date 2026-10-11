@@ -162,6 +162,6 @@ def test_a_bounded_limit_passes(mounted: None) -> None:
 
 
 def test_a_route_with_no_list_at_all_is_not_asked_for_a_limit() -> None:
-    """`GET /v1/agents/{agent_id}/engine-state` returns one object with no list in it —
+    """`GET /v1/calls/{call_id}/recording/download` returns one object with no list in it —
     the check must not demand a page size from every route in the app."""
-    assert "GET /v1/agents/{agent_id}/engine-state" not in guard.list_routes(app)
+    assert "GET /v1/calls/{call_id}/recording/download" not in guard.list_routes(app)

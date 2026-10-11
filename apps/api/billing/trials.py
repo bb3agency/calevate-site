@@ -649,6 +649,15 @@ async def end_trial(
         },
     )
     await reset_client_counters(session, tenant_id=tenant_id)
+    if outcome == TRIAL_CONVERTED:
+        # A converted trial may keep call-backs, which its agents were told not to offer
+        # (`agents/service._load_agent` reads the restriction at publish time), so the
+        # client's live agents are brought up to date with this write (D-720).
+        from apps.api.agents.live_apply import queue_live_apply
+
+        await queue_live_apply(
+            session, scope="tenant", tenant_id=tenant_id, reason="trial_converted"
+        )
     log.info(
         "trial_ended",
         extra={

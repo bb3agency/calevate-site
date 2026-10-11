@@ -1,7 +1,11 @@
 # ThinnestAI: API requests and documentation questions (draft, 10 Oct 2026)
 
-Draft for the founder to send to ThinnestAI. Nothing here is sent automatically, and no
-secret, key or workspace id is included.
+Sent by the founder on 10 Oct 2026, followed by a second email the same evening that
+corrected item 10 (we want `voice.surfaces` writable, not forced off, because website and
+WhatsApp answering is a planned feature), withdrew item 15, and added: when a `PATCH` takes
+effect during a call in progress (OPERATIONS T-28), test-chat action markers, owned Cartesia
+clones (item 22) and the forwarded-call test calls. No secret, key or workspace id is
+included.
 
 Context for our team: the agent Voice settings page in ThinnestAI's console has settings
 that the REST API does not expose (mapping in
@@ -85,6 +89,12 @@ who choose our premium voices:
     developer wallet, with `costMicro` on the call at that rate? Is the top-up fee the same?
 17. **Keys per workspace.** May the same Cartesia key be installed in several customer
     workspaces, and is there any limit on how many?
+
+22. **Our own cloned voices.** Set Agent BYOK Voice checks the id "against the provider's
+    list for your key". Does `GET /byok/voices` return every page of Cartesia's list
+    (Cartesia pages at most 100 per page), including voices our Cartesia account owns, such
+    as an instant clone we made there? Can you confirm an owned clone is accepted by
+    `PUT /agents/{id}/byok-voice`?
 
 Costs we cannot find in your docs:
 

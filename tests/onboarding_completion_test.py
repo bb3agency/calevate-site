@@ -145,3 +145,22 @@ async def test_an_operator_set_state_is_never_overwritten() -> None:
         assert await complete_onboarding_if_finished(session, tenant_id=tenant_id) is False
     assert await _status(tenant_id) == "suspended"
     assert await _completions(tenant_id) == 0
+
+
+async def test_the_hourly_sweep_moves_an_account_finished_before_the_move_existed() -> None:
+    """FAILS IF only a save or an acceptance can move an account: one whose owner and
+    profile were already in place when D-710 shipped would read "Onboarding" for good."""
+    from apps.workers.onboarding_completion import complete_finished_onboardings
+
+    finished = await _tenant()
+    await _owner(finished)
+    await seed_business_profile(finished)
+    unfinished = await _tenant()
+    await seed_business_profile(unfinished)
+
+    summary = await complete_finished_onboardings({})
+
+    assert "moved=" in summary
+    assert await _status(finished) == "active"
+    assert await _completions(finished) == 1
+    assert await _status(unfinished) == "onboarding", "no owner has joined it"

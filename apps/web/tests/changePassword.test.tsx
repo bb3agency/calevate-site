@@ -52,11 +52,20 @@ const ME = {
   },
 };
 
+const ADMIN_ME = {
+  realm: "admin",
+  user_id: "00000000-0000-7000-8000-0000000000ad",
+  role: "superadmin",
+  permissions: ["org:read"],
+  email: "ops@calevate.example",
+};
+
 async function renderPage(
   ui: React.ReactElement,
   routes: Routes,
 ): Promise<ApiCall[]> {
-  const calls = stubApi({ "/v1/me": ME, ...routes });
+  // The operator account page names its own address from `/v1/admin/me`.
+  const calls = stubApi({ "/v1/me": ME, "/v1/admin/me": ADMIN_ME, ...routes });
   await act(async () => {
     render(ui);
   });
@@ -295,6 +304,11 @@ describe("the client realm's account screen", () => {
 });
 
 describe("the admin realm's account screen", () => {
+  it("names the operator's own sign-in address beside its verified state", async () => {
+    await renderPage(<AdminSessionPage />, {});
+    expect(await screen.findByText("ops@calevate.example")).toBeTruthy();
+  });
+
   it("advertises THIS realm's floor, which is not the client's", async () => {
     await renderPage(<AdminSessionPage />, {});
     await openPasswordForm();

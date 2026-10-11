@@ -29,7 +29,9 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.admin.business_type import queue_apply as queue_business_type_apply
 from apps.api.admin.routes import Vertical
+from apps.api.admin.service import tenant_exists
 from apps.api.agents import lead_fields as service
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
@@ -185,6 +187,13 @@ def _replace_out(written: list[service.AgentWrite]) -> ReplaceOut:
     return ReplaceOut(agents_changed=changed, agents_unchanged=len(written) - changed)
 
 
+async def _require_tenant(session: AsyncSession, tenant_id: UUID) -> None:
+    """An operator route names its client in the path: a uuid naming nobody is a 404,
+    never a business rule about a draft that an absent account cannot have."""
+    if not await tenant_exists(session, tenant_id):
+        raise ProblemError.not_found("Organization")
+
+
 _REPLACE_NOTE = (
     "Each agent named (every agent when none is named) gets the set as a NEW version of its "
     "lead details; values already captured stay on their leads and calls, readable under "
@@ -250,6 +259,8 @@ async def post_replace(
     written = await service.replace_business_fields(
         session, fields=fields, agent_ids=payload.agent_ids
     )
+    # The scripts ask for the new details from the next call (D-722).
+    await queue_business_type_apply(session, tenant_id=principal.tenant_id)
     await write_audit(
         session,
         action="lead_fields.replaced",
@@ -276,6 +287,7 @@ async def admin_get_lead_fields(
     tenant_id: UUID, request: Request, principal: AdminReader
 ) -> LeadFieldsOut:
     async with tenant_session(tenant_id) as scoped:
+        await _require_tenant(scoped, tenant_id)
         out = await _render(scoped, tenant_id=tenant_id)
         await record_admin_tenant_read(
             scoped, request=request, principal=principal, tenant_id=tenant_id
@@ -294,6 +306,7 @@ async def admin_post_draft(
     tenant_id: UUID, request: Request, principal: Operator
 ) -> DraftRequestOut:
     async with tenant_session(tenant_id) as scoped:
+        await _require_tenant(scoped, tenant_id)
         draft = await service.request_draft(
             scoped, tenant_id=tenant_id, requested_by=principal.user_id
         )
@@ -323,12 +336,14 @@ async def admin_post_replace(
     tenant_id: UUID, payload: AdminReplaceIn, request: Request, principal: Operator
 ) -> ReplaceOut:
     async with tenant_session(tenant_id) as scoped:
+        await _require_tenant(scoped, tenant_id)
         fields = await _replacement_fields(
             scoped, tenant_id=tenant_id, business_type=payload.business_type
         )
         written = await service.replace_business_fields(
             scoped, fields=fields, agent_ids=payload.agent_ids
         )
+        await queue_business_type_apply(scoped, tenant_id=tenant_id)
         await write_audit(
             scoped,
             action="admin.lead_fields_replaced",

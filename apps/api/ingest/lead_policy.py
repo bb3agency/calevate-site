@@ -385,8 +385,11 @@ async def _hold_not_found(
             {"hid": hold_id},
         )
     ).first()
+    if row is None:
+        # Never this account's (RLS) or never existed: the same answer, deliberately.
+        return ProblemError.not_found("Held lead")
     detail = "It was already released or dropped."
-    if row is not None and str(row[0]) in _SETTLED_VERB:
+    if str(row[0]) in _SETTLED_VERB:
         who = (
             "You"
             if user_id is not None and row[1] is not None and UUID(str(row[1])) == user_id

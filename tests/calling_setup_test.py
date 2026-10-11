@@ -27,9 +27,8 @@ from apps.api.crm import caller_lookup
 from apps.api.db.session import tenant_session
 from apps.api.engine.thinnest import (
     RING_SECONDS,
-    SURFACES_LABEL,
     ThinnestEngine,
-    unsanctioned_surfaces,
+    other_surfaces,
 )
 from apps.api.engine.thinnest_actions import ThinnestActions, parse_call_start, set_thinnest_actions
 from apps.api.ingest import lead_policy
@@ -222,9 +221,7 @@ async def test_a_held_lead_is_held_once_and_released_as_a_call_back() -> None:
         me = uuid.uuid4()
         await lead_policy.drop_held(session, hold_id=second, user_id=me)
         with pytest.raises(ProblemError) as mine:
-            await lead_policy.release_held(
-                session, tenant_id=tenant_id, hold_id=second, user_id=me
-            )
+            await lead_policy.release_held(session, tenant_id=tenant_id, hold_id=second, user_id=me)
         assert mine.value.detail == "You already had it taken off the list."
 
 
@@ -612,37 +609,63 @@ def test_the_machine_switch_and_ring_time_reach_the_agent_body() -> None:
     assert "detect_machines" not in _cfg(detect_machines=True).model_dump()
 
 
-def test_web_and_whatsapp_surfaces_are_unsanctioned() -> None:
-    assert unsanctioned_surfaces({"voice": {"surfaces": ["phone"]}}) == []
-    assert unsanctioned_surfaces({"voice": {"surfaces": ["phone", "web", "whatsapp"]}}) == [
-        "web",
-        "whatsapp",
+def test_other_surfaces_are_named_for_the_drift_panel() -> None:
+    assert other_surfaces({"voice": {"surfaces": ["phone"]}}) == []
+    assert other_surfaces({"voice": {"surfaces": ["phone", "web", "whatsapp"]}}) == [
+        "website call button",
+        "WhatsApp",
     ]
-    assert unsanctioned_surfaces({"voice": {}}) == []
+    assert other_surfaces({"voice": {}}) == []
 
 
-async def test_surfaces_drift_is_reported_and_not_called_repaired() -> None:
-    cfg = _cfg()
+def test_where_an_agent_answers_is_not_a_drift_label() -> None:
+    from apps.api.agents.engine_settings import AGENT_SETTING_LABELS
+
+    assert "answer_surfaces" not in AGENT_SETTING_LABELS
+
+
+def _surfaces_engine(cfg: Any, held: dict[str, Any], sent: list[dict[str, Any]]) -> ThinnestEngine:
     engine = ThinnestEngine(api_key="ta_live_test")
-    held = engine._agent_body(cfg)
-    held["voice"]["surfaces"] = ["phone", "whatsapp"]
-    held["voice"]["ringSeconds"] = 45
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/tools"):
             return httpx.Response(200, json=engine.built_in_tools_body(cfg))
         if request.method == "GET":
             return httpx.Response(200, json=held)
+        sent.append(json.loads(request.content or b"{}"))
         return httpx.Response(200, json={})
 
     engine._client = httpx.AsyncClient(
         transport=httpx.MockTransport(handler), base_url="https://app.thinnest.ai/api/v1"
     )
+    return engine
+
+
+async def test_surfaces_only_is_no_drift_at_all() -> None:
+    cfg = _cfg()
+    held = ThinnestEngine(api_key="ta_live_test")._agent_body(cfg)
+    baseline = await _surfaces_engine(cfg, held, []).settings_drift("ag_1", cfg)
+    held["voice"]["surfaces"] = ["phone", "web", "whatsapp"]
+    engine = _surfaces_engine(cfg, held, [])
+    # Answering on the website or WhatsApp changes nothing the drift check reports.
+    assert await engine.settings_drift("ag_1", cfg) == baseline
+    assert not any("surface" in label for label in baseline)
+    assert await engine.answer_surfaces("ag_1") == ["website call button", "WhatsApp"]
+
+
+async def test_mixed_drift_repairs_the_others_and_never_mentions_surfaces() -> None:
+    cfg = _cfg()
+    held = ThinnestEngine(api_key="ta_live_test")._agent_body(cfg)
+    held["voice"]["surfaces"] = ["phone", "whatsapp"]
+    held["voice"]["ringSeconds"] = 45
+    sent: list[dict[str, Any]] = []
+    engine = _surfaces_engine(cfg, held, sent)
     drifted = await engine.settings_drift("ag_1", cfg)
-    assert "ring_seconds" in drifted and SURFACES_LABEL in drifted
-    with pytest.raises(ProblemError) as caught:
-        await engine.repair_settings("ag_1", cfg, ["ring_seconds", SURFACES_LABEL])
-    assert caught.value.code == "engine_surfaces_not_sanctioned"
+    assert "ring_seconds" in drifted
+    assert not any("surface" in label for label in drifted)
+    await engine.repair_settings("ag_1", cfg, ["ring_seconds"])
+    assert sent == [{"voice": {"ringSeconds": RING_SECONDS}}]
+    assert "surfaces" not in json.dumps(sent)
 
 
 def test_the_call_cap_is_clamped_to_twenty_minutes_on_thinnest(

@@ -312,8 +312,8 @@ async def test_db_pool_size_is_env_only_and_the_store_refuses_it() -> None:
     assert await _revision("db_pool_size") == 0
 
 
-def test_the_engine_and_the_webhook_url_need_a_republish_not_a_restart() -> None:
-    """The category that neither `live` nor `on_restart` can express honestly.
+def test_the_webhook_url_reaches_live_agents_and_the_engine_needs_an_operator() -> None:
+    """The categories that neither `live` nor `on_restart` can express honestly.
 
     Both are baked into an agent's engine-side config at publish time
     (`agents/service._to_config` builds `webhook_url` from BOTH), and `agents.engine`
@@ -321,11 +321,15 @@ def test_the_engine_and_the_webhook_url_need_a_republish_not_a_restart() -> None
     does a restart: every live agent has to be published again. A console that said
     `live` would be telling an operator their engine switch had taken effect while every
     existing agent still routed to the previous vendor.
+
+    Since D-720 the webhook URL is `live_agents`: saving it republishes every live agent at
+    once. The engine switch is `operator_step`: moving the fleet to another vendor is a
+    migration somebody runs, never a side effect of a save.
     """
-    for key in ("webhook_base_url", "engine"):
-        rule = pc.applies_rule(key)
-        assert rule.applies == pc.NEEDS_REPUBLISH, key
-        assert "publish" in (rule.caveat or "").lower(), key
+    assert pc.applies_rule("webhook_base_url").applies == pc.LIVE_AGENTS
+    engine = pc.applies_rule("engine")
+    assert engine.applies == pc.OPERATOR_STEP
+    assert "publish" in (engine.caveat or "").lower()
 
 
 def test_a_string_field_with_a_pattern_is_not_rendered_as_money() -> None:

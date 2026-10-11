@@ -368,7 +368,7 @@ async def apply_to_agents(session: AsyncSession, *, tenant_id: UUID, changed: se
     if not changed:
         return 0
     from apps.api.agents.engine_facts import sync_business_facts
-    from apps.api.agents.service import publish_agent
+    from apps.api.agents.live_apply import queue_live_apply
     from apps.api.agents.t0 import recompile_t0
     from apps.api.engine import get_engine
     from apps.api.engine.hosted_platform import hosted_agent_limits
@@ -381,6 +381,7 @@ async def apply_to_agents(session: AsyncSession, *, tenant_id: UUID, changed: se
     has_facts = bool(await profile_fact_lines(session, tenant_id=tenant_id)) or bool(knowledge)
     engine = get_engine()
     touched = 0
+    config_reaches_live = False
     for agent_id in await knowledge_agents(session, tenant_id=tenant_id):
         row = (await session.execute(text(_AGENT_STATE), {"aid": agent_id})).first()
         if row is None:
@@ -399,7 +400,7 @@ async def apply_to_agents(session: AsyncSession, *, tenant_id: UUID, changed: se
         if not live or (version is not None and not staged):
             continue  # not on the phone, or `recompile_t0` already re-published it
         if config_changed:
-            await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+            config_reaches_live = True
             if version is None:
                 touched += 1
         elif version is not None and hosted_agent_limits(engine).facts_in_knowledge:
@@ -407,6 +408,14 @@ async def apply_to_agents(session: AsyncSession, *, tenant_id: UUID, changed: se
             await sync_business_facts(
                 session, engine, agent_id=agent_id, ref=str(ref), facts=block[4] if block else None
             )
+    if config_reaches_live:
+        # Hours, contacts and languages are agent configuration read at publish time, so
+        # the client's live agents are brought onto them by the live-apply seam, queued in
+        # this transaction (D-720). The applied script is what is republished; a draft
+        # waiting behind "Put it live" stays a draft.
+        await queue_live_apply(
+            session, scope="tenant", tenant_id=tenant_id, reason="business_profile"
+        )
     return touched
 
 

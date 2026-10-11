@@ -1,8 +1,8 @@
 """An engine that can talk to a live agent in a sandbox: the pre-launch test conversations
 (founder decision 11, 10 Oct 2026, `agents/test_conversations.py`).
 
-Our shape, not a vendor's (hard rule 2): one turn in, the reply and the names of the tools
-the agent used out. The adapter maps its vendor's answer onto this.
+Our shape, not a vendor's (hard rule 2): one turn in, the reply and the tools the agent used
+out. The adapter maps its vendor's answer onto this.
 """
 
 from __future__ import annotations
@@ -18,6 +18,18 @@ TEST_CHAT_UNAVAILABLE: Final = "engine_test_chat_unavailable"
 
 
 @dataclass(frozen=True, slots=True)
+class TestChatTool:
+    """One tool the agent used in a turn."""
+
+    name: str
+    #: False when the engine reported the tool failed.
+    ok: bool = True
+    #: The `status` word one of OUR actions answered with (`worker/engine_actions`), when the
+    #: tool was ours and the engine passed our answer back; None otherwise.
+    status: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class TestChatTurn:
     """What the agent answered to one message."""
 
@@ -28,6 +40,9 @@ class TestChatTurn:
     tools: tuple[str, ...]
     #: The reply stopped part-way; `reply` holds what came before.
     failed_part_way: bool = False
+    #: The same tools with what each answered, in order. Empty from an adapter that cannot
+    #: say; `tools` is always filled.
+    tool_results: tuple[TestChatTool, ...] = ()
 
 
 @runtime_checkable
@@ -37,4 +52,4 @@ class RunsTestChat(Protocol):
     ) -> TestChatTurn: ...
 
 
-__all__ = ["TEST_CHAT_UNAVAILABLE", "RunsTestChat", "TestChatTurn"]
+__all__ = ["TEST_CHAT_UNAVAILABLE", "RunsTestChat", "TestChatTool", "TestChatTurn"]

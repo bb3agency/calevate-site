@@ -1,89 +1,69 @@
-"""Key moments in a call: the timestamps a client can jump to instead of re-listening.
+"""Key moments in a call: the places in the recording a client jumps to instead of
+re-listening.
 
-A recording is a linear artefact and a reason to open one is almost never linear — "when
-did they agree the slot", "where did they give the number", "did they ask to be removed".
-Without anchors the only way to answer is to play the call again, which is the cost this
-module removes. The markers are computed ONCE, in the post-call pipeline, and stored; a
-listen costs nothing.
+A recording is linear and a reason to open one almost never is: "when did they agree the
+slot", "where did they complain", "did they ask to be removed". The markers are computed
+ONCE, in the post-call pipeline, and stored in `call_extractions.moments`.
 
-## Two provenances, and the distinction is load-bearing
+## Two provenances
 
-`DERIVED` markers are computed here, from facts the pipeline already holds. They are
-arithmetic on data, not a judgement, so a derived marker cannot point at the wrong second
-— if the anchor cannot be PROVEN it is not emitted at all. `MODEL` markers come from the
-extraction model and are richer and fallible. The screen labels them differently for that
-reason: a wrong derived timestamp would be a bug, a wrong model one is a nuisance, and a
-reader who cannot tell them apart has to distrust both.
+`derived` markers are computed here from facts the pipeline already holds: a captured
+field's value found verbatim in a turn, and the opt-out detector's turn. They are arithmetic,
+not a judgement, so a derived marker is never on the wrong TURN. `model` markers are
+suggested by the extraction model in the same request that reads the call
+(`calevate_shared.extraction.build_extraction_prompt(..., moments=...)`); they are fallible
+and the screen calls them "Suggested" (D-36: the model's quality is unscored).
 
-## Why the derived half exists at all when a model could do it
+## Two kinds of time, and the second is the common one
 
-Because it is free, exact, and already paid for. Every input is in hand at the moment the
-extraction lands: `start_ms` per turn (persisted since the pipeline was written and, until
-now, read by nothing), the extracted field values, and the opt-out detector's turn index.
-Asking a model to re-derive what a string match can prove is how a feature acquires a
-hallucination surface it never needed.
+A marker's `at_ms` is its turn's `start_ms`. On ENGINE=thinnest that is the vendor's turn
+time, which is "when it was written down, not where it falls in the audio"
+(thinnest-findings get-call-transcript.md:7), so the turn carries `start_approximate` and
+the marker carries `precision: "approximate"`. The founder chose that over paying to
+re-transcribe (11 Oct 2026): show "~0:21" and seek a couple of seconds early. A turn with no
+time at all still cannot carry a marker.
 
-## PII: the default label carries none
+## PII
 
-A derived label names WHAT was captured and WHEN — "Appointment slot captured" — never the
-value. The value is already on the same screen in its own panel, under the redaction rules
-that govern it, and duplicating it into a marker would create a second copy with its own
-redaction story to get wrong (hard rule 6). Model labels are the exception and are handled
-by the caller: they are generated from the raw transcript, so they carry BOTH a raw and a
-redacted form and the redacted one is what a client sees by default (hard rule 5).
+A derived label names WHAT was captured, never the value (hard rule 6): the value is on the
+same screen under its own redaction. A model `field_captured` label is built here from the
+client's field label for the same reason. Other model labels are the model's words, written
+from the raw transcript, so they carry a raw and a redacted form and the redacted one is the
+default view (hard rule 5).
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, Final, Literal, Protocol
 
-#: What produced a marker. A closed set because it selects the icon, the wording and the
-#: trust a reader should place in the timestamp — not a free-form note.
+from calevate_shared.extraction import (
+    MAX_CALL_MOMENTS,
+    MOMENT_KINDS,
+    MomentCandidate,
+    MomentKind,
+)
+
+#: What produced a marker. Selects the wording and the trust a reader places in it.
 MomentSource = Literal["derived", "model"]
 
-#: What KIND of thing happened. Closed for the same reason every other label in this repo
-#: is (BACKEND-PATTERNS §8: the code IS the deduplication key), and deliberately SHORT.
-#:
-#: There is exactly ONE model kind, `highlight`, and that is a decision rather than an
-#: omission. D-36 records that Sarvam's LLM quality on Telugu extraction is UNMEASURED;
-#: asking an unmeasured model to sort moments into a taxonomy — "objection", "pricing",
-#: "escalation" — and then rendering that taxonomy as fact would be publishing a
-#: classification we have never scored. It writes a sentence; we present it as a
-#: suggestion. When task #87 scores extraction against real transcripts, a taxonomy can
-#: be earned.
-MomentKind = Literal["field_captured", "opt_out", "highlight"]
+#: Whether `at_ms` is a point in the audio or a rough position near it.
+MomentPrecision = Literal["exact", "approximate"]
 
-#: Below this a value is too short to anchor honestly. "5" appears in half the turns of
-#: any call that mentions a time, and a marker pointing at the wrong one is worse than no
-#: marker — it sends someone to a place in the audio and is confidently wrong about it.
+#: Below this a value is too short to anchor honestly: "5" appears in half the turns of any
+#: call that mentions a time, and a marker on the wrong one is confidently wrong.
 MIN_ANCHOR_CHARS: Final = 3
 
-#: The most markers one call may carry. A cap, not a target: a forty-minute call with
-#: sixty anchors is a second transcript, and the panel exists to be shorter than the
-#: thing it indexes. Derived markers are kept first when the cap bites, because they are
-#: the ones that cannot be wrong.
-MAX_MOMENTS: Final = 12
+#: The most markers one call carries (`calevate_shared.extraction.MAX_CALL_MOMENTS`).
+MAX_MOMENTS: Final = MAX_CALL_MOMENTS
 
 _WHITESPACE = re.compile(r"\s+")
 
-#: How close two markers must be to be describing the same moment. One conversational
-#: turn is rarely under two seconds, so this is "the same turn" expressed in time rather
-#: than in an index the model does not have.
-_TIE_MS: Final = 2_000
-
 
 class Turn(Protocol):
-    """The three fields a marker needs, and no more.
-
-    A Protocol so this module couples to no engine model and can be driven from a
-    snapshot, a DB row, or a test's own object. READ-ONLY properties rather than plain
-    attributes: a mutable Protocol attribute is INVARIANT, so declaring `speaker: str`
-    would have rejected `TranscriptTurn`, whose `speaker` is a `Literal` — and `speaker`
-    is not read here at all, so requiring it was asking callers to satisfy a constraint
-    this module does not have.
-    """
+    """The fields a marker needs. Read-only properties so `TranscriptTurn`, whose `speaker`
+    is a `Literal`, satisfies it, and so a test can drive it with a plain object."""
 
     @property
     def idx(self) -> int: ...
@@ -94,28 +74,25 @@ class Turn(Protocol):
     @property
     def start_ms(self) -> int | None: ...
 
+    @property
+    def start_approximate(self) -> bool: ...
+
 
 def _normalize(value: str) -> str:
-    """Casefolded, whitespace-collapsed. Enough to survive the transcript's own spacing
-    without pretending to be a fuzzy matcher — see `anchor_of` for why exactness matters
-    more here than recall."""
     return _WHITESPACE.sub(" ", value).strip().casefold()
 
 
-def anchor_of(value: Any, turns: Sequence[Turn]) -> int | None:
-    """The `start_ms` of the EARLIEST turn containing `value`, or None if unprovable.
+def _precision(turn: Turn) -> MomentPrecision:
+    return "approximate" if turn.start_approximate else "exact"
 
-    None rather than a guess, always. An extracted value is often a NORMALISED form of
-    what was said — a model turns "tuesday at five" into "Tuesday 5pm" — so a plain
-    containment test misses a large share of real values. That is the correct failure:
-    a marker exists to say "it is at 1:42", and a marker that is sometimes at 1:42 and
-    sometimes at 3:10 teaches people to stop trusting the whole panel. Fuzzy matching
-    would raise the hit rate and remove exactly the property that makes these markers
-    worth more than the model's.
 
-    Turns with no `start_ms` are skipped: an engine that gives us no per-turn offsets is
-    a supported engine (`TranscriptTurn.start_ms` is nullable), and it simply cannot
-    carry derived markers.
+def anchor_turn(value: Any, turns: Sequence[Turn]) -> Turn | None:
+    """The EARLIEST timed turn containing `value` verbatim, or None.
+
+    None rather than a guess: an extracted value is often a normalised form of what was said
+    ("Tuesday 5pm" for "tuesday at five"), and a fuzzy match would put the marker on a
+    plausible-looking wrong turn. The model's `field_captured` suggestion covers the values
+    this misses, labelled as a suggestion.
     """
     if isinstance(value, bool) or value is None:
         # `True` is not a thing anyone said, and `"true"` would match the word.
@@ -127,25 +104,49 @@ def anchor_of(value: Any, turns: Sequence[Turn]) -> int | None:
         if turn.start_ms is None:
             continue
         if needle in _normalize(turn.text):
-            return turn.start_ms
+            return turn
     return None
 
 
-def _moment(*, at_ms: int, kind: MomentKind, label: str, source: MomentSource) -> dict[str, Any]:
-    """One marker, in the shape the column stores and the API returns.
+def anchor_of(value: Any, turns: Sequence[Turn]) -> int | None:
+    """`anchor_turn`'s `start_ms`, or None."""
+    turn = anchor_turn(value, turns)
+    return turn.start_ms if turn is not None else None
 
-    `label_redacted` equals `label` for derived markers because a derived label carries no
-    value — only the field's own name, which is the client's own schema wording. Keeping
-    the key present rather than omitting it means every marker has the same shape whatever
-    produced it, so the read path never has to ask which kind it is holding.
+
+def moment(
+    *,
+    turn: Turn,
+    kind: MomentKind,
+    label: str,
+    source: MomentSource,
+    importance: int,
+    label_redacted: str | None = None,
+    field: str | None = None,
+) -> dict[str, Any]:
+    """One marker, in the shape the column stores.
+
+    `label_redacted` defaults to `label` because a derived or field label carries no value.
+    Every marker has every key, so the read path never asks which kind it holds.
     """
+    if turn.start_ms is None:
+        raise ValueError("a moment needs a turn with a time")
     return {
-        "at_ms": at_ms,
+        "at_ms": turn.start_ms,
+        "turn_idx": turn.idx,
         "kind": kind,
+        "category": MOMENT_KINDS[kind][0],
         "label": label,
-        "label_redacted": label,
+        "label_redacted": label if label_redacted is None else label_redacted,
         "source": source,
+        "precision": _precision(turn),
+        "importance": importance,
+        "field": field,
     }
+
+
+def _field_label(key: str, field_labels: dict[str, str]) -> str:
+    return f"{field_labels.get(key, key.replace('_', ' ').capitalize())} captured"
 
 
 def derive_moments(
@@ -155,85 +156,149 @@ def derive_moments(
     field_labels: dict[str, str],
     opt_out_turn_idx: int | None = None,
 ) -> list[dict[str, Any]]:
-    """The markers that can be PROVEN from what the pipeline already has.
+    """The markers provable from what the pipeline already has, in time order.
 
-    `field_labels` maps an extraction key to the label the client chose for it, so a
-    marker reads "Appointment slot captured" and not "appointment_slot captured" — the
-    schema is the client's product copy (`ExtractionField.reason` is explicitly
-    that), and their words belong on their screen.
-
-    Sorted by time, because the panel is a table of contents and a table of contents in
-    dictionary order is a list.
+    `field_labels` maps an extraction key to the client's own label, so a marker reads
+    "Appointment slot captured", not "appointment_slot captured".
     """
     out: list[dict[str, Any]] = []
-
     for key, value in extraction.items():
-        at = anchor_of(value, turns)
-        if at is None:
+        turn = anchor_turn(value, turns)
+        if turn is None:
             continue
         out.append(
-            _moment(
-                at_ms=at,
+            moment(
+                turn=turn,
                 kind="field_captured",
-                label=f"{field_labels.get(key, key.replace('_', ' ').capitalize())} captured",
+                label=_field_label(key, field_labels),
                 source="derived",
+                importance=2,
+                field=key,
             )
         )
 
     if opt_out_turn_idx is not None:
-        # The one marker that is a compliance fact rather than a convenience: a reviewer
-        # checking why a number stopped being dialled needs to hear the sentence, and
-        # `consent_ledger` stores the matched words but not a place in the audio.
+        # A compliance fact rather than a convenience: `consent_ledger` stores the matched
+        # words but no place in the audio, and a reviewer asked why a number stopped being
+        # dialled needs to hear the sentence.
         spoken = next((t for t in turns if t.idx == opt_out_turn_idx), None)
         if spoken is not None and spoken.start_ms is not None:
             out.append(
-                _moment(
-                    at_ms=spoken.start_ms,
+                moment(
+                    turn=spoken,
                     kind="opt_out",
-                    label="Caller asked not to be called again",
+                    label=MOMENT_KINDS["opt_out"][1],
                     source="derived",
+                    importance=3,
                 )
             )
-
     return sorted(out, key=lambda m: m["at_ms"])
+
+
+def prompt_line_turns(turns: Sequence[Any]) -> list[Any]:
+    """The turn behind each line the extraction prompt numbers, 1-based line n at [n - 1].
+
+    Mirrors `pipeline._persist_transcript` (one `speaker: text` line per turn with words)
+    and `calevate_shared.extraction.numbered_lines` (non-blank physical lines), so a turn
+    whose text holds a newline owns every line it spans.
+    """
+    out: list[Any] = []
+    for turn in turns:
+        if not turn.text.strip():
+            continue
+        rendered = f"{turn.speaker}: {turn.text}"
+        out.extend(turn for line in rendered.split("\n") if line.strip())
+    return out
+
+
+def model_moments(
+    candidates: Sequence[MomentCandidate],
+    *,
+    line_turns: Sequence[Turn],
+    field_labels: dict[str, str],
+    redact: Callable[[str], str],
+) -> list[dict[str, Any]]:
+    """The model's suggestions, placed on their turns. Unplaceable ones are dropped.
+
+    A line out of range or a turn with no time cannot be shown on the recording. A
+    `field_captured` label is OURS, from the client's field label; any other label is the
+    model's raw wording plus its redacted form (`redact`), falling back to the kind's plain
+    label when the model wrote none.
+    """
+    out: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if not 1 <= candidate.line <= len(line_turns):
+            continue
+        turn = line_turns[candidate.line - 1]
+        if turn.start_ms is None:
+            continue
+        if candidate.kind == "field_captured" and candidate.field:
+            label = _field_label(candidate.field, field_labels)
+            redacted = label
+        else:
+            label = candidate.label or MOMENT_KINDS[candidate.kind][1]
+            redacted = redact(label)
+        out.append(
+            moment(
+                turn=turn,
+                kind=candidate.kind,
+                label=label,
+                label_redacted=redacted,
+                source="model",
+                importance=candidate.importance,
+                field=candidate.field,
+            )
+        )
+    return out
+
+
+def _same_moment(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Two markers describing one thing: the same captured field, or the same kind on the
+    same turn. Shown twice they read as two moments."""
+    if a["kind"] != b["kind"]:
+        return False
+    if a["kind"] == "field_captured":
+        return a.get("field") is not None and a.get("field") == b.get("field")
+    return a.get("turn_idx") == b.get("turn_idx")
 
 
 def merge_moments(
     derived: list[dict[str, Any]], model: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """One ordered list, derived winning every tie, capped at `MAX_MOMENTS`.
+    """One list in time order, at most `MAX_MOMENTS`, the most important kept.
 
-    **The cap is applied to the MODEL half only.** Dropping a derived marker to make room
-    for a model one would trade a timestamp that is certainly right for one that is
-    probably right, which is the wrong direction on a panel whose whole value is that you
-    can trust where it sends you. A call with twelve provable anchors is a call that
-    genuinely has twelve things in it.
-
-    Model markers landing within `_TIE_MS` of a derived one are dropped rather than shown
-    beside it: two entries a second apart describing the same moment read as two moments,
-    and the derived one already says the true thing.
+    A model marker that repeats a derived one is dropped: the derived one is on a proven
+    turn. When the cap bites, markers are ranked by importance, then derived before model
+    (a provable turn beats a suggested one), then earlier first.
     """
     kept = list(derived)
-    anchors = {m["at_ms"] for m in derived}
-    room = max(0, MAX_MOMENTS - len(kept))
-    for candidate in sorted(model, key=lambda m: m["at_ms"]):
-        if room == 0:
-            break
-        if any(abs(candidate["at_ms"] - a) <= _TIE_MS for a in anchors):
+    for candidate in model:
+        if any(_same_moment(candidate, existing) for existing in kept):
             continue
         kept.append(candidate)
-        anchors.add(candidate["at_ms"])
-        room -= 1
-    return sorted(kept, key=lambda m: m["at_ms"])
+    ranked = sorted(
+        kept,
+        key=lambda m: (
+            -int(m.get("importance") or 2),
+            0 if m["source"] == "derived" else 1,
+            m["at_ms"],
+        ),
+    )
+    return sorted(ranked[:MAX_MOMENTS], key=lambda m: (m["at_ms"], m.get("turn_idx") or 0))
 
 
 __all__ = [
     "MAX_MOMENTS",
     "MIN_ANCHOR_CHARS",
     "MomentKind",
+    "MomentPrecision",
     "MomentSource",
     "Turn",
     "anchor_of",
+    "anchor_turn",
     "derive_moments",
     "merge_moments",
+    "model_moments",
+    "moment",
+    "prompt_line_turns",
 ]

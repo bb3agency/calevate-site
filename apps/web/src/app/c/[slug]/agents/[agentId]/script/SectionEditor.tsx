@@ -53,10 +53,10 @@ export function SectionEditor({
 
   return (
     <fieldset disabled={readOnly} className="min-w-0 space-y-5">
-      <legend className="sr-only">Section {index + 1}</legend>
+      <legend className="sr-only">Step {index + 1}</legend>
       <div>
         <label className={FIELD_LABEL} htmlFor={field("name")}>
-          Section name
+          Step name
         </label>
         <input
           id={field("name")}
@@ -220,7 +220,7 @@ export function SectionEditor({
           </button>
         ) : (
           <p className="text-meta text-ink-muted">
-            {limits.maxBranches} ways out is the most one section can have.
+            {limits.maxBranches} ways out is the most one step can have.
           </p>
         )}
         <label className="block">
@@ -233,7 +233,7 @@ export function SectionEditor({
           >
             <option value="">
               {sections[index + 1]
-                ? `The next section (${index + 2}. ${sections[index + 1].name.trim() || "Untitled section"})`
+                ? `The next step (${index + 2}. ${sections[index + 1].name.trim() || "Untitled step"})`
                 : "Wrap up the call"}
             </option>
             {options.map((o) => (
@@ -267,7 +267,7 @@ export function SectionEditor({
             Move later
           </button>
           <button type="button" className={`${TEXT_ACTION_DANGER} ml-auto`} onClick={onDelete}>
-            Delete section
+            Delete step
           </button>
         </div>
       )}

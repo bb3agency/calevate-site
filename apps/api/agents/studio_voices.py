@@ -221,7 +221,12 @@ async def ensure_studio_workspace(
     naming no vendor, to an operator with the cause."""
     async with joined_tenant_session(tenant_id) as session:
         return await ensure_studio_in(
-            session, engine, tenant_id=tenant_id, workspace=workspace, model=model, audience=audience
+            session,
+            engine,
+            tenant_id=tenant_id,
+            workspace=workspace,
+            model=model,
+            audience=audience,
         )
 
 
@@ -238,7 +243,9 @@ async def ensure_studio_in(
     `tenant_id`. A publish passes its own, so the check costs no second pooled connection
     under a request that already holds two (`scripts/check_session_nesting`)."""
     try:
-        state = await _switch_on(session, engine, tenant_id=tenant_id, workspace=workspace, model=model)
+        state = await _switch_on(
+            session, engine, tenant_id=tenant_id, workspace=workspace, model=model
+        )
         if not own_voice_key_ready(state):
             log.warning(
                 "studio_workspace_not_ready",

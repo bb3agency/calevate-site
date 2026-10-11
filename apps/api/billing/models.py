@@ -166,9 +166,16 @@ ASSIST_FEATURE_CALL_EXTRACTION = "call_extraction"
 #: The after-call language pass (`workers/call_language`): English for each turn and the
 #: summary in the call's language. Part of serving the call, so absorbed like extraction.
 ASSIST_FEATURE_CALL_LANGUAGE = "call_language"
+#: The same pass when an owner presses "Try again" on a call whose English failed
+#: (`workers/call_translation`). A person asked for it, so it is dashboard AI and counts
+#: against the monthly allowance: deliberately NOT in `ABSORBED_ASSIST_FEATURES`.
+ASSIST_FEATURE_CALL_TRANSLATION = "call_translation"
 #: The one AI draft of a custom business's lead fields (founder decision 15): part of
 #: setting the account up, drafted once ever, so absorbed too.
 ASSIST_FEATURE_LEAD_FIELDS = "lead_fields_draft"
+#: The one AI suggestion of a business type for an account given one by default (D-722):
+#: part of setting the account up, so absorbed too.
+ASSIST_FEATURE_BUSINESS_TYPE = "business_type_suggestion"
 #: Features whose cost is OURS: excluded from the allowance like `FREE_ASSIST_FEATURES`, and
 #: unlike them not counted by the fair-use cap, which limits what a person asks for.
 ABSORBED_ASSIST_FEATURES = (
@@ -176,6 +183,7 @@ ABSORBED_ASSIST_FEATURES = (
     ASSIST_FEATURE_CALL_EXTRACTION,
     ASSIST_FEATURE_CALL_LANGUAGE,
     ASSIST_FEATURE_LEAD_FIELDS,
+    ASSIST_FEATURE_BUSINESS_TYPE,
 )
 
 # WHO PAYS FOR A ROW OF THIS UNIT — the one question every reader of `usage_events` has

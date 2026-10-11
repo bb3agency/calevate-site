@@ -488,7 +488,10 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # THE FIFTY-THIRD removes a stored platform secret (`ops/secret_routes.py::
     # remove_secret_route`, `secret_removal_confirmation`, bound to the key): the leg that
     # key serves stops working the moment it is gone.
-    assert sites == 53, f"found {sites} step-up call sites, expected 53; the census went stale"
+    # THE FIFTY-FOURTH AND FIFTY-FIFTH are a cloned voice of a real person (D-721,
+    # `ops/hosted_voice_routes.py`): recording the speaker's consent is a legal attestation
+    # about one voice, and unmarking a voice deletes that record. Both bound to the voice.
+    assert sites == 55, f"found {sites} step-up call sites, expected 55; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.
@@ -538,6 +541,10 @@ _OPS_WRITES_WITHOUT_STEP_UP = {
         "`set_voice_curation`'s write on an engine-hosted voice (D-687), for its reason: it "
         "moves no agent off the voice it speaks, calls no vendor, and cannot bypass a price "
         "(an unattested minute is still refused by the offer seam)."
+    ),
+    ("apps/api/ops/hosted_voice_routes.py", "set_hosted_display_name"): (
+        "renames a voice for clients (D-721). It moves no agent, calls no vendor, and is undone "
+        "by renaming it back; for a cloned voice it may not contain the speaker's name."
     ),
     ("apps/api/ops/hosted_voice_routes.py", "upload_preview"): (
         "stores a short preview clip for a voice (D-687). It changes what a picker can PLAY, "

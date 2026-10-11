@@ -1580,6 +1580,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/business-type": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The client's business type, or the one it was given by default */
+        get: operations["read_business_type_v1_admin_tenants__tenant_id__business_type_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/business-type/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm the client's business type
+         * @description Sets the business type as a person's choice. The client's agents that have no lead details of their own get this type's details; every agent's script is recompiled to ask for them, and live agents are updated from their next call. Details a client chose are kept.
+         */
+        post: operations["confirm_business_type_v1_admin_tenants__tenant_id__business_type_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
         parameters: {
             query?: never;
@@ -3489,11 +3526,32 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The agent's latest pre-launch test conversations */
+        /** The agent's latest test conversations and its score over time */
         get: operations["get_test_conversations_v1_agents__agent_id__script_tests_get"];
         put?: never;
-        /** Run the pre-launch test conversations against the agent */
+        /** Run test conversations against the agent callers hear now */
         post: operations["run_test_conversations_v1_agents__agent_id__script_tests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/tests/{run_id}/improve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Improve my agent: propose script and fact changes from a run's failures
+         * @description SUBJECT → GATE → RUN → METER, as the script helper. It proposes and never writes the
+         *     script: the owner keeps changes one by one in the builder's review.
+         */
+        post: operations["improve_from_tests_v1_agents__agent_id__script_tests__run_id__improve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5035,6 +5093,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calls/{call_id}/recording/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Short-lived link that SAVES the recording — owner-only, audited apart from play */
+        get: operations["download_recording_v1_calls__call_id__recording_download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calls/{call_id}/speaking": {
         parameters: {
             query?: never;
@@ -5102,6 +5177,26 @@ export interface paths {
         get: operations["get_raw_transcript_v1_calls__call_id__transcript_raw_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/calls/{call_id}/translation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put this call into English again — quota-gated dashboard AI, idempotent
+         * @description Queues the English of a call whose translation failed or was never made, from the REDACTED transcript. Answers with the state after the request: `pending` when it was queued, or the state as it stands when there is nothing to retry, so a second press queues nothing. Counts against the monthly AI allowance and is refused before anything is queued when the account is at its ceiling. Requires `org:manage`.
+         */
+        post: operations["retranslate_call_v1_calls__call_id__translation_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6847,6 +6942,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/invitations/{invitation_id}/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a pending invitation again (owner only)
+         * @description Mails the invitation again to the address it already has. The link in the earlier email stops working and the 72-hour clock restarts. Limited to one send every two minutes and ten sends in all; past that, revoke it and invite again. 404 if it has been accepted, revoked or has expired.
+         */
+        post: operations["resend_invitation_v1_invitations__invitation_id__resend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/kb/delivery": {
         parameters: {
             query?: never;
@@ -7287,8 +7402,8 @@ export interface paths {
         get: operations["get_lead_calling_v1_lead_calling_get"];
         /**
          * Save how new leads are called
-         * @description Its own tenant session rather than the request's, so the plan is committed before the
-         *     answering-machine switch is pushed to live agents (each in a session of its own).
+         * @description A changed answering-machine switch reaches every live agent of the client through the
+         *     live-apply seam, queued in the save's own transaction (D-720).
          */
         put: operations["put_lead_calling_v1_lead_calling_put"];
         post?: never;
@@ -8584,7 +8699,7 @@ export interface paths {
         put?: never;
         /**
          * Attest one engine rate per billed minute (step-up confirmed, audited)
-         * @description Records what one billed minute on this engine and rate costs THIS account, read off your own invoice, as a NEW effective-dated row. Requires `X-Confirm-Action: attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it are not offered and any that run are metered with no cost and alarmed.
+         * @description Records the voice platform's posted rate per billed minute, before its wallet top-up fee, as a NEW effective-dated row. We add the fee when metering (10% on pay-as-you-go, 9% on Pro; each row's `topup_fee_percent` says which applies, and `inr_per_min_with_fee` is the figure metered). Requires `X-Confirm-Action: attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it are not offered and any that run are metered with no cost and alarmed.
          */
         post: operations["attest_engine_minute_v1_ops_engine_minute_prices__engine___rate_key__post"];
         delete?: never;
@@ -8804,6 +8919,26 @@ export interface paths {
          *     nobody holds.
          */
         get: operations["read_kb_orphans_v1_ops_kb_orphans_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/live-apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Recent passes that put a saved setting on the live agents
+         * @description Newest first. Each pass was queued with the write that made it necessary and republishes every live agent in its scope, reading each back. A call already in progress finishes on its previous settings. `scope=platform` narrows to ops console settings.
+         */
+        get: operations["list_live_apply_runs_v1_ops_live_apply_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9379,6 +9514,103 @@ export interface paths {
          * @description Only an ADDED voice can be enabled. It changes no agent and no call: an agent on this voice keeps speaking it; disabling only takes it off the picker. Idempotent.
          */
         patch: operations["set_hosted_state_v1_ops_voices_hosted_patch"];
+        trace?: never;
+    };
+    "/v1/ops/voices/hosted/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The agents set to one hosted voice, in every account (admin realm)
+         * @description Every agent, live or not, whose voice is this hosted voice, with its account, live ones first. Read one voice at a time, for the voice's detail.
+         */
+        get: operations["hosted_voice_agents_v1_ops_voices_hosted_agents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voices/hosted/clone-consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a real person's consent to their cloned voice (step-up, audited)
+         * @description Records the speaker's name, the statement they consented to, the date, and the operator recording it, with an optional signed document (PDF, JPEG or PNG, at most 2 MB, stored sealed), and marks the voice as a person's clone. Replaces an earlier record; without a new document the stored one is kept. The scope is fixed: calls made by Calevate clients' agents. Requires `X-Confirm-Action: record_voice_consent:<voice_id>`.
+         */
+        post: operations["record_hosted_clone_consent_v1_ops_voices_hosted_clone_consent_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voices/hosted/clone-consent/document": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download the signed consent for one cloned voice (admin realm, audited) */
+        get: operations["hosted_clone_consent_document_v1_ops_voices_hosted_clone_consent_document_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voices/hosted/display-name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set the name clients see for one hosted voice (audited)
+         * @description Clients see this name instead of the provider's; null or blank goes back to the provider's name. The sync never changes it. For a cloned voice of a real person it may not contain the speaker's name (`voice_clone_name_reveals_speaker`).
+         */
+        patch: operations["set_hosted_display_name_v1_ops_voices_hosted_display_name_patch"];
+        trace?: never;
+    };
+    "/v1/ops/voices/hosted/person-clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Mark or unmark a voice as a cloned voice of a real person (step-up, audited)
+         * @description A voice marked as a person's clone cannot be offered until the speaker's consent is recorded (D-721). Marking an offered voice that could not stay offered is refused (`voice_clone_consent_missing`, `voice_clone_name_missing`). Unmarking keeps the consent record and its document. Requires `X-Confirm-Action: set_voice_person_clone:<voice_id>`.
+         */
+        patch: operations["set_hosted_person_clone_v1_ops_voices_hosted_person_clone_patch"];
         trace?: never;
     };
     "/v1/ops/voices/hosted/preview": {
@@ -10216,6 +10448,8 @@ export interface components {
          *     the console legitimately needs to preview its own gates.
          */
         AdminMeOut: {
+            /** Email */
+            email?: string | null;
             /** Permissions */
             permissions: string[];
             /**
@@ -11127,6 +11361,22 @@ export interface components {
             /** Sample */
             sample: string;
         };
+        /** Body_record_hosted_clone_consent_v1_ops_voices_hosted_clone_consent_post */
+        Body_record_hosted_clone_consent_v1_ops_voices_hosted_clone_consent_post: {
+            /**
+             * Consented On
+             * Format: date
+             */
+            consented_on: string;
+            /** Document */
+            document?: string | null;
+            /** Speaker Name */
+            speaker_name: string;
+            /** Statement */
+            statement: string;
+            /** Voice Id */
+            voice_id: string;
+        };
         /** Body_submit_v1_compliance_carrier_application_post */
         Body_submit_v1_compliance_carrier_application_post: {
             /** Document */
@@ -11366,6 +11616,28 @@ export interface components {
             /** Vertical Template */
             vertical_template: string | null;
         };
+        /** BusinessTypeChoiceOut */
+        BusinessTypeChoiceOut: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
+        };
+        /** BusinessTypeOut */
+        BusinessTypeOut: {
+            /** Business Type */
+            business_type: string | null;
+            /** Business Type Label */
+            business_type_label: string | null;
+            /** Choices */
+            choices: components["schemas"]["BusinessTypeChoiceOut"][];
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            unconfirmed: components["schemas"]["UnconfirmedOut"] | null;
+        };
         /**
          * BuyNumberIn
          * @description The exact number to buy, and the quote the operator accepted for it.
@@ -11549,6 +11821,10 @@ export interface components {
             caller_e164?: string | null;
             /** Captured */
             captured: components["schemas"]["CapturedFieldOut"][];
+            /** Captured Preview */
+            captured_preview?: components["schemas"]["CapturedChipOut"][];
+            /** Credits Used Inr */
+            credits_used_inr?: string | null;
             /**
              * Direction
              * @enum {string}
@@ -11585,6 +11861,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Language */
+            language: string;
             /** Lead Id */
             lead_id?: string | null;
             /** Lead Name */
@@ -11663,25 +11941,41 @@ export interface components {
          *     endpoint you called is the shape the transcript already established, and a second
          *     field would be a second thing to forget to gate.
          *
-         *     `source` is what a reader needs to know how much to trust `at_ms`. A `derived` marker
-         *     was computed from the transcript's own turn offsets and cannot be at the wrong second;
-         *     a `model` one is a suggestion from an unmeasured model (D-36) and the screen says so.
+         *     `source` says how much to trust the TURN: a `derived` marker was found by matching a
+         *     captured value or the opt-out detector, a `model` one is a suggestion from an unscored
+         *     model (D-36) and the screen says "Suggested". `precision` says how much to trust the
+         *     TIME: `approximate` when the turn's time is the voice platform's rough position
+         *     (ENGINE=thinnest), shown as "~0:21" and played from a couple of seconds earlier.
          */
         CallMomentOut: {
             /** At Ms */
             at_ms: number;
             /**
+             * Category
+             * @enum {string}
+             */
+            category: "details" | "attention" | "buying";
+            /** Importance */
+            importance: number;
+            /**
              * Kind
              * @enum {string}
              */
-            kind: "field_captured" | "opt_out" | "highlight";
+            kind: "field_captured" | "booking_agreed" | "callback_agreed" | "price_quoted" | "asked_for_person" | "could_not_answer" | "complaint" | "frustrated" | "opt_out" | "strong_interest" | "asked_delivery_or_payment" | "will_buy_or_visit";
             /** Label */
             label: string;
+            /**
+             * Precision
+             * @enum {string}
+             */
+            precision: "exact" | "approximate";
             /**
              * Source
              * @enum {string}
              */
             source: "derived" | "model";
+            /** Turn Idx */
+            turn_idx: number | null;
         };
         /**
          * CallScript
@@ -11813,6 +12107,10 @@ export interface components {
             callback?: components["schemas"]["CallCallbackOut"] | null;
             /** Caller E164 */
             caller_e164?: string | null;
+            /** Captured Preview */
+            captured_preview?: components["schemas"]["CapturedChipOut"][];
+            /** Credits Used Inr */
+            credits_used_inr?: string | null;
             /**
              * Direction
              * @enum {string}
@@ -11848,6 +12146,17 @@ export interface components {
             summary_state: "pending" | "ready" | "failed" | "empty";
             /** Test Call */
             test_call: boolean;
+        };
+        /**
+         * CallTranslationOut
+         * @description Where a call's English stands after a "Try again".
+         */
+        CallTranslationOut: {
+            /**
+             * Translation State
+             * @enum {string}
+             */
+            translation_state: "pending" | "ready" | "failed" | "not_needed" | "unavailable";
         };
         /** CallbackEligibilityOut */
         CallbackEligibilityOut: {
@@ -12057,6 +12366,16 @@ export interface components {
             plan_cap_spend_inr: string | null;
             /** Spend Used Inr */
             spend_used_inr: string;
+        };
+        /**
+         * CapturedChipOut
+         * @description One captured detail, shortened for a call row (`crm/service.captured_previews`).
+         */
+        CapturedChipOut: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
         };
         /**
          * CapturedFieldOut
@@ -12597,6 +12916,34 @@ export interface components {
              */
             state: "none" | "scheduled" | "draining" | "active";
         };
+        /**
+         * CloneConsentOut
+         * @description The speaker's recorded consent to a cloned voice being offered (D-721).
+         */
+        CloneConsentOut: {
+            /**
+             * Consented On
+             * Format: date
+             */
+            consented_on: string;
+            /** Has Document */
+            has_document: boolean;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** Recorded By */
+            recorded_by: string;
+            /** Recorded By Name */
+            recorded_by_name: string | null;
+            /** Scope */
+            scope: string;
+            /** Speaker Name */
+            speaker_name: string;
+            /** Statement */
+            statement: string;
+        };
         /** CloneOut */
         CloneOut: {
             /** Next Step */
@@ -12984,10 +13331,20 @@ export interface components {
             field: components["schemas"]["ConfigFieldOut"];
             /** Key */
             key: string;
+            /** Live Apply Run Id */
+            live_apply_run_id?: string | null;
             /** Previous */
             previous: string | boolean | number | null;
             /** Recorded */
             recorded: boolean;
+        };
+        /** ConfirmBusinessTypeIn */
+        ConfirmBusinessTypeIn: {
+            /**
+             * Business Type
+             * @enum {string}
+             */
+            business_type: "retail" | "local_services" | "automobile" | "clinic" | "real_estate" | "insurance" | "education" | "custom";
         };
         /** ConnectOut */
         ConnectOut: {
@@ -13793,7 +14150,6 @@ export interface components {
             slug?: string | null;
             /**
              * Vertical Template
-             * @default custom
              * @enum {string}
              */
             vertical_template: "retail" | "local_services" | "automobile" | "clinic" | "real_estate" | "insurance" | "education" | "custom";
@@ -15080,12 +15436,18 @@ export interface components {
             engine: string;
             /** Inr Per Min */
             inr_per_min: string | null;
+            /** Inr Per Min With Fee */
+            inr_per_min_with_fee: string | null;
             /** Rate Key */
             rate_key: string;
             /** Sold As */
             sold_as: string | null;
             /** Source Note */
             source_note: string | null;
+            /** Topup Fee Percent */
+            topup_fee_percent: string;
+            /** Topup Fee Plan */
+            topup_fee_plan: string | null;
         };
         /** EngineMinutePricesOut */
         EngineMinutePricesOut: {
@@ -15093,6 +15455,8 @@ export interface components {
             as_of: string;
             /** Prices */
             prices: components["schemas"]["EngineMinutePriceOut"][];
+            /** Topup Fees */
+            topup_fees: components["schemas"]["TopUpFeeOut"][];
         };
         /**
          * EngineNumberOut
@@ -15190,6 +15554,8 @@ export interface components {
              * Format: uuid
              */
             agent_id: string;
+            /** Answers Also On */
+            answers_also_on?: string[] | null;
             /** Checked */
             checked: boolean;
             /** Detail */
@@ -16398,6 +16764,26 @@ export interface components {
             /** Recorded */
             recorded: boolean;
         };
+        /** HostedVoiceAgentOut */
+        HostedVoiceAgentOut: {
+            /** Agent Id */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string;
+            /** Status */
+            status: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Tenant Name */
+            tenant_name: string;
+        };
+        /** HostedVoiceAgentsOut */
+        HostedVoiceAgentsOut: {
+            /** Agents */
+            agents: components["schemas"]["HostedVoiceAgentOut"][];
+            /** Voice Id */
+            voice_id: string;
+        };
         /**
          * HostedVoiceOut
          * @description One hosted voice as the operator's table shows it.
@@ -16405,28 +16791,41 @@ export interface components {
         HostedVoiceOut: {
             /** Accent */
             accent: string | null;
+            /** Accent Label */
+            accent_label: string | null;
             /** Added */
             added: boolean;
             /** Band */
             band: ("standard" | "premium" | "studio") | null;
+            /** Clone Blocker */
+            clone_blocker: string | null;
+            clone_consent: components["schemas"]["CloneConsentOut"] | null;
             /** Curated At */
             curated_at: string | null;
             /** Deletable Clone */
             deletable_clone: boolean;
             /** Description */
             description: string | null;
+            /** Display Label */
+            display_label: string | null;
+            /** Gender */
+            gender: string | null;
             /** Is Custom */
             is_custom: boolean;
             /** Label */
             label: string;
             /** Language Note */
             language_note: string;
+            /** Languages */
+            languages: string[];
             /** Live Agents */
             live_agents: number;
             /** Not Sold Reason */
             not_sold_reason: string | null;
             /** Offered */
             offered: boolean;
+            /** Person Clone */
+            person_clone: boolean;
             /** Preview Available */
             preview_available: boolean;
             /** Preview Source */
@@ -16450,6 +16849,10 @@ export interface components {
              * Format: date-time
              */
             synced_at: string;
+            /** Vendor Id */
+            vendor_id: string;
+            /** Vendor Label */
+            vendor_label: string;
             /** Voice Id */
             voice_id: string;
             /** Withdrawn At */
@@ -16507,6 +16910,37 @@ export interface components {
             grant: string;
             /** Slug */
             slug: string;
+        };
+        /** ImproveIn */
+        ImproveIn: {
+            /** Keys */
+            keys?: string[] | null;
+        };
+        /**
+         * ImprovementOut
+         * @description The "Improve my agent" proposal, reviewed change by change, never applied by itself.
+         */
+        ImprovementOut: {
+            /**
+             * Base
+             * @enum {string}
+             */
+            base: "draft" | "live";
+            base_script: components["schemas"]["CallScript"];
+            /** Changes */
+            changes: components["schemas"]["ProposedChangeOut"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Disclosure */
+            disclosure: string | null;
+            /** Facts */
+            facts: components["schemas"]["ProposedFactOut"][];
+            /** For Keys */
+            for_keys: string[];
+            script: components["schemas"]["CallScript"];
         };
         /**
          * InFlightOut
@@ -18098,6 +18532,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Moments */
+            moments: components["schemas"]["CallMomentOut"][];
             /**
              * Occurred At
              * Format: date-time
@@ -18297,6 +18733,71 @@ export interface components {
             name?: string | null;
             /** Url */
             url: string;
+        };
+        /** LiveApplyFailureOut */
+        LiveApplyFailureOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string | null;
+            /** Code */
+            code: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /** LiveApplyRunOut */
+        LiveApplyRunOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Applied */
+            applied: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Failed */
+            failed: number;
+            /** Failures */
+            failures: components["schemas"]["LiveApplyFailureOut"][];
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Reasons */
+            reasons: string[];
+            /** Retrying */
+            retrying: number;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "platform" | "tenant" | "agent";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "running" | "done" | "superseded";
+            /** Superseded By */
+            superseded_by: string | null;
+            /** Tenant Id */
+            tenant_id: string | null;
+            /** Total */
+            total: number | null;
+        };
+        /** LiveApplyRunsOut */
+        LiveApplyRunsOut: {
+            /** Runs */
+            runs: components["schemas"]["LiveApplyRunOut"][];
         };
         /**
          * LlmDefaultIn
@@ -20162,6 +20663,33 @@ export interface components {
             /** Pending */
             pending: number;
         };
+        /** ProposedChangeOut */
+        ProposedChangeOut: {
+            /** Because */
+            because: string | null;
+            /** Target */
+            target: string;
+            /** Why */
+            why: string;
+        };
+        /** ProposedFactOut */
+        ProposedFactOut: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "add" | "fix";
+            /** Answer */
+            answer: string;
+            /** Because */
+            because: string | null;
+            /** Fact Id */
+            fact_id: string | null;
+            /** Question */
+            question: string;
+            /** Why */
+            why: string;
+        };
         /** ProvisionNumberIn */
         ProvisionNumberIn: {
             /** Agent Id */
@@ -20790,6 +21318,22 @@ export interface components {
             series: string;
         };
         /**
+         * RecordingDownloadOut
+         * @description A short-lived link that SAVES the recording rather than playing it.
+         *
+         *     Signed with `Content-Disposition: attachment` and `filename`, so the browser downloads
+         *     it under a name that carries the business and the IST time of the call and never the
+         *     caller's number. `filename` is repeated here so the screen can say what it saved.
+         */
+        RecordingDownloadOut: {
+            /** Expires In S */
+            expires_in_s: number;
+            /** Filename */
+            filename: string;
+            /** Url */
+            url: string;
+        };
+        /**
          * RecordingLinkOut
          * @description A short-lived link to OUR copy of a call's audio, and what the player needs to
          *     render before a single byte of it has arrived.
@@ -21034,6 +21578,38 @@ export interface components {
             /** Send Count */
             send_count: number;
         };
+        /**
+         * ResentInvitationOut
+         * @description What a resend did. The token is not here, for `invite_member`'s reason (D-198).
+         */
+        ResentInvitationOut: {
+            /**
+             * Delivery
+             * @constant
+             */
+            delivery: "queued";
+            /** Email */
+            email: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Last Sent At
+             * Format: date-time
+             */
+            last_sent_at: string;
+            /** Role */
+            role: string;
+            /** Send Count */
+            send_count: number;
+        };
         /** ResetConfirmIn */
         ResetConfirmIn: {
             /** Password */
@@ -21200,6 +21776,16 @@ export interface components {
             status: string;
             /** Text */
             text: string;
+        };
+        /** RunTestsIn */
+        RunTestsIn: {
+            /**
+             * Auto Improve
+             * @default false
+             */
+            auto_improve: boolean;
+            /** Retest Of */
+            retest_of?: string | null;
         };
         /**
          * RunwayOut
@@ -21799,6 +22385,13 @@ export interface components {
             offered: number;
             voice: components["schemas"]["CuratedVoiceOut"];
         };
+        /** SetDisplayLabelIn */
+        SetDisplayLabelIn: {
+            /** Display Label */
+            display_label?: string | null;
+            /** Voice Id */
+            voice_id: string;
+        };
         /** SetHostedCurationIn */
         SetHostedCurationIn: {
             /**
@@ -21806,6 +22399,13 @@ export interface components {
              * @enum {string}
              */
             state: "enabled" | "disabled" | "archived";
+            /** Voice Id */
+            voice_id: string;
+        };
+        /** SetPersonCloneIn */
+        SetPersonCloneIn: {
+            /** Person Clone */
+            person_clone: boolean;
             /** Voice Id */
             voice_id: string;
         };
@@ -21927,10 +22527,7 @@ export interface components {
             plan_tier: "self_serve" | "trial";
             /** Slug */
             slug?: string | null;
-            /**
-             * Vertical Template
-             * @default custom
-             */
+            /** Vertical Template */
             vertical_template: string;
         };
         /** SignupOut */
@@ -23528,7 +24125,7 @@ export interface components {
             /** Last Prompt Version */
             last_prompt_version: number | null;
             /** Last Result */
-            last_result: components["schemas"]["TestTurnOut"][] | null;
+            last_result: components["schemas"]["apps__api__teach__routes__TestTurnOut"][] | null;
             /** Last Run At */
             last_run_at: string | null;
             /** Source Call Id */
@@ -23553,37 +24150,73 @@ export interface components {
         };
         /**
          * TestConversationsOut
-         * @description Pre-launch test conversations (founder decision 11): advised, never required.
+         * @description Test conversations that improve the agent (D-724): advised, never required.
          */
         TestConversationsOut: {
             /** Available */
             available: boolean;
             /** Cost Note */
             cost_note: string;
+            /** History */
+            history: components["schemas"]["TestHistoryOut"][];
             latest: components["schemas"]["TestRunOut"] | null;
             /** Unavailable Reason */
             unavailable_reason: string | null;
         };
+        /** TestHistoryOut */
+        TestHistoryOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Prompt Version */
+            prompt_version: number | null;
+            /** Round */
+            round: number;
+            score: components["schemas"]["TestScoreOut"];
+        };
         /** TestResultOut */
         TestResultOut: {
-            /** Advice */
-            advice: string | null;
+            /** Before */
+            before: ("passed" | "needs_fix" | "failed" | "unjudged") | null;
+            /** Category */
+            category: string;
+            /** Expect */
+            expect: string;
+            /** Fix */
+            fix: string | null;
+            /** Formal Words */
+            formal_words: string[];
             /** Key */
             key: string;
-            /** Reply */
-            reply: string;
-            /** Said */
-            said: string;
+            /** Probe */
+            probe: string | null;
+            /** Reason */
+            reason: string;
+            /** Source */
+            source: string;
+            /** Step Id */
+            step_id: string | null;
             /** Title */
             title: string;
+            /** Turns */
+            turns: components["schemas"]["apps__api__agents__script_routes__TestTurnOut"][];
             /**
              * Verdict
              * @enum {string}
              */
-            verdict: "passed" | "attention" | "failed" | "read";
+            verdict: "passed" | "needs_fix" | "failed" | "unjudged";
         };
         /** TestRunOut */
         TestRunOut: {
+            /** Auto Improve */
+            auto_improve: boolean;
             /** Completed At */
             completed_at: string | null;
             /**
@@ -23591,34 +24224,39 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            improvement: components["schemas"]["ImprovementOut"] | null;
             /** Is Current */
             is_current: boolean;
+            /** Note */
+            note: string | null;
             /** Prompt Version */
             prompt_version: number | null;
             /** Results */
             results: components["schemas"]["TestResultOut"][];
+            /** Retest Of */
+            retest_of: string | null;
+            /** Round */
+            round: number;
+            score: components["schemas"]["TestScoreOut"];
             /**
              * Status
              * @enum {string}
              */
             status: "queued" | "running" | "done" | "failed";
         };
-        /** TestTurnOut */
-        TestTurnOut: {
-            /**
-             * Cut Short
-             * @default false
-             */
-            cut_short: boolean;
-            /**
-             * Looked Up Knowledge
-             * @default false
-             */
-            looked_up_knowledge: boolean;
-            /** Reply */
-            reply: string;
-            /** Said */
-            said: string;
+        /** TestScoreOut */
+        TestScoreOut: {
+            /** Judged */
+            judged: number;
+            /** Passed */
+            passed: number;
+            /** Total */
+            total: number;
         };
         /** TestWebhookIn */
         TestWebhookIn: {
@@ -23869,6 +24507,13 @@ export interface components {
             /** Provider Orders Available */
             provider_orders_available: boolean;
         };
+        /** TopUpFeeOut */
+        TopUpFeeOut: {
+            /** Percent */
+            percent: string;
+            /** Plan */
+            plan: string;
+        };
         /** TopUpIn */
         TopUpIn: {
             /** Amount Inr */
@@ -23960,6 +24605,11 @@ export interface components {
              * @enum {string}
              */
             speaker: "agent" | "caller";
+            /**
+             * Start Approximate
+             * @default false
+             */
+            start_approximate: boolean;
             /** Start Ms */
             start_ms?: number | null;
             /** Text */
@@ -24488,6 +25138,21 @@ export interface components {
             cost_inr: string;
             /** Minutes */
             minutes: string;
+        };
+        /** UnconfirmedOut */
+        UnconfirmedOut: {
+            /** Given */
+            given: string;
+            /** Given Label */
+            given_label: string;
+            /** Reason */
+            reason: string | null;
+            /** Suggested */
+            suggested: string | null;
+            /** Suggested At */
+            suggested_at: string | null;
+            /** Suggested Label */
+            suggested_label: string | null;
         };
         /** UndoOut */
         UndoOut: {
@@ -25355,6 +26020,13 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** TestTurnOut */
+        apps__api__agents__script_routes__TestTurnOut: {
+            /** Reply */
+            reply: string;
+            /** Said */
+            said: string;
+        };
         /**
          * KycRecordOut
          * @description This account's identity verification, as ops last recorded it.
@@ -25422,6 +26094,23 @@ export interface components {
             verified_at: string | null;
             /** Verified Name */
             verified_name: string | null;
+        };
+        /** TestTurnOut */
+        apps__api__teach__routes__TestTurnOut: {
+            /**
+             * Cut Short
+             * @default false
+             */
+            cut_short: boolean;
+            /**
+             * Looked Up Knowledge
+             * @default false
+             */
+            looked_up_knowledge: boolean;
+            /** Reply */
+            reply: string;
+            /** Said */
+            said: string;
         };
     };
     responses: never;
@@ -28004,6 +28693,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminBusinessProfileOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_business_type_v1_admin_tenants__tenant_id__business_type_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessTypeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    confirm_business_type_v1_admin_tenants__tenant_id__business_type_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmBusinessTypeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessTypeOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -31554,7 +32309,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RunTestsIn"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -31563,6 +32322,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TestConversationsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    improve_from_tests_v1_agents__agent_id__script_tests__run_id__improve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ImproveIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImprovementOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -31609,7 +32404,9 @@ export interface operations {
     };
     script_versions_v1_agents__agent_id__script_versions_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path: {
                 agent_id: string;
@@ -34145,6 +34942,37 @@ export interface operations {
             };
         };
     };
+    download_recording_v1_calls__call_id__recording_download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingDownloadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     stream_call_speaking_v1_calls__call_id__speaking_get: {
         parameters: {
             query?: never;
@@ -34260,6 +35088,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallDetailOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    retranslate_call_v1_calls__call_id__translation_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallTranslationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -37196,6 +38055,37 @@ export interface operations {
             };
         };
     };
+    resend_invitation_v1_invitations__invitation_id__resend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invitation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResentInvitationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_delivery_v1_kb_delivery_get: {
         parameters: {
             query?: never;
@@ -38162,7 +39052,9 @@ export interface operations {
     };
     list_held_leads_v1_lead_calling_held_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -40726,6 +41618,38 @@ export interface operations {
             };
         };
     };
+    list_live_apply_runs_v1_ops_live_apply_get: {
+        parameters: {
+            query?: {
+                scope?: ("platform" | "tenant" | "agent") | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveApplyRunsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_maintenance_v1_ops_maintenance_get: {
         parameters: {
             query?: {
@@ -41794,6 +42718,174 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SetHostedCurationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostedVoiceWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    hosted_voice_agents_v1_ops_voices_hosted_agents_get: {
+        parameters: {
+            query: {
+                voice_id: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostedVoiceAgentsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_hosted_clone_consent_v1_ops_voices_hosted_clone_consent_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_record_hosted_clone_consent_v1_ops_voices_hosted_clone_consent_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostedVoiceWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    hosted_clone_consent_document_v1_ops_voices_hosted_clone_consent_document_get: {
+        parameters: {
+            query: {
+                voice_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": unknown;
+                    "image/jpeg": unknown;
+                    "image/png": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_hosted_display_name_v1_ops_voices_hosted_display_name_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetDisplayLabelIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostedVoiceWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_hosted_person_clone_v1_ops_voices_hosted_person_clone_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPersonCloneIn"];
             };
         };
         responses: {

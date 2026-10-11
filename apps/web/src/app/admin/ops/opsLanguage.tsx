@@ -69,7 +69,7 @@ export { MonoValue };
  * 1. WHEN A CHANGE TAKES EFFECT  ("applies")
  *
  * The API tells us, per setting, when a change actually does anything. The words it uses
- * are precise and unreadable: `live`, `on_restart`, `needs_republish`, `env_only`,
+ * are precise and unreadable: `live`, `on_restart`, `live_agents`, `operator_step`, `env_only`,
  * `unclassified`. An operator needs the answer to one question — "have I finished, or is
  * there another step?" — so every label is phrased as that answer.
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -77,7 +77,8 @@ export { MonoValue };
 export type ConfigApplies =
   | "live"
   | "on_restart"
-  | "needs_republish"
+  | "live_agents"
+  | "operator_step"
   | "env_only"
   | "unclassified";
 
@@ -89,9 +90,14 @@ const TIMING: Record<ConfigApplies, TimingCopy> = {
     help: "Every part of the platform uses the new value within a few seconds. There's nothing else to do.",
     tone: "ok",
   },
-  needs_republish: {
-    label: "Applies after agents are republished",
-    help: "New work uses your change straight away, but what is already live keeps the old value until it is published again.",
+  live_agents: {
+    label: "Applies to live agents now",
+    help: "Saving it updates every live agent straight away; a call in progress finishes first. Nobody needs to switch an agent off and on.",
+    tone: "ok",
+  },
+  operator_step: {
+    label: "Needs one more step",
+    help: "Saving it is not enough: the note below names the step that makes it reach calls.",
     tone: "warn",
   },
   on_restart: {

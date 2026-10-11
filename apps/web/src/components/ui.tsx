@@ -1235,8 +1235,24 @@ export const MAIN_CONTENT_ID = "main-content";
  * A shared constant rather than a fourth copy of the literal: the number is the property
  * that has to match across four elements in two shells, and a width that has to agree in
  * four places is the one that drifts.
+ *
+ * The width is the CSS variable `--shell-rail` (`globals.css`), set on the shell root, so
+ * the header and the content always read the same number. A workbench page (the script
+ * builder's canvas, the leads table) spreads `WIDE_RAIL` on its root and the whole shell
+ * widens with it, header included; a per-page `max-w-*` on the content alone would put the
+ * header back on a different rail from the page under it.
  */
-export const SHELL_RAIL_CLASS = "mx-auto w-full max-w-[1280px]";
+export const SHELL_RAIL_CLASS = "mx-auto w-full max-w-(--shell-rail)";
+
+/** Spread on a page's root to give the shell the wide rail while that page is open. */
+export const WIDE_RAIL = { "data-rail": "wide" } as const;
+
+/**
+ * The shells' `<main>`: the one scroll container and its gutters. The sticky page bar
+ * (`console/stickyPageBar`) cancels exactly this padding, so the two are kept together
+ * here rather than as literals in each shell.
+ */
+export const SHELL_MAIN_CLASS = "relative flex-1 overflow-y-auto bg-surface px-4 py-4 lg:px-8 lg:py-8";
 
 /**
  * "Skip to main content" — WCAG 2.4.1 Bypass Blocks, Level A.

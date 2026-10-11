@@ -79,6 +79,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from tests.conftest import accept_agreements
+from tests.live_apply_support import drain_live_apply
 
 # `-m rls` picks the cross-tenant case up with the rest of the isolation suite.
 pytestmark = [pytest.mark.rls]
@@ -1041,6 +1042,7 @@ async def test_moving_the_account_default_reaches_the_agents_it_moves(
         )
         assert put.status_code == 200, put.text
 
+    await drain_live_apply(tenant_id)
     assert await _engine_model(engine, ref) == ALTERNATE_DEPLOYMENT
     async with tenant_session(tenant_id) as session:
         draft = (
@@ -1077,6 +1079,7 @@ async def test_an_agent_with_its_own_model_is_left_where_it_is(
         )
         assert moved.status_code == 200, moved.text
 
+    await drain_live_apply(tenant_id)
     engine = get_engine()
     assert isinstance(engine, FakeEngine)
     # The agent's OWN choice, addressed as the deployment serving it.
@@ -1116,6 +1119,7 @@ async def test_re_sending_the_value_already_on_file_pushes_nothing(
                 )
                 assert response.status_code == 200, response.text
 
+    await drain_live_apply(tenant_id)
     assert published == [ref]
     assert _summaries(caplog) == [
         {"default_llm_model": ALTERNATE_MODEL, "changed": True},

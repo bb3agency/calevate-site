@@ -4,9 +4,12 @@ import {
   differsFromDefault,
   filterAcrossSections,
   groupFields,
+  matchTargets,
   matchesFilter,
   screenSections,
+  searchTargets,
   servedSections,
+  suggestedSection,
 } from "@/app/admin/ops/config/configSections";
 import type { ConfigField, ConfigList } from "@/lib/api/opsConfig";
 
@@ -99,5 +102,60 @@ describe("search and the changed filter", () => {
       changedOnly: false,
     });
     expect(groups.map((g) => g.section.id)).toEqual(["billing", "infrastructure"]);
+  });
+});
+
+describe("search beyond the settings rows", () => {
+  const KEYS = ["sarvam_api_key", "cartesia_api_key", "thinnest_api_key"];
+  const MODELS = ["gpt-4o-mini", "sarvam-105b", "Sarvam 105B"];
+  const find = (query: string, keys: string[] | null = KEYS) =>
+    matchTargets(searchTargets(list([field()]), keys, { model_pricing: MODELS }), query);
+
+  it("finds both the Sarvam key and the Sarvam 105B price for 'sarvam'", () => {
+    const hits = find("sarvam");
+    expect(hits.map((hit) => [hit.kind, hit.anchor])).toEqual([
+      ["panel", "config-panel-model_pricing"],
+      ["credential", "credential-sarvam_api_key"],
+    ]);
+    expect(hits[0].section).toBe("language-models");
+    expect(hits[1].section).toBe("credentials");
+  });
+
+  it("finds the Cartesia key by name", () => {
+    expect(find("cartesia").map((hit) => hit.anchor)).toContain("credential-cartesia_api_key");
+  });
+
+  it("finds the exchange-rate panel for 'usd'", () => {
+    const hits = find("usd");
+    expect(hits.map((hit) => hit.anchor)).toContain("config-panel-fx_rate");
+    expect(hits.find((hit) => hit.anchor === "config-panel-fx_rate")?.section).toBe("billing");
+  });
+
+  it("finds a section by its name, and the credentials section without its key names", () => {
+    expect(find("telephony").map((hit) => hit.anchor)).toEqual(["config-section-telephony"]);
+    const withheld = find("sarvam", null);
+    expect(withheld.map((hit) => hit.kind)).toEqual(["panel"]);
+    expect(find("credentials", null).map((hit) => hit.anchor)).toEqual([
+      "config-section-credentials",
+    ]);
+  });
+
+  it("indexes every served panel by its title", () => {
+    for (const [query, anchor] of [
+      ["rate card", "config-panel-rate_card"],
+      ["engine minute", "config-panel-engine_minute_price"],
+      ["number price", "config-panel-number_price"],
+      ["plan fee", "config-panel-tts_plan_fee"],
+      ["data use", "config-panel-dashboard_data_use"],
+      ["server-only", "config-panel-server_only_keys"],
+    ]) {
+      expect(find(query).map((hit) => hit.anchor)).toContain(anchor);
+    }
+  });
+
+  it("suggests a section to browse when nothing matches", () => {
+    expect(find("zzzz")).toEqual([]);
+    expect(suggestedSection(list([field()]), "zzzz").id).toBe("voice-engine");
+    expect(suggestedSection(list([field()]), "billing thing").id).toBe("billing");
   });
 });

@@ -47,7 +47,7 @@ function out(opening: string, version: number | null, draft: { opening: string; 
   };
 }
 
-const NO_TESTS = { available: false, unavailable_reason: "Not yet.", cost_note: "", latest: null };
+const NO_TESTS = { available: false, unavailable_reason: "Not yet.", cost_note: "", latest: null, history: [] };
 const PREVIEW = { compiled: "", instructions_chars: 2000, instructions_limit: 8000, native_steps: 0 };
 const page = <AgentScriptPage params={Promise.resolve({ slug: "acme", agentId: "agent-1" })} />;
 
@@ -165,7 +165,7 @@ describe("the autosave", () => {
     const { calls } = await renderClientPage(page, routes(out(OLD, 3)));
     await waitFor(() => expect(opening().value).toBe(OLD));
     // Writes wait for `/v1/me` (they fail closed), so the button appears once it answers.
-    fireEvent.click(await screen.findByRole("button", { name: "Add a section" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add a step" }));
     // A new section has a name and no instruction yet: the server would refuse it.
     expect(await screen.findByText(/Not saved yet: one part needs finishing/)).toBeTruthy();
     await new Promise((r) => setTimeout(r, 1500));
@@ -214,7 +214,7 @@ describe("the list reorders the one model", () => {
 
   it("moves a section with the visible buttons and the handle's arrow keys, and announces it", async () => {
     await renderClientPage(page, routes({ ...out(OLD, 3), script: two }));
-    const list = await screen.findByRole("list", { name: "Sections of the call, in order" });
+    const list = await screen.findByRole("list", { name: "Steps of the call, in order" });
     const names = () => Array.from(list.querySelectorAll(":scope > li")).map((li) => li.textContent ?? "");
     expect(names()[0]).toContain("Greet");
     fireEvent.click(await screen.findByRole("button", { name: "Move Find the need earlier" }));

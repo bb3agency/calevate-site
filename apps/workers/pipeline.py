@@ -50,6 +50,7 @@ from calevate_shared.events import TERMINAL_STATUSES
 from calevate_shared.extraction import (
     ExtractionOutput,
     ExtractionSchemaSpec,
+    MomentsBrief,
     OutcomeTag,
     clip_headline,
 )
@@ -59,6 +60,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
+from apps.api.agents.lead_fields import business_type_label
 from apps.api.agents.llm_models import resolve_llm_model
 from apps.api.agents.voices import (
     VOICE_TIER_OF_PROVIDER,
@@ -76,6 +78,7 @@ from apps.api.billing.caps import (
 )
 from apps.api.billing.engine_minutes import (
     ATTESTED_MINUTE_ENGINES,
+    TOPUP_FEE_META_KEY,
     MinuteCost,
     client_voice_tier,
     engine_minute_cost,
@@ -162,9 +165,8 @@ from apps.api.reliability.service import (
 )
 from apps.api.tenancy.engine_workspace import engine_has_workspaces
 from apps.api.worker.service import POSTCALL_DEDUPE_PREFIX, REMETER_DEDUPE_PREFIX
-from apps.workers import call_language, storage
+from apps.workers import call_language, call_translation, storage
 from apps.workers import extraction as extraction_module
-from apps.workers.chat import TokenUsage
 from apps.workers.engine_charges import reconcile_call_charge
 from apps.workers.engine_delivery import execution_truth, post_call_truth, seal_listing
 from apps.workers.extraction import (
@@ -174,7 +176,12 @@ from apps.workers.extraction import (
     model_answered,
 )
 from apps.workers.handoff import settle_handoff
-from apps.workers.moments import derive_moments, merge_moments
+from apps.workers.moments import (
+    derive_moments,
+    merge_moments,
+    model_moments,
+    prompt_line_turns,
+)
 from apps.workers.redaction import redact
 from apps.workers.storage import (
     RecordingNotReadyError,
@@ -1363,9 +1370,19 @@ async def _post_call_stages(
             # Through the module, so a test that substitutes `extraction.get_extractor`
             # substitutes the pass that is metered too.
             extractor = extraction_module.get_extractor()
-            extraction = await extract_call(spec, transcript_text, extractor=extractor)
+            # Key moments ride in the SAME request (founder, 11 Oct 2026): no second model
+            # call, only the extra output tokens, metered below with the rest.
+            brief = await _load_moments_brief(tenant_id, agent_id)
+            extraction = await extract_call(
+                spec, transcript_text, extractor=extractor, moments=brief
+            )
             extraction_model = extractor.model_name
-            await _meter_extraction(tenant_id, call_id, extractor)
+            await _meter_extraction(
+                tenant_id,
+                call_id,
+                extractor,
+                moments_returned=len(extraction.moments),
+            )
         set_span_attributes(
             stage,
             extract_status=(
@@ -1376,23 +1393,29 @@ async def _post_call_stages(
 
     if extraction is not None:
         # STEP 3b — the key moments a client jumps to instead of replaying the call
-        # (D-156). No model call and no round trip: every input is already in hand here,
-        # so this is a string match over turns we have just persisted. It runs INSIDE the
-        # persist span rather than its own because it is arithmetic — a span per
-        # microsecond of Python is noise in a trace whose point is finding the missing
-        # minutes.
-        #
-        # The model half (`merge_moments`'s second argument) is empty until the extractor
-        # returns highlights; the merge is called anyway so the write path is the same one
-        # that will carry them, rather than a branch nobody has run.
+        # (D-156). The derived half is a string match over the turns just persisted; the
+        # model half came back with the extraction above. On a reuse the model's earlier
+        # suggestions are read back, because the reused extraction carries none and a
+        # re-drive must not quietly drop them.
+        field_labels = {field.key: field.label for field in spec.fields}
+        suggested = (
+            await _stored_model_moments(tenant_id, call_id)
+            if reused
+            else model_moments(
+                extraction.moments,
+                line_turns=prompt_line_turns(snapshot.transcript),
+                field_labels=field_labels,
+                redact=lambda label: redact(label).text,
+            )
+        )
         moments = merge_moments(
             derive_moments(
                 turns=snapshot.transcript,
                 extraction=extraction.data,
-                field_labels={field.key: field.label for field in spec.fields},
+                field_labels=field_labels,
                 opt_out_turn_idx=opt_out_signal.turn_idx if opt_out_signal else None,
             ),
-            [],
+            suggested,
         )
         with span(
             "pipeline.extraction_persist",
@@ -1475,7 +1498,7 @@ async def _post_call_stages(
             set_span_attributes(
                 stage,
                 outcome=await reconcile_call_charge(
-                    tenant_id, call_id, snapshot.engine_charged_inr
+                    tenant_id, call_id, snapshot.engine_charged_inr, engine=snapshot.engine
                 ),
             )
 
@@ -1723,12 +1746,16 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
             await session.execute(
                 text(
                     "INSERT INTO transcript_turns (id, tenant_id, call_id, idx, speaker, text, "
-                    "text_redacted, lang, start_ms, end_ms, created_at, updated_at) VALUES "
+                    "text_redacted, lang, start_ms, end_ms, start_approximate, created_at, "
+                    "updated_at) "
+                    "VALUES "
                     "(:id, :tid, :cid, :idx, :speaker, :text, :redacted, :lang, :start, :end, "
+                    ":approx, "
                     "now(), now()) ON CONFLICT (call_id, idx) DO UPDATE SET "
                     "speaker = EXCLUDED.speaker, text = EXCLUDED.text, "
                     "text_redacted = EXCLUDED.text_redacted, lang = EXCLUDED.lang, "
                     "start_ms = EXCLUDED.start_ms, end_ms = EXCLUDED.end_ms, "
+                    "start_approximate = EXCLUDED.start_approximate, "
                     "updated_at = now()"
                 ),
                 {
@@ -1742,6 +1769,7 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
                     "lang": turn.lang,
                     "start": turn.start_ms,
                     "end": turn.end_ms,
+                    "approx": turn.start_approximate,
                 },
             )
         # Whatever an EARLIER reading left that this one does not claim. `transcript_turns`
@@ -1817,7 +1845,9 @@ async def _maybe_record_opt_out(
     return "recorded" if record.evidence_written else "already"
 
 
-async def _meter_extraction(tenant_id: UUID, call_id: UUID, extractor: object) -> None:
+async def _meter_extraction(
+    tenant_id: UUID, call_id: UUID, extractor: object, *, moments_returned: int = 0
+) -> None:
     """Record the first post-call extraction pass at OUR cost, when it can be priced.
 
     Sarvam 105B is priced per token (VENDOR-PUBLISHED, `rates.SARVAM_LLM_PRICE_SOURCE`,
@@ -1851,8 +1881,90 @@ async def _meter_extraction(tenant_id: UUID, call_id: UUID, extractor: object) -
             extra_meta={
                 "call_id": str(call_id),
                 "cached_prompt_tokens": str(usage.cached_prompt_tokens),
+                # The measured token counts, so the spend board can show what the pass
+                # (key moments included) actually cost per call, not an estimate.
+                "prompt_tokens": str(usage.prompt_tokens),
+                "output_tokens": str(usage.output_tokens),
+                "moments_returned": str(moments_returned),
             },
         )
+
+
+#: The most script steps the moments brief names, and how long each may be. The brief is
+#: context for what matters in a call, not the script, so it is kept short (tokens are ours).
+_BRIEF_MAX_STEPS: Final = 10
+_BRIEF_STEP_CHARS: Final = 80
+
+
+def _brief_text(value: Any, limit: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    line = " ".join(value.split())
+    return line if len(line) <= limit else line[: limit - 1].rsplit(" ", 1)[0] + "…"
+
+
+async def _load_moments_brief(tenant_id: UUID, agent_id: UUID) -> MomentsBrief:
+    """What the key-moments half of the extraction prompt knows about the business.
+
+    The business type is the account's CONFIRMED one (`vertical_template`) or nothing: an
+    unconfirmed account is never assumed to be any type (D-722). The goal and steps come
+    from the script the agent is RUNNING (`live_prompt_id`, else the latest saved), read
+    defensively from its stored JSON so an older script shape costs the brief a line, never
+    the extraction.
+    """
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT o.vertical_template, pv.structured_script "
+                    "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
+                    "LEFT JOIN prompt_versions pv "
+                    "  ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
+                    "WHERE a.id = :aid AND a.tenant_id = :tid"
+                ),
+                {"aid": agent_id, "tid": tenant_id},
+            )
+        ).first()
+    if row is None:
+        return MomentsBrief()
+    vertical, script = row[0], row[1] if isinstance(row[1], dict) else {}
+    stages = script.get("stages")
+    steps = script.get("steps")
+    names: list[str] = []
+    if isinstance(stages, list) and stages:
+        names = [
+            _brief_text(s.get("name"), _BRIEF_STEP_CHARS) for s in stages if isinstance(s, dict)
+        ]
+    elif isinstance(steps, list):
+        names = [
+            _brief_text(s.get("instruction"), _BRIEF_STEP_CHARS)
+            for s in steps
+            if isinstance(s, dict)
+        ]
+    goal = _brief_text(script.get("goal"), 300) or _brief_text(script.get("outbound_purpose"), 300)
+    return MomentsBrief(
+        business_type=business_type_label(vertical) if vertical else "",
+        business_line=_brief_text(script.get("business_line"), 200),
+        agent_goal=goal,
+        script_steps=[name for name in names if name][:_BRIEF_MAX_STEPS],
+    )
+
+
+async def _stored_model_moments(tenant_id: UUID, call_id: UUID) -> list[dict[str, Any]]:
+    """The model-suggested moments an earlier run of this pipeline stored, for a re-run
+    that reuses its extraction instead of asking the model again."""
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text(
+                    "SELECT moments FROM call_extractions WHERE call_id = :cid AND tenant_id = :tid"
+                ),
+                {"cid": call_id, "tid": tenant_id},
+            )
+        ).scalar()
+    if not isinstance(stored, list):
+        return []
+    return [m for m in stored if isinstance(m, dict) and m.get("source") == "model"]
 
 
 async def _settled_extraction(
@@ -2092,31 +2204,6 @@ def _settle_summaries(
     return english, local, source
 
 
-async def _meter_language_pass(tenant_id: UUID, call_id: UUID, usage: TokenUsage) -> None:
-    """The language pass at OUR cost, on `_meter_extraction`'s terms (hard rule 7): the
-    attested Sarvam price or nothing, never a zero row."""
-    if not llm_price_is_billable(SARVAM_DEFAULT_LLM):
-        log.info(
-            "call_language_cost_unpriced",
-            extra={"call_id": str(call_id), "model": SARVAM_DEFAULT_LLM},
-        )
-        return
-    async with tenant_session(tenant_id) as session:
-        await record_ai_assist_usage(
-            session,
-            tenant_id=tenant_id,
-            ref=new_assist_ref(),
-            tokens_in=usage.prompt_tokens,
-            tokens_out=usage.output_tokens,
-            model=SARVAM_DEFAULT_LLM,
-            feature=ASSIST_FEATURE_CALL_LANGUAGE,
-            extra_meta={
-                "call_id": str(call_id),
-                "cached_prompt_tokens": str(usage.cached_prompt_tokens),
-            },
-        )
-
-
 async def _record_reading(
     tenant_id: UUID,
     call_id: UUID,
@@ -2166,13 +2253,9 @@ async def _record_reading(
         language=language,
     )
 
-    pending_turns = [
-        (int(idx), body)
-        for idx, body, english_text in turns
-        if body.strip()
-        and english_text is None
-        and (call_language.has_indic_script(body) or not call_language.is_english(language))
-    ]
+    pending_turns = call_language.untranslated_turns(
+        [(int(idx), body, english_text) for idx, body, english_text in turns], language=language
+    )
     want_local = bool(english) and not local and not call_language.is_english(language)
     want_english = not english and bool(local)
     translation_state = str(row[2] or "pending")
@@ -2190,13 +2273,10 @@ async def _record_reading(
                 summary_local=redact(local).text if local else "",
             )
             if done.usage is not None:
-                await _meter_language_pass(tenant_id, call_id, done.usage)
-            originals = dict(pending_turns)
-            turns_en = {
-                idx: en
-                for idx, en in done.turns_en.items()
-                if call_language.differs(originals.get(idx, ""), en)
-            }
+                await call_translation.meter_language_pass(
+                    tenant_id, call_id, done.usage, feature=ASSIST_FEATURE_CALL_LANGUAGE
+                )
+            turns_en = call_language.english_lines(pending_turns, done)
             if want_local and done.summary_local:
                 local = done.summary_local
             if want_english and done.summary_en:
@@ -3427,6 +3507,9 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 **({"duration_source": "worker_settlement"} if settled_legs else {}),
                 # An engine priced by attested minute (D-678): which rate, how many billed
                 # minutes after the pulse, and the figure — or `null` when it was unpriced.
+                # `topup_fee` is the wallet fee the cost includes; a row without it was
+                # metered before the fee was added and is restated by
+                # `engine_charges.restate_minutes_without_fee`.
                 **(
                     {
                         "engine_rate_key": minute_cost.rate_key,
@@ -3434,6 +3517,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                         "inr_per_min": str(minute_cost.inr_per_min)
                         if minute_cost.inr_per_min is not None
                         else None,
+                        TOPUP_FEE_META_KEY: str(minute_cost.topup_fee),
                     }
                     if minute_cost is not None
                     else {}

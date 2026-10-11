@@ -39,6 +39,26 @@ const QUESTIONS: Record<Screen, readonly string[]> = {
   other: ["What can you do on this screen?", "What needs me today?", "How are my calls going?"],
 };
 
+/**
+ * The panel's first line, in the words of the screen it sits beside (founder, REDESIGN-2):
+ * what a person can ask here, never a list of features and never a count of anything.
+ */
+const OPENINGS: Record<Screen, string> = {
+  dashboard: "I can tell you what needs you today and how this week went.",
+  attention: "I can go through what needs you, one thing at a time.",
+  calls: "I can find a call, sum up a day of calls, or tell you who needs a call back.",
+  call: "Ask me what this caller wanted, or whether to call them back.",
+  leads: "I can tell you who to call first and what people are asking for.",
+  lead: "Ask me what this person wants and what to do next.",
+  agents: "I can tell you what each agent does and whether it is answering.",
+  agent: "Ask me how this agent is doing, or how to change what it says.",
+  campaigns: "I can tell you how a campaign is going, or why one cannot start.",
+  integrations: "Ask me what is connected and whether your leads are getting through.",
+  billing: "I can tell you how long your credit will last and where it went.",
+  knowledge: "Ask me what your agents know and what they could not answer.",
+  other: "Ask me about this screen, or anything in your account.",
+};
+
 function screenOf(route: string): Screen {
   const parts = route.split("/").filter(Boolean);
   // Client routes are /c/<slug>/<section>/<id?>; admin and anything else are "other".
@@ -76,4 +96,11 @@ function screenOf(route: string): Screen {
 
 export function suggestedQuestions(route: string): readonly string[] {
   return QUESTIONS[screenOf(route)];
+}
+
+/** The empty panel's opening line for this screen; a screen with fields adds that the
+ * assistant can fill them in. */
+export function openingLine(route: string, hasFields: boolean): string {
+  const line = OPENINGS[screenOf(route)];
+  return hasFields ? `${line} Or tell me what to fill in here.` : line;
 }

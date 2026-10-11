@@ -22,10 +22,13 @@ import {
 import { MakeCallTest } from "@/components/improvement/MakeCallTest";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { MomentTag } from "@/components/calls/MomentTag";
+import { momentsByTurn } from "@/lib/callMoments";
 
 import { isLive } from "../callColumns";
 
 import { AssistCard } from "./AssistCard";
+import { initialView, useRetryEnglish, type CallView } from "./callEnglish";
 import { CallDetailSkeleton } from "./CallDetailSkeleton";
 import { CallHeader } from "./CallHeader";
 import { CallVerdict } from "./CallVerdict";
@@ -36,6 +39,7 @@ import { KeyMomentsCard } from "./KeyMomentsCard";
 import { RecordingCard } from "./RecordingCard";
 import { TranscriptCard } from "./TranscriptCard";
 import {
+  DownloadRecordingButton,
   useRawTranscript,
   useRawTranscriptAccess,
   useRecordingLink,
@@ -76,7 +80,16 @@ import {
  */
 
 
-export function CallDetailScreen({ slug, callId }: { slug: string; callId: string }) {
+export function CallDetailScreen({
+  slug,
+  callId,
+  startAt = null,
+}: {
+  slug: string;
+  callId: string;
+  /** Seconds from a `?t=` link: where the recording starts once it is opened. */
+  startAt?: number | null;
+}) {
   // `href` keeps the D-22 operator session across in-realm links (session.tsx).
   const { session, href } = useClientRealm();
   const call = useCall(session, callId);
@@ -91,6 +104,13 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
    */
   const write = useWriteAccess(session, "leads:dispatch", "place a follow-up call");
   const testWrite = useWriteAccess(session, "org:manage", "save a call as a test");
+  const englishWrite = useWriteAccess(session, "org:manage", "prepare the English of a call");
+  const retryEnglish = useRetryEnglish(session, callId);
+  // ONE language for the page: the conversation and the summary both follow it. Chosen once,
+  // when the call first loads (set during render, React's pattern for state derived from a
+  // prop), then left to the reader: English arriving later does not switch it under them.
+  const [view, setView] = useState<CallView | null>(null);
+  if (view === null && call.data) setView(initialView(call.data));
 
   const rawAccess = useRawTranscriptAccess(session);
   const [showRaw, setShowRaw] = useState(false);
@@ -129,6 +149,20 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
   const [playhead, setPlayhead] = useState<number | null>(null);
   const seekToMs = useCallback((ms: number) => playerRef.current?.seekTo(ms / 1000), []);
   const audioLoaded = recording.data != null;
+  // A key moment pressed before the recording is open: open it (one audited request) and
+  // start there. Once it is open, seek directly.
+  const [startAtS, setStartAtS] = useState<number | null>(startAt);
+  const playMomentFrom = useCallback(
+    (ms: number) => {
+      if (audioLoaded) {
+        seekToMs(ms);
+        return;
+      }
+      setStartAtS(ms / 1000);
+      if (!recording.isPending) recording.mutate();
+    },
+    [audioLoaded, seekToMs, recording],
+  );
 
   /*
    * THIS CALL, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
@@ -233,6 +267,7 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
   }
 
   const detail = call.data;
+  const momentsOnTurn = momentsByTurn(detail.moments);
   // The raw view REPLACES the redacted turns only once the raw request has actually
   // answered. While it is in flight, or if it was refused, the redacted turns stay on
   // screen — a transcript that empties itself while someone waits for a permission
@@ -245,7 +280,7 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
   const leadName = detail.lead_name?.trim();
 
   return (
-    <div className="max-w-5xl space-y-8 pb-12">
+    <div className="space-y-8 pb-12">
       {/* No <h1>: the app shell renders the page title from the nav list. */}
       <Link
         href={href(`/c/${slug}/calls`)}
@@ -267,6 +302,7 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
 
       <CallVerdict
         detail={detail}
+        view={view ?? initialView(detail)}
         action={
           <FollowUpAction
             eligibility={eligibility}
@@ -284,7 +320,7 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
           width; captured details, key moments and the second reading sit beside it. In
           the DOM the captured details come first, so a phone reads them before the
           transcript, and the rest after it. */}
-      <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-12">
+      <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="lg:col-start-2 lg:row-start-1">
           <CapturedDetails detail={detail} />
         </div>
@@ -293,6 +329,14 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
           className="lg:col-start-1 lg:row-span-2 lg:row-start-1"
           detail={detail}
           turns={turns}
+          view={view ?? initialView(detail)}
+          onViewChange={setView}
+          english={{
+            access: englishWrite,
+            onRetry: () => retryEnglish.mutate(),
+            pending: retryEnglish.isPending,
+            error: retryEnglish.error,
+          }}
           showingRaw={showingRaw}
           showRaw={showRaw}
           rawError={raw.error}
@@ -300,6 +344,7 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
           onRetryRaw={() => raw.mutate()}
           rawAccess={rawAccess}
           onToggleRaw={toggleRaw}
+          marker={(turn) => <MomentTag moments={momentsOnTurn.get(turn.idx) ?? []} className="mt-1" />}
           player={
             detail.has_recording ? (
               <RecordingCard
@@ -308,6 +353,8 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
                 onTimeUpdate={setPlayhead}
                 durationS={detail.duration_s ?? null}
                 moments={detail.moments}
+                startAtS={startAtS}
+                download={rawAccess.allowed ? <DownloadRecordingButton session={session} callId={callId} /> : undefined}
               />
             ) : null
           }
@@ -321,9 +368,9 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
           {detail.moments.length > 0 && (
             <KeyMomentsCard
               moments={detail.moments}
-              audioLoaded={audioLoaded}
               playhead={playhead}
-              onSeek={seekToMs}
+              onPlay={playMomentFrom}
+              canPlay={detail.has_recording}
             />
           )}
           {detail.status === "completed" && turns.length > 0 && (

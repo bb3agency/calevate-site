@@ -183,6 +183,8 @@ export function useSetConfig() {
     // held would show a fresh row inside a stale page.
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: OPS_CONFIG_QUERY_KEY });
+      // A setting live agents carry starts a live apply (D-720); show it at once.
+      void client.invalidateQueries({ queryKey: ["admin", "ops", "live-apply"] });
       // The pickers' own reads say which choice is in force (`current`, `matches_setting`).
       void client.invalidateQueries({ queryKey: ["ops"] });
     },
@@ -214,6 +216,8 @@ export function useRevertConfig() {
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: OPS_CONFIG_QUERY_KEY });
+      // A setting live agents carry starts a live apply (D-720); show it at once.
+      void client.invalidateQueries({ queryKey: ["admin", "ops", "live-apply"] });
       void client.invalidateQueries({ queryKey: ["ops"] });
     },
     onError: (error: Error) => {

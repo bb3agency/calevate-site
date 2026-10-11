@@ -59,7 +59,8 @@ class SignupIn(BaseModel):
     # reserved-ness and collision server-side (there is no operator here to catch it),
     # and immutable once set.
     slug: str | None = Field(default=None, min_length=3, max_length=40)
-    vertical_template: str = Field(default="custom", max_length=40)
+    #: REQUIRED, with no default (D-722): the business says what it is.
+    vertical_template: str = Field(max_length=40)
     language: OfferedLanguage = "te-IN"
     billing_email: EmailStr | None = None
     # `managed` is deliberately not in this Literal: it is the invoiced motion, the one

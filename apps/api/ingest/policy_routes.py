@@ -8,7 +8,6 @@ screen states them rather than inventing its own wording.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import date, datetime, time
 from typing import Annotated, Literal
 from uuid import UUID
@@ -18,18 +17,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.live_apply import queue_live_apply
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.trial_access import TRIAL_REFUSALS, restricting_trial
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
-from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
 from apps.api.ingest import lead_policy
 from apps.api.ingest.lead_policy import LeadCallPlan
-
-log = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/lead-calling", tags=["lead-ingest"])
 
@@ -88,7 +85,8 @@ class LeadCallingOut(BaseModel):
     #: The trial sentence when the account may only place test calls, else null.
     trial_notice: str | None
     always_applied: list[str]
-    #: Live agents whose answering-machine setting was updated on this save.
+    #: Live agents being given the new answering-machine setting by this save. They are
+    #: updated straight after it commits (D-720); a call in progress finishes first.
     agents_updated: int = 0
 
 
@@ -147,21 +145,6 @@ async def get_lead_calling(session: SessionDep, principal: Reader) -> LeadCallin
     return await _out(session, principal.tenant_id, await lead_policy.load_plan(session))
 
 
-async def _sync_machine_switch(tenant_id: UUID, agent_ids: list[tuple[UUID, str]]) -> int:
-    """Push the answering-machine switch to every live agent now, rather than at the next
-    settings check. Best effort: the half-hourly sweep repairs any it misses."""
-    from apps.api.agents.engine_settings import check_agent_settings
-
-    updated = 0
-    for agent_id, ref in agent_ids:
-        checked = await check_agent_settings(
-            tenant_id=tenant_id, agent_id=agent_id, engine_agent_ref=ref
-        )
-        if checked is not None and checked.repaired:
-            updated += 1
-    return updated
-
-
 @router.put(
     "",
     response_model=LeadCallingOut,
@@ -173,8 +156,8 @@ async def put_lead_calling(
     request: Request,
     principal: Manager,
 ) -> LeadCallingOut:
-    """Its own tenant session rather than the request's, so the plan is committed before the
-    answering-machine switch is pushed to live agents (each in a session of its own)."""
+    """A changed answering-machine switch reaches every live agent of the client through the
+    live-apply seam, queued in the save's own transaction (D-720)."""
     tenant_id = principal.tenant_id
     assert tenant_id is not None
     async with tenant_session(tenant_id) as session:
@@ -209,27 +192,29 @@ async def put_lead_calling(
                 "detect_machines": plan.detect_machines,
             },
         )
-        live: list[tuple[UUID, str]] = []
+        updating = 0
         if machine_changed:
-            rows = (
-                await session.execute(
-                    text(
-                        "SELECT r.agent_id, r.engine_agent_ref FROM engine_agent_routes r "
-                        "JOIN agents a ON a.id = r.agent_id "
-                        "WHERE r.active AND a.status = 'live' AND a.deleted_at IS NULL"
+            # The answering-machine switch is part of every agent's call settings, so the
+            # save brings this client's live agents onto it in the same transaction.
+            updating = int(
+                (
+                    await session.execute(
+                        text(
+                            "SELECT count(*) FROM agents WHERE status = 'live' "
+                            "AND engine_agent_ref IS NOT NULL AND deleted_at IS NULL"
+                        )
                     )
-                )
-            ).all()
-            live = [(UUID(str(r[0])), str(r[1])) for r in rows]
-        out = await _out(session, tenant_id, plan)
-    if live:
-        try:
-            out.agents_updated = await asyncio.wait_for(
-                _sync_machine_switch(tenant_id, live), timeout=20
+                ).scalar()
+                or 0
             )
-        except Exception as exc:  # the half-hourly sweep repairs what this misses
-            log.warning("lead_calling_machine_sync_failed", extra={"error": type(exc).__name__})
-    return out
+            await queue_live_apply(
+                session,
+                scope="tenant",
+                tenant_id=tenant_id,
+                reason="lead_calling.detect_machines",
+                requested_by=principal.user_id,
+            )
+        return await _out(session, tenant_id, plan, agents_updated=updating)
 
 
 @router.get(

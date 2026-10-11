@@ -56,6 +56,20 @@ export type CallAudioPlayerHandle = {
   seekTo: (seconds: number) => void;
 };
 
+export type PlayerMark = {
+  atS: number;
+  label: string;
+  /** Where a click starts playback; a little before `atS` when the time is approximate. */
+  seekS?: number;
+  tone?: "neutral" | "warn" | "brand";
+};
+
+const MARK_TONE: Record<NonNullable<PlayerMark["tone"]>, string> = {
+  neutral: "bg-ink-muted",
+  warn: "bg-warn",
+  brand: "bg-brand-strong dark:bg-brand-bright",
+};
+
 const RATES = [1, 1.25, 1.5, 2] as const;
 const SKIP_S = 10;
 
@@ -75,6 +89,7 @@ export function CallAudioPlayer({
   onTimeUpdate,
   onExpired,
   marks = [],
+  extraControls,
   ref,
 }: {
   src: string;
@@ -91,10 +106,14 @@ export function CallAudioPlayer({
    */
   onExpired?: () => Promise<string | null>;
   /**
-   * Points worth jumping to, drawn as ticks on the seek bar. Decoration only: the same
-   * moments are listed as buttons beside the transcript, which is the accessible form.
+   * Points worth jumping to, drawn as markers on the seek bar. Pointing at one shows its
+   * label; clicking or tapping one plays from `seekS` (default `atS`). They are kept out of
+   * the tab order and hidden from assistive tech because the same moments are listed as
+   * buttons beside the transcript, which is the accessible form.
    */
-  marks?: readonly { atS: number; label: string }[];
+  marks?: readonly PlayerMark[];
+  /** Controls a screen adds after the built-in ones (the recording's Download). */
+  extraControls?: React.ReactNode;
   ref?: React.Ref<CallAudioPlayerHandle>;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -110,9 +129,14 @@ export function CallAudioPlayer({
   const [liveSrc, setLiveSrc] = useState(src);
   // One re-mint per element. Reset whenever the parent hands down a genuinely new link.
   const remintedRef = useRef(false);
+  // The link this player's own re-mint produced. A parent that stores it (RecordingCard
+  // does) hands it back down as `src`; that must not re-arm the guard, or a permanently
+  // failing file re-mints forever, each mint an audited read.
+  const mintedRef = useRef<string | null>(null);
   const sliderId = useId();
 
   useEffect(() => {
+    if (src === mintedRef.current) return;
     setLiveSrc(src);
     remintedRef.current = false;
     setFailed(false);
@@ -178,6 +202,7 @@ export function CallAudioPlayer({
       setFailed(true);
       return;
     }
+    mintedRef.current = fresh;
     setLiveSrc(fresh);
     // The element reloads on the new `src`; restore the position once it can accept one.
     const restore = () => {
@@ -266,18 +291,6 @@ export function CallAudioPlayer({
                 style={{ width: `${pct}%` }}
               />
             </div>
-            {duration > 0 &&
-              marks
-                .filter((mark) => mark.atS >= 0 && mark.atS <= duration)
-                .map((mark, i) => (
-                  <span
-                    key={`${mark.atS}-${i}`}
-                    aria-hidden="true"
-                    title={mark.label}
-                    className="pointer-events-none absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-ink-muted"
-                    style={{ left: `${(mark.atS / duration) * 100}%` }}
-                  />
-                ))}
             <input
               id={sliderId}
               type="range"
@@ -295,6 +308,36 @@ export function CallAudioPlayer({
               aria-valuetext={`${formatClock(current)} of ${formatClock(duration)}`}
               className="relative w-full cursor-pointer appearance-none bg-transparent [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-brand-strong [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-brand-strong dark:[&::-moz-range-thumb]:bg-brand-bright dark:[&::-webkit-slider-thumb]:bg-brand-bright"
             />
+            {duration > 0 &&
+              marks
+                .filter((mark) => mark.atS >= 0 && mark.atS <= duration)
+                .map((mark, i) => {
+                  const at = (mark.atS / duration) * 100;
+                  // The label sits above the marker and is kept inside the bar at its ends.
+                  const align =
+                    at < 20 ? "left-0" : at > 80 ? "right-0" : "left-1/2 -translate-x-1/2";
+                  return (
+                    <button
+                      key={`${mark.atS}-${i}`}
+                      type="button"
+                      tabIndex={-1}
+                      data-mark=""
+                      aria-hidden="true"
+                      onClick={() => seekTo(mark.seekS ?? mark.atS)}
+                      className="group absolute top-1/2 flex h-6 w-3 -translate-x-1/2 -translate-y-1/2 touch-manipulation items-center justify-center select-none"
+                      style={{ left: `${at}%` }}
+                    >
+                      <span
+                        className={`h-3.5 w-1 rounded-full ring-2 ring-surface ${MARK_TONE[mark.tone ?? "neutral"]}`}
+                      />
+                      <span
+                        className={`pointer-events-none absolute bottom-full mb-1 hidden w-max max-w-56 rounded-md bg-ink px-2 py-1 text-left text-xs leading-snug text-surface shadow-sm group-hover:block ${align}`}
+                      >
+                        {mark.label}
+                      </span>
+                    </button>
+                  );
+                })}
           </div>
           <div className="mt-0.5 flex justify-between text-xs tabular-nums text-ink-faint">
             <span>{formatClock(current)}</span>
@@ -351,6 +394,7 @@ export function CallAudioPlayer({
             <Volume2 className="h-3.5 w-3.5" aria-hidden="true" />
           )}
         </button>
+        {extraControls}
       </div>
     </div>
   );

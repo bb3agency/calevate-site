@@ -48,6 +48,7 @@ from calevate_shared.call_script import (
     SpeakingStyle,
     StageBranch,
 )
+from calevate_shared.languages import get_language
 from calevate_shared.spoken_style import example_exchange, opening_in
 from scripts.seed import CUSTOM_EXTRACTION_FIELDS, VERTICAL_TEMPLATES
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,6 +64,11 @@ STARTER_JOBS: Final[tuple[StarterJob, ...]] = get_args(StarterJob)
 
 #: The job decides the calling direction. "Both" is not a starter: an agent that answers
 #: AND dials is one an owner builds deliberately, not one a first click should produce.
+#: A starter preview greets in English; a starter agent is made Telugu-first unless the
+#: owner chose otherwise. Derived from the language registry, never spelled here.
+PREVIEW_LANGUAGE: Final = get_language("english_india").bcp47
+STARTER_LANGUAGE: Final = get_language("telugu").bcp47
+
 JOB_DIRECTION: Final[Mapping[StarterJob, AgentDirection]] = {
     "answer_calls": "inbound",
     "call_leads": "outbound",
@@ -265,14 +271,14 @@ class Starter:
     objections: tuple[tuple[str, str], ...]
     ending: str
 
-    def opening_for(self, business: str, language: str = "en-IN") -> str:
+    def opening_for(self, business: str, language: str = PREVIEW_LANGUAGE) -> str:
         """The greeting in the agent's language where `spoken_style.json` has one (a Telugu
         agent greets in Telugu), else the English template."""
         direction = JOB_DIRECTION[self.job]
         template = opening_in(language, direction) or self.opening_line
         return template.replace("{business}", business)
 
-    def call_script(self, *, business: str, language: str = "te-IN") -> CallScript:
+    def call_script(self, *, business: str, language: str = STARTER_LANGUAGE) -> CallScript:
         """The structured script the agent is created with. Validated by `CallScript`."""
         example = example_exchange(language, self.vertical)
         return CallScript(
@@ -521,7 +527,7 @@ async def apply_starter(
     vertical_template: str | None,
     business: str,
     created_by: UUID | None,
-    language: str = "te-IN",
+    language: str = STARTER_LANGUAGE,
 ) -> int:
     """Write the starter as the agent's first script version and set its captured details.
 

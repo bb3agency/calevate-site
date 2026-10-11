@@ -115,9 +115,13 @@ from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db
+from apps.api.core.errors import ProblemError
+from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
 from apps.api.engine import engine_capabilities
+
+log = get_logger(__name__)
 
 # No prefix — the reads live in the client realm's `/v1/agents` space and the
 # mutations under `/v1/admin/tenants/{tenant_id}/...`, so a shared prefix could only
@@ -312,6 +316,10 @@ class EngineStateOut(Strict):
     #: the platform cannot report its handover tools.
     handoff_applied: bool | None
     detail: str
+    #: Where else besides the phone the agent answers ("website call button", "WhatsApp"),
+    #: set in the voice platform's console. Information, never drift (D-720): answering
+    #: there is acceptable and a planned feature. Null where the engine cannot say.
+    answers_also_on: list[str] | None = None
 
 
 class VoiceTierRateOut(Strict):
@@ -570,7 +578,25 @@ async def engine_state(agent_id: UUID, principal: PublishingReader) -> EngineSta
         voice_applied=drift.voice_applied,
         handoff_applied=drift.handoff_applied,
         detail=drift.detail,
+        answers_also_on=await _answers_also_on(agent_id, drift.engine_agent_ref),
     )
+
+
+async def _answers_also_on(agent_id: UUID, ref: str | None) -> list[str] | None:
+    """Where else the engine says the agent answers, or None when it cannot say."""
+    from apps.api.agents.engine_settings import ReportsAnswerSurfaces
+    from apps.api.engine import get_engine
+
+    engine = get_engine()
+    if ref is None or not isinstance(engine, ReportsAnswerSurfaces):
+        return None
+    try:
+        surfaces = await engine.answer_surfaces(ref)
+    except ProblemError:
+        return None
+    if surfaces:
+        log.info("engine_agent_answers_also_on", extra={"agent_id": str(agent_id)})
+    return surfaces
 
 
 @router.post(

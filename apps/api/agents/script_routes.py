@@ -27,7 +27,7 @@ brake exactly as re-summarise does. It reuses `billing/ai_quota` (gate + meter) 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import (
@@ -65,6 +65,7 @@ from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.hosted_platform import hosted_agent_limits
+from apps.workers.agent_test_conversations import improve_run
 from apps.workers.script_assist import (
     CONVERT_INSTRUCTION,
     OWNER_QUESTIONS,
@@ -510,35 +511,134 @@ async def assist_script(
     )
 
 
+TestVerdict = Literal["passed", "needs_fix", "failed", "unjudged"]
+
+
+class TestTurnOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: The caller line sent: written by the AI, the owner's saved test, or a standard line.
+    said: str
+    #: What the agent answered in its test chat.
+    reply: str
+
+
 class TestResultOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     key: str
     title: str
-    #: The caller line that was sent.
-    said: str
-    reply: str
-    #: `passed` (checked by machine), `attention` (something to fix), `failed` (contact us),
-    #: or `read` (a person must read the reply).
-    verdict: Literal["passed", "attention", "failed", "read"]
-    advice: str | None
+    #: `business` · `edge` · `objection` · `compliance`.
+    category: str
+    #: `ai` · `recording` · `stop_calling` · `person` for a compliance probe, else null.
+    probe: str | None
+    #: `generated` · `standard` · `saved` · `retest`.
+    source: str
+    turns: list[TestTurnOut]
+    #: What a good agent does here, in plain English.
+    expect: str
+    #: `passed`, `needs_fix`, `failed`, or `unjudged` when no AI could check it.
+    verdict: TestVerdict
+    #: One line on why, in plain English.
+    reason: str
+    #: `script_step` · `knowledge` · `objection` · `style` · `settings` · `platform`, or null.
+    fix: str | None
+    #: The step to change, when `fix` is `script_step`.
+    step_id: str | None
+    #: Textbook words the agent used that callers do not say.
+    formal_words: list[str]
+    #: This scenario's verdict in the run being re-tested, on a "Test again".
+    before: TestVerdict | None
+
+
+class ProposedChangeOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: `step:<id>`, or a part of the script (`opening_line`, `objections`, `style`, ...).
+    target: str
+    #: The test it fixes.
+    because: str | None
+    why: str
+
+
+class ProposedFactOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: `add` a pinned fact, or `fix` the pinned fact `fact_id`.
+    action: Literal["add", "fix"]
+    fact_id: str | None
+    question: str
+    #: Empty when only the owner knows the answer: they type it before keeping the fact.
+    answer: str
+    because: str | None
+    why: str
+
+
+class ImprovementOut(BaseModel):
+    """The "Improve my agent" proposal, reviewed change by change, never applied by itself."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The proposed script. Diff it against `base_script` to list the changes; apply the
+    #: kept ones to the editor's working copy.
+    script: CallScript
+    #: The script the proposal was made from.
+    base_script: CallScript
+    #: `draft` (the autosaved working copy) or `live` (what callers hear).
+    base: Literal["draft", "live"]
+    changes: list[ProposedChangeOut]
+    facts: list[ProposedFactOut]
+    #: The tests it was made for.
+    for_keys: list[str]
+    #: Set when a fallback model wrote it (D-127 G-6): show it.
+    disclosure: str | None
+    created_at: datetime
+
+
+class TestScoreOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    passed: int
+    #: Scenarios with a verdict; `unjudged` ones are not counted.
+    judged: int
+    total: int
 
 
 class TestRunOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    id: UUID
     status: Literal["queued", "running", "done", "failed"]
     #: The live script version the run talked to.
     prompt_version: int | None
     #: False once the live script has changed since the run.
     is_current: bool
+    #: 1 for a first run; each "Test again" after a fix adds one.
+    round: int
+    retest_of: UUID | None
+    auto_improve: bool
+    score: TestScoreOut
+    #: Failures first.
     results: list[TestResultOut]
+    improvement: ImprovementOut | None
+    #: How the run went, in the owner's words, when there is something to say.
+    note: str | None
     created_at: datetime
     completed_at: datetime | None
 
 
+class TestHistoryOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    created_at: datetime
+    prompt_version: int | None
+    round: int
+    score: TestScoreOut
+
+
 class TestConversationsOut(BaseModel):
-    """Pre-launch test conversations (founder decision 11): advised, never required."""
+    """Test conversations that improve the agent (D-724): advised, never required."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -547,37 +647,92 @@ class TestConversationsOut(BaseModel):
     unavailable_reason: str | None
     cost_note: str
     latest: TestRunOut | None
+    #: Finished runs, newest first, for the score over time.
+    history: list[TestHistoryOut]
 
 
-def _tests_out(
-    ready: test_conversations.TestReadiness, run: test_conversations.TestRun | None
-) -> TestConversationsOut:
-    latest = None
-    if run is not None:
-        latest = TestRunOut(
-            status=run.status,  # type: ignore[arg-type]
-            prompt_version=run.prompt_version,
-            is_current=run.prompt_version == ready.live_version,
-            results=[
-                TestResultOut(
-                    key=str(r.get("key", "")),
-                    title=str(r.get("title", "")),
-                    said=str(r.get("said", "")),
-                    reply=str(r.get("reply", "")),
-                    verdict=r.get("verdict", "read"),
-                    advice=r.get("advice"),
-                )
-                for r in run.results
-                if isinstance(r, dict)
-            ],
-            created_at=run.created_at,
-            completed_at=run.completed_at,
-        )
+def _score(run: test_conversations.TestRun) -> TestScoreOut:
+    passed, judged = run.score
+    return TestScoreOut(passed=passed, judged=judged, total=len(run.results))
+
+
+def _result_out(raw: dict[str, Any]) -> TestResultOut:
+    """A stored result on today's wire. Runs before D-724 kept one `said`/`reply` pair and
+    an `advice` sentence."""
+    conversation = raw.get("conversation")
+    turns = (
+        [
+            TestTurnOut(said=str(t.get("said", "")), reply=str(t.get("reply", "")))
+            for t in conversation
+            if isinstance(t, dict)
+        ]
+        if isinstance(conversation, list)
+        else [TestTurnOut(said=str(raw.get("said", "")), reply=str(raw.get("reply", "")))]
+    )
+    before = raw.get("before")
+    return TestResultOut(
+        key=str(raw.get("key", "")),
+        title=str(raw.get("title", "")),
+        category=str(raw.get("category") or "business"),
+        probe=raw.get("probe") or None,
+        source=str(raw.get("source") or "standard"),
+        turns=turns,
+        expect=str(raw.get("expect") or ""),
+        verdict=test_conversations.result_verdict(raw),
+        reason=str(raw.get("reason") or raw.get("advice") or ""),
+        fix=raw.get("fix") or None,
+        step_id=raw.get("step_id") or None,
+        formal_words=[str(w) for w in raw.get("formal_words") or []],
+        before=test_conversations.result_verdict({"verdict": before}) if before else None,
+    )
+
+
+def _improvement_out(raw: dict[str, Any] | None) -> ImprovementOut | None:
+    if not raw:
+        return None
+    return ImprovementOut.model_validate(
+        {k: raw.get(k) for k in ImprovementOut.model_fields if k in raw}
+        | {"facts": raw.get("facts") or [], "changes": raw.get("changes") or []}
+    )
+
+
+def _run_out(run: test_conversations.TestRun, live_version: int | None) -> TestRunOut:
+    return TestRunOut(
+        id=run.id,
+        status=run.status,  # type: ignore[arg-type]
+        prompt_version=run.prompt_version,
+        is_current=run.prompt_version == live_version,
+        round=run.improve_round,
+        retest_of=run.retest_of,
+        auto_improve=run.auto_improve,
+        score=_score(run),
+        results=[_result_out(r) for r in run.results if isinstance(r, dict)],
+        improvement=_improvement_out(run.improvement),
+        note=run.note,
+        created_at=run.created_at,
+        completed_at=run.completed_at,
+    )
+
+
+async def _tests_out(session: AsyncSession, agent_id: UUID) -> TestConversationsOut:
+    ready = await test_conversations.readiness(session, agent_id)
+    run = await test_conversations.latest_run(session, agent_id)
+    history = await test_conversations.recent_runs(session, agent_id)
     return TestConversationsOut(
         available=ready.available,
         unavailable_reason=ready.reason,
         cost_note=test_conversations.COST_NOTE,
-        latest=latest,
+        latest=_run_out(run, ready.live_version) if run is not None else None,
+        history=[
+            TestHistoryOut(
+                id=h.id,
+                created_at=h.created_at,
+                prompt_version=h.prompt_version,
+                round=h.improve_round,
+                score=_score(h),
+            )
+            for h in history
+        ],
     )
 
 
@@ -585,33 +740,49 @@ def _tests_out(
     "/tests",
     response_model=TestConversationsOut,
     openapi_extra=permission_meta("agents:read"),
-    summary="The agent's latest pre-launch test conversations",
+    summary="The agent's latest test conversations and its score over time",
 )
 async def get_test_conversations(
     agent_id: UUID, session: Session, _: ScriptReader
 ) -> TestConversationsOut:
-    ready = await test_conversations.readiness(session, agent_id)
-    run = await test_conversations.latest_run(session, agent_id)
-    return _tests_out(ready, run)
+    return await _tests_out(session, agent_id)
+
+
+class RunTestsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: "Test again" after a fix: that run's failures are asked again beside a fresh set.
+    retest_of: UUID | None = None
+    #: Prepare the improvement proposal by itself when this run has failures.
+    auto_improve: bool = False
 
 
 @router.post(
     "/tests",
     response_model=TestConversationsOut,
     openapi_extra=permission_meta("org:manage"),
-    summary="Run the pre-launch test conversations against the agent",
+    summary="Run test conversations against the agent callers hear now",
 )
 async def run_test_conversations(
-    agent_id: UUID, session: Session, request: Request, principal: ScriptWriter
+    agent_id: UUID,
+    session: Session,
+    request: Request,
+    principal: ScriptWriter,
+    payload: RunTestsIn | None = None,
 ) -> TestConversationsOut:
     assert principal.tenant_id is not None
-    # The tests count against the client's dashboard AI allowance (founder, 10 Oct 2026):
-    # refused at the ceiling or under view-as. No rupee amount is recorded, because the
-    # voice platform does not publish its chat-reply rate (hard rule 7).
+    # Writing and judging the tests spend the client's dashboard AI allowance (founder,
+    # 10 Oct 2026): refused at the ceiling or under view-as, before anything is queued.
     assert_view_as_may(principal, "billing.ai_assist")
     await require_ai_assist(session, tenant_id=principal.tenant_id)
+    body = payload or RunTestsIn()
     run = await test_conversations.request_run(
-        session, tenant_id=principal.tenant_id, agent_id=agent_id, requested_by=principal.user_id
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        requested_by=principal.user_id,
+        retest_of=body.retest_of,
+        auto_improve=body.auto_improve,
     )
     await write_audit(
         session,
@@ -621,9 +792,63 @@ async def run_test_conversations(
         object_type="agent",
         object_id=str(agent_id),
         ip=client_request_ip(request),
-        summary={"prompt_version": run.prompt_version},
+        summary={
+            "run_id": str(run.id),
+            "prompt_version": run.prompt_version,
+            "retest": body.retest_of is not None,
+            "auto_improve": body.auto_improve,
+        },
     )
-    return _tests_out(await test_conversations.readiness(session, agent_id), run)
+    return await _tests_out(session, agent_id)
+
+
+class ImproveIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: The tests to fix ("Fix this"); left out, every test that did not pass.
+    keys: list[str] | None = Field(default=None, max_length=30)
+
+
+@router.post(
+    "/tests/{run_id}/improve",
+    response_model=ImprovementOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Improve my agent: propose script and fact changes from a run's failures",
+)
+async def improve_from_tests(
+    agent_id: UUID,
+    run_id: UUID,
+    session: Session,
+    request: Request,
+    principal: ScriptWriter,
+    payload: ImproveIn | None = None,
+) -> ImprovementOut:
+    """SUBJECT → GATE → RUN → METER, as the script helper. It proposes and never writes the
+    script: the owner keeps changes one by one in the builder's review."""
+    assert principal.tenant_id is not None
+    assert_view_as_may(principal, "billing.ai_assist")
+    await test_conversations.get_run(session, agent_id, run_id)
+    await require_ai_assist(session, tenant_id=principal.tenant_id)
+    record = await improve_run(
+        principal.tenant_id, agent_id, run_id, keys=payload.keys if payload else None
+    )
+    await write_audit(
+        session,
+        action="agent.tests_improvement",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="agent",
+        object_id=str(agent_id),
+        ip=client_request_ip(request),
+        summary={
+            "run_id": str(run_id),
+            "changes": len(record.get("changes") or []),
+            "facts": len(record.get("facts") or []),
+        },
+    )
+    out = _improvement_out(record)
+    assert out is not None
+    return out
 
 
 # --- the autosaved draft, "Put it live", versions, restore, convert (D-714) ------------
@@ -751,9 +976,7 @@ async def script_versions(
     agent_id: UUID,
     session: Session,
     _: ScriptReader,
-    limit: int = Query(
-        script_builder.MAX_VERSIONS_PAGE, ge=1, le=script_builder.MAX_VERSIONS_PAGE
-    ),
+    limit: int = Query(script_builder.MAX_VERSIONS_PAGE, ge=1, le=script_builder.MAX_VERSIONS_PAGE),
 ) -> list[VersionOut]:
     await script_builder.assert_agent_visible(session, agent_id)
     return [

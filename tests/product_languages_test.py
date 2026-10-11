@@ -227,6 +227,12 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
         "languages. That our three are a subset of what we sell IS asserted, from the "
         "declaration, in `tests/gnani_voices_test.py`"
     ),
+    "apps/workers/call_language.py": (
+        "Unicode SCRIPT BLOCKS mapped to the language a caller writing in that script most "
+        "likely speaks — eight Indic scripts, wider than what we offer, because it reads "
+        "what a caller actually said. A fact about writing systems keyed by tag, not a "
+        "list of languages we sell"
+    ),
     "apps/web/src/lib/agentState.ts": (
         "the console's one table of language NAMES, `Record<AgentLanguage, string>` over "
         "the generated union — exhaustive by the type checker, so the keys are the same "

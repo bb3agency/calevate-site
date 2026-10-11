@@ -489,6 +489,19 @@ textarea {
   touch-action: manipulation;
 }
 
+/*
+ * THE CONTENT RAIL's width (`SHELL_RAIL_CLASS`). One variable on the shell root, so the
+ * header and the page under it can never disagree; a workbench page marks itself
+ * `data-rail="wide"` (`WIDE_RAIL`) and the shell widens for as long as it is mounted.
+ * 1600px is the content width of a 1920px window beside the sidebar.
+ */
+[data-app-shell] {
+  --shell-rail: 1280px;
+}
+[data-app-shell]:has([data-rail="wide"]) {
+  --shell-rail: 1600px;
+}
+
 html:has([data-app-shell]),
 html:has([data-app-shell]) body {
   overflow: hidden;

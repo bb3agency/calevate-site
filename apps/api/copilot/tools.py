@@ -1115,7 +1115,7 @@ async def _search_calls(
     """`retrieval/caller_search`, over what CALLERS SAID — the demand signal, not the script.
 
     THE QUESTION THIS ANSWERS AND NO OTHER TOOL DOES: "which callers asked about weekend
-    appointments?". `search_knowledge` searches what the client PUBLISHED and `calls_recent`
+    timings?". `search_knowledge` searches what the client PUBLISHED and `calls_recent`
     lists calls by time; neither can find a moment inside a conversation. The corpus here is
     windows of `transcript_turns.text_redacted` and `calls.summary`, projected into
     `caller_chunks` — with the SPEAKER labelled, which is what makes "a caller ASKED" a
@@ -1234,7 +1234,7 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         name="leads_semantic_search",
         description=(
             "Find leads by WHAT THEY ASKED FOR, in the caller's own words — 'leads who "
-            "asked about a 3BHK in Gachibowli', 'anyone who wanted a weekend site visit'. "
+            "asked about home delivery', 'anyone who wanted something this weekend'. "
             "It searches the answers this account's agents captured on each lead, not the "
             "lead's name or number: use `leads_search` for a name, a phone, a status or a "
             "count, and this when the question is about the CONTENT of what a caller "
@@ -1386,7 +1386,7 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         name="search_calls",
         description=(
             "Search what CALLERS ACTUALLY SAID on past calls, by meaning rather than by "
-            "keyword — 'who asked about weekend appointments', 'callers who mentioned a "
+            "keyword — 'who asked about weekend timings', 'callers who mentioned a "
             "refund', 'anyone unhappy about waiting'. Returns the matching passage with "
             "the speaker marked, the date and the caller's lead name where there is one. "
             "Use it for questions about DEMAND and about what people ask for; use "
@@ -1402,7 +1402,7 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
                     "type": "string",
                     "description": (
                         "What you are looking for, in ordinary words, e.g. 'weekend "
-                        "appointment' or 'complained about the price'. Do not include "
+                        "timings' or 'complained about the price'. Do not include "
                         "names, phone numbers or email addresses — they are redacted out "
                         "of transcripts and are not searchable here."
                     ),

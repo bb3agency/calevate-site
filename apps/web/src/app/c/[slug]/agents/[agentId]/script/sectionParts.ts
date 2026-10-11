@@ -6,8 +6,8 @@ import { CALL_BACK, END, HAND_OVER, type Section } from "./scriptModel";
 
 export function sectionLabel(sections: Section[], id: string): string {
   const i = sections.findIndex((s) => s.id === id);
-  if (i < 0) return "a section that is not there";
-  return `${i + 1}. ${sections[i].name.trim() || "Untitled section"}`;
+  if (i < 0) return "a step that is not there";
+  return `${i + 1}. ${sections[i].name.trim() || "Untitled step"}`;
 }
 
 export function targetLabel(sections: Section[], target: string, context: ScriptContext | null): string {

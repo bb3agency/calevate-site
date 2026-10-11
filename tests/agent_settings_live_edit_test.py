@@ -495,6 +495,14 @@ async def test_granting_the_client_roles_agents_write_opened_exactly_two_routes(
     client_doors = {
         "/v1/agents/{agent_id}/voice",
         "/v1/agents/{agent_id}/call-cap",
+        # D-719's improvement loop: a client saves, runs and deletes tests of its own agent
+        # and chats with it to try a change. They act on the agent the way its voice does,
+        # so they take the same authority, and none of them changes what callers hear.
+        "/v1/agents/{agent_id}/test-cases",
+        "/v1/agents/{agent_id}/test-cases/{case_id}",
+        "/v1/agents/{agent_id}/test-cases/run",
+        "/v1/calls/{call_id}/test-case",
+        "/v1/agents/{agent_id}/try-chat",
     }
     open_to_clients: set[str] = set()
     for route in iter_api_routes(app):

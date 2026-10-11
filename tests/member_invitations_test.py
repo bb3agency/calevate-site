@@ -361,3 +361,81 @@ async def test_an_invitation_of_another_tenant_is_invisible_and_unrevokable() ->
             await session.execute(text("SELECT count(*) FROM invitations WHERE used_at IS NULL"))
         ).scalar()
     assert alive == 1, "tenant B's invitation is untouched"
+
+
+# --- sending again -------------------------------------------------------------
+
+
+async def test_an_owner_resends_an_invitation_and_only_the_new_link_works() -> None:
+    tenant_id, slug, token = await _make_tenant("owner")
+    address = f"resend-{uuid.uuid4().hex[:8]}@example.com"
+
+    async with _client() as http:
+        created = await http.post(
+            "/v1/invitations",
+            json={"email": address, "role": "staff"},
+            headers=_headers(slug, token),
+        )
+        invitation_id = created.json()["id"]
+        first_link = await mailed_invitation_token(address)
+
+        too_soon = await http.post(
+            f"/v1/invitations/{invitation_id}/resend", headers=_headers(slug, token)
+        )
+        # The two-minute spacing is read from the row, so move the last send back.
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text(
+                    "UPDATE invitations SET last_sent_at = now() - interval '5 minutes' "
+                    "WHERE id = :i"
+                ),
+                {"i": invitation_id},
+            )
+        resent = await http.post(
+            f"/v1/invitations/{invitation_id}/resend", headers=_headers(slug, token)
+        )
+        second_link = await mailed_invitation_token(address)
+        stale = await _redeem(http, first_link)
+        fresh = await _redeem(http, second_link)
+
+    assert too_soon.status_code == 422, too_soon.text
+    assert too_soon.json()["type"].endswith("/invitation_resend_too_soon")
+    assert resent.status_code == 200, resent.text
+    body = resent.json()
+    assert body["email"] == address and body["role"] == "staff"
+    assert body["send_count"] == 2 and body["delivery"] == "queued"
+    assert "token" not in body
+    assert second_link != first_link
+    assert stale.status_code == 422, "the earlier link stops working"
+    assert fresh.status_code in (200, 201), fresh.text
+    assert "member.invitation_resent:staff" in await _audit_actions(tenant_id)
+
+
+async def test_staff_cannot_resend_and_another_tenant_cannot_see_it() -> None:
+    tenant_b, slug_b, token_b = await _make_tenant("owner")
+    _tenant_a, slug_a, token_a = await _make_tenant("owner")
+    _tenant_s, slug_s, token_s = await _make_tenant("staff")
+
+    async with _client() as http:
+        theirs = await http.post(
+            "/v1/invitations",
+            json={"email": f"rb-{uuid.uuid4().hex[:8]}@example.com", "role": "staff"},
+            headers=_headers(slug_b, token_b),
+        )
+        their_id = theirs.json()["id"]
+        stolen = await http.post(
+            f"/v1/invitations/{their_id}/resend", headers=_headers(slug_a, token_a)
+        )
+        staff = await http.post(
+            f"/v1/invitations/{their_id}/resend", headers=_headers(slug_s, token_s)
+        )
+
+    assert stolen.status_code == 404, stolen.text
+    assert staff.status_code == 403, staff.text
+    async with tenant_session(tenant_b) as session:
+        sends = (
+            await session.execute(
+                text("SELECT send_count FROM invitations WHERE id = :i"), {"i": their_id}
+            )
+        ).scalar()
+    assert sends == 1, "tenant B's invitation was not sent again"

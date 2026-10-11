@@ -215,7 +215,7 @@ def test_both_shipped_model_paths_send_this_exact_prompt() -> None:
 
     for cls in (extraction_module.SarvamExtractor, extraction_module.AzureOpenAIExtractor):
         source = inspect.getsource(cls)
-        assert "build_extraction_prompt(spec, transcript)" in source, (
+        assert "build_extraction_prompt(spec, transcript" in source, (
             f"{cls.__name__} does not send the shared extraction prompt"
         )
 

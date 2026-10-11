@@ -2687,7 +2687,18 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             # and why `destination_e164` is deliberately not touched.
             handoff_briefs_erased = await _erase_handoff_briefs(session, call_ids=list(calls))
             # Test cases saved from these calls hold the caller's lines (`teach/test_cases`),
-            # a copy emptying the call does not reach.
+            # a copy emptying the call does not reach. A test run that asked one of them
+            # copied its lines into `scenarios` and `results`, so the run goes first, while
+            # the case it names can still be matched.
+            await session.execute(
+                text(
+                    "DELETE FROM agent_test_runs r WHERE EXISTS ("
+                    " SELECT 1 FROM agent_test_cases c,"
+                    " jsonb_array_elements(COALESCE(r.scenarios, '[]'::jsonb)) s"
+                    " WHERE c.source_call_id = ANY(:ids) AND s->>'case_id' = c.id::text)"
+                ),
+                {"ids": list(calls)},
+            )
             await session.execute(
                 text("DELETE FROM agent_test_cases WHERE source_call_id = ANY(:ids)"),
                 {"ids": list(calls)},
@@ -3485,7 +3496,9 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # The auto-healer's backup phone (D-701): a staff number, gone with the account.
         await session.execute(text("DELETE FROM heal_fallback_phones"))
         # The teach box and the improvement loop: saved tests hold callers' redacted lines,
-        # and the facts, teachings and waiting rules are the business's own words.
+        # and the facts, teachings and waiting rules are the business's own words. Test runs
+        # carry copies of those saved lines.
+        await session.execute(text("DELETE FROM agent_test_runs"))
         await session.execute(text("DELETE FROM agent_test_cases"))
         await session.execute(text("DELETE FROM agent_rule_proposals"))
         await session.execute(text("DELETE FROM kb_facts"))

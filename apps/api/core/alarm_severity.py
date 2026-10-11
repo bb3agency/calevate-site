@@ -396,6 +396,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # setting still wrong (a built-in tool that could dial, a hand-over number) until fixed.
     "engine_agent_settings_repaired": "attention",
     "engine_agent_settings_drifted": "page",
+    # D-720. A saved setting could not be put on one live agent after its retries; it takes
+    # calls on its previous settings until somebody republishes it.
+    "live_apply_agent_failed": "attention",
     # D-690, per-call cost. A variance is a wrong attested rate on that call's money; a
     # Studio call with no Cartesia cost row understates its cost.
     "engine_call_cost_variance": "page",

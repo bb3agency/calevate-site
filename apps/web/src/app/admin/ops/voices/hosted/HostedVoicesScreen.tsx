@@ -1,63 +1,91 @@
 "use client";
 
-import { useState } from "react";
-import { AudioLines, RefreshCw } from "lucide-react";
+import { useId, useState } from "react";
+import { AudioLines, Plus, RefreshCw, Search } from "lucide-react";
 
+import { SavedNote, sentenceCase } from "@/components/admin/kit";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
-import { Tabs } from "@/components/interior/tabs";
 import {
+  FIELD,
+  FilterChip,
   NoticeBox,
   PRIMARY_BUTTON,
+  PRIMARY_BUTTON_SM,
   ProblemNotice,
   SECONDARY_BUTTON,
-  Skeleton,
+  SECONDARY_BUTTON_SM,
   formatCount,
 } from "@/components/ui";
-import { BAND_LABEL, useHostedVoices, type HostedVoices } from "@/lib/api/opsHostedVoices";
-import { lookup } from "@/lib/lookup";
+import { BAND_LABEL, type HostedVoices } from "@/lib/api/opsHostedVoices";
 import { useRefreshVoiceCatalogue } from "@/lib/api/opsVoices";
+import { lookup } from "@/lib/lookup";
 
+import { AddVoicesDrawer } from "./AddVoicesDrawer";
 import { CloneVoiceDrawer } from "./CloneVoiceDrawer";
-import { HostedVoiceList } from "./HostedVoiceList";
+import { FILTER_SELECT, HostedVoiceList } from "./HostedVoiceList";
 import { StudioVoicesCard } from "./StudioVoicesCard";
+import { VoiceDrawer } from "./VoiceDrawer";
+import {
+  NO_FILTERS,
+  accentOf,
+  applyFilters,
+  choices,
+  isFiltered,
+  type PreviewFilter,
+  type StateFilter,
+  type TierFilter,
+  type VoiceFilters,
+} from "./voiceFilters";
 
-type Tab = "clear" | "studio" | "all";
-
-const TAB_ITEMS = [
-  { value: "clear", label: "Clear" },
-  { value: "studio", label: "Studio" },
-  { value: "all", label: "Every voice on the platform" },
+const STATE_OPTIONS: { value: StateFilter; label: string }[] = [
+  { value: "active", label: "Not archived" },
+  { value: "offered", label: "Offered" },
+  { value: "not_offered", label: "Not offered" },
+  { value: "archived", label: "Archived" },
+  { value: "any", label: "Any state" },
+];
+const PREVIEW_OPTIONS: { value: PreviewFilter; label: string }[] = [
+  { value: "any", label: "Any preview" },
+  { value: "with", label: "Has a preview" },
+  { value: "without", label: "No preview" },
 ];
 
 /**
  * The Voices page on an engine that HOSTS its voices (D-687, ENGINE=thinnest).
  *
- * Clear is ThinnestAI's voices in the band the server names (`clear_band`: its Premium band, or
- * its Studio band with our clones); Studio is Cartesia on our own key, switched on in each
- * Studio client's own workspace (D-717). ThinnestAI's bands are always labelled as theirs
- * ("ThinnestAI Studio band"), so they never read as our Studio tier. A client picks only from
- * voices ADDED and ENABLED here, and can play each one's preview first — so the screen's three jobs are
- * adding, enabling, and making sure every offered voice has a clip to play.
+ * Task first: which voices clients can pick (one compact row each, filterable), adding more
+ * from the platform's full list (its own flow), and getting Studio ready. Everything about one
+ * voice — its ids, preview, name, agents and, for a cloned person's voice, their consent — is
+ * in its detail drawer, so the list stays scannable at hundreds of rows.
  *
- * `added` is the page's probe query (the parent read it to decide which screen to show), so
- * the Clear and Studio tabs cost no second request. "Every voice" is the full synced list
- * and is read only when opened.
+ * `added` is the page's probe query, so the list costs no second request; the full platform
+ * list is read only when "Add voices" opens.
  */
 export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
-  const [tab, setTab] = useState<Tab>("clear");
+  const [adding, setAdding] = useState(false);
   const [cloning, setCloning] = useState(false);
-  const everything = useHostedVoices(tab === "all", "all");
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [deleted, setDeleted] = useState<string | null>(null);
+  const [filters, setFilters] = useState<VoiceFilters>(NO_FILTERS);
   const refresh = useRefreshVoiceCatalogue();
+  const searchId = useId();
 
-  const byRung = (rung: "clear" | "studio") => added.voices.filter((voice) => voice.rung === rung);
-  const studioCount = byRung("studio").length;
   const soldBand = (added.clear_band && lookup(BAND_LABEL, added.clear_band)) ?? "ThinnestAI Premium band";
+  const voices = added.voices;
+  const filtered = applyFilters(voices, filters);
+  const accents = choices(voices, accentOf);
+  const genders = choices(voices, (v) => v.gender);
+  const tierCount = (tier: TierFilter) =>
+    applyFilters(voices, { ...filters, tier }).length;
+  const open = openId ? voices.find((v) => v.voice_id === openId) : undefined;
+  const set = (patch: Partial<VoiceFilters>) => setFilters((f) => ({ ...f, ...patch }));
+  const openAdd = () => setAdding(true);
 
   return (
-    <div className="max-w-4xl space-y-10 pb-12">
+    <div className="max-w-5xl space-y-10 pb-12">
       <PageHeader
-        description="Clients choose only from the voices added and enabled here, and can listen to each one first."
+        description="Clients choose only from the voices offered here, and can listen to each one first."
         actions={
           <>
             <div className="flex items-center gap-0.5">
@@ -71,17 +99,18 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
                 {refresh.isPending ? "Reading the voice platform…" : "Refresh"}
               </button>
               <InfoTip label="Refresh">
-                Re-reads every voice ThinnestAI lists (its Standard, Premium and Studio bands), our
-                clones and, once a client workspace runs Studio, the Cartesia voices of our key. Only
-                voices of the band sold as Clear can be offered as Clear. ThinnestAI lists its Studio
-                band only on its Pro plan and above, so a voice its console merely lets you preview is
-                not read.
-                A newly seen voice arrives not added; nothing here changes an agent or a call.
+                Re-reads every voice ThinnestAI lists and, once a client workspace runs Studio, the
+                Cartesia voices of our key. A newly seen voice arrives not added; nothing here changes
+                an agent or a call.
               </InfoTip>
             </div>
-            <button type="button" className={PRIMARY_BUTTON} onClick={() => setCloning(true)}>
+            <button type="button" className={SECONDARY_BUTTON} onClick={() => setCloning(true)}>
               <AudioLines aria-hidden className="h-4 w-4" />
               Clone a voice
+            </button>
+            <button type="button" className={PRIMARY_BUTTON} onClick={openAdd}>
+              <Plus aria-hidden className="h-4 w-4" />
+              Add voices
             </button>
           </>
         }
@@ -97,90 +126,162 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
       {added.plan_note != null && (
         <NoticeBox tone="warn" title={`No ${soldBand} voices on the voice platform`}>
           <p className="mt-1">{added.plan_note}</p>
-          <p className="mt-1">
-            Clear is sold on {soldBand} voices only, so no Clear voice can be added until they
-            are listed.
-            {added.clear_band === "studio" &&
-              " ThinnestAI's Studio band is not our Studio tier below: that is our Cartesia key and adds no voice to this band."}
-          </p>
+          {added.clear_band === "studio" && (
+            <p className="mt-1">
+              ThinnestAI&rsquo;s Studio band is not our Studio tier: that is our Cartesia key and adds no
+              voice to this band.
+            </p>
+          )}
         </NoticeBox>
       )}
 
-      <StudioVoicesCard />
-
-      <section aria-labelledby="hosted-voices" className="space-y-3">
-        <div>
+      <section aria-labelledby="hosted-voices" className="space-y-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <h2 id="hosted-voices" className="text-heading text-ink">
-            The voices clients can be offered
+            Offered voices
           </h2>
-          <p className="mt-1 text-body tabular-nums text-ink-muted">
+          <p className="text-meta tabular-nums text-ink-muted">
             {formatCount(added.offered)} offered{" · "}
-            {formatCount(added.voices.length)} added{" · "}
+            {formatCount(voices.length)} added{" · "}
             {formatCount(added.cached)} on the platform
           </p>
-          {added.note && <p className="mt-1 text-body text-ink-muted">{added.note}</p>}
         </div>
 
-        <Tabs
-          label="Which voices to list"
-          items={TAB_ITEMS}
-          value={tab}
-          onValueChange={(next) => setTab(next as Tab)}
-          panelClassName="p-3 sm:p-4"
-          renderPanel={(value) => {
-            if (value === "all") {
-              if (everything.error != null) {
-                return (
-                  <ProblemNotice error={everything.error} onRetry={() => void everything.refetch()} />
-                );
-              }
-              if (!everything.data) return <Skeleton rows={6} label="Loading every voice on the platform" />;
-              return (
-                <div className="space-y-3">
-                  <BandSummary bands={everything.data.bands} soldBand={soldBand} />
-                  <HostedVoiceList
-                    voices={everything.data.voices}
-                    empty="The last sync read no voices. Press Refresh to read the platform again."
-                  />
-                </div>
-              );
-            }
-            if (value === "studio" && !added.studio_ready && studioCount === 0) {
-              return (
-                <p className="text-body text-ink-muted">
-                  Studio voices are read through a client workspace that runs Studio, and none does
-                  yet. Run Studio ready above naming the first Studio client, then press Refresh.
-                </p>
-              );
-            }
-            return (
-              <HostedVoiceList
-                voices={byRung(value as "clear" | "studio")}
-                empty={
-                  value === "clear"
-                    ? `No Clear voice is added yet. Add a ${soldBand} voice from “Every voice on the platform”.`
-                    : "No Studio voice is added yet. Add one from “Every voice on the platform”."
-                }
+        {deleted && <SavedNote>{deleted}</SavedNote>}
+
+        {voices.length > 0 && (
+          <div className="space-y-3">
+            <div className="relative max-w-md">
+              <label htmlFor={searchId} className="sr-only">
+                Search offered voices by name
+              </label>
+              <Search
+                aria-hidden
+                className="pointer-events-none absolute left-3 top-1/2 mt-0.5 h-4 w-4 -translate-y-1/2 text-ink-faint"
               />
-            );
-          }}
+              <input
+                id={searchId}
+                type="search"
+                className={`${FIELD} pl-9`}
+                placeholder="Search by name"
+                value={filters.query}
+                onChange={(event) => set({ query: event.target.value })}
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div role="group" aria-label="Tier" className="flex flex-wrap gap-2">
+                {(["all", "clear", "studio"] as const).map((tier) => (
+                  <FilterChip
+                    key={tier}
+                    label={`${tier === "all" ? "All" : tier === "clear" ? "Clear" : "Studio"} ${formatCount(tierCount(tier))}`}
+                    active={filters.tier === tier}
+                    capitalize={false}
+                    onClick={() => set({ tier })}
+                  />
+                ))}
+              </div>
+              <FilterSelect
+                label="State"
+                value={filters.state}
+                options={STATE_OPTIONS}
+                onChange={(state) => set({ state })}
+              />
+              <FilterSelect
+                label="Preview"
+                value={filters.preview}
+                options={PREVIEW_OPTIONS}
+                onChange={(preview) => set({ preview })}
+              />
+              {accents.length > 1 && (
+                <FilterSelect
+                  label="Accent or language"
+                  value={filters.accent}
+                  options={[{ value: "", label: "Any accent" }, ...accents.map((a) => ({ value: a, label: a }))]}
+                  onChange={(accent) => set({ accent })}
+                />
+              )}
+              {genders.length > 0 && (
+                <FilterSelect
+                  label="Gender"
+                  value={filters.gender}
+                  options={[{ value: "", label: "Any gender" }, ...genders.map((g) => ({ value: g, label: sentenceCase(g) }))]}
+                  onChange={(gender) => set({ gender })}
+                />
+              )}
+              {isFiltered(filters) && (
+                <button type="button" className="text-meta font-medium text-brand-strong hover:underline touch:min-h-11" onClick={() => setFilters(NO_FILTERS)}>
+                  Clear filters
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        <HostedVoiceList
+          key={JSON.stringify(filters)}
+          voices={filtered}
+          onOpen={setOpenId}
+          empty={
+            voices.length === 0
+              ? `No voice is added yet. Add ${soldBand} voices or Studio voices from the platform's list.`
+              : "No voice matches these filters."
+          }
+          emptyAction={
+            voices.length === 0 ? (
+              <button type="button" className={PRIMARY_BUTTON_SM} onClick={openAdd}>
+                <Plus aria-hidden className="h-4 w-4" />
+                Add voices
+              </button>
+            ) : (
+              <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setFilters(NO_FILTERS)}>
+                Clear filters
+              </button>
+            )
+          }
         />
       </section>
 
+      <StudioVoicesCard />
+
+      {adding && <AddVoicesDrawer onClose={() => setAdding(false)} />}
       {cloning && <CloneVoiceDrawer onClose={() => setCloning(false)} />}
+      {open && (
+        <VoiceDrawer
+          voice={open}
+          onClose={() => setOpenId(null)}
+          onDeleted={(said) => {
+            setDeleted(said);
+            setOpenId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-const BAND_ORDER = ["standard", "premium", "studio"] as const;
-
-/** How many voices the platform lists in each band, and which band can be sold. */
-function BandSummary({ bands, soldBand }: { bands: HostedVoices["bands"]; soldBand: string }) {
+function FilterSelect<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+}) {
   return (
-    <p className="text-body tabular-nums text-ink-muted">
-      {"Bands on the platform: "}
-      {BAND_ORDER.map((band) => `${formatCount(bands[band] ?? 0)} ${lookup(BAND_LABEL, band) ?? band}`).join(" · ")}
-      {`. Only ${soldBand} voices can be added as Clear.`}
-    </p>
+    <select
+      aria-label={label}
+      className={FILTER_SELECT}
+      value={value}
+      onChange={(event) => onChange(event.target.value as T)}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
   );
 }

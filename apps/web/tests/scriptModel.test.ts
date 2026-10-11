@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   addSection,
+  autoPosition,
+  columnsFor,
   connect,
   edgesOf,
   moveSection,
@@ -116,7 +118,7 @@ describe("what the server would refuse, caught first", () => {
 
   it("refuses more than twelve sections and more than six ways out", () => {
     const many = script(...Array.from({ length: 13 }, (_, i) => stage(`s${i}`, `S${i}`)));
-    expect(validate(many).some((i) => i.field === "sections")).toBe(true);
+    expect(validate(many).find((i) => i.field === "sections")?.message).toBe("At most 12 steps. Join two to make room.");
     const branches = Array.from({ length: 7 }, (_, i) => ({ when: `w${i}`, target: "end" }));
     expect(validate(script(stage("a", "A", { branches }))).some((i) => i.field === "branches")).toBe(true);
   });
@@ -162,7 +164,7 @@ describe("AI proposals, kept part by part", () => {
   it("writes the history note from what changed", () => {
     const draft = updateSection(current, "price", { instruction: "new" });
     expect(changeSummary(current, draft)).toBe('Changed "Price"');
-    expect(changeSummary(current, moveSection(current, 0, 1))).toBe("Changed the order of the sections");
+    expect(changeSummary(current, moveSection(current, 0, 1))).toBe("Changed the order of the steps");
   });
 
   it("copies sections into text when the owner switches to writing by hand", () => {
@@ -170,5 +172,32 @@ describe("AI proposals, kept part by part", () => {
     const text = scriptAsText(wired);
     expect(text).toContain("1. Greet: Do Greet");
     expect(text).toContain("When angry: hand the caller to a person.");
+  });
+});
+
+describe("an owner reads steps, never sections", () => {
+  it("names a new step and every refusal in steps", () => {
+    expect(sectionsOf(addSection(script(stage("greet", "Greet"))).script)[1].name).toBe("Step 2");
+    const messages = validate(script(stage("a", ""), stage("b", "B", { otherwise: "gone" }))).map((i) => i.message);
+    expect(messages.join(" ")).not.toMatch(/section/i);
+    expect(messages).toContain("Give this step a name.");
+    expect(messages).toContain("This goes to a step that is not there any more.");
+  });
+});
+
+describe("the flow canvas lays steps out to its width", () => {
+  it("fits more steps to a row on a wider canvas, and never fewer than one", () => {
+    expect(columnsFor(300)).toBe(1);
+    expect(columnsFor(1100)).toBeGreaterThan(columnsFor(600));
+    expect(columnsFor(1100, 232)).toBeLessThan(columnsFor(1100));
+  });
+
+  it("wraps rows left to right, so step n+1 is to the right or starts the next row", () => {
+    const [a, b, c, d] = [0, 1, 2, 3].map((i) => autoPosition(i, 3));
+    expect(b.y).toBe(a.y);
+    expect(b.x).toBeGreaterThan(a.x);
+    expect(c.x).toBeGreaterThan(b.x);
+    expect(d.x).toBe(a.x);
+    expect(d.y).toBeGreaterThan(a.y);
   });
 });

@@ -102,6 +102,12 @@ BODIES: dict[str, dict[str, Any] | None] = {
         "expected_role": "owner",
     },
     "GET /v1/admin/tenants/{tenant_id}/members": None,
+    # A client's lead details (D-715). `{}` replaces every agent's set from its own type.
+    "GET /v1/admin/tenants/{tenant_id}/lead-fields": None,
+    "POST /v1/admin/tenants/{tenant_id}/lead-fields/draft": None,
+    "POST /v1/admin/tenants/{tenant_id}/lead-fields/replace": {},
+    "GET /v1/admin/tenants/{tenant_id}/business-type": None,
+    "POST /v1/admin/tenants/{tenant_id}/business-type/confirm": {"business_type": "retail"},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": {"body": PROMPT_BODY},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/rollback": {"version": 1},
     # THE CATALOGUE'S OWN DEFAULT, not a literal. A voice id is `<tts_model>:<speaker>`

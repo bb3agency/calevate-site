@@ -178,7 +178,7 @@ _TOPICS: Final[tuple[tuple[str, str, tuple[str, ...]], ...]] = (
     ),
     (
         "booking",
-        "Booking & appointments",
+        "Bookings",
         ("book", "booking", "appointment", "slot", "reserve", "book chey", "appointment kavali"),
     ),
     (

@@ -12,7 +12,7 @@ import { apiRequest, type Session } from "@/lib/api/client";
 import type { Routes } from "./harness";
 import { OWNER_JOINED } from "./businessProfileFixture";
 
-import { problem, stubApi } from "./harness";
+import { noReply, problem, stubApi } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import {
   KB_ALL_DELIVERED,
@@ -72,6 +72,7 @@ function routes(): Routes {
       ],
     },
     [`${TENANT_PATH}/owner-status`]: OWNER_JOINED,
+    [`${TENANT_PATH}/business-type`]: noReply(),
     [TENANT_PATH]: {
       id: TENANT,
       name: "Sri Traders",

@@ -400,6 +400,47 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             {"i": proposal_id, "t": tenant_id, "a": agent_id, "h": heal_id},
         )
         ids["proposal_id"] = str(proposal_id)
+
+        # The teach box and the improvement loop (D-719), a held lead (D-716), and a
+        # script version number (D-714). Editing a neighbour's fact or rule would change
+        # what their agents say; releasing their held lead would ring their customer.
+        teach_rows: tuple[tuple[str, str, dict[str, object]], ...] = (
+            (
+                "fact_id",
+                "INSERT INTO kb_facts (id, tenant_id, text) VALUES (:i, :t, 'Open 9 to 6.')",
+                {},
+            ),
+            (
+                "teaching_id",
+                "INSERT INTO kb_teachings (id, tenant_id, input_kind, status, words) "
+                "VALUES (:i, :t, 'text', 'ready', 'We open at nine.')",
+                {},
+            ),
+            (
+                "rule_id",
+                "INSERT INTO agent_rule_proposals (id, tenant_id, agent_id, text) "
+                "VALUES (:i, :t, :a, 'Always ask for the area.')",
+                {"a": agent_id},
+            ),
+            (
+                "case_id",
+                "INSERT INTO agent_test_cases (id, tenant_id, agent_id, title, caller_lines, "
+                "expected) VALUES (:i, :t, :a, 'Hours', '[\"When do you open?\"]'::jsonb, "
+                "'Says nine')",
+                {"a": agent_id},
+            ),
+            (
+                "hold_id",
+                "INSERT INTO lead_call_holds (id, tenant_id, lead_id, agent_id, source) "
+                "VALUES (:i, :t, :l, :a, 'manual')",
+                {"a": agent_id, "l": uuid.UUID(ids["lead_id"])},
+            ),
+        )
+        for key, sql, extra in teach_rows:
+            row_id = uuid.uuid4()
+            await s.execute(text(sql), {"i": row_id, "t": tenant_id, **extra})
+            ids[key] = str(row_id)
+        ids["version"] = "1"
     return ids
 
 
@@ -492,6 +533,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("DELETE", "/v1/dnc/{entry_id}", {}, {}),
     ("DELETE", "/v1/integrations/endpoints/{endpoint_id}", {}, {}),
     ("DELETE", "/v1/invitations/{invitation_id}", {}, {}),
+    ("POST", "/v1/invitations/{invitation_id}/resend", {}, {}),
     ("DELETE", "/v1/lead-sources/{webhook_id}", {}, {}),
     ("POST", "/v1/lead-sources/{webhook_id}/enable", {}, {}),
     ("POST", "/v1/lead-sources/{webhook_id}/meta/redrive", {}, {}),
@@ -639,6 +681,56 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # Opening the payment for a neighbour's platform fee would put their fee's amount on a
     # Razorpay order this caller pays; RLS must leave zero rows before any order exists.
     ("POST", "/v1/billing/platform-fee/{charge_id}/order", {}, {}),
+    # D-714: the script's tests, draft, versions and conversion, each resolved through the
+    # neighbour's agent under the caller's tenant session.
+    ("GET", "/v1/agents/{agent_id}/script/tests", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/script/tests", {}, {}),
+    ("PUT", "/v1/agents/{agent_id}/script/draft", {"script": {}}, {}),
+    ("POST", "/v1/agents/{agent_id}/script/publish", {"summary": "Changed the greeting"}, {}),
+    ("GET", "/v1/agents/{agent_id}/script/versions", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/script/versions/{version}/restore", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/script/convert", {"raw_text": "Greet the caller warmly."}, {}),
+    # D-715: what a lead's calls captured.
+    ("GET", "/v1/leads/{lead_id}/captured", {}, {}),
+    # D-719: facts, teachings, waiting rules, saved tests and the try-chat.
+    ("PATCH", "/v1/kb/facts/{fact_id}", {"text": "Open 10 to 6."}, {}),
+    ("DELETE", "/v1/kb/facts/{fact_id}", {}, {}),
+    ("GET", "/v1/kb/teach/{teaching_id}", {}, {}),
+    ("POST", "/v1/kb/teach/{teaching_id}/words", {"words": "We open at ten."}, {}),
+    (
+        "POST",
+        "/v1/kb/teach/{teaching_id}/save",
+        {"items": [{"kind": "fact", "text": "We open at ten."}]},
+        {},
+    ),
+    ("POST", "/v1/kb/teach/{teaching_id}/discard", {}, {}),
+    ("GET", "/v1/agents/{agent_id}/script/proposed-rules", {}, {}),
+    (
+        "POST",
+        "/v1/agents/{agent_id}/script/proposed-rules/{rule_id}",
+        {"status": "dismissed"},
+        {},
+    ),
+    ("GET", "/v1/agents/{agent_id}/test-cases", {}, {}),
+    (
+        "POST",
+        "/v1/agents/{agent_id}/test-cases",
+        {"caller_lines": ["When do you open?"], "expected": "Says nine"},
+        {},
+    ),
+    ("DELETE", "/v1/agents/{agent_id}/test-cases/{case_id}", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/test-cases/run", {}, {}),
+    ("GET", "/v1/calls/{call_id}/test-case-draft", {}, {}),
+    (
+        "POST",
+        "/v1/calls/{call_id}/test-case",
+        {"caller_lines": ["When do you open?"], "expected": "Says nine"},
+        {},
+    ),
+    ("POST", "/v1/agents/{agent_id}/try-chat", {"message": "When do you open?"}, {}),
+    # D-716: releasing a neighbour's held lead would ring their customer.
+    ("POST", "/v1/lead-calling/held/{hold_id}/release", {}, {}),
+    ("POST", "/v1/lead-calling/held/{hold_id}/drop", {}, {}),
 )
 
 

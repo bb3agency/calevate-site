@@ -105,6 +105,13 @@ async def on_payment_credited(
             text("UPDATE tenant_trials SET erase_after = NULL, updated_at = :at WHERE id = :id"),
             {"at": now, "id": trial.id},
         )
+    if trial is not None and trial.status != TRIAL_ACTIVE:
+        # A trial that ended unpaid kept its restrictions; paying lifts them, call-backs
+        # included, so the live agents are brought up to date (D-720). An active trial is
+        # converted by `end_trial` above, which queues the same.
+        from apps.api.agents.live_apply import queue_live_apply
+
+        await queue_live_apply(session, scope="tenant", tenant_id=tenant_id, reason="first_payment")
     workspace_owed = await queue_workspace_provisioning(session, tenant_id=tenant_id)
     await write_audit(
         session,

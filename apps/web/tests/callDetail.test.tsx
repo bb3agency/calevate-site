@@ -70,6 +70,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     summary_state: "ready",
     test_call: false,
     translation_state: "not_needed",
+    language: "te-IN",
     sentiment: "positive",
     summary: "Caller asked for a Tuesday slot.",
     lead_id: "l1",
@@ -87,12 +88,14 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
       {
         idx: 0,
         speaker: "agent",
+        start_approximate: false,
         text: "Namaskaram, this is an AI assistant.",
         redacted: true,
       },
       {
         idx: 1,
         speaker: "caller",
+        start_approximate: false,
         text: "My number is [redacted].",
         redacted: true,
       },
@@ -280,12 +283,14 @@ describe("the call detail screen", () => {
         {
           idx: 0,
           speaker: "agent",
+          start_approximate: false,
           text: "Namaskaram, this is an AI assistant.",
           redacted: false,
         },
         {
           idx: 1,
           speaker: "caller",
+          start_approximate: false,
           text: `My number is ${RAW_NUMBER}.`,
           redacted: false,
         },
@@ -331,6 +336,7 @@ describe("the call detail screen", () => {
         {
           idx: 0,
           speaker: "caller",
+          start_approximate: false,
           text: `My number is ${RAW_NUMBER}.`,
           redacted: false,
         },
@@ -378,6 +384,7 @@ describe("the call detail screen", () => {
         {
           idx: 0,
           speaker: "caller",
+          start_approximate: false,
           text: `My number is ${RAW_NUMBER}.`,
           redacted: false,
         },

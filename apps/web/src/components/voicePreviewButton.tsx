@@ -7,6 +7,10 @@ import { SECONDARY_BUTTON_SM } from "@/components/ui";
 import { ApiProblem, type Session } from "@/lib/api/client";
 import { useVoicePreview } from "@/lib/api/voicePreview";
 
+/** 36px round, 44px on touch (WCAG 2.5.8), so a row's play target stays reachable. */
+const COMPACT_BUTTON =
+  "press inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-ink hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:opacity-50 touch:h-11 touch:w-11";
+
 /**
  * The one clip playing on the page. Pressing play on a second voice pauses the first —
  * two voices talking over each other is not a comparison anybody can make.
@@ -26,12 +30,15 @@ export function VoicePreviewButton({
   path,
   voiceId,
   label,
+  compact = false,
 }: {
   session: Session;
   path: string;
   voiceId: string;
   /** The voice's name, for the button's accessible name. */
   label: string;
+  /** A round icon-only button, for a row in a long list. The name stays in the label. */
+  compact?: boolean;
 }) {
   const [requested, setRequested] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -105,7 +112,7 @@ export function VoicePreviewButton({
     <span className="inline-flex flex-col items-start gap-1">
       <button
         type="button"
-        className={SECONDARY_BUTTON_SM}
+        className={compact ? COMPACT_BUTTON : SECONDARY_BUTTON_SM}
         onClick={toggle}
         disabled={loading}
         aria-label={`${isPlaying ? "Pause" : "Play"} the preview of ${label}`}
@@ -117,7 +124,7 @@ export function VoicePreviewButton({
         ) : (
           <Play aria-hidden className="h-4 w-4" />
         )}
-        <span aria-hidden>{isPlaying ? "Pause" : "Listen"}</span>
+        {!compact && <span aria-hidden>{isPlaying ? "Pause" : "Listen"}</span>}
       </button>
       {failure && (
         <span role="status" className="text-xs text-warn">

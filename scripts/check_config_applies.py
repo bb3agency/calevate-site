@@ -174,8 +174,10 @@ def check_every_key_is_classified() -> list[str]:
                 "served as `unclassified` and is NOT editable — which is the safe answer "
                 "and not an acceptable one. Classify it in core/platform_config.py: `live` "
                 "if it is read through get_settings() at the point of use, `on_restart` if "
-                "it is consumed once at boot, `needs_republish` if existing artefacts carry "
-                "the old value, `env_only` if the store can never deliver it."
+                "it is consumed once at boot, `live_agents` if each live agent carries "
+                "it in its engine-side config, `operator_step` if only an operator's "
+                "named step makes it reach a call, `env_only` if the store can never "
+                "deliver it."
             )
             continue
         if rule.applies not in APPLIES_VALUES or rule.applies == UNCLASSIFIED:

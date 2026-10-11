@@ -1,7 +1,12 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { EngineMinutePricePanel, saleNote } from "@/app/admin/ops/EngineMinutePricePanel";
+import {
+  EngineMinutePricePanel,
+  allInNote,
+  feeSentence,
+  saleNote,
+} from "@/app/admin/ops/EngineMinutePricePanel";
 import { groupFields } from "@/app/admin/ops/config/configSections";
 import type { ConfigField } from "@/lib/api/opsConfig";
 import {
@@ -32,6 +37,9 @@ function row(overrides: Partial<EngineMinutePrice>): EngineMinutePrice {
     source_note: null,
     billable: false,
     sold_as: null,
+    topup_fee_percent: "10",
+    topup_fee_plan: "pay-as-you-go",
+    inr_per_min_with_fee: null,
     ...overrides,
   };
 }
@@ -42,6 +50,7 @@ const ROWS: EngineMinutePrice[] = [
   row({
     rate_key: "premium",
     inr_per_min: "2.500000",
+    inr_per_min_with_fee: "2.7500",
     effective_from: "2026-10-07T00:00:00Z",
     attested_at: "2026-10-07T00:00:00Z",
     source_note: "plan page, 7 Oct 2026",
@@ -51,12 +60,17 @@ const ROWS: EngineMinutePrice[] = [
   row({ rate_key: "studio" }),
 ];
 
+const FEES = [
+  { plan: "pay-as-you-go", percent: "10" },
+  { plan: "Pro", percent: "9" },
+];
+
 const ALLOWED = { allowed: true, reason: null };
 
 describe("EngineMinutePricePanel", () => {
   it("warns that nothing is sold while the platform minute is unrecorded", async () => {
     renderAdminPage(<EngineMinutePricePanel access={ALLOWED} />, {
-      [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, as_of: "2026-10-07T06:30:00Z" },
+      [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, topup_fees: FEES, as_of: "2026-10-07T06:30:00Z" },
     });
     expect(
       await screen.findByText("No platform rate recorded — no minute on it can be sold"),
@@ -67,7 +81,7 @@ describe("EngineMinutePricePanel", () => {
 
   it("records a rate as a decimal string under the route's step-up", async () => {
     const { calls } = renderAdminPage(<EngineMinutePricePanel access={ALLOWED} />, {
-      [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, as_of: "2026-10-07T06:30:00Z" },
+      [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, topup_fees: FEES, as_of: "2026-10-07T06:30:00Z" },
       [`POST ${ENGINE_MINUTE_PRICES_PATH}/thinnest/platform`]: row({
         inr_per_min: "1.000000",
         billable: true,
@@ -75,7 +89,7 @@ describe("EngineMinutePricePanel", () => {
     });
     const buttons = await screen.findAllByRole("button", { name: "Record a rate" });
     fireEvent.click(buttons[0]);
-    fireEvent.change(screen.getByLabelText("Rupees per billed minute"), {
+    fireEvent.change(screen.getByLabelText(/Rupees per billed minute/), {
       target: { value: "1.00" },
     });
     fireEvent.change(screen.getByLabelText(/Read from/), {
@@ -99,11 +113,32 @@ describe("EngineMinutePricePanel", () => {
   it("disables recording for an operator without the permission, and says why", async () => {
     renderAdminPage(
       <EngineMinutePricePanel access={{ allowed: false, reason: "Needs platform:config." }} />,
-      { [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, as_of: "2026-10-07T06:30:00Z" } },
+      { [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, topup_fees: FEES, as_of: "2026-10-07T06:30:00Z" } },
     );
     const buttons = await screen.findAllByRole("button", { name: /Record a/ });
     for (const button of buttons) expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("Needs platform:config.")).toBeTruthy();
+  });
+});
+
+describe("the top-up fee", () => {
+  it("says the rate is posted before the fee, names the fee from the server, shows the all-in figure", async () => {
+    renderAdminPage(<EngineMinutePricePanel access={ALLOWED} />, {
+      [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, topup_fees: FEES, as_of: "2026-10-07T06:30:00Z" },
+    });
+    expect(
+      await screen.findByText(/posted rate per billed minute, before its wallet top-up fee — we add the fee \(10% on pay-as-you-go, 9% on Pro\)/),
+    ).toBeTruthy();
+    expect(screen.getByText(/₹2\.7500 with the 10% top-up fee, pay-as-you-go/)).toBeTruthy();
+  });
+
+  it("builds its sentence and the all-in note from the server's figures only", () => {
+    expect(feeSentence(FEES)).toBe("10% on pay-as-you-go, 9% on Pro");
+    expect(
+      allInNote(row({ inr_per_min: "2.50", inr_per_min_with_fee: "2.7250", topup_fee_percent: "9", topup_fee_plan: "Pro" })),
+    ).toBe("₹2.7250 with the 9% top-up fee, Pro");
+    expect(allInNote(row({}))).toBeNull();
+    expect(allInNote(row({ inr_per_min_with_fee: "2.50", topup_fee_percent: "0", topup_fee_plan: null }))).toBeNull();
   });
 });
 
@@ -135,7 +170,7 @@ describe("ThinnestAI settings on the configuration screen", () => {
       engine_scope: "Used only when the voice engine is ThinnestAI.",
       used_by_current_engine: inUse,
       editable: true,
-      applies: "needs_republish",
+      applies: "live_agents",
       caveat: null,
       etag: '"0"',
       updated_by: null,

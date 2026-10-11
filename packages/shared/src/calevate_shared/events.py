@@ -108,6 +108,11 @@ class TranscriptTurn(BaseModel):
     lang: str | None = None
     start_ms: int | None = None
     end_ms: int | None = None
+    #: `start_ms` is a rough position rather than a point in the audio. ThinnestAI's turn
+    #: time is "when it was written down, not where it falls in the audio"
+    #: (thinnest-findings get-call-transcript.md:7), so its turns carry True and every
+    #: screen shows their times as approximate.
+    start_approximate: bool = False
 
 
 __all__ = [

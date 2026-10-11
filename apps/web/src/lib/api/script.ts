@@ -491,26 +491,91 @@ export function useConvertScript(
   });
 }
 
-// --- pre-launch test conversations ------------------------------------------------------
+// --- test conversations that improve the agent (D-724) ----------------------------------
 
-export type TestVerdict = "passed" | "attention" | "failed" | "read";
+export type TestVerdict = "passed" | "needs_fix" | "failed" | "unjudged";
+export type FixKind = "script_step" | "knowledge" | "objection" | "style" | "settings" | "platform";
+
+export interface TestTurn {
+  said: string;
+  reply: string;
+}
 
 export interface TestResult {
   key: string;
   title: string;
-  said: string;
-  reply: string;
+  category: string;
+  /** `ai` · `recording` · `stop_calling` · `person` for a compliance check. */
+  probe: string | null;
+  /** `generated` · `standard` · `saved` · `retest`. */
+  source: string;
+  turns: TestTurn[];
+  expect: string;
   verdict: TestVerdict;
-  advice: string | null;
+  reason: string;
+  fix: FixKind | string | null;
+  step_id: string | null;
+  formal_words: string[];
+  /** The same test's verdict in the run being re-tested. */
+  before: TestVerdict | null;
+}
+
+export interface ProposedChange {
+  /** `step:<id>` or a part of the script (`opening_line`, `objections`, `style`, ...). */
+  target: string;
+  because: string | null;
+  why: string;
+}
+
+export interface ProposedFact {
+  action: "add" | "fix";
+  fact_id: string | null;
+  question: string;
+  /** Empty when only the owner knows the answer. */
+  answer: string;
+  because: string | null;
+  why: string;
+}
+
+export interface Improvement {
+  script: CallScript;
+  base_script: CallScript;
+  base: "draft" | "live";
+  changes: ProposedChange[];
+  facts: ProposedFact[];
+  for_keys: string[];
+  disclosure: string | null;
+  created_at: string;
+}
+
+export interface TestScore {
+  passed: number;
+  judged: number;
+  total: number;
 }
 
 export interface TestRun {
+  id: string;
   status: "queued" | "running" | "done" | "failed";
   prompt_version: number | null;
   is_current: boolean;
+  round: number;
+  retest_of: string | null;
+  auto_improve: boolean;
+  score: TestScore;
   results: TestResult[];
+  improvement: Improvement | null;
+  note: string | null;
   created_at: string;
   completed_at: string | null;
+}
+
+export interface TestHistoryEntry {
+  id: string;
+  created_at: string;
+  prompt_version: number | null;
+  round: number;
+  score: TestScore;
 }
 
 export interface TestConversations {
@@ -518,11 +583,12 @@ export interface TestConversations {
   unavailable_reason: string | null;
   cost_note: string;
   latest: TestRun | null;
+  history: TestHistoryEntry[];
 }
 
 const testsKey = (org: string, agentId: string) => ["script-tests", org, agentId] as const;
 
-/** The agent's latest test run. Polls while a run is queued or running. */
+/** The agent's latest test run and score history. Polls while a run is queued or running. */
 export function useTestConversations(
   session: Session,
   agentId: string,
@@ -537,15 +603,31 @@ export function useTestConversations(
   });
 }
 
-/** Start a run (or get the one already running). */
+/** Start a run (or get the one already running). `retest_of` is "Test again" after a fix. */
 export function useRunTestConversations(
   session: Session,
   agentId: string,
-): UseMutationResult<TestConversations, Error, void> {
+): UseMutationResult<TestConversations, Error, { retest_of?: string | null; auto_improve?: boolean } | void> {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      apiRequest<TestConversations>(session, `${base(agentId)}/tests`, { method: "POST" }),
+    mutationFn: (body) =>
+      apiRequest<TestConversations>(session, `${base(agentId)}/tests`, { method: "POST", body: body ?? {} }),
     onSuccess: (data) => client.setQueryData(testsKey(session.orgSlug, agentId), data),
+  });
+}
+
+/** "Improve my agent" (all failures) or "Fix this" (`keys`): a proposal, never applied. */
+export function useImproveFromTests(
+  session: Session,
+  agentId: string,
+): UseMutationResult<Improvement, Error, { runId: string; keys?: string[] }> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ runId, keys }) =>
+      apiRequest<Improvement>(session, `${base(agentId)}/tests/${runId}/improve`, {
+        method: "POST",
+        body: keys ? { keys } : {},
+      }),
+    onSuccess: () => client.invalidateQueries({ queryKey: testsKey(session.orgSlug, agentId) }),
   });
 }

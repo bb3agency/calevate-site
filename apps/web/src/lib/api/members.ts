@@ -36,6 +36,7 @@ export type Member = Schemas["MemberOut"];
 export type TeamMember = Schemas["MemberContactOut"];
 export type PendingInvitation = Schemas["InvitationOut"];
 export type CreatedInvitation = Schemas["InvitationCreatedOut"];
+export type ResentInvitation = Schemas["ResentInvitationOut"];
 export type MemberRemoved = Schemas["MemberRemovedOut"];
 export type MemberRole = Schemas["MemberRoleIn"]["role"];
 
@@ -137,6 +138,21 @@ export function useRevokeInvitation(session: Session) {
     mutationFn: (invitationId: string) =>
       apiRequest<PendingInvitation>(session, `/v1/invitations/${invitationId}`, {
         method: "DELETE",
+      }),
+    onSuccess: () => invalidateTeam(client, session.orgSlug),
+  });
+}
+
+/**
+ * Send a pending invitation again. The server mails a NEW link and the earlier one stops
+ * working, so the response carries no token either; it is spaced two minutes apart.
+ */
+export function useResendInvitation(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (invitationId: string) =>
+      apiRequest<ResentInvitation>(session, `/v1/invitations/${invitationId}/resend`, {
+        method: "POST",
       }),
     onSuccess: () => invalidateTeam(client, session.orgSlug),
   });

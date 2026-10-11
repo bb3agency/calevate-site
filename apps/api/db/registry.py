@@ -836,6 +836,16 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "detail column is authored by us and written through `core/logging.redact_mapping` "
         "and a 500-character cap (hard rule 6); no payload or transcript text reaches it."
     ),
+    "live_apply_runs": (
+        "platform-scoped, admin realm only (D-720). One pass that brings the live agents in a "
+        "scope up to a setting somebody just saved: the platform, one client, or one agent. "
+        "It carries a NULLABLE tenant_id and agent_id because a platform pass (an ops console "
+        "setting) has no client in scope and the others name the one client they are about; "
+        "a tenant policy would make the platform passes unwritable from the worker that "
+        "walks every client and would let a client's session read the operator's apply "
+        "history. No personal data: ids, setting keys, counts, our refusal codes and an "
+        "agent's display name."
+    ),
     "platform_alerts": (
         "platform-scoped, admin realm only (D-591). ONE EPISODE OF ONE ALARM: what "
         "`core/alerting.py` raised, how loud it was, when it started, when it was last "

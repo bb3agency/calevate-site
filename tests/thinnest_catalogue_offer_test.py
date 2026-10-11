@@ -51,6 +51,8 @@ def _row(source: str, **update: Any) -> HostedVoiceRow:
         source=source,  # type: ignore[arg-type]
         vendor_id="v1",
         label="Asha",
+        vendor_label="Asha",
+        display_label=None,
         provider="thinnest",
         accent="hi",
         description=None,
@@ -65,6 +67,10 @@ def _row(source: str, **update: Any) -> HostedVoiceRow:
         preview_source=None,
         clone_id=None,
         band="premium" if source == "engine" else None,
+        gender=None,
+        languages=(),
+        person_clone=False,
+        consent=None,
     )
     from dataclasses import replace
 

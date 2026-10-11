@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
+from apps.api.agents.test_window import open_window
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
@@ -46,7 +47,12 @@ from apps.api.reliability.engine_actions import (
     open_action_secret,
     retire_agent_actions,
 )
-from apps.api.worker.engine_actions import NOT_MATCHED_SAY, UNAVAILABLE_SAY
+from apps.api.worker.engine_actions import (
+    NOT_MATCHED_SAY,
+    TEST_CHAT_OPT_OUT_STATUS,
+    UNAVAILABLE_SAY,
+)
+from apps.api.worker.tools import OPTOUT_DONE_SAY
 from sqlalchemy import text
 from tests.smoke_pipeline_test import _seed_tenant
 
@@ -530,6 +536,36 @@ async def test_no_call_an_unknown_call_and_a_contradicting_body_get_the_same_ans
             )
         ).scalar_one()
     assert dnc == 0
+
+
+async def test_a_test_chat_opt_out_answers_as_recorded_and_writes_nothing(
+    vendor: FakeThinnest,
+) -> None:
+    """D-724. A test chat names no call. While the owner is testing the agent, its opt-out
+    tells the agent what a recorded one does, so the test shows what a real caller hears;
+    nothing is written. A request that names a call still takes the real path.
+
+    FAILS IF: a test chat's opt-out makes the agent apologise (the founder's defect), writes
+    a do-not-call row, or the window weakens the real opt-out."""
+    tenant_id, agent_id, ref, secret = await _published(vendor)
+    before_window = await _post("opt-out", ref, secret, {})
+    assert before_window.json()["status"] == "caller_not_matched"
+
+    await open_window(agent_id)
+    in_test = await _post("opt-out", ref, secret, {})
+    assert in_test.status_code == 200
+    assert in_test.json() == {"status": TEST_CHAT_OPT_OUT_STATUS, "say": OPTOUT_DONE_SAY}
+    # Only the opt-out: a call-back still needs a call.
+    callback = await _post("callback", ref, secret, {"callback_date": "2026-10-12"})
+    assert callback.json()["status"] == "caller_not_matched"
+
+    call_id, row = _live(ref, phone="919876511109")
+    vendor.live.append(row)
+    real = await _post("opt-out", ref, secret, {}, call_id=call_id)
+    assert real.json()["status"] == "recorded"
+    async with tenant_session(tenant_id) as session:
+        rows = (await session.execute(text("SELECT phone_e164 FROM dnc_list"))).scalars().all()
+    assert rows == ["+919876511109"]
 
 
 async def test_a_call_that_has_ended_is_not_acted_on(vendor: FakeThinnest) -> None:

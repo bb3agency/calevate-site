@@ -33,6 +33,10 @@ arrive, so a minimal `in_progress` row is inserted under the vendor's call id, w
 post-call upsert (`workers/pipeline._upsert_call_row`, `ON CONFLICT (engine_call_id)`)
 then completes rather than duplicates.
 
+A TEST CHAT names no call. An opt-out that names none while the owner is testing the agent
+(`agents/test_window`) answers as a recorded one and writes nothing; every other request
+with no call is answered as not matched.
+
 RESPONSES are the smallest object the agent can act on — `status`, `say`, and the booked
 time on a call-back — because what an action returns may be read aloud (custom-api.md:151-
 163). "No such call" and "number does not match" are one answer. HARD RULE 6: ids, states
@@ -65,6 +69,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions.execution import CallFacts
 from apps.api.actions.in_call import run_in_call_action
+from apps.api.agents.test_window import window_open
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -93,6 +98,7 @@ from apps.api.reliability.engine_actions import (
 )
 from apps.api.worker.service import refuse_wrong_engine
 from apps.api.worker.tools import (
+    OPTOUT_DONE_SAY,
     CallLocator,
     ToolCall,
     book_callback_for,
@@ -119,6 +125,8 @@ NOT_MATCHED_SAY: Final = (
     "Nothing was done: this call could not be found. Do NOT tell the caller it is done. "
     "Apologise and tell them it could not be done on this call."
 )
+#: The opt-out's answer inside a test chat: nothing written, the agent told it was done.
+TEST_CHAT_OPT_OUT_STATUS: Final = "recorded_in_test"
 UNAVAILABLE_SAY: Final = (
     "Nothing was done: the system could not be reached just now. Do NOT tell the caller "
     "it is done. Apologise and tell them it could not be done on this call."
@@ -369,8 +377,14 @@ async def engine_action(
         )
         return _answer(out.status, out.say)
 
-    client = thinnest_actions()
     call_id = named_call_id(request.headers.get(CALL_ID_HEADER), args.get(CALL_ID_FIELD))
+    if tool == OPT_OUT and call_id is None and await window_open(route.agent_id):
+        # A test chat (`agents/test_window`): no call, so no number and nothing to write.
+        # The agent is told what a recorded opt-out tells it, so the test shows what a
+        # caller on a real call hears; the status says it was a test.
+        log.info("engine_action_test_chat", extra=ids)
+        return _answer(TEST_CHAT_OPT_OUT_STATUS, OPTOUT_DONE_SAY)
+    client = thinnest_actions()
     try:
         live = await resolve_live_call(client, agent, call_id)
     except ProblemError as exc:
@@ -518,6 +532,7 @@ async def verify_agent_secret(
 __all__ = [
     "NOT_MATCHED_SAY",
     "NO_CALL_SAY",
+    "TEST_CHAT_OPT_OUT_STATUS",
     "UNAVAILABLE_SAY",
     "ActionRoute",
     "call_locator",

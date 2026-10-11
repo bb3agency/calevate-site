@@ -118,7 +118,7 @@ from apps.api.engine.catalogue import (
 from apps.api.engine.charges import EngineCharge, EngineChargeListing
 from apps.api.engine.document import engine_document
 from apps.api.engine.recording_source import EngineRecordingSource, RecordingFetchRules
-from apps.api.engine.test_chat import TEST_CHAT_UNAVAILABLE, TestChatTurn
+from apps.api.engine.test_chat import TEST_CHAT_UNAVAILABLE, TestChatTool, TestChatTurn
 from apps.api.engine.text_split import split_for_text_cap
 from apps.api.engine.thinnest_workspace import (
     refuse_developer_byok_on,
@@ -230,10 +230,11 @@ CALL_SECONDS_MAX: Final = 1200
 #: default (`voice.ringSeconds`, 10-60, default 30; docs.thinnest.ai api-reference/agents/
 #: update-agent, read 10 Oct 2026) and stated on every publish so a console edit is repaired.
 RING_SECONDS: Final = 30
-#: Where an agent answers (`voice.surfaces`, read-only, set in the vendor console). We
-#: sanction phone calls only; the website call button and WhatsApp calls are not offered
-#: (no consent, notice or billing path of ours covers them), so either one is drift.
-SANCTIONED_SURFACES: Final = frozenset({"phone"})
+#: Where an agent answers (`voice.surfaces`, read-only, set in the vendor console;
+#: create-agent.md:1219-1229), as the drift panel names each place besides the phone.
+#: Information only (D-720): answering on the website button or WhatsApp is acceptable and
+#: a planned feature, so it is never drift, never repaired and never alarmed.
+SURFACE_NAMES: Final[dict[str, str]] = {"web": "website call button", "whatsapp": "WhatsApp"}
 CALL_VARIABLES_MAX: Final = 20
 #: `name` on a placed call (place-call.md:895-899).
 LEAD_NAME_MAX: Final = 120
@@ -397,6 +398,24 @@ def _str(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def _test_chat_tool(item: dict[str, Any], name: str) -> TestChatTool:
+    """One `TestChatToolUse` (test-chat.md:616-635: `name`, `output` when it succeeded,
+    `error` when it failed). `output` is whatever the tool answered; for one of our actions
+    that is our `{status, say}` object, as an object or as its JSON text."""
+    output = item.get("output")
+    if isinstance(output, str):
+        try:
+            output = json.loads(output)
+        except ValueError:
+            output = None
+    status = output.get("status") if isinstance(output, dict) else None
+    return TestChatTool(
+        name=name,
+        ok=item.get("error") is None,
+        status=status[:40] if isinstance(status, str) and status else None,
+    )
+
+
 def _tidy_spoken(text: str) -> str:
     """A sentence with an unfilled `{{name}}` removed, without the gap it leaves.
 
@@ -451,9 +470,51 @@ def _agent_ref_of(payload: dict[str, Any]) -> str | None:
     return _str(agent) or _str(payload.get("agent_id"))
 
 
-def parse_transcript(raw: Any, call_id: str) -> tuple[list[TranscriptTurn], int]:
+def _turn_start_ms(
+    entry: dict[str, Any], *, started: datetime | None, answered: datetime | None
+) -> int | None:
+    """Where a turn roughly falls in the recording, in ms, or None when nothing places it.
+
+    ThinnestAI gives each turn `at` (get-call.md:385-390) and, on the transcript endpoint,
+    `offset`: "Whole seconds from the start of the call to `at` — for order and rough
+    position, not audio sync" (get-call-transcript.md:635-642), and "when it was written
+    down, not where it falls in the audio" (:7). So the result is approximate by the
+    vendor's own account and every turn built from it says so (`start_approximate`).
+
+    Measured from `answeredAt`, not `startedAt`: in the vendor's example `seconds` (182) is
+    `endedAt - answeredAt`, not `endedAt - startedAt` (189.8), so talk time, and we assume
+    the recording, begin at the answer. UNVERIFIED against a real recording; the screen
+    seeks a couple of seconds early to absorb the error either way.
+    """
+    origin = answered or started
+    at = _parse_dt(entry.get("at"))
+    if at is not None and origin is not None:
+        return max(int((at - origin).total_seconds() * 1000), 0)
+    offset = entry.get("offset")
+    if isinstance(offset, int | float) and not isinstance(offset, bool) and offset >= 0:
+        ring_ms = (
+            int((answered - started).total_seconds() * 1000)
+            if answered is not None and started is not None
+            else 0
+        )
+        return max(int(offset * 1000) - ring_ms, 0)
+    return None
+
+
+def parse_transcript(
+    raw: Any,
+    call_id: str,
+    *,
+    started: datetime | None = None,
+    answered: datetime | None = None,
+) -> tuple[list[TranscriptTurn], int]:
     """`[{speaker, text, at}]` (get-call.md:35-38) to our turns, and how many we could not
-    place. Counted rather than kept: transcript text is hard rule 6."""
+    place. Counted rather than kept: transcript text is hard rule 6.
+
+    Each turn carries its approximate place in the recording (`_turn_start_ms`) so key
+    moments and the transcript can point at the audio at all; without it every turn on
+    this engine had `start_ms = None` and no moment could be anchored.
+    """
     if not isinstance(raw, list):
         return [], 0
     turns: list[TranscriptTurn] = []
@@ -467,8 +528,16 @@ def parse_transcript(raw: Any, call_id: str) -> tuple[list[TranscriptTurn], int]
         if speaker is None or not isinstance(text, str) or not text.strip():
             lost += 1
             continue
+        start_ms = _turn_start_ms(entry, started=started, answered=answered)
         turns.append(
-            TranscriptTurn(call_id=call_id, idx=len(turns), speaker=speaker, text=text.strip())
+            TranscriptTurn(
+                call_id=call_id,
+                idx=len(turns),
+                speaker=speaker,
+                text=text.strip(),
+                start_ms=start_ms,
+                start_approximate=start_ms is not None,
+            )
         )
     return turns, lost
 
@@ -898,17 +967,18 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
     return drifted
 
 
-#: The drift label for an agent answering anywhere but the phone (`SANCTIONED_SURFACES`).
-SURFACES_LABEL: Final = "answer_surfaces"
-
-
-def unsanctioned_surfaces(agent: dict[str, Any]) -> list[str]:
-    """The places a `GET /agents/{id}` answer says the agent answers that we do not offer."""
+def other_surfaces(agent: dict[str, Any]) -> list[str]:
+    """The places besides the phone a `GET /agents/{id}` answer says the agent answers, by
+    our name for each; a value we have no name for is shown as the vendor wrote it."""
     voice = agent.get("voice")
     surfaces = voice.get("surfaces") if isinstance(voice, dict) else None
     if not isinstance(surfaces, list):
         return []
-    return sorted(str(s) for s in surfaces if isinstance(s, str) and s not in SANCTIONED_SURFACES)
+    return [
+        SURFACE_NAMES.get(s, s)
+        for s in sorted(str(s) for s in surfaces if isinstance(s, str))
+        if s != "phone"
+    ]
 
 
 def _is_rupees(row: dict[str, Any]) -> bool:
@@ -1580,14 +1650,21 @@ class ThinnestEngine:
             "GET", f"/agents/{raw}/tools", route="/agents/{ref}/tools", workspace=workspace
         )
         drifted = _settings_drift(self._agent_body(cfg), agent)
-        if unsanctioned_surfaces(agent):
-            drifted.append(SURFACES_LABEL)
         tool_drift = _tools_drift(self.built_in_tools_body(cfg), tools)
         if any(name.startswith("tools.") for name in tool_drift):
             drifted.append("built_in_tools")
         if any(name.startswith("handOver.") for name in tool_drift):
             drifted.append("hand_over")
         return drifted
+
+    async def answer_surfaces(self, ref: EngineAgentRef) -> list[str]:
+        """Where else besides the phone the agent answers (`other_surfaces`). Information for
+        the drift panel; nothing compares or repairs it."""
+        raw, workspace = self._at(ref)
+        agent = await self._request(
+            "GET", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace
+        )
+        return other_surfaces(agent)
 
     async def repair_settings(
         self, ref: EngineAgentRef, cfg: AgentConfig, drifted: Sequence[str]
@@ -1616,17 +1693,6 @@ class ThinnestEngine:
             )
         if {"built_in_tools", "hand_over"} & set(drifted):
             await self._apply_built_in_tools(raw, workspace, cfg)
-        if SURFACES_LABEL in drifted:
-            # Read-only on the API: a person must untick them in the vendor console. Raised
-            # after the other repairs so the sweep reports it as not put back.
-            raise _business_refusal(
-                "engine_surfaces_not_sanctioned",
-                title="This agent also answers on the website or WhatsApp",
-                detail="Only phone calls are offered; the other places it answers are set in "
-                "the voice platform's console and cannot be changed from here.",
-                remediation="Untick the website call button and WhatsApp calls on the agent's "
-                "Voice page in the voice platform's console.",
-            )
 
     async def delete_agent(self, ref: EngineAgentRef) -> None:
         """`DELETE /agents/{id}`, 204; it takes the agent's knowledge with it (agents.md:82)."""
@@ -1646,7 +1712,8 @@ class ThinnestEngine:
         test-chat.md:328-460): the real agent through its website chat, in a sandbox where
         anything that would contact a person is switched off, billed like the console's
         Playground (the rate is not published). Our own actions still run; with no call
-        behind them they find no call and change nothing. `409` is an agent whose website
+        behind them they write nothing, and the opt-out answers as on a real call while a
+        test is open for the agent (`agents/test_window`). `409` is an agent whose website
         chat is off or absent, which we report as not testable rather than as an error."""
         raw, workspace = self._at(ref)
         body: dict[str, Any] = {"message": message[:4000]}
@@ -1671,16 +1738,17 @@ class ThinnestEngine:
                 remediation="Contact us to switch on test conversations for this agent.",
             ) from exc
         tools_raw = data.get("tools")
-        tools = tuple(
-            name
+        results = tuple(
+            _test_chat_tool(item, name)
             for item in (tools_raw if isinstance(tools_raw, list) else [])
             if isinstance(item, dict) and (name := _str(item.get("name")))
         )
         return TestChatTurn(
             session=_str(data.get("session")) or "",
             reply=_str(data.get("reply")) or "",
-            tools=tools,
+            tools=tuple(tool.name for tool in results),
             failed_part_way=data.get("error") is not None,
+            tool_results=results,
         )
 
     # --- calls ---------------------------------------------------------------
@@ -2136,6 +2204,8 @@ class ThinnestEngine:
                 label=label,
                 source="byok",
                 language=_str(row.get("language")),
+                # `gender` is "its gender, when the provider says" (list-byok-voices.md:576-580).
+                gender=_str(row.get("gender")),
                 sample_url=_str(row.get("sample")),
             )
             for row in _items(data)
@@ -2481,7 +2551,12 @@ class ThinnestEngine:
             duration_s = int(seconds)
         if duration_s is None and started is not None and ended is not None:
             duration_s = max(int((ended - started).total_seconds()), 0)
-        turns, unparsed = parse_transcript(payload.get("transcript"), call_id)
+        turns, unparsed = parse_transcript(
+            payload.get("transcript"),
+            call_id,
+            started=started,
+            answered=_parse_dt(payload.get("answeredAt")),
+        )
         fields = payload.get("fields")
         analysed = payload.get("analysedAt") is not None or hangup == "not_placed"
         agent = _scoped(_agent_ref_of(payload), workspace)

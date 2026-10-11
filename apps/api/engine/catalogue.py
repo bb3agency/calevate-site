@@ -84,6 +84,9 @@ class HostedVoice(BaseModel):
     #: The engine's price band for one of its own voices; None for a `byok` voice, which is
     #: priced by its own source.
     band: HostedVoiceBand | None = None
+    #: The provider's word for the voice's gender, when its listing gives one (an own-key
+    #: listing does; the engine's own does not). Shown to an operator as written.
+    gender: str | None = None
 
 
 class HostedVoiceListing(BaseModel):

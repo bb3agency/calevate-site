@@ -1,14 +1,15 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { Eye, EyeOff } from "lucide-react";
+import { Download, Eye, EyeOff, LoaderCircle } from "lucide-react";
 
-import { apiRequest, type CallDetail, type Session } from "@/lib/api/client";
+import { SECONDARY_BUTTON_SM } from "@/components/ui";
+import { ApiProblem, apiRequest, type CallDetail, type Session } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
 import { useMe } from "@/lib/api/hooks";
 
 /**
- * THE UNREDACTED TRANSCRIPT AND THE RECORDING — the two audited reads on this screen,
+ * THE UNREDACTED TRANSCRIPT AND THE RECORDING — the audited reads on this screen,
  * with the control that offers the first and the permission check behind both.
  *
  * One subject, one file: both are GETs with a side effect, both write an `audit_log` row,
@@ -150,4 +151,68 @@ export function useRecordingLink(session: Session, callId: string) {
         `/v1/calls/${callId}/recording`,
       ),
   });
+}
+
+/**
+ * Saving the recording — the third audited read on this screen, with its own audit action
+ * (`recording.download`) so "who took a copy away" is answerable apart from "who listened".
+ *
+ * The link is minted on the press, lives five minutes, and is handed to a throwaway anchor
+ * that is clicked and removed at once: the server signs it as an attachment with the file's
+ * name, so the browser saves it without leaving the page, and the signed URL is never left
+ * in the DOM or in history.
+ */
+export function useRecordingDownload(session: Session, callId: string) {
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<components["schemas"]["RecordingDownloadOut"]>(
+        session,
+        `/v1/calls/${callId}/recording/download`,
+      ),
+    onSuccess: ({ url, filename }) => {
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    },
+  });
+}
+
+/** The words for a download that did not happen: the server's own for an expired one. */
+function downloadRefusal(error: unknown): string {
+  if (error instanceof ApiProblem && error.code === "recording_expired") return error.message;
+  return "The recording could not be downloaded just now. Try again in a moment.";
+}
+
+/** "Download recording", beside the player's speed and volume. Owner-only, like playing. */
+export function DownloadRecordingButton({ session, callId }: { session: Session; callId: string }) {
+  const download = useRecordingDownload(session, callId);
+  const Icon = download.isPending ? LoaderCircle : Download;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => download.mutate()}
+        disabled={download.isPending}
+        aria-busy={download.isPending || undefined}
+        aria-label="Download recording"
+        title="Download recording. Saving a copy is recorded in your audit log."
+        className={SECONDARY_BUTTON_SM}
+      >
+        <Icon
+          className={`h-3.5 w-3.5 ${download.isPending ? "animate-spin motion-reduce:animate-none" : ""}`}
+          aria-hidden="true"
+        />
+        {download.isPending ? "Preparing…" : "Download"}
+      </button>
+      {download.error != null && (
+        <p role="alert" className="basis-full text-meta text-warn">
+          {downloadRefusal(download.error)}
+        </p>
+      )}
+    </>
+  );
 }

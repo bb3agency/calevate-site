@@ -132,7 +132,6 @@ def with_core(
     return [*CORE_LEAD_FIELDS, *business_only(fields)]
 
 
-
 __all__ = [
     "CORE_KEYS",
     "CORE_LEAD_FIELDS",

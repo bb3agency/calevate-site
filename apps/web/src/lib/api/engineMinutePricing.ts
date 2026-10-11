@@ -5,7 +5,8 @@
  *   POST /v1/ops/engine-minute-prices/{engine}/{rate_key}   step-up confirmed
  *
  * ThinnestAI returns no cost for a call, so a minute on it is metered only at a rate an
- * operator read off their own invoice and typed here (hard rule 7). `platform` is the base
+ * operator typed here (hard rule 7): the posted rate, before the wallet top-up fee, which the
+ * meter adds (`topup_fee_percent`; `inr_per_min_with_fee` is the figure metered). `platform` is the base
  * minute; `standard` / `premium` / `studio` are the voice bands it bills separately. Until a
  * key is attested its minutes are not sold and its voices show as unavailable.
  *

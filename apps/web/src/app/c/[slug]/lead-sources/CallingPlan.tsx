@@ -468,7 +468,7 @@ export function CallingPlan({
           <span role="status" className="text-xs text-ink-muted">
             {!dirty && savedAgents !== null
               ? savedAgents > 0
-                ? `Saved. ${savedAgents} live agent${savedAgents === 1 ? "" : "s"} updated.`
+                ? `Saved. Your ${savedAgents === 1 ? "live agent is" : `${savedAgents} live agents are`} being updated now; a call in progress finishes first.`
                 : "Saved."
               : ""}
           </span>

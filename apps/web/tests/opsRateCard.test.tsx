@@ -445,6 +445,7 @@ function routes(extra: Routes = {}): Routes {
     [ADMIN_ME_PATH]: SUPERADMIN,
     [OPS_CONFIG_PATH]: configList(),
     [OPS_RATE_CARD_PATH]: card(),
+    "/v1/ops/live-apply?scope=platform&limit=3": { runs: [] },
     [OPS_MODEL_PRICES_PATH]: {
       ...MODEL_PRICES_BASE,
       tts_prices: [CLEAR_ROW, ttsRow()],

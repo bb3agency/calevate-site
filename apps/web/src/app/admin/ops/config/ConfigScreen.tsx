@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { identityAnswerPending, useAdminAccess, useAdminMe } from "@/app/admin/access";
 import { KeyManagementPanel, SecretsPanel } from "@/app/admin/ops/SecretsPanel";
@@ -15,6 +16,7 @@ import { noFill } from "@/lib/copilot/types";
 import { ConfigSectionBody } from "./ConfigSection";
 import { ConfigSearchBar, ConfigSearchResults } from "./ConfigSearch";
 import { ConfigStatus, ConfigUnreadable } from "./ConfigStatus";
+import { LiveApplyStatus } from "./LiveApplyStatus";
 import { configState, type ConfigState } from "./configField";
 import { WithheldSettings } from "./configPanels";
 import {
@@ -22,6 +24,7 @@ import {
   SETTINGS_FALLBACK,
   isFiltering,
   screenSections,
+  sectionAnchor,
   servedSections,
   type ConfigFilter,
 } from "./configSections";
@@ -101,6 +104,7 @@ function ConfigFrame({
   const spec = sections.find((section) => section.id === active);
   const waiting = identityLoading || state?.status === "loading";
   const filtering = config !== undefined && isFiltering(filter);
+  const jump = useJumpTo(() => setFilter(NO_FILTER));
 
   /*
    * DECLARED TO THE SCREEN ASSISTANT WITH NO INVENTORY. Which vendor credentials a
@@ -145,12 +149,13 @@ function ConfigFrame({
             <p>
               These are the settings you can change without logging into the server, and the
               vendor keys the platform signs in with. A change reaches the whole platform within
-              a few seconds; a setting that needs a restart or a republish is the exception, and
+              a few seconds, live agents included; a setting that needs a restart or another step is the exception, and
               each row says which it is. A stored key can only be replaced, never shown back.
             </p>
           </InfoTip>
         </p>
         {config && <ConfigStatus config={config} />}
+        {config && <LiveApplyStatus />}
         {config && <ConfigSearchBar filter={filter} onChange={setFilter} />}
       </div>
 
@@ -163,7 +168,9 @@ function ConfigFrame({
           config={config}
           filter={filter}
           access={mayConfigure}
+          secretsAccess={maySecrets}
           onClear={() => setFilter(NO_FILTER)}
+          onJump={jump}
         />
       ) : (
         <SettingsLayout
@@ -210,7 +217,7 @@ function SectionContent({
     // and nothing whatever about what is installed.
     const why = maySecrets.reason ?? "Your admin account cannot install or rotate credentials.";
     return (
-      <div className="space-y-5">
+      <div id={sectionAnchor(id)} className="space-y-5">
         {lead}
         {maySecrets.refused ? (
           <>
@@ -237,7 +244,7 @@ function SectionContent({
 
   const section = config ? servedSections(config).find((served) => served.id === id) : undefined;
   return (
-    <div className="space-y-5">
+    <div id={sectionAnchor(id)} className="space-y-5">
       {lead}
       {mayConfigure.refused || state === null ? (
         <WithheldSettings reason={mayConfigure.reason} />
@@ -265,4 +272,59 @@ function SectionContent({
       )}
     </div>
   );
+}
+
+/** How long a search hit stays highlighted after the jump. */
+const HIGHLIGHT_MS = 2500;
+/** How long the jump waits for its target to render: a panel reads its own data first. */
+const FIND_TARGET_MS = 3000;
+const HIGHLIGHT = ["ring-2", "ring-brand", "ring-offset-2"];
+
+/**
+ * A search result's jump: clear the search, open the section that holds the target, then
+ * scroll to it and outline it briefly once it has rendered. The section is a URL param, so
+ * Back returns to where the operator was.
+ */
+function useJumpTo(clearSearch: () => void): (section: string, anchor: string) => void {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const [target, setTarget] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (target === null) return;
+    const started = Date.now();
+    let frame = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const find = () => {
+      const element = document.getElementById(target);
+      if (element) {
+        element.scrollIntoView?.({ block: "start", behavior: reduce ? "auto" : "smooth" });
+        element.classList.add(...HIGHLIGHT);
+        element.setAttribute("data-search-hit", "true");
+        timer = setTimeout(() => {
+          element.classList.remove(...HIGHLIGHT);
+          element.removeAttribute("data-search-hit");
+          setTarget(null);
+        }, HIGHLIGHT_MS);
+        return;
+      }
+      if (Date.now() - started < FIND_TARGET_MS) frame = requestAnimationFrame(find);
+      else setTarget(null);
+    };
+    frame = requestAnimationFrame(find);
+    return () => {
+      cancelAnimationFrame(frame);
+      if (timer) clearTimeout(timer);
+    };
+  }, [target]);
+
+  return (section, anchor) => {
+    clearSearch();
+    const next = new URLSearchParams(params.toString());
+    next.set("section", section);
+    router.push(`${pathname}?${next.toString()}`, { scroll: false });
+    setTarget(anchor);
+  };
 }

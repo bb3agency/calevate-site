@@ -69,8 +69,8 @@ export function AssistPanel({
   if (raw) {
     return (
       <p className="text-body text-ink-muted">
-        Your script is hand-written. Use &ldquo;Turn this into sections&rdquo; under it, and the
-        helper can work on the sections after that.
+        Your script is hand-written. Use &ldquo;Turn this into steps&rdquo; under it, and the
+        helper can work on the steps after that.
       </p>
     );
   }

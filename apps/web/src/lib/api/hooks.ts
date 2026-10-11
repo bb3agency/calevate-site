@@ -340,9 +340,26 @@ export function useCall(
     queryFn: () => apiRequest<CallDetail>(session, `/v1/calls/${callId}`),
     // A call opened while it is live, or while its summary and English turns are still
     // being written, fills in as they land; once they have, there is nothing to poll for.
-    // Bounded by age, so a call whose summary was never written is not re-read forever.
-    refetchInterval: (q) => (callStillFillingIn(q.state.data) && recentCall(q.state.data) ? LIVE_INTERVAL_MS : false),
+    // The summary is bounded by age, so one that was never written is not re-read forever.
+    // English asked for later is not (`englishOnItsWay`): its `pending` always ends, as
+    // `workers/call_translation` settles it `failed` on give-up.
+    refetchInterval: (q) =>
+      englishOnItsWay(q.state.data) ||
+      (callStillFillingIn(q.state.data) && recentCall(q.state.data))
+        ? LIVE_INTERVAL_MS
+        : false,
   });
+}
+
+/**
+ * English asked for after the call was read: a "Try again" or the backfill. Only once the
+ * pipeline has read the call (`summary_state` past `pending`), so a call it never reached is
+ * still bounded by `recentCall`.
+ */
+function englishOnItsWay(call: CallDetail | undefined): boolean {
+  return (
+    call?.status === "completed" && call.summary_state !== "pending" && call.translation_state === "pending"
+  );
 }
 
 /** Half an hour after it started, a call that is still "filling in" is not going to. */

@@ -61,6 +61,7 @@ class _Turn:
     idx: int
     text: str
     start_ms: int | None
+    start_approximate: bool = False
 
 
 def _turns(*rows: tuple[int, str, str, int | None]) -> list[Any]:
@@ -190,28 +191,47 @@ def test_a_field_label_the_client_never_set_falls_back_readably() -> None:
 # --- 3. merging, and which half gives way ------------------------------------
 
 
-def _model(at_ms: int, label: str = "Caller raised a concern") -> dict[str, Any]:
+def _model(
+    at_ms: int,
+    label: str = "Caller raised a concern",
+    *,
+    kind: str = "complaint",
+    importance: int = 2,
+    field: str | None = None,
+) -> dict[str, Any]:
     return {
         "at_ms": at_ms,
-        "kind": "highlight",
+        "turn_idx": at_ms,
+        "kind": kind,
+        "category": "attention",
         "label": label,
         "label_redacted": label,
         "source": "model",
+        "precision": "exact",
+        "importance": importance,
+        "field": field,
     }
 
 
-def test_a_model_marker_on_top_of_a_derived_one_is_dropped() -> None:
-    """Two entries a second apart describing one moment read as two moments, and the
-    derived one already says the true thing."""
-    derived = derive_moments(turns=CALL, extraction={}, field_labels={}, opt_out_turn_idx=4)
-    merged = merge_moments(derived, [_model(34_500), _model(50_000)])
-    assert [m["at_ms"] for m in merged] == [34_000, 50_000]
+def test_a_model_marker_repeating_a_derived_one_is_dropped() -> None:
+    """The model suggesting the same captured field the derived pass already placed reads
+    as two moments; the derived one is on a proven turn."""
+    derived = derive_moments(
+        turns=CALL, extraction={"slot": "Tuesday at four"}, field_labels={"slot": "Slot"}
+    )
+    merged = merge_moments(
+        derived,
+        [
+            _model(15_000, "Slot captured", kind="field_captured", field="slot"),
+            _model(50_000),
+        ],
+    )
+    assert [(m["at_ms"], m["source"]) for m in merged] == [(8_000, "derived"), (50_000, "model")]
 
 
-def test_the_cap_falls_on_the_model_half_and_never_on_the_derived_one() -> None:
-    """THE PRIORITY THAT MATTERS. Dropping a provable anchor to make room for a suggested
-    one trades a timestamp that is certainly right for one that is probably right — the
-    wrong direction on a panel whose value is that you can trust where it sends you."""
+def test_the_cap_keeps_the_most_important_and_prefers_derived_on_a_tie() -> None:
+    """At equal importance a provable turn beats a suggested one; a more important
+    suggestion (a complaint the business must act on) still makes the list."""
     many = _turns(*[(i, "caller", f"marker number {i:02d}", i * 1_000) for i in range(20)])
     derived = derive_moments(
         turns=many,
@@ -220,9 +240,12 @@ def test_the_cap_falls_on_the_model_half_and_never_on_the_derived_one() -> None:
     )
     assert len(derived) == 20, "the fixture must exceed the cap or this proves nothing"
 
-    merged = merge_moments(derived, [_model(500_000)])
-    assert all(m["source"] == "derived" for m in merged), "a model marker displaced a provable one"
-    assert len(merged) == 20
+    merged = merge_moments(derived, [_model(500_000), _model(600_000, importance=3)])
+    assert len(merged) == MAX_MOMENTS
+    assert [m["at_ms"] for m in merged if m["source"] == "model"] == [600_000]
+    assert [m["at_ms"] for m in merged if m["source"] == "derived"] == [
+        i * 1_000 for i in range(MAX_MOMENTS - 1)
+    ]
 
 
 def test_model_markers_fill_only_the_room_the_cap_leaves() -> None:
@@ -241,7 +264,7 @@ def test_the_wire_label_follows_the_same_switch_as_the_transcript() -> None:
     stored = [
         {
             "at_ms": 21_000,
-            "kind": "highlight",
+            "kind": "complaint",
             "label": "Caller gave 9876543210 as the callback",
             "label_redacted": "Caller gave [phone] as the callback",
             "source": "model",
@@ -341,7 +364,7 @@ def test_a_model_moment_with_no_redacted_label_is_dropped_rather_than_leaked() -
     leaky = [
         {
             "at_ms": 5_000,
-            "kind": "highlight",
+            "kind": "complaint",
             "label": "Caller gave 9876543210",
             "source": "model",
         }
@@ -360,12 +383,17 @@ def test_the_module_and_the_wire_agree_on_the_closed_sets() -> None:
     from typing import get_args
 
     from apps.api.crm.schemas import CallMomentOut
-    from apps.workers.moments import MomentKind, MomentSource
+    from apps.workers.moments import MomentKind, MomentPrecision, MomentSource
+    from calevate_shared.extraction import MOMENT_KINDS, MomentCategory
 
-    wire_kinds = set(get_args(CallMomentOut.model_fields["kind"].annotation))
-    wire_sources = set(get_args(CallMomentOut.model_fields["source"].annotation))
-    assert set(get_args(MomentKind)) == wire_kinds
-    assert set(get_args(MomentSource)) == wire_sources
+    def wire(name: str) -> set[Any]:
+        return set(get_args(CallMomentOut.model_fields[name].annotation))
+
+    assert set(get_args(MomentKind)) == wire("kind") == set(MOMENT_KINDS)
+    assert set(get_args(MomentSource)) == wire("source")
+    assert set(get_args(MomentPrecision)) == wire("precision")
+    assert set(get_args(MomentCategory)) == wire("category")
+    assert {category for category, _ in MOMENT_KINDS.values()} == wire("category")
 
 
 def test_every_derived_marker_the_module_emits_survives_the_wire() -> None:

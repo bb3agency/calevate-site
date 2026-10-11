@@ -115,6 +115,11 @@ class Organization(PKMixin, TimestampMixin, Base):
             f"default_llm_model IS NULL OR default_llm_model IN {tuple(sorted(LLM_MODEL_NAMES))!r}",
             name="default_llm_model_allowed",
         ),
+        # An account has a chosen business type or an unconfirmed one, never both (D-722).
+        CheckConstraint(
+            "unconfirmed_business_type IS NULL OR vertical_template IS NULL",
+            name="business_type_chosen_or_unconfirmed",
+        ),
     )
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -257,6 +262,20 @@ class Organization(PKMixin, TimestampMixin, Base):
     #: months before it are still rendered from the retainer terms in effect then; the
     #: migration's downgrade reads it to put exactly these accounts back.
     moved_to_credits_at: Mapped[datetime | None]
+    #: THE BUSINESS TYPE THIS ACCOUNT WAS GIVEN WITHOUT ANYBODY CHOOSING IT (D-722,
+    #: migration d7a3c91e5b20). Until 11 Oct 2026 the operator wizard and signup pre-selected
+    #: `clinic`, and nothing recorded whether it was chosen, so every clinic account then was
+    #: moved here and its `vertical_template` cleared: the account runs on the neutral core
+    #: lead fields until an operator confirms a type (`admin/business_type.confirm`). Kept,
+    #: not dropped, because the caller-memory refusal still reads it (`caller_memory`):
+    #: an unconfirmed clinic is refused memory exactly as a confirmed one is.
+    unconfirmed_business_type: Mapped[str | None] = mapped_column(Text)
+    #: The AI's one suggestion for an unconfirmed account (`workers/business_type`), with a
+    #: short reason, shown beside the operator's "Confirm business type" prompt. A suggestion
+    #: changes nothing until an operator confirms it.
+    suggested_business_type: Mapped[str | None] = mapped_column(Text)
+    suggested_business_type_reason: Mapped[str | None] = mapped_column(Text)
+    business_type_suggested_at: Mapped[datetime | None]
 
 
 class ReservedSlug(Base):

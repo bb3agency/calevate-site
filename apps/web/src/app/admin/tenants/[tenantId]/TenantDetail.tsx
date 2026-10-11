@@ -8,6 +8,7 @@ import { noFill } from "@/lib/copilot/types";
 import { holdRule } from "@/lib/api/holds";
 
 import { AccountStateBanner } from "./AccountStateBanner";
+import { BusinessTypeBanner } from "./BusinessTypeBanner";
 import { HoldsBanner } from "./HoldsBanner";
 import { NoOwnerBanner } from "./NoOwnerBanner";
 import { accountFacts, useAccountReads } from "./accountFacts";
@@ -189,6 +190,10 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       <AccountStateBanner tenantId={tenantId} status={tenant.status} />
 
       <NoOwnerBanner tenantId={tenantId} slug={tenant.slug} />
+
+      {/* An account given a business type by default runs on neutral lead details until an
+          operator confirms one (D-722). */}
+      <BusinessTypeBanner tenantId={tenantId} />
 
       <HoldsBanner tenantId={tenantId} holds={tenant.holds} />
 

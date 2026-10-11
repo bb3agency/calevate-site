@@ -36,7 +36,7 @@ export function HandWritten({
 }) {
   const session = useClientSession();
   const convert = useConvertScript(session, agentId);
-  const write = useActAccess(session, "org:manage", "billing.ai_assist", "turn this into sections");
+  const write = useActAccess(session, "org:manage", "billing.ai_assist", "turn this into steps");
   const [proposal, setProposal] = useState<ConvertOut | null>(null);
   const [checked, setChecked] = useState(false);
   const text = script.raw_override ?? "";
@@ -87,10 +87,10 @@ export function HandWritten({
             }}
           >
             <Wand2 aria-hidden className="h-4 w-4" />
-            {convert.isPending ? "Reading your script…" : "Turn this into sections"}
+            {convert.isPending ? "Reading your script…" : "Turn this into steps"}
           </button>
           <p className="text-meta text-ink-muted">
-            The AI suggests sections from your text and shows you every one before anything is
+            The AI suggests steps from your text and shows you every one before anything is
             replaced. It uses your account&apos;s AI allowance.
           </p>
         </div>
@@ -114,16 +114,16 @@ export function HandWritten({
         >
           {proposal.disclosure && <p className="text-meta text-ink-muted">{proposal.disclosure}</p>}
           {proposal.unplaced.length === 0 ? (
-            <p className="text-meta text-ink">Every line of your script has a place in these sections.</p>
+            <p className="text-meta text-ink">Every line of your script has a place in these steps.</p>
           ) : (
-            <NoticeBox tone="warn" title={`${proposal.unplaced.length} ${proposal.unplaced.length === 1 ? "line does" : "lines do"} not appear in the sections`}>
+            <NoticeBox tone="warn" title={`${proposal.unplaced.length} ${proposal.unplaced.length === 1 ? "line does" : "lines do"} not appear in the steps`}>
               <ul className="mt-2 list-disc space-y-1 pl-5 text-meta">
                 {proposal.unplaced.map((line, i) => (
                   <li key={i}>{line}</li>
                 ))}
               </ul>
               <p className="mt-2 text-meta">
-                Add them to a section after you keep the changes, or discard and edit your text.
+                Add them to a step after you keep the changes, or discard and edit your text.
                 Your hand-written script stays in History once it has been live.
               </p>
               <label className="mt-2 flex items-start gap-2 text-meta">

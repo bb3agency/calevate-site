@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
 
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { ProblemNotice, Skeleton } from "@/components/ui";
@@ -26,7 +25,6 @@ export function LatestCalls({
   allHref: string;
   callHref: (id: string) => string;
 }) {
-  const columns = useMemo(() => callColumns({ callHref, compact: true }), [callHref]);
   return (
     <Section
       title="Latest calls"
@@ -61,7 +59,13 @@ export function LatestCalls({
       ) : (
         <DataTable
           rows={recent.data}
-          columns={columns}
+          // The cost column appears only when the server sent a cost, which it does only
+          // for a role that may see billing.
+          columns={callColumns({
+            callHref,
+            compact: true,
+            showCost: recent.data.some((call) => call.credits_used_inr !== null && call.credits_used_inr !== undefined),
+          })}
           getRowId={(call) => call.id}
           label="Latest calls"
         />

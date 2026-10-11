@@ -182,7 +182,7 @@ _SYSTEM_PROMPT: Final = (
     "caller, and you write down what the business should remember about THAT CALLER if "
     "they ring again in a few weeks.\n"
     "Write only these three kinds of thing:\n"
-    "1. What the caller wanted (e.g. 'asked about weekend appointment slots').\n"
+    "1. What the caller wanted (e.g. 'asked about weekend timings').\n"
     "2. What the outcome was (e.g. 'booked for Saturday morning').\n"
     "3. A preference they stated: the language they prefer, when they like to be called, "
     "or which staff member they usually deal with.\n"

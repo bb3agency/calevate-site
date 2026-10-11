@@ -8,10 +8,25 @@ list-call-log.md:533-540). This sweep reads that view and alarms when the two di
 more than the tolerance, which is how an attested rate that no longer matches the invoice
 (a plan change, a voice band repriced, a top-up fee) is seen within the hour.
 
-WHAT IT DOES NOT DO: write a correction. `usage_events` is append-only (hard rule 4) and its
-unique index on `(tenant_id, call_id, unit_type)` admits one `platform_min` row per call, so
-a compensating entry needs a unit type or a ledger of its own: a migration this change does
-not carry. Until it exists the variance is alarmed, never silently absorbed.
+WHAT IT CORRECTS, AND HOW. Until 11 Oct 2026 the meter costed a minute at the attested rate
+alone and left out the wallet top-up fee, so every ThinnestAI minute row written before then
+understates our cost by the fee (10% on pay-as-you-go). `usage_events` is append-only (hard
+rule 4), so `restate_minutes_without_fee` appends ONE compensating row per such call, the
+shape `billing/cost_unit.py` set for a cost-only correction: `unit_type = 'other'`,
+`qty = 1`, `unit_cost_paid` = the missing fee, `meta.kind` = `FEE_RESTATEMENT_META_KIND`,
+stamped at the original row's `occurred_at`, under `lock_tenant_credits`. It moves our cost
+only: the client is billed off minutes at its own rate and no reader of client money reads
+`unit_cost_paid`. The population is closed by construction (a minute row the meter writes now
+carries `meta.topup_fee`, so only rows from before the fix lack it), which is why it runs at
+the top of this sweep rather than as a script someone has to remember: the comparison below
+needs it done first, and once the backlog is restated each run finds nothing. A call's cost
+is its minute row plus its restatement (`_minute_cost_rows`), in both comparisons.
+
+ONE ALARM PER CALL. A mismatch the sweep has already alarmed on is not alarmed again while it
+persists (`_newly_mismatched` keeps the alarmed call ids in Redis for longer than the lookback
+window); a clean, complete sweep closes the episode with `resolve_alert` and forgets them.
+Without this the hourly cadence outran the alert path's hour-long quiet period and the same
+calls mailed every hour.
 
 ONE ASSUMPTION, MARKED: that the call log's `id` is the id our call row holds. The page says
 it is "the one `GET /calls/{id}` answers to" (list-call-log.md:456-459), and that endpoint
@@ -27,34 +42,40 @@ sweep's log, recorded the same way.
 
 WHAT IS COMPARED. `costMicro` is what the call cost the workspace and the wallet's top-up fee
 is paid on top of it, when the wallet is filled. So the cost of a call is the charge times one
-plus the fee, and that is what the attested per-minute rate must reproduce: an operator who
-attests the band's list price without the fee is told so by the variance alarm. The fee is the
-plan's, VENDOR-STATED in `billing/rates.py` (9% on Pro, which the Studio band needs; 10% on
-pay-as-you-go) and chosen by the band Clear is sold on (`thinnest_topup_fee`). On a Studio
+plus the fee, and that is what the meter reproduces: the operator attests the posted rate, the
+meter adds the fee (`billing/engine_minutes.topup_fee`, the one helper both sides use), so a
+variance means the posted rate itself is wrong. The fee is the plan's, VENDOR-STATED in
+`billing/rates.py` (9% on Pro, which the Studio band needs; 10% on pay-as-you-go) and chosen by
+the band Clear is sold on (`thinnest_topup_fee`). On a Studio
 call the charge is ThinnestAI's own minute only; Cartesia bills our key separately, and that
 cost is the call's `tts_kchars` row, which must exist.
 """
 
 from __future__ import annotations
 
+import json
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Final
+from typing import Any, Final, cast
 from uuid import UUID
 
 from sqlalchemy import text
 
-from apps.api.billing.engine_minutes import BYOK_VOICE_RATE_KEY
-from apps.api.billing.rates import (
-    MONEY_Q,
-    ROUNDING,
-    THINNEST_PAYG_TOPUP_FEE,
-    THINNEST_WALLET_TOPUP_FEE,
+from apps.api.billing.engine_minutes import (
+    BYOK_VOICE_RATE_KEY,
+    TOPUP_FEE_META_KEY,
+    cost_with_fee,
+    thinnest_topup_fee,
+    topup_fee,
 )
-from apps.api.core.alerting import alert
+from apps.api.billing.rates import MONEY_Q, ROUNDING
+from apps.api.billing.service import _ROW_COST_SQL, LEDGER_RUNG_KEY, lock_tenant_credits
+from apps.api.core.alerting import alert, resolve_alert
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
+from apps.api.core.redis import get_redis
+from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.charges import EngineCharge, ReportsCharges
@@ -78,14 +99,35 @@ CHARGE_TOLERANCE_SHARE: Final = Decimal("0.02")
 #: How many call ids an alarm names before it stops listing them.
 _ALERT_ID_LIMIT: Final = 5
 
+#: `meta.kind` of the compensating row that adds the top-up fee to a minute metered without it.
+FEE_RESTATEMENT_META_KIND: Final = "engine_topup_fee_restatement"
+
+#: How many minute rows one tenant's restatement takes per sweep; the rest wait an hour.
+_RESTATE_BATCH: Final = 500
+
+#: The call ids already alarmed as mismatched, kept past the lookback window so a call cannot
+#: fall out of the memory while the sweep still reads it.
+_ALARMED_KEY: Final = "engine_charges:mismatch_alarmed:{engine}"
+_ALARMED_TTL_S: Final = (CHARGE_LOOKBACK_DAYS + 2) * 86_400
+
 _ROUTE_SQL = text(
     "SELECT tenant_id FROM engine_agent_routes WHERE engine = :engine "
     "AND engine_agent_ref = :ref ORDER BY active DESC, updated_at DESC LIMIT 1"
 )
+
+
+def _minute_cost_rows(prefix: str = "") -> str:
+    """The rows a call's engine-minute cost is: its metered minute and any fee restatement."""
+    return (
+        f"({prefix}unit_type = 'platform_min' OR ({prefix}unit_type = 'other' "
+        f"AND {prefix}meta->>'kind' = '{FEE_RESTATEMENT_META_KIND}'))"
+    )
+
+
 _METERED_SQL = text(
     "SELECT c.id, sum(u.qty * u.unit_cost_paid), bool_or(u.unit_cost_paid IS NULL) "
     "FROM calls c JOIN usage_events u ON u.call_id = c.id AND u.tenant_id = c.tenant_id "
-    "AND u.unit_type = 'platform_min' WHERE c.engine_call_id = :ecid GROUP BY c.id"
+    f"AND {_minute_cost_rows('u.')} WHERE c.engine_call_id = :ecid GROUP BY c.id"
 )
 
 
@@ -103,20 +145,6 @@ def within_tolerance(metered: Decimal, charged: Decimal) -> bool:
     """Is our metered cost close enough to the vendor's charge to be the same figure?"""
     allowed = max(CHARGE_TOLERANCE_INR, abs(charged) * CHARGE_TOLERANCE_SHARE)
     return abs(metered - charged) <= allowed
-
-
-def thinnest_topup_fee(clear_band: str | None = None) -> Decimal:
-    """The wallet top-up fee of the plan this deployment's ThinnestAI workspace is on, as a
-    fraction. The Studio band is listed only on Pro and above, so a deployment selling Clear on
-    it is on Pro (9%); otherwise pay-as-you-go (10%) — the same reading the cost floors make
-    (`billing/rates.THINNEST_CLEAR_COST_FLOOR_BY_BAND`)."""
-    band = clear_band if clear_band is not None else get_settings().thinnest_clear_voice_band
-    return THINNEST_WALLET_TOPUP_FEE if band == "studio" else THINNEST_PAYG_TOPUP_FEE
-
-
-def cost_with_fee(charged: Decimal, *, fee: Decimal) -> Decimal:
-    """What a charge cost us once the top-up fee on the rupees that paid it is added."""
-    return (charged * (Decimal(1) + fee)).quantize(MONEY_Q, rounding=ROUNDING)
 
 
 def variance_sentence(metered: Decimal, expected: Decimal) -> str:
@@ -141,8 +169,8 @@ _SET_CHARGE_SQL = text(
 )
 _CALL_COSTS_SQL = text(
     "SELECT "
-    "sum(qty * unit_cost_paid) FILTER (WHERE unit_type = 'platform_min'), "
-    "bool_or(unit_cost_paid IS NULL) FILTER (WHERE unit_type = 'platform_min'), "
+    f"sum(qty * unit_cost_paid) FILTER (WHERE {_minute_cost_rows()}), "
+    f"bool_or(unit_cost_paid IS NULL) FILTER (WHERE {_minute_cost_rows()}), "
     "count(*) FILTER (WHERE unit_type = 'platform_min'), "
     "max(meta->>'engine_rate_key') FILTER (WHERE unit_type = 'platform_min'), "
     "count(*) FILTER (WHERE unit_type = 'tts_kchars'), "
@@ -161,7 +189,9 @@ async def record_engine_charge(tenant_id: UUID, call_id: UUID, charged_inr: Deci
     return row is not None
 
 
-async def reconcile_call_charge(tenant_id: UUID, call_id: UUID, charged_inr: Decimal) -> str:
+async def reconcile_call_charge(
+    tenant_id: UUID, call_id: UUID, charged_inr: Decimal, *, engine: str
+) -> str:
     """Record one settled call's charge and compare it with what we metered for it.
 
     Alarms, never corrects (hard rule 4): `engine_call_cost_variance` when the attested
@@ -193,7 +223,7 @@ async def reconcile_call_charge(tenant_id: UUID, call_id: UUID, charged_inr: Dec
     if unpriced or metered is None:
         # Metered with no attested rate: `engine_minute_rate_unattested` already alarmed.
         return "unpriced"
-    fee = thinnest_topup_fee()
+    fee = topup_fee(engine)
     expected = cost_with_fee(charged_inr, fee=fee)
     metered_inr = Decimal(str(metered)).quantize(MONEY_Q, rounding=ROUNDING)
     if within_tolerance(metered_inr, expected):
@@ -217,6 +247,150 @@ async def reconcile_call_charge(tenant_id: UUID, call_id: UUID, charged_inr: Dec
         tenant_id=str(tenant_id),
     )
     return "variance"
+
+
+# --- the fee restatement -------------------------------------------------------------------
+
+_ENGINE_TENANTS_SQL = text(
+    "SELECT DISTINCT tenant_id FROM engine_agent_routes WHERE engine = :engine ORDER BY tenant_id"
+)
+
+#: Priced minute rows of an attested-minute engine metered without the fee and not yet
+#: restated. Unqualified columns are the outer row's, which `_ROW_COST_SQL` relies on.
+_WITHOUT_FEE_SQL = text(
+    f"SELECT call_id, {_ROW_COST_SQL}, occurred_at, meta->>'engine_rate_key', "
+    f"meta->>'{LEDGER_RUNG_KEY}', meta->>'voice_tier' FROM usage_events u "
+    "WHERE unit_type = 'platform_min' AND call_id IS NOT NULL AND unit_cost_paid IS NOT NULL "
+    "AND meta->>'engine_rate_key' IS NOT NULL "
+    f"AND meta->>'{TOPUP_FEE_META_KEY}' IS NULL "
+    "AND NOT EXISTS (SELECT 1 FROM usage_events r WHERE r.tenant_id = u.tenant_id "
+    "AND r.call_id = u.call_id AND r.unit_type = 'other' AND r.meta->>'kind' = :kind) "
+    "ORDER BY call_id LIMIT :cap"
+)
+_RESTATED_SQL = text(
+    "SELECT 1 FROM usage_events WHERE tenant_id = :tid AND call_id = :cid "
+    "AND unit_type = 'other' AND meta->>'kind' = :kind LIMIT 1"
+)
+_INSERT_RESTATEMENT_SQL = text(
+    "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, unit_cost_paid, "
+    "occurred_at, meta, created_at) VALUES (:id, :tid, :cid, 'other', 1, :cost, :at, "
+    "CAST(:meta AS jsonb), now())"
+)
+
+
+def fee_delta(metered_inr: Decimal, *, fee: Decimal) -> Decimal:
+    """The top-up fee a minute metered at `metered_inr` without it is missing."""
+    return (metered_inr * fee).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+async def restate_tenant_minutes(tenant_id: UUID, *, fee: Decimal) -> list[tuple[UUID, Decimal]]:
+    """Append the missing fee for each of this tenant's minute rows metered without it.
+
+    Returns `(call_id, delta)` for each row written. Idempotent: the dedupe read runs with
+    `lock_tenant_credits` held, as `billing/cost_unit.record_cost_unit_correction` takes it,
+    so two sweeps write one row between them, and a restated call is never selected again.
+    """
+    written: list[tuple[UUID, Decimal]] = []
+    async with tenant_session(tenant_id) as session:
+        await lock_tenant_credits(session, tenant_id)
+        rows = (
+            await session.execute(
+                _WITHOUT_FEE_SQL, {"kind": FEE_RESTATEMENT_META_KIND, "cap": _RESTATE_BATCH}
+            )
+        ).all()
+        for call_id, metered, occurred_at, rate_key, rung, voice in rows:
+            metered_inr = Decimal(str(metered))
+            delta = fee_delta(metered_inr, fee=fee)
+            if delta == 0:
+                continue
+            already = (
+                await session.execute(
+                    _RESTATED_SQL,
+                    {"tid": tenant_id, "cid": call_id, "kind": FEE_RESTATEMENT_META_KIND},
+                )
+            ).first()
+            if already:
+                continue
+            meta = {
+                "kind": FEE_RESTATEMENT_META_KIND,
+                "correction_ref": f"topupfee:{call_id}",
+                "fee": str(fee),
+                "metered_inr": str(metered_inr),
+                # Not `engine_rate_key`: that key selects the rows this restates.
+                "corrected_engine_rate_key": rate_key,
+                # The rung and voice of the minute it corrects, so the cost lands beside them.
+                LEDGER_RUNG_KEY: rung,
+                "voice_tier": voice,
+                "issued_at": datetime.now(UTC).isoformat(),
+            }
+            await session.execute(
+                _INSERT_RESTATEMENT_SQL,
+                {
+                    "id": uuid7(),
+                    "tid": tenant_id,
+                    "cid": call_id,
+                    "cost": delta,
+                    "at": occurred_at,
+                    "meta": json.dumps(meta),
+                },
+            )
+            written.append((UUID(str(call_id)), delta))
+    return written
+
+
+async def restate_minutes_without_fee(engine: str) -> int:
+    """Restate every tenant's minutes on `engine` metered without the top-up fee. Returns
+    how many calls were restated. One tenant's failure is logged and does not stop the rest."""
+    fee = topup_fee(engine)
+    if fee == 0:
+        return 0
+    async with untenanted_session() as session:
+        tenants = [
+            UUID(str(row))
+            for row in (await session.execute(_ENGINE_TENANTS_SQL, {"engine": engine})).scalars()
+        ]
+    restated = 0
+    for tenant_id in tenants:
+        try:
+            written = await restate_tenant_minutes(tenant_id, fee=fee)
+        except Exception as exc:
+            log.warning(
+                "engine_fee_restatement_failed",
+                extra={"tenant_id": str(tenant_id), "reason": type(exc).__name__},
+            )
+            continue
+        if written:
+            log.info(
+                "engine_fee_restated",
+                extra={"tenant_id": str(tenant_id), "calls": len(written), "fee": str(fee)},
+            )
+        restated += len(written)
+    return restated
+
+
+async def _newly_mismatched(engine: str, call_ids: list[str]) -> list[str]:
+    """The mismatched calls not alarmed before, remembered from now on. Fails open: if Redis
+    cannot say, every call is new, so a mismatch is never silenced by an outage."""
+    key = _ALARMED_KEY.format(engine=engine)
+    try:
+        redis = get_redis()
+        fresh = [
+            call_id
+            for call_id in call_ids
+            if await cast("Awaitable[int]", redis.sadd(key, call_id))
+        ]
+        await redis.expire(key, _ALARMED_TTL_S)
+    except Exception as exc:
+        log.warning("engine_charge_memory_unavailable", extra={"reason": type(exc).__name__})
+        return list(call_ids)
+    return fresh
+
+
+async def _forget_mismatches(engine: str) -> None:
+    try:
+        await get_redis().delete(_ALARMED_KEY.format(engine=engine))
+    except Exception as exc:
+        log.warning("engine_charge_memory_unavailable", extra={"reason": type(exc).__name__})
 
 
 async def _tenant_of(engine: str, agent_ref: str | None) -> UUID | None:
@@ -251,7 +425,7 @@ async def _compare(engine: str, charge: EngineCharge, tally: _Tally) -> None:
         tally.unpriced += 1
         return
     metered = Decimal(str(row[1])).quantize(MONEY_Q, rounding=ROUNDING)
-    expected = cost_with_fee(charge.charged_inr, fee=thinnest_topup_fee())
+    expected = cost_with_fee(charge.charged_inr, fee=topup_fee(engine))
     if not within_tolerance(metered, expected):
         tally.mismatched.append((str(row[0]), metered, expected))
 
@@ -275,6 +449,7 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
         complete = complete and listing.complete
         other_currency += listing.other_currency
     complete = complete and walk.deferred == 0
+    restated = await restate_minutes_without_fee(engine.name)
     tally = _Tally()
     for charge in charges:
         try:
@@ -286,7 +461,12 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
                 extra={"engine_call_id": charge.engine_call_id, "reason": type(exc).__name__},
             )
             tally.unreached += 1
-    if tally.mismatched:
+    fresh = (
+        await _newly_mismatched(engine.name, [call_id for call_id, _m, _e in tally.mismatched])
+        if tally.mismatched
+        else []
+    )
+    if fresh:
         named = "; ".join(
             f"{call_id}: {variance_sentence(metered, expected)}"
             for call_id, metered, expected in tally.mismatched[:_ALERT_ID_LIMIT]
@@ -297,11 +477,21 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
             detail=(
                 f"engine={engine.name}: {len(tally.mismatched)} call(s) metered at a cost "
                 f"that differs from what the voice platform charged, with the "
-                f"{thinnest_topup_fee() * 100}% top-up fee added, by more than the "
-                f"tolerance, so the attested per-minute rate no longer matches the invoice. "
-                f"{named}"
+                f"{topup_fee(engine.name) * 100}% top-up fee added, by more than the "
+                f"tolerance, so the attested per-minute rate no longer matches the invoice "
+                f"({len(fresh)} not reported before). {named}"
             ),
+            episode=engine.name,
         )
+    elif tally.mismatched:
+        # Already alarmed: the open episode stands for it, and a mail an hour helps nobody.
+        log.warning(
+            "engine_charge_mismatch_persisting",
+            extra={"engine": engine.name, "calls": len(tally.mismatched)},
+        )
+    elif complete and not tally.unreached:
+        await _forget_mismatches(engine.name)
+        resolve_alert("WORKER_TERMINAL", "engine_charge_mismatch", episode=engine.name)
     if tally.compared and not tally.matched:
         alert(
             "WORKER_TERMINAL",
@@ -326,7 +516,8 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
     return (
         f"compared={tally.compared} matched={tally.matched} unmatched={tally.unmatched} "
         f"unpriced={tally.unpriced} mismatched={len(tally.mismatched)} "
-        f"unreached={tally.unreached} complete={complete} workspaces={walk.visited}"
+        f"unreached={tally.unreached} complete={complete} workspaces={walk.visited} "
+        f"restated={restated}"
     )
 
 
@@ -335,11 +526,16 @@ __all__ = [
     "CHARGE_SWEEP_MINUTES",
     "CHARGE_TOLERANCE_INR",
     "CHARGE_TOLERANCE_SHARE",
+    "FEE_RESTATEMENT_META_KIND",
     "cost_with_fee",
+    "fee_delta",
     "reconcile_call_charge",
     "reconcile_engine_charges",
     "record_engine_charge",
+    "restate_minutes_without_fee",
+    "restate_tenant_minutes",
     "thinnest_topup_fee",
+    "topup_fee",
     "variance_sentence",
     "within_tolerance",
 ]

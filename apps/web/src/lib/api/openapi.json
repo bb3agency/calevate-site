@@ -1443,6 +1443,17 @@
         "additionalProperties": false,
         "description": "The admin realm's own identity document.\n\n`MeOut` (tenancy/routes.py) minus everything that is a property of a TENANT. There\nis no `organization`, because an admin principal resolved without\n`X-Impersonate-Org` has no tenant at all; and no `impersonating`, because a console\nscreen that had to enter a client to ask who it was is precisely the shape this\nroute removes. What is left \u2014 the role and the permission set \u2014 is the whole of what\nthe console legitimately needs to preview its own gates.",
         "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
           "permissions": {
             "items": {
               "type": "string"
@@ -3842,6 +3853,53 @@
         "title": "Body_create_clone_v1_ops_voices_clones_post",
         "type": "object"
       },
+      "Body_record_hosted_clone_consent_v1_ops_voices_hosted_clone_consent_post": {
+        "properties": {
+          "consented_on": {
+            "format": "date",
+            "title": "Consented On",
+            "type": "string"
+          },
+          "document": {
+            "anyOf": [
+              {
+                "contentMediaType": "application/octet-stream",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document"
+          },
+          "speaker_name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Speaker Name",
+            "type": "string"
+          },
+          "statement": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Statement",
+            "type": "string"
+          },
+          "voice_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice_id",
+          "speaker_name",
+          "statement",
+          "consented_on"
+        ],
+        "title": "Body_record_hosted_clone_consent_v1_ops_voices_hosted_clone_consent_post",
+        "type": "object"
+      },
       "Body_submit_v1_compliance_carrier_application_post": {
         "properties": {
           "document": {
@@ -4598,6 +4656,83 @@
         "title": "BusinessProfileOut",
         "type": "object"
       },
+      "BusinessTypeChoiceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ],
+        "title": "BusinessTypeChoiceOut",
+        "type": "object"
+      },
+      "BusinessTypeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "business_type_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type Label"
+          },
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/BusinessTypeChoiceOut"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "unconfirmed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UnconfirmedOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "tenant_id",
+          "business_type",
+          "business_type_label",
+          "unconfirmed",
+          "choices"
+        ],
+        "title": "BusinessTypeOut",
+        "type": "object"
+      },
       "BuyNumberIn": {
         "additionalProperties": false,
         "description": "The exact number to buy, and the quote the operator accepted for it.\n\n`monthly_price_usd` IS ECHOED BACK FROM THE SEARCH RESULT rather than re-fetched, and\nthat is what makes the recurring cost real: the purchase response carries a one-off\nprice and a renewal boolean and no recurring figure at all\n(`bolna-findings/mirror/pages/api-reference/phone-numbers/buy.md:78-135`). It is the\noperator's acceptance of a quoted price, which is also what an audit row should say.",
@@ -5071,6 +5206,24 @@
             "title": "Captured",
             "type": "array"
           },
+          "captured_preview": {
+            "items": {
+              "$ref": "#/components/schemas/CapturedChipOut"
+            },
+            "title": "Captured Preview",
+            "type": "array"
+          },
+          "credits_used_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits Used Inr"
+          },
           "direction": {
             "enum": [
               "inbound",
@@ -5148,6 +5301,10 @@
           "id": {
             "format": "uuid",
             "title": "Id",
+            "type": "string"
+          },
+          "language": {
+            "title": "Language",
             "type": "string"
           },
           "lead_id": {
@@ -5327,7 +5484,8 @@
           "test_call",
           "moments",
           "captured",
-          "translation_state"
+          "translation_state",
+          "language"
         ],
         "title": "CallDetailOut",
         "type": "object"
@@ -5413,23 +5571,55 @@
       },
       "CallMomentOut": {
         "additionalProperties": false,
-        "description": "One jump-to point in a call's recording.\n\n`label` follows the SAME redaction switch as the transcript on the model it hangs\noff: `get_call(raw=False)` fills it from the redacted text and `raw=True` from the\nraw, so a marker can never be the one field on this screen that leaks (hard rule 5).\nThere is no second `label_raw` on the wire \u2014 one field whose contents depend on the\nendpoint you called is the shape the transcript already established, and a second\nfield would be a second thing to forget to gate.\n\n`source` is what a reader needs to know how much to trust `at_ms`. A `derived` marker\nwas computed from the transcript's own turn offsets and cannot be at the wrong second;\na `model` one is a suggestion from an unmeasured model (D-36) and the screen says so.",
+        "description": "One jump-to point in a call's recording.\n\n`label` follows the SAME redaction switch as the transcript on the model it hangs\noff: `get_call(raw=False)` fills it from the redacted text and `raw=True` from the\nraw, so a marker can never be the one field on this screen that leaks (hard rule 5).\nThere is no second `label_raw` on the wire \u2014 one field whose contents depend on the\nendpoint you called is the shape the transcript already established, and a second\nfield would be a second thing to forget to gate.\n\n`source` says how much to trust the TURN: a `derived` marker was found by matching a\ncaptured value or the opt-out detector, a `model` one is a suggestion from an unscored\nmodel (D-36) and the screen says \"Suggested\". `precision` says how much to trust the\nTIME: `approximate` when the turn's time is the voice platform's rough position\n(ENGINE=thinnest), shown as \"~0:21\" and played from a couple of seconds earlier.",
         "properties": {
           "at_ms": {
             "title": "At Ms",
             "type": "integer"
           },
+          "category": {
+            "enum": [
+              "details",
+              "attention",
+              "buying"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "importance": {
+            "maximum": 3.0,
+            "minimum": 1.0,
+            "title": "Importance",
+            "type": "integer"
+          },
           "kind": {
             "enum": [
               "field_captured",
+              "booking_agreed",
+              "callback_agreed",
+              "price_quoted",
+              "asked_for_person",
+              "could_not_answer",
+              "complaint",
+              "frustrated",
               "opt_out",
-              "highlight"
+              "strong_interest",
+              "asked_delivery_or_payment",
+              "will_buy_or_visit"
             ],
             "title": "Kind",
             "type": "string"
           },
           "label": {
             "title": "Label",
+            "type": "string"
+          },
+          "precision": {
+            "enum": [
+              "exact",
+              "approximate"
+            ],
+            "title": "Precision",
             "type": "string"
           },
           "source": {
@@ -5439,13 +5629,28 @@
             ],
             "title": "Source",
             "type": "string"
+          },
+          "turn_idx": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Idx"
           }
         },
         "required": [
           "at_ms",
+          "turn_idx",
           "kind",
+          "category",
           "label",
-          "source"
+          "source",
+          "precision",
+          "importance"
         ],
         "title": "CallMomentOut",
         "type": "object"
@@ -5726,6 +5931,24 @@
             ],
             "title": "Caller E164"
           },
+          "captured_preview": {
+            "items": {
+              "$ref": "#/components/schemas/CapturedChipOut"
+            },
+            "title": "Captured Preview",
+            "type": "array"
+          },
+          "credits_used_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits Used Inr"
+          },
           "direction": {
             "enum": [
               "inbound",
@@ -5865,6 +6088,28 @@
           "test_call"
         ],
         "title": "CallSummaryOut",
+        "type": "object"
+      },
+      "CallTranslationOut": {
+        "additionalProperties": false,
+        "description": "Where a call's English stands after a \"Try again\".",
+        "properties": {
+          "translation_state": {
+            "enum": [
+              "pending",
+              "ready",
+              "failed",
+              "not_needed",
+              "unavailable"
+            ],
+            "title": "Translation State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "translation_state"
+        ],
+        "title": "CallTranslationOut",
         "type": "object"
       },
       "CallbackEligibilityOut": {
@@ -6370,6 +6615,26 @@
           "capped"
         ],
         "title": "CapsOut",
+        "type": "object"
+      },
+      "CapturedChipOut": {
+        "additionalProperties": false,
+        "description": "One captured detail, shortened for a call row (`crm/service.captured_previews`).",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "CapturedChipOut",
         "type": "object"
       },
       "CapturedFieldOut": {
@@ -7697,6 +7962,65 @@
         "title": "ClientMaintenanceOut",
         "type": "object"
       },
+      "CloneConsentOut": {
+        "additionalProperties": false,
+        "description": "The speaker's recorded consent to a cloned voice being offered (D-721).",
+        "properties": {
+          "consented_on": {
+            "format": "date",
+            "title": "Consented On",
+            "type": "string"
+          },
+          "has_document": {
+            "title": "Has Document",
+            "type": "boolean"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by": {
+            "title": "Recorded By",
+            "type": "string"
+          },
+          "recorded_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By Name"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "speaker_name": {
+            "title": "Speaker Name",
+            "type": "string"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "speaker_name",
+          "statement",
+          "consented_on",
+          "scope",
+          "recorded_by",
+          "recorded_by_name",
+          "recorded_at",
+          "has_document"
+        ],
+        "title": "CloneConsentOut",
+        "type": "object"
+      },
       "CloneOut": {
         "additionalProperties": false,
         "properties": {
@@ -8838,6 +9162,18 @@
             "title": "Key",
             "type": "string"
           },
+          "live_apply_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Apply Run Id"
+          },
           "previous": {
             "anyOf": [
               {
@@ -8872,6 +9208,30 @@
           "etag"
         ],
         "title": "ConfigWriteOut",
+        "type": "object"
+      },
+      "ConfirmBusinessTypeIn": {
+        "additionalProperties": false,
+        "properties": {
+          "business_type": {
+            "enum": [
+              "retail",
+              "local_services",
+              "automobile",
+              "clinic",
+              "real_estate",
+              "insurance",
+              "education",
+              "custom"
+            ],
+            "title": "Business Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "business_type"
+        ],
+        "title": "ConfirmBusinessTypeIn",
         "type": "object"
       },
       "ConnectOut": {
@@ -10708,7 +11068,6 @@
             "title": "Slug"
           },
           "vertical_template": {
-            "default": "custom",
             "enum": [
               "retail",
               "local_services",
@@ -10725,6 +11084,7 @@
         },
         "required": [
           "name",
+          "vertical_template",
           "owner"
         ],
         "title": "CreateOrgIn",
@@ -13581,6 +13941,17 @@
             ],
             "title": "Inr Per Min"
           },
+          "inr_per_min_with_fee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inr Per Min With Fee"
+          },
           "rate_key": {
             "title": "Rate Key",
             "type": "string"
@@ -13606,12 +13977,30 @@
               }
             ],
             "title": "Source Note"
+          },
+          "topup_fee_percent": {
+            "title": "Topup Fee Percent",
+            "type": "string"
+          },
+          "topup_fee_plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topup Fee Plan"
           }
         },
         "required": [
           "engine",
           "rate_key",
           "inr_per_min",
+          "topup_fee_percent",
+          "topup_fee_plan",
+          "inr_per_min_with_fee",
           "effective_from",
           "attested_at",
           "source_note",
@@ -13634,10 +14023,18 @@
             },
             "title": "Prices",
             "type": "array"
+          },
+          "topup_fees": {
+            "items": {
+              "$ref": "#/components/schemas/TopUpFeeOut"
+            },
+            "title": "Topup Fees",
+            "type": "array"
           }
         },
         "required": [
           "prices",
+          "topup_fees",
           "as_of"
         ],
         "title": "EngineMinutePricesOut",
@@ -13853,6 +14250,20 @@
             "format": "uuid",
             "title": "Agent Id",
             "type": "string"
+          },
+          "answers_also_on": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answers Also On"
           },
           "checked": {
             "title": "Checked",
@@ -16913,6 +17324,62 @@
         "title": "HolderOut",
         "type": "object"
       },
+      "HostedVoiceAgentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "tenant_name": {
+            "title": "Tenant Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "tenant_name",
+          "agent_id",
+          "agent_name",
+          "status"
+        ],
+        "title": "HostedVoiceAgentOut",
+        "type": "object"
+      },
+      "HostedVoiceAgentsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/HostedVoiceAgentOut"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "voice_id": {
+            "title": "Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice_id",
+          "agents"
+        ],
+        "title": "HostedVoiceAgentsOut",
+        "type": "object"
+      },
       "HostedVoiceOut": {
         "additionalProperties": false,
         "description": "One hosted voice as the operator's table shows it.",
@@ -16927,6 +17394,17 @@
               }
             ],
             "title": "Accent"
+          },
+          "accent_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accent Label"
           },
           "added": {
             "title": "Added",
@@ -16947,6 +17425,27 @@
               }
             ],
             "title": "Band"
+          },
+          "clone_blocker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clone Blocker"
+          },
+          "clone_consent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CloneConsentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "curated_at": {
             "anyOf": [
@@ -16975,6 +17474,28 @@
             ],
             "title": "Description"
           },
+          "display_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Label"
+          },
+          "gender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender"
+          },
           "is_custom": {
             "title": "Is Custom",
             "type": "boolean"
@@ -16986,6 +17507,13 @@
           "language_note": {
             "title": "Language Note",
             "type": "string"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Languages",
+            "type": "array"
           },
           "live_agents": {
             "title": "Live Agents",
@@ -17004,6 +17532,10 @@
           },
           "offered": {
             "title": "Offered",
+            "type": "boolean"
+          },
+          "person_clone": {
+            "title": "Person Clone",
             "type": "boolean"
           },
           "preview_available": {
@@ -17066,6 +17598,14 @@
             "title": "Synced At",
             "type": "string"
           },
+          "vendor_id": {
+            "title": "Vendor Id",
+            "type": "string"
+          },
+          "vendor_label": {
+            "title": "Vendor Label",
+            "type": "string"
+          },
           "voice_id": {
             "title": "Voice Id",
             "type": "string"
@@ -17104,7 +17644,16 @@
           "preview_available",
           "preview_source",
           "deletable_clone",
-          "live_agents"
+          "live_agents",
+          "vendor_id",
+          "vendor_label",
+          "display_label",
+          "accent_label",
+          "gender",
+          "languages",
+          "person_clone",
+          "clone_consent",
+          "clone_blocker"
         ],
         "title": "HostedVoiceOut",
         "type": "object"
@@ -17266,6 +17815,97 @@
           "expires_at"
         ],
         "title": "ImpersonationGrantOut",
+        "type": "object"
+      },
+      "ImproveIn": {
+        "additionalProperties": false,
+        "properties": {
+          "keys": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 30,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keys"
+          }
+        },
+        "title": "ImproveIn",
+        "type": "object"
+      },
+      "ImprovementOut": {
+        "additionalProperties": false,
+        "description": "The \"Improve my agent\" proposal, reviewed change by change, never applied by itself.",
+        "properties": {
+          "base": {
+            "enum": [
+              "draft",
+              "live"
+            ],
+            "title": "Base",
+            "type": "string"
+          },
+          "base_script": {
+            "$ref": "#/components/schemas/CallScript"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/ProposedChangeOut"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "disclosure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclosure"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/ProposedFactOut"
+            },
+            "title": "Facts",
+            "type": "array"
+          },
+          "for_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "For Keys",
+            "type": "array"
+          },
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          }
+        },
+        "required": [
+          "script",
+          "base_script",
+          "base",
+          "changes",
+          "facts",
+          "for_keys",
+          "disclosure",
+          "created_at"
+        ],
+        "title": "ImprovementOut",
         "type": "object"
       },
       "InFlightOut": {
@@ -20957,6 +21597,13 @@
             "title": "Id",
             "type": "string"
           },
+          "moments": {
+            "items": {
+              "$ref": "#/components/schemas/CallMomentOut"
+            },
+            "title": "Moments",
+            "type": "array"
+          },
           "occurred_at": {
             "format": "date-time",
             "title": "Occurred At",
@@ -20976,7 +21623,8 @@
           "type",
           "occurred_at",
           "actor_kind",
-          "title"
+          "title",
+          "moments"
         ],
         "title": "LeadTimelineEventOut",
         "type": "object"
@@ -21526,6 +22174,198 @@
           "url"
         ],
         "title": "LinkIn",
+        "type": "object"
+      },
+      "LiveApplyFailureOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "agent_id",
+          "agent_name",
+          "code"
+        ],
+        "title": "LiveApplyFailureOut",
+        "type": "object"
+      },
+      "LiveApplyRunOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "applied": {
+            "title": "Applied",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "failures": {
+            "items": {
+              "$ref": "#/components/schemas/LiveApplyFailureOut"
+            },
+            "title": "Failures",
+            "type": "array"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "retrying": {
+            "title": "Retrying",
+            "type": "integer"
+          },
+          "scope": {
+            "enum": [
+              "platform",
+              "tenant",
+              "agent"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "done",
+              "superseded"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded By"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "tenant_id",
+          "agent_id",
+          "reasons",
+          "status",
+          "total",
+          "applied",
+          "failed",
+          "retrying",
+          "failures",
+          "created_at",
+          "finished_at",
+          "superseded_by"
+        ],
+        "title": "LiveApplyRunOut",
+        "type": "object"
+      },
+      "LiveApplyRunsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/LiveApplyRunOut"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs"
+        ],
+        "title": "LiveApplyRunsOut",
         "type": "object"
       },
       "LlmDefaultIn": {
@@ -26321,6 +27161,94 @@
         "title": "ProposalsOut",
         "type": "object"
       },
+      "ProposedChangeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "because": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Because"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "because",
+          "why"
+        ],
+        "title": "ProposedChangeOut",
+        "type": "object"
+      },
+      "ProposedFactOut": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "add",
+              "fix"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "because": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Because"
+          },
+          "fact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fact Id"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "fact_id",
+          "question",
+          "answer",
+          "because",
+          "why"
+        ],
+        "title": "ProposedFactOut",
+        "type": "object"
+      },
       "ProvisionNumberIn": {
         "additionalProperties": false,
         "properties": {
@@ -27884,6 +28812,31 @@
         "title": "RecordedEngineNumberOut",
         "type": "object"
       },
+      "RecordingDownloadOut": {
+        "additionalProperties": false,
+        "description": "A short-lived link that SAVES the recording rather than playing it.\n\nSigned with `Content-Disposition: attachment` and `filename`, so the browser downloads\nit under a name that carries the business and the IST time of the call and never the\ncaller's number. `filename` is repeated here so the screen can say what it saved.",
+        "properties": {
+          "expires_in_s": {
+            "title": "Expires In S",
+            "type": "integer"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "filename",
+          "expires_in_s"
+        ],
+        "title": "RecordingDownloadOut",
+        "type": "object"
+      },
       "RecordingLinkOut": {
         "additionalProperties": false,
         "description": "A short-lived link to OUR copy of a call's audio, and what the player needs to\nrender before a single byte of it has arrived.\n\n`duration_s` is the CALL's metered length, which is what the seek bar is drawn from\non first paint \u2014 `<audio>` reports `duration` as `NaN` until enough of the file has\nbeen fetched to know, and a scrubber that appears a second after the play button is\na scrubber people click through. It is nullable because a call the poller never\nresolved has no metered length, and inventing one would put a wrong end on the bar.\n\n`expires_in_s` is DERIVED from that duration (`recording_link_ttl_s`), not a\nconstant: a link shorter than its own audio expires mid-playback and the browser\nreports it as an unexplained network error.",
@@ -28442,6 +29395,55 @@
         "title": "ResendInviteOut",
         "type": "object"
       },
+      "ResentInvitationOut": {
+        "additionalProperties": false,
+        "description": "What a resend did. The token is not here, for `invite_member`'s reason (D-198).",
+        "properties": {
+          "delivery": {
+            "const": "queued",
+            "title": "Delivery",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_sent_at": {
+            "format": "date-time",
+            "title": "Last Sent At",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "send_count": {
+            "title": "Send Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "expires_at",
+          "last_sent_at",
+          "send_count",
+          "delivery"
+        ],
+        "title": "ResentInvitationOut",
+        "type": "object"
+      },
       "ResetConfirmIn": {
         "additionalProperties": false,
         "properties": {
@@ -28869,6 +29871,30 @@
           "created_at"
         ],
         "title": "RuleOut",
+        "type": "object"
+      },
+      "RunTestsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "auto_improve": {
+            "default": false,
+            "title": "Auto Improve",
+            "type": "boolean"
+          },
+          "retest_of": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retest Of"
+          }
+        },
+        "title": "RunTestsIn",
         "type": "object"
       },
       "RunwayOut": {
@@ -30173,6 +31199,34 @@
         "title": "SetCurationOut",
         "type": "object"
       },
+      "SetDisplayLabelIn": {
+        "additionalProperties": false,
+        "properties": {
+          "display_label": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Label"
+          },
+          "voice_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice_id"
+        ],
+        "title": "SetDisplayLabelIn",
+        "type": "object"
+      },
       "SetHostedCurationIn": {
         "additionalProperties": false,
         "properties": {
@@ -30197,6 +31251,27 @@
           "state"
         ],
         "title": "SetHostedCurationIn",
+        "type": "object"
+      },
+      "SetPersonCloneIn": {
+        "additionalProperties": false,
+        "properties": {
+          "person_clone": {
+            "title": "Person Clone",
+            "type": "boolean"
+          },
+          "voice_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice_id",
+          "person_clone"
+        ],
+        "title": "SetPersonCloneIn",
         "type": "object"
       },
       "SetVoiceIn": {
@@ -30479,14 +31554,14 @@
             "title": "Slug"
           },
           "vertical_template": {
-            "default": "custom",
             "maxLength": 40,
             "title": "Vertical Template",
             "type": "string"
           }
         },
         "required": [
-          "business_name"
+          "business_name",
+          "vertical_template"
         ],
         "title": "SignupIn",
         "type": "object"
@@ -34430,7 +35505,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/TestTurnOut"
+                  "$ref": "#/components/schemas/apps__api__teach__routes__TestTurnOut"
                 },
                 "type": "array"
               },
@@ -34543,7 +35618,7 @@
       },
       "TestConversationsOut": {
         "additionalProperties": false,
-        "description": "Pre-launch test conversations (founder decision 11): advised, never required.",
+        "description": "Test conversations that improve the agent (D-724): advised, never required.",
         "properties": {
           "available": {
             "title": "Available",
@@ -34552,6 +35627,13 @@
           "cost_note": {
             "title": "Cost Note",
             "type": "string"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/TestHistoryOut"
+            },
+            "title": "History",
+            "type": "array"
           },
           "latest": {
             "anyOf": [
@@ -34579,15 +35661,83 @@
           "available",
           "unavailable_reason",
           "cost_note",
-          "latest"
+          "latest",
+          "history"
         ],
         "title": "TestConversationsOut",
+        "type": "object"
+      },
+      "TestHistoryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          },
+          "score": {
+            "$ref": "#/components/schemas/TestScoreOut"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "prompt_version",
+          "round",
+          "score"
+        ],
+        "title": "TestHistoryOut",
         "type": "object"
       },
       "TestResultOut": {
         "additionalProperties": false,
         "properties": {
-          "advice": {
+          "before": {
+            "anyOf": [
+              {
+                "enum": [
+                  "passed",
+                  "needs_fix",
+                  "failed",
+                  "unjudged"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "expect": {
+            "title": "Expect",
+            "type": "string"
+          },
+          "fix": {
             "anyOf": [
               {
                 "type": "string"
@@ -34596,30 +35746,66 @@
                 "type": "null"
               }
             ],
-            "title": "Advice"
+            "title": "Fix"
+          },
+          "formal_words": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Formal Words",
+            "type": "array"
           },
           "key": {
             "title": "Key",
             "type": "string"
           },
-          "reply": {
-            "title": "Reply",
+          "probe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probe"
+          },
+          "reason": {
+            "title": "Reason",
             "type": "string"
           },
-          "said": {
-            "title": "Said",
+          "source": {
+            "title": "Source",
             "type": "string"
+          },
+          "step_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Id"
           },
           "title": {
             "title": "Title",
             "type": "string"
           },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/apps__api__agents__script_routes__TestTurnOut"
+            },
+            "title": "Turns",
+            "type": "array"
+          },
           "verdict": {
             "enum": [
               "passed",
-              "attention",
+              "needs_fix",
               "failed",
-              "read"
+              "unjudged"
             ],
             "title": "Verdict",
             "type": "string"
@@ -34628,10 +35814,17 @@
         "required": [
           "key",
           "title",
-          "said",
-          "reply",
+          "category",
+          "probe",
+          "source",
+          "turns",
+          "expect",
           "verdict",
-          "advice"
+          "reason",
+          "fix",
+          "step_id",
+          "formal_words",
+          "before"
         ],
         "title": "TestResultOut",
         "type": "object"
@@ -34639,6 +35832,10 @@
       "TestRunOut": {
         "additionalProperties": false,
         "properties": {
+          "auto_improve": {
+            "title": "Auto Improve",
+            "type": "boolean"
+          },
           "completed_at": {
             "anyOf": [
               {
@@ -34656,9 +35853,35 @@
             "title": "Created At",
             "type": "string"
           },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "improvement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImprovementOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "is_current": {
             "title": "Is Current",
             "type": "boolean"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
           },
           "prompt_version": {
             "anyOf": [
@@ -34678,6 +35901,25 @@
             "title": "Results",
             "type": "array"
           },
+          "retest_of": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retest Of"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          },
+          "score": {
+            "$ref": "#/components/schemas/TestScoreOut"
+          },
           "status": {
             "enum": [
               "queued",
@@ -34690,43 +35932,45 @@
           }
         },
         "required": [
+          "id",
           "status",
           "prompt_version",
           "is_current",
+          "round",
+          "retest_of",
+          "auto_improve",
+          "score",
           "results",
+          "improvement",
+          "note",
           "created_at",
           "completed_at"
         ],
         "title": "TestRunOut",
         "type": "object"
       },
-      "TestTurnOut": {
+      "TestScoreOut": {
         "additionalProperties": false,
         "properties": {
-          "cut_short": {
-            "default": false,
-            "title": "Cut Short",
-            "type": "boolean"
+          "judged": {
+            "title": "Judged",
+            "type": "integer"
           },
-          "looked_up_knowledge": {
-            "default": false,
-            "title": "Looked Up Knowledge",
-            "type": "boolean"
+          "passed": {
+            "title": "Passed",
+            "type": "integer"
           },
-          "reply": {
-            "title": "Reply",
-            "type": "string"
-          },
-          "said": {
-            "title": "Said",
-            "type": "string"
+          "total": {
+            "title": "Total",
+            "type": "integer"
           }
         },
         "required": [
-          "said",
-          "reply"
+          "passed",
+          "judged",
+          "total"
         ],
-        "title": "TestTurnOut",
+        "title": "TestScoreOut",
         "type": "object"
       },
       "TestWebhookIn": {
@@ -35241,6 +36485,25 @@
         "title": "TopUpCapabilityOut",
         "type": "object"
       },
+      "TopUpFeeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "percent": {
+            "title": "Percent",
+            "type": "string"
+          },
+          "plan": {
+            "title": "Plan",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan",
+          "percent"
+        ],
+        "title": "TopUpFeeOut",
+        "type": "object"
+      },
       "TopUpIn": {
         "additionalProperties": false,
         "properties": {
@@ -35510,6 +36773,11 @@
             ],
             "title": "Speaker",
             "type": "string"
+          },
+          "start_approximate": {
+            "default": false,
+            "title": "Start Approximate",
+            "type": "boolean"
           },
           "start_ms": {
             "anyOf": [
@@ -36871,6 +38139,74 @@
           "cost_inr"
         ],
         "title": "UnattributedSpendOut",
+        "type": "object"
+      },
+      "UnconfirmedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "given": {
+            "title": "Given",
+            "type": "string"
+          },
+          "given_label": {
+            "title": "Given Label",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "suggested": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested"
+          },
+          "suggested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested At"
+          },
+          "suggested_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Label"
+          }
+        },
+        "required": [
+          "given",
+          "given_label",
+          "suggested",
+          "suggested_label",
+          "reason",
+          "suggested_at"
+        ],
+        "title": "UnconfirmedOut",
         "type": "object"
       },
       "UndoOut": {
@@ -38859,6 +40195,25 @@
         "title": "PublishOut",
         "type": "object"
       },
+      "apps__api__agents__script_routes__TestTurnOut": {
+        "additionalProperties": false,
+        "properties": {
+          "reply": {
+            "title": "Reply",
+            "type": "string"
+          },
+          "said": {
+            "title": "Said",
+            "type": "string"
+          }
+        },
+        "required": [
+          "said",
+          "reply"
+        ],
+        "title": "TestTurnOut",
+        "type": "object"
+      },
       "apps__api__compliance__kyc_routes__KycRecordOut": {
         "additionalProperties": false,
         "description": "This account's identity verification, as ops last recorded it.\n\nEvery field except `recorded`, `is_verified` and `number_purchase_available` is\nnullable, because all of them are genuinely absent before anything is filed.\n`is_verified` is computed server-side for the same reason `PeRegistrationOut`'s\n`is_active` is: \"is `in_review` good enough\" is a question the console must not\nanswer for itself, and this response and the dispatch gate must never disagree.",
@@ -39159,6 +40514,35 @@
           "documents"
         ],
         "title": "KycRecordOut",
+        "type": "object"
+      },
+      "apps__api__teach__routes__TestTurnOut": {
+        "additionalProperties": false,
+        "properties": {
+          "cut_short": {
+            "default": false,
+            "title": "Cut Short",
+            "type": "boolean"
+          },
+          "looked_up_knowledge": {
+            "default": false,
+            "title": "Looked Up Knowledge",
+            "type": "boolean"
+          },
+          "reply": {
+            "title": "Reply",
+            "type": "string"
+          },
+          "said": {
+            "title": "Said",
+            "type": "string"
+          }
+        },
+        "required": [
+          "said",
+          "reply"
+        ],
+        "title": "TestTurnOut",
         "type": "object"
       }
     }
@@ -43123,6 +44507,97 @@
           "admin"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/business-type": {
+      "get": {
+        "operationId": "read_business_type_v1_admin_tenants__tenant_id__business_type_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessTypeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The client's business type, or the one it was given by default",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/business-type/confirm": {
+      "post": {
+        "description": "Sets the business type as a person's choice. The client's agents that have no lead details of their own get this type's details; every agent's script is recompiled to ask for them, and live agents are updated from their next call. Details a client chose are kept.",
+        "operationId": "confirm_business_type_v1_admin_tenants__tenant_id__business_type_confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmBusinessTypeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessTypeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Confirm the client's business type",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
       }
     },
     "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
@@ -48480,7 +49955,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The agent's latest pre-launch test conversations",
+        "summary": "The agent's latest test conversations and its score over time",
         "tags": [
           "agents"
         ],
@@ -48500,6 +49975,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RunTestsIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -48518,7 +50010,75 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Run the pre-launch test conversations against the agent",
+        "summary": "Run test conversations against the agent callers hear now",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/tests/{run_id}/improve": {
+      "post": {
+        "description": "SUBJECT \u2192 GATE \u2192 RUN \u2192 METER, as the script helper. It proposes and never writes the\nscript: the owner keeps changes one by one in the builder's review.",
+        "operationId": "improve_from_tests_v1_agents__agent_id__script_tests__run_id__improve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ImproveIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImprovementOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Improve my agent: propose script and fact changes from a run's failures",
         "tags": [
           "agents"
         ],
@@ -48577,6 +50137,18 @@
               "format": "uuid",
               "title": "Agent Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
             }
           }
         ],
@@ -51818,6 +53390,46 @@
         "x-calevate-permission": "calls:read_raw"
       }
     },
+    "/v1/calls/{call_id}/recording/download": {
+      "get": {
+        "operationId": "download_recording_v1_calls__call_id__recording_download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingDownloadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Short-lived link that SAVES the recording \u2014 owner-only, audited apart from play",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "calls:read_raw"
+      }
+    },
     "/v1/calls/{call_id}/speaking": {
       "get": {
         "description": "Each frame is `{speaker, live, since}`: one at once, one per change, and a last one\nwith `live: false` when the call ends. See `crm/live_speaking.py` for the transport\nchoice and the store behind it.",
@@ -52002,6 +53614,47 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read_raw"
+      }
+    },
+    "/v1/calls/{call_id}/translation": {
+      "post": {
+        "description": "Queues the English of a call whose translation failed or was never made, from the REDACTED transcript. Answers with the state after the request: `pending` when it was queued, or the state as it stands when there is nothing to retry, so a second press queues nothing. Counts against the monthly AI allowance and is refused before anything is queued when the account is at its ceiling. Requires `org:manage`.",
+        "operationId": "retranslate_call_v1_calls__call_id__translation_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallTranslationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put this call into English again \u2014 quota-gated dashboard AI, idempotent",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/campaigns": {
@@ -55671,6 +57324,47 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/invitations/{invitation_id}/resend": {
+      "post": {
+        "description": "Mails the invitation again to the address it already has. The link in the earlier email stops working and the 72-hour clock restarts. Limited to one send every two minutes and ten sends in all; past that, revoke it and invite again. 404 if it has been accepted, revoked or has expired.",
+        "operationId": "resend_invitation_v1_invitations__invitation_id__resend_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invitation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Invitation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResentInvitationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Send a pending invitation again (owner only)",
+        "tags": [
+          "tenancy"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/kb/delivery": {
       "get": {
         "description": "For every agent on the roster: whether the knowledge this account published is the knowledge the agent is actually answering callers out of, and when it last changed. `preparing` heals itself within the hour; `not_delivered` does not and means the agent is still answering out of its previous knowledge.",
@@ -56910,7 +58604,7 @@
         "x-calevate-permission": "org:read"
       },
       "put": {
-        "description": "Its own tenant session rather than the request's, so the plan is committed before the\nanswering-machine switch is pushed to live agents (each in a session of its own).",
+        "description": "A changed answering-machine switch reaches every live agent of the client through the\nlive-apply seam, queued in the save's own transaction (D-720).",
         "operationId": "put_lead_calling_v1_lead_calling_put",
         "requestBody": {
           "content": {
@@ -56950,6 +58644,20 @@
     "/v1/lead-calling/held": {
       "get": {
         "operationId": "list_held_leads_v1_lead_calling_held_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -60123,7 +61831,7 @@
     },
     "/v1/ops/engine-minute-prices/{engine}/{rate_key}": {
       "post": {
-        "description": "Records what one billed minute on this engine and rate costs THIS account, read off your own invoice, as a NEW effective-dated row. Requires `X-Confirm-Action: attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it are not offered and any that run are metered with no cost and alarmed.",
+        "description": "Records the voice platform's posted rate per billed minute, before its wallet top-up fee, as a NEW effective-dated row. We add the fee when metering (10% on pay-as-you-go, 9% on Pro; each row's `topup_fee_percent` says which applies, and `inr_per_min_with_fee` is the figure metered). Requires `X-Confirm-Action: attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it are not offered and any that run are metered with no cost and alarmed.",
         "operationId": "attest_engine_minute_v1_ops_engine_minute_prices__engine___rate_key__post",
         "parameters": [
           {
@@ -60733,6 +62441,70 @@
           "ops"
         ],
         "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/live-apply": {
+      "get": {
+        "description": "Newest first. Each pass was queued with the write that made it necessary and republishes every live agent in its scope, reading each back. A call already in progress finishes on its previous settings. `scope=platform` narrows to ops console settings.",
+        "operationId": "list_live_apply_runs_v1_ops_live_apply_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "platform",
+                    "tenant",
+                    "agent"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scope"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveApplyRunsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Recent passes that put a saved setting on the live agents",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
       }
     },
     "/v1/ops/maintenance": {
@@ -62362,6 +64134,252 @@
           }
         },
         "summary": "Add one synced voice to the voices that can be offered (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voices/hosted/agents": {
+      "get": {
+        "description": "Every agent, live or not, whose voice is this hosted voice, with its account, live ones first. Read one voice at a time, for the voice's detail.",
+        "operationId": "hosted_voice_agents_v1_ops_voices_hosted_agents_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "voice_id",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Voice Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostedVoiceAgentsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The agents set to one hosted voice, in every account (admin realm)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voices/hosted/clone-consent": {
+      "post": {
+        "description": "Records the speaker's name, the statement they consented to, the date, and the operator recording it, with an optional signed document (PDF, JPEG or PNG, at most 2 MB, stored sealed), and marks the voice as a person's clone. Replaces an earlier record; without a new document the stored one is kept. The scope is fixed: calls made by Calevate clients' agents. Requires `X-Confirm-Action: record_voice_consent:<voice_id>`.",
+        "operationId": "record_hosted_clone_consent_v1_ops_voices_hosted_clone_consent_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_record_hosted_clone_consent_v1_ops_voices_hosted_clone_consent_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostedVoiceWriteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record a real person's consent to their cloned voice (step-up, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voices/hosted/clone-consent/document": {
+      "get": {
+        "operationId": "hosted_clone_consent_document_v1_ops_voices_hosted_clone_consent_document_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "voice_id",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Voice Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {},
+              "image/jpeg": {},
+              "image/png": {}
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Download the signed consent for one cloned voice (admin realm, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voices/hosted/display-name": {
+      "patch": {
+        "description": "Clients see this name instead of the provider's; null or blank goes back to the provider's name. The sync never changes it. For a cloned voice of a real person it may not contain the speaker's name (`voice_clone_name_reveals_speaker`).",
+        "operationId": "set_hosted_display_name_v1_ops_voices_hosted_display_name_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDisplayLabelIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostedVoiceWriteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set the name clients see for one hosted voice (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voices/hosted/person-clone": {
+      "patch": {
+        "description": "A voice marked as a person's clone cannot be offered until the speaker's consent is recorded (D-721). Marking an offered voice that could not stay offered is refused (`voice_clone_consent_missing`, `voice_clone_name_missing`). Unmarking keeps the consent record and its document. Requires `X-Confirm-Action: set_voice_person_clone:<voice_id>`.",
+        "operationId": "set_hosted_person_clone_v1_ops_voices_hosted_person_clone_patch",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPersonCloneIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostedVoiceWriteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Mark or unmark a voice as a cloned voice of a real person (step-up, audited)",
         "tags": [
           "ops"
         ],

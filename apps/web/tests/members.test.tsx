@@ -105,6 +105,15 @@ async function renderTeam(
     // What the two writes answer when they land, so a test about what a press SENDS does
     // not also leave an unanswered write behind.
     [`PATCH /v1/members/${STAFF.id}`]: { ...STAFF, role: "owner" } satisfies Member,
+    [`POST /v1/invitations/${INVITE.id}/resend`]: {
+      id: INVITE.id,
+      email: INVITE.email,
+      role: INVITE.role,
+      expires_at: INVITE.expires_at,
+      last_sent_at: INVITE.invited_at,
+      send_count: 2,
+      delivery: "queued",
+    },
     [`DELETE /v1/members/${STAFF.id}`]: {
       user_id: STAFF.id,
       previous_role: "staff",
@@ -381,26 +390,42 @@ describe("what the invite flow shows", () => {
     // assertion above is the one that matters here and is untouched.
     expect(document.body.textContent).toContain("priya@clinic.example");
     expect(document.body.textContent).toContain(
-      "We cannot show or re-send the link",
+      "use Send again below",
     );
   });
 
-  it("lists a pending invitation with its address and a revoke control for an owner", async () => {
+  it("lists a pending invitation with its address and Send again and Cancel in view for an owner", async () => {
     const { container } = await renderTeam({ invitations: [INVITE] });
 
     await screen.findByText(INVITE.email);
-    fireEvent.click(
-      screen.getByRole("button", { name: `More actions for ${INVITE.email}` }),
-    );
-    expect(await screen.findByRole("menuitem", { name: "Revoke invite" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: `Send the invitation to ${INVITE.email} again` }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: `Cancel the invitation to ${INVITE.email}` }),
+    ).toBeTruthy();
     expect(container.textContent).toContain("1 unused link");
   });
 
-  it("shows a staff member the pending invites with no revoke control", async () => {
+  it("sends an invitation again from its row and says so beside the button", async () => {
+    const { calls } = await renderTeam({ invitations: [INVITE] });
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: `Send the invitation to ${INVITE.email} again` }),
+    );
+    await waitFor(() => {
+      const post = calls.find((c) => c.method === "POST");
+      expect(post?.path).toBe(`/v1/invitations/${INVITE.id}/resend`);
+    });
+    expect(await screen.findByText("Sent")).toBeTruthy();
+  });
+
+  it("shows a staff member the pending invites with no send-again or cancel control", async () => {
     await renderTeam({ me: STAFF_ME, invitations: [INVITE] });
 
     await screen.findByText(INVITE.email);
-    expect(screen.queryByRole("button", { name: /^More actions for / })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Send the invitation to / })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Cancel the invitation to / })).toBeNull();
   });
 });
 

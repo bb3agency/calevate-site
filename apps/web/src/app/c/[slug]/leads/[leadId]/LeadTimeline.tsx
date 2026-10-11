@@ -9,6 +9,12 @@ import { EmptySketch } from "@/components/console/emptySketch";
 import { LoadMore } from "@/components/interior/load-more";
 import type { LeadTimelineEvent, useLeadTimeline } from "@/lib/api/leads";
 import { lookup } from "@/lib/lookup";
+import {
+  CATEGORY_DOT,
+  CATEGORY_LABEL,
+  momentClock,
+  momentLinkSeconds,
+} from "@/lib/callMoments";
 
 /**
  * How each event type is dressed. Read with `lookup` and falling back VISIBLY — the
@@ -168,6 +174,9 @@ function TimelineRow({
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-ink">{event.title}</p>
         {event.detail && <p className="mt-0.5 text-xs text-ink-muted">{event.detail}</p>}
+        {event.call_id && event.moments.length > 0 && (
+          <CallMoments event={event} callId={event.call_id} slug={slug} href={href} />
+        )}
         <p className="mt-1 text-xs text-ink-faint">
           {formatIST(event.occurred_at)}
           {/* "Calevate" for a platform event and the colleague's name for a human one.
@@ -190,5 +199,46 @@ function TimelineRow({
         </p>
       </div>
     </li>
+  );
+}
+
+/**
+ * A call's key moments on the lead's history, each a link that opens the call at that
+ * point (`?t=`). A link rather than a player here: the recording is opened on the call
+ * page, where opening it is audited and the transcript sits beside it.
+ */
+function CallMoments({
+  event,
+  callId,
+  slug,
+  href,
+}: {
+  event: LeadTimelineEvent;
+  callId: string;
+  slug: string;
+  href: (path: string) => string;
+}) {
+  return (
+    <ul className="mt-2 space-y-0.5" aria-label="Key moments in this call">
+      {event.moments.map((moment, i) => (
+        <li key={`${moment.at_ms}-${moment.kind}-${i}`}>
+          <Link
+            href={href(`/c/${slug}/calls/${callId}?t=${momentLinkSeconds(moment)}`)}
+            className="-mx-1.5 flex items-baseline gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 touch:items-center"
+          >
+            <span className="w-10 shrink-0 tabular-nums text-ink-muted">{momentClock(moment)}</span>
+            <span
+              aria-hidden="true"
+              className={`h-1.5 w-1.5 shrink-0 translate-y-[-1px] self-center rounded-full ${CATEGORY_DOT[moment.category]}`}
+            />
+            <span className="sr-only">{CATEGORY_LABEL[moment.category]}: </span>
+            <span className="min-w-0 flex-1 text-ink">
+              {moment.label}
+              {moment.source === "model" && <span className="text-ink-faint"> · Suggested</span>}
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }

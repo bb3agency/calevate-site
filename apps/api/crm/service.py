@@ -15,11 +15,16 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
-from typing import Any, Literal, NamedTuple, get_args
+from typing import Any, Final, Literal, NamedTuple, get_args
 from uuid import UUID
 
 from calevate_shared.events import CallStatus
-from calevate_shared.extraction import ExtractionField, OutcomeTag
+from calevate_shared.extraction import (
+    MOMENT_KINDS,
+    ExtractionField,
+    OutcomeTag,
+    is_phone_field,
+)
 from calevate_shared.lead_fields import with_core
 from pydantic import ValidationError
 from sqlalchemy import text
@@ -40,6 +45,7 @@ from apps.api.crm.schemas import (
     CallDetailOut,
     CallMomentOut,
     CallSummaryOut,
+    CapturedChipOut,
     DashboardDayOut,
     DashboardOut,
     LeadOut,
@@ -59,6 +65,7 @@ from apps.api.db.transition import transition_status
 # with no third-party import behind it, so it costs nothing at cold start, and a lazy
 # import of the function that enforces hard rule 5 is a function that is easy to
 # forget to call.
+from apps.workers.call_language import call_language
 from apps.workers.redaction import redact
 
 MAX_PAGE = 200
@@ -239,23 +246,33 @@ async def list_calls(
     status: str | None = None,
     agent_id: UUID | None = None,
     filters: CallFilters | None = None,
+    include_credits: bool = False,
+    with_previews: bool = False,
 ) -> list[CallSummaryOut]:
     where, params = _call_where(filters or CallFilters(status=status, agent_id=agent_id))
     params |= {"limit": min(limit, MAX_PAGE), "offset": offset}
 
+    credits_column = _CREDITS_USED_COLUMN if include_credits else "NULL"
     rows = (
         await session.execute(
             text(
                 "SELECT c.id, c.agent_id, a.name, c.direction, c.status, c.from_e164, "
                 "c.to_e164, c.started_at, c.duration_s, c.outcome_tag, c.sentiment, "
                 "c.summary, c.lead_id, c.summary_state, c.headline, c.trial_call, "
-                f"{_CALLBACK_COLUMNS}, {_LEAD_NAME_COLUMN} "
+                f"{_CALLBACK_COLUMNS}, {_LEAD_NAME_COLUMN}, {credits_column} "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} {where} "
                 "ORDER BY c.started_at DESC NULLS LAST, c.id DESC LIMIT :limit OFFSET :offset"
             ),
             params,
         )
     ).all()
+    previews = (
+        await captured_previews(
+            session, agent_of_call={UUID(str(r[0])): UUID(str(r[1])) for r in rows}
+        )
+        if with_previews
+        else {}
+    )
     return [
         CallSummaryOut(
             id=r[0],
@@ -277,9 +294,99 @@ async def list_calls(
             test_call=bool(r[15]),
             callback=_callback_out(r[16:21]),
             lead_name=r[21],
+            credits_used_inr=f"{r[22]:.2f}" if r[22] is not None and r[22] > 0 else None,
+            captured_preview=previews.get(r[0], []),
         )
         for r in rows
     ]
+
+
+#: What the call took from the balance: its `usage` debit, keyed by the call id
+#: (`billing/service.charge_for_call`), read through `ux_credit_ledger_tenant_reason_ref`.
+_CREDITS_USED_COLUMN = (
+    "(SELECT -sum(l.delta) FROM credit_ledger l WHERE l.tenant_id = c.tenant_id "
+    "AND l.reason = 'usage' AND l.ref = c.id::text AND l.delta < 0) AS credits_used"
+)
+
+#: How many details a call row shows, and how long each value may run before it is cut.
+PREVIEW_CHIPS: Final = 3
+PREVIEW_VALUE_CHARS: Final = 40
+
+
+def _chip_value(value: Any) -> str | None:
+    if value is None or isinstance(value, dict):
+        return None
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, list):
+        value = ", ".join(str(v) for v in value if v not in (None, ""))
+    shown = " ".join(str(value).split())
+    if not shown:
+        return None
+    if len(shown) > PREVIEW_VALUE_CHARS:
+        shown = shown[: PREVIEW_VALUE_CHARS - 1].rstrip() + "…"
+    return shown
+
+
+async def captured_previews(
+    session: AsyncSession, *, agent_of_call: dict[UUID, UUID]
+) -> dict[UUID, list[CapturedChipOut]]:
+    """The first few details each call captured, in the agent's field order.
+
+    Two reads for the whole page rather than `captured_fields` per row: the newest
+    extraction of each call, and every schema version of the agents on the page. A label
+    comes from the newest version that knows the key (core fields first), so a renamed
+    field keeps a name; phone-type fields are skipped (`CallSummaryOut.captured_preview`).
+    """
+    if not agent_of_call:
+        return {}
+    extractions = (
+        await session.execute(
+            text(
+                "SELECT DISTINCT ON (call_id) call_id, data FROM call_extractions "
+                "WHERE call_id = ANY(:ids) ORDER BY call_id, created_at DESC"
+            ),
+            {"ids": list(agent_of_call)},
+        )
+    ).all()
+    if not extractions:
+        return {}
+    schema_rows = (
+        await session.execute(
+            text(
+                "SELECT agent_id, fields FROM extraction_schemas "
+                "WHERE agent_id = ANY(:aids) ORDER BY agent_id, version DESC"
+            ),
+            {"aids": list(set(agent_of_call.values()))},
+        )
+    ).all()
+    fields_by_agent: dict[UUID, list[ExtractionField]] = {}
+    for agent_id, fields in schema_rows:
+        known = fields_by_agent.setdefault(UUID(str(agent_id)), [])
+        seen = {f.key for f in known}
+        for field in with_core(fields or []):
+            if field.key not in seen:
+                known.append(field)
+                seen.add(field.key)
+    out: dict[UUID, list[CapturedChipOut]] = {}
+    for call_id, data in extractions:
+        cid = UUID(str(call_id))
+        if not isinstance(data, dict):
+            continue
+        fields = fields_by_agent.get(agent_of_call[cid]) or with_core([])
+        chips: list[CapturedChipOut] = []
+        for field in fields:
+            if len(chips) == PREVIEW_CHIPS:
+                break
+            # The name is already the row's title; a phone number is not chip material.
+            if field.key == "name" or is_phone_field(field):
+                continue
+            shown = _chip_value(data.get(field.key))
+            if shown is not None:
+                chips.append(CapturedChipOut(label=field.label, value=shown))
+        if chips:
+            out[cid] = chips
+    return out
 
 
 #: The newest call back booked ON a call, beside the call (F-4/F-5). LATERAL so it is one
@@ -352,7 +459,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
                 f"{_CALLBACK_COLUMNS}, "
                 "c.summary_local, c.summary_language, c.summary_source, c.next_step, "
                 "c.callback_requested, c.translation_state, "
-                f"{_LEAD_NAME_COLUMN} "
+                f"{_LEAD_NAME_COLUMN}, a.language_primary "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
                 "WHERE c.id = :cid"
             ),
@@ -366,7 +473,8 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
     turns = (
         await session.execute(
             text(
-                f"SELECT idx, speaker, COALESCE({column}, ''), lang, start_ms, text_en "
+                f"SELECT idx, speaker, COALESCE({column}, ''), lang, start_ms, text_en, "
+                "start_approximate "
                 "FROM transcript_turns WHERE call_id = :cid ORDER BY idx"
             ),
             {"cid": call_id},
@@ -420,6 +528,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         callback_requested=row[27],
         translation_state=row[28],
         lead_name=row[29],
+        language=_call_language(turns, agent_language=row[30]),
         extraction_model=extraction[5] if extraction else None,
         transcript=[
             TranscriptTurnOut(
@@ -430,6 +539,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
                 start_ms=t[4],
                 # Translated from the redacted text, so it is the same on both views.
                 text_en=t[5],
+                start_approximate=bool(t[6]),
                 redacted=not raw,
             )
             for t in turns
@@ -446,6 +556,12 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
             extraction[3] if extraction and isinstance(extraction[3], dict) else {}
         ),
     )
+
+
+def _call_language(turns: Sequence[Any], *, agent_language: str | None) -> str:
+    """The call's language tag, by `workers/call_language`'s rule. It reads scripts, not
+    words, so the raw and the redacted text give the same answer."""
+    return call_language([str(t[2]) for t in turns], agent_language=agent_language or "te-IN")
 
 
 def _moments_out(stored: Any, *, raw: bool) -> list[CallMomentOut]:
@@ -472,17 +588,50 @@ def _moments_out(stored: Any, *, raw: bool) -> list[CallMomentOut]:
         if label is None:
             continue
         try:
+            kind = item["kind"]
+            turn_idx = item.get("turn_idx")
+            importance = item.get("importance")
             out.append(
                 CallMomentOut(
                     at_ms=int(item["at_ms"]),
-                    kind=item["kind"],
+                    turn_idx=int(turn_idx) if isinstance(turn_idx, int) else None,
+                    kind=kind,
+                    # Rows written before categories existed carry none; the kind decides.
+                    category=item.get("category") or MOMENT_KINDS[kind][0],
                     label=label,
                     source=item["source"],
+                    # Rows written before `precision` existed came from exact offsets only:
+                    # an approximate turn time could not anchor a marker then.
+                    precision=item.get("precision") or "exact",
+                    importance=int(importance) if isinstance(importance, int) else 2,
                 )
             )
         except (KeyError, TypeError, ValueError, ValidationError):
             continue
     return sorted(out, key=lambda m: m.at_ms)
+
+
+async def _call_moments(
+    session: AsyncSession, call_ids: set[UUID]
+) -> dict[UUID, list[CallMomentOut]]:
+    """Each call's key moments, REDACTED, in one query: the lead page's per-call list.
+
+    Always the redacted view: the lead page has no audited raw read, so a model label
+    (which can quote the caller) shows its redacted form, exactly as the call page does
+    by default (hard rule 5). RLS scopes the read to the tenant.
+    """
+    if not call_ids:
+        return {}
+    rows = (
+        await session.execute(
+            text(
+                "SELECT call_id, moments FROM call_extractions "
+                "WHERE call_id = ANY(:ids) AND moments IS NOT NULL"
+            ),
+            {"ids": list(call_ids)},
+        )
+    ).all()
+    return {row[0]: _moments_out(row[1], raw=False) for row in rows}
 
 
 def _label_for(item: dict[str, Any], *, raw: bool) -> str | None:
@@ -2205,10 +2354,13 @@ async def lead_timeline(
                 wanted.add(target)
     names = await _member_names(session, wanted)
 
+    projected = [(row, _project_event(str(row[1]), row[2] or {}, names)) for row in rows]
+    moments = await _call_moments(
+        session,
+        {p[2] for row, p in projected if p[2] is not None and str(row[1]) == "call"},
+    )
     items: list[LeadTimelineEventOut] = []
-    for row in rows:
-        payload: dict[str, Any] = row[2] or {}
-        title, detail, call_id = _project_event(str(row[1]), payload, names)
+    for row, (title, detail, call_id) in projected:
         actor = _actor_uuid(row[3])
         items.append(
             LeadTimelineEventOut(
@@ -2220,6 +2372,11 @@ async def lead_timeline(
                 title=title,
                 detail=detail,
                 call_id=call_id,
+                moments=(
+                    moments.get(call_id, [])
+                    if call_id is not None and str(row[1]) == "call"
+                    else []
+                ),
             )
         )
     return LeadTimelineOut(

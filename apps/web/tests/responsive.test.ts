@@ -556,7 +556,6 @@ describe("the second mobile pass", () => {
     "app/c/[slug]/campaigns/ContactEditor.tsx":
       "the toolbar's compact Import CSV button beside Paste and Add; its empty state is a FileDrop",
     "app/admin/ops/voices/hosted/CloneVoiceDrawer.tsx": "ops console, owned by its own work in flight",
-    "app/admin/ops/voices/hosted/HostedVoiceList.tsx": "ops console, owned by its own work in flight",
   };
 
   it("hands every file to FileDrop", () => {

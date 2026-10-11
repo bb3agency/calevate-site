@@ -36,7 +36,8 @@ const EXEMPT = [
   "src/lib/verticalExamples.ts",
 ];
 
-const CLINIC_ONLY = /\b(?:clinics?|hospitals?|patients?|doctors?|dentists?|dental|appointments?)\b/i;
+const CLINIC_ONLY =
+  /\b(?:clinics?|hospitals?|patients?|doctors?|dentists?|dental|appointments?|symptoms?|prescriptions?|OPD)\b/i;
 
 /** Places where the word names the clinic business type itself, with the reason. */
 const ALLOWED: ReadonlyArray<{ file: string; text: RegExp; reason: string }> = [
@@ -56,10 +57,7 @@ const ALLOWED: ReadonlyArray<{ file: string; text: RegExp; reason: string }> = [
  * Files owned by other work that still carry the wording; reported for routing. Each
  * count may shrink and never grow.
  */
-const ROUTED: Readonly<Record<string, number>> = {
-  "src/app/c/[slug]/integrations/ConnectedAccounts.tsx": 1,
-  "src/components/authn/authShowcase.tsx": 1,
-};
+const ROUTED: Readonly<Record<string, number>> = {};
 
 describe("copy for any business does not assume a clinic", () => {
   it("reads the surfaces it claims to read", () => {

@@ -106,7 +106,27 @@ async def test_an_admin_token_with_no_impersonation_header_gets_its_own_identity
     assert body["permissions"] == sorted(ROLE_PERMISSIONS["operator"])
     # `extra="forbid"` on the way in; asserted on the way out too, because the field that
     # must never appear here is a tenant's.
-    assert set(body) == {"realm", "user_id", "role", "permissions"}
+    assert set(body) == {"realm", "user_id", "role", "permissions", "email"}
+    assert body["email"] is None, "this operator row has no address on file"
+
+
+async def test_the_identity_names_the_operators_own_sign_in_address() -> None:
+    """The admin account page says which account it is; the address comes from
+    `admin_users`, read fresh, never from the token."""
+    token = await _make_admin(role="operator")
+    admin_id = uuid.UUID(token.rsplit(":", 1)[1])
+    address = f"ops-{admin_id.hex[:8]}@example.com"
+    async with untenanted_session() as session:
+        await session.execute(
+            text("UPDATE admin_users SET email = :e WHERE id = :id"),
+            {"e": address, "id": admin_id},
+        )
+
+    async with _client() as http:
+        response = await http.get(ADMIN_ME, headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["email"] == address
 
 
 async def test_a_client_token_is_refused_by_the_admin_identity() -> None:

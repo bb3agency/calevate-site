@@ -95,6 +95,7 @@ def _mount_routers(application: FastAPI) -> None:
     """Imports are local so a router import error names the module that broke."""
     from apps.api.actions.routes import router as actions_router
     from apps.api.admin.account_routes import router as tenant_account_router
+    from apps.api.admin.business_type_routes import router as business_type_router
     from apps.api.admin.closure_routes import router as tenant_closure_router
     from apps.api.admin.engine_workspace_routes import router as engine_workspace_router
     from apps.api.admin.health_routes import router as client_health_router
@@ -208,6 +209,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.engine_minute_routes import router as ops_engine_minute_prices_router
     from apps.api.ops.fx_routes import router as ops_fx_router
     from apps.api.ops.hosted_voice_routes import router as ops_hosted_voice_router
+    from apps.api.ops.live_apply_routes import router as ops_live_apply_router
     from apps.api.ops.maintenance_routes import client_router as client_maintenance_router
     from apps.api.ops.maintenance_routes import router as ops_maintenance_router
     from apps.api.ops.model_price_routes import (
@@ -324,6 +326,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(extraction_admin_router)
     application.include_router(lead_fields_router)
     application.include_router(lead_fields_admin_router)
+    application.include_router(business_type_router)
     application.include_router(campaigns_router)
     # `/v1/numbers` — its own prefix, so nothing above can swallow it. It lives in the
     # campaigns package because that module owns `phone_numbers`.
@@ -548,6 +551,8 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(ops_tts_prices_router)
     # The RUPEE-billed platform LLM price (Sarvam), on the same panel for the same act.
     application.include_router(ops_inr_llm_prices_router)
+    # How far each saved setting has reached the live agents (D-720).
+    application.include_router(ops_live_apply_router)
     # The per-minute ENGINE price (D-678): an engine that reports no cost per call is
     # metered only at a rate an operator attested (`billing/engine_minutes.py`).
     application.include_router(ops_engine_minute_prices_router)

@@ -47,7 +47,7 @@ export function SectionList({
   const move = (from: number, to: number) => {
     if (to < 0 || to >= sections.length || from === to) return;
     onMove(from, to);
-    const name = sections[from].name.trim() || "Untitled section";
+    const name = sections[from].name.trim() || "Untitled step";
     setAnnounce(`${name} moved to number ${to + 1} of ${sections.length}.`);
   };
 
@@ -85,7 +85,7 @@ export function SectionList({
       <p aria-live="polite" className="sr-only">
         {announce}
       </p>
-      <ol className="space-y-2" aria-label="Sections of the call, in order">
+      <ol className="space-y-2" aria-label="Steps of the call, in order">
         {sections.map((section, index) => {
           const own = issues.filter((i) => i.section === section.id);
           const dragging = drag?.id === section.id;
@@ -117,7 +117,7 @@ export function SectionList({
                   <button
                     type="button"
                     className={`${QUIET_ICON_BUTTON} cursor-grab touch-none select-none active:cursor-grabbing`}
-                    aria-label={`Move ${section.name.trim() || "Untitled section"}, number ${index + 1}. Use the up and down arrow keys.`}
+                    aria-label={`Move ${section.name.trim() || "Untitled step"}, number ${index + 1}. Use the up and down arrow keys.`}
                     onPointerDown={(e) => onHandleDown(e, section.id, index)}
                     onPointerMove={onHandleMove}
                     onPointerUp={onHandleUp}
@@ -148,7 +148,7 @@ export function SectionList({
                   <button
                     type="button"
                     className={QUIET_ICON_BUTTON}
-                    aria-label={`Move ${section.name.trim() || "Untitled section"} earlier`}
+                    aria-label={`Move ${section.name.trim() || "Untitled step"} earlier`}
                     disabled={index === 0}
                     onClick={() => move(index, index - 1)}
                   >
@@ -157,7 +157,7 @@ export function SectionList({
                   <button
                     type="button"
                     className={QUIET_ICON_BUTTON}
-                    aria-label={`Move ${section.name.trim() || "Untitled section"} later`}
+                    aria-label={`Move ${section.name.trim() || "Untitled step"} later`}
                     disabled={index === sections.length - 1}
                     onClick={() => move(index, index + 1)}
                   >
@@ -189,7 +189,7 @@ function SectionSummary({
   return (
     <span className="block space-y-1.5">
       <span className="flex items-center gap-2">
-        <span className="truncate text-body font-semibold text-ink">{s.name.trim() || "Untitled section"}</span>
+        <span className="truncate text-body font-semibold text-ink">{s.name.trim() || "Untitled step"}</span>
         {index === 0 && <span className="shrink-0 rounded-full bg-ink/[0.06] px-2 text-[11px] font-medium text-ink-muted">Start</span>}
         {s.mode === "say" && <span className="shrink-0 rounded-full bg-ink/[0.06] px-2 text-[11px] font-medium text-ink-muted">Exact words</span>}
       </span>

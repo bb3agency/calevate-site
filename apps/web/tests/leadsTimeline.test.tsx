@@ -85,6 +85,7 @@ function event(over: Partial<LeadTimelineEvent> = {}): LeadTimelineEvent {
     title: "Moved to hot",
     detail: null,
     call_id: null,
+    moments: [],
     ...over,
   };
 }
@@ -237,6 +238,54 @@ describe("the history a client can finally read", () => {
     for (const anchor of Array.from(container.querySelectorAll("a"))) {
       expect(anchor.getAttribute("href") ?? "").not.toContain("9876543210");
     }
+  });
+
+  it("lists a call's key moments, each opening the call at that time", async () => {
+    await renderClientPage(
+      page(),
+      routes({
+        "/v1/leads/lead-a/timeline?limit=50": timeline([
+          event({
+            type: "call",
+            title: "Call completed",
+            call_id: "call-9",
+            moments: [
+              {
+                at_ms: 21_400,
+                turn_idx: 3,
+                kind: "booking_agreed",
+                category: "details",
+                label: "Site visit booked",
+                source: "model",
+                precision: "approximate",
+                importance: 3,
+              },
+              {
+                at_ms: 64_000,
+                turn_idx: 9,
+                kind: "opt_out",
+                category: "attention",
+                label: "Asked not to be called again",
+                source: "derived",
+                precision: "exact",
+                importance: 3,
+              },
+            ],
+          }),
+        ]),
+      }),
+    );
+
+    const list = await screen.findByRole("list", { name: "Key moments in this call" });
+    const links = Array.from(list.querySelectorAll("a"));
+    // An approximate moment opens a couple of seconds early so it is not missed.
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([
+      "/c/acme/calls/call-9?t=19",
+      "/c/acme/calls/call-9?t=64",
+    ]);
+    expect(links[0].textContent).toContain("~0:21");
+    expect(links[0].textContent).toContain("Suggested");
+    expect(links[1].textContent).not.toContain("Suggested");
   });
 
   it("keeps an event whose type this build does not recognise", async () => {

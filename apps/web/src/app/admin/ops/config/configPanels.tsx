@@ -17,6 +17,7 @@ import { lookup } from "@/lib/lookup";
 import type { ConfigList } from "@/lib/api/opsConfig";
 
 import { EnvOnlyKeys } from "./ConfigStatus";
+import { panelAnchor } from "./configSections";
 
 type Access = { allowed: boolean; reason: string | null };
 
@@ -45,7 +46,8 @@ const PANELS: Record<string, (access: Access, config: ConfigList) => ReactNode> 
 /** One served panel, or a statement that this console build cannot draw it. */
 export function ConfigPanel({ id, access, config }: { id: string; access: Access; config: ConfigList }) {
   const render = lookup(PANELS, id);
-  if (render) return <>{render(access, config)}</>;
+  // The id is what the config search jumps to and highlights (`configSections.panelAnchor`).
+  if (render) return <div id={panelAnchor(id)} className="scroll-mt-4 rounded-md">{render(access, config)}</div>;
   return (
     <NoticeBox
       tone="warn"

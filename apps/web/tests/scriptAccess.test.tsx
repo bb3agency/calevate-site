@@ -58,6 +58,7 @@ function routes(who: Me, script: ScriptOut = SCRIPT) {
       unavailable_reason: "Not yet.",
       cost_note: "",
       latest: null,
+      history: [],
     },
   };
 }

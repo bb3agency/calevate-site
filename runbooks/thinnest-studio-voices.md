@@ -38,6 +38,11 @@ The card's "missing" list says which of these are still open.
    The client appears under "Client workspaces on Studio".
 3. Press **Refresh** on the Voices page. The Cartesia voices are listed under "Every voice on
    the platform". Store a preview for each one you will offer, then add and enable them.
+   A voice cloned from a real person (the founder's own Instant clone, D-721): open it, switch
+   on "A cloned voice of a real person", record the speaker's consent (name, date, statement,
+   signed copy if there is one), give it the name clients will see, then switch it on. It
+   cannot be offered before both are done. If it is not in the list, use "Find a voice by its
+   id" in Add voices; a voice the platform did not list is not added by id.
 4. The card now reads **Ready**. Every other client is switched on automatically at its first
    Studio publish. If that fails, the client sees "Studio voices could not be set up for this
    account" and the client's last error code appears on the card.

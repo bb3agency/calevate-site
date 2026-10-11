@@ -150,6 +150,11 @@ UNBOUNDED_PREFIXES: dict[str, str] = {
         "an operator makes, not by time. An expiry would silently stop a client agent on that "
         "voice from being published."
     ),
+    "voice-consents/": (
+        "One sealed signed consent per voice cloned from a real person (D-721), keyed by the "
+        "voice: bounded by the number of such voices. It is the evidence the voice may be "
+        "offered at all, so an expiry would silently delete the record the offer rests on."
+    ),
 }
 
 

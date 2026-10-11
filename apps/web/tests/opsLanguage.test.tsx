@@ -27,7 +27,8 @@ describe("ops plain-language maps", () => {
   it("translates every 'applies' timing to a human answer, none echoing the enum", () => {
     for (const applies of [
       "live",
-      "needs_republish",
+      "live_agents",
+      "operator_step",
       "on_restart",
       "env_only",
       "unclassified",

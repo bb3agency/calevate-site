@@ -56,7 +56,7 @@ export function ScriptSection({ agent, slug }: { agent: Agent; slug: string }) {
         ? [
             { key: "live", label: "Whether callers hear it", value: liveScriptText(agent, data) },
             { key: "opening_line", label: "Opening line", value: handWritten ? "written by hand" : working.opening_line },
-            { key: "sections", label: "Sections", value: String(count) },
+            { key: "sections", label: "Steps", value: String(count) },
           ]
         : []),
       { key: "builder", label: "Where the script is edited", value: "the script builder (Open the script)" },
@@ -82,7 +82,7 @@ export function ScriptSection({ agent, slug }: { agent: Agent; slug: string }) {
             value={handWritten ? "Written by hand" : working.opening_line.trim() || "Not written yet"}
           />
           {!handWritten && (
-            <SettingRow label="Sections" value={`${count} ${count === 1 ? "section" : "sections"}`} />
+            <SettingRow label="Steps" value={`${count} ${count === 1 ? "step" : "steps"}`} />
           )}
         </SettingRows>
       ) : null}

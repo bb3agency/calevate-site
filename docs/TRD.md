@@ -177,10 +177,10 @@ Models (per-agent config, BYOK):
   SILENT.** Of the four Azure settings only `azure_openai_model` is `applies: live`, and it
   is live precisely because **nothing sends it to anybody** — it names which model the
   deployment was made from, and `billing/` reads it to price the leg.
-  `azure_openai_resource` and `azure_openai_deployment` are **`needs_republish`**: they
+  `azure_openai_resource` and `azure_openai_deployment` are **`live_agents`** (D-720): they
   become `ModelConfig.llm_base_url` and `ModelConfig.llm_model` inside each PUBLISHED agent
-  record, so a live agent keeps calling what it was published against no matter how often
-  the console is edited. `azure_openai_api_key` is `needs_republish` too — the dashboard leg
+  record, so saving either republishes every live agent at once. `azure_openai_api_key` is
+  `operator_step` — the dashboard leg
   re-reads it per request, but the in-call copy sits in the engine's credential store until
   `VoiceEngine.set_llm_credential` re-installs it. **So flipping the model alone changes the
   INVOICE and not a single call**: every agent goes on running `gpt-4o-mini` while every

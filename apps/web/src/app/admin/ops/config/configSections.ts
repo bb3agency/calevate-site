@@ -1,5 +1,7 @@
 import type { ConfigField, ConfigList, ConfigSection } from "@/lib/api/opsConfig";
 
+import { lookup } from "@/lib/lookup";
+
 import { displayValue } from "./configControl";
 
 /**
@@ -162,4 +164,190 @@ export function filterAcrossSections(
       ),
     }))
     .filter((group) => group.fields.length > 0);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Finding everything else on the screen: sections, panels and credential names.
+ *
+ * The settings rows above are searched field by field. The panels (prices, the exchange
+ * rate, the rate card…) and the credentials are not settings, so they are indexed here by
+ * their title, the words an operator would type for them and the names they list (model
+ * ids, credential key names). Never a value: a credential is found by its name only.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Where a search result jumps to. `section` is the section that holds it. */
+export interface SearchTarget {
+  kind: "section" | "panel" | "credential";
+  /** A DOM id on the screen, unique per target: what the jump scrolls to and highlights. */
+  anchor: string;
+  section: string;
+  title: string;
+  /** One line under the title saying what is there. */
+  detail: string;
+  words: string[];
+}
+
+/** The DOM id of a served panel's wrapper. */
+export function panelAnchor(panel: string): string {
+  return `config-panel-${panel}`;
+}
+
+/** The DOM id of one credential's row in the Credentials and keys section. */
+export function credentialAnchor(key: string): string {
+  return `credential-${key}`;
+}
+
+/** The DOM id of a section's content. */
+export function sectionAnchor(section: string): string {
+  return `config-section-${section}`;
+}
+
+/** Each served panel's title, what it holds, and the words an operator looks for it by. */
+export const PANEL_SEARCH: Record<string, { title: string; detail: string; words: string[] }> = {
+  rate_card: {
+    title: "Rate card",
+    detail: "What a minute sells for to self-serve clients, per voice tier.",
+    words: ["rate card", "per minute", "minute price", "self-serve", "plan", "client price", "inr"],
+  },
+  engine_minute_price: {
+    title: "Engine minute price",
+    detail: "The attested per-minute rate a voice platform charges us.",
+    words: ["engine", "minute price", "per minute", "voice platform", "thinnestai", "attest", "band"],
+  },
+  fx_rate: {
+    title: "Exchange rate (USD to INR)",
+    detail: "The dollar-to-rupee rate vendor costs are converted at, and how fresh it is.",
+    words: ["fx", "exchange rate", "usd", "inr", "dollar", "rupee", "conversion"],
+  },
+  number_price: {
+    title: "Phone number price",
+    detail: "What a client pays per month for a number, once attested.",
+    words: ["number", "phone number", "rental", "monthly", "number price"],
+  },
+  tts_plan_fee: {
+    title: "Voice plan fee",
+    detail: "A voice vendor's monthly plan fee, from its invoice.",
+    words: ["tts", "voice", "plan fee", "cartesia", "monthly", "invoice", "text to speech"],
+  },
+  model_pricing: {
+    title: "Model prices",
+    detail:
+      "Per-million-token prices billing uses, in dollars or rupees (rupee-billed models such as Sarvam 105B), with voice and embedding prices.",
+    words: [
+      "model",
+      "models",
+      "llm",
+      "price",
+      "prices",
+      "per million tokens",
+      "tokens",
+      "usd",
+      "rupees",
+      "inr",
+      "billed in rupees",
+      "cached input",
+      "attest",
+      "tts",
+      "voice price",
+      "embedding",
+    ],
+  },
+  dashboard_data_use: {
+    title: "Dashboard AI data use",
+    detail: "Which AI providers the in-app assistant may run on, and their data-use attestations.",
+    words: ["dashboard ai", "assistant", "data use", "training", "attestation", "provider"],
+  },
+  server_only_keys: {
+    title: "Server-only keys",
+    detail: "Settings and keys only the server's environment can hold.",
+    words: ["server", "environment", "env", "bootstrap", "server only", "ssh", "restart"],
+  },
+};
+
+/** Extra names a panel lists, read from its own data: model ids and labels. */
+export interface PanelNames {
+  model_pricing?: string[];
+}
+
+/**
+ * Every section, served panel and credential name, as search targets. `credentialKeys` is
+ * null when this viewer may not read credentials: the section is still findable, and no
+ * key name is.
+ */
+export function searchTargets(
+  config: ConfigList,
+  credentialKeys: readonly string[] | null,
+  panelNames: PanelNames = {},
+): SearchTarget[] {
+  const targets: SearchTarget[] = [];
+  for (const section of servedSections(config)) {
+    targets.push({
+      kind: "section",
+      anchor: sectionAnchor(section.id),
+      section: section.id,
+      title: section.label,
+      detail: section.hint,
+      words: [section.label, section.hint, ...section.subsections.map((sub) => sub.label)],
+    });
+    for (const panel of [...section.panels_before, ...section.panels_after]) {
+      const known = lookup(PANEL_SEARCH, panel);
+      const listed =
+        panel === "model_pricing"
+          ? (panelNames.model_pricing ?? [])
+          : panel === "server_only_keys"
+            ? config.bootstrap.flatMap((entry) => [entry.key, entry.label])
+            : [];
+      targets.push({
+        kind: "panel",
+        anchor: panelAnchor(panel),
+        section: section.id,
+        title: known?.title ?? panel,
+        detail: known?.detail ?? "",
+        words: [...(known?.words ?? [panel]), ...listed],
+      });
+    }
+  }
+  targets.push({
+    kind: "section",
+    anchor: sectionAnchor(CREDENTIALS_SECTION.id),
+    section: CREDENTIALS_SECTION.id,
+    title: CREDENTIALS_SECTION.label,
+    detail: CREDENTIALS_SECTION.hint,
+    words: [CREDENTIALS_SECTION.label, "credentials", "keys", "api key", "secret", "vendor key", "rotate", "key management"],
+  });
+  for (const key of credentialKeys ?? []) {
+    targets.push({
+      kind: "credential",
+      anchor: credentialAnchor(key),
+      section: CREDENTIALS_SECTION.id,
+      title: key,
+      detail: "A vendor credential. Install or replace it here; a stored key is never shown.",
+      words: [key, key.replace(/_/g, " ")],
+    });
+  }
+  return targets;
+}
+
+/** The targets every word of the query appears in (title, detail or words), in screen order. */
+export function matchTargets(targets: readonly SearchTarget[], query: string): SearchTarget[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+  return targets.filter((target) => {
+    const haystack = [target.title, target.detail, ...target.words].join(" ").toLowerCase();
+    return words.every((word) => haystack.includes(word));
+  });
+}
+
+/**
+ * The section to suggest when nothing matches: the one whose label shares a word with the
+ * query, else the first served one, so "No match" always says where to look.
+ */
+export function suggestedSection(config: ConfigList, query: string): ScreenSection {
+  const sections = screenSections(servedSections(config));
+  const words = query.toLowerCase().split(/\s+/).filter((word) => word.length > 2);
+  return (
+    sections.find((section) =>
+      words.some((word) => `${section.label} ${section.hint}`.toLowerCase().includes(word)),
+    ) ?? sections[0]
+  );
 }

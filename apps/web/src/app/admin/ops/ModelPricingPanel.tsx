@@ -193,8 +193,9 @@ export function ModelPricingPanel({
         )}
 
         {/* Rupee-billed models sit with the other language models, on their own read so
-            a failure there never hides the dollar list, nor the reverse. */}
-        {state.status === "read" && <InrLlmPricesSection access={access} />}
+            a failure there never hides the dollar list, nor the reverse: rendered whatever
+            state the dollar list is in. */}
+        <InrLlmPricesSection access={access} />
 
         {/* THE VOICE LEG, on the same panel and for the same reason (D-547): a price an
             operator reads off their own invoice is one act whichever vendor sold it, and
@@ -1124,7 +1125,7 @@ function InrLlmPricesSection({
 }
 
 /** Model ids as a person says them; an unknown id prints as itself. */
-const INR_MODEL_LABELS: Record<string, string> = {
+export const INR_MODEL_LABELS: Record<string, string> = {
   "sarvam-105b": "Sarvam 105B",
 };
 

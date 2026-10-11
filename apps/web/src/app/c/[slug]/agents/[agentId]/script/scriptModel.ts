@@ -138,7 +138,7 @@ export function edgesOf(sections: Section[]): Edge[] {
 export function pointersTo(sections: Section[], id: string): string[] {
   return sections
     .filter((s) => s.id !== id && (s.otherwise === id || s.branches.some((b) => b.target === id)))
-    .map((s) => s.name.trim() || "Untitled section");
+    .map((s) => s.name.trim() || "Untitled step");
 }
 
 // --- writing the graph ------------------------------------------------------------------
@@ -168,8 +168,8 @@ export function addSection(
   const sections = sectionsOf(script);
   const taken = new Set(sections.map((s) => s.name.trim().toLowerCase()));
   let n = sections.length + 1;
-  while (taken.has(`section ${n}`)) n += 1;
-  const name = init.name ?? `Section ${n}`;
+  while (taken.has(`step ${n}`)) n += 1;
+  const name = init.name ?? `Step ${n}`;
   const id = newSectionId(sections, name);
   const section: Section = {
     id,
@@ -255,23 +255,36 @@ export function connect(
 
 // --- canvas layout ----------------------------------------------------------------------
 
-export const NODE_W = 232;
+export const NODE_W = 216;
 export const NODE_H = 104;
-const GAP_X = 64;
-const GAP_Y = 56;
-const MARGIN = 24;
-const COLUMNS = 3;
+export const GAP_X = 56;
+export const GAP_Y = 56;
+export const MARGIN = 32;
+/** Before the canvas has measured itself (and on the server), three to a row. */
+export const DEFAULT_COLUMNS = 3;
 
-/** Where a section with no saved position sits: reading order, three to a row. */
-export function autoPosition(index: number): { x: number; y: number } {
+/**
+ * How many steps fit in one row of a canvas `width` px wide, after `reserve` px kept on
+ * the right (the end-of-call column). Never fewer than one.
+ */
+export function columnsFor(width: number, reserve = 0): number {
+  return Math.max(1, Math.floor((width - reserve - 2 * MARGIN + GAP_X) / (NODE_W + GAP_X)));
+}
+
+/**
+ * Where a step with no saved position sits: reading order, left to right, wrapping to a
+ * new row like text. Rows always read left to right (not a zigzag), so "next" is always
+ * to the right or at the start of the row below.
+ */
+export function autoPosition(index: number, columns = DEFAULT_COLUMNS): { x: number; y: number } {
   return {
-    x: MARGIN + (index % COLUMNS) * (NODE_W + GAP_X),
-    y: MARGIN + Math.floor(index / COLUMNS) * (NODE_H + GAP_Y),
+    x: MARGIN + (index % columns) * (NODE_W + GAP_X),
+    y: MARGIN + Math.floor(index / columns) * (NODE_H + GAP_Y),
   };
 }
 
-export function positionOf(section: Section, index: number): { x: number; y: number } {
-  return section.position ?? autoPosition(index);
+export function positionOf(section: Section, index: number, columns = DEFAULT_COLUMNS): { x: number; y: number } {
+  return section.position ?? autoPosition(index, columns);
 }
 
 /** Clear every saved position, so the canvas lays the sections out in reading order. */
@@ -305,20 +318,20 @@ export function validate(script: CallScript, limits: Limits = DEFAULT_LIMITS): I
     issues.push({ section, field, message });
 
   if (sections.length > limits.maxSections) {
-    add(null, "sections", `At most ${limits.maxSections} sections. Join two to make room.`);
+    add(null, "sections", `At most ${limits.maxSections} steps. Join two to make room.`);
   }
   const names = new Map<string, number>();
   for (const s of sections) {
     const key = s.name.trim().toLowerCase();
     if (key) names.set(key, (names.get(key) ?? 0) + 1);
   }
-  const label = (s: Section, i: number) => s.name.trim() || `Section ${i + 1}`;
+  const label = (s: Section, i: number) => s.name.trim() || `Step ${i + 1}`;
   const targetOk = (t: string) => ids.has(t) || (SPECIAL_TARGETS as readonly string[]).includes(t);
 
   sections.forEach((s, i) => {
-    if (!s.name.trim()) add(s.id, "name", "Give this section a name.");
+    if (!s.name.trim()) add(s.id, "name", "Give this step a name.");
     else if ((names.get(s.name.trim().toLowerCase()) ?? 0) > 1) {
-      add(s.id, "name", "Another section has this name. Give each one its own.");
+      add(s.id, "name", "Another step has this name. Give each one its own.");
     }
     if (chars(s.name) > limits.nameMax) add(s.id, "name", `Keep the name under ${limits.nameMax} letters.`);
     if (!s.instruction.trim()) add(s.id, "instruction", `Say what ${label(s, i)} is for.`);
@@ -330,17 +343,17 @@ export function validate(script: CallScript, limits: Limits = DEFAULT_LIMITS): I
       add(s.id, "sounds_like", `Keep this line under ${limits.soundsLikeMax} letters.`);
     }
     if (s.branches.length > limits.maxBranches) {
-      add(s.id, "branches", `At most ${limits.maxBranches} ways out of one section.`);
+      add(s.id, "branches", `At most ${limits.maxBranches} ways out of one step.`);
     }
     s.branches.forEach((b, j) => {
       if (!b.when.trim()) add(s.id, `branch-${j}`, "Say when the call goes this way.");
-      if (!targetOk(b.target)) add(s.id, `branch-${j}`, "This goes to a section that is not there any more.");
+      if (!targetOk(b.target)) add(s.id, `branch-${j}`, "This goes to a step that is not there any more.");
     });
     if (s.otherwise && !targetOk(s.otherwise)) {
-      add(s.id, "otherwise", "This goes to a section that is not there any more.");
+      add(s.id, "otherwise", "This goes to a step that is not there any more.");
     }
     if (s.collect.length > limits.maxCollect) {
-      add(s.id, "collect", `At most ${limits.maxCollect} details in one section.`);
+      add(s.id, "collect", `At most ${limits.maxCollect} details in one step.`);
     }
   });
 

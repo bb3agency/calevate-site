@@ -14,7 +14,7 @@ export type SettingsSection = {
   label: string;
   /** A small count or state beside the label ("2", a dot). Decorative text is fine. */
   badge?: ReactNode;
-  /** One line of state under the label in the column menu ("5 sections · changes waiting"). */
+  /** One line of state under the label in the column menu ("5 steps · changes waiting"). */
   detail?: string;
   /** A section that lives on its own page: the menu links there instead of `?section=`. */
   href?: string;

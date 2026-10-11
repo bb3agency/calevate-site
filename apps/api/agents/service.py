@@ -413,8 +413,9 @@ def refuse_call_cap_out_of_range(max_call_duration_s: int | None) -> None:
             f"{ceiling // 60} minutes."
         ),
         remediation=(
-            "Send a value in that range, or null to use the platform default of "
-            f"{CALL_CAP_DEFAULT_S} seconds. Null is the default, never 'unlimited'."
+            "Choose a length in that range, or leave it empty to use the standard "
+            f"{CALL_CAP_DEFAULT_S // 60} minutes. Empty means the standard length, never "
+            "unlimited."
         ),
         fields=[
             {
@@ -2581,9 +2582,7 @@ async def _studio_in_client_workspace(
         raise workspace_not_provisioned()
     from apps.api.agents.studio_voices import ensure_studio_in
 
-    await ensure_studio_in(
-        session, engine, tenant_id=tenant_id, workspace=config.engine_workspace
-    )
+    await ensure_studio_in(session, engine, tenant_id=tenant_id, workspace=config.engine_workspace)
 
 
 def _moves_workspace(existing_ref: str | None, config: AgentConfig) -> bool:

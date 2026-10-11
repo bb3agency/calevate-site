@@ -119,7 +119,7 @@ def test_the_platform_transcriber_is_a_console_setting_not_a_constant() -> None:
     validator as the only instrument and the number of DEPLOYS as the only variable.
 
     Read at the POINT OF USE, so a console edit reaches the next publish without a restart.
-    The setting is `needs_republish` rather than `live` because this resolves at publish
+    The setting is `live_agents` rather than `live` because this resolves at publish
     time into the agent object the engine stores.
     """
     settings = get_settings()

@@ -727,6 +727,13 @@ async def edit_tenant_profile(
     # argues for its own `extra_set`.
     fields = [field for field in EDITABLE_TENANT_FIELDS if field in changes]
     assignments = ", ".join(f"{field} = :{field}" for field in fields)
+    if "vertical_template" in fields:
+        # Choosing a type IS confirming one (D-722): the default it replaces and the AI's
+        # suggestion stop applying in the same statement.
+        assignments += (
+            ", unconfirmed_business_type = NULL, suggested_business_type = NULL, "
+            "suggested_business_type_reason = NULL, business_type_suggested_at = NULL"
+        )
     returning = ", ".join(f"old.{field}, o.{field}" for field in fields)
     row = (
         await session.execute(

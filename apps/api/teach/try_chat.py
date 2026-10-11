@@ -24,6 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.test_conversations import readiness
+from apps.api.agents.test_window import send_test_message
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.core.errors import ProblemError
 from apps.api.engine import get_engine
@@ -74,7 +75,13 @@ async def send(
     engine = get_engine()
     if not isinstance(engine, RunsTestChat) or ref is None:
         raise ProblemError.business_rule("try_chat_unavailable", "This agent cannot chat yet.")
-    turn = await engine.test_chat(str(ref), cleaned, session=chat_session or None)
+    turn = await send_test_message(
+        engine,
+        agent_id=agent_id,
+        engine_agent_ref=str(ref),
+        message=cleaned,
+        session=chat_session or None,
+    )
     knowledge_tool = hosted_agent_limits(get_engine()).knowledge_tool
     return ChatReply(
         session=turn.session,

@@ -117,9 +117,8 @@ describe("showing a value", () => {
     expect(
       settingState(field({ source: "db", updated_by: "Sri", updated_at: "2026-10-09T05:30:00Z" })).label,
     ).toMatch(/^Changed by Sri on /);
-    expect(appliesCopy(field({ applies: "needs_republish" })).label).toBe(
-      "Applies after agents are republished",
-    );
+    expect(appliesCopy(field({ applies: "live_agents" })).label).toBe("Applies to live agents now");
+    expect(appliesCopy(field({ applies: "operator_step" })).label).toBe("Needs one more step");
     expect(appliesCopy(field({ applies: "teleport" })).label).toBe("Timing not known");
   });
 

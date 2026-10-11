@@ -29,6 +29,18 @@ from apps.api.main import app
 # no `X-Impersonate-Org` header. Impersonation never touches them, so gating them on a
 # mutating permission costs nobody a view.
 ADMIN_CONSOLE_GETS: dict[str, str] = {
+    "/v1/ops/live-apply": (
+        "platform-wide passes that put an ops console setting on live agents (D-720): an "
+        "operator screen, not a client view"
+    ),
+    "/v1/ops/voices/hosted/agents": (
+        "every client's agents on one platform voice (D-721): the operator's catalogue "
+        "drawer, spanning clients, never a client screen"
+    ),
+    "/v1/ops/voices/hosted/clone-consent/document": (
+        "the signed consent behind a staff-made voice clone (D-721): platform evidence, "
+        "not client data"
+    ),
     "/v1/ops/trial-number": (
         "the platform's shared free-trial number and the numbers that may be it (D-697): a "
         "platform setting, not a client's view; nothing about it is a client screen"

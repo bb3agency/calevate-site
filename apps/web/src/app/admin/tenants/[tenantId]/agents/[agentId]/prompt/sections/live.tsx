@@ -461,6 +461,14 @@ function LiveConfirmation({
                 />
                 <PropertyVerdict label="Voice" verdict={engineState.data.voice_applied} />
               </dl>
+              {/* Information, never a verdict (D-720): answering on the website button or
+                  WhatsApp is acceptable and set only in the voice platform's console. */}
+              {engineState.data.answers_also_on && engineState.data.answers_also_on.length > 0 ? (
+                <p className="mt-2 text-meta text-ink-muted">
+                  Also answers on: {engineState.data.answers_also_on.join(", ")} (set in the
+                  voice platform&apos;s console).
+                </p>
+              ) : null}
             </>
           ) : null}
         </div>

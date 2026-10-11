@@ -57,9 +57,9 @@ export function CallDetailMock() {
     ["Preferred slot", "Tuesday, 6:00 PM"],
   ] as const;
   const moments = [
-    { at: "0:21", label: "Symptom / reason captured", ai: false },
-    { at: "0:48", label: "Asked what a root canal costs", ai: true },
-    { at: "1:36", label: "Preferred slot captured", ai: false },
+    { at: "~0:21", label: "Symptom / reason captured", ai: false },
+    { at: "~0:48", label: "Asked what a root canal costs", ai: true },
+    { at: "~1:36", label: "Check-up booked", ai: true },
   ] as const;
   return (
     <Window
@@ -110,9 +110,9 @@ export function CallDetailMock() {
             <span className="text-[11px] font-semibold text-ink-muted">Key points in this call</span>
             {moments.map(({ at, label, ai }) => (
               <span key={at} className="flex items-center gap-2 text-[12px]">
-                <span className="w-8 shrink-0 font-mono text-[11px] text-brand-strong dark:text-brand-bright">{at}</span>
+                <span className="w-10 shrink-0 font-mono text-[11px] text-brand-strong dark:text-brand-bright">{at}</span>
                 <span className="min-w-0 flex-1 truncate text-ink">{label}</span>
-                {ai && <Tag tone="violet">AI</Tag>}
+                {ai && <span className="shrink-0 text-[10px] text-ink-faint">Suggested</span>}
               </span>
             ))}
           </span>

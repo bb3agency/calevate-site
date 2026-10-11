@@ -762,14 +762,9 @@ class Settings(BaseSettings):
     # Azure key: 512 is far above any real key and far below the megabyte a jsonb-replicated
     # string could carry.
     #
-    # `applies: live` (`core/platform_config.FIELD_APPLIES`) and not `needs_republish`: NO
-    # process caches this credential and no engine holds a copy of it, because no model runs
-    # on the `openai` leg yet — so a rotation cannot be stale anywhere, which is the exact
-    # condition `needs_republish` exists to warn about. `azure_openai_api_key` is
-    # `needs_republish` BECAUSE the engine caches its copy; the day an `openai`-leg model is
-    # switched on and the engine begins to hold this one, the lane that wires that reader
-    # reclassifies this field in the same change (the repo's rule: the reader and its
-    # classification land together).
+    # `applies: operator_step` (`core/platform_config.FIELD_APPLIES`): the in-call leg
+    # authenticates from the engine's own credential store, so a rotation reaches a live
+    # call only once an operator re-installs the key there.
     openai_api_key: str | None = Field(default=None, max_length=512)
 
     # AZURE OPENAI — BOTH LLM SURFACES, ONE RESOURCE (D-410). The in-call leg the engine
@@ -1208,8 +1203,8 @@ class Settings(BaseSettings):
     # here is UNVERIFIED (hard rule 11) — it is the last untried value in the vendor's own
     # vocabulary, not a reading of one that succeeded.
     #
-    # `needs_republish` for `sarvam_stt_model`'s reason exactly: it resolves at publish time
-    # into the agent object the engine stores.
+    # `live_agents` for `sarvam_stt_model`'s reason exactly: it resolves at publish time
+    # into the agent object the engine stores, so saving it republishes every live agent.
     stt_autodetect_language: bool = False
     # `COHERE_API_KEY` WAS HERE AND IS GONE, for the reason the paragraph below gives
     # about Clerk. It was declared, classified `applies: live` in `platform_config`, and

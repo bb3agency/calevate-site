@@ -271,7 +271,7 @@ async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
             text(
                 "SELECT a.id, a.name, a.ai_disclosure_enabled, a.recording_notice_enabled, "
                 "a.direction, a.caller_memory_enabled, a.handoff_enabled, "
-                "s.fields, o.vertical_template "
+                "s.fields, COALESCE(o.vertical_template, o.unconfirmed_business_type) "
                 "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
                 "LEFT JOIN extraction_schemas s ON s.id = a.extraction_schema_id "
                 "WHERE a.status IN ('live', 'paused') AND a.deleted_at IS NULL "

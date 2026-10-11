@@ -358,7 +358,7 @@ function sentenceCase(text: string): string {
 /**
  * When a change applies, in the operator's words: the label and tone are `timingCopy`'s
  * (one vocabulary across the ops console), and the sentence adds this setting's own caveat,
- * which is the part an operator acts on ("agents keep the old address until republished").
+ * which is the part an operator acts on ("re-install the key in the engine's own store").
  * An `applies` word this build does not know reads "Timing not known", never "immediately".
  */
 export function appliesCopy(field: ConfigField): AppliesCopy {
@@ -382,7 +382,8 @@ export function appliesCopy(field: ConfigField): AppliesCopy {
  */
 const COVERS: Record<string, RegExp> = {
   on_restart: /restart/i,
-  needs_republish: /re-?publish/i,
+  live_agents: /in progress finishes/i,
+  operator_step: /operator|re-?install|migration|bound again/i,
   env_only: /never (?:takes? effect|be read|read)/i,
 };
 

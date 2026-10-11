@@ -486,6 +486,10 @@ class TestRlsCoverage:
             # incident is about. Clients read `heal_client_incidents`, which is isolated.
             "heal_incidents",
             "heal_actions",
+            # D-720: one pass bringing live agents up to a saved setting. Platform
+            # machinery read in the admin realm; a nullable tenant_id names the client a
+            # tenant- or agent-scoped pass is about.
+            "live_apply_runs",
             # D-475: the pulled USD/INR rate. Platform state — one exchange rate for the
             # whole deployment at an instant, so there is no tenant whose row it could be —
             # and read only behind `platform:config` in the admin realm.
@@ -1151,6 +1155,14 @@ class TestRedactionExposure:
             "CopilotJobProgressOut.text",
             # The planner's sentence about a waiting approval, redacted before it leaves.
             "CopilotApprovalPreviewOut.summary",
+            # The business's own words, never a caller's: facts and rules taught in the
+            # teach box (D-719), an agent script's sample dialogue and a version's change
+            # note (D-714).
+            "FactOut.text",
+            "TeachItemIO.text",
+            "RuleOut.text",
+            "ExampleLine.text",
+            "VersionOut.summary",
         }
         assert set(check_redaction_exposure.ACKNOWLEDGED_PASSTHROUGH) == {
             # D-591: the `**ids` on an alert episode, redacted at the write by the same

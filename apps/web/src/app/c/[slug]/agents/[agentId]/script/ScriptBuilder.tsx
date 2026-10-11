@@ -3,9 +3,9 @@
 /**
  * THE SCRIPT BUILDER (client realm).
  *
- * WHAT AN OWNER DOES HERE: lay out the call as numbered sections joined by "when … go to"
+ * WHAT AN OWNER DOES HERE: lay out the call as numbered steps joined by "when … go to"
  * ways out, write what the agent does in each, set the opening line, how it talks and how
- * it ends, and put the result live. On a desktop the sections are a flow picture or a list;
+ * it ends, and put the result live. On a desktop the steps are a flow picture or a list;
  * on a phone they are a list. Both are views of `script.stages` (`scriptModel.ts`).
  *
  * HOW SAVING WORKS (founder decision, 10 Oct 2026): the working copy autosaves a moment
@@ -35,6 +35,7 @@ import {
 } from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Drawer } from "@/components/console/drawer";
+import { BELOW_PAGE_BAR_STICKY } from "@/components/console/stickyPageBar";
 import { TEXT_ACTION } from "@/components/console/section";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -103,7 +104,7 @@ import { SectionEditor } from "./SectionEditor";
 import { HandWritten } from "./HandWritten";
 import { ScriptHistory } from "./ScriptHistory";
 import { PutLiveDialog, usePutLive } from "./PutLive";
-import { DESKTOP, useMedia } from "./useMedia";
+import { DESKTOP, SIDE_PANEL, useMedia } from "./useMedia";
 import { TaughtRules } from "./TaughtRules";
 import { voiceTierLine } from "../../panels/publishing";
 
@@ -202,6 +203,7 @@ function Editor({
   const session = useClientSession();
   const queryClient = useQueryClient();
   const desktop = useMedia(DESKTOP);
+  const sidePanel = useMedia(SIDE_PANEL);
   const context = out.context ?? null;
   const limits = limitsFrom(context);
 
@@ -416,7 +418,7 @@ function Editor({
             hint: issues.length > 0 ? "Finish the marked parts first." : undefined,
           },
           raw
-            ? { id: "sections", label: "Use sections instead", onSelect: () => setToText(true), disabled: !write.allowed }
+            ? { id: "sections", label: "Use steps instead", onSelect: () => setToText(true), disabled: !write.allowed }
             : { id: "text", label: "Write it by hand instead", onSelect: () => setToText(true), disabled: !write.allowed },
         ]}
       />
@@ -474,7 +476,7 @@ function Editor({
       )}
       {out.stored_schema_version === 1 && !raw && (
         <p className="text-meta text-ink-muted">
-          This script was written in the older format and is shown in sections here. Callers
+          This script was written in the older format and is shown in steps here. Callers
           keep hearing the old one until you put it live.
         </p>
       )}
@@ -510,13 +512,13 @@ function Editor({
                   How the call goes
                 </h3>
                 <p className="mt-1 text-sm text-ink-muted">
-                  {sections.length} of {limits.maxSections} sections. Number 1 starts the call; each
+                  {sections.length} of {limits.maxSections} steps. Step 1 starts the call; each
                   one says where the call goes next.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {desktop && (
-                  <div className="inline-flex rounded-md border border-line" role="group" aria-label="Show the sections as">
+                  <div className="inline-flex rounded-md border border-line" role="group" aria-label="Show the steps as">
                     <ViewButton on={view === "flow"} onClick={() => setView("flow")} icon={<Waypoints aria-hidden className="h-4 w-4" />} label="Flow" />
                     <ViewButton on={view === "list"} onClick={() => setView("list")} icon={<LayoutList aria-hidden className="h-4 w-4" />} label="List" />
                   </div>
@@ -529,7 +531,7 @@ function Editor({
                 {write.allowed && sections.length > 0 && sections.length < limits.maxSections && (
                   <button type="button" className={SECONDARY_BUTTON_SM} onClick={addOne}>
                     <Plus aria-hidden className="h-3.5 w-3.5" />
-                    Add a section
+                    Add a step
                   </button>
                 )}
               </div>
@@ -540,16 +542,16 @@ function Editor({
 
             {sections.length === 0 ? (
               <div className="rounded-card border border-dashed border-line px-4 py-8 text-center">
-                <p className="text-body text-ink">No sections yet.</p>
+                <p className="text-body text-ink">No steps yet.</p>
                 <p className="mx-auto mt-1 max-w-md text-meta text-ink-muted">
                   Most calls go: greet, find out what they need, answer or take the details, agree
-                  what happens next. Add a section for each, or let the AI helper draft them.
+                  what happens next. Add a step for each, or let the AI helper draft them.
                 </p>
                 {write.allowed && (
                   <div className="mt-4 flex flex-wrap justify-center gap-2">
                     <button type="button" className={SECONDARY_BUTTON} onClick={addOne}>
                       <Plus aria-hidden className="h-4 w-4" />
-                      Add a section
+                      Add a step
                     </button>
                     <button type="button" className={SECONDARY_BUTTON} onClick={() => setHelperOpen(true)}>
                       Ask the AI helper
@@ -558,7 +560,13 @@ function Editor({
                 )}
               </div>
             ) : (
-              <div className={desktop ? "grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]" : ""}>
+              <div
+                className={
+                  sidePanel
+                    ? "grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_400px] min-[1800px]:grid-cols-[minmax(0,1fr)_440px]"
+                    : ""
+                }
+              >
                 <div className="min-w-0">
                   {showCanvas ? (
                     <FlowCanvas
@@ -586,22 +594,37 @@ function Editor({
                     />
                   )}
                 </div>
-                {desktop && (
-                  <aside aria-label="Edit the chosen section" className="min-w-0">
-                    {editor ?? (
-                      <p className="rounded-card border border-dashed border-line px-4 py-6 text-meta text-ink-muted">
-                        Choose a section to edit it here.
-                      </p>
+                {sidePanel && (
+                  <aside
+                    aria-label="Edit the chosen step"
+                    className={`min-w-0 self-start rounded-card border border-line bg-surface ${BELOW_PAGE_BAR_STICKY}`}
+                  >
+                    {selectedSection ? (
+                      <>
+                        <p className="border-b border-line px-4 py-3 text-body font-semibold text-ink">
+                          Step {selectedIndex + 1}
+                        </p>
+                        <div className="p-4">{editor}</div>
+                      </>
+                    ) : (
+                      <div className="px-4 py-8 text-center">
+                        <p className="text-body text-ink">Choose a step to edit it here.</p>
+                        <p className="mx-auto mt-1 max-w-64 text-meta text-ink-muted">
+                          {showCanvas
+                            ? "Click a step in the picture. Drag a step to move it, or drag its dot to another step to add a way out."
+                            : "Click a step in the list."}
+                        </p>
+                      </div>
                     )}
                   </aside>
                 )}
               </div>
             )}
-            {!desktop && selectedSection && (
+            {!sidePanel && selectedSection && (
               <Drawer
                 open
                 onClose={() => setSelected(null)}
-                title={`${selectedIndex + 1}. ${selectedSection.name.trim() || "Untitled section"}`}
+                title={`${selectedIndex + 1}. ${selectedSection.name.trim() || "Untitled step"}`}
                 description="Changes save by themselves."
               >
                 {editor}
@@ -640,7 +663,7 @@ function Editor({
       )}
 
       <div className="max-w-3xl border-t border-line pt-6">
-        <TestConversationsPanel agentId={agentId} />
+        <TestConversationsPanel agentId={agentId} current={script} onKeepScript={keep} />
       </div>
 
       <Drawer
@@ -693,8 +716,8 @@ function Editor({
 
       {deleting && (
         <ConfirmDialog
-          title={`Delete ${sections.find((s) => s.id === deleting)?.name.trim() || "this section"}?`}
-          confirmLabel="Delete section"
+          title={`Delete ${sections.find((s) => s.id === deleting)?.name.trim() || "this step"}?`}
+          confirmLabel="Delete step"
           pendingLabel="Deleting…"
           cancelLabel="Keep it"
           pending={false}
@@ -719,8 +742,8 @@ function Editor({
 
       {toText && (
         <ConfirmDialog
-          title={raw ? "Start again with sections?" : "Write the script by hand?"}
-          confirmLabel={raw ? "Start with sections" : "Write it by hand"}
+          title={raw ? "Start again with steps?" : "Write the script by hand?"}
+          confirmLabel={raw ? "Start with steps" : "Write it by hand"}
           pendingLabel="Switching…"
           cancelLabel="Stay as it is"
           pending={false}
@@ -734,8 +757,8 @@ function Editor({
         >
           <p>
             {raw
-              ? "The text box is cleared from your draft and you start with empty sections. To keep your text, use “Turn this into sections” instead."
-              : "Everything you built is copied into one text box, so nothing is lost. The sections are cleared from your draft. Callers keep hearing the live script until you put it live."}
+              ? "The text box is cleared from your draft and you start with empty steps. To keep your text, use “Turn this into steps” instead."
+              : "Everything you built is copied into one text box, so nothing is lost. The steps are cleared from your draft. Callers keep hearing the live script until you put it live."}
           </p>
         </ConfirmDialog>
       )}

@@ -638,9 +638,19 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         "the one prompt being converted: `ConvertIn.raw_text` is capped at 20,000 "
         "characters and only lines of three words or more are listed."
     ),
+    "GET /v1/agents/{agent_id}/script/tests": BoundedByConstruction(
+        by="one run's `results`, at most `MAX_GENERATED` scenarios plus `MAX_SAVED` saved "
+        "tests and six re-asked failures, each of at most `MAX_TURNS` turns, and `history`, "
+        "at most `HISTORY_RUNS` runs (`agents.test_conversations` constants)."
+    ),
     "POST /v1/agents/{agent_id}/script/tests": BoundedByConstruction(
-        by="one run's `results`, one per scenario in `agents.test_conversations.SCENARIOS`, "
-        "a code constant — never a count of the client's rows."
+        by="the same shape as `GET .../script/tests`: one run's scenarios under "
+        "`agents.test_conversations` constants and at most `HISTORY_RUNS` history rows."
+    ),
+    "POST /v1/agents/{agent_id}/script/tests/{run_id}/improve": BoundedByConstruction(
+        by="one proposal: two `CallScript`s under the `call_script` ceilings, at most 30 "
+        "changes and 10 facts (`workers/agent_test_ai.proposal_from_model`), and `for_keys`, "
+        "the keys of one run's scenarios."
     ),
     # Calling setup (D-716): one plan per client.
     "GET /v1/lead-calling": BoundedByConstruction(
@@ -658,6 +668,46 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         "(`tenancy.engine_workspace.studio_workspaces`, LIMIT 1000), bounded by the clients "
         "we provision rather than by anything a client mints. A page would hide a workspace "
         "from the operator deciding whether the developer switch can go off."
+    ),
+    # The Voices page writes (D-721): each answers with ONE voice. Its only list is that
+    # voice's `languages`, the handful the vendor's listing gives it.
+    "POST /v1/ops/voices/hosted": BoundedByConstruction(
+        by="one `HostedVoiceOut`; `languages` is the one voice's vendor-listed languages."
+    ),
+    "PATCH /v1/ops/voices/hosted": BoundedByConstruction(
+        by="one `HostedVoiceOut`; `languages` is the one voice's vendor-listed languages."
+    ),
+    "PATCH /v1/ops/voices/hosted/display-name": BoundedByConstruction(
+        by="one `HostedVoiceOut`; `languages` is the one voice's vendor-listed languages."
+    ),
+    "PATCH /v1/ops/voices/hosted/person-clone": BoundedByConstruction(
+        by="one `HostedVoiceOut`; `languages` is the one voice's vendor-listed languages."
+    ),
+    "POST /v1/ops/voices/hosted/clone-consent": BoundedByConstruction(
+        by="one `HostedVoiceOut`; `languages` is the one voice's vendor-listed languages."
+    ),
+    "POST /v1/ops/voices/hosted/preview": BoundedByConstruction(
+        by="one `HostedVoiceOut`; `languages` is the one voice's vendor-listed languages."
+    ),
+    "POST /v1/ops/voices/hosted/preview/fetch": BoundedByConstruction(
+        by="one `HostedVoiceOut`; `languages` is the one voice's vendor-listed languages."
+    ),
+    "POST /v1/ops/voices/clones": BoundedByConstruction(
+        by="one `HostedVoiceOut` for the clone just made; `languages` is that voice's own."
+    ),
+    # D-720: the surfaces besides the phone the engine reports for one agent.
+    "GET /v1/agents/{agent_id}/engine-state": BoundedByConstruction(
+        by="`answers_also_on` is the engine's `voice.surfaces` for ONE agent less the phone: "
+        "a vendor enum of channels (website call button, WhatsApp), never a row count."
+    ),
+    # D-722: `choices` is every business type, a static seed table, never a row count.
+    "GET /v1/admin/tenants/{tenant_id}/business-type": BoundedByConstruction(
+        by="`choices` is one row per `scripts/seed.BUSINESS_TYPE_LABELS` entry, a fixed "
+        "product list whose size is a product decision."
+    ),
+    "POST /v1/admin/tenants/{tenant_id}/business-type/confirm": BoundedByConstruction(
+        by="`choices` is one row per `scripts/seed.BUSINESS_TYPE_LABELS` entry, a fixed "
+        "product list whose size is a product decision."
     ),
     "POST /v1/ops/voices/studio-voices/enable": BoundedByConstruction(
         by="the same `StudioVoicesOut` as `GET /v1/ops/voices/studio-voices`, re-read after "

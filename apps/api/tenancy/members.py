@@ -39,6 +39,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import text
@@ -53,6 +54,9 @@ from apps.api.db.result import rowcount_of
 # cannot drift.
 from apps.api.tenancy.models import MEMBER_ROLES
 
+if TYPE_CHECKING:
+    from apps.api.admin.service import ResentInvitation
+
 __all__ = [
     "MEMBER_ROLES",
     "PendingInvitation",
@@ -63,6 +67,7 @@ __all__ = [
     "list_pending_invitations",
     "lock_owner_ids",
     "remove_member",
+    "resend_team_invitation",
     "revoke_invitation",
 ]
 
@@ -381,6 +386,35 @@ async def create_team_invitation(
     return await admin_service.create_invitation(
         session, tenant_id=tenant_id, email=email, role=role, created_by=actor_user_id
     )
+
+
+async def resend_team_invitation(
+    session: AsyncSession, *, actor_role: str | None, invitation_id: UUID
+) -> ResentInvitation:
+    """Send a pending invitation again, to the address it already has.
+
+    The rotation is `admin.service.resend_invitation` (new link, old link dead, clock
+    restarted, rate-limited on the row), for the reason `create_team_invitation` reuses the
+    mint. An owner may only re-send a role they could grant, so the row's role is checked
+    first; the address is never changed here, because correcting it is an operator
+    attestation the client realm cannot make.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT role FROM invitations "
+                "WHERE id = :i AND used_at IS NULL AND expires_at > now()"
+            ),
+            {"i": invitation_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Invitation")
+    assert_role_is_grantable(actor_role, str(row[0]))
+
+    from apps.api.admin import service as admin_service
+
+    return await admin_service.resend_invitation(session, invitation_id=invitation_id)
 
 
 @dataclass(frozen=True, slots=True)

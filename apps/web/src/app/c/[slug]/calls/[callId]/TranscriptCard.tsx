@@ -1,38 +1,47 @@
 "use client";
 
-import { Eye } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Eye, Languages } from "lucide-react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import { Section } from "@/components/console/section";
-import { NoticeBox, ProblemNotice, RestrictionNote, ToggleSwitch } from "@/components/ui";
+import { SegmentedControl } from "@/components/interior/segmented-control";
+import { NoticeBox, ProblemNotice, RestrictionNote, SECONDARY_BUTTON } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
 import { formatClock } from "@/components/callAudioPlayer";
 import type { CallDetail } from "@/lib/api/client";
-import { activeTurnIdx, groupTurns, langAttr } from "@/lib/callReview";
+import type { WriteAccess } from "@/lib/api/hooks";
+import { activeTurnIdx, groupTurns, isEnglishCall, langAttr, languageName } from "@/lib/callReview";
 import { lookup } from "@/lib/lookup";
 
+import type { CallView } from "./callEnglish";
 import { SPEAKERS } from "./speakers";
 import { RawTranscriptControl, type RawTranscriptAccess } from "./transcriptAccess";
 
 type Turn = NonNullable<CallDetail["transcript"]>[number];
 
 /**
- * THE CONVERSATION — the recording, and the transcript read as a script under it.
+ * THE CONVERSATION — the recording, and the call read back as a chat under it.
  *
- * The recording sits directly above the turns and stays on screen while they scroll, so
- * pressing a line and hearing it are one gesture. The turns are rows with a time gutter;
- * the speaker's word is printed only when the speaker changes, so a run of lines by one
- * person reads as one block (founder, REDESIGN-2: a plain script, no bubbles, no icons).
- * Indic text is set at 16px with open leading and carries its `lang`, which is also what
- * picks the Telugu or Devanagari face (`globals.css`). "Show English" puts the English of
- * each turn under it; the original stays the record (founder decision 5).
+ * The agent speaks from the left beside its initial, the caller from the right, each line
+ * in a quiet bubble with its time under the words (founder, 11 Oct 2026; REDESIGN-2's
+ * "plain script, no bubbles" is superseded for this panel). The recording above stays on
+ * screen while the lines scroll: pressing a line plays from it, the line being played is
+ * outlined, and the list follows the audio while the reader is following it.
  *
- * Hard rule 5 lives here too: which transcript you are reading is said above the turns
- * in both states, and a raw read that FAILS leaves the redacted turns where they were.
+ * ONE language switch serves the whole page: it sits here, above the lines, and the
+ * summary at the top of the page follows it. It is always shown for a call that was not in
+ * English, whatever state its English is in, and each state is said in words: being
+ * prepared, could not be prepared (with "Try again"), or from before English was added.
+ *
+ * Hard rule 5 lives here too: which transcript you are reading is said above the lines in
+ * both states, and a raw read that FAILS leaves the redacted lines where they were.
  */
 export function TranscriptCard({
   detail,
   turns,
+  view,
+  onViewChange,
+  english,
   showingRaw,
   showRaw,
   rawError,
@@ -45,10 +54,15 @@ export function TranscriptCard({
   audioLoaded,
   playhead,
   onSeek,
+  marker,
   className = "",
 }: {
-  detail: Pick<CallDetail, "status" | "summary_state" | "translation_state">;
+  detail: Pick<CallDetail, "status" | "summary_state" | "translation_state" | "language" | "agent_name" | "lead_name">;
   turns: Turn[];
+  view: CallView;
+  onViewChange: (view: CallView) => void;
+  /** Asking for the English again, and who may. */
+  english: EnglishRetry;
   showingRaw: boolean;
   showRaw: boolean;
   rawError: unknown;
@@ -63,12 +77,15 @@ export function TranscriptCard({
   audioLoaded: boolean;
   playhead: number | null;
   onSeek: (ms: number) => void;
+  /** Drawn under a line: the key moments that belong to it. */
+  marker?: (turn: Turn) => ReactNode;
   className?: string;
 }) {
-  const [english, setEnglish] = useState(false);
-  const hasEnglish = turns.some((turn) => Boolean(turn.text_en));
   const active = activeTurnIdx(turns, playhead === null ? null : playhead * 1000);
   const listRef = useFollowAlong(active);
+  const englishCall = isEnglishCall(detail.language);
+  const showEnglish = view === "english" && !englishCall;
+  const missing = showEnglish ? englishMissing(detail.translation_state, turns) : null;
 
   return (
     <Section
@@ -80,7 +97,9 @@ export function TranscriptCard({
     >
       <div className="space-y-4">
         {player ? (
-          <div className="sticky top-0 z-10 -mx-1 border-b border-line bg-surface px-1 pb-3 pt-1">{player}</div>
+          // Flush under the shell header: the negative offset cancels <main>'s top padding
+          // (`SHELL_MAIN_CLASS`), so no strip of transcript scrolls above the player.
+          <div className="sticky -top-4 z-10 -mx-1 border-b border-line bg-surface px-1 pb-3 pt-3 lg:-top-8">{player}</div>
         ) : noRecording ? (
           <p className="text-meta text-ink-faint">There is no recording of this call.</p>
         ) : null}
@@ -107,34 +126,35 @@ export function TranscriptCard({
         {showRaw && rawError != null && <ProblemNotice error={rawError} onRetry={onRetryRaw} />}
 
         {turns.length > 0 && (
-          <EnglishSwitch
-            state={detail.translation_state}
-            available={hasEnglish}
-            on={english}
-            onToggle={() => setEnglish((v) => !v)}
-          />
+          <LanguageSwitch language={detail.language} englishCall={englishCall} view={view} onChange={onViewChange} />
         )}
 
-        {turns.length ? (
-          <ol ref={listRef} className="space-y-4">
+        {turns.length === 0 ? (
+          <EmptyState {...emptyTranscript(detail)} />
+        ) : missing === "pending" ? (
+          <EnglishPreparing />
+        ) : missing ? (
+          <EnglishUnavailable state={missing} language={detail.language} retry={english} />
+        ) : (
+          <ol ref={listRef} className="space-y-5" aria-label="The conversation, line by line">
             {groupTurns(turns).map((group) => {
-              const speaker = lookup(SPEAKERS, group.speaker);
               const agent = group.speaker === "agent";
-              const name = speaker?.label ?? group.speaker;
               return (
-                <li key={group.turns[0].idx}>
-                  <p className={`mb-0.5 pl-14 text-meta font-medium ${agent ? "text-brand-strong" : "text-ink-muted"}`}>
-                    {name}
-                  </p>
-                  <div className="space-y-0.5">
-                    {group.turns.map((turn) => (
-                      <TurnRow
+                <li key={group.turns[0].idx} className={agent ? "flex items-start gap-2.5" : "flex justify-end"}>
+                  {agent && <AgentMark name={detail.agent_name} />}
+                  <div className={`flex min-w-0 max-w-[85%] flex-col gap-1.5 sm:max-w-[75%] ${agent ? "items-start" : "items-end"}`}>
+                    <p className="px-1 text-meta font-medium text-ink-muted">{speakerName(group.speaker, detail)}</p>
+                    {group.turns.map((turn, i) => (
+                      <Bubble
                         key={turn.idx}
                         turn={turn}
-                        english={english}
+                        agent={agent}
+                        first={i === 0}
+                        english={showEnglish}
                         seekable={audioLoaded && turn.start_ms != null}
                         active={active === turn.idx}
                         onSeek={onSeek}
+                        marker={marker?.(turn)}
                       />
                     ))}
                   </div>
@@ -142,12 +162,18 @@ export function TranscriptCard({
               );
             })}
           </ol>
-        ) : (
-          <EmptyState {...emptyTranscript(detail)} />
         )}
       </div>
     </Section>
   );
+}
+
+/** "Try again" for the English: the request, and whether this person may make it. */
+export interface EnglishRetry {
+  access: WriteAccess;
+  onRetry: () => void;
+  pending: boolean;
+  error: unknown;
 }
 
 function emptyTranscript(detail: Pick<CallDetail, "status" | "summary_state">): { message: string; hint?: string } {
@@ -157,93 +183,209 @@ function emptyTranscript(detail: Pick<CallDetail, "status" | "summary_state">): 
   return { message: "No transcript yet", hint: "Transcripts arrive a couple of minutes after the call ends." };
 }
 
+function speakerName(speaker: string, detail: Pick<CallDetail, "agent_name" | "lead_name">): string {
+  if (speaker === "agent") return detail.agent_name?.trim() || "Agent";
+  if (speaker === "caller") return detail.lead_name?.trim() || "Caller";
+  // A speaker this build has never heard of keeps its own name rather than vanishing.
+  return lookup(SPEAKERS, speaker)?.label ?? speaker;
+}
+
 /**
- * One turn: the time in the gutter, the words, and their English under them when asked.
- * A turn is a button only when it can do something — the audio is loaded AND the turn
- * carries a time; otherwise it is text, never a control that silently does nothing.
+ * Why the English view cannot show English yet, or null when it can. A call whose lines
+ * already carry English shows them whatever the state says; a line with no English of its
+ * own (one spoken in English) shows as it was said.
  */
-function TurnRow({
-  turn,
-  english,
-  seekable,
-  active,
-  onSeek,
+function englishMissing(
+  state: CallDetail["translation_state"],
+  turns: readonly Turn[],
+): "pending" | "failed" | "unavailable" | null {
+  if (turns.some((turn) => Boolean(turn.text_en))) return null;
+  if (state === "pending" || state === "failed" || state === "unavailable") return state;
+  return null;
+}
+
+/** The one language control on the page. An English call needs none, and says so. */
+function LanguageSwitch({
+  language,
+  englishCall,
+  view,
+  onChange,
 }: {
-  turn: Turn;
-  english: boolean;
-  seekable: boolean;
-  active: boolean;
-  onSeek: (ms: number) => void;
+  language: string;
+  englishCall: boolean;
+  view: CallView;
+  onChange: (view: CallView) => void;
 }) {
-  const at = turn.start_ms;
-  const clock = at == null ? "" : formatClock(at / 1000);
-  const body = (
-    <>
-      <span className="pt-0.5 text-meta tabular-nums text-ink-faint">
-        {/* The button's name starts with where it goes; the gutter shows the same time. */}
-        {seekable ? (
-          <>
-            <span className="sr-only">{`Play from ${clock},`}</span>
-            <span aria-hidden>{clock}</span>
-          </>
-        ) : (
-          clock
-        )}
-      </span>
-      <span className="min-w-0">
-        <span lang={langAttr(turn.lang)} className="block break-words text-transcript text-ink">
-          {turn.text}
-        </span>
-        {english && turn.text_en && (
-          <span lang="en" className="mt-0.5 block text-body text-ink-muted">
-            {turn.text_en}
-          </span>
-        )}
-      </span>
-    </>
-  );
-  const shape = `grid w-full scroll-mt-48 grid-cols-[3rem_minmax(0,1fr)] gap-x-2 rounded-md px-2 py-1 text-left transition-colors duration-(--duration-fast) ease-out motion-reduce:transition-none ${
-    active ? "bg-brand-soft/60" : ""
-  }`;
-  if (seekable && at != null) {
-    return (
-      <button
-        type="button"
-        data-turn={turn.idx}
-        onClick={() => onSeek(at)}
-        aria-current={active ? "true" : undefined}
-        className={`${shape} hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand`}
-      >
-        {body}
-      </button>
-    );
+  if (englishCall) {
+    return <p className="text-meta text-ink-faint">This call was in English.</p>;
   }
   return (
-    <div data-turn={turn.idx} className={shape}>
-      {body}
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <SegmentedControl
+        label="Language of the conversation and summary"
+        value={view}
+        onValueChange={(next) => onChange(next === "english" ? "english" : "original")}
+        options={[
+          { value: "original", label: languageName(language) ?? "As spoken" },
+          { value: "english", label: "English" },
+        ]}
+      />
+      <span className="text-meta text-ink-faint">Also changes the summary.</span>
     </div>
   );
 }
 
-/**
- * "Show English" — one switch for the whole transcript, with the translation's state said
- * in words while it is not there yet.
- */
-function EnglishSwitch({
+/** The English is on its way: said, and drawn as the shape it will take. */
+function EnglishPreparing() {
+  const bar = "animate-pulse rounded-2xl bg-ink/[0.06] motion-reduce:animate-none";
+  return (
+    <div role="status" aria-live="polite" className="space-y-4">
+      <p className="text-body text-ink-muted">English is being prepared. It appears here on its own, usually within a minute.</p>
+      <div aria-hidden className="space-y-3">
+        <div className="flex items-start gap-2.5">
+          <div className="h-7 w-7 shrink-0 rounded-full bg-ink/[0.06]" />
+          <div className={`${bar} h-12 w-3/5`} />
+        </div>
+        <div className="flex justify-end">
+          <div className={`${bar} h-10 w-1/2`} />
+        </div>
+        <div className="flex items-start gap-2.5">
+          <div className="h-7 w-7 shrink-0 rounded-full bg-ink/[0.06]" />
+          <div className={`${bar} h-16 w-2/3`} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** No English, and why, with the one action that fixes it. */
+function EnglishUnavailable({
   state,
-  available,
-  on,
-  onToggle,
+  language,
+  retry,
 }: {
-  state: CallDetail["translation_state"];
-  available: boolean;
-  on: boolean;
-  onToggle: () => void;
+  state: "failed" | "unavailable";
+  language: string;
+  retry: EnglishRetry;
 }) {
-  if (available) return <ToggleSwitch label="Show English" checked={on} onChange={onToggle} />;
-  if (state === "pending") return <p className="text-meta text-ink-faint">The English of each line is still being written.</p>;
-  if (state === "failed") return <p className="text-meta text-ink-faint">The English of each line could not be written for this call.</p>;
-  return null;
+  const spoken = languageName(language) ?? "the language it was spoken in";
+  return (
+    <div className="space-y-3 rounded-md border border-line px-4 py-4">
+      <p className="text-body text-ink">
+        {state === "failed"
+          ? "The English for this call could not be prepared."
+          : "This call came in before English was added to call reviews."}
+      </p>
+      <p className="text-meta text-ink-muted">
+        The conversation is complete in {spoken}. Preparing the English uses a little of this month&apos;s AI help.
+      </p>
+      {retry.error != null && <ProblemNotice error={retry.error} />}
+      <RestrictionNote reason={retry.access.allowed ? null : retry.access.reason} />
+      <button
+        type="button"
+        className={SECONDARY_BUTTON}
+        disabled={!retry.access.allowed || retry.pending}
+        onClick={retry.onRetry}
+      >
+        <Languages aria-hidden className="h-4 w-4" />
+        {retry.pending ? "Asking…" : state === "failed" ? "Try again" : "Prepare the English"}
+      </button>
+    </div>
+  );
+}
+
+/** The agent's initial in a small circle, once per run of its lines. */
+function AgentMark({ name }: { name: string | null | undefined }) {
+  const initial = (name?.trim() || "A").charAt(0).toUpperCase();
+  return (
+    <span
+      aria-hidden
+      className="mt-6 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand-strong dark:bg-brand/20 dark:text-brand-bright"
+    >
+      {initial}
+    </span>
+  );
+}
+
+/** `~0:21` when the platform's time for the line is approximate, `0:21` when exact. */
+function lineClock(turn: Turn): string {
+  if (turn.start_ms == null) return "";
+  return `${turn.start_approximate ? "~" : ""}${formatClock(turn.start_ms / 1000)}`;
+}
+
+/**
+ * One line. A bubble is a button only when it can do something — the audio is loaded AND
+ * the line carries a time; otherwise it is text, never a control that silently does nothing.
+ */
+function Bubble({
+  turn,
+  agent,
+  first,
+  english,
+  seekable,
+  active,
+  onSeek,
+  marker,
+}: {
+  turn: Turn;
+  agent: boolean;
+  first: boolean;
+  english: boolean;
+  seekable: boolean;
+  active: boolean;
+  onSeek: (ms: number) => void;
+  marker?: ReactNode;
+}) {
+  const clock = lineClock(turn);
+  const translated = english && Boolean(turn.text_en);
+  const words = translated ? turn.text_en : turn.text;
+  const lang = translated ? "en" : langAttr(turn.lang);
+  const shape = [
+    "block w-fit max-w-full rounded-2xl px-3.5 py-2 text-left",
+    "transition-[background-color,box-shadow] duration-(--duration-fast) ease-out motion-reduce:transition-none",
+    agent ? "bg-ink/[0.045] dark:bg-white/[0.07]" : "bg-brand-soft dark:bg-brand/20",
+    first ? (agent ? "rounded-tl-md" : "rounded-tr-md") : "",
+    active ? "ring-2 ring-brand" : "",
+  ].join(" ");
+  const body = (
+    <>
+      <span lang={lang} className="block whitespace-pre-wrap break-words text-transcript text-ink">
+        {words}
+      </span>
+      {clock && (
+        <span className={`mt-0.5 block text-[12px] leading-4 tabular-nums text-ink-faint ${agent ? "" : "text-right"}`}>
+          {seekable ? (
+            <>
+              <span className="sr-only">{`Play from ${clock}`}</span>
+              <span aria-hidden>{clock}</span>
+            </>
+          ) : (
+            clock
+          )}
+        </span>
+      )}
+    </>
+  );
+  return (
+    <div className={`flex max-w-full flex-col gap-1 ${agent ? "items-start" : "items-end"}`}>
+      {seekable && turn.start_ms != null ? (
+        <button
+          type="button"
+          data-turn={turn.idx}
+          onClick={() => onSeek(turn.start_ms ?? 0)}
+          aria-current={active ? "true" : undefined}
+          className={`${shape} scroll-mt-48 ${agent ? "hover:bg-ink/[0.07] dark:hover:bg-white/[0.1]" : "hover:bg-brand-soft/70 dark:hover:bg-brand/30"} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2`}
+        >
+          {body}
+        </button>
+      ) : (
+        <div data-turn={turn.idx} className={`${shape} scroll-mt-48`}>
+          {body}
+        </div>
+      )}
+      {marker}
+    </div>
+  );
 }
 
 /**

@@ -75,10 +75,24 @@ async def test_two_spellings_of_one_caller_are_one_lead() -> None:
     spaced = f"{digits[:3]} {digits[3:8]} {digits[8:]}"
     assert spaced != digits and normalize_phone(spaced) == digits
 
+    # Real call rows: a repeat caller is counted from the lead's own non-test calls
+    # (founder decision 7), so a call id that names no call cannot make one.
+    first_call, second_call = uuid.uuid4(), uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        for call_id in (first_call, second_call):
+            await session.execute(
+                text(
+                    "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                    "status, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
+                    "'inbound', 'completed', now(), now())"
+                ),
+                {"id": call_id, "tid": tenant_id, "aid": agent_id, "ecid": f"c-{call_id.hex}"},
+            )
+
     first = await pipeline._upsert_lead(
         tenant_id,
         agent_id,
-        uuid.uuid4(),
+        first_call,
         _snapshot(f"e1_{uuid.uuid4().hex[:8]}", from_e164=digits),
         direction="inbound",
         data={},
@@ -87,7 +101,7 @@ async def test_two_spellings_of_one_caller_are_one_lead() -> None:
     second = await pipeline._upsert_lead(
         tenant_id,
         agent_id,
-        uuid.uuid4(),
+        second_call,
         _snapshot(f"e2_{uuid.uuid4().hex[:8]}", from_e164=spaced),
         direction="inbound",
         data={},

@@ -41,6 +41,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.live_apply import queue_live_apply
 from apps.api.agents.llm_models import (
     QUOTED_CALL_MINUTES,
     LlmModelSource,
@@ -58,7 +59,6 @@ from apps.api.agents.llm_tiers import (
     tier_of_model,
 )
 from apps.api.agents.roster import AGENT_ROSTER_LIMIT
-from apps.api.agents.service import publish_agent
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.billing.rates import llm_surcharge_applies
 from apps.api.billing.service import rate_to_display
@@ -339,12 +339,11 @@ _ORG_MODEL_FOR_UPDATE = (
     "SELECT default_llm_model FROM organizations WHERE deleted_at IS NULL FOR UPDATE"
 )
 
-#: The agents this account's default actually MOVES: live, known to the engine, and with
-#: no choice of their own. `ORDER BY id` because `publish_agent` takes `FOR UPDATE` on each
-#: row, and a total order over the key every writer uses makes a deadlock impossible.
-_INHERITING_LIVE_AGENTS = (
-    "SELECT id FROM agents WHERE deleted_at IS NULL AND status = 'live' "
-    "AND engine_agent_ref IS NOT NULL AND llm_model IS NULL ORDER BY id"
+#: Whether this account default MOVES any live agent: one that is known to the engine and
+#: has no model of its own.
+_INHERITING_LIVE_AGENT = (
+    "SELECT 1 FROM agents WHERE deleted_at IS NULL AND status = 'live' "
+    "AND engine_agent_ref IS NOT NULL AND llm_model IS NULL LIMIT 1"
 )
 
 
@@ -365,10 +364,11 @@ async def _write_default(session: AsyncSession, *, tenant_id: UUID, model: str |
     and each republish (BACKEND-PATTERNS §5). Re-taking the lock in a transaction that
     already holds it is free.
 
-    **AND IT REPUBLISHES THE AGENTS THIS MOVES**, in the same transaction and after the
-    column write, as `set_call_cap` does: `_to_config` resolves the account default at
-    PUBLISH time, so an unpublished change would leave every inheriting live agent on the
-    old model while every screen reported the new one. A vendor failure rolls the row back.
+    **AND IT PUTS THE AGENTS THIS MOVES ON THE NEW MODEL**: `_to_config` resolves the
+    account default at publish time, so the write queues the client's live apply in this
+    transaction (D-720) and every inheriting live agent is republished straight after the
+    commit, a call in progress finishing first. A vendor failure is retried per agent and
+    alarmed, rather than refusing the client's choice.
 
     Re-asserting the value already on file touches nothing — a double-clicked Save must not
     become a fleet-wide republish.
@@ -383,8 +383,10 @@ async def _write_default(session: AsyncSession, *, tenant_id: UUID, model: str |
         ),
         {"model": model},
     )
-    for agent_id in (await session.execute(text(_INHERITING_LIVE_AGENTS))).scalars().all():
-        await publish_agent(session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)))
+    if (await session.execute(text(_INHERITING_LIVE_AGENT))).first() is not None:
+        await queue_live_apply(
+            session, scope="tenant", tenant_id=tenant_id, reason="default_llm_model"
+        )
     return True
 
 

@@ -38,7 +38,7 @@ export function useAgentSections(agent: Agent, slug: string): SettingsSection[] 
         ? "Written by hand"
         : script.data.version === null && count === 0
           ? "Not written yet"
-          : `${count} ${count === 1 ? "section" : "sections"}`;
+          : `${count} ${count === 1 ? "step" : "steps"}`;
     scriptLine = hasUnpublished(script.data, copy) ? `${shape} · changes waiting` : shape;
   }
 

@@ -2,7 +2,7 @@
 
 import { Trash2 } from "lucide-react";
 
-import { FIELD, FIELD_LABEL, SECONDARY_BUTTON_SM, ToggleSwitch } from "@/components/ui";
+import { FIELD, FIELD_LABEL, SECONDARY_BUTTON_SM, ToggleSwitch, formatPhone } from "@/components/ui";
 import type { BusinessContact } from "@/lib/api/businessProfile";
 
 import type { HandoverDraft } from "./handover";
@@ -35,7 +35,9 @@ export function HandoverRow({
           <p className="truncate text-sm font-medium text-ink" title={name}>
             {name}
           </p>
-          {contact && <p className="font-mono text-xs text-ink-muted">{contact.phone_e164}</p>}
+          {contact && (
+            <p className="text-xs tabular-nums text-ink-muted">{formatPhone(contact.phone_e164)}</p>
+          )}
           <label className="mt-2 block">
             <span className={FIELD_LABEL}>Note for this agent (optional)</span>
             <input

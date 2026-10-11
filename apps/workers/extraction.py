@@ -100,7 +100,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Final, Protocol
+from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 import httpx
 from calevate_shared.engine import (
@@ -114,7 +114,9 @@ from calevate_shared.extraction import (
     ExtractionField,
     ExtractionOutput,
     ExtractionSchemaSpec,
+    MomentsBrief,
     build_extraction_prompt,
+    clean_moment_candidates,
     clip_headline,
     validate_extraction,
 )
@@ -322,7 +324,16 @@ class SarvamExtractor:
             dialect="sarvam",
         )
 
-    async def run(self, spec: ExtractionSchemaSpec, transcript: str) -> dict[str, Any]:
+    #: This runner can be asked for key moments in the same request (`extract_call`).
+    reads_moments: Final = True
+
+    async def run(
+        self,
+        spec: ExtractionSchemaSpec,
+        transcript: str,
+        *,
+        moments: MomentsBrief | None = None,
+    ) -> dict[str, Any]:
         # ONE chat client for the whole repository (`workers/chat.py`). The empty-`choices`
         # arm that used to live here — the provider declining to answer, which indexed
         # blindly turns "the model said nothing" into an IndexError that escapes
@@ -331,7 +342,12 @@ class SarvamExtractor:
         self.last_usage = None
         outcome = await chat.complete(
             self._leg,
-            [{"role": "user", "content": build_extraction_prompt(spec, transcript)}],
+            [
+                {
+                    "role": "user",
+                    "content": build_extraction_prompt(spec, transcript, moments=moments),
+                }
+            ],
             timeout_s=self._timeout_s,
             temperature=0,
             response_format={"type": "json_object"},
@@ -2032,8 +2048,35 @@ def _provider_of(runner: Extractor) -> str | None:
     return None
 
 
+async def _run(
+    runner: Extractor,
+    spec: ExtractionSchemaSpec,
+    transcript: str,
+    moments: MomentsBrief | None,
+) -> dict[str, Any]:
+    """One `run`, asking for key moments in the same request when the runner can.
+
+    Only a runner that declares `reads_moments` is handed the brief: the offline baseline
+    has no model to ask, and the `Extractor` protocol stays two arguments for every test
+    double and harness that implements it.
+    """
+    if moments is not None and getattr(runner, "reads_moments", False):
+        return await cast(_ReadsMoments, runner).run(spec, transcript, moments=moments)
+    return await runner.run(spec, transcript)
+
+
+class _ReadsMoments(Protocol):
+    async def run(
+        self, spec: ExtractionSchemaSpec, transcript: str, *, moments: MomentsBrief | None = None
+    ) -> dict[str, Any]: ...
+
+
 async def extract_call(
-    spec: ExtractionSchemaSpec, transcript: str, *, extractor: Extractor | None = None
+    spec: ExtractionSchemaSpec,
+    transcript: str,
+    *,
+    extractor: Extractor | None = None,
+    moments: MomentsBrief | None = None,
 ) -> ExtractionOutput:
     """Run one extraction pass and validate it against the schema.
 
@@ -2060,13 +2103,13 @@ async def extract_call(
     provider = _provider_of(runner)
     try:
         if provider is None:
-            raw = await runner.run(spec, transcript)
+            raw = await _run(runner, spec, transcript, moments)
         else:
             # The provider-health hook sits HERE, around the whole `run`, and not around
             # each HTTP request: Azure's 400 → `json_object` degrade is two requests and
             # one answer, and only the answer says whether the leg works.
             async with provider_health.watch("extraction", provider):
-                raw = await runner.run(spec, transcript)
+                raw = await _run(runner, spec, transcript, moments)
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
         # IndexError/TypeError belong here with the rest: a provider response whose
         # shape we did not expect is a MODEL failure, and this ladder exists so a model
@@ -2101,6 +2144,7 @@ async def extract_call(
         valid=outcome.valid,
         errors=outcome.errors,
         needs_review=outcome.needs_review,
+        moments=(clean_moment_candidates(raw.get("moments"), spec) if moments is not None else []),
     )
 
 

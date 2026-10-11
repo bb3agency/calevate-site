@@ -18,6 +18,7 @@ import { ArrowLeft, History, Sparkles } from "lucide-react";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON, formatCount, formatIST } from "@/components/ui";
 import { Drawer } from "@/components/console/drawer";
 import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
+import { StickyPageBar } from "@/components/console/stickyPageBar";
 
 import type { SaveState } from "./scriptDraft";
 
@@ -70,7 +71,7 @@ export function ScriptToolbar({
 }) {
   const warn = save.kind === "held" || save.kind === "conflict" || save.kind === "failed";
   return (
-    <div className="sticky -top-4 z-20 -mx-4 -mt-4 border-b border-line bg-surface/95 px-4 py-3 backdrop-blur-sm lg:-top-6 lg:-mx-8 lg:-mt-6 lg:px-8">
+    <StickyPageBar>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="flex min-w-0 flex-1 basis-60 items-center gap-3">
           <Link
@@ -119,7 +120,7 @@ export function ScriptToolbar({
           {menu.length > 0 && <RowMenu label="this script" items={menu} />}
         </div>
       </div>
-    </div>
+    </StickyPageBar>
   );
 }
 

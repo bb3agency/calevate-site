@@ -444,7 +444,13 @@ async def test_a_doorbell_for_a_run_with_no_result_yet_is_acknowledged_as_pendin
 # --- the dial gate and the entity list -----------------------------------------------
 
 
-async def test_an_open_payment_dispute_pauses_outbound() -> None:
+async def test_an_open_payment_dispute_pauses_outbound(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Inside the calling window: the first assertion is about the dispute, not the hour.
+    # `ist_now` is the IST wall clock carried on a UTC-tagged datetime.
+    from datetime import UTC, datetime
+
+    noon_ist = datetime(2026, 8, 11, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: noon_ist)
     tenant_id, agent_id = await _tenant_agent()
     await arm_agent_for_outbound(tenant_id, agent_id)
     assert (await _gate(tenant_id, agent_id)).allowed  # type: ignore[attr-defined]

@@ -89,7 +89,7 @@ def test_parser_on_empty_json_is_an_empty_v2_script() -> None:
 
 
 def test_an_edit_keeps_the_current_script_and_its_section_ids() -> None:
-    from apps.workers.script_assist import _edited_script
+    from apps.workers.script_assist import edited_script as _edited_script
     from calevate_shared.call_script import CallScript, ConversationStage
 
     current = CallScript(

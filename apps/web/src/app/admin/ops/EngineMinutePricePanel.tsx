@@ -24,6 +24,7 @@ import {
   useAttestEngineMinutePrice,
   useEngineMinutePrices,
   type EngineMinutePrice,
+  type EngineMinutePrices,
 } from "@/lib/api/engineMinutePricing";
 import { lookup } from "@/lib/lookup";
 
@@ -48,6 +49,22 @@ export function saleNote(row: EngineMinutePrice): string {
   if (row.sold_as) return `Sold to clients as ${row.sold_as}.`;
   if (row.rate_key === "platform") return "Not sold on its own — needed before any voice is offered.";
   return "Not sold to clients — recorded for cost only.";
+}
+
+/**
+ * "10% on pay-as-you-go, 9% on Pro", from the server's fee list rather than typed here, so
+ * the sentence moves with the fee the meter actually adds.
+ */
+export function feeSentence(fees: EngineMinutePrices["topup_fees"]): string {
+  return fees.map((fee) => `${fee.percent}% on ${fee.plan}`).join(", ");
+}
+
+/** The all-in figure beside a posted rate: what a billed minute is metered at. */
+export function allInNote(row: EngineMinutePrice): string | null {
+  if (!row.inr_per_min_with_fee) return null;
+  if (row.topup_fee_percent === "0") return null;
+  const plan = row.topup_fee_plan ? `, ${row.topup_fee_plan}` : "";
+  return `${formatRupeeRate(row.inr_per_min_with_fee)} with the ${row.topup_fee_percent}% top-up fee${plan}`;
 }
 
 function rowId(row: EngineMinutePrice): string {
@@ -84,6 +101,7 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
   }
 
   const rows = prices.data ? prices.data.prices : null;
+  const fees = prices.data ? feeSentence(prices.data.topup_fees) : null;
   const platformUnpriced = Boolean(
     rows?.some((row) => row.rate_key === "platform" && !row.billable),
   );
@@ -92,9 +110,10 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
     <Section title="Per-minute rates">
       <div className="space-y-4">
         <p className="text-body text-ink-muted">
-          What a billed minute costs this account on a voice platform that reports no cost
-          for a call. Calls are billed in 30-second steps. Type the figure from your own
-          invoice or plan page.
+          For a voice platform that reports no cost for a call: the voice platform&apos;s
+          posted rate per billed minute, before its wallet top-up fee — we add the fee
+          {fees ? ` (${fees})` : ""}. Calls are billed in 30-second steps. Type the figure
+          from the platform&apos;s price page or your invoice.
         </p>
 
         {prices.isLoading ? (
@@ -131,7 +150,9 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
                   <p className="text-meta text-ink-muted">{saleNote(row)}</p>
                   {row.inr_per_min ? (
                     <p className="text-meta text-ink-muted">
-                      {formatRupeeRate(row.inr_per_min)} per minute · {row.source_note ?? "—"}
+                      {formatRupeeRate(row.inr_per_min)} per minute posted
+                      {allInNote(row) ? ` · ${allInNote(row)}` : ""} ·{" "}
+                      {row.source_note ?? "—"}
                       {row.attested_at ? ` · recorded ${formatIST(row.attested_at)}` : ""}
                     </p>
                   ) : (
@@ -208,6 +229,13 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
                   className={`${FIELD} font-mono`}
                 />
                 {valid.error("inr_per_min")}
+                <span className={FIELD_HINT}>
+                  The posted rate, before the top-up fee
+                  {editing.topup_fee_percent !== "0"
+                    ? `; we add ${editing.topup_fee_percent}%`
+                    : ""}
+                  .
+                </span>
               </label>
               <label className="block sm:col-span-2">
                 <span className={FIELD_LABEL}>Read from</span>

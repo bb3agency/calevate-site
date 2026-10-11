@@ -130,6 +130,27 @@ describe("how long a call detail keeps polling", () => {
     ).toBe(1);
   });
 
+  it("keeps polling an old call whose English was asked for after it was read", async () => {
+    expect(
+      await readsAfterThreeMinutes(
+        detail({
+          summary: "Booked a cleaning.",
+          summary_state: "ready",
+          translation_state: "pending",
+          started_at: new Date(Date.now() - 3 * 24 * 60 * MINUTE).toISOString(),
+        }),
+      ),
+    ).toBeGreaterThan(1);
+  });
+
+  it("does not poll an old call the pipeline never read, whatever its English says", async () => {
+    expect(
+      await readsAfterThreeMinutes(
+        detail({ translation_state: "pending", started_at: new Date(Date.now() - 31 * MINUTE).toISOString() }),
+      ),
+    ).toBe(1);
+  });
+
   it("keeps polling a call that is still in progress", async () => {
     expect(await readsAfterThreeMinutes(detail({ status: "in_progress" }))).toBeGreaterThan(1);
   });

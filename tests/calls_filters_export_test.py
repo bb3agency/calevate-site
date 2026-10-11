@@ -198,3 +198,72 @@ async def test_the_list_narrows_to_one_agent() -> None:
     assert {c["agent_id"] for c in mine.json()} == {str(agent_id)}
     assert nobody.json() == []
     assert len(list(csv.reader(io.StringIO(exported.text)))) == 1
+
+
+async def _seed_charged_call(tenant_id: uuid.UUID) -> uuid.UUID:
+    """One call that captured three details and a number, and was charged ₹12.50."""
+    call_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as s:
+        agent_id = (await s.execute(text("SELECT id FROM agents LIMIT 1"))).scalar_one()
+        await s.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                "status, started_at, duration_s, from_e164, to_e164, created_at, updated_at) "
+                "VALUES (:id, :t, :a, :e, 'inbound', 'completed', now(), 90, '+919800000009', "
+                "'+918000000000', now(), now())"
+            ),
+            {"id": call_id, "t": tenant_id, "a": agent_id, "e": f"chg-{call_id.hex[:10]}"},
+        )
+        await s.execute(
+            text(
+                "INSERT INTO call_extractions (id, tenant_id, call_id, schema_version, data, "
+                "model, valid, errors, created_at, updated_at) VALUES (:id, :t, :c, 1, "
+                "CAST(:data AS jsonb), NULL, true, NULL, now(), now())"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "t": tenant_id,
+                "c": call_id,
+                "data": (
+                    '{"name": "Ravi", "need": "Two kilos of organic rice delivered on '
+                    'Saturday morning to the shop", "other_number": "+919811111111", '
+                    '"preferred_time": "Saturday", "language": "Telugu", "notes": null}'
+                ),
+            },
+        )
+        await s.execute(
+            text(
+                "INSERT INTO credit_ledger (id, tenant_id, delta, reason, ref, balance_after, "
+                "occurred_at, created_at) VALUES (gen_random_uuid(), :t, -12.50, 'usage', "
+                ":ref, -12.50, now(), now())"
+            ),
+            {"t": tenant_id, "ref": str(call_id)},
+        )
+    return call_id
+
+
+async def test_a_call_row_shows_what_it_captured_and_what_it_cost_the_owner() -> None:
+    tenant_id, slug, token = await _make_tenant()
+    call_id = await _seed_charged_call(tenant_id)
+    async with _client() as http:
+        listed = await http.get("/v1/calls", headers=_headers(slug, token))
+    assert listed.status_code == 200, listed.text
+    row = next(c for c in listed.json() if c["id"] == str(call_id))
+    assert row["credits_used_inr"] == "12.50"
+    chips = row["captured_preview"]
+    # Core order, the name left out (it titles the row) and the number never a chip.
+    assert [c["label"] for c in chips][:1] == ["What they want"]
+    assert len(chips) == 3
+    assert all("+91" not in c["value"] for c in chips)
+    assert chips[0]["value"].endswith("…") and len(chips[0]["value"]) <= 40
+
+
+async def test_staff_see_the_captured_details_but_not_the_cost() -> None:
+    tenant_id, slug, token = await _make_tenant(role="staff")
+    call_id = await _seed_charged_call(tenant_id)
+    async with _client() as http:
+        listed = await http.get("/v1/calls", headers=_headers(slug, token))
+    assert listed.status_code == 200, listed.text
+    row = next(c for c in listed.json() if c["id"] == str(call_id))
+    assert row["credits_used_inr"] is None
+    assert row["captured_preview"], "details are calls data, which staff read"

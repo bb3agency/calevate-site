@@ -36,9 +36,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import onboarding, service
+from apps.api.admin.business_type import queue_apply as queue_business_type_apply
 from apps.api.agents import service as agents_service
 from apps.api.agents.languages import OfferedLanguage
-from apps.api.authn.service import enqueue_invitation_email
+from apps.api.authn.service import enqueue_invitation_email, find_subject_for_session
 from apps.api.authn.stepup import REAUTH_MAX_AGE
 from apps.api.billing import credit_packs
 from apps.api.billing import rates as billing_rates
@@ -133,6 +134,10 @@ class AdminMeOut(BaseModel):
     # PREVIEW — every endpoint still enforces its own permission — and it is what lets a
     # control or a nav entry the session cannot use say so before the click.
     permissions: list[str]
+    #: The operator's own sign-in address, so the account page can say which account this
+    #: is. Read fresh from `admin_users` like `/v1/me` reads `users`; NULL only when the
+    #: account was deactivated between the token check and this read.
+    email: str | None = None
 
 
 @router.get(
@@ -187,11 +192,13 @@ async def admin_me(
         # refusal rather than a cast, because this response is what the console believes
         # about itself — the one place a silently widened `None` would become a screen.
         raise ProblemError.forbidden("This account has no admin access.")
+    subject = await find_subject_for_session("admin", principal.user_id)
     return AdminMeOut(
         realm="admin",
         user_id=principal.user_id,
         role=principal.role,
         permissions=sorted(ROLE_PERMISSIONS.get(principal.role, frozenset())),
+        email=(subject.email or None) if subject is not None else None,
     )
 
 
@@ -257,9 +264,9 @@ class CreateOrgIn(BaseModel):
     # Optional: derived from the name when absent. IMMUTABLE once set (DB trigger),
     # because it lives in every client URL.
     slug: str | None = Field(default=None, max_length=40)
-    #: No trade is anybody's default: an operator who does not choose gets the neutral
-    #: type, whose business fields are drafted from the business's own details.
-    vertical_template: Vertical = "custom"
+    #: REQUIRED, with no default (D-722): a default is how a chilli shop became a clinic.
+    #: "Something else" (`custom`) is a choice like any other.
+    vertical_template: Vertical
     billing_email: EmailStr | None = None
     #: The new account's first agent speaks this. Imported, not respelled inline — see
     #: `agents/languages.py`; `OfferedLanguage` carries the same OpenAPI enum and refuses
@@ -685,6 +692,11 @@ async def edit_tenant(
                 # and the VALUE is in the operational record.
                 summary={"field": edit.field, "before": edit.before, "after": edit.after},
             )
+        if any(edit.field == "vertical_template" and edit.before is None for edit in edits):
+            # An account with no type (or one given by default, D-722) gets its first chosen
+            # type's lead details on agents that have none. Moving a typed account to
+            # another type still leaves its fields alone (D-715): that stays a choice.
+            await queue_business_type_apply(scoped, tenant_id=tenant_id)
         if any(edit.field == "billing_email" for edit in edits):
             retargeted = await _pending_account_notices(scoped, tenant_id=tenant_id)
             if retargeted:

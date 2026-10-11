@@ -15,6 +15,7 @@ import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
 import TenantAgentsPage from "@/app/admin/tenants/[tenantId]/agents/page";
 import type { KbSource, Margin, TenantSummary } from "@/lib/api/admin";
+import type { components } from "@/lib/api/schema";
 import { currentISTMonth } from "@/lib/api/invoice";
 import type { TenantSpend } from "@/lib/api/spend";
 import type { TrialStatus } from "@/lib/api/trials";
@@ -192,6 +193,8 @@ function healthy(): Routes {
     },
     "/v1/kb/delivery": KB_ALL_DELIVERED,
     [`${TENANT_PATH}/whatsapp-alerts`]: WHATSAPP_NEVER_ASKED,
+    // A business type somebody chose: no "Confirm business type" prompt (D-722).
+    [`${TENANT_PATH}/business-type`]: businessType(),
     // The health summary at the top of the page (redesign #2). Healthy by default; the
     // wallet and the line incidents are not this file's subject, so they stay unanswered.
     [HEALTH_PATH]: HEALTHY,
@@ -622,5 +625,65 @@ describe("the client's health summary", () => {
     expect(pause.getAttribute("href")).toBe(`/admin/tenants/${TENANT}/lifecycle`);
     const pay = screen.getByRole("link", { name: /Record a payment/ });
     expect(pay.getAttribute("href")).toBe(`/admin/tenants/${TENANT}/credits`);
+  });
+});
+
+function businessType(
+  over: Partial<components["schemas"]["BusinessTypeOut"]> = {},
+): components["schemas"]["BusinessTypeOut"] {
+  return {
+    tenant_id: TENANT,
+    business_type: "retail",
+    business_type_label: "Shop, food or produce",
+    unconfirmed: null,
+    choices: [
+      { value: "retail", label: "Shop, food or produce" },
+      { value: "local_services", label: "Salon or local service" },
+      { value: "custom", label: "Something else" },
+    ],
+    ...over,
+  };
+}
+
+describe("an account given a business type by default (D-722)", () => {
+  const unconfirmed = businessType({
+    business_type: null,
+    business_type_label: null,
+    unconfirmed: {
+      given: "clinic",
+      given_label: "Clinic or health",
+      suggested: "retail",
+      suggested_label: "Shop, food or produce",
+      reason: "sells chilli powder",
+      suggested_at: "2026-10-11T06:00:00Z",
+    },
+  });
+
+  it("asks the operator to confirm, with the suggestion chosen and its reason shown", async () => {
+    const confirmPath = `${TENANT_PATH}/business-type/confirm`;
+    const { calls } = await render({
+      [`${TENANT_PATH}/business-type`]: unconfirmed,
+      [`POST ${confirmPath}`]: businessType(),
+    });
+    expect(await screen.findByText("Confirm business type")).toBeTruthy();
+    expect(screen.getByText(/sells chilli powder/)).toBeTruthy();
+    const select = screen.getByLabelText("Business type") as HTMLSelectElement;
+    expect(select.value).toBe("retail");
+
+    const confirm = screen.getByRole("button", { name: "Confirm" }) as HTMLButtonElement;
+    await vi.waitFor(() => expect(confirm.disabled).toBe(false));
+    fireEvent.click(confirm);
+    await vi.waitFor(() =>
+      expect(calls.some((call) => call.method === "POST" && call.path === confirmPath)).toBe(true),
+    );
+    const post = calls.find((call) => call.method === "POST" && call.path === confirmPath);
+    expect(JSON.parse(post?.body ?? "{}")).toEqual({ business_type: "retail" });
+    expect(await screen.findByText(/Business type confirmed as Shop, food or produce/)).toBeTruthy();
+  });
+
+  it("says nothing for an account whose type somebody chose", async () => {
+    await render();
+    await screen.findByText("Last calls");
+    expect(screen.queryByText("Confirm business type")).toBeNull();
   });
 });

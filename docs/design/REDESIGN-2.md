@@ -217,3 +217,9 @@ serif was taken (the brand decision wins).
   `app/admin/**`, `components/admin/**`, `adminNav.ts` and any backend it adds. It consumes the
   shared kit as it is, and builds admin-local primitives to promote later. Each agent keeps a
   route checklist that goes in its report.
+- **The call transcript is a chat (founder, 11 Oct 2026).** It supersedes the "plain script, no
+  bubbles" reading for the Conversation panel only. The agent is on the left beside its initial and
+  the caller on the right, in quiet bubbles with the time in small text (`~` when the platform only
+  approximates it). One "Telugu | English" switch above the lines also drives the summary. An
+  English call shows "This call was in English" instead. Captured details list only what the
+  caller gave, and fold the rest into "Not mentioned: …".

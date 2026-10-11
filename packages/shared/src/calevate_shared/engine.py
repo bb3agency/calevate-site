@@ -2890,15 +2890,13 @@ def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
     else:
         follow_up = "say the business will get back to them. Never offer or book a call back"
         nobody = "say the business will get back to them"
-    if cfg.handoff is not None:
-        person = (
-            "- Asked for a person, say you are connecting them and use your hand-over tool. "
-            "Only when they ask; never because you do not know an answer."
-        )
-    else:
-        person = (
-            f"- Nobody can take a call right now. Asked for a person, say so kindly and {nobody}."
-        )
+    # The same words whoever is on duty: the rota is resolved with a clock at publish, and a
+    # prompt that changed with it would move both config digests at every turnover
+    # (`agents/config_versions`). When someone is on duty the hand-over tool is attached,
+    # and its own description says when to use it (`agents/handoff.HANDOFF_TRIGGER_DEFAULT`).
+    person = (
+        f"- Asked for a person and you have no hand-over tool: say nobody is free and {nobody}."
+    )
     return (
         f"{CANNOT_HELP_HEADER}\n"
         f"- No answer after searching: say so, then {follow_up}.\n"

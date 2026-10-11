@@ -19,5 +19,11 @@ export function useMedia(query: string): boolean {
   );
 }
 
-/** Wide enough for the flow canvas beside a section editor. */
+/** Wide enough for the flow canvas. */
 export const DESKTOP = "(min-width: 1024px)";
+
+/**
+ * Wide enough for the step editor to sit beside the canvas or list. Narrower desktops
+ * open it in a side sheet, as a phone does, so the canvas keeps room for two steps a row.
+ */
+export const SIDE_PANEL = "(min-width: 1280px)";

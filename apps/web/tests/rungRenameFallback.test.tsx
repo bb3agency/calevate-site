@@ -191,6 +191,7 @@ describe("the console reads the deprecated rung names when the API has not moved
       <TenantDetailPage params={routeParams({ tenantId: TENANT })} />,
       {
         [`${TENANT_PATH}/owner-status`]: OWNER_JOINED,
+        [`${TENANT_PATH}/business-type`]: noReply(),
         [TENANT_PATH]: tenant(),
         [ADMIN_ME_PATH]: ME,
         [MARGIN_PATH]: legacyMargin(),
@@ -231,6 +232,7 @@ describe("the console reads the deprecated rung names when the API has not moved
       <CommercialsPage params={routeParams({ tenantId: TENANT })} />,
       {
         [`${TENANT_PATH}/owner-status`]: OWNER_JOINED,
+        [`${TENANT_PATH}/business-type`]: noReply(),
         [TENANT_PATH]: tenant(),
         [ADMIN_ME_PATH]: ME,
         [TERMS_PATH]: legacyTerms(),

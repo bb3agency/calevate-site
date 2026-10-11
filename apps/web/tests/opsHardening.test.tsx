@@ -352,6 +352,8 @@ function opsRoutes(extra: Routes = {}, identity: unknown = SUPERADMIN): Routes {
       // harness throws on an unrouted request, so a case that fetched it would say so.
       [ADMIN_ME_PATH]: identity,
       [OPS_CONFIG_PATH]: configList([configField()]),
+      // The live-apply line (D-720) reads the newest platform run.
+      "/v1/ops/live-apply?scope=platform&limit=3": { runs: [] },
       [OPS_MODEL_PRICES_PATH]: MODEL_PRICES,
       "/v1/ops/inr-llm-prices": OPS_INR_LLM_PRICES,
       // The rate card shares the `/admin/ops/config` screen since D-547 — the same reason
@@ -842,12 +844,11 @@ describe("what saving will actually do, said before the save", () => {
             has_default: false,
             kind: "string",
             control: control("url", { risk: "high", risk_reason: "Call events stop arriving." }),
-            // The API's own word for it (`core/platform_config.NEEDS_REPUBLISH`), which
-            // is neither `live` nor `on_restart`: a restart does not fix it and waiting
-            // does not either.
-            applies: "needs_republish",
+            // The API's own word for it (`core/platform_config.LIVE_AGENTS`, D-720): saving
+            // it republishes every live agent, so a restart is not the answer either.
+            applies: "live_agents",
             caveat:
-              "every agent already published carries the OLD URL and must be re-published",
+              "each live agent carries this URL, so saving it updates every live agent as soon as it is saved; a call already in progress finishes on the previous value",
           }),
         ]),
       }),
@@ -857,8 +858,8 @@ describe("what saving will actually do, said before the save", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
     const form = saveButton().closest("form");
 
-    expect(form?.textContent).toContain("Applies after agents are republished");
-    expect(form?.textContent).toContain("must be re-published");
+    expect(form?.textContent).toContain("Applies to live agents now");
+    expect(form?.textContent).toContain("in progress finishes");
     // The sentence a plain live field gets, which this one must NOT get: it is the
     // difference between a change that worked and one that half did.
     expect(form?.textContent).not.toContain("Applies immediately");
@@ -892,7 +893,8 @@ describe("what saving will actually do, said before the save", () => {
 
     expect(label("live")).toBe("Applies immediately");
     expect(label("on_restart")).toBe("Applies after a restart");
-    expect(label("needs_republish")).toBe("Applies after agents are republished");
+    expect(label("live_agents")).toBe("Applies to live agents now");
+    expect(label("operator_step")).toBe("Needs one more step");
     expect(label("env_only")).toBe("Can only be changed on the server");
     expect(label("unclassified")).toBe("Timing not known");
     expect(label("someday")).toBe("Timing not known");
@@ -901,12 +903,19 @@ describe("what saving will actually do, said before the save", () => {
       "Re-publish the agents.",
     );
 
-    // Only a plain `live` reads as reassurance; every other answer is a warning or a
-    // neutral statement that something is left to do or not known.
-    const reassuring = ["live", "on_restart", "needs_republish", "env_only", "unclassified", "x"].filter(
-      (a) => appliesCopy(configField({ applies: a })).tone === "ok",
-    );
-    expect(reassuring).toEqual(["live"]);
+    // Only an answer that needs nothing more reads as reassurance: `live`, and since D-720
+    // `live_agents`, which updates every live agent on save. Every other answer is a
+    // warning or a neutral statement that something is left to do or not known.
+    const reassuring = [
+      "live",
+      "live_agents",
+      "on_restart",
+      "operator_step",
+      "env_only",
+      "unclassified",
+      "x",
+    ].filter((a) => appliesCopy(configField({ applies: a })).tone === "ok");
+    expect(reassuring).toEqual(["live", "live_agents"]);
   });
 
   it("gives a key nobody classified its own reason, not the environment's", async () => {

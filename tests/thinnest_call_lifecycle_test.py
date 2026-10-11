@@ -717,6 +717,12 @@ async def test_the_sweep_alarms_on_a_rate_that_no_longer_matches_the_invoice(
     monkeypatch.setattr(
         engine_charges, "alert", lambda kind, code, **_: alerts.append((kind, code))
     )
+
+    async def _nothing_to_restate(_engine: str) -> int:
+        return 0
+
+    monkeypatch.setattr(engine_charges, "restate_minutes_without_fee", _nothing_to_restate)
+    monkeypatch.setattr(engine_charges, "_ALARMED_KEY", f"test:{uuid.uuid4()}:{{engine}}")
     outcome = await engine_charges.reconcile_engine_charges({})
     assert "compared=3 matched=2 unmatched=1" in outcome
     assert "mismatched=1" in outcome

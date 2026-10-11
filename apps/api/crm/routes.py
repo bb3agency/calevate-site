@@ -35,13 +35,14 @@ from apps.api.core.auth import assert_view_as_may, client_request_ip, requires, 
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
-from apps.api.core.rbac import permission_meta
-from apps.api.crm import assist, lead_search, live_speaking, saved_views, service
+from apps.api.core.rbac import permission_meta, role_has
+from apps.api.crm import assist, lead_search, live_speaking, saved_views, service, translation
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.attention import attention_queue
 from apps.api.crm.captured import captured_fields
 from apps.api.crm.lead_dial import place_lead_call
 from apps.api.crm.performance import performance
+from apps.api.crm.recording_download import DOWNLOAD_LINK_TTL_S, recording_download_for
 from apps.api.crm.schemas import (
     AttentionOut,
     CallAssistOut,
@@ -51,6 +52,7 @@ from apps.api.crm.schemas import (
     CallLeadIn,
     CallLeadOut,
     CallSummaryOut,
+    CallTranslationOut,
     CapturedFieldsOut,
     DashboardOut,
     LeadBulkFailureOut,
@@ -67,6 +69,7 @@ from apps.api.crm.schemas import (
     LeadTimelineOut,
     LeadUpdateIn,
     PerformanceOut,
+    RecordingDownloadOut,
     RecordingLinkOut,
     SavedViewIn,
     SavedViewListOut,
@@ -117,10 +120,19 @@ async def get_calls(
     since: datetime | None = Query(None, description="Calls started at or after this instant"),
     until: datetime | None = Query(None, description="Calls started before this instant"),
     test_calls: bool = Query(True, description="False leaves out free-trial test calls"),
-    _: Principal = Depends(requires("calls:read")),
+    principal: Principal = Depends(requires("calls:read")),
 ) -> list[CallSummaryOut]:
     filters = _call_filters(status, agent_id, outcome, direction, since, until, test_calls)
-    return await service.list_calls(session, limit=limit, offset=offset, filters=filters)
+    return await service.list_calls(
+        session,
+        limit=limit,
+        offset=offset,
+        filters=filters,
+        # What a call cost is billing information; a role without `billing:read` gets the
+        # field as NULL rather than a second route.
+        include_credits=principal.role is not None and role_has(principal.role, "billing:read"),
+        with_previews=True,
+    )
 
 
 def _call_filters(
@@ -359,6 +371,95 @@ async def get_recording(
             detail="The recording could not be retrieved right now.",
         )
     return RecordingLinkOut(url=url, expires_in_s=ttl_s, duration_s=ref.duration_s)
+
+
+@router.get(
+    "/calls/{call_id}/recording/download",
+    response_model=RecordingDownloadOut,
+    # The same permission as playing it (`get_recording` argues why it is `calls:read_raw`):
+    # a saved file is the same audio, and it leaves the audit trail's reach once saved.
+    openapi_extra=permission_meta("calls:read_raw"),
+    summary="Short-lived link that SAVES the recording — owner-only, audited apart from play",
+)
+async def download_recording(
+    call_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("calls:read_raw")),
+) -> RecordingDownloadOut:
+    target = await recording_download_for(session, call_id)
+    # Its own action, not `recording.read`: "who listened" and "who took a copy away" are
+    # different questions in a DPDP enquiry, and only the second leaves our control.
+    await write_audit(
+        session,
+        action="recording.download",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="call",
+        object_id=str(call_id),
+        ip=client_request_ip(request),
+    )
+    from apps.workers.storage import presigned_url
+
+    url = presigned_url(
+        target.key,
+        ttl_s=DOWNLOAD_LINK_TTL_S,
+        disposition=f'attachment; filename="{target.filename}"',
+    )
+    if url is None:
+        raise ProblemError(
+            kind="dependency",
+            code="recording_unavailable",
+            title="Recording unavailable",
+            detail="The recording could not be retrieved right now.",
+        )
+    return RecordingDownloadOut(url=url, filename=target.filename, expires_in_s=DOWNLOAD_LINK_TTL_S)
+
+
+@router.post(
+    "/calls/{call_id}/translation",
+    response_model=CallTranslationOut,
+    status_code=202,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Put this call into English again — quota-gated dashboard AI, idempotent",
+    description=(
+        "Queues the English of a call whose translation failed or was never made, from the "
+        "REDACTED transcript. Answers with the state after the request: `pending` when it "
+        "was queued, or the state as it stands when there is nothing to retry, so a second "
+        "press queues nothing. Counts against the monthly AI allowance and is refused "
+        "before anything is queued when the account is at its ceiling. Requires "
+        "`org:manage`."
+    ),
+)
+async def retranslate_call(
+    call_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> CallTranslationOut:
+    """`org:manage` and the view-as lock for `assist_call`'s reasons: it spends the
+    client's AI allowance. No `Idempotency-Key`: the compare-and-swap on
+    `translation_state` is the idempotency, and nothing is paid inside the request."""
+    assert principal.tenant_id is not None
+    assert_view_as_may(principal, "billing.ai_assist")
+    current = await translation.translation_state(session, call_id)
+    if current not in translation.RETRYABLE_STATES:
+        return CallTranslationOut(translation_state=current)
+    await require_ai_assist(session, tenant_id=principal.tenant_id)
+    state = await translation.request_translation(
+        session, tenant_id=principal.tenant_id, call_id=call_id
+    )
+    await write_audit(
+        session,
+        action="call.translation_requested",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="call",
+        object_id=str(call_id),
+        ip=client_request_ip(request),
+        summary={"state": state},
+    )
+    return CallTranslationOut(translation_state=state)
 
 
 @router.post(

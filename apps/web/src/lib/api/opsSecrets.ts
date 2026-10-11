@@ -68,11 +68,13 @@ export function secretRemovalConfirmation(key: string): string {
 
 export const REWRAP_CONFIRMATION = "rewrap_platform_keks";
 
-export function useSecrets(): UseQueryResult<SecretsList> {
+/** `enabled: false` where the viewer may not read credentials (the config search). */
+export function useSecrets(enabled = true): UseQueryResult<SecretsList> {
   return useQuery({
     queryKey: OPS_SECRETS_QUERY_KEY,
     queryFn: () => apiRequest<SecretsList>(adminSession(), OPS_SECRETS_PATH),
     refetchInterval: 60_000,
+    enabled,
   });
 }
 

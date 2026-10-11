@@ -2,6 +2,7 @@
 
 import { use } from "react";
 
+import { WIDE_RAIL } from "@/components/ui";
 import { useClientRealm } from "@/lib/api/session";
 
 import { ScriptBuilder } from "./ScriptBuilder";
@@ -18,7 +19,8 @@ export default function AgentScriptPage({
   const { slug, agentId } = use(params);
   const { href } = useClientRealm();
   return (
-    <div className="pb-16">
+    // The wide rail: the flow picture and the editor beside it use the width a desktop has.
+    <div {...WIDE_RAIL}>
       <ScriptBuilder
         agentId={agentId}
         backHref={href(`/c/${slug}/agents/${agentId}?section=script`)}

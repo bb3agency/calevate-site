@@ -1,0 +1,345 @@
+"""A saved setting reaches every live agent it changes, at once (D-720).
+
+THE ONE SEAM. Whoever saves something that changes what a live agent's vendor-side config
+should be (an ops console platform setting, a client setting, an agent's own change made
+outside its publish) calls `queue_live_apply` in the SAME transaction as the write. That
+records a `live_apply_runs` row and an outbox message; the worker
+(`apps/workers/live_apply.py`) then brings every affected live agent to the state a publish
+would produce right now. Nobody switches an agent off and on, and no campaign is paused.
+
+HOW AN AGENT IS CONVERGED: `converge_agent`, which is `agents/service.publish_agent` (the
+one publish path: compose, push, read back and score, D-64) followed by
+`engine_settings.check_agent_settings` (the drift sweep's settings read-back and repair).
+There is no second publish path here. `publish_agent` reads the APPLIED prompt
+(`live_prompt_id`), so a client's script draft waiting behind "Put it live" is never
+published by a settings change; the change rides on the script that is already live.
+
+A CALL IN PROGRESS FINISHES ON WHAT IT STARTED WITH. On ThinnestAI a running call is not
+documented to re-read a PATCHed agent for anything but its BYOK keys, so that is UNKNOWN and
+an OPERATIONS gate (T-28), not a claim; on Pipecat the worker reads its config once per call.
+Either way the next call, including the next dial of a running campaign, starts on the new
+settings.
+
+SCOPES. `platform` walks every live agent on the active engine, `tenant` one client's, and
+`agent` one. A run that has not started absorbs a later request it covers (its walk reads the
+newer value anyway); a newer run supersedes the open runs it covers, so the fleet is not
+walked twice for two saves a second apart.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Final, Literal
+from uuid import UUID
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from apps.api.core.errors import ProblemError
+from apps.api.core.logging import get_logger
+from apps.api.db.base import uuid7
+from apps.api.reliability.service import enqueue_outbox
+
+log = get_logger(__name__)
+
+Scope = Literal["platform", "tenant", "agent"]
+
+#: The walk: one bounded batch per job, resumed from the run's cursor.
+APPLY_JOB: Final = "apply_live_settings"
+#: One agent's retry ladder, after the walk's own attempt failed on something transient.
+AGENT_JOB: Final = "apply_live_agent"
+
+#: Agents converged per walk job. Each is a publish (several vendor round trips) plus a
+#: settings read-back, so 10 keeps one job well inside `WorkerSettings.job_timeout` (300s)
+#: and lets other queued work interleave between batches of a platform-wide change.
+BATCH_SIZE: Final = 10
+#: How long a claimed run is held by the job walking it. Longer than one batch can take
+#: under the job timeout, shorter than the resume cron's interval, so a worker that died
+#: mid-batch is resumed by the next sweep.
+LEASE_S: Final = 300
+#: The failed agents listed on a run. The count is exact; the list is for the console.
+MAX_FAILURES_KEPT: Final = 50
+#: Codes a retry cannot change: our own refusals about the agent or the account.
+PERMANENT_KINDS: Final = frozenset({"validation", "business_rule", "not_found", "permission"})
+#: A maintenance window refuses every publish (D-544) and ends on its own; never a give-up.
+MAINTENANCE_CODE: Final = "platform_maintenance"
+
+_LOCK: Final = "SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"
+
+
+def _check_target(scope: Scope, tenant_id: UUID | None, agent_id: UUID | None) -> None:
+    ok = (
+        (scope == "platform" and tenant_id is None and agent_id is None)
+        or (scope == "tenant" and tenant_id is not None and agent_id is None)
+        or (scope == "agent" and tenant_id is not None and agent_id is not None)
+    )
+    if not ok:
+        raise ValueError(f"live apply scope {scope!r} names the wrong target")
+
+
+async def queue_live_apply(
+    session: AsyncSession,
+    *,
+    scope: Scope,
+    reason: str,
+    tenant_id: UUID | None = None,
+    agent_id: UUID | None = None,
+    requested_by: UUID | None = None,
+) -> UUID:
+    """Bring every live agent in `scope` up to date, after the caller's transaction commits.
+
+    Call it in the transaction that writes the change; it does not commit. `reason` names
+    what changed (a setting key, or a short source name such as `lead_calling`) and is shown
+    to operators. Returns the run that will carry the change.
+    """
+    _check_target(scope, tenant_id, agent_id)
+    # Serialises the coalesce-or-create decision per target: two saves for one client at
+    # once must not both decide that no pending run covers them. Per target rather than
+    # global, because the caller's transaction holds it until commit and one client's slow
+    # save must not hold up another's. A race across targets costs a redundant walk only.
+    lock_key = "live_apply:platform" if tenant_id is None else f"live_apply:{tenant_id}"
+    await session.execute(text(_LOCK), {"key": lock_key})
+    params: dict[str, Any] = {"scope": scope, "tid": tenant_id, "aid": agent_id}
+    covering = (
+        await session.execute(
+            text(
+                "UPDATE live_apply_runs SET reasons = CASE WHEN reasons ? :reason THEN reasons "
+                "ELSE reasons || jsonb_build_array(CAST(:reason AS text)) END, "
+                "updated_at = now() WHERE id = ("
+                "SELECT id FROM live_apply_runs WHERE status = 'pending' AND ("
+                "scope = 'platform' "
+                "OR (scope = 'tenant' AND tenant_id = CAST(:tid AS uuid) "
+                "AND CAST(:scope AS text) IN ('tenant', 'agent')) "
+                "OR (scope = 'agent' AND agent_id = CAST(:aid AS uuid) "
+                "AND CAST(:scope AS text) = 'agent')) "
+                "ORDER BY created_at LIMIT 1) AND status = 'pending' RETURNING id"
+            ),
+            {**params, "reason": reason},
+        )
+    ).first()
+    if covering is not None:
+        log.info("live_apply_coalesced", extra={"run_id": str(covering[0]), "scope": scope})
+        return UUID(str(covering[0]))
+
+    run_id = uuid7()
+    await session.execute(
+        text(
+            "INSERT INTO live_apply_runs (id, scope, tenant_id, agent_id, reasons, "
+            "requested_by) VALUES (:id, :scope, :tid, :aid, CAST(:reasons AS jsonb), :by)"
+        ),
+        {**params, "id": run_id, "reasons": json.dumps([reason]), "by": requested_by},
+    )
+    await session.execute(
+        text(
+            "UPDATE live_apply_runs SET status = 'superseded', superseded_by = :id, "
+            "lease_until = NULL, updated_at = now() "
+            "WHERE status IN ('pending', 'running') AND id <> :id AND ("
+            "CAST(:scope AS text) = 'platform' "
+            "OR (CAST(:scope AS text) = 'tenant' AND tenant_id = CAST(:tid AS uuid)) "
+            "OR (CAST(:scope AS text) = 'agent' AND scope = 'agent' "
+            "AND agent_id = CAST(:aid AS uuid)))"
+        ),
+        {**params, "id": run_id},
+    )
+    await enqueue_outbox(session, job=APPLY_JOB, payload={"run_id": str(run_id)})
+    log.info(
+        "live_apply_queued",
+        extra={
+            "run_id": str(run_id),
+            "scope": scope,
+            "tenant_id": str(tenant_id) if tenant_id else None,
+            "agent_id": str(agent_id) if agent_id else None,
+            "reason": reason,
+        },
+    )
+    return run_id
+
+
+# The worker's own enqueues live here, beside the job names they spell, so every
+# producer of these jobs names them as a module-level constant (`scripts/check_job_wiring`).
+
+
+async def queue_walk(session: AsyncSession, run_id: UUID) -> None:
+    """The next batch of a run's walk, through the outbox, in the caller's transaction."""
+    await enqueue_outbox(session, job=APPLY_JOB, payload={"run_id": str(run_id)})
+
+
+async def queue_agent_retry(
+    session: AsyncSession, run_id: UUID, *, tenant_id: UUID, agent_id: UUID
+) -> None:
+    """One agent's retry ladder, through the outbox, in the caller's transaction."""
+    await enqueue_outbox(
+        session,
+        job=AGENT_JOB,
+        payload={"run_id": str(run_id), "tenant_id": str(tenant_id), "agent_id": str(agent_id)},
+    )
+
+
+async def resume_walk(run_id: UUID, *, tick: int) -> None:
+    """Re-enqueue a stalled walk directly. Keyed per run and per resume tick: two workers
+    resuming one run in one tick enqueue one job, a later tick is not deduped against a
+    finished one, and the run's lease decides between any two that do run."""
+    from apps.api.core.queue import enqueue, job_id_for
+
+    await enqueue(
+        APPLY_JOB,
+        {"run_id": str(run_id)},
+        job_id=job_id_for(APPLY_JOB, str(run_id), f"resume-{tick}"),
+    )
+
+
+# ------------------------------------------------------------------ the run's record
+
+
+@dataclass(frozen=True, slots=True)
+class LiveApplyRunView:
+    id: UUID
+    scope: Scope
+    tenant_id: UUID | None
+    agent_id: UUID | None
+    reasons: list[str]
+    status: str
+    total: int | None
+    applied: int
+    failed: int
+    retrying: int
+    failures: list[dict[str, Any]]
+    created_at: datetime
+    finished_at: datetime | None
+    superseded_by: UUID | None
+
+
+_RUN_COLUMNS: Final = (
+    "id, scope, tenant_id, agent_id, reasons, status, total, applied, failed, retrying, "
+    "failures, created_at, finished_at, superseded_by"
+)
+
+
+def _view(row: Any) -> LiveApplyRunView:
+    return LiveApplyRunView(
+        id=row[0],
+        scope=row[1],
+        tenant_id=row[2],
+        agent_id=row[3],
+        reasons=list(row[4] or []),
+        status=row[5],
+        total=row[6],
+        applied=int(row[7]),
+        failed=int(row[8]),
+        retrying=int(row[9]),
+        failures=list(row[10] or []),
+        created_at=row[11],
+        finished_at=row[12],
+        superseded_by=row[13],
+    )
+
+
+async def recent_runs(
+    session: AsyncSession, *, scope: Scope | None = None, limit: int = 10
+) -> list[LiveApplyRunView]:
+    """The newest runs, newest first. Superseded runs are kept: they say what replaced them."""
+    rows = (
+        await session.execute(
+            text(
+                f"SELECT {_RUN_COLUMNS} FROM live_apply_runs "
+                "WHERE CAST(:scope AS text) IS NULL OR scope = CAST(:scope AS text) "
+                "ORDER BY created_at DESC LIMIT :limit"
+            ),
+            {"scope": scope, "limit": limit},
+        )
+    ).all()
+    return [_view(row) for row in rows]
+
+
+async def read_run(session: AsyncSession, run_id: UUID) -> LiveApplyRunView | None:
+    row = (
+        await session.execute(
+            text(f"SELECT {_RUN_COLUMNS} FROM live_apply_runs WHERE id = :id"), {"id": run_id}
+        )
+    ).first()
+    return _view(row) if row is not None else None
+
+
+# ------------------------------------------------------------------ converging one agent
+
+_LIVE_AGENT: Final = text(
+    "SELECT name FROM agents WHERE id = :aid AND deleted_at IS NULL AND archived_at IS NULL "
+    "AND status = 'live' AND engine_agent_ref IS NOT NULL"
+)
+_REF: Final = text("SELECT engine_agent_ref FROM agents WHERE id = :aid")
+
+Outcome = Literal["applied", "not_live"]
+
+
+class SettingsNotHeldError(Exception):
+    """The agent was republished but its settings read back different. Retried like a
+    vendor failure; never surfaced through a route, so not a `ProblemError`."""
+
+    code: Final = "live_apply_settings_not_held"
+
+    def __init__(self, drifted: tuple[str, ...]) -> None:
+        super().__init__(", ".join(drifted))
+        self.drifted = drifted
+
+
+async def converge_agent(*, tenant_id: UUID, agent_id: UUID) -> tuple[Outcome, str | None]:
+    """Republish one live agent from our rows and read its settings back. (outcome, name).
+
+    Raises the publish's or the read-back's `ProblemError`; the caller decides whether a
+    retry can help. An agent no longer live is left alone: going live publishes it anyway.
+    """
+    from apps.api.agents.engine_settings import check_agent_settings
+    from apps.api.agents.service import publish_agent
+    from apps.api.db.session import tenant_session
+
+    async with tenant_session(tenant_id) as session:
+        name = (await session.execute(_LIVE_AGENT, {"aid": agent_id})).scalar()
+        if name is None:
+            return "not_live", None
+        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+        ref = (await session.execute(_REF, {"aid": agent_id})).scalar()
+    if ref:
+        checked = await check_agent_settings(
+            tenant_id=tenant_id, agent_id=agent_id, engine_agent_ref=str(ref)
+        )
+        if checked is not None and checked.drifted and not checked.repaired:
+            raise SettingsNotHeldError(checked.drifted)
+    return "applied", str(name)
+
+
+def is_permanent(exc: BaseException) -> bool:
+    """A refusal a retry cannot change. A maintenance window is never permanent."""
+    return (
+        isinstance(exc, ProblemError)
+        and exc.code != MAINTENANCE_CODE
+        and exc.kind in PERMANENT_KINDS
+    )
+
+
+def failure_code(exc: BaseException) -> str:
+    if isinstance(exc, ProblemError | SettingsNotHeldError):
+        return exc.code
+    return exc.__class__.__name__
+
+
+__all__ = [
+    "AGENT_JOB",
+    "APPLY_JOB",
+    "BATCH_SIZE",
+    "LEASE_S",
+    "MAINTENANCE_CODE",
+    "MAX_FAILURES_KEPT",
+    "LiveApplyRunView",
+    "Scope",
+    "converge_agent",
+    "failure_code",
+    "is_permanent",
+    "queue_agent_retry",
+    "queue_live_apply",
+    "queue_walk",
+    "read_run",
+    "recent_runs",
+    "resume_walk",
+]

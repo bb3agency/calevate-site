@@ -77,9 +77,10 @@ export const ADMIN_ME_PATH = "/v1/admin/me";
  * the directory and every tenant screen share one request and one answer instead of
  * asking again per tenant.
  */
-export function useAdminMe(): UseQueryResult<AdminMe> {
+export function useAdminMe(options: { enabled?: boolean } = {}): UseQueryResult<AdminMe> {
   return useQuery({
     queryKey: ["admin", "me"],
+    enabled: options.enabled ?? true,
     queryFn: () => apiRequest<AdminMe>(adminSession(), ADMIN_ME_PATH),
     // A role does not change inside a session; the client-realm `useMe` uses the same
     // five minutes for the same reason.

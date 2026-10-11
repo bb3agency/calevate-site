@@ -146,7 +146,7 @@ EDIT_INSTRUCTION = (
 Parser = Callable[[dict[str, Any]], "CallScript | None"]
 
 
-def _edited_script(raw: dict[str, Any], current: CallScript) -> CallScript | None:
+def edited_script(raw: dict[str, Any], current: CallScript) -> CallScript | None:
     """The model's edited script, validated like any save; None when it is not a valid
     script (the edit is then reported as no draft rather than half applied)."""
     fields = {k: v for k, v in raw.items() if k in CallScript.model_fields}
@@ -378,18 +378,36 @@ def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
     )
 
 
-async def _draft_via_azure(
+@dataclass(frozen=True, slots=True)
+class _RawJson:
+    """One leg's answer: the first JSON object in it (None when there was none), and what
+    Azure counted. Internal to this file."""
+
+    data: dict[str, Any] | None
+    usage: TokenUsage | None = None
+
+
+def _strict(schema_name: str, schema: dict[str, object]) -> dict[str, object]:
+    return {
+        "type": "json_schema",
+        "json_schema": {"name": schema_name, "strict": True, "schema": schema},
+    }
+
+
+async def _json_via_azure(
     description: str,
-    instruction: str = _SYSTEM_INSTRUCTION,
-    parse: Parser | None = None,
-) -> _RawDraft | None:
-    """Ask Azure OpenAI for a draft, or None if it holds no credential or did not answer.
+    instruction: str,
+    response_format: dict[str, object],
+    *,
+    max_tokens: int = _DRAFT_MAX_TOKENS,
+    temperature: float = 0.4,
+) -> _RawJson | None:
+    """Ask Azure OpenAI for one JSON answer, or None if it holds no credential or did not
+    answer.
 
     The request goes through `workers/chat.py`, the ONE chat client — the v1 surface built
     by the ONE endpoint builder, a static bearer key, Structured Outputs with a degrade to
-    `json_object`. It used to be a hand-rolled `httpx.post` mirroring
-    `AzureOpenAIExtractor.run`'s wire shape, which is exactly the "second dialect of the
-    same request" that module's docstring exists to stop having.
+    `json_object`.
     """
     credentials = azure_credentials()
     if credentials is None:
@@ -405,31 +423,17 @@ async def _draft_via_azure(
         {"role": "system", "content": instruction},
         {"role": "user", "content": description},
     ]
-    # An edit returns the whole current script, whose shape the strict draft schema does
-    # not describe, so it asks for plain JSON and is validated by `CallScript` instead.
-    strict: dict[str, object] = (
-        {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "calevate_script_draft",
-                "strict": True,
-                "schema": _DRAFT_SCHEMA,
-            },
-        }
-        if parse is None
-        else {"type": "json_object"}
-    )
     try:
         outcome = await chat.complete(
             leg,
             messages,
             timeout_s=ASSIST_TIMEOUT_S,
-            temperature=0.4,
-            response_format=strict,
-            max_tokens=_DRAFT_MAX_TOKENS,
+            temperature=temperature,
+            response_format=response_format,
+            max_tokens=max_tokens,
         )
     except httpx.HTTPStatusError as refusal:
-        if refusal.response.status_code != 400:
+        if refusal.response.status_code != 400 or response_format.get("type") != "json_schema":
             log.warning(
                 "script_assist_azure_failed", extra={"status": refusal.response.status_code}
             )
@@ -444,14 +448,13 @@ async def _draft_via_azure(
                 leg,
                 messages,
                 timeout_s=ASSIST_TIMEOUT_S,
-                temperature=0.4,
+                temperature=temperature,
                 response_format={"type": "json_object"},
-                max_tokens=_DRAFT_MAX_TOKENS,
+                max_tokens=max_tokens,
             )
         except httpx.HTTPError as retry_refusal:
-            # HTTPError, not only HTTPStatusError: this handler sits inside the first
-            # `except`, so a transport failure on the retry would skip the outer
-            # `except httpx.HTTPError` below and escape to the caller.
+            # HTTPError, not only HTTPStatusError: a transport failure on the retry would
+            # otherwise skip the outer handler below and escape to the caller.
             log.warning(
                 "script_assist_azure_failed",
                 extra=provider_health.failure_fields(retry_refusal),
@@ -459,10 +462,8 @@ async def _draft_via_azure(
             await provider_health.note_failure("script", AZURE_PROVIDER, retry_refusal)
             return None
     except httpx.HTTPError as failure:
-        # A transport failure is the same OUTCOME as a refusal for this caller — the
-        # selector is re-asked with `provider_unavailable=True` — and it used to escape
-        # this function entirely, because the old hand-rolled `post` only ever looked at a
-        # status code it had already received.
+        # A transport failure is the same OUTCOME as a refusal for this caller: the
+        # selector is re-asked with `provider_unavailable=True`.
         log.warning(
             "script_assist_azure_unreachable", extra=provider_health.failure_fields(failure)
         )
@@ -470,28 +471,25 @@ async def _draft_via_azure(
         return None
     await provider_health.note_success("script", AZURE_PROVIDER)
     if outcome.finish_reason == "length":
-        # The `_DRAFT_MAX_TOKENS` valve fired. The JSON was cut off mid-generation, so
-        # parsing it would either fail (→ an inexplicable empty editor) or, worse, yield
-        # a balanced PREFIX that reads as a short draft. "No draft" is the honest answer;
-        # the caller falls back exactly as it does for any other non-answer — carrying the
-        # billed tokens, which the valve firing means were the most this turn could cost.
+        # The `max_tokens` valve fired. The JSON was cut off mid-generation, so parsing it
+        # could yield a balanced PREFIX that reads as a short answer. "No answer" is the
+        # honest result, carrying the billed tokens to the meter.
         log.warning("script_assist_draft_truncated", extra={"provider": "azure"})
-        return _RawDraft(script=None, usage=outcome.usage)
-    raw = _first_json_object(outcome.content)
-    if not raw:
-        return _RawDraft(script=None, usage=outcome.usage)
-    return _RawDraft(script=(parse or _script_from_model_json)(raw), usage=outcome.usage)
+        return _RawJson(data=None, usage=outcome.usage)
+    return _RawJson(data=_first_json_object(outcome.content) or None, usage=outcome.usage)
 
 
-async def _draft_via_sarvam(
+async def _json_via_sarvam(
     description: str,
-    instruction: str = _SYSTEM_INSTRUCTION,
-    parse: Parser | None = None,
-) -> _RawDraft | None:
+    instruction: str,
+    *,
+    max_tokens: int = _DRAFT_MAX_TOKENS,
+    temperature: float = 0.4,
+) -> _RawJson | None:
     """The disclosed fallback: Sarvam's OpenAI-compatible chat, `json_object` + the belt.
 
-    No `usage` is returned — D-36 prices this leg at zero, so `ScriptDraft.usage` stays
-    None and `meter_assist`'s Sarvam branch records nothing, exactly as re-summarise does.
+    No `usage` is returned, so a Sarvam answer reaches `meter_assist` with `usage=None` and
+    its standby branch records nothing, exactly as re-summarise does.
     """
     settings = get_settings()
     if not settings.sarvam_api_key:  # pragma: no cover - unreachable via the selector
@@ -509,9 +507,9 @@ async def _draft_via_sarvam(
                 {"role": "user", "content": description},
             ],
             timeout_s=ASSIST_TIMEOUT_S,
-            temperature=0.4,
+            temperature=temperature,
             response_format={"type": "json_object"},
-            max_tokens=_DRAFT_MAX_TOKENS,
+            max_tokens=max_tokens,
         )
     except httpx.HTTPStatusError as refusal:
         log.warning("script_assist_sarvam_failed", extra={"status": refusal.response.status_code})
@@ -520,14 +518,113 @@ async def _draft_via_sarvam(
         log.warning("script_assist_sarvam_unreachable")
         return None
     if outcome.finish_reason == "length":
-        # Same valve, same honesty as the Azure leg: truncated JSON must not read as a
-        # short draft.
         log.warning("script_assist_draft_truncated", extra={"provider": "sarvam"})
         return None
-    raw = _first_json_object(outcome.content)
-    if not raw:
+    data = _first_json_object(outcome.content)
+    return _RawJson(data=data) if data else None
+
+
+def _draft_format(parse: Parser | None) -> dict[str, object]:
+    # An edit returns the whole current script, whose shape the strict draft schema does
+    # not describe, so it asks for plain JSON and is validated by `CallScript` instead.
+    if parse is None:
+        return _strict("calevate_script_draft", _DRAFT_SCHEMA)
+    return {"type": "json_object"}
+
+
+async def _draft_via_azure(
+    description: str,
+    instruction: str = _SYSTEM_INSTRUCTION,
+    parse: Parser | None = None,
+) -> _RawDraft | None:
+    """One Azure draft, or None if Azure holds no credential or did not answer."""
+    raw = await _json_via_azure(description, instruction, _draft_format(parse))
+    if raw is None:
         return None
-    return _RawDraft(script=(parse or _script_from_model_json)(raw))
+    if raw.data is None:
+        return _RawDraft(script=None, usage=raw.usage)
+    return _RawDraft(script=(parse or _script_from_model_json)(raw.data), usage=raw.usage)
+
+
+async def _draft_via_sarvam(
+    description: str,
+    instruction: str = _SYSTEM_INSTRUCTION,
+    parse: Parser | None = None,
+) -> _RawDraft | None:
+    """One Sarvam draft, or None."""
+    raw = await _json_via_sarvam(description, instruction)
+    if raw is None or raw.data is None:
+        return None
+    return _RawDraft(script=(parse or _script_from_model_json)(raw.data))
+
+
+@dataclass(frozen=True, slots=True)
+class JsonAnswer[T]:
+    """One answer from the dashboard AI ladder, parsed; what it cost; who answered.
+
+    `usage` follows `ScriptDraft.usage`: Azure tokens Azure counted, including an Azure turn
+    that failed in front of a Sarvam answer. `capability` carries the fallback disclosure
+    the screen must show (G-6)."""
+
+    value: T
+    capability: AssistCapability
+    usage: TokenUsage | None = None
+
+
+async def ask_json[T](
+    description: str,
+    instruction: str,
+    *,
+    parse: Callable[[dict[str, Any]], T | None],
+    azure_format: dict[str, object] | None = None,
+    tenant_leg: TenantModelLeg | None = None,
+    quota_exhausted: bool = False,
+    max_tokens: int = _DRAFT_MAX_TOKENS,
+    temperature: float = 0.4,
+) -> JsonAnswer[T]:
+    """THE dashboard AI ladder for a JSON answer: Azure first, the disclosed Sarvam leg if
+    Azure cannot or does not answer, a refusal only when nothing can (`run_assist`'s rule).
+
+    `parse` turns the model's JSON into the caller's value and returns None for an unusable
+    answer, which counts as no answer: the next leg gets its chance. `azure_format` is the
+    `response_format` Azure is asked for (a strict schema where the caller has one); Sarvam
+    always gets `json_object`. The caller owns the prompt's content and its redaction
+    (D-127 G-1/G-2): nothing here reads a transcript.
+    """
+    capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
+    if not capability.available:
+        raise assist_unavailable(capability)
+
+    spent: TokenUsage | None = None
+    if capability.provider == AZURE_PROVIDER:
+        azure = await _json_via_azure(
+            description,
+            instruction,
+            azure_format or {"type": "json_object"},
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        value = parse(azure.data) if azure is not None and azure.data is not None else None
+        if value is not None and azure is not None:
+            return JsonAnswer(value=value, capability=capability, usage=azure.usage)
+        # Billed as a request, refused as an answer: it rides the fallback to the meter.
+        spent = azure.usage if azure is not None else None
+        capability = assist_capability(
+            tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, provider_unavailable=True
+        )
+        if not capability.available:
+            raise assist_unavailable(capability)
+
+    sarvam = await _json_via_sarvam(
+        description, instruction, max_tokens=max_tokens, temperature=temperature
+    )
+    value = parse(sarvam.data) if sarvam is not None and sarvam.data is not None else None
+    if value is None:
+        # Both legs silent: a refusal the owner can act on, not an empty answer.
+        raise assist_unavailable(
+            AssistCapability(available=False, reason=PROVIDER_UNAVAILABLE_REASON)
+        )
+    return JsonAnswer(value=value, capability=capability, usage=spent)
 
 
 async def draft_script(
@@ -540,17 +637,13 @@ async def draft_script(
     change: str = "",
 ) -> ScriptDraft:
     """Draft a `CallScript` from a business description (the AI writing assist), or, with
-    `CONVERT_INSTRUCTION`, propose sections for a hand-written prompt.
+    `CONVERT_INSTRUCTION`, propose sections for a hand-written prompt, or, with `edit_of`,
+    make one change to the current script keeping every step id.
 
-    Same control flow as `run_assist`: ask the ONE selector who serves, run Azure first,
-    fall to the disclosed Sarvam leg if Azure cannot or does not answer, and refuse only
-    when nothing can. `quota_exhausted` is the gate's verdict passed IN (this module has no
-    session), so the ceiling reaches the one function that spends a token. `tenant_leg` is
-    the account's own model, passed in the same way and for the same reason — it is a row.
+    `quota_exhausted` is the gate's verdict passed IN (this module has no session), so the
+    ceiling reaches the one function that spends a token. `tenant_leg` is the account's own
+    model, passed in the same way and for the same reason — it is a row.
     """
-    capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
-    if not capability.available:
-        raise assist_unavailable(capability)
     # A bare string is the old one-box description; the builder now sends a full brief.
     description = (
         ScriptBrief(description=brief) if isinstance(brief, str) else brief
@@ -564,39 +657,26 @@ async def draft_script(
             f"{description}\nThe owner's change: {change.strip()}\nCurrent script (JSON):\n"
             f"{edit_of.model_dump_json(exclude={'raw_override'})}"
         )
-        parse = partial(_edited_script, current=edit_of)
-
-    # What an Azure turn that produced no draft still cost — `run_assist`'s `spent`, for
-    # its reason: billed as a request, refused as an answer, so it rides the fallback's
-    # draft to the meter. The Sarvam leg itself adds nothing (D-36).
-    spent: TokenUsage | None = None
-    if capability.provider == AZURE_PROVIDER:
-        azure = await _draft_via_azure(description, instruction, parse)
-        if azure is not None and azure.script is not None:
-            return ScriptDraft(script=azure.script, capability=capability, usage=azure.usage)
-        spent = azure.usage if azure is not None else None
-        # Azure could not answer — re-ask the selector with the fact we now have rather
-        # than deciding locally what an outage means (run_assist's rule).
-        capability = assist_capability(
-            tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, provider_unavailable=True
-        )
-        if not capability.available:
-            raise assist_unavailable(capability)
-
-    drafted = await _draft_via_sarvam(description, instruction, parse)
-    if drafted is None or drafted.script is None:
-        # Both legs silent: a refusal the author can act on, not an empty editor.
-        raise assist_unavailable(
-            AssistCapability(available=False, reason=PROVIDER_UNAVAILABLE_REASON)
-        )
-    return ScriptDraft(script=drafted.script, capability=capability, usage=spent)
+        parse = partial(edited_script, current=edit_of)
+    answer = await ask_json(
+        description,
+        instruction,
+        parse=parse or _script_from_model_json,
+        azure_format=_draft_format(parse),
+        tenant_leg=tenant_leg,
+        quota_exhausted=quota_exhausted,
+    )
+    return ScriptDraft(script=answer.value, capability=answer.capability, usage=answer.usage)
 
 
 __all__ = [
     "CONVERT_INSTRUCTION",
     "EDIT_INSTRUCTION",
     "OWNER_QUESTIONS",
+    "JsonAnswer",
     "ScriptBrief",
     "ScriptDraft",
+    "ask_json",
     "draft_script",
+    "edited_script",
 ]

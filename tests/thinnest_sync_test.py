@@ -572,9 +572,13 @@ async def test_a_charge_is_kept_once_and_matched_with_its_fee(
     tenant_id, call_id = await _call_with_usage(
         rate_key="studio", minute_cost=Decimal("3.2700"), tts=False
     )
-    outcome = await engine_charges.reconcile_call_charge(tenant_id, call_id, Decimal("3.000000"))
+    outcome = await engine_charges.reconcile_call_charge(
+        tenant_id, call_id, Decimal("3.000000"), engine="thinnest"
+    )
     assert outcome == "matched" and charge_alarms == []
-    again = await engine_charges.reconcile_call_charge(tenant_id, call_id, Decimal("9.999999"))
+    again = await engine_charges.reconcile_call_charge(
+        tenant_id, call_id, Decimal("9.999999"), engine="thinnest"
+    )
     assert again == "already_recorded"
     async with tenant_session(tenant_id) as session:
         held = (
@@ -592,7 +596,9 @@ async def test_a_rate_attested_without_the_fee_is_a_named_variance(
     tenant_id, call_id = await _call_with_usage(
         rate_key="studio", minute_cost=Decimal("3.0000"), tts=False
     )
-    outcome = await engine_charges.reconcile_call_charge(tenant_id, call_id, Decimal("3.000000"))
+    outcome = await engine_charges.reconcile_call_charge(
+        tenant_id, call_id, Decimal("3.000000"), engine="thinnest"
+    )
     assert outcome == "variance"
     code, detail = charge_alarms[0]
     assert code == "engine_call_cost_variance"
@@ -604,7 +610,9 @@ async def test_a_studio_call_needs_its_cartesia_row(charge_alarms: list[tuple[st
     tenant_id, call_id = await _call_with_usage(
         rate_key="byok_voice", minute_cost=Decimal("1.6350"), tts=False
     )
-    outcome = await engine_charges.reconcile_call_charge(tenant_id, call_id, Decimal("1.500000"))
+    outcome = await engine_charges.reconcile_call_charge(
+        tenant_id, call_id, Decimal("1.500000"), engine="thinnest"
+    )
     assert outcome == "synthesis_cost_missing"
     assert [code for code, _ in charge_alarms] == ["engine_studio_synthesis_cost_missing"]
     with_tts, tts_call = await _call_with_usage(
@@ -612,7 +620,9 @@ async def test_a_studio_call_needs_its_cartesia_row(charge_alarms: list[tuple[st
     )
     charge_alarms.clear()
     assert (
-        await engine_charges.reconcile_call_charge(with_tts, tts_call, Decimal("1.500000"))
+        await engine_charges.reconcile_call_charge(
+            with_tts, tts_call, Decimal("1.500000"), engine="thinnest"
+        )
         == "variance"
     )
     assert "Cartesia synthesis is metered separately at INR 2.0000" in charge_alarms[0][1]
@@ -624,7 +634,9 @@ async def test_an_unmetered_or_unpriced_call_is_kept_and_not_compared(
 ) -> None:
     tenant_id, call_id = await _call_with_usage(rate_key="studio", minute_cost=None, tts=False)
     assert (
-        await engine_charges.reconcile_call_charge(tenant_id, call_id, Decimal("3.000000"))
+        await engine_charges.reconcile_call_charge(
+            tenant_id, call_id, Decimal("3.000000"), engine="thinnest"
+        )
         == "unpriced"
     )
     bare_tenant, _agent = await _seed_tenant(f"sync_{uuid.uuid4().hex[:10]}")
@@ -639,7 +651,9 @@ async def test_an_unmetered_or_unpriced_call_is_kept_and_not_compared(
             {"id": bare_call, "tid": bare_tenant, "aid": _agent, "ecid": f"out_{bare_call}"},
         )
     assert (
-        await engine_charges.reconcile_call_charge(bare_tenant, bare_call, Decimal("1"))
+        await engine_charges.reconcile_call_charge(
+            bare_tenant, bare_call, Decimal("1"), engine="thinnest"
+        )
         == "not_metered"
     )
     assert charge_alarms == []

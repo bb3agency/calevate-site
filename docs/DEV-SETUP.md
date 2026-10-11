@@ -47,9 +47,10 @@ account (D-165/D-170/D-177 — Clerk is deleted).
 >
 > ⚠ **THE SWITCH IS TWO SETTINGS AND A REPUBLISH.** `AZURE_OPENAI_MODEL` is the only one of
 > the four that is `applies: live`, and only because nothing sends it anywhere — it prices
-> the leg. `AZURE_OPENAI_RESOURCE` and `AZURE_OPENAI_DEPLOYMENT` are **`needs_republish`**
-> (they are baked into each published agent as its LLM endpoint and model id), and
-> `AZURE_OPENAI_API_KEY` is too (the in-call copy lives in the engine's credential store).
+> the leg. `AZURE_OPENAI_RESOURCE` and `AZURE_OPENAI_DEPLOYMENT` are **`live_agents`**
+> (baked into each published agent as its LLM endpoint and model id, so saving either
+> republishes every live agent, D-720), and `AZURE_OPENAI_API_KEY` is `operator_step` (the
+> in-call copy lives in the engine's credential store).
 > Change the model alone and you have changed the INVOICE and nothing else: the calls keep
 > running the old deployment while every usage event is priced at 2.67x. Move the
 > deployment id with it, then republish.

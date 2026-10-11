@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 import { ProblemNotice, Skeleton } from "@/components/ui";
-import { useCall, useCalls } from "@/lib/api/hooks";
+import { useCall, useCalls, useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 
+import { initialView, useRetryEnglish, type CallView } from "./calls/[callId]/callEnglish";
 import { TranscriptCard } from "./calls/[callId]/TranscriptCard";
 import { useRawTranscriptAccess } from "./calls/[callId]/transcriptAccess";
 
@@ -38,6 +40,10 @@ function TestCall({ callId }: { callId: string }) {
   const detail = useCall(session, callId);
   const rawAccess = useRawTranscriptAccess(session);
   const callHref = href(`/c/${session.orgSlug}/calls/${callId}`);
+  const englishWrite = useWriteAccess(session, "org:manage", "prepare the English of a call");
+  const retryEnglish = useRetryEnglish(session, callId);
+  const [view, setView] = useState<CallView | null>(null);
+  if (view === null && detail.data) setView(initialView(detail.data));
 
   if (detail.isPending) return <Skeleton rows={3} label="Getting your test call" />;
   if (detail.isError) return <ProblemNotice error={detail.error} onRetry={() => void detail.refetch()} />;
@@ -54,6 +60,14 @@ function TestCall({ callId }: { callId: string }) {
       <TranscriptCard
         detail={detail.data}
         turns={turns}
+        view={view ?? initialView(detail.data)}
+        onViewChange={setView}
+        english={{
+          access: englishWrite,
+          onRetry: () => retryEnglish.mutate(),
+          pending: retryEnglish.isPending,
+          error: retryEnglish.error,
+        }}
         player={null}
         noRecording={false}
         showingRaw={false}

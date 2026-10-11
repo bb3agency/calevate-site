@@ -67,5 +67,18 @@ export function hostedVoiceFacts(data: HostedVoices): Fact[] {
       label: "Studio voices (our Cartesia key)",
       value: data.studio_ready ? "on" : "off",
     },
+    {
+      key: "no_preview",
+      label: "Added voices with no preview clients can play",
+      value: String(data.voices.filter((v) => !v.preview_available).length),
+    },
+    {
+      key: "clone_blocked",
+      label: "Cloned voices of real people that cannot be offered yet",
+      value: data.voices
+        .filter((v) => v.clone_blocker)
+        .map((v) => `${v.label}: ${v.clone_blocker}`)
+        .join("; ") || "none",
+    },
   ];
 }

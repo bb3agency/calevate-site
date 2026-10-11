@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.script_builder import assert_agent_visible
 from apps.api.agents.test_conversations import readiness
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
@@ -621,6 +622,8 @@ async def list_proposed_rules(
     status: Literal["pending", "applied", "dismissed"] = Query(default="pending"),
     _: Principal = Depends(requires("agents:read")),
 ) -> list[RuleOut]:
+    # A neighbour's agent is a 404, not an empty list: one answer for every `{agent_id}`.
+    await assert_agent_visible(session, agent_id)
     return [
         RuleOut.model_validate(r, from_attributes=True)
         for r in await rules.list_rules(session, agent_id=agent_id, status=status)

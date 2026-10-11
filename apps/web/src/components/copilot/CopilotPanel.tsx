@@ -13,7 +13,7 @@ import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
 import type { Session } from "@/lib/api/client";
 import type { SurfaceHolder } from "@/lib/copilot/registry";
 import { unsavedWork } from "@/lib/copilot/unsaved";
-import { suggestedQuestions } from "@/lib/copilot/suggestions";
+import { openingLine, suggestedQuestions } from "@/lib/copilot/suggestions";
 import { useCopilotConversation } from "@/lib/copilot/useCopilotConversation";
 
 import { AnswerText } from "./answerText";
@@ -331,11 +331,11 @@ export function CopilotPanel({
             <p className="text-body text-ink">
               {surface.undeclared === true
                 ? "This screen hasn't told the assistant what it shows yet. I can still look up your calls, leads, campaigns and agents."
-                : surface.fields.length > 0
-                  ? "Ask me about this screen, or tell me what to fill in here."
-                  : realm === "admin"
-                    ? "Ask me about the platform or the account you have open."
-                    : "Ask me about this screen, or anything in your account."}
+                : realm === "admin"
+                  ? surface.fields.length > 0
+                    ? "Ask me about this screen, or tell me what to fill in here."
+                    : "Ask me about the platform or the account you have open."
+                  : openingLine(surface.route, surface.fields.length > 0)}
             </p>
             {realm === "client" && (
               <ul aria-label="Questions you could ask" className="flex flex-wrap gap-2">

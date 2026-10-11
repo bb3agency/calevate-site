@@ -481,7 +481,7 @@ SYSTEM_PROMPT: Final = (
     "whether it has been published to the phone system.\n"
     "- search_knowledge: what this account's agents tell callers.\n"
     "- search_calls: what CALLERS themselves said on past calls, found by meaning — "
-    "'who asked about weekend appointments', 'anyone who mentioned a refund'. This is "
+    "'who asked about weekend timings', 'anyone who mentioned a refund'. This is "
     "the demand side; search_knowledge is what the agent was taught to say back, and "
     "calls_recent lists calls by time rather than by topic.\n"
     "\n"

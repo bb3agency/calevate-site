@@ -70,7 +70,7 @@ export function TaughtRules({
                     type="button"
                     className={TEXT_ACTION}
                     disabled={withRole === null || resolve.isPending}
-                    title={withRole === null ? "Its role is too long to add this. Add it as a section." : undefined}
+                    title={withRole === null ? "Its role is too long to add this. Add it as a step." : undefined}
                     onClick={() => {
                       if (!withRole) return;
                       onChange(withRole);
@@ -90,7 +90,7 @@ export function TaughtRules({
                       resolve.mutate({ ruleId: rule.id, status: "applied" });
                     }}
                   >
-                    Add as a section
+                    Add as a step
                   </button>
                   <button
                     type="button"

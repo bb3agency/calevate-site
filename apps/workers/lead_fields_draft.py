@@ -33,6 +33,7 @@ from calevate_shared.extraction import ExtractionField, FieldType, is_phone_fiel
 from calevate_shared.lead_fields import CORE_KEYS, CORE_LEAD_FIELDS, OUTPUT_KEYS
 from sqlalchemy import text
 
+from apps.api.admin.business_type import queue_apply
 from apps.api.agents.extraction_routes import (
     MAX_ENUM_VALUE_LEN,
     MAX_LABEL_LEN,
@@ -195,8 +196,14 @@ def fields_from_model(raw: dict[str, Any]) -> list[ExtractionField]:
     return out
 
 
-async def _business_context(tenant_id: UUID) -> tuple[str, str | None]:
-    """Everything known about the business, as one redacted description, and its type."""
+async def business_context(tenant_id: UUID, *, include_type: bool = True) -> tuple[str, str | None]:
+    """Everything known about the business, as one redacted description, and its type.
+
+    `include_type=False` is the business-type suggestion's view (`workers/business_type`):
+    it leaves out the type on file and the agents' names, because on an account given a
+    type by default both were written from that default (a "Clinic receptionist") and would
+    hand the model the answer being questioned.
+    """
     async with tenant_session(tenant_id) as session:
         org = (
             await session.execute(
@@ -227,7 +234,9 @@ async def _business_context(tenant_id: UUID) -> tuple[str, str | None]:
         ).all()
     name = str(org[0]) if org else ""
     vertical = None if org is None or org[1] is None else str(org[1])
-    lines = [f"Business name: {name}", f"Business type: {business_type_label(vertical)}"]
+    lines = [f"Business name: {name}"]
+    if include_type:
+        lines.append(f"Business type: {business_type_label(vertical)}")
     for item in profile.services[:40]:
         note = f" ({item.notes})" if item.notes else ""
         lines.append(f"Sells or offers: {item.name}{note}")
@@ -242,7 +251,7 @@ async def _business_context(tenant_id: UUID) -> tuple[str, str | None]:
         lines.append(f"Branch: {branch.label}")
     for title in titles:
         lines.append(f"Knowledge on file: {title}")
-    for agent_name, direction in agents:
+    for agent_name, direction in agents if include_type else []:
         job = "answers calls" if direction == "inbound" else "calls leads"
         lines.append(f"Phone agent '{agent_name}' {job}")
     description = redact("\n".join(" ".join(line.split()) for line in lines)).text
@@ -384,7 +393,7 @@ async def draft_lead_fields(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         return "not_queued"
 
     try:
-        description, _vertical = await _business_context(tenant_id)
+        description, _vertical = await business_context(tenant_id)
         fields, outcome, model = await _draft(description)
         await _meter(tenant_id, outcome, model)
     except Exception:
@@ -408,6 +417,8 @@ async def draft_lead_fields(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         # Onto every agent that has no business fields of its own yet; an agent whose
         # fields somebody already chose keeps them.
         written = await replace_business_fields(session, fields=fields, only_empty=True)
+        # Their scripts ask for the new fields from the next call (D-722).
+        await queue_apply(session, tenant_id=tenant_id)
     log.info(
         "lead_fields_drafted",
         extra={"tenant_id": str(tenant_id), "fields": len(fields), "agents": len(written)},
@@ -415,4 +426,10 @@ async def draft_lead_fields(ctx: dict[str, Any], payload: dict[str, Any]) -> str
     return "done"
 
 
-__all__ = ["JOB_NAME", "SYSTEM_PROMPT", "draft_lead_fields", "fields_from_model"]
+__all__ = [
+    "JOB_NAME",
+    "SYSTEM_PROMPT",
+    "business_context",
+    "draft_lead_fields",
+    "fields_from_model",
+]

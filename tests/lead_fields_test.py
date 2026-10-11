@@ -83,7 +83,8 @@ def test_one_list_of_business_types_and_no_clinic_default() -> None:
     assert list(get_args(Vertical)) == list(BUSINESS_TYPE_LABELS)
     assert set(BUSINESS_TYPE_LABELS) == {*VERTICAL_TEMPLATES, "custom"}
     assert next(iter(BUSINESS_TYPE_LABELS)) != "clinic"
-    assert CreateOrgIn.model_fields["vertical_template"].default == "custom"
+    # Required, with no default at all (D-722): a default is how a shop became a clinic.
+    assert CreateOrgIn.model_fields["vertical_template"].is_required()
     for new in ("retail", "local_services", "automobile"):
         assert new in VERTICAL_TEMPLATES
 

@@ -402,6 +402,9 @@ class TranscriptTurn(PKMixin, TimestampMixin, Base):
     lang: Mapped[str | None] = mapped_column(Text)
     start_ms: Mapped[int | None] = mapped_column(Integer)
     end_ms: Mapped[int | None] = mapped_column(Integer)
+    #: `start_ms` is a rough position, not a point in the audio (ThinnestAI's turn time is
+    #: when the line was written down). e2b8c4d17a63.
+    start_approximate: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
 
 
 class CallExtraction(PKMixin, TimestampMixin, Base):

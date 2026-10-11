@@ -30,8 +30,8 @@ export function LiveDot({ className = "" }: { className?: string }) {
 }
 
 /**
- * "2 live" in the client header — how many calls are in progress across the account,
- * linking to the call log filtered to them.
+ * "Live: 2 calls" in the client header — how many calls are in progress across the
+ * account, opening the call when there is one and the filtered call log when there are more.
  *
  * Read from the existing `/v1/calls?status=in_progress` through `useCalls`, so it polls on
  * the same 20-second cadence as every other call list and adds no endpoint. Nothing while
@@ -59,15 +59,24 @@ export function LiveCallsPill({ slug }: { slug: string }) {
   if (live.data.length === 0) return null;
   const count = live.data.length;
   const label = count >= LIVE_PAGE ? `${LIVE_PAGE}+` : String(count);
+  const noun = count === 1 ? "call" : "calls";
+  // One call opens that call, where the live panel shows who is speaking; several open the
+  // call log filtered to the ones in progress.
+  const only = count === 1 ? live.data[0] : undefined;
+  const target = only
+    ? `/c/${slug}/calls/${only.id}`
+    : `/c/${slug}/calls?status=${LIVE_STATUS}`;
   return (
     <Link
-      href={href(`/c/${slug}/calls?status=${LIVE_STATUS}`)}
-      aria-label={`${label} ${count === 1 ? "call" : "calls"} in progress now`}
+      href={href(target)}
+      aria-label={`${label} ${noun} in progress now`}
       className="press inline-flex h-9 items-center gap-2 rounded-full border border-line bg-surface px-3 text-[13px] font-medium text-ink hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11"
     >
       <LiveDot />
-      <span className="tabular-nums">{label}</span>
-      <span className="text-ink-muted">live</span>
+      <span>
+        <span className="text-ink-muted">Live:</span>{" "}
+        <span className="tabular-nums">{label}</span> {noun}
+      </span>
     </Link>
   );
 }

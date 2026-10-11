@@ -1,61 +1,334 @@
-"""Runs one queued set of pre-launch test conversations (`agents/test_conversations.py`).
+"""Runs one queued set of test conversations, and prepares an auto-improve proposal
+(`apps/api/agents/test_conversations.py` describes the loop, D-724).
 
-Claims the queued row, talks to the agent through the engine's test chat with a pause
-between messages, and stores what the agent said. One attempt: a failed run is marked
+`run_agent_test_conversations`: claim the queued run, write this run's callers with the
+dashboard AI (or fall back to the standard set), talk to the live agent through the engine's
+test chat with a pause between messages, judge every conversation with the AI and the hard
+checks, and store the results worst first. One attempt: a run that cannot finish is marked
 failed with a machine code and the owner may start another.
+
+`improve_agent_test_run`: the auto-improve step, queued by a finished run with failures
+when its owner asked for it. It writes the proposal onto the run for the owner to review;
+it never changes the script and never puts anything live.
+
+Generation, judging and improving are separate metered AI requests (`meter_assist`, one
+feature name each). The routes refuse a new run or proposal at the allowance ceiling; a
+run that crosses it part-way passes the ceiling to the ladder, which then answers on the
+platform's standby model as every dashboard assist does, so the client's allowance stops
+moving at that point.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
+from collections.abc import Awaitable, Callable
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.call_script import upgrade_to_v2
 from sqlalchemy import text
 
-from apps.api.agents.test_conversations import result_dicts, run_scenarios
+from apps.api.agents import script_builder
+from apps.api.agents.assist_leg import account_assist_leg
+from apps.api.agents.test_conversations import (
+    ASSIST_FEATURE_TEST_GENERATE,
+    ASSIST_FEATURE_TEST_IMPROVE,
+    ASSIST_FEATURE_TEST_JUDGE,
+    IMPROVE_JOB,
+    MAX_GENERATED,
+    MAX_SAVED,
+    MAX_TURNS,
+    PROBES,
+    RUN_JOB,
+    AgentBrief,
+    Judged,
+    Scenario,
+    Turn,
+    decide,
+    ensure_probes,
+    get_run,
+    load_brief,
+    needs_improving,
+    queue_improvement,
+    standard_scenarios,
+    store_improvement,
+    wants_auto_improvement,
+    within_budget,
+    worst_first,
+)
+from apps.api.agents.test_window import send_test_message
+from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
-from apps.api.engine.test_chat import RunsTestChat
+from apps.api.engine.hosted_platform import hosted_agent_limits
+from apps.api.engine.test_chat import RunsTestChat, TestChatTool
+from apps.workers.agent_test_ai import (
+    conversation_text,
+    generate_scenarios,
+    improvement_record,
+    judge_conversations,
+    propose_improvement,
+)
+from apps.workers.extraction import TenantModelLeg
+from apps.workers.script_assist import JsonAnswer
 
 log = get_logger(__name__)
 
-#: The ARQ name; `agents/test_conversations.RUN_JOB` is the enqueue side's spelling.
-JOB_NAME: Final = "run_agent_test_conversations"
+#: The ARQ names; `agents/test_conversations` is the enqueue side's spelling.
+JOB_NAME: Final = RUN_JOB
+IMPROVE_JOB_NAME: Final = IMPROVE_JOB
 
 #: Seconds between messages: the engine answers 429 to "messages sent faster than a person
 #: types" (test-chat.md:438-445) without saying how fast that is.
 PAUSE_S: Final = 4.0
+#: The most failures of the previous run asked again on "Test again".
+MAX_RETESTED: Final = 6
+
+#: What a run that could not ask the AI says, in the owner's words.
+NOT_WRITTEN_NOTE: Final = (
+    "AI help could not write new test callers this time, so the standard ones ran."
+)
+NOT_JUDGED_REASON: Final = (
+    "Not checked: AI help is not available right now. Read the reply yourself."
+)
+ALLOWANCE_USED_REASON: Final = (
+    "Not checked: this month's AI help is used up. Read the reply yourself."
+)
+
+Pause = Callable[[], Awaitable[None]]
 
 
 async def _pause() -> None:
     await asyncio.sleep(PAUSE_S)
 
 
-async def _finish(
-    tenant_id: UUID, run_id: UUID, *, status: str, results: Any, failure: str | None
-) -> None:
-    import json
+async def _meter(tenant_id: UUID, answer: JsonAnswer[Any], feature: str) -> None:
+    """A completed AI step is money spent: recorded in its own transaction (crm/assist §4)."""
+    async with tenant_session(tenant_id) as session:
+        await crm_assist.meter_assist(
+            session, tenant_id=tenant_id, ref=new_assist_ref(), result=answer, feature=feature
+        )
 
+
+async def _allowance_used(tenant_id: UUID) -> bool:
+    async with tenant_session(tenant_id) as session:
+        quota = await read_ai_quota(session, tenant_id=tenant_id)
+    return quota.at_ceiling or quota.platform_paused
+
+
+async def _finish(
+    tenant_id: UUID,
+    run_id: UUID,
+    *,
+    status: str,
+    results: Any,
+    failure: str | None,
+    note: str | None = None,
+) -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "UPDATE agent_test_runs SET status = :status, "
-                "results = CAST(:results AS jsonb), error_code = :code, completed_at = now(), "
-                "updated_at = now() WHERE id = :id AND status = 'running'"
+                "results = CAST(:results AS jsonb), error_code = :code, note = :note, "
+                "completed_at = now(), updated_at = now() WHERE id = :id AND status = 'running'"
             ),
             {
                 "status": status,
                 "results": json.dumps(results) if results is not None else None,
                 "code": failure,
+                "note": note,
                 "id": run_id,
             },
         )
 
 
-async def run_agent_test_conversations(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+async def _saved_scenarios(tenant_id: UUID, agent_id: UUID) -> list[Scenario]:
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT id, title, caller_lines, expected FROM agent_test_cases "
+                    "WHERE agent_id = :aid ORDER BY created_at DESC, id DESC LIMIT :limit"
+                ),
+                {"aid": agent_id, "limit": MAX_SAVED},
+            )
+        ).all()
+    return [
+        Scenario(
+            key=f"saved_{str(row[0])[-12:]}",
+            title=str(row[1]),
+            category="business",
+            turns=tuple(str(line) for line in (row[2] or []))[:MAX_TURNS],
+            expect=str(row[3]),
+            source="saved",
+            case_id=str(row[0]),
+        )
+        for row in rows
+        if row[2]
+    ]
+
+
+def _retests(previous: list[dict[str, Any]]) -> list[Scenario]:
+    out = []
+    for raw in previous:
+        if raw.get("verdict") not in ("needs_fix", "failed"):
+            continue
+        scenario = Scenario.of(raw)
+        if scenario.turns:
+            out.append(
+                Scenario(
+                    key=scenario.key,
+                    title=scenario.title,
+                    category=scenario.category,
+                    turns=scenario.turns,
+                    expect=scenario.expect,
+                    probe=scenario.probe,
+                    source="retest",
+                    case_id=scenario.case_id,
+                )
+            )
+    return out[:MAX_RETESTED]
+
+
+async def write_scenarios(
+    brief: AgentBrief,
+    *,
+    tenant_id: UUID,
+    round_key: str,
+    count: int,
+    tenant_leg: TenantModelLeg | None,
+) -> tuple[list[Scenario], str | None]:
+    """This run's fresh callers, and a note when they are not AI-written."""
+    exhausted = await _allowance_used(tenant_id)
+    try:
+        answer = await generate_scenarios(
+            brief,
+            round_key=round_key,
+            count=count,
+            tenant_leg=tenant_leg,
+            quota_exhausted=exhausted,
+        )
+    except ProblemError as refused:
+        log.info("agent_tests_standard_set", extra={"reason": refused.code})
+        standard = standard_scenarios(brief.language, brief.direction)
+        return ensure_probes(standard, brief.language, cap=count), NOT_WRITTEN_NOTE
+    await _meter(tenant_id, answer, ASSIST_FEATURE_TEST_GENERATE)
+    return ensure_probes(answer.value, brief.language, cap=count), answer.capability.disclosure
+
+
+async def talk(
+    engine: RunsTestChat,
+    *,
+    agent_id: UUID,
+    engine_agent_ref: str,
+    scenarios: list[Scenario],
+    pause: Pause,
+) -> list[list[Turn]]:
+    """Each scenario as one conversation with the live agent, its turns in order."""
+    out: list[list[Turn]] = []
+    first = True
+    for scenario in scenarios:
+        session: str | None = None
+        turns: list[Turn] = []
+        for line in scenario.turns:
+            if not first:
+                await pause()
+            first = False
+            reply = await send_test_message(
+                engine,
+                agent_id=agent_id,
+                engine_agent_ref=engine_agent_ref,
+                message=line,
+                session=session,
+            )
+            session = reply.session or session
+            results = reply.tool_results or tuple(TestChatTool(name=n) for n in reply.tools)
+            turns.append(
+                Turn(
+                    said=line,
+                    reply=reply.reply,
+                    tools=[tool.name for tool in results],
+                    statuses=[tool.status for tool in results],
+                    cut_short=reply.failed_part_way,
+                )
+            )
+        out.append(turns)
+    return out
+
+
+async def judge_all(
+    brief: AgentBrief,
+    scenarios: list[Scenario],
+    conversations: list[list[Turn]],
+    *,
+    tenant_id: UUID,
+    tenant_leg: TenantModelLeg | None,
+) -> tuple[dict[str, Judged], str]:
+    """The AI judge's verdicts, and the reason to show where it could not judge."""
+    exhausted = await _allowance_used(tenant_id)
+    texts = [
+        conversation_text(s, [(t.said, t.reply, t.tools) for t in turns])
+        for s, turns in zip(scenarios, conversations, strict=True)
+    ]
+    try:
+        answer = await judge_conversations(
+            brief,
+            texts,
+            {s.key for s in scenarios},
+            tenant_leg=tenant_leg,
+            quota_exhausted=exhausted,
+        )
+    except ProblemError as refused:
+        log.info("agent_tests_not_judged", extra={"reason": refused.code})
+        return {}, ALLOWANCE_USED_REASON if exhausted else NOT_JUDGED_REASON
+    await _meter(tenant_id, answer, ASSIST_FEATURE_TEST_JUDGE)
+    return answer.value, NOT_JUDGED_REASON
+
+
+async def _store_saved_results(
+    tenant_id: UUID,
+    scenarios: list[Scenario],
+    conversations: list[list[Turn]],
+    knowledge_tool: str | None,
+    version: int | None,
+) -> None:
+    """A saved test that ran here shows its replies on its own row too."""
+    async with tenant_session(tenant_id) as session:
+        for scenario, turns in zip(scenarios, conversations, strict=True):
+            if scenario.source != "saved" or scenario.case_id is None:
+                continue
+            await session.execute(
+                text(
+                    "UPDATE agent_test_cases SET last_result = CAST(:result AS jsonb), "
+                    "last_error = NULL, last_run_at = now(), last_prompt_version = :version, "
+                    "updated_at = now() WHERE id = :id AND status = 'idle'"
+                ),
+                {
+                    "id": UUID(scenario.case_id),
+                    "version": version,
+                    "result": json.dumps(
+                        [
+                            {
+                                "said": t.said,
+                                "reply": t.reply,
+                                "looked_up_knowledge": knowledge_tool is not None
+                                and knowledge_tool in t.tools,
+                                "cut_short": t.cut_short,
+                            }
+                            for t in turns
+                        ]
+                    ),
+                },
+            )
+
+
+async def run_agent_test_conversations(
+    ctx: dict[str, Any], payload: dict[str, Any], *, pause: Pause = _pause
+) -> str:
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
     run_id = UUID(str(payload["run_id"]))
@@ -65,25 +338,54 @@ async def run_agent_test_conversations(ctx: dict[str, Any], payload: dict[str, A
                 text(
                     "UPDATE agent_test_runs r SET status = 'running', updated_at = now() "
                     "FROM agents a WHERE r.id = :id AND r.status = 'queued' "
-                    "AND a.id = r.agent_id RETURNING a.engine_agent_ref, a.direction, "
-                    "a.language_primary"
+                    "AND a.id = r.agent_id RETURNING r.agent_id, a.engine_agent_ref, "
+                    "r.improve_round, r.retest_of, r.prompt_version"
                 ),
                 {"id": run_id},
             )
         ).first()
     if claimed is None:
         return "not_queued"
+    agent_id, engine_agent_ref, round_no, retest_of, version = claimed
     engine = get_engine()
-    if not isinstance(engine, RunsTestChat) or claimed[0] is None:
+    if not isinstance(engine, RunsTestChat) or engine_agent_ref is None:
         await _finish(tenant_id, run_id, status="failed", results=None, failure="unavailable")
         return "failed"
     try:
-        results = await run_scenarios(
+        async with tenant_session(tenant_id) as session:
+            brief = await load_brief(session, agent_id)
+            tenant_leg = await account_assist_leg(session)
+            previous = await get_run(session, agent_id, retest_of) if retest_of else None
+        retests = _retests(previous.results) if previous is not None else []
+        count = max(len(PROBES) + 1, MAX_GENERATED - len(retests))
+        fresh, note = await write_scenarios(
+            brief,
+            tenant_id=tenant_id,
+            round_key=f"r{run_id.hex[-6:]}",
+            count=count,
+            tenant_leg=tenant_leg,
+        )
+        retested_probes = {s.probe for s in retests if s.probe}
+        fresh = [s for s in fresh if s.probe is None or s.probe not in retested_probes]
+        saved = await _saved_scenarios(tenant_id, agent_id)
+        scenarios = within_budget(retests + fresh + saved)
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text(
+                    "UPDATE agent_test_runs SET scenarios = CAST(:s AS jsonb), "
+                    "updated_at = now() WHERE id = :id"
+                ),
+                {"id": run_id, "s": json.dumps([s.as_dict() for s in scenarios])},
+            )
+        conversations = await talk(
             engine,
-            engine_agent_ref=str(claimed[0]),
-            direction=str(claimed[1]),
-            language=str(claimed[2]),
-            pause=_pause,
+            agent_id=agent_id,
+            engine_agent_ref=str(engine_agent_ref),
+            scenarios=scenarios,
+            pause=pause,
+        )
+        judged, unjudged_reason = await judge_all(
+            brief, scenarios, conversations, tenant_id=tenant_id, tenant_leg=tenant_leg
         )
     except ProblemError as exc:
         log.warning("agent_tests_failed", extra={"run_id": str(run_id), "reason": exc.code})
@@ -93,9 +395,123 @@ async def run_agent_test_conversations(ctx: dict[str, Any], payload: dict[str, A
         log.exception("agent_tests_crashed", extra={"run_id": str(run_id)})
         await _finish(tenant_id, run_id, status="failed", results=None, failure="crashed")
         return "failed"
-    await _finish(tenant_id, run_id, status="done", results=result_dicts(results), failure=None)
-    log.info("agent_tests_done", extra={"run_id": str(run_id), "scenarios": len(results)})
+
+    before = {str(r.get("key")): r.get("verdict") for r in (previous.results if previous else [])}
+    results = [
+        {
+            **decide(
+                scenario,
+                turns,
+                judged.get(scenario.key),
+                language=brief.language,
+                unjudged_reason=unjudged_reason,
+            ),
+            "before": before.get(scenario.key),
+        }
+        for scenario, turns in zip(scenarios, conversations, strict=True)
+    ]
+    await _store_saved_results(
+        tenant_id, scenarios, conversations, hosted_agent_limits(engine).knowledge_tool, version
+    )
+    await _finish(
+        tenant_id, run_id, status="done", results=worst_first(results), failure=None, note=note
+    )
+    async with tenant_session(tenant_id) as session:
+        finished = await get_run(session, agent_id, run_id)
+        if wants_auto_improvement(finished):
+            await queue_improvement(session, tenant_id=tenant_id, run_id=run_id)
+    log.info(
+        "agent_tests_done",
+        extra={"run_id": str(run_id), "scenarios": len(results), "round": round_no},
+    )
     return "done"
 
 
-__all__ = ["JOB_NAME", "PAUSE_S", "run_agent_test_conversations"]
+async def improve_run(
+    tenant_id: UUID,
+    agent_id: UUID,
+    run_id: UUID,
+    *,
+    keys: list[str] | None,
+) -> dict[str, Any]:
+    """The proposal for this run's failures (all of them, or `keys`), stored on the run.
+
+    The base is the autosaved draft when there is one, else the script callers hear: the
+    owner reviews changes to what they are editing. Raises the assist refusal (allowance
+    used up, no model) and `agent_tests_nothing_to_fix`."""
+    async with tenant_session(tenant_id) as session:
+        run = await get_run(session, agent_id, run_id)
+        failures = needs_improving(run)
+        if keys:
+            failures = [r for r in failures if str(r.get("key")) in set(keys)]
+        if not failures:
+            raise ProblemError.business_rule(
+                "agent_tests_nothing_to_fix", "Every chosen test passed. There is nothing to fix."
+            )
+        brief = await load_brief(session, agent_id)
+        tenant_leg = await account_assist_leg(session)
+        draft = await script_builder.read_draft(session, agent_id)
+        loaded = await script_builder.load_agent_script(session, agent_id)
+    exhausted = await _allowance_used(tenant_id)
+    # A v1 script is reviewed in the v2 steps, exactly as the builder opens it.
+    base = upgrade_to_v2(draft.script if draft is not None else loaded.script)
+    if base.is_raw:
+        # Suggestions are reviewed step by step; a hand-written script has no steps to
+        # change, and rewriting it whole would drop the owner's own words.
+        raise ProblemError.business_rule(
+            "agent_tests_hand_written",
+            "Suggested fixes need a script in steps.",
+            remediation="Turn the hand-written script into steps in the script builder first.",
+        )
+    answer = await propose_improvement(
+        brief, base, failures, tenant_leg=tenant_leg, quota_exhausted=exhausted
+    )
+    await _meter(tenant_id, answer, ASSIST_FEATURE_TEST_IMPROVE)
+    record = improvement_record(
+        answer,
+        base=base,
+        base_kind="draft" if draft is not None else "live",
+        base_saved_at=draft.saved_at if draft is not None else None,
+        base_version=loaded.version,
+        for_keys=[str(r.get("key")) for r in failures],
+    )
+    async with tenant_session(tenant_id) as session:
+        await store_improvement(session, agent_id=agent_id, run_id=run_id, improvement=record)
+    return record
+
+
+async def improve_agent_test_run(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    del ctx
+    tenant_id = UUID(str(payload["tenant_id"]))
+    run_id = UUID(str(payload["run_id"]))
+    async with tenant_session(tenant_id) as session:
+        agent_id = (
+            await session.execute(
+                text("SELECT agent_id FROM agent_test_runs WHERE id = :id"), {"id": run_id}
+            )
+        ).scalar()
+    if agent_id is None:
+        return "no_run"
+    try:
+        await improve_run(tenant_id, agent_id, run_id, keys=None)
+    except ProblemError as refused:
+        log.info(
+            "agent_tests_auto_improve_skipped",
+            extra={"run_id": str(run_id), "reason": refused.code},
+        )
+        return "skipped"
+    log.info("agent_tests_auto_improved", extra={"run_id": str(run_id)})
+    return "proposed"
+
+
+__all__ = [
+    "IMPROVE_JOB_NAME",
+    "JOB_NAME",
+    "PAUSE_S",
+    "improve_agent_test_run",
+    "improve_run",
+    "judge_all",
+    "run_agent_test_conversations",
+    "talk",
+    "write_scenarios",
+]

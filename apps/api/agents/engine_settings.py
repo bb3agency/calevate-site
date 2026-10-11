@@ -55,11 +55,22 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         "script_steps",
         "built_in_tools",
         "hand_over",
-        # The agent answers on a website call button or WhatsApp, which we do not offer
-        # (D-716). Reported, never repairable from here: set in the vendor console.
-        "answer_surfaces",
     }
 )
+
+
+@runtime_checkable
+class ReportsAnswerSurfaces(Protocol):
+    """An adapter that can say where else a live agent answers besides the phone, for the
+    admin drift panel (`engine/thinnest.ThinnestEngine`).
+
+    Information, never drift (D-720, founder 10 Oct 2026): a website call button or
+    WhatsApp answering is acceptable and a planned feature, so nothing compares, repairs
+    or alarms on it."""
+
+    async def answer_surfaces(self, ref: EngineAgentRef) -> list[str]:
+        """Plain names of the places besides the phone it answers, e.g. "WhatsApp"."""
+        ...
 
 
 @runtime_checkable
@@ -133,6 +144,7 @@ async def check_agent_settings(
 __all__ = [
     "AGENT_SETTING_LABELS",
     "ReconcilesAgentSettings",
+    "ReportsAnswerSurfaces",
     "SettingsCheck",
     "check_agent_settings",
 ]

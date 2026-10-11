@@ -9,7 +9,7 @@ import { LiveCallsPill } from "@/components/console/liveCalls";
 import { SHELL_RAIL_CLASS, formatCountOf } from "@/components/ui";
 import { useAttention } from "@/lib/api/attention";
 import { useClientRealm } from "@/lib/api/session";
-import { minutesLeftPhrase, useWallet, walletState } from "@/lib/api/wallet";
+import { creditLeftPhrase, useWallet, walletState } from "@/lib/api/wallet";
 import { clientNavigation } from "@/lib/clientNav";
 import { useDesktopAlerts } from "@/lib/desktopAlerts";
 
@@ -108,7 +108,7 @@ function CreditChip({ slug }: { slug: string }) {
   if (!wallet.data) return null;
   const state = walletState(wallet.data);
   if (state !== "low" && state !== "stopped") return null;
-  const text = state === "stopped" ? "Calls stopped" : (minutesLeftPhrase(wallet.data) ?? "Credit low");
+  const text = state === "stopped" ? "Calls stopped" : creditLeftPhrase(wallet.data);
   return (
     <Link
       href={href(`/c/${slug}/billing?tab=credits`)}

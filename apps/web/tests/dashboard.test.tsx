@@ -400,6 +400,62 @@ describe("the dashboard renders what the server said, or says it could not", () 
     }
   });
 
+  it("shows what each recent call captured and, for an owner, what it cost", async () => {
+    const call: CallSummary = {
+      id: "c2",
+      agent_id: "a1",
+      agent_name: "Reception",
+      direction: "inbound",
+      status: "completed",
+      caller_e164: "+919876543211",
+      started_at: "2026-08-13T04:30:00Z",
+      duration_s: 92,
+      outcome_tag: "answered",
+      summary_state: "ready",
+      test_call: false,
+      sentiment: "positive",
+      summary: "Asked about rice.",
+      lead_id: null,
+      credits_used_inr: "12.50",
+      captured_preview: [
+        { label: "What they want", value: "Two kilos of rice" },
+        { label: "Preferred time", value: "Saturday" },
+      ],
+    };
+
+    await renderClientPage(page, routes({ "/v1/calls?limit=6": [call] }));
+
+    expect(
+      await screen.findByText("What they want: Two kilos of rice · Preferred time: Saturday"),
+    ).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Cost" })).toBeTruthy();
+    expect(screen.getByText("₹12.50")).toBeTruthy();
+  });
+
+  it("shows no cost column when the server sent no cost, as it does for staff", async () => {
+    const call: CallSummary = {
+      id: "c3",
+      agent_id: "a1",
+      agent_name: "Reception",
+      direction: "inbound",
+      status: "completed",
+      caller_e164: "+919876543212",
+      started_at: "2026-08-13T04:30:00Z",
+      duration_s: 30,
+      outcome_tag: "answered",
+      summary_state: "empty",
+      test_call: false,
+      sentiment: null,
+      summary: null,
+      lead_id: null,
+    };
+
+    await renderClientPage(page, routes({ "/v1/calls?limit=6": [call] }));
+
+    expect(await screen.findByText("+91 98765 43212")).toBeTruthy();
+    expect(screen.queryByRole("columnheader", { name: "Cost" })).toBeNull();
+  });
+
   it("says which definition of after-hours produced the number", async () => {
     const { container: guessed } = await renderClientPage(page, routes());
     // Wait for the query to answer before reading the DOM: these screens paint a

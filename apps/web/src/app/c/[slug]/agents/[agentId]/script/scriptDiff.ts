@@ -36,7 +36,7 @@ const PARTS: { key: PartKey; label: string }[] = [
   { key: "objections", label: "When callers push back" },
   { key: "ending", label: "How it ends the call" },
   { key: "example_exchange", label: "Example call" },
-  { key: "adherence", label: "How closely it follows the sections" },
+  { key: "adherence", label: "How closely it follows the steps" },
 ];
 
 export type Change =
@@ -119,14 +119,14 @@ export function diffScripts(before: CallScript, after: CallScript): Change[] {
   now.forEach((a, index) => {
     const b = matched.get(a.id);
     if (!b) {
-      changes.push({ id: `add:${a.id}`, kind: "section-added", label: a.name.trim() || "New section", after: a, index });
+      changes.push({ id: `add:${a.id}`, kind: "section-added", label: a.name.trim() || "New step", after: a, index });
     } else if (sectionText(b, wasNames) !== sectionText(a, nowNames)) {
-      changes.push({ id: `change:${b.id}`, kind: "section-changed", label: b.name.trim() || "Section", before: b, after: a });
+      changes.push({ id: `change:${b.id}`, kind: "section-changed", label: b.name.trim() || "Step", before: b, after: a });
     }
   });
   for (const b of was) {
     if (!matchedBefore.has(b.id)) {
-      changes.push({ id: `remove:${b.id}`, kind: "section-removed", label: b.name.trim() || "Section", before: b });
+      changes.push({ id: `remove:${b.id}`, kind: "section-removed", label: b.name.trim() || "Step", before: b });
     }
   }
   return changes;
@@ -195,12 +195,12 @@ export function applyChanges(current: CallScript, proposal: CallScript, kept: Re
 /** One line for the history, from what changed between the live script and the draft. */
 export function changeSummary(live: CallScript, draft: CallScript): string {
   if (draft.raw_override !== null && live.raw_override === null) return "Switched to a hand-written script";
-  if (draft.raw_override === null && live.raw_override !== null) return "Turned the hand-written script into sections";
+  if (draft.raw_override === null && live.raw_override !== null) return "Turned the hand-written script into steps";
   if (draft.raw_override !== null) return "Edited the hand-written script";
   const changes = diffScripts(live, draft);
   if (changes.length === 0) {
     const order = (x: CallScript) => sectionsOf(x).map((st) => st.id).join(" ");
-    return order(live) === order(draft) ? "Tidied the flow picture" : "Changed the order of the sections";
+    return order(live) === order(draft) ? "Tidied the flow picture" : "Changed the order of the steps";
   }
   const words = changes.map((c) =>
     c.kind === "section-added"

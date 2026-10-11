@@ -66,6 +66,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.platform_config import (
     ENV_ONLY,
+    LIVE_AGENTS,
     UNCLASSIFIED,
     StoredRow,
     applies_rule,
@@ -183,6 +184,21 @@ class WriteResult:
     #: convention — "I stored this" and "this was already the value" are different
     #: sentences and a console that collapsed them would report a change nobody made.
     recorded: bool = True
+    #: The live-apply run that carries this change onto every live agent (D-720), for a
+    #: key classified `live_agents`; None otherwise.
+    live_apply_run_id: uuid.UUID | None = None
+
+
+async def _apply_to_live_agents(
+    session: AsyncSession, key: str, actor_id: uuid.UUID
+) -> uuid.UUID | None:
+    """Queue the platform-wide live apply for a key every live agent carries, in the
+    write's transaction, so the change and the promise to apply it commit together."""
+    if applies_rule(key).applies != LIVE_AGENTS:
+        return None
+    from apps.api.agents.live_apply import queue_live_apply
+
+    return await queue_live_apply(session, scope="platform", reason=key, requested_by=actor_id)
 
 
 async def read_rows(session: AsyncSession) -> dict[str, StoredRow]:
@@ -292,7 +308,7 @@ def _refuse_unmanaged(key: str) -> None:
                 "when a change to it would take effect."
             ),
             remediation=(
-                "Classify it (live / on_restart / needs_republish / env_only) with the "
+                "Classify it (live / on_restart / live_agents / operator_step / env_only) with the "
                 "reason, and ship that with the field. Until then the console will not "
                 "offer a change it cannot describe."
             ),
@@ -625,6 +641,7 @@ async def set_value(
         # JSON string rather than as a bare SQL text literal.
         {"k": key, "v": _json(stored), "by": actor_id, "note": note},
     )
+    run_id = await _apply_to_live_agents(session, key, actor_id)
     # Read AFTER the write and on the same connection, so it reflects the trigger's bump
     # inside this transaction rather than a version another request produced.
     return WriteResult(
@@ -633,6 +650,7 @@ async def set_value(
         new=stored,
         version=await _version(session),
         revision=await _revision(session, key),
+        live_apply_run_id=run_id,
     )
 
 
@@ -651,7 +669,6 @@ async def clear_value(
     somebody replaced ten seconds ago is the most expensive version of a lost update on
     this surface.
     """
-    del actor_id  # the audit row carries the actor; the DELETE has no column for one
     _refuse_unmanaged(key)
     await _lock_key(session, key)
     current = await _current(session, key)
@@ -666,8 +683,14 @@ async def clear_value(
         default = Settings.model_fields[_RESOURCE_KEY].get_default(call_default_factory=True)
         _assert_resource_attested(default)
     await session.execute(text("DELETE FROM platform_settings WHERE key = :k"), {"k": key})
+    run_id = await _apply_to_live_agents(session, key, actor_id)
     return WriteResult(
-        key=key, old=current.value, new=None, version=await _version(session), revision=0
+        key=key,
+        old=current.value,
+        new=None,
+        version=await _version(session),
+        revision=0,
+        live_apply_run_id=run_id,
     )
 
 

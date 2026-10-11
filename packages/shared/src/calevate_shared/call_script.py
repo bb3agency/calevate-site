@@ -845,8 +845,7 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
         policies.append("Do not quote prices. Say the team will share the price with them.")
     if not script.policies.take_bookings:
         policies.append(
-            "Do not book appointments or visits yourself. Note what they want and when it "
-            "suits them."
+            "Do not make a booking yourself. Note what they want and when it suits them."
         )
     add("[POLICIES]", "\n".join(f"- {p}" for p in policies))
     add("[ENDING]", script.ending)

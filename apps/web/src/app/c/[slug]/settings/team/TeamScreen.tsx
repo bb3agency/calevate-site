@@ -20,6 +20,7 @@ import {
   useMembers,
   usePendingInvitations,
   useRemoveMember,
+  useResendInvitation,
   useRevokeInvitation,
   useSetMemberRole,
   useTeamMembers,
@@ -91,6 +92,7 @@ export function TeamScreen() {
   const changeRole = useSetMemberRole(session);
   const remove = useRemoveMember(session);
   const revoke = useRevokeInvitation(session);
+  const resend = useResendInvitation(session);
 
   /*
    * THE ADDRESS AND THE ROLE ARE HELD HERE, not in `InviteForm`, because the copilot
@@ -247,6 +249,11 @@ export function TeamScreen() {
           ? (remove.variables ?? null)
           : null,
     busyInvite: revoke.isPending ? (revoke.variables ?? null) : null,
+    resendingInvite: resend.isPending ? (resend.variables ?? null) : null,
+    resent:
+      resend.isSuccess && resend.variables
+        ? { id: resend.variables, at: resend.submittedAt }
+        : null,
     onRole: (member, next) =>
       changeRole.mutate({
         userId: member.id,
@@ -257,6 +264,7 @@ export function TeamScreen() {
       }),
     onRemove: (member) => setRemoving(member),
     onRevoke: (invitation) => revoke.mutate(invitation.id),
+    onResend: (invitation) => resend.mutate(invitation.id),
   });
 
   return (
@@ -270,6 +278,7 @@ export function TeamScreen() {
         <ProblemNotice error={changeRole.error ?? remove.error} />
       )}
       {revoke.error != null && <ProblemNotice error={revoke.error} />}
+      {resend.error != null && <ProblemNotice error={resend.error} />}
       {members.error != null && (
         <ProblemNotice error={members.error} onRetry={() => members.refetch()} />
       )}

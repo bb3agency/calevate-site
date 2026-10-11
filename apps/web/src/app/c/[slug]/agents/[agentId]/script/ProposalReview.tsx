@@ -98,20 +98,20 @@ export function ProposalReview({
   );
 }
 
-function headline(change: Change): string {
+export function headline(change: Change): string {
   switch (change.kind) {
     case "part":
       return change.label;
     case "section-added":
-      return `New section: ${change.label}`;
+      return `New step: ${change.label}`;
     case "section-removed":
-      return `Remove section: ${change.label}`;
+      return `Remove step: ${change.label}`;
     case "section-changed":
-      return `Section: ${change.label}`;
+      return `Step: ${change.label}`;
   }
 }
 
-function ChangeBody({ change }: { change: Change }) {
+export function ChangeBody({ change }: { change: Change }) {
   if (change.kind === "part") return <BeforeAfter before={change.before} after={change.after} />;
   if (change.kind === "section-added") return <Quote tone="after" text={sectionDetail(change.after)} />;
   if (change.kind === "section-removed") return <Quote tone="before" text={sectionDetail(change.before)} />;

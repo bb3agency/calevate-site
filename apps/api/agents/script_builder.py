@@ -52,7 +52,7 @@ from calevate_shared.engine import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.prompts import write_prompt_version
+from apps.api.agents.prompts import insert_prompt_version, write_prompt_version
 from apps.api.agents.t0_block import block_of, splice_t0_block
 from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.errors import ProblemError
@@ -388,6 +388,60 @@ async def compiled_preview(session: AsyncSession, agent_id: UUID, script: CallSc
     )
 
 
+async def recompile_collect(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
+) -> int | None:
+    """Recompile the draft script after the agent's lead details changed (D-722).
+
+    "What to collect" is compiled from the extraction schema at save, so a schema change
+    otherwise reaches the call only at the owner's next script save, and an agent moved off
+    a wrong business type kept asking callers for the old type's details. Same doctrine as
+    `teach.pinned.recompile_agent`: a new immutable version, applied (and republished on a
+    live agent) unless a script edit is staged, in which case it rides with that edit.
+    A freeform script has no collect list and is left alone. Returns the new version, or
+    None when nothing changed.
+    """
+    # Local import: `agents/service` imports this module.
+    from apps.api.agents.service import publish_agent
+
+    row = (
+        await session.execute(
+            text(
+                "SELECT a.name, a.status, a.engine_agent_ref, pv.body, pv.structured_script, "
+                "pv.compiled_t0_context, (a.system_prompt_id IS DISTINCT FROM a.live_prompt_id) "
+                "FROM agents a JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
+                "WHERE a.id = :aid AND a.deleted_at IS NULL"
+            ),
+            {"aid": agent_id},
+        )
+    ).first()
+    if row is None or not isinstance(row[4], dict):
+        return None
+    script = CallScript.model_validate(row[4]).model_copy(update={"faqs": []})
+    body = compile_call_script(script, collect=await collect_fields(session, agent_id))
+    body = await pinned_facts.spliced_body(session, body)
+    facts = block_of(str(row[3]))
+    if facts is not None:
+        body = splice_t0_block(body, facts, identity=f"{row[0]}.")
+    if body == row[3]:
+        return None
+    staged = bool(row[6])
+    version = await insert_prompt_version(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        body=body,
+        notes="Lead details changed: what the agent collects was updated",
+        created_by=None,
+        compiled_t0_context=row[5],
+        structured_script=script.model_dump(mode="json"),
+        apply_live=not staged,
+    )
+    if row[1] == "live" and row[2] and not staged:
+        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+    return version
+
+
 # --- the autosaved draft, versions and restore (D-714) --------------------------------
 
 
@@ -527,8 +581,8 @@ async def restore_into_draft(session: AsyncSession, agent_id: UUID, version: int
 
 
 __all__ = [
-    "Draft",
     "MAX_VERSIONS_PAGE",
+    "Draft",
     "LoadedScript",
     "Preview",
     "SavedScript",
@@ -541,6 +595,7 @@ __all__ = [
     "list_versions",
     "load_agent_script",
     "read_draft",
+    "recompile_collect",
     "restore_into_draft",
     "save_agent_script",
     "save_draft",

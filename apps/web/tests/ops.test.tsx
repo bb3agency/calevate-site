@@ -74,7 +74,10 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => nav.params,
   usePathname: () => "/admin/ops/config",
   useRouter: () => ({
-    push: vi.fn(),
+    // A push moves the section the way the URL would, so a search jump opens it.
+    push: (url: string) => {
+      nav.params = new URLSearchParams(url.split("?")[1] ?? "");
+    },
     replace: vi.fn(),
     refresh: vi.fn(),
     back: vi.fn(),
@@ -230,6 +233,8 @@ function configRoutes(
   return {
     [ADMIN_ME_PATH]: identity,
     [OPS_CONFIG_PATH]: configList(),
+    // The live-apply line (D-720) reads the newest platform run.
+    "/v1/ops/live-apply?scope=platform&limit=3": { runs: [] },
     // The model-prices panel shares this screen, so every OpsConfigPage render stubs its
     // read too — an unrouted one paints a `ProblemNotice` (retry button, alert) onto a
     // screen these cases assert the exact controls of.
@@ -2784,9 +2789,11 @@ describe("the platform configuration panel", () => {
       }),
     );
 
-    const search = await screen.findByRole("searchbox", { name: "Search settings" });
+    const search = await screen.findByRole("searchbox", {
+      name: "Search settings, panels and credentials",
+    });
     fireEvent.change(search, { target: { value: "bucket" } });
-    expect(screen.getByRole("heading", { name: "Matching settings" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Search results" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Infrastructure" })).toBeTruthy();
     expect(screen.getByText("object_store_bucket")).toBeTruthy();
     expect(screen.queryByText("self_serve_inr_per_min")).toBeNull();
@@ -2798,8 +2805,45 @@ describe("the platform configuration panel", () => {
     expect(screen.queryByText("object_store_bucket")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Clear search/ }));
-    expect(screen.queryByRole("heading", { name: "Matching settings" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Search results" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Billing and pricing" })).toBeTruthy();
+  });
+
+  it("finds panels and credential names, jumps to the one picked and highlights it", async () => {
+    renderAdminPage(<OpsConfigPage />, configRoutes());
+    const search = await screen.findByRole("searchbox", {
+      name: "Search settings, panels and credentials",
+    });
+
+    fireEvent.change(search, { target: { value: "sarvam" } });
+    const places = await screen.findByRole("heading", { name: "Sections, panels and credentials" });
+    const list = places.parentElement as HTMLElement;
+    await waitFor(() => expect(within(list).getByText("sarvam_api_key")).toBeTruthy());
+    expect(within(list).getByText("Model prices")).toBeTruthy();
+
+    fireEvent.change(search, { target: { value: "cartesia" } });
+    await waitFor(() => expect(screen.getByText("cartesia_api_key")).toBeTruthy());
+
+    fireEvent.change(search, { target: { value: "usd" } });
+    expect(await screen.findByText("Exchange rate (USD to INR)")).toBeTruthy();
+
+    fireEvent.change(search, { target: { value: "sarvam" } });
+    fireEvent.click(await screen.findByRole("button", { name: /sarvam_api_key/ }));
+    expect(nav.params.get("section")).toBe("credentials");
+    expect(screen.queryByRole("heading", { name: "Search results" })).toBeNull();
+    await waitFor(() =>
+      expect(document.getElementById("credential-sarvam_api_key")?.dataset.searchHit).toBe("true"),
+    );
+  });
+
+  it("says plainly when nothing matches and suggests a section", async () => {
+    renderAdminPage(<OpsConfigPage />, configRoutes());
+    const search = await screen.findByRole("searchbox", {
+      name: "Search settings, panels and credentials",
+    });
+    fireEvent.change(search, { target: { value: "zzzz" } });
+    expect(screen.getByRole("status").textContent).toContain('Nothing on this screen matches "zzzz"');
+    expect(screen.getByText(/Try browsing/)).toBeTruthy();
   });
 });
 

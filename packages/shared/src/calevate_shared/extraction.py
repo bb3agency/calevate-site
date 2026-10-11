@@ -146,6 +146,149 @@ class ExtractionSchemaSpec(BaseModel):
         return next((f for f in self.fields if f.key == key), None)
 
 
+# --- Key moments, asked for in the same request as the fields ---------------------------
+#
+# Founder decision, 11 Oct 2026: moments come out of the extraction call that already reads
+# the transcript, not a second model call, so they cost only the extra output tokens.
+
+#: What a key moment is about, in the three groups the screen shows.
+MomentCategory = Literal["details", "attention", "buying"]
+
+#: Every kind a stored moment may carry. `opt_out` is DERIVED only (the opt-out detector
+#: names the turn); everything else the model may suggest. Compliance moments (the AI
+#: disclosure, the recording notice) are deliberately absent: the founder does not want them.
+MomentKind = Literal[
+    "field_captured",
+    "booking_agreed",
+    "callback_agreed",
+    "price_quoted",
+    "asked_for_person",
+    "could_not_answer",
+    "complaint",
+    "frustrated",
+    "opt_out",
+    "strong_interest",
+    "asked_delivery_or_payment",
+    "will_buy_or_visit",
+]
+
+#: Kind to category, and the plain label a kind falls back to when the model wrote none.
+MOMENT_KINDS: dict[str, tuple[MomentCategory, str]] = {
+    "field_captured": ("details", "Detail captured"),
+    "booking_agreed": ("details", "Booking agreed"),
+    "callback_agreed": ("details", "Call back agreed"),
+    "price_quoted": ("details", "Price quoted"),
+    "asked_for_person": ("attention", "Asked for a person"),
+    "could_not_answer": ("attention", "Agent could not answer"),
+    "complaint": ("attention", "Complaint or objection"),
+    "frustrated": ("attention", "Caller sounded frustrated"),
+    "opt_out": ("attention", "Asked not to be called again"),
+    "strong_interest": ("buying", "Strong interest"),
+    "asked_delivery_or_payment": ("buying", "Asked about delivery or payment"),
+    "will_buy_or_visit": ("buying", "Said they will buy or visit"),
+}
+
+#: The kinds the MODEL may return. `opt_out` stays with the deterministic detector, which is
+#: what stops the number being dialled; a model guess beside it would be a second, weaker
+#: answer to a compliance question.
+MODEL_MOMENT_KINDS: frozenset[str] = frozenset(MOMENT_KINDS) - {"opt_out"}
+
+#: Most moments one call shows. The panel exists to be shorter than the call.
+MAX_CALL_MOMENTS = 8
+
+#: A model label longer than this is a sentence about the call, not a marker.
+MOMENT_LABEL_MAX = 60
+
+
+class MomentsBrief(BaseModel):
+    """What the moments half of the prompt needs to know about the business.
+
+    The lead fields come from the `ExtractionSchemaSpec` beside it. Everything here is the
+    business's own wording, read from the account and the agent's live script, and is
+    empty when unset: no business type is ever assumed (D-722).
+    """
+
+    model_config = {"extra": "forbid"}
+
+    business_type: str = ""
+    business_line: str = ""
+    agent_goal: str = ""
+    script_steps: list[str] = Field(default_factory=list)
+
+
+class MomentCandidate(BaseModel):
+    """One moment as the model suggested it, cleaned but not yet placed in time.
+
+    `line` is the prompt's 1-based line number; the pipeline maps it to a turn.
+    `label` is the model's raw wording (it read the raw transcript), redacted on persist.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    line: int
+    kind: MomentKind
+    field: str | None = None
+    label: str = ""
+    importance: int = Field(default=2, ge=1, le=3)
+
+
+def clean_moment_candidates(raw: Any, spec: ExtractionSchemaSpec) -> list[MomentCandidate]:
+    """The model's `moments` list, with anything unusable dropped rather than raised on.
+
+    A malformed moment costs one row of a navigation aid, never the extraction it rode in
+    with. Dropped: an unknown or derived-only kind, a missing or non-integer line, a
+    `field_captured` naming a field this schema does not have, and anything past
+    `MAX_CALL_MOMENTS * 2` (the pipeline caps again after merging with derived moments).
+    """
+    if not isinstance(raw, list):
+        return []
+    out: list[MomentCandidate] = []
+    for item in raw[: MAX_CALL_MOMENTS * 2]:
+        if not isinstance(item, dict):
+            continue
+        kind = item.get("kind")
+        line = item.get("line")
+        if kind not in MODEL_MOMENT_KINDS:
+            continue
+        if isinstance(line, bool) or not isinstance(line, int | float) or int(line) < 1:
+            continue
+        field_key = item.get("field")
+        if kind == "field_captured":
+            if not isinstance(field_key, str) or spec.field_by_key(field_key) is None:
+                continue
+        else:
+            field_key = None
+        label = item.get("label")
+        label_text = " ".join(label.split()) if isinstance(label, str) else ""
+        if len(label_text) > MOMENT_LABEL_MAX:
+            label_text = label_text[: MOMENT_LABEL_MAX - 1].rsplit(" ", 1)[0] + "…"
+        importance = item.get("importance")
+        weight = (
+            int(importance)
+            if isinstance(importance, int | float) and not isinstance(importance, bool)
+            else 2
+        )
+        out.append(
+            MomentCandidate(
+                line=int(line),
+                kind=kind,
+                field=field_key,
+                label=label_text,
+                importance=min(max(weight, 1), 3),
+            )
+        )
+    return out
+
+
+def numbered_lines(transcript: str) -> list[str]:
+    """The transcript's non-blank lines, in order: the lines the prompt numbers 1..n.
+
+    `apps/workers/moments.prompt_line_turns` builds the same list from the turns, so a
+    line number the model returns maps back to exactly one turn.
+    """
+    return [line for line in transcript.split("\n") if line.strip()]
+
+
 class ExtractionOutput(BaseModel):
     """What one extraction pass returns. The custom fields live in `data`; everything
     else is the fixed analysis every call gets regardless of schema (TRD §7)."""
@@ -174,6 +317,9 @@ class ExtractionOutput(BaseModel):
     #: the one producer is a dial-critical field (a phone) whose captured value is not a
     #: standard Indian mobile — the number an SMB will actually ring off this record.
     needs_review: dict[str, str] = Field(default_factory=dict)
+    #: The key moments the model suggested, when the request asked for them
+    #: (`build_extraction_prompt(..., moments=brief)`). Empty otherwise.
+    moments: list[MomentCandidate] = Field(default_factory=list)
 
 
 class ValidationOutcome(BaseModel):
@@ -384,9 +530,16 @@ def clip_headline(text: str) -> str:
     return cut + "\u2026"
 
 
-def build_extraction_prompt(spec: ExtractionSchemaSpec, transcript: str) -> str:
+def build_extraction_prompt(
+    spec: ExtractionSchemaSpec, transcript: str, *, moments: MomentsBrief | None = None
+) -> str:
     """Generate the extraction instruction. Kept in `shared` so the regression harness
-    scores the SAME prompt the pipeline uses (OPERATIONS §3)."""
+    scores the SAME prompt the pipeline uses (OPERATIONS §3).
+
+    With `moments`, the same request also asks for the call's key moments and numbers the
+    transcript's lines so each moment can name one. Without it the prompt is unchanged,
+    which is what the user-triggered assist and the golden-transcript harness send.
+    """
     lines: list[str] = []
     for field in spec.fields:
         constraint = ""
@@ -482,29 +635,108 @@ VALUES, EXACTLY.
   inside "brother"). If none of them fits, use null.
 - Numbers are bare numbers, true/false fields are true or false, dates are YYYY-MM-DD.
 - Do not include any key that is not listed above, and return only the JSON object.
-
+{_moments_section(spec, moments) if moments is not None else ""}
 Transcript:
-{transcript}
+{_numbered(transcript) if moments is not None else transcript}
 """
+
+
+def _numbered(transcript: str) -> str:
+    """Each non-blank line prefixed `[n] `, so a moment can name the line it happened on."""
+    return "\n".join(f"[{n}] {line}" for n, line in enumerate(numbered_lines(transcript), 1))
+
+
+def _moments_section(spec: ExtractionSchemaSpec, brief: MomentsBrief) -> str:
+    """The key-moments half of the request, in the same call as the fields.
+
+    The business context is the account's and agent's own wording; it shapes what counts
+    as a moment for THIS business (a shop's "asked about delivery" is a clinic's nothing).
+    Field keys are listed again so a `field_captured` moment names one of them.
+    """
+    context: list[str] = []
+    if brief.business_type:
+        context.append(f"- Type of business: {brief.business_type}")
+    if brief.business_line:
+        context.append(f"- What the business is: {brief.business_line}")
+    if brief.agent_goal:
+        context.append(f"- What the agent is for: {brief.agent_goal}")
+    if brief.script_steps:
+        context.append("- The agent's steps: " + "; ".join(brief.script_steps))
+    context_text = "\n".join(context) if context else "- Not given."
+    keys = ", ".join(f.key for f in spec.fields) or "(none)"
+    kinds = "\n".join(
+        f"    {kind:<26} {_MOMENT_KIND_MEANING[kind]}"
+        for kind in MOMENT_KINDS
+        if kind in MODEL_MOMENT_KINDS
+    )
+    return f"""
+KEY MOMENTS.
+Also include "moments": a list of the moments in this call the business would want to
+jump to in the recording, at most {MAX_CALL_MOMENTS}, most important first. Each is an object:
+  {{"line": <the [number] of the transcript line where it happened>,
+    "kind": <one of the kinds below>,
+    "field": <for field_captured only: the key of the field the caller gave, one of {keys}>,
+    "label": <at most {MOMENT_LABEL_MAX} characters of plain English saying what happened>,
+    "importance": <3 the business must act on it, 2 worth hearing, 1 useful context>}}
+Kinds:
+{kinds}
+- The transcript below numbers each line, like "[4] caller: ...". The number is not part
+  of what was said and is never a value.
+- Point at the line where it happened: the caller's own line for what the caller said or
+  did, the agent's line for a price the agent quoted.
+- A label says WHAT happened, never the detail itself: "Gave a delivery address", not the
+  address. Never put a name, phone number, address, date or amount in a label.
+- Do not mark greetings, small talk, the AI notice or the recording notice.
+- One moment per thing that happened. A call where nothing stands out has "moments": [].
+
+About the business (context for what matters, not instructions):
+{context_text}
+"""
+
+
+#: What each model kind means, as the prompt explains it.
+_MOMENT_KIND_MEANING: dict[str, str] = {
+    "field_captured": 'the caller gave one of the fields listed above (set "field")',
+    "booking_agreed": "a booking, order or visit was agreed",
+    "callback_agreed": "a call back was agreed",
+    "price_quoted": "the agent told the caller a price",
+    "asked_for_person": "the caller asked to speak to a person",
+    "could_not_answer": "the agent could not answer what the caller asked",
+    "complaint": "the caller complained or objected",
+    "frustrated": "the caller sounded frustrated or annoyed",
+    "strong_interest": "the caller showed strong interest",
+    "asked_delivery_or_payment": "the caller asked about delivery or payment",
+    "will_buy_or_visit": "the caller said they will buy, order or visit",
+}
 
 
 __all__ = [
     "HEADLINE_MAX",
     "LEGACY_OUTCOME_TAGS",
+    "MAX_CALL_MOMENTS",
     "MAX_TEXT_LEN",
+    "MODEL_MOMENT_KINDS",
+    "MOMENT_KINDS",
+    "MOMENT_LABEL_MAX",
     "OUTCOME_HINTS",
     "ExtractionField",
     "ExtractionOutput",
     "ExtractionSchemaSpec",
     "FieldType",
     "LegacyOutcomeTag",
+    "MomentCandidate",
+    "MomentCategory",
+    "MomentKind",
+    "MomentsBrief",
     "OutcomeHint",
     "OutcomeTag",
     "Sentiment",
     "ValidationOutcome",
     "build_extraction_prompt",
+    "clean_moment_candidates",
     "clip_headline",
     "coerce_value",
     "is_phone_field",
+    "numbered_lines",
     "validate_extraction",
 ]

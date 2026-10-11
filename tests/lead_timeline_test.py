@@ -313,6 +313,7 @@ def test_a_type_this_build_does_not_know_still_reaches_the_screen() -> None:
         occurred_at=datetime.now(UTC),
         actor_kind="system",
         title=title,
+        moments=[],
     )
     assert event.type == "merge"
 

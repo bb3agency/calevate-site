@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
-import { TEXT_ACTION } from "@/components/console/section";
 import type { CallDetail } from "@/lib/api/client";
-import { callbackLine, langAttr, languageName, needsAttention, outcomeLabel, outcomeReason } from "@/lib/callReview";
+import { callbackLine, isEnglishCall, langAttr, languageName, needsAttention, outcomeLabel, outcomeReason } from "@/lib/callReview";
 
 import { isLive } from "../callColumns";
+
+import type { CallView } from "./callEnglish";
 
 /**
  * THE VERDICT — the screen's primary surface (UX-DOCTRINE §1): how the call ended and
@@ -14,11 +15,11 @@ import { isLive } from "../callColumns";
  *
  * Everything an owner opens a call to learn sits here, above the recording and the
  * transcript, so a phone shows the answer and the action without a scroll. The summary is
- * English with a switch to the call's own language (founder decision 4); the outcome is
+ * shown in the language the page's one switch chooses (the Conversation's); the outcome is
  * the founder's vocabulary with a one-line reason (decision 6). The warning tone is used
  * only when the call needs a person.
  */
-export function CallVerdict({ detail, action }: { detail: CallDetail; action: ReactNode }) {
+export function CallVerdict({ detail, action, view }: { detail: CallDetail; action: ReactNode; view: CallView }) {
   const label = outcomeLabel(detail.outcome_tag);
   const warn = needsAttention(detail);
   const heading = label ?? (isLive(detail) ? "On the line now" : detail.status === "completed" ? "Reading this call" : "No conversation");
@@ -37,7 +38,7 @@ export function CallVerdict({ detail, action }: { detail: CallDetail; action: Re
       <div className="sm:order-last">{action}</div>
 
       <div className="empty:hidden">
-        <Summary detail={detail} />
+        <Summary detail={detail} view={view} />
       </div>
 
       <div className="empty:hidden">
@@ -48,12 +49,11 @@ export function CallVerdict({ detail, action }: { detail: CallDetail; action: Re
 }
 
 /**
- * The summary, in English by default and in the call's language on request. Four states
+ * The summary, in the language the page's switch chose. Four states
  * the server tells apart (`summary_state`), each said in words — "still writing" is never
  * shown as "there is none", and "there is none" never as a blank.
  */
-function Summary({ detail }: { detail: CallDetail }) {
-  const [local, setLocal] = useState(false);
+function Summary({ detail, view }: { detail: CallDetail; view: CallView }) {
   if (isLive(detail)) {
     return <p className="text-body text-ink-muted">The summary is written when the call ends.</p>;
   }
@@ -77,29 +77,26 @@ function Summary({ detail }: { detail: CallDetail }) {
       </p>
     );
   }
-  if (!detail.summary) {
+  if (!detail.summary && !detail.summary_local) {
     return <p className="text-body text-ink-muted">Nothing was said on this call, so there is no summary.</p>;
   }
 
-  const language = languageName(detail.summary_language);
-  const showLocal = local && Boolean(detail.summary_local);
+  const showLocal = Boolean(detail.summary_local) && (view === "original" || !detail.summary);
+  // Asked for the call's language and there is no summary in it: the English one, said as
+  // such, rather than nothing.
+  const onlyEnglish = view === "original" && !showLocal && !isEnglishCall(detail.language);
   return (
-    <div className="max-w-prose space-y-2">
+    <div className="max-w-prose space-y-1.5">
       <p
         lang={showLocal ? langAttr(detail.summary_language) : "en"}
         className="text-transcript text-ink [text-wrap:pretty]"
       >
         {showLocal ? detail.summary_local : detail.summary}
       </p>
-      {detail.summary_local && language && (
-        <button
-          type="button"
-          className={`${TEXT_ACTION} text-meta`}
-          aria-pressed={showLocal}
-          onClick={() => setLocal((v) => !v)}
-        >
-          {showLocal ? "Read it in English" : `Read it in ${language}`}
-        </button>
+      {onlyEnglish && (
+        <p className="text-meta text-ink-faint">
+          The summary is in English; it has not been written in {languageName(detail.language) ?? "the call's language"} yet.
+        </p>
       )}
     </div>
   );

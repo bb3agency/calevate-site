@@ -657,18 +657,18 @@ export function StrictnessSection({
   const options = [
     {
       value: "flexible" as const,
-      label: "Use the sections as a guide",
+      label: "Use the steps as a guide",
       hint: "It follows your order but goes where the caller takes the call, and skips what is already done.",
     },
     {
       value: "strict" as const,
-      label: "Follow the sections closely",
+      label: "Follow the steps closely",
       hint: "It goes through them in order and keeps to your exact-words lines as closely as it can.",
     },
   ];
   return (
     <fieldset>
-      <legend className="text-sm font-semibold text-ink">How closely should it follow the sections?</legend>
+      <legend className="text-sm font-semibold text-ink">How closely should it follow the steps?</legend>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {options.map((option) => (
           <label

@@ -132,7 +132,6 @@ def opening_in(tag: str | None, direction: str) -> str | None:
     return style.openings.get(direction)
 
 
-
 __all__ = [
     "DEFAULT_EXAMPLES",
     "ExampleTurn",

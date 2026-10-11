@@ -21,6 +21,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -877,6 +878,14 @@ class AgentTestRun(PKMixin, TimestampMixin, Base):
         CheckConstraint(
             "results IS NULL OR jsonb_typeof(results) = 'array'", name="results_is_array"
         ),
+        CheckConstraint("improve_round BETWEEN 1 AND 3", name="round_range"),
+        CheckConstraint(
+            "scenarios IS NULL OR jsonb_typeof(scenarios) = 'array'", name="scenarios_is_array"
+        ),
+        CheckConstraint(
+            "improvement IS NULL OR jsonb_typeof(improvement) = 'object'",
+            name="improvement_is_object",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -892,6 +901,23 @@ class AgentTestRun(PKMixin, TimestampMixin, Base):
     error_code: Mapped[str | None] = mapped_column(Text)
     requested_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: The callers the AI wrote for this run, the saved tests and the re-asked failures
+    #: (D-724); generated lines, never caller data.
+    scenarios: Mapped[list[Any] | None] = mapped_column(JSONB)
+    #: 1 for a first run; each "Test again" after a fix adds one, up to three.
+    improve_round: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="1")
+    #: The run whose failures this one asks again.
+    retest_of: Mapped[UUID | None] = mapped_column(
+        ForeignKey("agent_test_runs.id", ondelete="SET NULL")
+    )
+    #: Prepare the improvement proposal by itself when the run has failures.
+    auto_improve: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    #: The latest "Improve my agent" proposal made from this run.
+    improvement: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    #: How the run went, in the owner's words (a fallback disclosure, the standard set).
+    note: Mapped[str | None] = mapped_column(Text)
 
 
 class PhoneNumber(PKMixin, TimestampMixin, Base):
@@ -1239,6 +1265,32 @@ class PlatformVoiceCatalogEntry(Base):
     #: band is cached so an operator sees what the platform lists; only
     #: `catalogue.SOLD_HOSTED_BAND` can be added and offered (`hosted_voices.band_is_sold`).
     vendor_band: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The provider's word for the voice's gender, when its listing gives one (own-key voices
+    #: only). Written by the sync.
+    gender: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The name an operator gives a voice, which clients see instead of the provider's
+    #: `label` (D-721). Never written by the sync, so a refresh cannot undo it.
+    display_label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: An operator marked this voice as a clone of a real person's voice (D-721). Such a voice
+    #: cannot be offered until the `consent_*` record below exists.
+    person_clone: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    #: The speaker's recorded consent, all set together or all NULL
+    #: (`ck_platform_voice_catalog_clone_consent_whole`). Who recorded it is also in
+    #: `audit_log`; it is kept here so the row carries its own evidence.
+    consent_speaker_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consent_statement: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consent_given_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    consent_scope: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consent_recorded_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="RESTRICT"), nullable=True
+    )
+    consent_recorded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: The signed consent document, sealed under the platform key, when one was uploaded.
+    consent_document_key: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class PipecatAgent(PKMixin, TimestampMixin, Base):
@@ -1399,3 +1451,70 @@ class EngineVoiceCloneCopy(PKMixin, TimestampMixin, Base):
     workspace_id: Mapped[str] = mapped_column(Text, nullable=False)
     vendor_voice_id: Mapped[str] = mapped_column(Text, nullable=False)
     vendor_clone_id: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+LIVE_APPLY_SCOPES = ("platform", "tenant", "agent")
+LIVE_APPLY_STATUSES = ("pending", "running", "done", "superseded")
+
+
+class LiveApplyRun(PKMixin, TimestampMixin, Base):
+    """One pass that brings the live agents in a scope up to the settings saved (D-720).
+
+    Platform machinery read by operators (`agents/live_apply.py`), with a nullable
+    `tenant_id` and no tenant policy, like `heal_incidents`. Migration `f1a7c3e9b2d4` is the
+    schema of record.
+    """
+
+    __tablename__ = "live_apply_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "scope IN (" + ", ".join(repr(s) for s in LIVE_APPLY_SCOPES) + ")", name="scope_enum"
+        ),
+        CheckConstraint(
+            "status IN (" + ", ".join(repr(s) for s in LIVE_APPLY_STATUSES) + ")",
+            name="status_enum",
+        ),
+        CheckConstraint(
+            "(scope = 'platform' AND tenant_id IS NULL AND agent_id IS NULL) OR "
+            "(scope = 'tenant' AND tenant_id IS NOT NULL AND agent_id IS NULL) OR "
+            "(scope = 'agent' AND tenant_id IS NOT NULL AND agent_id IS NOT NULL)",
+            name="scope_target",
+        ),
+        CheckConstraint(
+            "applied >= 0 AND failed >= 0 AND retrying >= 0", name="counts_nonnegative"
+        ),
+        CheckConstraint("(status = 'done') = (finished_at IS NOT NULL)", name="done_iff"),
+        Index(
+            "ix_live_apply_runs_open",
+            "scope",
+            "tenant_id",
+            "agent_id",
+            postgresql_where=text("status IN ('pending', 'running')"),
+        ),
+        Index("ix_live_apply_runs_created", text("created_at DESC")),
+    )
+
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    tenant_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE")
+    )
+    agent_id: Mapped[UUID | None] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"))
+    reasons: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pending")
+    total: Mapped[int | None] = mapped_column(Integer)
+    applied: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    failed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    retrying: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    failures: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    cursor_tenant_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    cursor_agent_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    requested_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    superseded_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    walked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

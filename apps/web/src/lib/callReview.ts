@@ -261,3 +261,8 @@ export function activeTurnIdx(turns: readonly Turn[], playheadMs: number | null)
   }
   return active;
 }
+
+/** Was the call in English (`en`, `en-IN`)? Such a call needs no language switch. */
+export function isEnglishCall(tag: string | null | undefined): boolean {
+  return (tag ?? "").toLowerCase().split(/[-_]/)[0] === "en";
+}

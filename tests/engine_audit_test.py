@@ -1559,6 +1559,9 @@ _VENDOR_ONLY_KEYS = frozenset(
         # ThinnestAI's per-call override block on `POST /calls` (D-697's call cap). Nothing
         # of ours is called this.
         "overrides",
+        # A transcript turn's wall-clock and the call's answer instant, which time key
+        # moments (D-725); ours are `start_ms` and `started_at`.
+        "answeredAt",
         # Cartesia Line (TRD §10.5; the adapter marks which shapes are sourced, and
         # `docs/vendor/cartesia/` carries the citations since D-270).
         "agent_call_id",
@@ -1633,11 +1636,33 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         # A phone number's display name on ThinnestAI, and a word this product uses for
         # its own form fields and connections (D-704 shows it in the trial-number picker).
         "label",
+        # A transcript turn's time fields (D-725): generic words used across this tree.
+        "at",
+        "offset",
         # D-690: `tools` (the built-in tools list), `mode` and `line` (the hand-over's) are
         # everyday words in our own code too, so none proves where a payload came from.
         "tools",
         "mode",
         "line",
+        # D-714..D-720 ThinnestAI reads, every one also our own word: `steps`, `branches`,
+        # `when` and `collect` are `calevate_shared.call_script`'s section vocabulary,
+        # `summary`, `detail`, `error` and `action` are fields across our own models,
+        # `reply`, `output` and `session` name the test-chat turn and our DB sessions,
+        # `gender` is a voice's catalogue attribute, and `surfaces` our own word for where
+        # an agent answers. None proves where a payload came from.
+        "action",
+        "branches",
+        "collect",
+        "detail",
+        "error",
+        "gender",
+        "output",
+        "reply",
+        "session",
+        "steps",
+        "summary",
+        "surfaces",
+        "when",
         # The webhook envelope's ids and time, which the receiver in voice-runtime reads
         # too (Lane 2, D-689), so they are not banned outside the adapter.
         "agentId",

@@ -24,10 +24,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.billing.engine_minutes import (
     ATTESTED_MINUTE_ENGINES,
     ENGINE_RATE_KEYS,
+    TOPUP_FEE_PLAN_LABELS,
     EngineMinutePrice,
     attest_engine_minute_price,
     attested_minute_prices,
     client_voice_tier,
+    cost_with_fee,
+    topup_fee,
 )
 from apps.api.billing.rates import VOICE_TIER_LABELS
 from apps.api.compliance.audit import write_audit
@@ -60,8 +63,17 @@ class EngineMinutePriceOut(BaseModel):
 
     engine: str
     rate_key: str
-    #: ₹ per billed minute as a decimal string, or null while unattested.
+    #: The platform's posted ₹ per billed minute, BEFORE its wallet top-up fee, as a decimal
+    #: string; null while unattested.
     inr_per_min: str | None
+    #: The wallet top-up fee we add to every minute on this engine, in percent ("10"); "0"
+    #: for an engine not paid from a topped-up wallet.
+    topup_fee_percent: str
+    #: The plan that fee belongs to ("pay-as-you-go", "Pro"), or null with no fee.
+    topup_fee_plan: str | None
+    #: What a billed minute costs us with the fee added, at the ledger's four decimals; this
+    #: is the figure metered. Null while unattested.
+    inr_per_min_with_fee: str | None
     effective_from: str | None
     attested_at: str | None
     source_note: str | None
@@ -73,17 +85,29 @@ class EngineMinutePriceOut(BaseModel):
     sold_as: str | None
 
 
+class TopUpFeeOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: The voice platform's plan ("pay-as-you-go", "Pro").
+    plan: str
+    #: Its wallet top-up fee in percent ("10").
+    percent: str
+
+
 class EngineMinutePricesOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     prices: list[EngineMinutePriceOut]
+    #: Every plan's top-up fee, for the sentence explaining what is added to a posted rate.
+    topup_fees: list[TopUpFeeOut]
     as_of: str
 
 
 class EngineMinutePriceAttestIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    #: ₹ per billed minute as a decimal STRING, never a JSON number (hard rule 7).
+    #: The platform's posted ₹ per billed minute, before its wallet top-up fee, as a decimal
+    #: STRING, never a JSON number (hard rule 7). The fee is added by the meter.
     inr_per_min: str = Field(max_length=32)
     effective_from: datetime | None = None
     #: The invoice or written quote the figure was read from.
@@ -110,11 +134,25 @@ def _sold_as(engine: str, rate_key: str) -> str | None:
     return None if tier is None else VOICE_TIER_LABELS[tier]
 
 
+def _percent(fee: Decimal) -> str:
+    return format((fee * 100).normalize(), "f")
+
+
+#: "10% on pay-as-you-go, 9% on Pro", from the fee constants rather than retyped.
+_FEE_SENTENCE = ", ".join(
+    f"{_percent(fee)}% on {plan}" for fee, plan in TOPUP_FEE_PLAN_LABELS.items()
+)
+
+
 def _row(engine: str, rate_key: str, price: EngineMinutePrice | None) -> EngineMinutePriceOut:
+    fee = topup_fee(engine)
     return EngineMinutePriceOut(
         engine=engine,
         rate_key=rate_key,
         inr_per_min=str(price.inr_per_min) if price else None,
+        topup_fee_percent=_percent(fee),
+        topup_fee_plan=TOPUP_FEE_PLAN_LABELS.get(fee),
+        inr_per_min_with_fee=str(cost_with_fee(price.inr_per_min, fee=fee)) if price else None,
         effective_from=price.effective_from.isoformat() if price else None,
         attested_at=price.attested_at.isoformat() if price else None,
         source_note=price.source_note if price else None,
@@ -159,7 +197,14 @@ async def list_engine_minute_prices(
     for engine in sorted(ATTESTED_MINUTE_ENGINES):
         attested = await attested_minute_prices(session, engine=engine, at=at)
         rows.extend(_row(engine, key, attested.get(key)) for key in ENGINE_RATE_KEYS)
-    return EngineMinutePricesOut(prices=rows, as_of=at.isoformat())
+    return EngineMinutePricesOut(
+        prices=rows,
+        topup_fees=[
+            TopUpFeeOut(plan=plan, percent=_percent(fee))
+            for fee, plan in TOPUP_FEE_PLAN_LABELS.items()
+        ],
+        as_of=at.isoformat(),
+    )
 
 
 @router.post(
@@ -168,8 +213,10 @@ async def list_engine_minute_prices(
     openapi_extra=permission_meta("platform:config"),
     summary="Attest one engine rate per billed minute (step-up confirmed, audited)",
     description=(
-        "Records what one billed minute on this engine and rate costs THIS account, read off "
-        "your own invoice, as a NEW effective-dated row. Requires `X-Confirm-Action: "
+        "Records the voice platform's posted rate per billed minute, before its wallet top-up "
+        "fee, as a NEW effective-dated row. We add the fee when metering ("
+        f"{_FEE_SENTENCE}; each row's `topup_fee_percent` says which applies, and "
+        "`inr_per_min_with_fee` is the figure metered). Requires `X-Confirm-Action: "
         "attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it "
         "are not offered and any that run are metered with no cost and alarmed."
     ),

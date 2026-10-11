@@ -14,7 +14,7 @@ import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
 import type { KbSource, Margin, TenantSummary } from "@/lib/api/admin";
 
 import { routeParams } from "./adminRoute";
-import { problem, stubApi, type Routes } from "./harness";
+import { noReply, problem, stubApi, type Routes } from "./harness";
 import { OWNER_JOINED } from "./businessProfileFixture";
 import {
   KB_ALL_DELIVERED,
@@ -102,6 +102,7 @@ function source(over: Partial<KbSource> = {}): KbSource {
 function healthy(): Routes {
   return {
     [`${TENANT_PATH}/owner-status`]: OWNER_JOINED,
+    [`${TENANT_PATH}/business-type`]: noReply(),
     [TENANT_PATH]: {
       id: TENANT,
       name: "Sri Traders",

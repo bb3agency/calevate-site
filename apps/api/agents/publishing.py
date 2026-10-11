@@ -619,7 +619,7 @@ _AGENT_SQL = (
     "SELECT a.status, a.engine_agent_ref, d.version, d.created_at, l.version, "
     "a.max_call_duration_s, a.tts_voice, a.tts_provider, a.live_tts_voice, "
     "a.live_tts_provider, a.live_verify_state, a.live_verified_at, a.engine_voice_id, "
-    "hv.label FROM agents a "
+    "COALESCE(hv.display_label, hv.label) FROM agents a "
     "LEFT JOIN platform_voice_catalog hv ON hv.voice_id = a.engine_voice_id "
     "LEFT JOIN prompt_versions d ON d.id = a.system_prompt_id "
     "LEFT JOIN prompt_versions l ON l.id = a.live_prompt_id "
@@ -1517,7 +1517,9 @@ async def set_caller_memory(
                     "SELECT a.caller_memory_enabled, a.ai_disclosure_line, "
                     "a.ai_disclosure_enabled, a.recording_notice_line, "
                     "a.recording_notice_enabled, a.caller_memory_notice_line, a.status, "
-                    "a.engine_agent_ref, o.vertical_template, o.caller_memory_attested_at, "
+                    "a.engine_agent_ref, "
+                    "COALESCE(o.vertical_template, o.unconfirmed_business_type), "
+                    "o.caller_memory_attested_at, "
                     # LEFT JOIN, never inner: the attester is nullable twice over — nobody
                     # has attested yet, or the person who did has left and the FK went to
                     # NULL. An inner join would drop the whole agent row for either, which

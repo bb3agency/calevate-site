@@ -185,7 +185,7 @@ def _subject(call: ToolCall, caller: CallerIdentityIn) -> tuple[str | None, str]
 
 #: What the agent is told when the suppression is on file, which it is by the time this is
 #: returned.
-_OPTOUT_DONE_SAY = (
+OPTOUT_DONE_SAY = (
     "The caller's number is on this business's do-not-call list and no further calls will "
     "be placed to it. Tell them plainly that they have been removed and will not be "
     "called again, and do not promise anything further."
@@ -268,7 +268,7 @@ async def record_opt_out_for(
             "evidence_written": record.evidence_written,
         },
     )
-    return OptOutToolOut(status="recorded", say=_OPTOUT_DONE_SAY)
+    return OptOutToolOut(status="recorded", say=OPTOUT_DONE_SAY)
 
 
 def _optout_unattributed(tenant_id: UUID, call: ToolCall, ground: str, state: str) -> OptOutToolOut:
@@ -724,6 +724,7 @@ async def run_client_action(
 
 
 __all__ = [
+    "OPTOUT_DONE_SAY",
     "CallLocator",
     "ToolCall",
     "book_callback",

@@ -194,6 +194,7 @@ Run: `uv run python -m scripts.check_model_residency`   (also in `make guardrail
 from __future__ import annotations
 
 import ast
+import os
 import sys
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -786,14 +787,16 @@ def _scanned_roots(roots: Iterable[Path] | None) -> tuple[Path, ...]:
 
 def _files(roots: Iterable[Path] | None, suffixes: frozenset[str]) -> Iterator[Path]:
     for root in _scanned_roots(roots):
-        if not root.exists():
+        if not root.exists() or SKIPPED_DIRS & set(root.parts):
             continue
-        for path in sorted(root.rglob("*")):
-            if not path.is_file() or path.suffix not in suffixes:
-                continue
-            if SKIPPED_DIRS & set(path.parts):
-                continue
-            yield path
+        # Pruned while walking rather than filtered afterwards: a built `.next` or a
+        # `node_modules` holds hundreds of thousands of files, and listing them over a
+        # bind mount takes longer than the whole scan.
+        found: list[Path] = []
+        for directory, subdirs, names in os.walk(root):
+            subdirs[:] = [d for d in subdirs if d not in SKIPPED_DIRS]
+            found.extend(Path(directory, n) for n in names if Path(n).suffix in suffixes)
+        yield from sorted(found)
 
 
 def _rel(path: Path) -> str:

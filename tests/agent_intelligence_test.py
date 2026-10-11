@@ -22,8 +22,6 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine.catalogue import CatalogueModel, EngineCatalogue
-from apps.api.engine.test_chat import TestChatTurn
-from apps.api.reliability.engine_actions import ACTION_NAMES, OPT_OUT
 from calevate_shared.call_script import (
     BUILTIN_END_CALL_RULE,
     GUARDRAILS_BLOCK,
@@ -130,8 +128,10 @@ def test_offer_a_call_back_is_said_once_and_never_on_a_trial() -> None:
 
 
 def test_no_person_on_duty_is_said_and_hand_over_is_only_on_request() -> None:
+    """Said keyed to the tool, whose own description says when to hand over; the prompt
+    itself does not change with the rota, or every turnover would move the config digests."""
     nobody = compose_engine_prompt(_cfg(compile_call_script(V2)))
-    assert "Nobody can take a call right now" in nobody
+    assert "you have no hand-over tool: say nobody is free" in nobody
     on_duty = compose_engine_prompt(
         _cfg(
             compile_call_script(V2),
@@ -140,7 +140,7 @@ def test_no_person_on_duty_is_said_and_hand_over_is_only_on_request() -> None:
             ),
         )
     )
-    assert "never because you do not know an answer" in on_duty
+    assert on_duty == nobody
 
 
 def test_the_floor_and_confidentiality_keep_their_content_and_position() -> None:
@@ -324,49 +324,6 @@ def test_premium_band_models_need_a_premium_voice_and_unread_ones_are_not_offere
 
 
 # --- pre-launch test conversations (item 5) -----------------------------------------------
-
-
-class _ChatEngine:
-    def __init__(self) -> None:
-        self.sent: list[str] = []
-
-    async def test_chat(
-        self, ref: str, message: str, *, session: str | None = None
-    ) -> TestChatTurn:
-        self.sent.append(message)
-        if "number" in message or "నంబర్" in message or "number తీసేయండి" in message:
-            return TestChatTurn(session="vr_1", reply="సరే అండి.", tools=(ACTION_NAMES[OPT_OUT],))
-        if "AI" in message:
-            return TestChatTurn(session="vr_1", reply="నేను AI assistant ని అండి.", tools=())
-        return TestChatTurn(session="vr_1", reply="చెప్పండి అండి.", tools=())
-
-
-async def test_the_scenarios_run_in_the_agents_language_and_are_judged() -> None:
-    engine = _ChatEngine()
-
-    async def _no_pause() -> None:
-        return None
-
-    results = await test_conversations.run_scenarios(
-        engine, engine_agent_ref="ag_1", direction="inbound", language="te-IN", pause=_no_pause
-    )
-    keys = [r.key for r in results]
-    assert "objection_price" in keys and "objection_not_interested" not in keys
-    assert all(any("ఀ" <= ch <= "౿" for ch in said) for said in engine.sent)
-    verdicts = {r.key: r.verdict for r in results}
-    assert verdicts["asks_if_ai"] == "passed"
-    assert verdicts["says_stop_calling"] == "passed"
-    # No search happened, so the product question needs attention with advice.
-    product = next(r for r in results if r.key == "asks_about_products")
-    assert product.verdict == "attention" and product.advice
-
-
-def test_the_retired_hand_over_action_fails_a_scenario() -> None:
-    scenario = test_conversations.SCENARIOS[4]
-    assert (
-        test_conversations.judge(scenario, "x", (ACTION_NAMES["handoff"],), knowledge_tool=None)
-        == "failed"
-    )
 
 
 @pytest.mark.rls

@@ -7,6 +7,7 @@ import { FlashValue } from "@/components/console/valueFlash";
 import { NOTICE_TONES, formatINR, hasNonZeroDigit } from "@/components/ui";
 import {
   activeTrial,
+  creditLeftPhrase,
   runwaySentence,
   walletState,
   type Wallet as WalletData,
@@ -153,7 +154,7 @@ export function WalletHero({
             Your calling credit is running low.
           </p>
           <p className="mt-2">
-            You have {formatINR(wallet.balance_inr)} left, which is below the{" "}
+            {creditLeftPhrase(wallet)}. The balance is below the{" "}
             {formatINR(wallet.low_balance_threshold_inr)} we start warning at. When it
             reaches zero your calls stop in both directions: nothing goes out, and your
             agents stop answering the phone. We email the account owner at this point too.

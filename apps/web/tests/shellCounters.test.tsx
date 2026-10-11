@@ -239,6 +239,17 @@ describe("the client shell's live-calls pill", () => {
     expect(pill.getAttribute("href")).toBe("/c/acme/calls?status=in_progress");
     // The number is the count, never a caller's digits.
     expect(pill.getAttribute("href")).not.toMatch(/\d{10}/);
+    expect(pill.textContent).toBe("Live: 2 calls");
+  });
+
+  it("opens the one live call itself, where the live panel shows who is speaking", async () => {
+    await renderClientShell({
+      "/v1/attention": { total: 0, items: [] },
+      [LIVE_CALLS_PATH]: [LIVE],
+    });
+    const pill = await screen.findByRole("link", { name: "1 call in progress now" });
+    expect(pill.getAttribute("href")).toBe("/c/acme/calls/c-live");
+    expect(pill.textContent).toBe("Live: 1 call");
   });
 
   it("renders nothing when no call is live", async () => {

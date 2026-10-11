@@ -46,6 +46,9 @@ class TranscriptTurnOut(Strict):
     text_en: str | None = None
     lang: str | None = None
     start_ms: int | None = None
+    #: `start_ms` is the voice platform's rough position, not a point in the audio
+    #: (ENGINE=thinnest). Shown as "~0:21".
+    start_approximate: bool = False
     redacted: bool = True
 
 
@@ -73,6 +76,13 @@ class CallCallbackOut(Strict):
     #: The rule's own name, for a screen that wants to branch
     #: (`trial_live_outbound_unavailable`, `dnc`, ...).
     blocked_rule: str | None = None
+
+
+class CapturedChipOut(Strict):
+    """One captured detail, shortened for a call row (`crm/service.captured_previews`)."""
+
+    label: str
+    value: str
 
 
 class CallSummaryOut(Strict):
@@ -109,6 +119,32 @@ class CallSummaryOut(Strict):
     #: The name on this call's lead, when it has one. The client's own contact data, shown
     #: in full like `caller_e164`.
     lead_name: str | None = None
+    #: What this call took from the credit balance, in rupees (the `usage` ledger debit
+    #: keyed by the call). NULL for a caller without `billing:read`, which keeps staff out
+    #: of money as the role promises, and NULL when nothing was charged.
+    credits_used_inr: str | None = None
+    #: Up to three details the caller gave on this call, labelled, for a glance at the
+    #: call list. Phone-type details are left out: staff see numbers masked elsewhere and a
+    #: chip is no place to make that distinction. The full list is on the call itself.
+    captured_preview: list[CapturedChipOut] = Field(default_factory=list)
+
+
+#: `calevate_shared.extraction.MomentKind`, spelled here so the wire schema is explicit;
+#: `tests/call_moments_test.py` keeps the two equal.
+MomentKindOut = Literal[
+    "field_captured",
+    "booking_agreed",
+    "callback_agreed",
+    "price_quoted",
+    "asked_for_person",
+    "could_not_answer",
+    "complaint",
+    "frustrated",
+    "opt_out",
+    "strong_interest",
+    "asked_delivery_or_payment",
+    "will_buy_or_visit",
+]
 
 
 class CallMomentOut(Strict):
@@ -121,15 +157,23 @@ class CallMomentOut(Strict):
     endpoint you called is the shape the transcript already established, and a second
     field would be a second thing to forget to gate.
 
-    `source` is what a reader needs to know how much to trust `at_ms`. A `derived` marker
-    was computed from the transcript's own turn offsets and cannot be at the wrong second;
-    a `model` one is a suggestion from an unmeasured model (D-36) and the screen says so.
+    `source` says how much to trust the TURN: a `derived` marker was found by matching a
+    captured value or the opt-out detector, a `model` one is a suggestion from an unscored
+    model (D-36) and the screen says "Suggested". `precision` says how much to trust the
+    TIME: `approximate` when the turn's time is the voice platform's rough position
+    (ENGINE=thinnest), shown as "~0:21" and played from a couple of seconds earlier.
     """
 
     at_ms: int
-    kind: Literal["field_captured", "opt_out", "highlight"]
+    #: The transcript turn the moment is on, for the marker on that turn's bubble.
+    turn_idx: int | None
+    kind: MomentKindOut
+    category: Literal["details", "attention", "buying"]
     label: str
     source: Literal["derived", "model"]
+    precision: Literal["exact", "approximate"]
+    #: 3 the business must act on it, 2 worth hearing, 1 useful context.
+    importance: int = Field(ge=1, le=3)
 
 
 class CapturedFieldOut(Strict):
@@ -193,9 +237,32 @@ class CallDetailOut(CallSummaryOut):
     #: Whether `transcript[].text_en` is written: `pending`, `ready`, `failed`,
     #: `not_needed` (an English call), `unavailable` (a call from before translation).
     translation_state: TranslationState
+    #: The call's language as a BCP-47 tag (`te-IN`, `en-IN`): the script most of its words
+    #: were written in, else the agent's own language (`workers/call_language`). The screen
+    #: names its language switch from it. Required for `moments`' reason.
+    language: str
     #: Which runner produced the extraction (`call_extractions.model`): the Sarvam model id
     #: or `offline-heuristic`. NULL for calls extracted before it was recorded.
     extraction_model: str | None = None
+
+
+class CallTranslationOut(Strict):
+    """Where a call's English stands after a "Try again"."""
+
+    translation_state: TranslationState
+
+
+class RecordingDownloadOut(Strict):
+    """A short-lived link that SAVES the recording rather than playing it.
+
+    Signed with `Content-Disposition: attachment` and `filename`, so the browser downloads
+    it under a name that carries the business and the IST time of the call and never the
+    caller's number. `filename` is repeated here so the screen can say what it saved.
+    """
+
+    url: str
+    filename: str
+    expires_in_s: int
 
 
 class RecordingLinkOut(Strict):
@@ -720,6 +787,10 @@ class LeadTimelineEventOut(Strict):
     # The call this line is about, when there is one, so the screen can link to it.
     # OUR id — never the engine's handle, which is a vendor identifier (hard rule 2).
     call_id: UUID | None = None
+    #: A call event's key moments, redacted, so the lead page can open the call at each
+    #: one. Empty for every other event and for a call with none. Required on the wire so
+    #: the generated type is not optional.
+    moments: list[CallMomentOut]
 
 
 class LeadTimelineOut(Strict):
@@ -1219,8 +1290,10 @@ __all__ = [
     "CallLeadIn",
     "CallLeadOut",
     "CallSummaryOut",
+    "CallTranslationOut",
     "CallbackEligibilityOut",
     "CallbackOut",
+    "CapturedChipOut",
     "DashboardDayOut",
     "DashboardOut",
     "LeadColumnOut",
@@ -1235,6 +1308,7 @@ __all__ = [
     "LeadUpdateIn",
     "PerformanceFunnelOut",
     "PerformanceOut",
+    "RecordingDownloadOut",
     "RecordingLinkOut",
     "SavedViewFilters",
     "SavedViewIn",

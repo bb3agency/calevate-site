@@ -235,14 +235,40 @@ def differs(original: str, english: str) -> bool:
     return " ".join(original.split()).casefold() != " ".join(english.split()).casefold()
 
 
+def untranslated_turns(
+    turns: Sequence[tuple[int, str, str | None]], *, language: str
+) -> list[tuple[int, str]]:
+    """`(idx, redacted text)` of the turns that still need English: spoken words, no
+    `text_en` yet, and either in an Indic script or on a call that was not in English."""
+    return [
+        (idx, body)
+        for idx, body, english_text in turns
+        if body.strip()
+        and english_text is None
+        and (has_indic_script(body) or not is_english(language))
+    ]
+
+
+def english_lines(pending: Sequence[tuple[int, str]], done: LanguagePass) -> dict[int, str]:
+    """The pass's English for `pending`, minus the lines it handed back unchanged."""
+    originals = dict(pending)
+    return {
+        idx: english
+        for idx, english in done.turns_en.items()
+        if differs(originals.get(idx, ""), english)
+    }
+
+
 __all__ = [
     "MAX_TOKENS",
     "TURNS_PER_REQUEST",
     "LanguagePass",
     "call_language",
     "differs",
+    "english_lines",
     "has_indic_script",
     "is_english",
     "language_name",
     "run_language_pass",
+    "untranslated_turns",
 ]

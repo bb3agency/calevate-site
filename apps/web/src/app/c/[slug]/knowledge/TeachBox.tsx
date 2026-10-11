@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Mic, Square } from "lucide-react";
 
+import { SavedTick } from "@/components/console/savedTick";
 import { Section } from "@/components/console/section";
 import {
   FIELD,
@@ -15,7 +16,6 @@ import {
 } from "@/components/ui";
 import { FileDrop } from "@/components/fileDrop";
 import { useFormValidation } from "@/components/formValidation";
-import { useToast } from "@/components/interior/toaster";
 import { useAgents } from "@/lib/api/agents";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -75,6 +75,9 @@ export function TeachBox({
   const [teachingId, setTeachingId] = useState<string | null>(null);
   const [linkedGap, setLinkedGap] = useState<string | null>(null);
   const [asked, setAsked] = useState<string | null>(null);
+  // What the last save did, said beside the box it came back to (REDESIGN-2: saves are
+  // confirmed where the person is looking, never by a toast).
+  const [saved, setSaved] = useState<{ note: string; at: number } | null>(null);
   const teaching = useTeaching(session, teachingId);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const inputId = useId();
@@ -105,11 +108,13 @@ export function TeachBox({
     input:
       | { kind: "text"; words: string }
       | { kind: "photo" | "file" | "voice"; file: Blob; filename: string },
-  ) =>
+  ) => {
+    setSaved(null);
     start.mutate(
       { ...input, gapId: linkedGap },
       { onSuccess: (created) => setTeachingId(created.id) },
     );
+  };
 
   const current = teaching.data;
   const working = start.isPending || (teachingId !== null && (!current || isTeachingBusy(current.status)));
@@ -168,7 +173,9 @@ export function TeachBox({
               disabled={!allowed || start.isPending}
               onRecorded={(blob) => begin({ kind: "voice", file: blob, filename: "voice-note.webm" })}
             />
+            {saved ? <SavedTick at={saved.at} /> : null}
           </div>
+          {saved ? <p className="text-meta text-ink-muted">{saved.note}</p> : null}
           <FileDrop
             label="Or send a photo or a file"
             hint={`A photo of a price list or menu, up to ${MAX_PHOTO_MB} MB, or a Word, text, CSV or Excel file.`}
@@ -207,7 +214,14 @@ export function TeachBox({
       ) : current.status === "heard" ? (
         <CheckWords teaching={current} onCancel={reset} />
       ) : current.status === "ready" ? (
-        <Review teaching={current} onDone={reset} />
+        <Review
+          teaching={current}
+          onDone={reset}
+          onSaved={(note) => {
+            reset();
+            setSaved({ note, at: Date.now() });
+          }}
+        />
       ) : current.status === "failed" ? (
         <div className="space-y-3">
           <p role="alert" className="text-sm text-ink">
@@ -389,12 +403,20 @@ function CheckWords({ teaching, onCancel }: { teaching: Teaching; onCancel: () =
   );
 }
 
-function Review({ teaching, onDone }: { teaching: Teaching; onDone: () => void }) {
+function Review({
+  teaching,
+  onDone,
+  onSaved,
+}: {
+  teaching: Teaching;
+  onDone: () => void;
+  /** Called with what the save means for the agents, in one sentence. */
+  onSaved: (note: string) => void;
+}) {
   const session = useClientSession();
   const agents = useAgents(session);
   const save = useSaveTeaching(session);
   const discard = useDiscardTeaching(session);
-  const { toast } = useToast();
   const [items, setItems] = useState<ReviewItem[]>(() =>
     teaching.items.map((item, key) => ({ ...item, key, keep: true })),
   );
@@ -480,17 +502,12 @@ function Review({ teaching, onDone }: { teaching: Teaching; onDone: () => void }
                 agentId: rules > 0 ? chosenAgent : null,
               },
               {
-                onSuccess: (saved) => {
-                  toast({
-                    tone: "success",
-                    title: "Saved",
-                    description:
-                      saved.rules_added > 0
-                        ? "Facts reach your agents in a minute or two. The rules wait in the agent's script until you put it live."
-                        : "Your agents will know this in a minute or two.",
-                  });
-                  onDone();
-                },
+                onSuccess: (saved) =>
+                  onSaved(
+                    saved.rules_added > 0
+                      ? "Facts reach your agents in a minute or two. The rules wait in the agent's script until you put it live."
+                      : "Your agents will know this in a minute or two.",
+                  ),
               },
             )
           }

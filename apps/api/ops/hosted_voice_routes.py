@@ -4,6 +4,12 @@
                                               one), each with state, rung and preview status
     POST   /v1/ops/voices/hosted              ADD one synced voice (audited); arrives disabled
     PATCH  /v1/ops/voices/hosted              enable | disable | archive one (audited)
+    GET    /v1/ops/voices/hosted/agents       the agents set to one voice, in every account
+    PATCH  /v1/ops/voices/hosted/display-name  the name clients see (audited)
+    PATCH  /v1/ops/voices/hosted/person-clone  mark a cloned voice of a real person (step-up,
+                                              audited; D-721)
+    POST   /v1/ops/voices/hosted/clone-consent  record that person's consent (step-up, audited)
+    GET    /v1/ops/voices/hosted/clone-consent/document  the signed consent (audited)
     POST   /v1/ops/voices/clones              clone a voice from a recording (step-up, audited)
     DELETE /v1/ops/voices/clones              delete one of our clones (step-up, audited)
     GET    /v1/ops/voices/hosted/preview      play any hosted voice's stored preview
@@ -35,7 +41,9 @@ previewing touch no agent and no call and are reversible in a click, for
 
 from __future__ import annotations
 
-from datetime import datetime
+import hashlib
+from collections.abc import Mapping
+from datetime import date, datetime
 from typing import Annotated, Final, Literal, cast
 from uuid import UUID
 
@@ -57,10 +65,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.clone_copies import forget_clone, keep_clone_sample
 from apps.api.agents.engine_catalogue_routes import PREVIEW_RESPONSES, stored_preview_response
 from apps.api.agents.hosted_voices import (
+    MAX_AGENTS_ON_VOICE,
+    CloneConsent,
     HostedVoiceRow,
     VoiceScope,
+    accent_name,
     add_hosted_voice,
+    agents_on_hosted_voice,
     band_not_sold,
+    clone_offer_refusal,
+    consent_document_key,
     count_hosted_voices,
     count_listed_bands,
     list_hosted_voices,
@@ -68,9 +82,12 @@ from apps.api.agents.hosted_voices import (
     no_sold_band_sentence,
     read_hosted_voice,
     record_clone,
+    record_clone_consent,
     record_preview,
     rung_of_source,
+    set_display_label,
     set_hosted_curation,
+    set_person_clone,
     sold_hosted_band,
     studio_listing_workspace,
     studio_voices_ready,
@@ -83,8 +100,14 @@ from apps.api.agents.studio_voices import (
     studio_readiness,
     switch_developer_off,
 )
+from apps.api.agents.voice_consent import (
+    accept_document,
+    keep_consent_document,
+    open_consent_document,
+)
 from apps.api.agents.voice_curation import count_live_agents_by_engine_voice
 from apps.api.agents.voices import CurationState
+from apps.api.billing.plans import IST
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -119,6 +142,16 @@ STUDIO_DISABLE_CONFIRMATION: Final = "disable_studio_voices"
 
 def delete_clone_confirmation(voice_id: str) -> str:
     return f"delete_voice_clone:{voice_id}"
+
+
+def consent_confirmation(voice_id: str) -> str:
+    """Recording a person's consent is an attestation about one voice, so the confirmation
+    names it: a header captured for one voice cannot be replayed against another."""
+    return f"record_voice_consent:{voice_id}"
+
+
+def person_clone_confirmation(voice_id: str) -> str:
+    return f"set_voice_person_clone:{voice_id}"
 
 
 #: What a recording may be (create-voice-clone.md:530-536): WAV, MP3, M4A or WebM. The vendor
@@ -159,6 +192,47 @@ class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class CloneConsentOut(Strict):
+    """The speaker's recorded consent to a cloned voice being offered (D-721)."""
+
+    speaker_name: str
+    statement: str
+    consented_on: date
+    #: What the consent covers; the same sentence on every record.
+    scope: str
+    recorded_by: str
+    #: The operator's name, when it could be read.
+    recorded_by_name: str | None
+    recorded_at: datetime
+    #: A signed document is stored with it.
+    has_document: bool
+
+
+class HostedVoiceAgentOut(Strict):
+    tenant_id: str
+    tenant_name: str
+    agent_id: str
+    agent_name: str
+    status: str
+
+
+class HostedVoiceAgentsOut(Strict):
+    voice_id: str
+    #: Every agent set to this voice, in every account, live ones first.
+    agents: list[HostedVoiceAgentOut]
+
+
+class SetDisplayLabelIn(Strict):
+    voice_id: str = Field(min_length=1, max_length=255)
+    #: The name clients see; null or blank goes back to the provider's own name.
+    display_label: str | None = Field(default=None, max_length=60)
+
+
+class SetPersonCloneIn(Strict):
+    voice_id: str = Field(min_length=1, max_length=255)
+    person_clone: bool
+
+
 class HostedVoiceOut(Strict):
     """One hosted voice as the operator's table shows it."""
 
@@ -197,10 +271,57 @@ class HostedVoiceOut(Strict):
     deletable_clone: bool
     #: LIVE agents across every account set to this voice.
     live_agents: int
+    #: The provider's own id for the voice, for an operator to copy; never shown to a client.
+    vendor_id: str
+    #: The provider's own name. `label` is what clients see: `display_label` when set.
+    vendor_label: str
+    display_label: str | None
+    #: The accent or language tag (`accent`) as a person reads it.
+    accent_label: str | None
+    #: The provider's word for its gender, when its listing gives one.
+    gender: str | None
+    #: The product languages the voice is offered for.
+    languages: list[str]
+    #: Marked as a cloned voice of a real person (D-721).
+    person_clone: bool
+    clone_consent: CloneConsentOut | None
+    #: Why this voice cannot be offered while it is a person's clone, or null.
+    clone_blocker: str | None
 
     @classmethod
-    def of(cls, row: HostedVoiceRow, *, engine: str, live_agents: int) -> HostedVoiceOut:
+    def of(
+        cls,
+        row: HostedVoiceRow,
+        *,
+        engine: str,
+        live_agents: int,
+        admin_names: Mapping[UUID, str] | None = None,
+    ) -> HostedVoiceOut:
+        refusal = clone_offer_refusal(row)
+        consent = row.consent
         return cls(
+            vendor_id=row.vendor_id,
+            vendor_label=row.vendor_label,
+            display_label=row.display_label,
+            accent_label=accent_name(row.accent),
+            gender=row.gender,
+            languages=list(row.languages),
+            person_clone=row.person_clone,
+            clone_consent=(
+                None
+                if consent is None
+                else CloneConsentOut(
+                    speaker_name=consent.speaker_name,
+                    statement=consent.statement,
+                    consented_on=consent.given_on,
+                    scope=consent.scope,
+                    recorded_by=str(consent.recorded_by),
+                    recorded_by_name=(admin_names or {}).get(consent.recorded_by),
+                    recorded_at=consent.recorded_at,
+                    has_document=consent.has_document,
+                )
+            ),
+            clone_blocker=None if refusal is None else refusal.title,
             voice_id=row.voice_id,
             label=row.label,
             source=row.source,
@@ -369,9 +490,25 @@ def _hosting_engine() -> HostsVoices:
     return engine
 
 
+async def _admin_names(session: AsyncSession, rows: list[HostedVoiceRow]) -> dict[UUID, str]:
+    """The names of the operators who recorded the consents on `rows`."""
+    ids = list({row.consent.recorded_by for row in rows if row.consent is not None})
+    if not ids:
+        return {}
+    found = await session.execute(
+        text("SELECT id, name FROM admin_users WHERE id = ANY(:ids)"), {"ids": ids}
+    )
+    return {UUID(str(r[0])): str(r[1]) for r in found.all() if r[1]}
+
+
 async def _out(session: AsyncSession, row: HostedVoiceRow, *, engine: str) -> HostedVoiceOut:
     live = await count_live_agents_by_engine_voice()
-    return HostedVoiceOut.of(row, engine=engine, live_agents=live.get(row.voice_id, 0))
+    return HostedVoiceOut.of(
+        row,
+        engine=engine,
+        live_agents=live.get(row.voice_id, 0),
+        admin_names=await _admin_names(session, [row]),
+    )
 
 
 async def _audit(
@@ -480,8 +617,11 @@ async def list_hosted(
         )
     rows = await list_hosted_voices(session, scope=scope)
     live = await count_live_agents_by_engine_voice()
+    names = await _admin_names(session, list(rows))
     voices = [
-        HostedVoiceOut.of(row, engine=engine.name, live_agents=live.get(row.voice_id, 0))
+        HostedVoiceOut.of(
+            row, engine=engine.name, live_agents=live.get(row.voice_id, 0), admin_names=names
+        )
         for row in rows
     ]
     offered = sum(1 for v in voices if v.offered)
@@ -580,6 +720,276 @@ async def set_hosted_state(
             "speaking it until each is moved."
         )
     return HostedVoiceWriteOut(voice=out, next_step=step)
+
+
+@router.get(
+    "/hosted/agents",
+    response_model=HostedVoiceAgentsOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="The agents set to one hosted voice, in every account (admin realm)",
+    description=(
+        "Every agent, live or not, whose voice is this hosted voice, with its account, live "
+        "ones first. Read one voice at a time, for the voice's detail."
+    ),
+)
+async def hosted_voice_agents(
+    session: GlobalSession,
+    _: VoiceCurator,
+    voice_id: Annotated[str, Query(min_length=1, max_length=255)],
+    limit: Annotated[int, Query(ge=1, le=MAX_AGENTS_ON_VOICE)] = MAX_AGENTS_ON_VOICE,
+) -> HostedVoiceAgentsOut:
+    _hosting_engine()
+    await read_hosted_voice(session, voice_id)
+    agents = await agents_on_hosted_voice(voice_id, limit=limit)
+    return HostedVoiceAgentsOut(
+        voice_id=voice_id,
+        agents=[
+            HostedVoiceAgentOut(
+                tenant_id=str(a.tenant_id),
+                tenant_name=a.tenant_name,
+                agent_id=str(a.agent_id),
+                agent_name=a.agent_name,
+                status=a.status,
+            )
+            for a in agents
+        ],
+    )
+
+
+@router.patch(
+    "/hosted/display-name",
+    response_model=HostedVoiceWriteOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Set the name clients see for one hosted voice (audited)",
+    description=(
+        "Clients see this name instead of the provider's; null or blank goes back to the "
+        "provider's name. The sync never changes it. For a cloned voice of a real person it "
+        "may not contain the speaker's name (`voice_clone_name_reveals_speaker`)."
+    ),
+)
+async def set_hosted_display_name(
+    payload: SetDisplayLabelIn, session: GlobalSession, request: Request, principal: VoiceCurator
+) -> HostedVoiceWriteOut:
+    engine = _hosting_engine()
+    before = await read_hosted_voice(session, payload.voice_id)
+    row = await set_display_label(
+        session, voice_id=payload.voice_id, display_label=payload.display_label
+    )
+    await _audit(
+        session,
+        request,
+        principal,
+        action="ops.hosted_voice_display_name_set",
+        voice_id=row.voice_id,
+        summary={
+            "voice_id": row.voice_id,
+            "display_label": row.display_label,
+            "previous": before.display_label,
+        },
+    )
+    return HostedVoiceWriteOut(
+        voice=await _out(session, row, engine=engine.name),
+        next_step=f"Clients see this voice as {row.label}.",
+    )
+
+
+def _consent_summary(consent: CloneConsent | None) -> dict[str, object] | None:
+    """A consent record for the audit stream. The name and the wording are fingerprinted, not
+    copied: the stream is a log (hard rule 6), and the row holds the record itself; a
+    fingerprint still proves which record an entry was about."""
+    if consent is None:
+        return None
+    return {
+        "speaker_sha256": hashlib.sha256(consent.speaker_name.encode()).hexdigest(),
+        "statement_sha256": hashlib.sha256(consent.statement.encode()).hexdigest(),
+        "consented_on": consent.given_on.isoformat(),
+        "scope": consent.scope,
+        "recorded_by": str(consent.recorded_by),
+        "recorded_at": consent.recorded_at.isoformat(),
+        "document": consent.has_document,
+    }
+
+
+@router.patch(
+    "/hosted/person-clone",
+    response_model=HostedVoiceWriteOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Mark or unmark a voice as a cloned voice of a real person (step-up, audited)",
+    description=(
+        "A voice marked as a person's clone cannot be offered until the speaker's consent is "
+        "recorded (D-721). Marking an offered voice that could not stay offered is refused "
+        "(`voice_clone_consent_missing`, `voice_clone_name_missing`). Unmarking keeps the "
+        "consent record and its document. Requires "
+        "`X-Confirm-Action: set_voice_person_clone:<voice_id>`."
+    ),
+)
+async def set_hosted_person_clone(
+    payload: SetPersonCloneIn,
+    session: GlobalSession,
+    request: Request,
+    principal: VoiceCurator,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
+) -> HostedVoiceWriteOut:
+    step_up.require(x_confirm_action, person_clone_confirmation(payload.voice_id))
+    engine = _hosting_engine()
+    row = await set_person_clone(
+        session, voice_id=payload.voice_id, person_clone=payload.person_clone
+    )
+    await _audit(
+        session,
+        request,
+        principal,
+        action="ops.voice_person_clone_set",
+        voice_id=row.voice_id,
+        summary={
+            "voice_id": row.voice_id,
+            "person_clone": row.person_clone,
+            "consent": _consent_summary(row.consent),
+        },
+    )
+    return HostedVoiceWriteOut(
+        voice=await _out(session, row, engine=engine.name),
+        next_step=(
+            "Marked as a cloned voice of a real person. Record the speaker's consent before "
+            "offering it."
+            if row.person_clone and row.consent is None
+            else "Marked as a cloned voice of a real person."
+            if row.person_clone
+            else "No longer marked as a cloned voice of a real person."
+        ),
+    )
+
+
+@router.post(
+    "/hosted/clone-consent",
+    response_model=HostedVoiceWriteOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Record a real person's consent to their cloned voice (step-up, audited)",
+    description=(
+        "Records the speaker's name, the statement they consented to, the date, and the "
+        "operator recording it, with an optional signed document (PDF, JPEG or PNG, at most "
+        "2 MB, stored sealed), and marks the voice as a person's clone. Replaces an earlier "
+        "record; without a new document the stored one is kept. The scope is fixed: calls "
+        "made by Calevate clients' agents. Requires "
+        "`X-Confirm-Action: record_voice_consent:<voice_id>`."
+    ),
+)
+async def record_hosted_clone_consent(
+    session: GlobalSession,
+    request: Request,
+    principal: VoiceCurator,
+    step_up: StepUpGate,
+    voice_id: Annotated[str, Form(min_length=1, max_length=255)],
+    speaker_name: Annotated[str, Form(min_length=1, max_length=120)],
+    statement: Annotated[str, Form(min_length=1, max_length=2000)],
+    consented_on: Annotated[date, Form()],
+    document: Annotated[UploadFile | None, File()] = None,
+    x_confirm_action: Annotated[str | None, Header()] = None,
+) -> HostedVoiceWriteOut:
+    step_up.require(x_confirm_action, consent_confirmation(voice_id))
+    engine = _hosting_engine()
+    if consented_on > datetime.now(IST).date():
+        raise ProblemError(
+            kind="validation",
+            code="voice_consent_date_future",
+            title="The consent date is in the future",
+            detail="Consent is recorded on or after the day it was given.",
+            remediation="Enter the date the speaker gave their consent.",
+        )
+    speaker, wording = speaker_name.strip(), statement.strip()
+    if not speaker or not wording:
+        raise ProblemError(
+            kind="validation",
+            code="voice_consent_incomplete",
+            title="The speaker's name and the consent statement are both needed",
+            detail="A consent record names the person and says what they agreed to.",
+            remediation="Fill in both, then record the consent again.",
+        )
+    await read_hosted_voice(session, voice_id)
+    key: str | None = None
+    if document is not None and document.filename:
+        accepted = accept_document(
+            filename=document.filename, data=await _read_upload(document, what="document")
+        )
+        key = await keep_consent_document(voice_id=voice_id, document=accepted)
+    if principal.user_id is None:
+        # A consent record names the operator who recorded it; an admin principal always has
+        # an id, so this is a sentence for an impossible state rather than a CHECK failure.
+        raise ProblemError(
+            kind="auth",
+            code="voice_consent_actor_unknown",
+            title="This session has no admin identity",
+            detail="A consent record has to name the operator who recorded it.",
+        )
+    row, replaced = await record_clone_consent(
+        session,
+        voice_id=voice_id,
+        speaker_name=speaker,
+        statement=wording,
+        given_on=consented_on,
+        recorded_by=principal.user_id,
+        document_key=key,
+    )
+    await _audit(
+        session,
+        request,
+        principal,
+        action="ops.voice_clone_consent_recorded",
+        voice_id=row.voice_id,
+        summary={
+            "voice_id": row.voice_id,
+            "consent": _consent_summary(row.consent),
+            "replaced": _consent_summary(replaced),
+        },
+    )
+    return HostedVoiceWriteOut(
+        voice=await _out(session, row, engine=engine.name),
+        next_step=(
+            "The speaker's consent is recorded. "
+            + (
+                "Give the voice the name clients will see, then offer it."
+                if row.display_label is None
+                else "The voice can now be offered."
+            )
+        ),
+    )
+
+
+@router.get(
+    "/hosted/clone-consent/document",
+    response_class=Response,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Download the signed consent for one cloned voice (admin realm, audited)",
+    responses={200: {"content": {"application/pdf": {}, "image/jpeg": {}, "image/png": {}}}},
+)
+async def hosted_clone_consent_document(
+    session: GlobalSession,
+    request: Request,
+    principal: VoiceCurator,
+    voice_id: Annotated[str, Query(min_length=1, max_length=255)],
+) -> Response:
+    key = await consent_document_key(session, voice_id=voice_id)
+    document = None if key is None else await open_consent_document(voice_id=voice_id, key=key)
+    if document is None:
+        raise ProblemError.not_found("Consent document")
+    await _audit(
+        session,
+        request,
+        principal,
+        action="ops.voice_clone_consent_document_read",
+        voice_id=voice_id,
+        summary={"voice_id": voice_id},
+    )
+    return Response(
+        content=document.data,
+        media_type=document.content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{document.filename}"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 # --- clones ----------------------------------------------------------------------------
@@ -1089,7 +1499,9 @@ __all__ = [
     "CLONE_CONFIRMATION",
     "STUDIO_DISABLE_CONFIRMATION",
     "STUDIO_ENABLE_CONFIRMATION",
+    "consent_confirmation",
     "delete_clone_confirmation",
+    "person_clone_confirmation",
     "router",
     "sniff_preview_type",
 ]

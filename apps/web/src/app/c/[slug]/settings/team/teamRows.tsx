@@ -5,7 +5,15 @@ import { useState } from "react";
 import type { DataColumn } from "@/components/console/dataTable";
 import { InfoTip } from "@/components/console/infoTip";
 import { RowMenu } from "@/components/console/rowMenu";
-import { FIELD_INLINE, NoticeBox, PRIMARY_BUTTON_SM, formatIST } from "@/components/ui";
+import { SavedTick } from "@/components/console/savedTick";
+import { TEXT_ACTION_DANGER } from "@/components/console/section";
+import {
+  FIELD_INLINE,
+  NoticeBox,
+  PRIMARY_BUTTON_SM,
+  SECONDARY_BUTTON_SM,
+  formatIST,
+} from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import {
   ROLE_COPY,
@@ -34,9 +42,13 @@ export type TeamTableContext = {
   showEmail: boolean;
   busyMember: string | null;
   busyInvite: string | null;
+  /** The invitation being sent again, and the last one that was (with when, for the tick). */
+  resendingInvite: string | null;
+  resent: { id: string; at: number } | null;
   onRole: (member: Member, role: MemberRole) => void;
   onRemove: (member: Member) => void;
   onRevoke: (invitation: PendingInvitation) => void;
+  onResend: (invitation: PendingInvitation) => void;
 };
 
 /**
@@ -54,8 +66,8 @@ export function IssuedInvite({ invitation }: { invitation: CreatedInvitation }) 
         working {formatIST(invitation.expires_at)}.
       </p>
       <p className="mt-2 text-meta">
-        If it does not arrive, ask them to check their spam folder. We cannot show or
-        re-send the link — revoke the invite below and create a new one instead.
+        If it does not arrive, ask them to check their spam folder, or use Send again
+        below. A new link goes out and the one in the earlier email stops working.
       </p>
     </NoticeBox>
   );
@@ -201,20 +213,33 @@ function StatusCell({ row }: { row: TeamRow }) {
 function ActionsCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
   if (!ctx.canManage) return null;
   if (row.kind === "invite") {
-    const busy = ctx.busyInvite === row.invitation.id;
+    // Both actions in view rather than behind a menu: an unanswered invitation has only
+    // these two next steps, and the owner came to this row to take one of them.
+    const revoking = ctx.busyInvite === row.invitation.id;
+    const sending = ctx.resendingInvite === row.invitation.id;
+    const who = row.invitation.email;
     return (
-      <RowMenu
-        label={row.invitation.email}
-        items={[
-          {
-            id: "revoke",
-            label: busy ? "Revoking…" : "Revoke invite",
-            tone: "danger",
-            disabled: busy,
-            onSelect: () => ctx.onRevoke(row.invitation),
-          },
-        ]}
-      />
+      <span className="flex flex-wrap items-center justify-end gap-2">
+        <SavedTick at={ctx.resent?.id === row.invitation.id ? ctx.resent.at : 0} label="Sent" />
+        <button
+          type="button"
+          disabled={sending || revoking}
+          onClick={() => ctx.onResend(row.invitation)}
+          aria-label={`Send the invitation to ${who} again`}
+          className={SECONDARY_BUTTON_SM}
+        >
+          {sending ? "Sending…" : "Send again"}
+        </button>
+        <button
+          type="button"
+          disabled={sending || revoking}
+          onClick={() => ctx.onRevoke(row.invitation)}
+          aria-label={`Cancel the invitation to ${who}`}
+          className={TEXT_ACTION_DANGER}
+        >
+          {revoking ? "Cancelling…" : "Cancel"}
+        </button>
+      </span>
     );
   }
   if (ctx.myId !== null && row.member.id === ctx.myId) return null;

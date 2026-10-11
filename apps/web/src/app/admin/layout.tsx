@@ -30,6 +30,7 @@ import { ADMIN_REALM_IDENTITY_CLASS } from "@/components/realmChrome";
 import {
   MAIN_CONTENT_ID,
   NoticeBox,
+  SHELL_MAIN_CLASS,
   SHELL_RAIL_CLASS,
   SkipLink,
 } from "@/components/ui";
@@ -669,7 +670,7 @@ export default function AdminLayout({
                   <main
                     id={MAIN_CONTENT_ID}
                     tabIndex={-1}
-                    className="relative flex-1 overflow-y-auto bg-surface px-4 py-4 lg:px-8 lg:py-8"
+                    className={SHELL_MAIN_CLASS}
                   >
                     <div className={SHELL_RAIL_CLASS}>{children}</div>
                   </main>

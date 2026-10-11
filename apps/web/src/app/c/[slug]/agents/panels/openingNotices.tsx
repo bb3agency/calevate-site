@@ -83,14 +83,14 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
   const firstWords = agent.first_words;
 
   return (
-    <section aria-labelledby="opening-notices-heading">
+    <section aria-labelledby="opening-notices-heading" className="max-w-3xl">
       <h3 id="opening-notices-heading" className="text-heading text-ink">
         What it says at the start of every call
       </h3>
 
       {/* FIRST, and deliberately not last: the guarantee has to be read before the
           switches, or a client reads two "off" positions and infers the opposite. */}
-      <p className="mt-2 flex items-start gap-2 text-sm text-ink">
+      <p className="mt-3 flex items-start gap-2 text-sm text-ink">
         <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-strong" />
         <span>{agent.truthful_answer_rule}</span>
       </p>
@@ -102,7 +102,9 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
         </div>
       )}
 
-      <div className="mt-3 divide-y divide-line border-y border-line">
+      {/* One left edge for the whole block: rows carry no side padding, and everything under
+          a switch (its quote, its warning) is indented to the label, not to the switch. */}
+      <div className="mt-4 divide-y divide-line border-y border-line">
         <NoticeToggle
           label="Say it is an AI assistant"
           hint="Said at the very start of the call, before the opening line."
@@ -134,15 +136,15 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
             (Call handling). Drawn as a row of the same list, without a toggle affordance,
             so it reads as part of the opening and not as one more thing to turn off. */}
         {agent.caller_memory_enabled && (
-          <div className="p-4">
+          <div className="py-4 pl-12">
             <p className="text-sm font-medium text-ink">Say that it remembers callers</p>
             <p className="mt-0.5 text-xs text-ink-muted">
               Said after the notices above, before the opening line.
             </p>
-            <blockquote className="mt-2 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
+            <blockquote className="mt-3 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
               “{agent.caller_memory_notice_line}”
             </blockquote>
-            <p className="mt-2 flex items-start gap-2 text-xs text-ink-muted">
+            <p className="mt-3 flex items-start gap-2 text-xs text-ink-muted">
               <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
                 This one has no switch. It is said because this agent remembers what callers
@@ -161,15 +163,15 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
       <div className="mt-4">
         <p className="text-xs font-medium text-ink-muted">What callers hear first</p>
         {firstWords.trim() ? (
-          <blockquote className="mt-1 border-l-2 border-brand pl-3 text-sm italic text-ink">
+          <blockquote className="mt-2 border-l-2 border-brand pl-3 text-sm italic text-ink">
             “{firstWords}”
           </blockquote>
         ) : (
-          <p className="mt-1 text-sm text-ink-muted">
+          <p className="mt-2 text-sm text-ink-muted">
             Nothing yet. Both notices are off and the script has no opening line.
           </p>
         )}
-        <p className="mt-2 text-xs text-ink-muted">
+        <p className="mt-3 text-xs text-ink-muted">
           {opening.trim()
             ? "The opening line is the agent's own greeting, from its script. "
             : "This agent's script has no opening line yet. "}
@@ -230,17 +232,20 @@ function NoticeToggle({
       checked={checked}
       disabled={pending}
       onChange={onChange}
-      className="p-4"
+      className="py-4"
     >
-      <blockquote className="mt-2 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
-        “{quote}”
-      </blockquote>
-      {!checked && (
-        <p className="mt-2 flex items-start gap-2 rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-xs text-ink">
-          <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
-          <span>{offNote}</span>
-        </p>
-      )}
+      {/* `pl-12`: the switch (w-9) and its gap (gap-3), so these sit under the label. */}
+      <div className="pl-12">
+        <blockquote className="mt-3 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
+          “{quote}”
+        </blockquote>
+        {!checked && (
+          <p className="mt-3 flex items-start gap-2 rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-xs text-ink">
+            <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
+            <span>{offNote}</span>
+          </p>
+        )}
+      </div>
     </ToggleSwitch>
   );
 }

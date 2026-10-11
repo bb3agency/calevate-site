@@ -15,6 +15,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from apps.api.agents.test_window import send_test_message
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
@@ -59,7 +60,13 @@ async def _store(
 
 
 async def run_case_lines(
-    engine: RunsTestChat, ref: str, lines: list[str], *, knowledge_tool: str | None, pause: Any
+    engine: RunsTestChat,
+    ref: str,
+    lines: list[str],
+    *,
+    agent_id: UUID,
+    knowledge_tool: str | None,
+    pause: Any,
 ) -> list[dict[str, Any]]:
     """Send each line in one conversation; answer what the agent said to each."""
     session: str | None = None
@@ -67,7 +74,9 @@ async def run_case_lines(
     for index, line in enumerate(lines):
         if index:
             await pause()
-        turn = await engine.test_chat(ref, line, session=session)
+        turn = await send_test_message(
+            engine, agent_id=agent_id, engine_agent_ref=ref, message=line, session=session
+        )
         session = turn.session or session
         turns.append(
             {
@@ -120,6 +129,7 @@ async def run_agent_test_cases(ctx: dict[str, Any], payload: dict[str, Any]) -> 
                 engine,
                 str(agent[0]),
                 [str(line) for line in lines],
+                agent_id=agent_id,
                 knowledge_tool=knowledge_tool,
                 pause=_pause,
             )

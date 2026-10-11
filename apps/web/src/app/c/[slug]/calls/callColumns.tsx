@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { formatDuration, formatIST, formatPhone } from "@/components/ui";
+import { formatDuration, formatINR, formatIST, formatPhone } from "@/components/ui";
 import type { DataColumn } from "@/components/console/dataTable";
 import { LIVE_STATUS, LiveDot } from "@/components/console/liveCalls";
 import type { CallSummary } from "@/lib/api/client";
@@ -58,13 +58,33 @@ export function sentimentWord(value: string | null | undefined): string {
  * fold under the headline, so a phone reads a row as three short lines and never scrolls
  * sideways.
  */
+/**
+ * The details the caller gave, as one quiet line ("What they want: rice · Preferred time:
+ * Saturday"). Plain text rather than chips: a row of pills on every call would shout, and
+ * the line is there to be glanced at. The server picks at most three and never a number.
+ */
+export function CapturedLine({ call }: { call: Pick<CallSummary, "captured_preview"> }) {
+  const chips = call.captured_preview ?? [];
+  if (!chips.length) return null;
+  const text = chips.map((chip) => `${chip.label}: ${chip.value}`).join(" · ");
+  return (
+    <p title={text} className="mt-0.5 truncate text-meta text-ink-faint">
+      {text}
+    </p>
+  );
+}
+
 export function callColumns({
   callHref,
   compact = false,
+  showCost = false,
 }: {
   callHref: (id: string) => string;
-  /** The dashboard's short list: adds how the caller sounded, no sorting. */
+  /** The dashboard's short list: adds how the caller sounded and what was captured, no sorting. */
   compact?: boolean;
+  /** Adds what each call took from the credit balance. The server sends it only to a role
+   * that may see billing, so the caller passes whether any row carries it. */
+  showCost?: boolean;
 }): DataColumn<CallSummary>[] {
   const caller: DataColumn<CallSummary> = {
     id: "caller",
@@ -96,6 +116,7 @@ export function callColumns({
           >
             {line.text}
           </p>
+          {compact && <CapturedLine call={call} />}
           <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-meta text-ink-faint md:hidden">
             <CallResult call={call} />
             <span aria-hidden>·</span>
@@ -148,5 +169,19 @@ export function callColumns({
       <span className="whitespace-nowrap text-meta text-ink-muted">{sentimentWord(call.sentiment)}</span>
     ),
   };
-  return compact ? [caller, result, sentiment, duration, started] : [caller, result, duration, started];
+  const cost: DataColumn<CallSummary> = {
+    id: "cost",
+    header: "Cost",
+    align: "right",
+    hideBelow: "md",
+    cell: (call) => (
+      <span className="whitespace-nowrap text-meta tabular-nums text-ink-muted">
+        {call.credits_used_inr ? formatINR(call.credits_used_inr) : "—"}
+      </span>
+    ),
+  };
+  if (!compact) return [caller, result, duration, started];
+  return showCost
+    ? [caller, result, sentiment, duration, cost, started]
+    : [caller, result, sentiment, duration, started];
 }

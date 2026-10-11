@@ -884,6 +884,33 @@ async def read_voice_clone_sample(key: str) -> bytes | None:
     return await read_kb_object(key)
 
 
+#: The signed consent of a person whose voice was cloned (D-721), one object per voice, sealed
+#: under the platform key (`agents/voice_consent.py`): it names a real person.
+VOICE_CONSENT_PREFIX = "voice-consents"
+
+
+def voice_consent_key(voice_id: str) -> str:
+    return f"{VOICE_CONSENT_PREFIX}/{hashlib.sha256(voice_id.encode()).hexdigest()}"
+
+
+async def store_voice_consent(*, key: str, data: bytes) -> str:
+    """Put one sealed consent document. Raises when the store refuses."""
+    return await _put_document(
+        key=key,
+        data=data,
+        content_type="application/octet-stream",
+        log_event="voice_consent_store_failed",
+        refusal="Object storage refused the consent document",
+    )
+
+
+async def read_voice_consent(key: str) -> bytes | None:
+    """A sealed consent document, or None when it is gone."""
+    if not key.startswith(f"{VOICE_CONSENT_PREFIX}/"):
+        raise ValueError("not a voice consent key")
+    return await read_kb_object(key)
+
+
 # --- carrier compliance documents (reseller stage; evidence doc §5.2) ---------
 
 #: Where a tenant's CARRIER compliance paperwork lives. Its own prefix rather than a slot

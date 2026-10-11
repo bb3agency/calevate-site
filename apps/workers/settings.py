@@ -99,11 +99,19 @@ from apps.workers.account_closure import (
 from apps.workers.account_closure import notify_account_closed, sweep_due_erasures
 from apps.workers.action_audit import record_action_invocation
 from apps.workers.agent_test_cases import run_agent_test_cases
-from apps.workers.agent_test_conversations import run_agent_test_conversations
+from apps.workers.agent_test_conversations import (
+    improve_agent_test_run,
+    run_agent_test_conversations,
+)
 from apps.workers.alerts import sweep_alert_clears
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import FEE_SWEEP_MINUTE, issue_platform_fees
+from apps.workers.business_type import apply_business_type
 from apps.workers.call_finalise import finalise_unsettled_call
+from apps.workers.call_translation import (
+    BACKFILL_MINUTE as TRANSLATION_BACKFILL_MINUTE,
+)
+from apps.workers.call_translation import backfill_call_translations, translate_call_job
 from apps.workers.caller_embeddings import CALLER_EMBED_MINUTES, embed_caller_chunks
 from apps.workers.caller_memory_distil import (
     DISTIL_MINUTE as CALLER_MEMORY_DISTIL_MINUTE,
@@ -176,6 +184,7 @@ from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.kb_teach import run_kb_teaching
 from apps.workers.kyc_owner_id_purge import PURGE_HOUR, PURGE_MINUTE, sweep_abandoned_owner_ids
 from apps.workers.lead_fields_draft import draft_lead_fields
+from apps.workers.live_apply import apply_live_agent, apply_live_settings, resume_live_apply
 from apps.workers.maintenance import (
     TICK_SECONDS as MAINTENANCE_TICK_SECONDS,
 )
@@ -189,6 +198,13 @@ from apps.workers.number_rental import (
     reconcile_engine_numbers,
     renew_number_rentals,
 )
+from apps.workers.onboarding_completion import (
+    SWEEP_MINUTE as ONBOARDING_SWEEP_MINUTE,
+)
+from apps.workers.onboarding_completion import (
+    SWEEP_SECOND as ONBOARDING_SWEEP_SECOND,
+)
+from apps.workers.onboarding_completion import complete_finished_onboardings
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from apps.workers.pack_gc import PACK_GC_HOUR, PACK_GC_MINUTE, sweep_knowledge_packs
 from apps.workers.pinned_facts import recompile_pinned_facts
@@ -270,8 +286,13 @@ FUNCTIONS: list[Any] = [
         # A custom business's one AI draft of its lead fields (founder decision 15), from
         # the outbox (`agents/lead_fields.request_draft`).
         draft_lead_fields,
-        # Pre-launch test conversations against the agent (founder decision 11), from the
-        # outbox (`agents/test_conversations.request_run`).
+        # An account brought to its business type: lead details, scripts, and the AI's
+        # suggestion where nobody chose a type (D-722), from the outbox
+        # (`admin/business_type.queue_apply`, migration d7a3c91e5b20).
+        apply_business_type,
+        # Test conversations against the agent and the auto-improve proposal that follows
+        # a run with failures (D-724), from the outbox (`agents/test_conversations`).
+        improve_agent_test_run,
         run_agent_test_conversations,
         # The teach box (founder decision 9) and saved test cases made from real calls
         # (founder decision 11), both from the outbox (`apps/api/teach/`).
@@ -279,6 +300,11 @@ FUNCTIONS: list[Any] = [
         run_agent_test_cases,
         # Pinned facts re-spliced into every agent (founder decision 9).
         recompile_pinned_facts,
+        # D-720. A saved setting brought onto every live agent it changes: the walk in
+        # bounded batches and one agent's retry ladder, both from the outbox
+        # (`agents/live_apply.queue_live_apply`).
+        apply_live_settings,
+        apply_live_agent,
         erase_engine_contact,
         # Each client's own voice platform workspace (D-693): made, its business details
         # sent, offboarded when the account closes, and the old copy of an agent recreated
@@ -287,6 +313,9 @@ FUNCTIONS: list[Any] = [
         submit_engine_business_details,
         offboard_engine_workspace,
         retire_moved_engine_agent,
+        # A call's English, again: an owner's "Try again" from the outbox
+        # (`crm/translation.request_translation`) or the backfill below.
+        translate_call_job,
         run_post_call_pipeline,
         # The carrier's status/hangup callbacks (enqueued by voice-runtime under
         # `calevate_shared.carrier.CARRIER_EVENT_JOB`) and the CDR read a hangup queues.
@@ -882,6 +911,24 @@ CRON_JOBS = [
         second={45},
         max_tries=WORKER_MAX_TRIES,
     ),
+    # D-710. An account whose setup was finished by a path that did not move it, or before
+    # the move existed, leaves `onboarding` within the hour.
+    _cron(
+        traced_job(complete_finished_onboardings),
+        walk=bounded("one directory read, then one tenant session per account in onboarding"),
+        minute={ONBOARDING_SWEEP_MINUTE},
+        second={ONBOARDING_SWEEP_SECOND},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-720. Any live-apply run that stopped moving (a restarted worker, a lost
+    # continuation, a maintenance window) is walked again from its cursor.
+    _cron(
+        traced_job(resume_live_apply),
+        walk=bounded("one read of at most 50 open runs, one enqueue each"),
+        minute=set(range(3, 60, 5)),
+        second={50},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # D-717. Every Studio client workspace verified on our Cartesia key, repaired when not;
     # our developer workspace's own-keys switch alarmed if found on. One directory read,
     # then one GET per Studio workspace (at most the plan's customer cap).
@@ -1398,6 +1445,16 @@ CRON_JOBS = [
     # free and safe — every verdict is idempotent and a second pass answers
     # `already_metered` — and a money sweep that gave up on its first pool blip would leave
     # the debt for another hour with nothing on a screen to say so.
+    # THE ONE-TIME TRANSLATION BACKFILL (founder decision 3, 11 Oct 2026): calls of the
+    # last 30 days left without English because the worker could not see the console's keys
+    # before 10 Oct 23:13 IST. Each call is queued once, newest first, at our cost
+    # (`workers/call_translation`); once none are left a tick is one read per client.
+    _cron(
+        traced_job(backfill_call_translations),
+        walk=fleet_wide("one tenant_session per live organization, then at most twenty enqueues"),
+        minute={TRANSLATION_BACKFILL_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     _cron(
         traced_job(remeter_refused_legs),
         walk=bounded("one untenanted read of parked demands, then one session per tenant in it"),

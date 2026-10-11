@@ -44,6 +44,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.workers.pipeline import ingest_engine_event, run_post_call_pipeline
+from calevate_shared.lead_fields import with_core
 from fastapi import Response
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app  # apps/voice-runtime is on the pytest path (D-18)
@@ -283,7 +284,8 @@ async def test_no_phone_or_transcript_reaches_the_trace_from_the_real_pipeline(
     extract_spans = by_name(spans, "pipeline.extract")
     assert extract_spans, "the extract stage produced no span"
     assert extract_spans[0].attributes["call_id"] == str(call_id)
-    assert extract_spans[0].attributes["field_count"] == len(CLINIC_SCHEMA)
+    # The core lead fields ride with every schema (D-715, `lead_fields.with_core`).
+    assert extract_spans[0].attributes["field_count"] == len(with_core(CLINIC_SCHEMA))
     # The transcript's SIZE, never its text — the number an operator needs to tell a
     # slow model from a long call.
     assert extract_spans[0].attributes["input_bytes"] > 0

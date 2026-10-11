@@ -400,14 +400,41 @@ take the call"; a trial → "say the business will get back to them").
   sections as sent in its step list. Show `instructions_chars / instructions_limit` as the
   owner types; publishing over the limit is refused with `engine_prompt_too_long`, saying
   how much to cut.
-- `GET /script/tests` and `POST /script/tests` → `{available, unavailable_reason, cost_note,
-  latest}`; `latest = {status: queued|running|done|failed, prompt_version, is_current,
-  results[{key, title, said, reply, verdict: passed|attention|failed|read, advice}],
-  created_at, completed_at}`. Runs six scripted caller lines in the agent's language against
-  the **live** agent (no draft twin) through ThinnestAI Test Chat; poll while queued or
-  running (about half a minute). POST is refused at the dashboard AI allowance ceiling and
-  under view-as; no rupee amount is recorded because ThinnestAI does not publish its
-  chat-reply rate. Needs the agent switched on once. Advised, never required.
+- `GET /script/tests` and `POST /script/tests {retest_of?, auto_improve?}` (D-724) →
+  `{available, unavailable_reason, cost_note, latest, history[{id, created_at,
+  prompt_version, round, score}]}`; `latest = {id, status: queued|running|done|failed,
+  prompt_version, is_current, round, retest_of, auto_improve, score: {passed, judged, total},
+  results[...], improvement, note, created_at, completed_at}`. Each result is `{key, title,
+  category: business|edge|objection|compliance, probe: ai|recording|stop_calling|person|null,
+  source: generated|standard|saved|retest, turns[{said, reply}], expect, verdict:
+  passed|needs_fix|failed|unjudged, reason, fix: script_step|knowledge|objection|style|
+  settings|platform|null, step_id, formal_words[], before}`, failures first. Show the header
+  as "`passed` of `judged` passed". Each run the dashboard AI writes up to ten scenarios for
+  this agent (some two to four caller turns) and always includes the four compliance probes
+  in fresh words; the owner's saved tests (up to three) run alongside; `retest_of` asks that
+  run's failures again word for word and fills `before`. Runs against the **live** agent
+  (no draft twin) through ThinnestAI Test Chat; poll while queued or running (a minute or
+  two). `note` says when the standard set ran or a fallback model wrote the tests. POST is
+  refused at the dashboard AI allowance ceiling and under view-as. Generation and judging
+  are metered (`agent_test_generate`, `agent_test_judge`); the test chat itself is not,
+  because ThinnestAI does not publish its chat-reply rate. Results stored before D-724 are
+  served in this shape (`attention` → `needs_fix`, `read` → `unjudged`, `advice` →
+  `reason`). Needs the agent switched on once. Advised, never required.
+- `POST /script/tests/{run_id}/improve {keys?}` → `{script, base_script, base: draft|live,
+  changes[{target: step:<id>|<part>, because, why}], facts[{action: add|fix, fact_id,
+  question, answer, because, why}], for_keys, disclosure, created_at}` ("Improve my agent";
+  `keys` is "Fix this"). A proposal only, also stored as the run's `improvement`: list the
+  script changes with `diffScripts(base_script, script)` and apply the kept ones to the
+  working copy with `applyChanges`; save kept facts with `POST /v1/kb/facts` (pinned) or
+  `PATCH /v1/kb/facts/{fact_id}`, asking the owner for an empty `answer`. Metered
+  `agent_test_improve`; refused at the ceiling, under view-as, and with
+  `agent_tests_nothing_to_fix` when the chosen tests passed. A run with `auto_improve` and
+  failures prepares this by itself (two rounds at most); nothing is put live without the
+  owner.
+- Test chats and the opt-out: inside a test (a 120-second window opened per test message,
+  `agents/test_window`), the `add_number_to_do_not_call` action with no call answers
+  `recorded_in_test` with the recorded sentence and writes nothing, so a test shows what a
+  real caller hears. With a call it is the real opt-out, unchanged.
 - Still served for the current screens: `PUT /script` (save a version, staged on a live
   agent), `POST /script/apply`, `POST /script/undo`. "Put it live" replaces them in the new
   builder.

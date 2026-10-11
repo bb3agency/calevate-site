@@ -37,8 +37,8 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Set
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass, field, replace
+from datetime import UTC, date, datetime
 from typing import Final, Literal, cast, get_args
 from uuid import UUID
 
@@ -64,6 +64,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.api.db.session import admin_session, tenant_session
 from apps.api.engine.catalogue import (
     HostedVoice,
     HostedVoiceBand,
@@ -358,6 +359,7 @@ def _row_values(voice: HostedVoice, *, provider: str, stamp: datetime) -> dict[s
         "accent": voice.language,
         "description": voice.description,
         "vendor_band": voice.band,
+        "gender": voice.gender,
         "synced_at": stamp,
     }
 
@@ -393,6 +395,7 @@ async def _apply_listing(
                 "accent": statement.excluded.accent,
                 "description": statement.excluded.description,
                 "vendor_band": statement.excluded.vendor_band,
+                "gender": statement.excluded.gender,
                 "synced_at": statement.excluded.synced_at,
                 "withdrawn_at": None,
             },
@@ -611,6 +614,24 @@ def _hosted_rows() -> ColumnElement[bool]:
     return PlatformVoiceCatalogEntry.tts_model.in_(HOSTED_SOURCES)
 
 
+#: What a consent record covers (D-721): the founder's decision, recorded on every record so
+#: a later change of wording cannot silently widen an old consent.
+CLONE_CONSENT_SCOPE: Final = "Calls made by Calevate clients' agents."
+
+
+@dataclass(frozen=True, slots=True)
+class CloneConsent:
+    """A real person's recorded consent to their cloned voice being offered (D-721)."""
+
+    speaker_name: str
+    statement: str
+    given_on: date
+    scope: str
+    recorded_by: UUID
+    recorded_at: datetime
+    has_document: bool
+
+
 @dataclass(frozen=True, slots=True)
 class HostedVoiceRow:
     """One hosted catalogue row, in our words."""
@@ -618,7 +639,11 @@ class HostedVoiceRow:
     voice_id: str
     source: HostedVoiceSource
     vendor_id: str
+    #: What clients see: the operator's `display_label` when set, else the provider's name.
     label: str
+    #: The provider's own name for the voice, as the sync last read it.
+    vendor_label: str
+    display_label: str | None
     provider: str
     accent: str | None
     description: str | None
@@ -634,6 +659,19 @@ class HostedVoiceRow:
     clone_id: str | None
     #: The engine's price band for one of its own voices; None for an own-key voice.
     band: HostedVoiceBand | None
+    gender: str | None
+    languages: tuple[str, ...]
+    #: Marked by an operator as a clone of a real person's voice.
+    person_clone: bool
+    consent: CloneConsent | None
+
+    @property
+    def clone_cleared(self) -> bool:
+        """Not a person's clone, or one with both a consent record and a name of our own
+        (`clone_offer_refusal`)."""
+        return not self.person_clone or (
+            self.consent is not None and self.display_label is not None
+        )
 
     @property
     def rate_key(self) -> EngineRateKey:
@@ -654,19 +692,46 @@ class HostedVoiceRow:
 
     @property
     def offered(self) -> bool:
-        """Ground zero of the client offer: sold, added, enabled and still listed."""
-        return self.sold and self.added and self.state == "enabled" and self.withdrawn_at is None
+        """Ground zero of the client offer: sold, added, enabled, still listed, and, for a
+        person's clone, consented to and renamed."""
+        return (
+            self.sold
+            and self.added
+            and self.state == "enabled"
+            and self.withdrawn_at is None
+            and self.clone_cleared
+        )
 
 
 def row_of(entry: PlatformVoiceCatalogEntry) -> HostedVoiceRow:
     """One hosted row. Every caller reads rows filtered to the hosted sources (`_hosted_rows`
     or an id `parse_hosted_voice_id` accepted), and a hosted row stores its source in
     `tts_model`."""
+    consent = None
+    if (
+        entry.consent_speaker_name is not None
+        and entry.consent_statement is not None
+        and entry.consent_given_on is not None
+        and entry.consent_scope is not None
+        and entry.consent_recorded_by is not None
+        and entry.consent_recorded_at is not None
+    ):
+        consent = CloneConsent(
+            speaker_name=entry.consent_speaker_name,
+            statement=entry.consent_statement,
+            given_on=entry.consent_given_on,
+            scope=entry.consent_scope,
+            recorded_by=entry.consent_recorded_by,
+            recorded_at=entry.consent_recorded_at,
+            has_document=entry.consent_document_key is not None,
+        )
     return HostedVoiceRow(
         voice_id=entry.voice_id,
         source=cast(HostedVoiceSource, entry.tts_model),
         vendor_id=entry.engine_voice_id,
-        label=entry.label,
+        label=entry.display_label or entry.label,
+        vendor_label=entry.label,
+        display_label=entry.display_label,
         provider=entry.provider,
         accent=entry.accent,
         description=entry.description,
@@ -682,6 +747,10 @@ def row_of(entry: PlatformVoiceCatalogEntry) -> HostedVoiceRow:
         clone_id=entry.engine_clone_id,
         # The CHECK `ck_platform_voice_catalog_vendor_band` holds the vocabulary.
         band=cast("HostedVoiceBand | None", entry.vendor_band),
+        gender=entry.gender,
+        languages=tuple(entry.languages or ()),
+        person_clone=entry.person_clone,
+        consent=consent,
     )
 
 
@@ -786,12 +855,217 @@ async def set_hosted_curation(
     if state == "enabled" and not row.sold:
         # Added while in the sold band, then moved out of it by the engine (a re-tiered voice).
         raise band_not_sold(row)
+    if state == "enabled" and (refusal := clone_offer_refusal(row)) is not None:
+        raise refusal
     await session.execute(
         update(PlatformVoiceCatalogEntry)
         .where(PlatformVoiceCatalogEntry.voice_id == voice_id)
         .values(curation_state=state, curated_at=now or datetime.now(UTC))
     )
     return await read_hosted_voice(session, voice_id)
+
+
+VOICE_CLONE_CONSENT_MISSING: Final = "voice_clone_consent_missing"
+
+
+def clone_consent_missing() -> ProblemError:
+    return ProblemError(
+        kind="business_rule",
+        code=VOICE_CLONE_CONSENT_MISSING,
+        title="Record the speaker's consent before offering this voice",
+        detail="This voice is marked as a cloned voice of a real person, and no record of "
+        "that person's consent is on file.",
+        remediation="Open the voice, record the speaker's consent, then offer it.",
+    )
+
+
+def clone_offer_refusal(row: HostedVoiceRow) -> ProblemError | None:
+    """Why a voice marked as a person's clone cannot be offered yet, or None (D-721). The
+    consent comes first; then a name of our own, because clients see `label` and are not told
+    whose voice it is."""
+    if not row.person_clone:
+        return None
+    if row.consent is None:
+        return clone_consent_missing()
+    if row.display_label is None:
+        return ProblemError(
+            kind="business_rule",
+            code="voice_clone_name_missing",
+            title="Give this voice the name clients will see",
+            detail="Clients see a cloned voice under a name we give it, never the speaker's.",
+            remediation="Set the name clients see, then offer it.",
+        )
+    return None
+
+
+def name_reveals_speaker(label: str, speaker_name: str) -> bool:
+    """Does `label` contain a word of the speaker's name? Words under three letters
+    (initials) are ignored, so "Dr" or "K" does not refuse every name."""
+    folded = label.casefold()
+    return any(len(word) >= 3 and word in folded for word in speaker_name.casefold().split())
+
+
+def _speaker_named(label: str, speaker_name: str) -> ProblemError:
+    return ProblemError(
+        kind="validation",
+        code="voice_clone_name_reveals_speaker",
+        title="This name says whose voice it is",
+        detail=f"Clients see this name, and it contains part of {speaker_name}'s name.",
+        remediation="Choose a name that does not identify the speaker.",
+    )
+
+
+async def set_display_label(
+    session: AsyncSession, *, voice_id: str, display_label: str | None
+) -> HostedVoiceRow:
+    """Set or clear the name clients see. The caller commits and audits."""
+    row = await read_hosted_voice(session, voice_id)
+    cleaned = (display_label or "").strip() or None
+    if cleaned is None and row.person_clone and row.state == "enabled":
+        raise ProblemError(
+            kind="business_rule",
+            code="voice_clone_name_missing",
+            title="An offered cloned voice keeps its own name",
+            detail="Clients would see the speaker's provider name for this voice.",
+            remediation="Stop offering the voice first, or give it another name.",
+        )
+    if (
+        cleaned is not None
+        and row.consent is not None
+        and name_reveals_speaker(cleaned, row.consent.speaker_name)
+    ):
+        raise _speaker_named(cleaned, row.consent.speaker_name)
+    await session.execute(
+        update(PlatformVoiceCatalogEntry)
+        .where(PlatformVoiceCatalogEntry.voice_id == voice_id)
+        .values(display_label=cleaned)
+    )
+    return await read_hosted_voice(session, voice_id)
+
+
+async def set_person_clone(
+    session: AsyncSession, *, voice_id: str, person_clone: bool
+) -> HostedVoiceRow:
+    """Mark or unmark a voice as a clone of a real person. Marking an offered voice without a
+    consent record is refused rather than silently taking it off the picker. Unmarking keeps
+    the consent record and its document: they are evidence of what was agreed, and a mark
+    set again finds them. The caller commits and audits."""
+    row = await read_hosted_voice(session, voice_id)
+    if person_clone and row.state == "enabled":
+        refusal = clone_offer_refusal(replace(row, person_clone=True))
+        if refusal is not None:
+            raise refusal
+    await session.execute(
+        update(PlatformVoiceCatalogEntry)
+        .where(PlatformVoiceCatalogEntry.voice_id == voice_id)
+        .values(person_clone=person_clone)
+    )
+    return await read_hosted_voice(session, voice_id)
+
+
+async def record_clone_consent(
+    session: AsyncSession,
+    *,
+    voice_id: str,
+    speaker_name: str,
+    statement: str,
+    given_on: date,
+    recorded_by: UUID,
+    document_key: str | None,
+    now: datetime | None = None,
+) -> tuple[HostedVoiceRow, CloneConsent | None]:
+    """Record (or replace) the speaker's consent and mark the voice as a person's clone.
+    Returns the record it replaced, for the audit row. `document_key` None keeps any document
+    already stored, so correcting a typo does not drop the signed copy. The caller commits
+    and audits."""
+    row = await read_hosted_voice(session, voice_id)
+    if row.display_label is not None and name_reveals_speaker(row.display_label, speaker_name):
+        raise _speaker_named(row.display_label, speaker_name)
+    await session.execute(
+        update(PlatformVoiceCatalogEntry)
+        .where(PlatformVoiceCatalogEntry.voice_id == voice_id)
+        .values(
+            person_clone=True,
+            consent_speaker_name=speaker_name,
+            consent_statement=statement,
+            consent_given_on=given_on,
+            consent_scope=CLONE_CONSENT_SCOPE,
+            consent_recorded_by=recorded_by,
+            consent_recorded_at=now or datetime.now(UTC),
+            **({"consent_document_key": document_key} if document_key is not None else {}),
+        )
+    )
+    return await read_hosted_voice(session, voice_id), row.consent
+
+
+async def consent_document_key(session: AsyncSession, *, voice_id: str) -> str | None:
+    return (
+        await session.execute(
+            select(PlatformVoiceCatalogEntry.consent_document_key).where(
+                PlatformVoiceCatalogEntry.voice_id == voice_id
+            )
+        )
+    ).scalar_one_or_none()
+
+
+@dataclass(frozen=True, slots=True)
+class AgentOnVoice:
+    tenant_id: UUID
+    tenant_name: str
+    agent_id: UUID
+    agent_name: str
+    status: str
+
+
+#: One tenant's agents set to one hosted voice, live first. Read on the tenant's own session.
+_AGENTS_ON_VOICE_SQL: Final = (
+    "SELECT id, name, status FROM agents WHERE engine_voice_id = :v AND deleted_at IS NULL "
+    "ORDER BY status = 'live' DESC, name LIMIT :cap"
+)
+_LIVE_TENANTS_SQL: Final = "SELECT id, name FROM organizations WHERE deleted_at IS NULL"
+#: The most agents the operator's drawer lists for one voice.
+MAX_AGENTS_ON_VOICE: Final = 200
+
+
+async def agents_on_hosted_voice(
+    voice_id: str, *, limit: int = MAX_AGENTS_ON_VOICE
+) -> list[AgentOnVoice]:
+    """Agents across every live tenant set to `voice_id`, at most `limit`, for the operator's
+    drawer. The directory-then-tenant walk RLS requires
+    (`voice_curation.count_live_agents_by_voice`); asked for one voice at a time, on demand,
+    never on a picker or call path."""
+    async with admin_session() as directory:
+        tenants = (await directory.execute(text(_LIVE_TENANTS_SQL))).all()
+    found: list[AgentOnVoice] = []
+    for tenant_id, tenant_name in tenants:
+        remaining = limit - len(found)
+        if remaining <= 0:
+            break
+        async with tenant_session(tenant_id) as scoped:
+            rows = (
+                await scoped.execute(text(_AGENTS_ON_VOICE_SQL), {"v": voice_id, "cap": remaining})
+            ).all()
+        found.extend(
+            AgentOnVoice(
+                tenant_id=tenant_id,
+                tenant_name=str(tenant_name),
+                agent_id=agent_id,
+                agent_name=str(name),
+                status=str(status),
+            )
+            for agent_id, name, status in rows
+        )
+    return sorted(found, key=lambda a: (a.status != "live", a.tenant_name, a.agent_name))
+
+
+def accent_name(tag: str | None) -> str | None:
+    """A listing's language tag as an operator reads it ("Indian English"), or the tag."""
+    if not tag:
+        return None
+    clean = tag.strip()
+    return _LANGUAGE_NAMES.get(
+        clean.lower(), _LANGUAGE_NAMES.get(clean.split("-")[0].lower(), clean)
+    )
 
 
 async def record_clone(
@@ -949,20 +1223,30 @@ __all__ = [
     "BAND_LABELS",
     "CLEAR_BAND_SETTING_LABEL",
     "CLONE_BAND",
+    "CLONE_CONSENT_SCOPE",
     "HOSTED_SOURCES",
+    "MAX_AGENTS_ON_VOICE",
     "NO_SOLD_BAND_CODE",
     "STUDIO_KEY_OFF_REASON",
     "STUDIO_NEEDS_PRO",
     "STUDIO_VOICE_PROVIDER",
+    "VOICE_CLONE_CONSENT_MISSING",
+    "AgentOnVoice",
+    "CloneConsent",
     "HostedSyncResult",
     "HostedVoiceRef",
     "HostedVoiceRow",
     "VoiceScope",
+    "accent_name",
     "add_hosted_voice",
     "agent_voice_withdrawn",
+    "agents_on_hosted_voice",
     "assert_clear_band_listed",
     "band_is_sold",
     "band_not_sold",
+    "clone_consent_missing",
+    "clone_offer_refusal",
+    "consent_document_key",
     "count_hosted_voices",
     "count_listed_bands",
     "hosted_refresh_note",
@@ -971,6 +1255,7 @@ __all__ = [
     "language_note",
     "list_hosted_voices",
     "live_studio_agents",
+    "name_reveals_speaker",
     "no_sold_band_sentence",
     "offered_hosted_voices",
     "own_voice_key_ready",
@@ -978,10 +1263,13 @@ __all__ = [
     "preview_object",
     "read_hosted_voice",
     "record_clone",
+    "record_clone_consent",
     "record_preview",
     "rung_of_source",
     "rungs_awaiting_setup",
+    "set_display_label",
     "set_hosted_curation",
+    "set_person_clone",
     "sold_hosted_band",
     "source_rate_key",
     "studio_listing_workspace",

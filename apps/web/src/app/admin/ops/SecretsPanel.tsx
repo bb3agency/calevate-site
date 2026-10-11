@@ -39,6 +39,7 @@ import {
   MonoValue,
   TestOutcome,
 } from "@/app/admin/ops/opsLanguage";
+import { credentialAnchor } from "@/app/admin/ops/config/configSections";
 import {
   useKekState,
   useRemoveSecret,
@@ -181,7 +182,7 @@ export function SecretsPanel({
         {state.status === "read" && (
           <ul className="divide-y divide-line border-y border-line">
             {state.list.secrets.map((secret) => (
-              <li key={secret.key}>
+              <li key={secret.key} id={credentialAnchor(secret.key)} className="scroll-mt-4 rounded-md">
                 <SecretRow secret={secret} access={access} />
               </li>
             ))}

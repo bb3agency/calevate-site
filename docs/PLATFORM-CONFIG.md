@@ -166,16 +166,16 @@ decides which host the key is sent to) — read the dict, not this sentence, for
 the current list. The carrier SWITCHES are console-managed: `carrier`,
 `carrier_concurrency`, `carrier_cps`, `inbound_reserved_lines`, `inbound_reserve_ratio`,
 `carrier_recording_enabled`
-(needs republish), `carrier_transfer_enabled`, `vobiz_signature_required` and
+(applies to live agents), `carrier_transfer_enabled`, `vobiz_signature_required` and
 `vobiz_callback_ips`; DEPLOYMENT's carrier table gives each one's default and effect.
 ThinnestAI's own call ceiling, `thinnest_max_concurrent_calls` (default 5, applies live), is
 console-managed the same way and plays `carrier_concurrency`'s part on `ENGINE=thinnest`.
-Its other console-managed settings are `thinnest_byok_enabled` (needs republish and the typed
+Its other console-managed settings are `thinnest_byok_enabled` (applies to live agents, with the typed
 step-up confirmation; the operator's statement that the developer workspace runs on all three
 of its own keys, which moves every minute to the ₹1 BYOK rate and locks per-agent voice and
 model choices; not Studio),
-`engine_actions_base_url` (needs republish; the public API origin its in-call actions call)
-and `thinnest_clear_voice_band` (added by D-688, 8 Oct 2026, needs republish, default
+`engine_actions_base_url` (applies to live agents; the public API origin its in-call actions call)
+and `thinnest_clear_voice_band` (added by D-688, 8 Oct 2026, applies to live agents, default
 `premium`: the ThinnestAI voice band sold as Clear, `premium` or `studio`; Studio voices and
 clones need ThinnestAI Pro). D-687's `thinnest_studio_workspace_id` is removed; each agent
 says whether it speaks on our voice key (its `byok`). Since D-693 every client has its own
@@ -323,6 +323,15 @@ off the verified catalogue figure — which is why the panel shows Azure offerab
 row here. It is NOT tenant-scoped and carries no `tenant_id`, exempted in
 `check_rls_coverage` with a written reason like its siblings.
 
+**`platform_engine_minute_prices` holds the voice platform's POSTED rate per billed minute,
+before its wallet top-up fee** (D-678, D-723). It is the same append-only, effective-dated
+attestation as the model prices above, for an engine that reports no cost per call
+(ThinnestAI). The operator types the figure on the platform's price page or invoice, which
+is also what its per-call `costMicro` charges; the meter adds the top-up fee of the plan the
+Clear band needs (`billing/engine_minutes.topup_fee`: 10% on pay-as-you-go, 9% on Pro), so
+a figure attested with the fee already folded in would be charged twice. The ops console's
+per-minute panel shows the all-in figure (`inr_per_min_with_fee`) beside each posted rate.
+
 **`platform_list_rates` is what stops a CLOSED month being re-priced by a later rate
 move** (D-492). `self_serve_inr_per_min` is what the platform charges a prepaid client for
 a calling minute, and `platform_settings` is keyed by `key` — so changing it OVERWRITES the
@@ -414,6 +423,16 @@ convenience and being a new outage source.
 > `needs_republish`, `env_only`, `unclassified`. §6's "secrets are cached with a shorter
 > TTL of their own" was superseded by D-97: they ride the same sentinel, so a rotation
 > propagates on the same poll as a config change.
+>
+> ⚠ **AMENDED BY D-720 (10 Oct 2026).** `needs_republish` is retired. A setting every live
+> agent carries is `live_agents`: saving or reverting it queues a platform-wide live apply
+> in the same transaction (`agents/live_apply.queue_live_apply`), every live agent is
+> republished and read back at once, a call already in progress finishes on the previous
+> value, and the console shows "Applied to N of M live agents" with any that failed
+> (`GET /v1/ops/live-apply`). A setting no republish can deliver is `operator_step`, and its
+> caveat names the step (`engine`, `carrier`, and the three in-call LLM keys). So `applies`
+> has six values: `live`, `on_restart`, `live_agents`, `operator_step`, `env_only`,
+> `unclassified`.
 
 ## 8. The console
 

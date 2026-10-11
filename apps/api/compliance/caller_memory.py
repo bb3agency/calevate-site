@@ -307,7 +307,8 @@ async def memory_enabled(session: AsyncSession, *, agent_id: UUID) -> bool:
     row = (
         await session.execute(
             text(
-                "SELECT a.caller_memory_enabled, o.vertical_template FROM agents a "
+                "SELECT a.caller_memory_enabled, "
+                "COALESCE(o.vertical_template, o.unconfirmed_business_type) FROM agents a "
                 "JOIN organizations o ON o.id = a.tenant_id WHERE a.id = :aid"
             ),
             {"aid": agent_id},

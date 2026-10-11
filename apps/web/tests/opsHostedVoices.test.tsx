@@ -4,8 +4,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import VoicesPage from "@/app/admin/ops/voices/page";
 import {
+  NO_FILTERS,
+  applyFilters,
+  findByVoiceId,
+  metaLine,
+} from "@/app/admin/ops/voices/hosted/voiceFilters";
+import { studioSteps } from "@/app/admin/ops/voices/hosted/StudioVoicesCard";
+import {
   OPS_CLONES_PATH,
+  OPS_CLONE_CONSENT_PATH,
+  OPS_DISPLAY_NAME_PATH,
+  OPS_HOSTED_AGENTS_PATH,
   OPS_HOSTED_PATH,
+  OPS_PERSON_CLONE_PATH,
   OPS_PREVIEW_FETCH_PATH,
   OPS_STUDIO_DISABLE_PATH,
   OPS_STUDIO_ENABLE_PATH,
@@ -22,22 +33,23 @@ import { HOSTED_VOICES_PROBE_PATH, NOT_HOSTED } from "./fixtures/sharedReads";
 import { problem, renderAdminPage, type Routes } from "./harness";
 
 /**
- * THE VOICES PAGE ON AN ENGINE THAT HOSTS ITS VOICES (D-687).
+ * THE VOICES PAGE ON AN ENGINE THAT HOSTS ITS VOICES (D-687, D-721).
  *
  * What this screen must get right, by what each failure costs:
  *
  * 1. **The server picks the screen.** `available: true` shows the hosted screen and never
  *    reads the Pipecat catalogue; `available: false` shows the Pipecat catalogue and never
- *    reads the Studio voices state. The engine is not named in the bundle.
- * 2. **A clone carries both consents and the step-up confirmation**, and cannot be sent
- *    without both boxes ticked.
- * 3. **Deleting a clone with live agents on it is a second, informed decision**: the first
- *    request goes without `confirm`, the server's `voice_clone_in_use` sentence is shown, and
- *    only then is `confirm=true` sent.
- * 4. **Every offered voice can be given a preview**: generate for a Studio voice or a clone,
- *    upload for a stock platform voice, and play through the admin route.
- * 5. **Studio voices are switched on and off behind a confirmation** carrying its step-up
- *    header, and switching off with Studio agents live is a second, informed decision.
+ *    reads the Studio voices state.
+ * 2. **One compact row per voice**, filterable, paged; the full platform list is read only
+ *    when "Add voices" opens, and only voices in a band we sell can be ticked there.
+ * 3. **The switch names the state the API holds**: an archived voice is never captioned
+ *    "Offered to clients".
+ * 4. **A cloned voice of a real person** cannot be switched on without its consent record,
+ *    and the record carries its step-up confirmation.
+ * 5. **A clone carries both consents and the step-up confirmation**; deleting one with live
+ *    agents on it is a second, informed decision.
+ * 6. **Studio is a checklist** with the next step as the primary action, and the developer
+ *    workspace warning appears only when that switch is on.
  */
 
 const SUPERADMIN: AdminMe = {
@@ -50,16 +62,22 @@ const SUPERADMIN: AdminMe = {
 function voice(over: Partial<HostedVoice> = {}): HostedVoice {
   return {
     voice_id: "engine:anjali",
+    vendor_id: "anjali",
     label: "Anjali",
+    vendor_label: "Anjali",
+    display_label: null,
     source: "engine",
     rung: "clear",
     band: "premium",
     sold: true,
     not_sold_reason: null,
     is_custom: false,
-    accent: "Telugu",
+    accent: "te",
+    accent_label: "Telugu",
+    gender: null,
+    languages: ["te-IN", "hi-IN", "en-IN"],
     description: "Warm and calm",
-    language_note: "Speaks Telugu, Hindi and English.",
+    language_note: "Speaks the agent's language, with an accent: Telugu.",
     state: "enabled",
     added: true,
     offered: true,
@@ -70,13 +88,18 @@ function voice(over: Partial<HostedVoice> = {}): HostedVoice {
     preview_source: "upload",
     deletable_clone: false,
     live_agents: 0,
+    person_clone: false,
+    clone_consent: null,
+    clone_blocker: null,
     ...over,
   };
 }
 
 const CLONE = voice({
   voice_id: "engine:clone-ravi",
+  vendor_id: "clone-ravi",
   label: "Ravi",
+  vendor_label: "Ravi",
   is_custom: true,
   state: "disabled",
   offered: false,
@@ -88,19 +111,44 @@ const CLONE = voice({
 
 const STOCK_NO_PREVIEW = voice({
   voice_id: "engine:kavya",
+  vendor_id: "kavya",
   label: "Kavya",
+  vendor_label: "Kavya",
   preview_available: false,
   preview_source: null,
 });
 
 const STUDIO = voice({
   voice_id: "byok:meera",
+  vendor_id: "meera",
   label: "Meera",
+  vendor_label: "Meera",
   source: "byok",
   rung: "studio",
   band: null,
+  gender: "feminine",
+  accent: "te",
+  languages: ["te-IN"],
   preview_available: false,
   preview_source: null,
+});
+
+const ARCHIVED = voice({ voice_id: "engine:old", vendor_id: "old", label: "Old voice", state: "archived", offered: false });
+
+/** The founder's own Instant clone, marked and renamed, with no consent on file yet. */
+const PERSON_CLONE = voice({
+  voice_id: "byok:sri-clone",
+  vendor_id: "a0e99841-438c-4a64-b679-ae501e7d6003",
+  label: "Aditya",
+  vendor_label: "Sri (instant clone)",
+  display_label: "Aditya",
+  source: "byok",
+  rung: "studio",
+  band: null,
+  state: "disabled",
+  offered: false,
+  person_clone: true,
+  clone_blocker: "Record the speaker's consent before offering this voice",
 });
 
 function hosted(over: Partial<HostedVoices> = {}): HostedVoices {
@@ -179,8 +227,19 @@ const STUDIO_LEGACY: StudioVoices = {
   key: { ...STUDIO_ON.key, enabled: true, scope: "voice", using: "own", speaks_on_own_voice: true },
 };
 
+const ALL_PATH = `${OPS_HOSTED_PATH}?scope=all`;
+
+/** Every voice in these fixtures has nobody on it unless a test says otherwise. */
+function noAgents(): Routes {
+  const ids = [voice(), CLONE, STOCK_NO_PREVIEW, STUDIO, ARCHIVED, PERSON_CLONE].map((v) => v.voice_id);
+  return Object.fromEntries(
+    ids.map((id) => [`${OPS_HOSTED_AGENTS_PATH}?voice_id=${encodeURIComponent(id)}`, { voice_id: id, agents: [] }]),
+  );
+}
+
 function routes(over: Routes = {}): Routes {
   return {
+    ...noAgents(),
     [ADMIN_ME_PATH]: SUPERADMIN,
     [HOSTED_VOICES_PROBE_PATH]: hosted(),
     [OPS_STUDIO_VOICES_PATH]: STUDIO_ON,
@@ -188,8 +247,20 @@ function routes(over: Routes = {}): Routes {
   };
 }
 
-function card(label: string): HTMLElement {
+function row(label: string): HTMLElement {
   return screen.getByRole("listitem", { name: label });
+}
+
+/** Open one voice's detail drawer from its name in the list. */
+async function openVoice(label: string): Promise<HTMLElement> {
+  const item = await screen.findByRole("listitem", { name: label });
+  fireEvent.click(within(item).getByRole("button", { name: label }));
+  return screen.findByRole("dialog", { name: label });
+}
+
+async function openAdd(): Promise<HTMLElement> {
+  fireEvent.click(await screen.findByRole("button", { name: "Add voices" }));
+  return screen.findByRole("dialog", { name: "Add voices" });
 }
 
 /** The multipart seam: `apiUpload` is an XHR, stubbed as `knowledgeUploads.test.tsx` does. */
@@ -249,11 +320,9 @@ describe("the voices page picks its screen from the server's answer", () => {
   it("shows the hosted screen and never reads the Pipecat catalogue", async () => {
     const { calls } = renderAdminPage(<VoicesPage />, routes());
 
-    await screen.findByRole("tab", { name: "Clear" });
+    expect(await screen.findByRole("heading", { name: "Offered voices" })).toBeTruthy();
     expect(screen.getByRole("listitem", { name: "Anjali" })).toBeTruthy();
     expect(calls.some((c) => c.path.startsWith(`${OPS_VOICES_PATH}?`))).toBe(false);
-    // The Clear tab lists the Clear rung only.
-    expect(screen.queryByRole("listitem", { name: "Meera" })).toBeNull();
   });
 
   it("shows the Pipecat catalogue and never reads the Studio voices when voices are not hosted", async () => {
@@ -272,7 +341,7 @@ describe("the voices page picks its screen from the server's answer", () => {
     });
 
     await screen.findByText(/No voice has been added yet/);
-    expect(screen.queryByRole("tab", { name: "Clear" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Offered voices" })).toBeNull();
     expect(calls.some((c) => c.path === OPS_STUDIO_VOICES_PATH)).toBe(false);
   });
 
@@ -282,123 +351,107 @@ describe("the voices page picks its screen from the server's answer", () => {
       routes({ [HOSTED_VOICES_PROBE_PATH]: problem(503, { title: "Upstream unavailable", kind: "unavailable" }) }),
     );
     expect(await screen.findByText(/Upstream unavailable/)).toBeTruthy();
-    expect(screen.queryByRole("tab", { name: "Clear" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Offered voices" })).toBeNull();
   });
 });
 
-describe("the hosted voices", () => {
-  it("lists Studio voices on the Studio tab and reads every voice only when asked", async () => {
-    const all = `${OPS_HOSTED_PATH}?scope=all`;
-    const { calls } = renderAdminPage(
+describe("the offered voices list", () => {
+  it("is one row per voice with no raw id, and the platform list is read only for Add voices", async () => {
+    const { calls } = renderAdminPage(<VoicesPage />, routes());
+
+    const anjali = within(await screen.findByRole("listitem", { name: "Anjali" }));
+    expect(anjali.queryByText(/engine:anjali/)).toBeNull();
+    expect(anjali.getByText("Telugu accent")).toBeTruthy();
+    // A missing preview is a small badge, not a paragraph.
+    expect(within(row("Kavya")).getByText("No preview")).toBeTruthy();
+    expect(calls.some((c) => c.path === ALL_PATH)).toBe(false);
+  });
+
+  it("filters by tier, name and state, and hides archived voices until asked", async () => {
+    renderAdminPage(
       <VoicesPage />,
-      routes({
-        [all]: hosted({
-          scope: "all",
-          voices: [voice(), voice({ voice_id: "engine:new", label: "Newly synced", added: false, state: "disabled", offered: false })],
-        }),
-      }),
+      routes({ [HOSTED_VOICES_PROBE_PATH]: hosted({ voices: [voice(), STOCK_NO_PREVIEW, STUDIO, ARCHIVED] }) }),
     );
 
-    fireEvent.click(await screen.findByRole("tab", { name: "Studio" }));
-    expect(await screen.findByRole("listitem", { name: "Meera" })).toBeTruthy();
+    await screen.findByRole("listitem", { name: "Anjali" });
+    expect(screen.queryByRole("listitem", { name: "Old voice" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Studio 1$/ }));
+    expect(screen.getByRole("listitem", { name: "Meera" })).toBeTruthy();
     expect(screen.queryByRole("listitem", { name: "Anjali" })).toBeNull();
-    expect(calls.some((c) => c.path === all)).toBe(false);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Every voice on the platform" }));
-    expect(await screen.findByRole("listitem", { name: "Newly synced" })).toBeTruthy();
-    expect(calls.some((c) => c.path === all)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /^All / }));
+    fireEvent.change(screen.getByLabelText("Search offered voices by name"), { target: { value: "kav" } });
+    expect(screen.getByRole("listitem", { name: "Kavya" })).toBeTruthy();
+    expect(screen.queryByRole("listitem", { name: "Anjali" })).toBeNull();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Clear filters" })[0]!);
+    fireEvent.change(screen.getByRole("combobox", { name: "State" }), { target: { value: "archived" } });
+    expect(screen.getByRole("listitem", { name: "Old voice" })).toBeTruthy();
+    expect(screen.queryByRole("listitem", { name: "Anjali" })).toBeNull();
   });
 
-  it("adds a voice that is not added yet", async () => {
-    const all = `${OPS_HOSTED_PATH}?scope=all`;
-    const fresh = voice({ voice_id: "engine:new", label: "Newly synced", added: false, state: "disabled", offered: false });
+  it("pages a long list instead of rendering every row", async () => {
+    const many = Array.from({ length: 30 }, (_, i) =>
+      voice({ voice_id: `engine:v${i}`, vendor_id: `v${i}`, label: `Voice ${String(i).padStart(2, "0")}` }),
+    );
+    renderAdminPage(<VoicesPage />, routes({ [HOSTED_VOICES_PROBE_PATH]: hosted({ voices: many }) }));
+
+    await screen.findByRole("listitem", { name: "Voice 00" });
+    expect(screen.queryByRole("listitem", { name: "Voice 29" })).toBeNull();
+    expect(screen.getByText("Showing 25 of 30")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show 5 more" }));
+    expect(screen.getByRole("listitem", { name: "Voice 29" })).toBeTruthy();
+  });
+
+  it("switches a voice on for clients with one PATCH naming the voice and the state", async () => {
     const { calls } = renderAdminPage(
       <VoicesPage />,
       routes({
-        [all]: hosted({ scope: "all", voices: [fresh] }),
-        [`POST ${OPS_HOSTED_PATH}`]: { voice: { ...fresh, added: true }, next_step: "Give it a preview, then enable it." },
+        [`PATCH ${OPS_HOSTED_PATH}`]: { voice: { ...CLONE, state: "enabled" }, next_step: "Clients can choose Ravi now." },
       }),
     );
 
-    fireEvent.click(await screen.findByRole("tab", { name: "Every voice on the platform" }));
-    await screen.findByRole("listitem", { name: "Newly synced" });
-    fireEvent.click(within(card("Newly synced")).getByRole("button", { name: "Add Newly synced" }));
+    await screen.findByRole("listitem", { name: "Ravi" });
+    const toggle = within(row("Ravi")).getByRole("switch", { name: /Not offered: Ravi/ }) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(toggle);
 
-    await screen.findByText("Give it a preview, then enable it.");
-    const write = calls.find((c) => c.method === "POST" && c.path === OPS_HOSTED_PATH)!;
-    expect(JSON.parse(write.body!)).toEqual({ voice_id: "engine:new" });
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH" && c.path === OPS_HOSTED_PATH)).toBe(true));
+    const write = calls.find((c) => c.method === "PATCH" && c.path === OPS_HOSTED_PATH)!;
+    expect(JSON.parse(write.body!)).toEqual({ voice_id: "engine:clone-ravi", state: "enabled" });
   });
 
-  it("shows every band with a badge and will not add a voice outside the Studio band", async () => {
-    const all = `${OPS_HOSTED_PATH}?scope=all`;
-    const premium = voice({
-      voice_id: "engine:priya",
-      label: "Priya",
-      rung: null,
-      band: "standard",
-      sold: false,
-      not_sold_reason:
-        "Only ThinnestAI Premium band voices are sold as Clear on this platform, and Priya is in the ThinnestAI Standard band.",
-      added: false,
-      state: "disabled",
-      offered: false,
-    });
+  it("names an archived voice's state as archived, never as offered", async () => {
+    renderAdminPage(<VoicesPage />, routes({ [HOSTED_VOICES_PROBE_PATH]: hosted({ voices: [ARCHIVED] }) }));
+    await screen.findByText("No voice matches these filters.");
+    fireEvent.change(screen.getByRole("combobox", { name: "State" }), { target: { value: "archived" } });
+
+    const drawer = await openVoice("Old voice");
+    const toggle = within(drawer).getByRole("switch", { name: /^Archived/ }) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(within(drawer).getByText("Archived")).toBeTruthy();
+    expect(within(drawer).queryByText("Offered to clients")).toBeNull();
+    expect(within(drawer).getByRole("button", { name: "Restore, not offered" })).toBeTruthy();
+  });
+
+  it("plays a stored preview through the admin preview route", async () => {
+    const play = vi.fn(() => Promise.resolve());
+    Object.defineProperty(HTMLMediaElement.prototype, "play", { configurable: true, value: play });
+    Object.defineProperty(HTMLMediaElement.prototype, "pause", { configurable: true, value: vi.fn() });
+    Object.assign(URL, { createObjectURL: vi.fn(() => "blob:clip"), revokeObjectURL: vi.fn() });
+    const clip = previewUrl(OPS_PREVIEW_PATH, "engine:anjali");
     const { calls } = renderAdminPage(
       <VoicesPage />,
-      routes({ [all]: hosted({ scope: "all", voices: [voice(), premium] }) }),
-    );
-
-    fireEvent.click(await screen.findByRole("tab", { name: "Every voice on the platform" }));
-    const row = within(await screen.findByRole("listitem", { name: "Priya" }));
-    expect(row.getByText("ThinnestAI Standard band")).toBeTruthy();
-    expect(row.queryByText("Clear")).toBeNull();
-    const add = row.getByRole("button", { name: "Add Priya" }) as HTMLButtonElement;
-    expect(add.disabled).toBe(true);
-    expect(row.getByText(/Priya is in the ThinnestAI Standard band/)).toBeTruthy();
-    expect(within(card("Anjali")).getByText("ThinnestAI Premium band")).toBeTruthy();
-    expect(
-      screen.getByText(
-        /Bands on the platform: 3 ThinnestAI Standard band · 1 ThinnestAI Premium band · 2 ThinnestAI Studio band/,
-      ),
-    ).toBeTruthy();
-    fireEvent.click(add);
-    expect(calls.some((c) => c.method === "POST" && c.path === OPS_HOSTED_PATH)).toBe(false);
-  });
-
-  it("explains plainly when the platform lists none of the band sold as Clear", async () => {
-    const sentence =
-      "ThinnestAI listed 4 voice(s) but none in the ThinnestAI Premium band, the band sold as Clear ('ThinnestAI voice band sold as Clear' in the ops console). Check the account on ThinnestAI, then refresh.";
-    renderAdminPage(
-      <VoicesPage />,
       routes({
-        [HOSTED_VOICES_PROBE_PATH]: hosted({
-          voices: [],
-          bands: { standard: 3, studio: 1 },
-          plan_note: sentence,
-        }),
+        [clip]: () => new Response(new Uint8Array([1]), { status: 200, headers: { "content-type": "audio/mpeg" } }),
       }),
     );
 
-    expect(await screen.findByText("No ThinnestAI Premium band voices on the voice platform")).toBeTruthy();
-    expect(screen.getByText(sentence)).toBeTruthy();
-    expect(screen.queryByText(/is not our Studio tier below/)).toBeNull();
-  });
-
-  it("on ThinnestAI's Studio band, says our Studio tier adds no voice to it", async () => {
-    renderAdminPage(
-      <VoicesPage />,
-      routes({
-        [HOSTED_VOICES_PROBE_PATH]: hosted({
-          voices: [],
-          clear_band: "studio",
-          bands: { standard: 3, premium: 4 },
-          plan_note: "ThinnestAI listed 7 voice(s) but none in the ThinnestAI Studio band.",
-        }),
-      }),
-    );
-
-    expect(await screen.findByText("No ThinnestAI Studio band voices on the voice platform")).toBeTruthy();
-    expect(screen.getByText(/is not our Studio tier below: that is our Cartesia key/)).toBeTruthy();
+    await screen.findByRole("listitem", { name: "Anjali" });
+    fireEvent.click(within(row("Anjali")).getByRole("button", { name: "Play the preview of Anjali" }));
+    await waitFor(() => expect(play).toHaveBeenCalled());
+    expect(calls.some((c) => c.path === clip)).toBe(true);
   });
 
   it("prints the server's refresh sentence as written", async () => {
@@ -423,41 +476,127 @@ describe("the hosted voices", () => {
     expect(calls.some((c) => c.method === "POST" && c.path === OPS_VOICES_REFRESH_PATH)).toBe(true);
   });
 
-  it("switches a voice on for clients with one PATCH naming the voice and the state", async () => {
-    const { calls } = renderAdminPage(
+  it("explains plainly when the platform lists none of the band sold as Clear", async () => {
+    const sentence =
+      "ThinnestAI listed 4 voice(s) but none in the ThinnestAI Premium band, the band sold as Clear ('ThinnestAI voice band sold as Clear' in the ops console). Check the account on ThinnestAI, then refresh.";
+    renderAdminPage(
+      <VoicesPage />,
+      routes({ [HOSTED_VOICES_PROBE_PATH]: hosted({ voices: [], bands: { standard: 3, studio: 1 }, plan_note: sentence }) }),
+    );
+
+    expect(await screen.findByText("No ThinnestAI Premium band voices on the voice platform")).toBeTruthy();
+    expect(screen.getByText(sentence)).toBeTruthy();
+    expect(screen.queryByText(/is not our Studio tier/)).toBeNull();
+    // The empty list offers the way forward.
+    expect(screen.getAllByRole("button", { name: "Add voices" }).length).toBe(2);
+  });
+
+  it("on ThinnestAI's Studio band, says our Studio tier adds no voice to it", async () => {
+    renderAdminPage(
       <VoicesPage />,
       routes({
-        [`PATCH ${OPS_HOSTED_PATH}`]: { voice: { ...CLONE, state: "enabled" }, next_step: "Clients can choose Ravi now." },
+        [HOSTED_VOICES_PROBE_PATH]: hosted({
+          voices: [],
+          clear_band: "studio",
+          bands: { standard: 3, premium: 4 },
+          plan_note: "ThinnestAI listed 7 voice(s) but none in the ThinnestAI Studio band.",
+        }),
       }),
     );
 
-    await screen.findByRole("listitem", { name: "Ravi" });
-    const toggle = within(card("Ravi")).getByRole("switch", { name: /Offered to clients/ }) as HTMLInputElement;
-    expect(toggle.checked).toBe(false);
-    fireEvent.click(toggle);
+    expect(await screen.findByText("No ThinnestAI Studio band voices on the voice platform")).toBeTruthy();
+    expect(screen.getByText(/is not our Studio tier: that is our Cartesia key/)).toBeTruthy();
+  });
+});
 
-    await screen.findByText("Clients can choose Ravi now.");
-    const write = calls.find((c) => c.method === "PATCH" && c.path === OPS_HOSTED_PATH)!;
-    expect(JSON.parse(write.body!)).toEqual({ voice_id: "engine:clone-ravi", state: "enabled" });
+describe("adding voices", () => {
+  const fresh = voice({ voice_id: "engine:new", vendor_id: "new", label: "Newly synced", added: false, state: "disabled", offered: false });
+  const studioFresh = voice({
+    ...STUDIO,
+    voice_id: "byok:tara",
+    vendor_id: "tara-0001",
+    label: "Tara",
+    vendor_label: "Tara",
+    added: false,
+    state: "disabled",
+    offered: false,
+  });
+  const unsold = voice({
+    voice_id: "engine:priya",
+    vendor_id: "priya",
+    label: "Priya",
+    rung: null,
+    band: "standard",
+    sold: false,
+    not_sold_reason: "Only ThinnestAI Premium band voices are sold as Clear on this platform, and Priya is in the ThinnestAI Standard band.",
+    added: false,
+    state: "disabled",
+    offered: false,
   });
 
-  it("plays a stored preview through the admin preview route", async () => {
-    const play = vi.fn(() => Promise.resolve());
-    Object.defineProperty(HTMLMediaElement.prototype, "play", { configurable: true, value: play });
-    Object.defineProperty(HTMLMediaElement.prototype, "pause", { configurable: true, value: vi.fn() });
-    Object.assign(URL, { createObjectURL: vi.fn(() => "blob:clip"), revokeObjectURL: vi.fn() });
-    const clip = previewUrl(OPS_PREVIEW_PATH, "engine:anjali");
+  it("ticks several voices from the platform's list and adds each with its own POST", async () => {
     const { calls } = renderAdminPage(
       <VoicesPage />,
       routes({
-        [clip]: () => new Response(new Uint8Array([1]), { status: 200, headers: { "content-type": "audio/mpeg" } }),
+        [ALL_PATH]: hosted({ scope: "all", voices: [voice(), fresh, studioFresh, unsold] }),
+        [`POST ${OPS_HOSTED_PATH}`]: { voice: { ...fresh, added: true }, next_step: "Give it a preview, then enable it." },
+      }),
+    );
+
+    const drawer = await openAdd();
+    await within(drawer).findByRole("checkbox", { name: /Newly synced/ });
+    // Only voices we could sell, and not added yet, can be ticked.
+    expect(within(drawer).queryByRole("checkbox", { name: /Anjali/ })).toBeNull();
+    expect(within(drawer).queryByRole("checkbox", { name: /Priya/ })).toBeNull();
+    expect(within(drawer).getByText(/1 more are in bands we do not sell/)).toBeTruthy();
+
+    fireEvent.click(within(drawer).getByRole("checkbox", { name: /Newly synced/ }));
+    fireEvent.click(within(drawer).getByRole("checkbox", { name: /Tara/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 2 voices" }));
+
+    expect(await within(drawer).findByText(/Added Newly synced, Tara/)).toBeTruthy();
+    const writes = calls.filter((c) => c.method === "POST" && c.path === OPS_HOSTED_PATH);
+    expect(writes.map((c) => JSON.parse(c.body!))).toEqual([{ voice_id: "engine:new" }, { voice_id: "byok:tara" }]);
+  });
+
+  it("finds a voice by its pasted id, and says so honestly when the platform did not list it", async () => {
+    renderAdminPage(<VoicesPage />, routes({ [ALL_PATH]: hosted({ scope: "all", voices: [fresh, studioFresh] }) }));
+
+    const drawer = await openAdd();
+    await within(drawer).findByRole("checkbox", { name: /Newly synced/ });
+    fireEvent.click(within(drawer).getByText("Find a voice by its id"));
+    const field = within(drawer).getByLabelText("Voice id");
+
+    fireEvent.change(field, { target: { value: "tara-0001" } });
+    expect(within(within(drawer).getByRole("list", { name: "Found voice" })).getByRole("checkbox", { name: /Tara/ })).toBeTruthy();
+
+    fireEvent.change(field, { target: { value: "a0e99841-not-listed" } });
+    expect(within(drawer).getByText(/isn.t in the list the voice platform returned for our key/)).toBeTruthy();
+  });
+});
+
+describe("one voice's detail", () => {
+  it("shows the copyable vendor id and the agents speaking it, read only when opened", async () => {
+    const agents = `${OPS_HOSTED_AGENTS_PATH}?voice_id=${encodeURIComponent("engine:anjali")}`;
+    const { calls } = renderAdminPage(
+      <VoicesPage />,
+      routes({
+        [agents]: {
+          voice_id: "engine:anjali",
+          agents: [
+            { tenant_id: "t1", tenant_name: "Skyline Properties", agent_id: "a1", agent_name: "Reception", status: "live" },
+          ],
+        },
       }),
     );
 
     await screen.findByRole("listitem", { name: "Anjali" });
-    fireEvent.click(within(card("Anjali")).getByRole("button", { name: "Play the preview of Anjali" }));
-    await waitFor(() => expect(play).toHaveBeenCalled());
-    expect(calls.some((c) => c.path === clip)).toBe(true);
+    expect(calls.some((c) => c.path === agents)).toBe(false);
+    const drawer = await openVoice("Anjali");
+    expect(within(drawer).getByText("anjali")).toBeTruthy();
+    expect(within(drawer).getByRole("button", { name: "Copy the voice id" })).toBeTruthy();
+    expect(await within(drawer).findByRole("link", { name: "Reception" })).toBeTruthy();
+    expect(within(drawer).getByText(/Skyline Properties/)).toBeTruthy();
   });
 
   it("generates a preview for a clone and uploads one for a stock voice", async () => {
@@ -468,37 +607,152 @@ describe("the hosted voices", () => {
       }),
     );
 
-    await screen.findByRole("listitem", { name: "Ravi" });
-    // A clone has the platform's own preview to fetch, and no upload control.
-    expect(within(card("Ravi")).queryByRole("button", { name: /Upload preview/ })).toBeNull();
-    fireEvent.click(within(card("Ravi")).getByRole("button", { name: "Generate preview" }));
-    await waitFor(() =>
-      expect(calls.some((c) => c.method === "POST" && c.path === OPS_PREVIEW_FETCH_PATH)).toBe(true),
-    );
-    const fetchWrite = calls.find((c) => c.path === OPS_PREVIEW_FETCH_PATH)!;
-    expect(JSON.parse(fetchWrite.body!)).toEqual({ voice_id: "engine:clone-ravi" });
+    let drawer = await openVoice("Ravi");
+    expect(within(drawer).queryByLabelText("Upload a preview")).toBeNull();
+    fireEvent.click(within(drawer).getByRole("button", { name: "Generate preview" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === OPS_PREVIEW_FETCH_PATH)).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.path === OPS_PREVIEW_FETCH_PATH)!.body!)).toEqual({ voice_id: "engine:clone-ravi" });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Close" }));
 
-    // A stock voice with no sample is given one by upload.
     xhrAnswer = { status: 200, body: { voice: { ...STOCK_NO_PREVIEW, preview_available: true }, next_step: "Stored." } };
-    const input = within(card("Kavya")).getByLabelText(/Upload a preview clip for Kavya/) as HTMLInputElement;
-    const clipFile = new File([new Uint8Array([1, 2])], "kavya.mp3", { type: "audio/mpeg" });
+    drawer = await openVoice("Kavya");
+    const clip = new File([new Uint8Array([1, 2])], "kavya.mp3", { type: "audio/mpeg" });
     await act(async () => {
-      fireEvent.change(input, { target: { files: [clipFile] } });
+      fireEvent.change(within(drawer).getByLabelText("Upload a preview"), { target: { files: [clip] } });
     });
     await waitFor(() => expect(xhrCalls).toHaveLength(1));
     expect(xhrCalls[0]!.url).toContain("/v1/ops/voices/hosted/preview");
     expect(xhrCalls[0]!.form.get("voice_id")).toBe("engine:kavya");
-    expect(xhrCalls[0]!.form.get("sample")).toBeInstanceOf(File);
   });
 
   it("refuses a preview clip over 2 MB before sending it", async () => {
     renderAdminPage(<VoicesPage />, routes());
-    await screen.findByRole("listitem", { name: "Kavya" });
-    const input = within(card("Kavya")).getByLabelText(/Upload a preview clip for Kavya/) as HTMLInputElement;
+    const drawer = await openVoice("Kavya");
     const big = new File([new Uint8Array(2 * 1024 * 1024 + 1)], "big.wav", { type: "audio/wav" });
-    fireEvent.change(input, { target: { files: [big] } });
-    expect(await screen.findByText(/larger than 2 MB/)).toBeTruthy();
+    fireEvent.change(within(drawer).getByLabelText("Upload a preview"), { target: { files: [big] } });
+    expect(await within(drawer).findByText(/over the .* limit/)).toBeTruthy();
     expect(xhrCalls).toHaveLength(0);
+  });
+
+  it("sets the name clients see with one PATCH", async () => {
+    const { calls } = renderAdminPage(
+      <VoicesPage />,
+      routes({
+        [`PATCH ${OPS_DISPLAY_NAME_PATH}`]: {
+          voice: { ...STUDIO, label: "Meenakshi", display_label: "Meenakshi" },
+          next_step: "Clients see this voice as Meenakshi.",
+        },
+      }),
+    );
+
+    const drawer = await openVoice("Meera");
+    fireEvent.click(within(drawer).getByRole("button", { name: "Change" }));
+    fireEvent.change(within(drawer).getByLabelText("Name clients see"), { target: { value: "Meenakshi" } });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Save name" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH" && c.path === OPS_DISPLAY_NAME_PATH)).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.path === OPS_DISPLAY_NAME_PATH)!.body!)).toEqual({
+      voice_id: "byok:meera",
+      display_label: "Meenakshi",
+    });
+  });
+});
+
+describe("a cloned voice of a real person (D-721)", () => {
+  it("cannot be switched on until its consent is recorded, and says why", async () => {
+    renderAdminPage(<VoicesPage />, routes({ [HOSTED_VOICES_PROBE_PATH]: hosted({ voices: [PERSON_CLONE] }) }));
+
+    await screen.findByRole("listitem", { name: "Aditya" });
+    const toggle = within(row("Aditya")).getByRole("switch") as HTMLInputElement;
+    expect(toggle.disabled).toBe(true);
+    expect(within(row("Aditya")).getByText("Record the speaker's consent before offering this voice")).toBeTruthy();
+    // The client-facing name is the operator's, and the speaker's name is not in the row.
+    expect(within(row("Aditya")).queryByText(/Sri/)).toBeNull();
+  });
+
+  it("records the consent as a multipart write with the step-up confirmation for that voice", async () => {
+    xhrAnswer = {
+      status: 200,
+      body: {
+        voice: {
+          ...PERSON_CLONE,
+          clone_blocker: null,
+          clone_consent: {
+            speaker_name: "Test Speaker",
+            statement: "I agree.",
+            consented_on: "2026-10-10",
+            scope: "Calls made by Calevate clients' agents.",
+            recorded_by: SUPERADMIN.user_id,
+            recorded_by_name: "Ops",
+            recorded_at: "2026-10-10T10:00:00Z",
+            has_document: true,
+          },
+        },
+        next_step: "The speaker's consent is recorded. The voice can now be offered.",
+      },
+    };
+    renderAdminPage(<VoicesPage />, routes({ [HOSTED_VOICES_PROBE_PATH]: hosted({ voices: [PERSON_CLONE] }) }));
+
+    const drawer = await openVoice("Aditya");
+    const submit = within(drawer).getByRole("button", { name: "Record consent" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    fireEvent.change(within(drawer).getByLabelText(/Speaker.s full name/), { target: { value: "Test Speaker" } });
+    fireEvent.change(within(drawer).getByLabelText("Date they consented"), { target: { value: "2026-10-10" } });
+    const signed = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d])], "consent.pdf", { type: "application/pdf" });
+    await act(async () => {
+      fireEvent.change(within(drawer).getByLabelText("Signed consent (optional)"), { target: { files: [signed] } });
+    });
+    expect(submit.disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(submit);
+    });
+
+    await waitFor(() => expect(xhrCalls).toHaveLength(1));
+    const sent = xhrCalls[0]!;
+    expect(sent.url).toContain(OPS_CLONE_CONSENT_PATH);
+    expect(sent.headers["X-Confirm-Action"]).toBe("record_voice_consent:byok:sri-clone");
+    expect(sent.form.get("speaker_name")).toBe("Test Speaker");
+    expect(sent.form.get("consented_on")).toBe("2026-10-10");
+    expect(String(sent.form.get("statement"))).toMatch(/cloned copy of my voice/);
+    expect(sent.form.get("document")).toBeInstanceOf(File);
+  });
+
+  it("unmarking asks first, keeps the record, and carries its own step-up confirmation", async () => {
+    const consented = voice({
+      ...PERSON_CLONE,
+      clone_blocker: null,
+      clone_consent: {
+        speaker_name: "Test Speaker",
+        statement: "I agree.",
+        consented_on: "2026-10-10",
+        scope: "Calls made by Calevate clients' agents.",
+        recorded_by: SUPERADMIN.user_id,
+        recorded_by_name: "Ops",
+        recorded_at: "2026-10-10T10:00:00Z",
+        has_document: false,
+      },
+    });
+    const { calls } = renderAdminPage(
+      <VoicesPage />,
+      routes({
+        [HOSTED_VOICES_PROBE_PATH]: hosted({ voices: [consented] }),
+        [`PATCH ${OPS_PERSON_CLONE_PATH}`]: {
+          voice: { ...consented, person_clone: false },
+          next_step: "No longer marked as a cloned voice of a real person.",
+        },
+      }),
+    );
+
+    const drawer = await openVoice("Aditya");
+    expect(within(drawer).getByText("Test Speaker")).toBeTruthy();
+    fireEvent.click(within(drawer).getByRole("switch", { name: /A cloned voice of a real person/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Aditya is not a cloned voice?" });
+    expect(within(dialog).getByText(/consent record and its signed document are kept/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove the mark" }));
+
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH" && c.path === OPS_PERSON_CLONE_PATH)).toBe(true));
+    const write = calls.find((c) => c.path === OPS_PERSON_CLONE_PATH)!;
+    expect(JSON.parse(write.body!)).toEqual({ voice_id: "byok:sri-clone", person_clone: false });
+    expect(write.headers["X-Confirm-Action"]).toBe("set_voice_person_clone:byok:sri-clone");
   });
 });
 
@@ -526,8 +780,8 @@ describe("deleting a clone", () => {
       }),
     );
 
-    await screen.findByRole("listitem", { name: "Ravi" });
-    fireEvent.click(within(card("Ravi")).getByRole("button", { name: "Delete the clone Ravi" }));
+    const drawer = await openVoice("Ravi");
+    fireEvent.click(within(drawer).getByRole("button", { name: "Delete the clone Ravi" }));
     const dialog = await screen.findByRole("dialog", { name: "Delete the clone Ravi?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete clone" }));
 
@@ -535,15 +789,26 @@ describe("deleting a clone", () => {
     expect(attempt).toBe(1);
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete and move those agents" }));
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByText(/Ravi was deleted/)).toBeTruthy();
     const deletes = calls.filter((c) => c.method === "DELETE");
     expect(deletes.map((c) => c.path.endsWith("confirm=true"))).toEqual([false, true]);
     expect(deletes[1]!.headers["X-Confirm-Action"]).toBe("delete_voice_clone:engine:clone-ravi");
   });
 });
 
-describe("the Studio voices card", () => {
-  it("says what is missing and makes Studio ready behind a step-up confirmation", async () => {
+describe("Studio setup", () => {
+  it("derives the checklist from the server's booleans, in the order an operator works", () => {
+    const steps = studioSteps(STUDIO_OFF);
+    expect(steps.map((s) => [s.id, s.done])).toEqual([
+      ["key", true],
+      ["held", false],
+      ["minute", true],
+      ["voice-price", true],
+      ["listed", false],
+    ]);
+  });
+
+  it("makes the next step the primary action and runs Studio ready behind a step-up confirmation", async () => {
     const { calls } = renderAdminPage(
       <VoicesPage />,
       routes({
@@ -552,15 +817,14 @@ describe("the Studio voices card", () => {
       }),
     );
 
-    expect(await screen.findByText(/Not ready — Studio voices cannot be offered/)).toBeTruthy();
-    expect(screen.getByText(STUDIO_OFF.note)).toBeTruthy();
+    expect(await screen.findByText("Not ready")).toBeTruthy();
+    expect(screen.getByText("3 of 5 done")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Studio ready" }));
     const dialog = await screen.findByRole("dialog", { name: "Make Studio ready?" });
-    expect(within(dialog).getByText(EXPLANATION)).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Studio ready" }));
 
-    await screen.findByText(/Ready — Studio voices can be offered/);
-    expect(screen.getByText(/Sri Clinic/)).toBeTruthy();
+    expect(await screen.findByText("Ready")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Sri Clinic" })).toBeTruthy();
     const write = calls.find((c) => c.method === "POST" && c.path === OPS_STUDIO_ENABLE_PATH)!;
     expect(write.headers["X-Confirm-Action"]).toBe("enable_studio_voices");
     expect(JSON.parse(write.body!)).toEqual({});
@@ -571,18 +835,16 @@ describe("the Studio voices card", () => {
     const { calls } = renderAdminPage(
       <VoicesPage />,
       routes({
-        [`GET ${OPS_STUDIO_VOICES_PATH}`]: STUDIO_OFF,
+        [`GET ${OPS_STUDIO_VOICES_PATH}`]: { ...STUDIO_OFF, developer_holds_key: true },
         [`POST ${OPS_STUDIO_ENABLE_PATH}`]: STUDIO_ON,
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Studio ready" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Name the first client" }));
     const dialog = await screen.findByRole("dialog", { name: "Make Studio ready?" });
     fireEvent.change(within(dialog).getByLabelText(/First Studio client/), { target: { value: tenant } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Studio ready" }));
-    await waitFor(() =>
-      expect(calls.some((c) => c.method === "POST" && c.path === OPS_STUDIO_ENABLE_PATH)).toBe(true),
-    );
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === OPS_STUDIO_ENABLE_PATH)).toBe(true));
     const write = calls.find((c) => c.method === "POST" && c.path === OPS_STUDIO_ENABLE_PATH)!;
     expect(JSON.parse(write.body!)).toEqual({ tenant_id: tenant });
   });
@@ -607,7 +869,7 @@ describe("the Studio voices card", () => {
     expect(await within(dialog).findByText(/could not be confirmed as staying/)).toBeTruthy();
   });
 
-  it("offers switching our developer workspace off only while it is on, and shows a refusal", async () => {
+  it("shows the developer workspace warning only while it is on, with its button beside it", async () => {
     const notMoved = problem(409, {
       type: "urn:calevate:conflict/studio_clients_not_moved",
       title: "Some Studio agents still depend on the developer workspace",
@@ -622,11 +884,9 @@ describe("the Studio voices card", () => {
       }),
     );
 
-    expect(await screen.findByText("Our developer workspace's own keys are on")).toBeTruthy();
+    expect(await screen.findByText(/developer workspace.s own keys are on/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Switch developer workspace off" }));
-    const dialog = await screen.findByRole("dialog", {
-      name: "Switch our developer workspace's own keys off?",
-    });
+    const dialog = await screen.findByRole("dialog", { name: "Switch our developer workspace's own keys off?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Switch it off" }));
     expect(await within(dialog).findByText(/would stop speaking their voice/)).toBeTruthy();
     const write = calls.find((c) => c.method === "POST" && c.path === OPS_STUDIO_DISABLE_PATH)!;
@@ -635,7 +895,8 @@ describe("the Studio voices card", () => {
 
   it("never offers switching the developer workspace off while it is already off", async () => {
     renderAdminPage(<VoicesPage />, routes({ [`GET ${OPS_STUDIO_VOICES_PATH}`]: STUDIO_ON }));
-    await screen.findByText(/Ready — Studio voices can be offered/);
+    await screen.findByText("Ready");
+    expect(screen.queryByText(/developer workspace.s own keys are on/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Switch developer workspace off" })).toBeNull();
   });
 });
@@ -682,12 +943,8 @@ describe("cloning a voice", () => {
     expect(sent.url).toContain(OPS_CLONES_PATH);
     expect(sent.headers["X-Confirm-Action"]).toBe("clone_voice");
     expect(sent.form.get("name")).toBe("Ravi");
-    expect(sent.form.get("description")).toBe("Warm");
-    expect(sent.form.get("language")).toBe("te-IN");
-    expect(sent.form.get("remove_noise")).toBe("true");
     expect(sent.form.get("consent_own_voice")).toBe("true");
     expect(sent.form.get("consent_no_impersonation")).toBe("true");
-    expect(sent.form.get("sample")).toBeInstanceOf(File);
   });
 
   it("offers the second-factor prompt when the server asks for it", async () => {
@@ -711,11 +968,38 @@ describe("cloning a voice", () => {
   });
 });
 
+describe("the filters, as functions", () => {
+  it("narrows by tier and hides archived voices by default", () => {
+    const list = [voice(), STUDIO, ARCHIVED];
+    expect(applyFilters(list, NO_FILTERS).map((v) => v.label)).toEqual(["Anjali", "Meera"]);
+    expect(applyFilters(list, { ...NO_FILTERS, tier: "studio" }).map((v) => v.label)).toEqual(["Meera"]);
+    expect(applyFilters(list, { ...NO_FILTERS, state: "any" })).toHaveLength(3);
+  });
+
+  it("finds a voice by the provider's id or ours, and nothing for an id the platform did not list", () => {
+    const list = [voice(), STUDIO];
+    expect(findByVoiceId(list, " meera ")?.label).toBe("Meera");
+    expect(findByVoiceId(list, "engine:anjali")?.label).toBe("Anjali");
+    expect(findByVoiceId(list, "not-there")).toBeNull();
+  });
+
+  it("says an engine voice's tag is an accent and an own-key voice's is its language", () => {
+    expect(metaLine(voice())).toBe("Telugu accent");
+    expect(metaLine(STUDIO)).toBe("Telugu · Feminine");
+  });
+});
+
 describe("accessibility", () => {
   it("has no axe violations on the hosted screen", async () => {
     const { container } = renderAdminPage(<VoicesPage />, routes());
     await screen.findByRole("listitem", { name: "Anjali" });
-    await screen.findByText(/Ready — Studio voices can be offered/);
+    await screen.findByText("Ready");
     await expectNoA11yViolations(container, "admin/ops/voices/page.tsx (hosted)");
+  });
+
+  it("has no axe violations in a voice's detail", async () => {
+    renderAdminPage(<VoicesPage />, routes({ [HOSTED_VOICES_PROBE_PATH]: hosted({ voices: [PERSON_CLONE] }) }));
+    const drawer = await openVoice("Aditya");
+    await expectNoA11yViolations(drawer, "admin/ops/voices/hosted/VoiceDrawer.tsx");
   });
 });

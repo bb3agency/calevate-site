@@ -580,8 +580,9 @@ async def ingest_lead(
     )
     # 3b. The client's own plan (D-716): wait, calling hours and days, after-hours handling.
     # It only ever narrows when a lawful call is placed; the gate above already decided
-    # whether one may be, and runs again when a later call falls due.
-    timing = when_to_call(plan, datetime.now(UTC))
+    # whether one may be, and runs again when a later call falls due. The gate's own clock,
+    # so the plan and the gate cannot disagree about what time it is.
+    timing = when_to_call(plan, compliance_service.ist_now() - IST)
     person_refusal = not decision.allowed and decision.rule not in WINDOW_REFUSALS
     if not person_refusal and timing.kind == "hold":
         await hold_lead(

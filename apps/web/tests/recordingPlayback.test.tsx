@@ -76,6 +76,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     summary_state: "ready",
     test_call: false,
     translation_state: "not_needed",
+    language: "te-IN",
     summary: "Caller asked for a Tuesday slot.",
     lead_id: "l1",
     extraction: {},
@@ -88,6 +89,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
       {
         idx: 0,
         speaker: "agent",
+        start_approximate: false,
         text: "Namaskaram.",
         redacted: true,
         start_ms: 0,
@@ -95,6 +97,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
       {
         idx: 1,
         speaker: "caller",
+        start_approximate: false,
         text: "I need an appointment.",
         redacted: true,
         start_ms: 8000,
@@ -102,6 +105,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
       {
         idx: 2,
         speaker: "agent",
+        start_approximate: false,
         text: "Tuesday at four?",
         redacted: true,
         start_ms: 21000,
@@ -252,6 +256,7 @@ describe("the recording player", () => {
           {
             idx: 0,
             speaker: "agent",
+            start_approximate: false,
             text: "Namaskaram.",
             redacted: true,
             start_ms: 0,
@@ -259,6 +264,7 @@ describe("the recording player", () => {
           {
             idx: 1,
             speaker: "caller",
+            start_approximate: false,
             text: "No offsets here.",
             redacted: true,
           },
@@ -316,29 +322,73 @@ describe("the recording player", () => {
       /could not be reloaded/i,
     );
   });
+
+  it("does not re-arm the guard when its own re-minted link comes back as a new src", async () => {
+    // The parent stores the fresh link and hands it straight back down as `src`. When the
+    // server signs a DIFFERENT url each time (it does), that used to reset the one-retry
+    // guard, so a dead object re-minted forever, each mint an audited read.
+    let n = 0;
+    const { container, calls } = await openPlayer({
+      [REC_PATH]: () => ({ ...LINK, url: `https://cdn.example.test/rec.mp3?sig=${++n}` }),
+    });
+    const minted = () => calls.filter((c) => c.path === REC_PATH).length;
+    const audio = () => container.querySelector("audio")!;
+
+    fireEvent.error(audio());
+    await vi.waitFor(() => expect(minted()).toBe(2));
+    fireEvent.error(audio());
+    await screen.findByRole("alert");
+    // A file that never plays errors on every src. However often, the card mints once more
+    // and no further, even if the player were remounted (the guard lives on the card too).
+    for (let i = 0; i < 4; i++) {
+      fireEvent.error(audio());
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    expect(minted()).toBe(2);
+    expect(screen.getByRole("alert").textContent).toMatch(/could not be reloaded/i);
+  });
 });
 
 describe("key moments in the call", () => {
   const MOMENTS = [
     {
       at_ms: 8_000,
+      turn_idx: 1,
       kind: "field_captured",
+      category: "details",
       label: "Appointment slot captured",
       source: "derived",
+      precision: "exact",
+      importance: 2,
     },
     {
       at_ms: 21_000,
-      kind: "highlight",
-      label: "Caller asked about price",
+      turn_idx: 2,
+      kind: "asked_delivery_or_payment",
+      category: "buying",
+      label: "Caller asked about payment",
       source: "model",
+      precision: "approximate",
+      importance: 2,
     },
     {
       at_ms: 34_000,
+      turn_idx: null,
       kind: "opt_out",
+      category: "attention",
       label: "Caller asked not to be called again",
       source: "derived",
+      precision: "exact",
+      importance: 3,
     },
   ] satisfies CallDetail["moments"];
+
+  function momentRows() {
+    return Array.from(
+      screen.getByRole("heading", { name: /^key moments$/i }).closest("section")!.querySelectorAll("li"),
+    );
+  }
 
   it("is not rendered at all when the call has none", async () => {
     // An always-present "Key points" heading over an empty box on every short call is a
@@ -351,64 +401,63 @@ describe("key moments in the call", () => {
     expect(screen.queryByText(/^key moments$/i)).toBeNull();
   });
 
-  it("lists each moment with its timestamp, in time order", async () => {
+  it("lists each moment with its time, its group and, when approximate, a ~", async () => {
     await renderClientPage(
       page,
       routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }),
     );
     await screen.findByText(/^key moments$/i);
-    // Scoped to the panel's own rows: "0:08" also appears on the transcript turn at that
-    // offset, which is the two halves agreeing rather than a duplicate to deduplicate.
-    const rows = screen
-      .getByText("Appointment slot captured")
-      .closest("ol")!
-      .querySelectorAll("li");
-    expect(Array.from(rows).map((li) => li.textContent)).toEqual([
-      "0:08Appointment slot captured",
-      "0:21Caller asked about priceSuggested",
-      "0:34Caller asked not to be called again",
+    expect(momentRows().map((li) => li.textContent)).toEqual([
+      "0:08Appointment slot capturedDetails",
+      "~0:21Caller asked about paymentBuying signal· Suggested",
+      "0:34Caller asked not to be called againNeeds attention",
+    ]);
+    expect(screen.getByText(/times marked ~ are approximate/i)).toBeTruthy();
+  });
+
+  it("marks only the model's moment as suggested", async () => {
+    // The provenance is the trust signal (D-36): a model moment is a suggestion.
+    await renderClientPage(
+      page,
+      routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }),
+    );
+    await screen.findByText(/^key moments$/i);
+    const suggested = momentRows().filter((li) => li.textContent?.includes("Suggested"));
+    expect(suggested.map((li) => li.textContent)).toEqual([
+      "~0:21Caller asked about paymentBuying signal· Suggested",
     ]);
   });
 
-  it("marks a model-suggested moment and leaves a derived one unmarked", async () => {
-    // The provenance is the trust signal. A derived timestamp is arithmetic on the
-    // transcript's own offsets and cannot be at the wrong second; a model one is a
-    // sentence from an unmeasured model (D-36). Rendering them identically would force a
-    // reader to distrust both, which wastes the half that is exact.
-    await renderClientPage(
-      page,
-      routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }),
-    );
-    await screen.findByText(/^key moments$/i);
-    const badges = screen.getAllByText("Suggested");
-    expect(badges).toHaveLength(1);
-    expect(badges[0].closest("li")?.textContent).toContain(
-      "Caller asked about price",
-    );
-  });
-
-  it("seeks the recording when a moment is clicked", async () => {
+  it("seeks to an exact moment, and a couple of seconds early to an approximate one", async () => {
     const { container } = await openPlayer({}, detail({ moments: MOMENTS }));
     fireEvent.click(screen.getByRole("button", { name: /play from 0:34/i }));
     expect(container.querySelector("audio")?.currentTime).toBe(34);
+    fireEvent.click(screen.getByRole("button", { name: /play from ~0:21/i }));
+    expect(container.querySelector("audio")?.currentTime).toBe(19);
   });
 
-  it("is a readable list, not dead buttons, before the audio is loaded", async () => {
-    // Same rule as the transcript turns: a control that silently does nothing is worse
-    // than no control. The list still has value unopened — an owner scanning for "did
-    // they ask about price" does not always want to listen.
-    await renderClientPage(
+  it("opens the recording at the moment when it is pressed before the audio is loaded", async () => {
+    const { container } = await renderClientPage(
       page,
       routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }),
     );
     await screen.findByText(/^key moments$/i);
-    expect(
-      screen.queryByRole("button", { name: /play from 0:34/i }),
-    ).toBeNull();
-    expect(
-      screen.getByText("Caller asked not to be called again"),
-    ).toBeTruthy();
-    expect(screen.getByText(/open the recording to jump/i)).toBeTruthy();
+    expect(container.querySelector("audio")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /play from 0:34/i }));
+    await screen.findByRole("button", { name: /pause recording|play recording/i });
+    expect(container.querySelector("audio")?.currentTime).toBe(34);
+  });
+
+  it("draws a labelled marker for each moment on the recording's track", async () => {
+    const { container } = await openPlayer({}, detail({ moments: MOMENTS }));
+    const labels = Array.from(container.querySelectorAll("button[data-mark]")).map(
+      (b) => b.textContent,
+    );
+    expect(labels).toEqual([
+      "0:08 Appointment slot captured",
+      "~0:21 Caller asked about payment",
+      "0:34 Caller asked not to be called again",
+    ]);
   });
 });
 
