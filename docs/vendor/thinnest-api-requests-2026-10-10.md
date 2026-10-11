@@ -13,6 +13,10 @@ asking the four points that reply left open: whether forwarding works with the a
 fixed IPs for action requests, Pro limits and raising the customer cap above 5, and the signed
 DPA with the sub-processor list, plus training off in writing.
 
+**Drafted on 11 Oct 2026 as `thinnest-email-2026-10-11-gemini.md`**, together with
+questions 23-33 below and the two confirmations at the end, all unsent until the founder sends
+that email.
+
 **Queued for a separate email, to send only after ThinnestAI replies to the current one**
 (founder, 11 Oct 2026). All three come from a production call on 11 Oct:
 
@@ -200,7 +204,10 @@ Open items from our earlier emails:
 26. **Gemini.** Will you host Gemini 2.5 Flash or Flash-Lite as a call-capable model, or offer
     a scope of our own voice and our own model with your speech recognition? Under scope `all`
     with a `google` key, which Gemini ids pass your check for calls, and do you send
-    `thinkingBudget: 0` on calls?
+    `thinkingBudget: 0` on calls? Would you use Gemini's explicit context caching for an
+    agent's instructions, steps and tools, or keep them as an unchanged prefix at the start of
+    every request so implicit caching applies? Those are re-read on every reply, so caching
+    them cuts the model's cost to about a quarter.
 27. **Allowed models with our own voice.** Is GPT-5.4 Nano `voiceOnlyByok` (your console lists
     it, your docs do not)? What is GPT-OSS 120B's model id? Under scope `voice`, does an agent
     set to a model that is not allowed run its calls on Prana or on GPT-OSS 120B? Your pages say

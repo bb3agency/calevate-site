@@ -49,9 +49,9 @@ mirror). So whether a GPT-OSS call leaks depends on ThinnestAI's serving, which 
 or control.
 
 Time to first token (IB, Artificial Analysis medians, non-reasoning modes): Gemini 2.5
-Flash-Lite 0.32 s, Gemini 2.5 Flash 0.51 s, GPT-4.1 Nano 0.73 s. GPT-OSS 120B's first
-*answer* token comes after its reasoning: 1.6 s on the fastest host, 4-7 s on others.
-ThinnestAI's console shows its own figures (GPT-OSS 120B ~221 ms, GPT-4.1 Nano ~578 ms) and
+Flash-Lite 0.32 s, Gemini 2.5 Flash 0.51 s, GPT-4.1 Nano 0.73 s. Artificial Analysis
+measures GPT-OSS 120B only at high reasoning effort on a 10,000-token prompt, which is not
+comparable to how ThinnestAI runs it, so no figure is given for it here. ThinnestAI's console shows its own figures (GPT-OSS 120B ~221 ms, GPT-4.1 Nano ~578 ms) and
 the API publishes none.
 
 ## 3. What ThinnestAI allows
@@ -157,31 +157,112 @@ language but its reasoning reaching the caller, which only ThinnestAI can stop.
   they are built together. The do-not-call restore and the "end this call is not an opt-out"
   prompt line (item 4) were already in progress and continue.
 
-## 6a. What Gemini would add per call minute (ESTIMATE)
+## 6a. What Gemini would cost per call minute, from public figures
 
-Prices read 11 Oct 2026: Gemini paid tier per 1M tokens, 2.5 Flash $0.30 input / $2.50 output
-(thinking included) / $0.03 cached input, 2.5 Flash-Lite $0.10 / $0.40 / $0.01 (VP,
-ai.google.dev/gemini-api/docs/pricing); Sarvam speech-to-text ₹30 per hour streaming (VP,
-sarvam.ai/api-pricing); ThinnestAI ₹1.00/min under scope `all` against ₹1.50 under `voice`
-(VP, `bring-your-own-keys.md:19-22`). Rate used: ₹96.5 per USD (REPORTED, undated converter
-page; the result moves little with it). Cartesia is ours under both scopes, so it is unchanged.
+The founder's two set-ups (11 Oct 2026), which need ThinnestAI to add a scope (question 26):
 
-Token use per call minute is an ESTIMATE, not a measurement: the 7,800-character
-instructions (about 2,500 tokens) are re-sent on every reply, plus tools and the growing
-conversation, at about four replies a minute: about 14,000 input tokens a minute, 20,000 with
-knowledge searches (each search is another model pass), and about 300 output tokens.
+- **Clear + Gemini**: ThinnestAI's speech recognition and voice, Gemini on our Google key.
+- **Studio + Gemini**: ThinnestAI's speech recognition, Gemini on our key, Cartesia on our key.
 
-| Per call minute | 2.5 Flash-Lite | 2.5 Flash |
+Speech recognition and the voice are the same as today in each, so Gemini changes only the
+model's cost and the model's share of the reply time.
+
+**Prices** (VP, ai.google.dev/gemini-api/docs/pricing, read 11 Oct 2026), USD per 1M tokens:
+2.5 Flash $0.30 input, $2.50 output (thinking included), $0.03 cached input; 2.5 Flash-Lite
+$0.10, $0.40, $0.01. Implicit caching is on by default for Gemini 2.5 models, from 2,048 input
+tokens on 2.5 Flash; the page lists no minimum for Flash-Lite and promises no hit rate
+(VP, ai.google.dev/gemini-api/docs/caching). Rate: ₹96 per USD (REPORTED: FBIL was 95.2 on
+3 Jul 2026 and about 95.6-96.8 in May-June; no October figure found). The answer moves by
+about 1% per rupee.
+
+**Tokens.** A Gemini token is "about 4 characters" of English (VP, ai.google.dev/gemini-api/
+docs/tokens). Gemini uses the Gemma 3 tokenizer (REPORTED, a port of Google's SDK), which a
+community benchmark puts at 3.38 tokens per word across 22 Indian languages (REPORTED).
+
+| Context the model reads on every reply | Tokens |
+|---|---|
+| Our instructions, 7,798 characters (about 6,000 English, 1,800 Telugu) | about 2,400 |
+| Script steps, sent beside the instructions | about 500 |
+| ThinnestAI's own call rules and tool definitions (unpublished; its replaceable rules box holds 4,000 characters) | up to about 1,500 |
+| **System part, re-sent on every reply** | **about 4,400** |
+| Conversation so far, from the three test calls | about 200-400 |
+
+The three test calls ran about 4-5 agent replies a minute; a knowledge search or a tool call
+(call B's do-not-call) is one more model pass. Taken as **5 passes a minute**: about 23,500
+input tokens and 200-400 output tokens a minute (calls A and B averaged about 35 tokens a
+reply, call C about 80).
+
+| Gemini per call minute (before GST) | No cache hits | Cache hits on the system part |
 |---|---|---|
-| ThinnestAI | −₹0.50 | −₹0.50 |
-| Our speech recognition (Sarvam) | +₹0.50 | +₹0.50 |
-| Gemini, 14k-20k input tokens | +₹0.15 to ₹0.20 | +₹0.48 to ₹0.65 |
-| **Net change** | **about +₹0.15 to ₹0.20** | **about +₹0.50 to ₹0.65** |
+| 2.5 Flash | ₹0.72-0.77 | ₹0.18-0.22 |
+| 2.5 Flash-Lite | ₹0.23-0.24 | ₹0.05-0.06 (if Flash-Lite caches) |
 
-Before GST and foreign-exchange charges. If ThinnestAI's calls hit Gemini's prompt caching
-(UNKNOWN), the repeated instructions bill at a tenth and the Gemini line for Flash falls to
-roughly ₹0.20 to ₹0.30.
-A trial call's real token count, from the Google console, replaces the estimate.
+**Prompt caching.** The system part is identical on every reply of every call of an agent, so
+it is the ideal thing to cache. Google offers two kinds (VP, ai.google.dev/gemini-api/docs/
+caching): implicit, on by default, charged at the cached rate when a request starts with a
+recently seen prefix, with no hit rate promised; and explicit, where the fixed block is stored
+once and every request points to it, so the cached rate is guaranteed, at $1.00 per 1M tokens
+per hour of storage (about $0.0044, ₹0.42, an hour for one agent's 4,400 tokens). Neither is
+ours to switch on: ThinnestAI builds the requests, so it decides (question 26).
+
+What ThinnestAI would charge for either set-up is UNKNOWN until Ashutosh prices it. Today: ₹2.50
+a minute for Clear on its own model (VENDOR-STATED), ₹1.50 for our voice with its model, ₹1.00
+for all three keys ours (VP, `bring-your-own-keys.md:19-22`). Each set-up costs its new
+ThinnestAI rate plus the Gemini line above, plus Cartesia for Studio as today.
+
+**Reply time.** Only the model's share changes, by the same amount in both set-ups. Measured on
+one basis (IB, Artificial Analysis medians, time to first token): Gemini 2.5 Flash-Lite 0.32 s,
+2.5 Flash 0.51 s, GPT-4.1 Nano 0.73 s. Artificial Analysis measures GPT-OSS 120B only at
+**high** reasoning effort on a 10,000-token prompt (1.61 s to the first answer token on its
+fastest host), which is not how ThinnestAI runs it (its effort setting is unpublished), so that
+figure is not comparable and is not used. ThinnestAI's console shows 221 ms for GPT-OSS 120B
+and 578 ms for GPT-4.1 Nano, measured some other way. So Gemini is faster than GPT-4.1 Nano on
+one basis; against GPT-OSS 120B as ThinnestAI runs it there is no like-for-like figure, and on
+the calls the founder found GPT-OSS 120B quick. Not included: the round trip from
+ThinnestAI's servers to Google (ThinnestAI's location is unpublished), and a few tens of
+milliseconds to read our 4,400-token context.
+
+## 6b. What Clear and Studio would cost us per minute with Gemini, by monthly volume
+
+**Inputs, with their class:**
+
+| Input | Figure | Class and source |
+|---|---|---|
+| ThinnestAI, Clear today (Premium band, its own model) | ₹2.50/min | VENDOR-STATED, console reading 6 Oct 2026 (memory 3c6810e9) |
+| ThinnestAI, our voice with its model | ₹1.50/min | VP, `bring-your-own-keys.md:19-22` |
+| ThinnestAI, all three keys ours | ₹1.00/min | same |
+| ThinnestAI wallet top-up fee | 10% PAYG, 9% Pro | VENDOR-STATED (D-723) |
+| ThinnestAI Pro plan | ₹2,499/month; PAYG holds at most 3 customer workspaces | console reading 6 Oct 2026; D-693 |
+| Cartesia plans | Pro $5 / 100K chars, then $65 per 1M; Startup $49 / 1.25M, then $45; Scale $299 / 8M, then $38; 1 credit = 1 character | VP, cartesia.ai/pricing, read 11 Oct 2026 |
+| Agent speech | 571 characters per call minute | measured over 3 production calls (D-728) |
+| Gemini per minute | Flash-Lite ₹0.06 cached to ₹0.24 uncached; Flash ₹0.20 to ₹0.75 | §6a |
+| Rate | ₹96 per USD | §6a |
+
+**What ThinnestAI would charge for the two set-ups is unpublished.** It is bracketed, as an
+INFERENCE from its own price steps: the step from all three keys ours (₹1.00) to our voice only
+(₹1.50) is the value of its speech recognition and model together, ₹0.50. Taking only the model
+away therefore leaves Studio + Gemini between ₹1.00 and ₹1.50, and Clear + Gemini between ₹2.00
+and ₹2.50. **Conservative** = top of the bracket and no Gemini caching; **best** = bottom of the
+bracket with caching.
+
+Plan per row: up to 1,000 minutes on PAYG (3 clients or fewer); above that ThinnestAI Pro,
+whose ₹2,499 is spread over the minutes; Cartesia on whichever plan is cheapest at that volume.
+Not included: phone number rental, GST, and ThinnestAI's Scale plan (5% lower rates, 8% fee,
+₹4,999), which would lower the 25,000 and 50,000 rows a little.
+
+| Minutes a month | Cartesia per minute (plan) | Clear + Flash-Lite | Clear + Flash | Studio + Flash-Lite | Studio + Flash |
+|---|---|---|---|---|---|
+| 1,000 | ₹3.42 (Pro) | ₹2.26-2.99 | ₹2.40-3.50 | ₹4.58-5.31 | ₹4.72-5.82 |
+| 5,000 | ₹2.33 (Startup) | ₹2.74-3.47 | ₹2.88-3.98 | ₹3.98-4.71 | ₹4.12-5.22 |
+| 10,000 | ₹2.40 (Startup) | ₹2.49-3.22 | ₹2.63-3.73 | ₹3.80-4.53 | ₹3.94-5.04 |
+| 25,000 | ₹2.06 (Scale) | ₹2.34-3.07 | ₹2.48-3.58 | ₹3.31-4.04 | ₹3.45-4.55 |
+| 50,000 | ₹2.07 (Scale) | ₹2.29-3.02 | ₹2.43-3.53 | ₹3.27-4.00 | ₹3.41-4.51 |
+
+Each cell is best-conservative. The 5,000 row is above the 1,000 row for Clear because Pro's
+₹2,499 is spread over few minutes there.
+
+For comparison, today at PAYG: Clear on ThinnestAI's own model ₹2.75 a minute; Studio ₹1.65
+plus Cartesia. Rate card (D-728): Clear ₹4.50, Studio ₹6.00.
 
 ## 7. Questions only ThinnestAI can answer
 

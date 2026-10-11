@@ -74,14 +74,17 @@ Clearly the worst.
 | **Symbols spoken** | model | "పడమరి/నాలుగు రహదారి" |
 | **Ignored a request to end** | model | "కట్ చేసేయండి తర్వాత చూసుకుందాం", then "Cut the call", both answered with more talk |
 
-## Felt by the caller on every call
+## Felt by the caller
 
-- **2 to 3 seconds of silence after pickup.** Explained by `detect_machines` being on. Not
-  yet re-measured with it off; vendor question 25 asks what else makes up that time.
-- **600 ms to 1.5 s before each reply.** Part of it was the 500 ms pause setting. The rest is
-  speech recognition, the model's first token (ThinnestAI's console figures: GPT-OSS 120B
-  ~221 ms, GPT-4.1 Nano ~578 ms, GPT-5 Nano ~915 ms, `engine/thinnest._MODEL_CONSOLE_LATENCY_MS`),
-  any knowledge search, and the first audio from the voice.
+- **2 to 3 seconds of silence after pickup, on every call.** Explained by `detect_machines`
+  being on. Not yet re-measured with it off; vendor question 25 asks what else makes up that
+  time.
+- **About 1.5 s before each reply on call C (GPT-5 Nano)** (founder, 11 Oct 2026). GPT-5 Nano
+  reasons before every reply and is the slowest of the five allowed models on ThinnestAI's
+  console figures (GPT-OSS 120B ~221 ms, GPT-4.1 Nano ~578 ms, GPT-5 Nano ~915 ms,
+  `engine/thinnest._MODEL_CONSOLE_LATENCY_MS`). The 500 ms pause setting added to every reply on
+  all three calls; speech recognition, any knowledge search and the voice's first audio make up
+  the rest. The founder found GPT-OSS 120B quick.
 - **The voice is quiet, fast and flat.** ThinnestAI's console shows speed 1.0, volume 1.0 and
   no emotion for the own-key voice (founder screenshot). Their API (8 Oct snapshot) sets only
   the voice id (`api-reference/agents/set-agent-byok-voice.md`): vendor question 24.
