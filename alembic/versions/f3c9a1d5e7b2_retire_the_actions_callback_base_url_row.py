@@ -24,6 +24,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
+from apps.api.db.migration_offline import execute_data_statement, is_offline
+
 revision: str = "f3c9a1d5e7b2"
 down_revision: str | None = "e2b8c4d17a63"
 branch_labels: str | Sequence[str] | None = None
@@ -34,6 +36,13 @@ RETIRED_KEY = "actions_callback_base_url"
 
 def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '3s'")
+    if is_offline():
+        # The delete is emitted; only the printed copy of the removed row is skipped.
+        execute_data_statement(
+            sa.text(f"DELETE FROM platform_settings WHERE key = '{RETIRED_KEY}'"),
+            note="Deleted the retired platform_settings row.",
+        )
+        return
     removed = (
         op.get_bind()
         .execute(

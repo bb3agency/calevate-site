@@ -52,6 +52,10 @@ _WRITE = (
 
 
 def _rewrite(transform: Callable[[str | None, object, object], str | None]) -> int:
+    # Both callers return early offline (sealing happens in Python and has no SQL form);
+    # this refuses rather than render a script that silently skipped the rows.
+    if is_offline():
+        raise RuntimeError("c4f7a2e9d1b6 seals rows in Python and must run online")
     bind = op.get_bind()
     op.execute("ALTER TABLE inbound_webhooks NO FORCE ROW LEVEL SECURITY")
     try:
