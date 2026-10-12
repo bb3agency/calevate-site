@@ -246,3 +246,13 @@ to ask for a lower per-minute price against a minimum monthly commitment once ou
 supports one. To prepare: our monthly minutes by tier (the usage ledger has them), a commitment
 level we can safely meet, and the price that would move Clear's margin (our rate card ₹4.50,
 D-728). Our own model on their voices would be the set-up to price in the same conversation.
+
+## 9. Questions for the next email (from the 12 Oct build)
+
+1. `GET /byok/voices`: could each voice say whether our own Cartesia account owns it? Today the
+   answer has id, name, language, gender and sample, and only the order says "own voices first".
+2. Does `POST /phone-numbers` (rent) honour `Idempotency-Key`? The errors page says keys are kept
+   24 hours, but the rent page does not list the header. We now send it (OPERATIONS T-19).
+3. Is `voice.surfaces: []` accepted on an agent with no number? We send it so a new agent does not
+   answer on the website button or WhatsApp; if it is refused we save the agent without it and
+   alarm (`engine_agent_surfaces_refused`).

@@ -264,6 +264,61 @@ Each cell is best-conservative. The 5,000 row is above the 1,000 row for Clear b
 For comparison, today at PAYG: Clear on ThinnestAI's own model ₹2.75 a minute; Studio ₹1.65
 plus Cartesia. Rate card (D-728): Clear ₹4.50, Studio ₹6.00.
 
+## 6c. The founder's two tiers, both on our own Gemini key (12 Oct 2026)
+
+The founder's definition: **Clear** = ThinnestAI speech recognition + our Gemini + ThinnestAI
+voice; **Studio** = ThinnestAI speech recognition + our Gemini + our Cartesia voice. Neither is
+built by ThinnestAI yet (Ashutosh, 12 Oct 2026).
+
+Inputs and their class:
+- ThinnestAI, Studio set-up: ₹1.00/min on every plan (Ashutosh, 12 Oct 2026, VENDOR-STATED).
+- ThinnestAI, Clear set-up: **not priced**. Ashutosh: "the cost wont differ much, cause LLM don't
+  cost us much", negotiable with a monthly minimum. Taken as today's Premium-band ₹2.50
+  (VENDOR-STATED, 6 Oct console); the studio band would be ₹3.00.
+- Top-up fee 2.36% on every plan (VENDOR-STATED, 12 Oct 2026), on the ThinnestAI part only.
+- Gemini per call minute, no caching (ThinnestAI says implicit caching did not hit for them):
+  2.5 Flash-Lite ₹0.23-0.24, 3.1 Flash-Lite ₹0.59-0.62 (§6a token method; Google prices read
+  11-12 Oct 2026; ₹96 per USD). 3.1 Flash-Lite's minimal thinking adds tokens not counted.
+- Cartesia at 571 characters a call minute, cheapest plan for the volume: ₹3.42 (1,000 min),
+  ₹2.33 (5,000), ₹2.40 (10,000), ₹2.06 (25,000), ₹2.07 (50,000) (cartesia.ai/pricing, 11 Oct 2026).
+- Rate card (D-728): Clear ₹4.50, Studio ₹6.00. No GST charged (D-728).
+
+Not in the per-minute figures: ThinnestAI Pro, ₹2,499 a month once there are more than three
+clients; phone number rental; GST on vendor bills.
+
+**Cost to us per minute and margin**
+
+| Minutes a month | Clear + 2.5 FL | Clear + 3.1 FL | Studio + 2.5 FL | Studio + 3.1 FL |
+|---|---|---|---|---|
+| 1,000 | ₹2.79 (38%) | ₹3.16 (30%) | ₹4.68 (22%) | ₹5.05 (16%) |
+| 5,000 | ₹2.79 (38%) | ₹3.16 (30%) | ₹3.59 (40%) | ₹3.96 (34%) |
+| 10,000 | ₹2.79 (38%) | ₹3.16 (30%) | ₹3.66 (39%) | ₹4.03 (33%) |
+| 25,000 | ₹2.79 (38%) | ₹3.16 (30%) | ₹3.32 (45%) | ₹3.69 (39%) |
+| 50,000 | ₹2.79 (38%) | ₹3.16 (30%) | ₹3.33 (45%) | ₹3.70 (38%) |
+
+Clear = 2.50 × 1.0236 + Gemini; Studio = 1.00 × 1.0236 + Gemini + Cartesia. Margin = (price −
+cost) / price.
+
+**Gross profit a month, before Pro's ₹2,499**
+
+| Minutes a month | Clear + 2.5 FL | Clear + 3.1 FL | Studio + 2.5 FL | Studio + 3.1 FL |
+|---|---|---|---|---|
+| 1,000 | ₹1,706 | ₹1,336 | ₹1,321 | ₹951 |
+| 5,000 | ₹8,530 | ₹6,680 | ₹12,057 | ₹10,207 |
+| 10,000 | ₹17,060 | ₹13,360 | ₹23,414 | ₹19,714 |
+| 25,000 | ₹42,650 | ₹33,400 | ₹67,035 | ₹57,785 |
+| 50,000 | ₹85,300 | ₹66,800 | ₹133,570 | ₹115,070 |
+
+What moves these:
+- Every ₹0.25 ThinnestAI takes off the Clear minute adds ₹0.25 (about 5.5 points) to Clear.
+- Clear on the studio band instead of Premium: +₹0.51 a minute.
+- Pinned facts at the new 3,000-character ceiling add about 750-1,000 tokens to every reply's
+  input, about 20% more Gemini cost (+₹0.05 on 2.5 Flash-Lite, +₹0.12 on 3.1 Flash-Lite).
+- If caching does hit: Gemini drops to ₹0.05-0.06 (2.5 FL) or ₹0.13-0.17 (3.1 FL).
+- Risks outside the money: if our Google key fails mid-call the caller hears silence
+  (Ashutosh, 12 Oct 2026); ThinnestAI says Gemini 2.5 is deprecated on 15 Oct 2026 while Google's
+  page shows no shutdown date for 2.5 Flash-Lite (recheck before choosing it).
+
 ## 7. Questions only ThinnestAI can answer
 
 Added to `docs/vendor/thinnest-api-requests-2026-10-10.md` as questions 26-33.
