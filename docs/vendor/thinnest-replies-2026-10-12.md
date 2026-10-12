@@ -168,3 +168,44 @@ From the 11 Oct Gemini email (numbers as sent):
 - 26: TRAI regulation 4, the Originating Access Provider notice.
 
 Answered on 12 Oct in passing: 11 (a BYOK agent bills at the flat BYOK rate whatever the model).
+
+## 6. Audit against the code, 12 Oct 2026: what is still to build
+
+A file-by-file check of every 11 and 12 Oct answer. Already built, with evidence: caller lookup
+with repeat dedupe (`worker/engine_lookups.py`), new secret on PATCH and rotate
+(`engine/thinnest_actions.py:566-609`), once-per-call actions (`reliability/in_call_once.py`),
+the soft source-IP check, `speakBefore`, number-level forwarding as the healer's fallback
+(`campaigns/engine_numbers.py:935-995`), `call.problem`, the quality block, the status API,
+waiting out `agent_on_live_call`, number move with step-up auth, the Clear/Studio hand-off guard.
+
+Still to build, in order:
+
+1. **Voice catalogue paging (a bug in waiting).** `list_own_key_voices` reads one page and
+   ignores `complete`, and the sync withdraws every voice the listing does not name on the
+   premise that the listing is unpaged (`agents/hosted_voices.py:404-411`). ThinnestAI now pages
+   it to 2,000 with `complete`; a partial read would withdraw voices clients chose. Walk the
+   pages, never withdraw on a partial listing, mark our own clones. 2-3 h.
+2. **Instructions limit 20,000** (`engine/thinnest.INSTRUCTIONS_MAX_CHARS`, `agents/prompt_routes.py:55`,
+   `lib/api/prompts.ts:37`, `teach/pinned.py`, tests `thinnest_publish_limits`, `agent_prompt_budget`,
+   `prompt_size`, docs). 2-3 h.
+3. **`voice.surfaces` sent and drift-checked**; handle 409 `phone_number_required`; retire the
+   D-720 "information only" stance. 1-2 h. Founder: phone only, or web and WhatsApp too.
+4. **Top-up fee 2.36%**: one constant, floors, the meter, the reconciler, the fee label map (keyed
+   by value), a compensating row for every cost row written at 10% or 9%, ops panel, tests, docs.
+   Half a day. Founder: confirm from a top-up receipt.
+5. **Test chat**: read `X-Test-Chat`; opt-out, call-back and cancel answer success and write nothing;
+   decide the same for client actions. 2-3 h.
+6. **Idempotency-Key on renting a number**, and 409 `idempotency_in_progress` read as "maybe bought,
+   read back"; close T-19. 1-2 h.
+7. **`endPhrases` and the nudges** (half a day), then the other voice fields and Call handling UI
+   (1-2 days). Founder: values, and which clients may change.
+8. **`GET /models` price fields** read and checked against the recorded bands. Half a day.
+9. **`allottedCallLines` per customer.** Half a day. Founder: how lines are split.
+10. **Test-chat cost metering.** Half a day, once ThinnestAI states the per-reply price per model.
+11. **Docs**: T-19 and T-28 answered, the "UNVERIFIED" usage-id note in `workers/engine_charges.py`,
+    Studio needs Pro, `gpt-oss-120b`, the `endCallOnFinish` line in THINNEST-INTEGRATION, the fee
+    text. 1 h.
+
+Not without a decision: `callInstructions` (needs their built-in rules' text), the Gemini ₹1
+set-up (needs their API switch and the founder), and a sweep for forwarded calls with no agent
+(rejected by D-743 because we never detach an agent).

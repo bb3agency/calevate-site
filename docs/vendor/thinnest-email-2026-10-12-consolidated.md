@@ -1,6 +1,6 @@
 # Email to Ashutosh (ThinnestAI), consolidated, draft of 12 Oct 2026
 
-For the founder to send from the Calevate address. It replaces every question still open from
+Sent by the founder on 12 Oct 2026. It replaces every question still open from
 the 9, 10 and 11 Oct emails (list in `thinnest-replies-2026-10-12.md` §5) and adds the request
 for Cartesia speed, volume and emotion controls. Cartesia facts are VENDOR-PUBLISHED
 (docs.cartesia.ai capability guides "volume-speed-emotion", "clone-voices", "ssml-tags", read
