@@ -209,3 +209,29 @@ Still to build, in order:
 Not without a decision: `callInstructions` (needs their built-in rules' text), the Gemini ₹1
 set-up (needs their API switch and the founder), and a sweep for forwarded calls with no agent
 (rejected by D-743 because we never detach an agent).
+
+## 7. Ashutosh's first answers to the consolidated email, 12 Oct 2026 11:44
+
+He answered what he knew and will check the rest with his backend team, adding that "some of
+the answer may be inaccurate"; corrections and the remaining answers will follow. VENDOR-STATED.
+
+| Our question | His answer | Note |
+|---|---|---|
+| 1.1 How the Gemini ₹1 set-up is switched on | **Not built.** Only "all three keys" and "voice only" exist. Try Prana [Voice] meanwhile. | Plan W-Gemini stays parked. |
+| 1.2 ₹1 on every plan, 2.36% on top-ups | ₹1/min on every plan; 2.36% gateway charge on top-ups on every plan. | Confirms founder decision F2 (build W4). |
+| 1.3 Thinking level, includeThoughts | Calls use thinking "none" where the model has it, otherwise "minimal". Prana [Voice] takes `{"reasoning": {"effort": "none/low/high/max"}}`. | Whether we can set Prana's effort per agent through the API is not said. |
+| 1.4 Our Google key refused mid-call | **The caller hears silence.** Keep the Google key on a higher tier. | A real risk for any own-key model set-up: a failed key is a silent call. |
+| 1.5 Per-agent model, temperature, maxReplyTokens | Temperature is applied, shown as Answer Style (Strict, Balanced, Creative). He also says "Gemini 2.5 Flash models are being deprecated on 15th October 2026". | **Conflicts with Google**: its deprecations page (updated 9 Oct 2026) says "No shutdown date announced" for `gemini-2.5-flash` and `gemini-2.5-flash-lite`. Neither source settles which is right for their account; recheck Google's page before relying on 2.5. maxReplyTokens and per-agent model not answered. |
+| 1.6 gemini-2.5-flash-lite on our key | "Yes definitely, you can use gemini key." | Today that means scope "all": our own speech recognition too (1.1). |
+| 1.7 Their voices with our Gemini key | Price would not differ much, since the model costs them little; negotiable with a minimum monthly commitment at higher volume. | |
+| 3 Time to the first word | "This has been fixed." | Re-test the opening delay on the next outbound test call. |
+| 4.2 Telugu speech recognition | Sarvam STT / "Indic-Transcribe", which has publicly available accuracy data. | Per-agent choice and the end-of-turn mode not answered. |
+| 8 Prana reasoning | Their models were tested; reasoning is controllable with `{"reasoning": {"effort": ...}}`. | Telugu results not given. |
+| 9.2 Match the customer in test chat | **Does not work in chat mode**; they will build it. | Our test chats in Telugu may get English replies until then; the agent's language should be fixed to Telugu for Telugu test chats. |
+| 10 TRAI automated-call notice | They use **Plivo** for telephony; other details to follow. | Plivo is a communications platform, not itself an Indian access provider, so the Originating Access Provider is still to be named. |
+
+Still to come from him: 1.5 (maxReplyTokens, per-agent model), 2 (our voice's speed, volume,
+emotion, model and pronunciation dictionary through the API), 4.1 (end-of-turn mode), 5 (text
+that is not speech), 6 (interruptions), 7 (ending calls and do-not-call), 8.2-8.3 (GPT-5.4
+Nano, the fallback model), 9.1 (`tools[].output`), 10 in full, 11 (DPA, sub-processors,
+training off).
