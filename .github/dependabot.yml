@@ -43,3 +43,10 @@ updates:
     labels:
       - "dependencies"
       - "docker"
+    # The project runs on Python 3.12 only (`pyproject.toml` requires-python ">=3.12,<3.13",
+    # `uv.lock` "==3.12.*"), so a newer minor in the base image cannot install the lockfile.
+    # Patch releases and digest refreshes of 3.12 still arrive; moving to a new Python is a
+    # deliberate change to pyproject, the lockfile and this image together.
+    ignore:
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
