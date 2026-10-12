@@ -235,3 +235,14 @@ emotion, model and pronunciation dictionary through the API), 4.1 (end-of-turn m
 that is not speech), 6 (interruptions), 7 (ending calls and do-not-call), 8.2-8.3 (GPT-5.4
 Nano, the fallback model), 9.1 (`tools[].output`), 10 in full, 11 (DPA, sub-processors,
 training off).
+
+## 8. Negotiation opening (founder, 12 Oct 2026)
+
+Ashutosh's answer to 1.7 is a lever: "If you use our STT and TTS, the cost wont differ much,
+cause LLM don't cost us much. We can negotiate if you have minimum monthly commitment with
+higher volume." In his own words the model is a small part of their cost, which means the
+₹2.50 Clear minute (their speech recognition, model and voice) carries room. The founder intends
+to ask for a lower per-minute price against a minimum monthly commitment once our volume
+supports one. To prepare: our monthly minutes by tier (the usage ledger has them), a commitment
+level we can safely meet, and the price that would move Clear's margin (our rate card ₹4.50,
+D-728). Our own model on their voices would be the set-up to price in the same conversation.
