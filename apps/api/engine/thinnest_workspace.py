@@ -56,6 +56,7 @@ DEVELOPER_ONLY_ROUTES: Final[frozenset[tuple[str, str]]] = frozenset(
         ("GET", "/customers"),
         ("POST", "/customers"),
         ("GET", "/customers/{id}"),
+        ("PATCH", "/customers/{id}"),
         ("DELETE", "/customers/{id}"),
         ("POST", "/customers/{id}/restore"),
         ("GET", "/customers/usage"),

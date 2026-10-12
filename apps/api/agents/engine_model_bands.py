@@ -1,10 +1,12 @@
 """The per-minute band of each of an engine's own models, as an operator recorded it.
 
-ThinnestAI's `GET /models` says whether a model can answer a call, whether our plan may pick
-it and whether it may run beside our own voice key, but not whether it lifts a call to a
-dearer band (snapshots/2026-10-08/pages/api-reference/models/list-models.md:463-505). The
-band is read off its console by an operator and recorded in `platform_engine_model_bands`
-(founder decision, 11 Oct 2026); the newest row per (engine, model_id) is in force.
+The band is read off the engine's console by an operator and recorded in
+`platform_engine_model_bands` (founder decision, 11 Oct 2026); the newest row per (engine,
+model_id) is in force. ThinnestAI's `GET /models` now also lists its own `callTier` and minute
+price (docs.thinnest.ai api-reference/models/list-models, read 12 Oct 2026); those are shown
+beside the record and a disagreement is flagged (`band_disagrees`), but the record is still
+what prices a model, because a figure that reaches money is an operator's attestation
+(hard rule 7).
 
 The adapter stays free of database access: `HoldsCatalogue.read_catalogue` returns the
 vendor's facts with no band, and every caller that prices, offers or checks a model reads the
@@ -96,6 +98,19 @@ async def banded_catalogue(
     return with_recorded_bands(catalogue, await recorded_bands(session, engine=engine))
 
 
+#: The engine's own tier word for each recorded band (`CatalogueModel.listed_call_tier`).
+_LISTED_TIER_OF_BAND: Final[Mapping[ModelBand, str]] = {"none": "standard", "premium": "premium"}
+
+
+def band_disagrees(model: CatalogueModel) -> bool:
+    """The engine's own listing names a tier for the model and it is not the band an operator
+    recorded. Shown on the admin model list so the record is re-checked; the record still
+    decides the price (hard rule 7). False when either side is unknown."""
+    if model.surcharge is None or model.listed_call_tier is None:
+        return False
+    return _LISTED_TIER_OF_BAND[model.surcharge] != model.listed_call_tier
+
+
 def listed_models(models: Sequence[CatalogueModel]) -> list[CatalogueModel]:
     """The models a picker or the ops band screen lists: the ones the engine says can answer
     a call AND our plan may pick. The others could never be chosen, so they are left out
@@ -163,6 +178,7 @@ __all__ = [
     "TIER_OF_BAND",
     "ModelBand",
     "RecordedBand",
+    "band_disagrees",
     "banded_catalogue",
     "listed_models",
     "pickable_models",

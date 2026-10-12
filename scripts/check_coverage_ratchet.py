@@ -440,6 +440,10 @@ AREAS: tuple[Area, ...] = (
             # for one call, the input `workers/engine_charges` reconciles our metering
             # against — money, so this area's failures.
             "apps/api/crm/models.py",
+            # `forwarding_tests.cost_inr` (D-746) is what a forwarding test's calls cost,
+            # written beside the `usage_events` that bill them — money, so this area's
+            # failures.
+            "apps/api/forwarding/models.py",
             # `heal_actions` (D-701) is an append-only ledger: every automatic step the
             # healer took on a client's account, read in time order like `audit_log`.
             "apps/api/healer/models.py",

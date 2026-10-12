@@ -22,6 +22,7 @@ Mounted BEFORE `agents.routes.router`, for `voice_routes.py`'s reason: `/v1/agen
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Annotated, Any, Final, Literal
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -33,7 +34,12 @@ from apps.api.agents.engine_choice import (
     byok_in_force,
     in_call_default_model,
 )
-from apps.api.agents.engine_model_bands import pickable_models, recorded_bands, with_recorded_bands
+from apps.api.agents.engine_model_bands import (
+    band_disagrees,
+    pickable_models,
+    recorded_bands,
+    with_recorded_bands,
+)
 from apps.api.agents.hosted_voices import (
     STUDIO_VOICE_PROVIDER,
     hosted_voice_unofferable_reason,
@@ -114,6 +120,16 @@ class EngineCatalogueModelOut(BaseModel):
     price_band: Literal["none", "premium"] | None = None
     #: The reply latency the platform's console shows, in milliseconds, when on record.
     latency_ms: int | None = None
+    #: The tier the platform itself lists for a call on this model with a standard voice,
+    #: "standard" or "premium", or null when it does not say. Information: the recorded band
+    #: prices the model, never this.
+    platform_call_tier: Literal["standard", "premium"] | None = None
+    #: The platform's own price for one call minute at that tier, in `platform_currency`,
+    #: our plan's discount included; null when it could not say.
+    platform_price_per_minute: Decimal | None = None
+    platform_currency: str | None = None
+    #: The recorded band and the platform's tier disagree: re-check the record.
+    band_disagrees: bool = False
     offerable: bool
     reason: str | None
 
@@ -261,6 +277,10 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
                 usable_with_studio_voice=m.model.voice_only_byok,
                 price_band=m.model.surcharge,
                 latency_ms=m.model.console_latency_ms,
+                platform_call_tier=m.model.listed_call_tier,
+                platform_price_per_minute=m.model.listed_price_per_minute,
+                platform_currency=m.model.listed_currency,
+                band_disagrees=band_disagrees(m.model),
                 offerable=m.offerable,
                 reason=m.reason,
             )

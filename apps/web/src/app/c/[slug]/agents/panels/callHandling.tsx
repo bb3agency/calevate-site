@@ -1,7 +1,9 @@
 "use client";
 
 /**
- * One agent's pause before replying and hang-up (D-751), in Call handling.
+ * One agent's call settings in Call handling: the pause before replying and the hang-up
+ * (D-751), and what it does when the caller goes quiet, its lines while it looks something up
+ * and a background sound (F3, F9).
  *
  * The owner changes them (`org:manage`: switching the hang-up off is a decision about the
  * account's money); anyone else who can open the agent reads the value in force and where it
@@ -9,6 +11,7 @@
  */
 
 import { HangUpRow, PauseRow } from "@/components/callHandlingRows";
+import { AgentVoiceRows } from "@/components/callHandlingVoiceRows";
 import { SettingRows } from "@/components/console/settingRow";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import {
@@ -63,6 +66,12 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
           saving={save.isPending && save.variables?.end_call_on_finish !== undefined}
           error={save.variables?.end_call_on_finish !== undefined ? save.error : null}
           onSave={(next, done) => save.mutate({ end_call_on_finish: next }, { onSuccess: done })}
+        />
+        <AgentVoiceRows
+          idPrefix={`agent-${agentId}`}
+          data={data}
+          canChange={write.allowed}
+          save={save}
         />
       </SettingRows>
     </div>

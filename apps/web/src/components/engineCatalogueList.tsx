@@ -235,11 +235,27 @@ export function EngineVoiceList({
  * MODELS, for an operator only. A client is sent none (D-679, D-750).
  * ═══════════════════════════════════════════════════════════════════════════════════ */
 
-/** Whether a model costs extra, in the operator's words. A paid one is never listed (D-750). */
-function bandLine(entry: EngineCatalogueModel): string {
+/** Whether a model costs extra, in the operator's words, with the platform's own tier and
+ * price for a call minute when it states them (W8). A paid one is never listed (D-750). */
+export function bandLine(entry: EngineCatalogueModel): string {
   const band = entry.price_band === "none" ? "No extra charge" : "Not checked yet";
-  return entry.latency_ms ? `${band} · replies in about ${entry.latency_ms} ms` : band;
+  const parts = [band];
+  if (entry.platform_call_tier) {
+    const currency = entry.platform_currency;
+    const unit = currency == null || currency === "INR" ? "₹" : `${currency} `;
+    const price =
+      entry.platform_price_per_minute != null
+        ? `, ${unit}${entry.platform_price_per_minute} a minute`
+        : "";
+    parts.push(`platform lists it as ${entry.platform_call_tier}${price}`);
+  }
+  if (entry.latency_ms) parts.push(`replies in about ${entry.latency_ms} ms`);
+  return parts.join(" · ");
 }
+
+/** The recorded band and the platform's own tier disagree: the record needs re-checking. */
+export const BAND_DISAGREES_NOTE =
+  "The recorded charge band disagrees with the tier the platform lists for this model. Check it in the platform console and record it again.";
 
 export function EngineModelList({
   catalogue,
@@ -321,7 +337,9 @@ export function EngineModelList({
               label={entry.label}
               icon={<ModelLogo label={entry.label} />}
               detail={bandLine(entry)}
-              reason={entry.offerable ? null : entry.reason}
+              reason={
+                entry.offerable ? (entry.band_disagrees ? BAND_DISAGREES_NOTE : null) : entry.reason
+              }
               checked={selected === entry.model_id}
               current={saved === entry.model_id}
               disabled={locked || !entry.offerable}

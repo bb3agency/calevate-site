@@ -60,6 +60,11 @@ class FakeAccount:
         self.available: list[str] = [f"9180{secrets.randbelow(10**8):08d}" for _ in range(25)]
         self.balance_ok = True
         self.business_on_send = "submitted"
+        #: Answer a rent with `409 idempotency_in_progress`, as while a first attempt with the
+        #: same key is still running; True also rents the number, as that attempt would.
+        self.rent_in_flight: bool | None = None
+        #: Every rent's `Idempotency-Key`.
+        self.rent_keys: list[str | None] = []
 
     # --- helpers for tests -------------------------------------------------------------
 
@@ -198,6 +203,11 @@ class FakeAccount:
             )
         if path == "/phone-numbers" and request.method == "POST":
             number = json.loads(request.content)["number"]
+            self.rent_keys.append(request.headers.get("Idempotency-Key"))
+            if self.rent_in_flight is not None:
+                if self.rent_in_flight:
+                    self.hold(workspace, number)
+                return _err(409, "idempotency_in_progress", "Still processing.")
             if not place.business.get("canRent"):
                 return _err(409, "conflict", "Your business details are still being checked.")
             if not self.balance_ok:

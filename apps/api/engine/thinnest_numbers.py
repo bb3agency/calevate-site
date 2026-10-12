@@ -24,9 +24,10 @@ rent, is passed explicitly. VERIFIED-VENDOR-DOCS, all under
 * `POST /phone-numbers {number}` — rents it and charges the first month at once; "every
   refusal happens before anything is bought or charged"; 409 when somebody holds it or the
   business details are not approved; 402 when our balance cannot pay; 503 "if it was bought,
-  it has been handed back and nothing was charged" (`rent-phone-number.md:7`). No
-  idempotency key is documented for this route, so none is sent; a lost response is
-  resolved by reading the number back.
+  it has been handed back and nothing was charged" (`rent-phone-number.md:7`). Our purchase
+  id goes as the `Idempotency-Key` (`rent`); the route's page does not say it is honoured
+  (live docs read 12 Oct 2026), so a lost response or a `409 idempotency_in_progress` is
+  resolved by reading the number back, never by renting again.
 * `DELETE /phone-numbers/{number}?confirm=release` — a rented number is released for good,
   "this month's rent is not refunded"; without `confirm=release` it is a 409
   (`release-phone-number.md:7`).
@@ -56,11 +57,15 @@ from calevate_shared.engine_scope import raw_of, scope_of, scoped_handle
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
-from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL
+from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL, IDEMPOTENCY_HEADER
 from apps.api.engine.thinnest_workspace import workspace_headers
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, EngineRejectedError, vendor_request
 
 ENGINE: Final = "thinnest"
+
+#: The 409 code for an `Idempotency-Key` whose first request is still running (docs.thinnest.ai
+#: api-reference/errors, read 12 Oct 2026).
+IDEMPOTENCY_IN_PROGRESS: Final = "idempotency_in_progress"
 
 BusinessStatus = Literal[
     "none", "draft", "submitted", "accepted", "rejected", "suspended", "expired", "unknown"
@@ -241,7 +246,14 @@ class ThinnestNumbers:
         return self._client
 
     async def _request(
-        self, method: str, path: str, *, route: str, workspace: str | None, **kwargs: Any
+        self,
+        method: str,
+        path: str,
+        *,
+        route: str,
+        workspace: str | None,
+        headers: dict[str, str] | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         return await vendor_request(
             self._http(),
@@ -249,7 +261,7 @@ class ThinnestNumbers:
             path,
             engine=ENGINE,
             route=route,
-            headers=workspace_headers(method, route, workspace),
+            headers={**(headers or {}), **workspace_headers(method, route, workspace)},
             **kwargs,
         )
 
@@ -373,22 +385,54 @@ class ThinnestNumbers:
             )
         return AvailablePage(numbers=numbers, next_cursor=_str(payload.get("nextCursor")))
 
-    async def rent(self, workspace: str, number: str) -> EngineNumber:
-        """Rent `number` in `workspace`. Spends money at the vendor on success only."""
-        row = await self._request(
-            "POST",
-            "/phone-numbers",
-            route="/phone-numbers",
-            workspace=workspace,
-            json={"number": digits(number)},
-            # 402 (balance), 409 (held elsewhere, details not approved) are refusals that
-            # bought nothing (rent-phone-number.md:7).
-            extra_refused_statuses=frozenset({402, 409}),
-        )
+    async def rent(self, workspace: str, number: str, *, attempt_id: str) -> EngineNumber:
+        """Rent `number` in `workspace`. Spends money at the vendor on success only.
+
+        `attempt_id` is our purchase row's id, sent as the `Idempotency-Key`, so a retry of
+        the same purchase within 24 hours gets the first answer rather than a second rent
+        (keys are honoured for 24 hours, docs.thinnest.ai api-reference/errors, read
+        12 Oct 2026; whether this route honours one is not stated on its page, so the
+        read-back below stays the guarantee). A `409 idempotency_in_progress` is the first
+        attempt still running: it may have bought the number, so it is resolved by reading
+        the number back and is never reported as a refusal."""
+        try:
+            row = await self._request(
+                "POST",
+                "/phone-numbers",
+                route="/phone-numbers",
+                workspace=workspace,
+                headers={IDEMPOTENCY_HEADER: f"calevate-rent-{attempt_id}"},
+                json={"number": digits(number)},
+                # 402 (balance), 409 (held elsewhere, details not approved) are refusals that
+                # bought nothing (rent-phone-number.md:7); `idempotency_in_progress` is the
+                # one 409 that is not, and is caught below.
+                extra_refused_statuses=frozenset({402, 409}),
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_status != 409 or exc.vendor_code != IDEMPOTENCY_IN_PROGRESS:
+                raise
+            return await self._rented_after_in_progress(workspace, number)
         parsed = _number(row, workspace)
         if parsed is None:
             raise _bad("a rented number without its `number`")
         return parsed
+
+    async def _rented_after_in_progress(self, workspace: str, number: str) -> EngineNumber:
+        """The number, when the attempt still in flight has rented it. Anything else is
+        "not known yet" (`engine_number_rent_in_progress`, which the purchase reads as
+        unconfirmed and resolves on the next press), never "nothing bought": a
+        404 here may only mean the first attempt has not finished."""
+        try:
+            held = await self.get_number(scoped_handle(digits(number), workspace))
+        except ProblemError:
+            held = None
+        if held is not None and held.rented:
+            return held
+        raise ProblemError.conflict(
+            "engine_number_rent_in_progress",
+            "The voice platform is still processing this purchase.",
+            remediation="Wait a moment, then press Buy again; it never buys a second number.",
+        )
 
     async def set_forward(self, number: str, phone_e164: str | None) -> EngineNumber:
         """Forward every call to `number` to `phone_e164`, or stop forwarding (None). Read

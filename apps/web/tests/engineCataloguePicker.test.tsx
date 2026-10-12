@@ -79,6 +79,7 @@ const CATALOGUE: EngineCatalogue = {
       offerable: true,
       reason: null,
       usable_with_studio_voice: true,
+      band_disagrees: false,
     },
     {
       model_id: "m_rich",
@@ -88,6 +89,7 @@ const CATALOGUE: EngineCatalogue = {
       offerable: true,
       reason: null,
       usable_with_studio_voice: false,
+      band_disagrees: false,
     },
   ],
 };

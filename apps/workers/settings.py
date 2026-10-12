@@ -172,6 +172,7 @@ from apps.workers.engine_workspaces import (
     retry_engine_workspaces,
     submit_engine_business_details,
     sweep_engine_workspaces,
+    sync_engine_call_lines,
 )
 from apps.workers.fleet_walk import WalkShape, bounded, every_tick, fleet_wide
 from apps.workers.forwarding import (
@@ -348,6 +349,8 @@ FUNCTIONS: list[Any] = [
         submit_engine_business_details,
         offboard_engine_workspace,
         retire_moved_engine_agent,
+        # A client's calls at once sent to its workspace (F7, `tenancy/call_lines`).
+        sync_engine_call_lines,
         # A call's English, again: an owner's "Try again" from the outbox
         # (`crm/translation.request_translation`) or the backfill below.
         translate_call_job,

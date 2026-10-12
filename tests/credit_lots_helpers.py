@@ -9,12 +9,19 @@ is a helper every suite pays to import.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
+from dataclasses import replace
+from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
+import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import lots
+from apps.api.billing import service as billing_service
+from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
+from apps.api.billing.rates import PREMIUM_VOICE_TIER, VALUE_VOICE_TIER
 from apps.api.billing.service import record_entry
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
@@ -35,10 +42,9 @@ from sqlalchemy import text
 # rates=GROWTH)` reads as "a lot bought on the growth rung, at the rates that rung sold at
 # then", which is a row the production database really contains.
 #
-# ⚠ **THEY ARE NOT THE CATALOGUE AND MUST NOT BE READ AS IT.** A test that means "the rate
-# the card sells this rung at today" reads `credit_packs.pack_by_id(...)`, never these
-# (`credit_lot_reprice_test._pack` and `credit_refund_lots_test._pack` are the worked
-# examples).
+# ⚠ **THEY ARE NOT THE CATALOGUE AND MUST NOT BE READ AS IT.** A test about how the rungs of
+# a card relate to each other installs `GRADUATED_CARD` below and reads its rates through
+# `graduated_pack(...)`, never these.
 
 #: The ₹5,000 (`growth`) rung as the 7 Sep card sold it, used wherever a test needs "some
 #: ordinary lot" and does not care which.
@@ -46,6 +52,56 @@ GROWTH = (Decimal("5.00"), Decimal("7.00"))
 #: The ₹15,000 (`plus`) rung as the same card sold it — a CHEAPER minute on both voices,
 #: which is what makes a two-lot split at two rates visible on either tier.
 PLUS = (Decimal("4.70"), Decimal("6.50"))
+
+#: A card whose rungs price DIFFERENTLY, for the suites whose property is the order of two
+#: rungs' rates (a re-price only lowers; a refunded lot must not keep pricing minutes).
+#:
+#: The card on sale cannot carry those properties: since D-728 (11 Oct 2026) every pack is
+#: flat at the same two rates, so any two catalogue rungs price every minute identically and
+#: a test built on them passes whether or not the behaviour exists. A recorded card in
+#: `platform_list_rates` would make the rungs differ too, but it is shared state every
+#: other suite reading the card would see. So the card is installed per test by
+#: `graduated_card`, which replaces the one reader every lot opener asks
+#: (`service.rate_card_at` -> `card_at`).
+#:
+#: Shaped as the tests need it, never rising as the amount rises, and above every engine's
+#: cost floor (`credit_packs` module docstring):
+#: - `starter` matches `growth` on Clear and is dearer on Studio only, so a guard that
+#:   compared one tier would let a re-price onto it through;
+#: - `max` is cheaper than `growth` on both tiers.
+GRADUATED_CARD: Final[Mapping[str, tuple[Decimal, Decimal]]] = {
+    "starter": (Decimal("4.50"), Decimal("6.50")),
+    "growth": (Decimal("4.50"), Decimal("6.00")),
+    "scale": (Decimal("4.40"), Decimal("5.90")),
+    "plus": (Decimal("4.30"), Decimal("5.80")),
+    "pro": (Decimal("4.25"), Decimal("5.75")),
+    "max": (Decimal("4.20"), Decimal("5.50")),
+}
+assert set(GRADUATED_CARD) == {pack.pack_id for pack in PACK_CATALOGUE}, (
+    "GRADUATED_CARD must price every pack the catalogue sells"
+)
+
+
+def graduated_pack(pack_id: str) -> CreditPack:
+    """The catalogue pack `pack_id`, at `GRADUATED_CARD`'s rates."""
+    pack = pack_by_id(pack_id)
+    assert pack is not None, pack_id
+    clear, studio = GRADUATED_CARD[pack_id]
+    return replace(pack, clear_inr_per_min=clear, studio_inr_per_min=studio)
+
+
+@pytest.fixture
+def graduated_card(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every lot opened or re-priced in the test is priced from `GRADUATED_CARD`."""
+
+    async def _card_at(_session: object, *, at: datetime) -> dict[str, dict[str, Decimal]]:
+        assert at.tzinfo is not None, "a card is resolved at an aware instant"
+        return {
+            pack_id: {VALUE_VOICE_TIER: clear, PREMIUM_VOICE_TIER: studio}
+            for pack_id, (clear, studio) in GRADUATED_CARD.items()
+        }
+
+    monkeypatch.setattr(billing_service, "card_at", _card_at)
 
 
 async def make_tenant(prefix: str = "lot") -> UUID:

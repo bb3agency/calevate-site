@@ -82,6 +82,7 @@ class HostingEngine(FakeEngine):
         hosted: list[HostedVoice] | None = None,
         own_key: list[HostedVoice] | None = None,
         own_key_provider: str | None = "cartesia",
+        own_key_complete: bool = True,
         key_state: OwnVoiceKeyState = READY_KEY,
         models: tuple[CatalogueModel, ...] = MODELS,
         complete: bool = True,
@@ -93,6 +94,7 @@ class HostingEngine(FakeEngine):
         self.unread_bands: dict[str, int] = {}
         self.own_key = own_key or []
         self.own_key_provider = own_key_provider
+        self.own_key_complete = own_key_complete
         self.key_state = key_state
         self.models = models
         self.complete = complete
@@ -164,7 +166,9 @@ class HostingEngine(FakeEngine):
     async def list_own_key_voices(self) -> HostedVoiceListing:
         self.own_keys_listed += 1
         self.listed_in.append(current_workspace())
-        return HostedVoiceListing(voices=self.own_key, provider=self.own_key_provider)
+        return HostedVoiceListing(
+            voices=self.own_key, provider=self.own_key_provider, complete=self.own_key_complete
+        )
 
     async def preview_own_key_voice(
         self, *, voice_id: str, text: str | None, language: str | None

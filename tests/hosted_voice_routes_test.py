@@ -189,6 +189,29 @@ async def test_our_voice_key_on_adds_its_voices_and_prunes_what_left(
     assert (fresh.provider, fresh.languages, fresh.withdrawn_at) == ("cartesia", ["te-IN"], None)
 
 
+async def test_a_short_own_key_listing_refreshes_what_it_names_and_withdraws_nothing(
+    hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ThinnestAI marks a listing `complete: false` when Cartesia was slow: the voices it
+    leaves out still exist, so none is withdrawn, and the sync alarms instead."""
+    use_studio_workspace(monkeypatch)
+    alerts: list[str] = []
+    monkeypatch.setattr(hosted_voices, "alert", lambda stage, code, **kw: alerts.append(code))
+    absent = await hosted_rows.add("byok", label="Chosen by a client", origin="operator")
+    named = f"k{uuid.uuid4().hex[:8]}"
+    hosted_rows.track(f"byok:{named}")
+    engine = HostingEngine(
+        own_key=[HostedVoice(voice_id=named, label="Meera", source="byok", language="te")],
+        own_key_complete=False,
+    )
+    async with admin_session() as session:
+        result = await sync_voice_catalogue(session, engine)
+    assert (await _entry(absent)).withdrawn_at is None
+    assert (await _entry(f"byok:{named}")).withdrawn_at is None
+    assert result.pruned == 0
+    assert hosted_voices.PARTIAL_LISTING_CODE in alerts
+
+
 async def test_no_studio_workspace_ready_keeps_the_studio_voices_last_listed(
     hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
 ) -> None:

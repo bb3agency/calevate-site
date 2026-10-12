@@ -165,6 +165,67 @@ CALL_CAP_MAX_S = 3600
 TURN_SILENCE_MIN_MS = 200
 TURN_SILENCE_MAX_MS = 3000
 
+# The client's voice settings of founder decisions F3 and F9 (12 Oct 2026), ThinnestAI's `voice`
+# ranges (ThinnestAI email of 12 Oct 2026, VENDOR-STATED). NULL inherits
+# (`agents/call_handling`); migration e7c3a1f9d2b4 carries the same ranges on `organizations`.
+#: Ask "are you still there?" after this many seconds; 0 is "never ask".
+NUDGE_AFTER_MIN_S = 5
+NUDGE_AFTER_MAX_S = 180
+NUDGE_NEVER = 0
+NUDGE_COUNT_MIN = 1
+NUDGE_COUNT_MAX = 5
+NUDGE_PHRASE_MAX_CHARS = 120
+END_AFTER_SILENCE_MIN_S = 5
+END_AFTER_SILENCE_MAX_S = 180
+FILLER_LINES_MAX = 8
+FILLER_LINE_MAX_CHARS = 60
+#: "off" is a choice, distinct from NULL (inherit).
+AMBIENCES: tuple[str, ...] = ("off", "office", "office-quiet")
+AMBIENCE_VOLUME_MIN_PCT = 5
+AMBIENCE_VOLUME_MAX_PCT = 100
+
+
+def call_setting_checks(prefix: str = "") -> tuple[CheckConstraint, ...]:
+    """The CHECKs of the F3/F9 columns, for `agents` (no prefix) and `organizations`
+    (`default_`), named as migration e7c3a1f9d2b4 names them."""
+    p = prefix
+    return (
+        CheckConstraint(
+            f"{p}nudge_after_seconds IS NULL OR {p}nudge_after_seconds = {NUDGE_NEVER} OR "
+            f"({p}nudge_after_seconds >= {NUDGE_AFTER_MIN_S} "
+            f"AND {p}nudge_after_seconds <= {NUDGE_AFTER_MAX_S})",
+            name=f"{p}nudge_after_range",
+        ),
+        CheckConstraint(
+            f"{p}nudge_count IS NULL OR ({p}nudge_count >= {NUDGE_COUNT_MIN} "
+            f"AND {p}nudge_count <= {NUDGE_COUNT_MAX})",
+            name=f"{p}nudge_count_range",
+        ),
+        CheckConstraint(
+            f"{p}nudge_phrase IS NULL OR char_length({p}nudge_phrase) <= {NUDGE_PHRASE_MAX_CHARS}",
+            name=f"{p}nudge_phrase_length",
+        ),
+        CheckConstraint(
+            f"{p}end_after_silence_seconds IS NULL OR ({p}end_after_silence_seconds >= "
+            f"{END_AFTER_SILENCE_MIN_S} AND {p}end_after_silence_seconds <= "
+            f"{END_AFTER_SILENCE_MAX_S})",
+            name=f"{p}end_after_silence_range",
+        ),
+        CheckConstraint(
+            f"{p}filler_lines IS NULL OR cardinality({p}filler_lines) <= {FILLER_LINES_MAX}",
+            name=f"{p}filler_lines_count",
+        ),
+        CheckConstraint(
+            f"{p}ambience IS NULL OR {p}ambience IN {AMBIENCES!r}",
+            name=f"{p}ambience_enum",
+        ),
+        CheckConstraint(
+            f"{p}ambience_volume_pct IS NULL OR ({p}ambience_volume_pct >= "
+            f"{AMBIENCE_VOLUME_MIN_PCT} AND {p}ambience_volume_pct <= {AMBIENCE_VOLUME_MAX_PCT})",
+            name=f"{p}ambience_volume_range",
+        ),
+    )
+
 
 class Agent(PKMixin, TimestampMixin, Base):
     __tablename__ = "agents"
@@ -265,6 +326,7 @@ class Agent(PKMixin, TimestampMixin, Base):
             f"AND turn_silence_ms <= {TURN_SILENCE_MAX_MS})",
             name="turn_silence_range",
         ),
+        *call_setting_checks(),
         # A floor, not the offer (migration b7e2d94f1a30): which ids may be chosen is a
         # live catalogue read decided at publish by `agents/engine_choice.py`.
         CheckConstraint(
@@ -385,6 +447,15 @@ class Agent(PKMixin, TimestampMixin, Base):
     # (D-751). NULL inherits the account's default, then Calevate's.
     turn_silence_ms: Mapped[int | None] = mapped_column(Integer)
     end_call_on_finish: Mapped[bool | None] = mapped_column(Boolean)
+    # The client's voice settings (F3, F9): the silence prompt, hanging up after silence,
+    # filler lines and the background sound. NULL inherits the account's, then Calevate's.
+    nudge_after_seconds: Mapped[int | None] = mapped_column(Integer)
+    nudge_count: Mapped[int | None] = mapped_column(Integer)
+    nudge_phrase: Mapped[str | None] = mapped_column(Text)
+    end_after_silence_seconds: Mapped[int | None] = mapped_column(Integer)
+    filler_lines: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    ambience: Mapped[str | None] = mapped_column(Text)
+    ambience_volume_pct: Mapped[int | None] = mapped_column(Integer)
     business_hours: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     escalation_config: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     # THE PER-AGENT MASTER SWITCH for in-call Actions/tools (migration

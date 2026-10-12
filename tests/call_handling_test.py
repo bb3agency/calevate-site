@@ -273,7 +273,15 @@ async def test_the_routes_say_where_each_value_comes_from() -> None:
         assert got["turn_silence_source"] == "platform"
         assert got["end_call_on_finish_effective"] is True
         assert got["end_call_on_finish_source"] == "platform"
-        assert got["bounds"] == {
+        assert {
+            key: got["bounds"][key]
+            for key in (
+                "turn_silence_min_ms",
+                "turn_silence_max_ms",
+                "platform_turn_silence_ms",
+                "platform_end_call_on_finish",
+            )
+        } == {
             "turn_silence_min_ms": 200,
             "turn_silence_max_ms": 3000,
             "platform_turn_silence_ms": 250,

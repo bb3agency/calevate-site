@@ -60,6 +60,20 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         "script_steps",
         "built_in_tools",
         "hand_over",
+        # Phone only: never the website call button or WhatsApp (founder decision F1,
+        # 12 Oct 2026, superseding D-720).
+        "surfaces",
+        # The client's call settings (founder decisions F3, F9): the "are you still there?"
+        # prompt, hanging up after silence, filler lines and the background office sound.
+        "silence_prompt",
+        "end_after_silence",
+        "filler_lines",
+        "background_sound",
+        # Values the same on every agent (F3, F4, F10): filler timing, how a caller
+        # interrupts, and no end phrases.
+        "filler_timing",
+        "interruptions",
+        "end_phrases",
     }
 )
 
@@ -67,11 +81,9 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
 @runtime_checkable
 class ReportsAnswerSurfaces(Protocol):
     """An adapter that can say where else a live agent answers besides the phone, for the
-    admin drift panel (`engine/thinnest.ThinnestEngine`).
-
-    Information, never drift (D-720, founder 10 Oct 2026): a website call button or
-    WhatsApp answering is acceptable and a planned feature, so nothing compares, repairs
-    or alarms on it."""
+    admin drift panel (`engine/thinnest.ThinnestEngine`). Agents answer the phone only
+    (founder decision F1, 12 Oct 2026, superseding D-720), so anything listed here is the
+    `surfaces` drift the settings sweep repairs."""
 
     async def answer_surfaces(self, ref: EngineAgentRef) -> list[str]:
         """Plain names of the places besides the phone it answers, e.g. "WhatsApp"."""

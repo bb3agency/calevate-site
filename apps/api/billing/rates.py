@@ -2777,14 +2777,13 @@ def voice_tier_label(voice: TtsProvider | VoiceTier) -> str:
 #   its billing pulse is UNKNOWN (gate V-7), so per-minute is assumed.
 # * **`thinnest`** — ThinnestAI sells telephony, speech and model as one minute (D-687, D-688).
 #   Clear is sold on the voice band `Settings.thinnest_clear_voice_band` names: Premium,
-#   ₹2.50 a minute plus the 10% pay-as-you-go wallet top-up fee = ₹2.75 /min, or Studio,
-#   ₹3.00 plus the 9% fee on Pro (the plan Studio voices need) = ₹3.27 /min. Studio is our
-#   Cartesia key on their stack: ₹1.50 a minute plus the 10% pay-as-you-go fee (the dearer
-#   one, so the guard holds on either plan), plus Cartesia's own synthesis at its worst
-#   marginal plan rate (the TTS half of `CARTESIA_COST_FLOOR_INR_PER_MIN`). Both vendor
-#   figures are VENDOR-STATED (ThinnestAI's email of 7 Oct 2026, evaluation §10 item 7;
-#   the ₹1.50 is also published, bring-your-own-keys.md:19-24 in the 07b snapshot), not an
-#   invoice.
+#   ₹2.50 a minute, or Studio, ₹3.00 (Studio voices need Pro). Studio is our Cartesia key on
+#   their stack: ₹1.50 a minute plus Cartesia's own synthesis at its worst marginal plan rate
+#   (the TTS half of `CARTESIA_COST_FLOOR_INR_PER_MIN`). Every ThinnestAI rupee carries the
+#   2.36% wallet top-up fee (`THINNEST_TOPUP_FEE`): ₹2.5590, ₹3.0708 and ₹1.5354 a minute.
+#   The minute rates are VENDOR-STATED (ThinnestAI's email of 7 Oct 2026, evaluation §10
+#   item 7; the ₹1.50 is also published, bring-your-own-keys.md:19-24 in the 07b snapshot),
+#   not an invoice.
 #
 # Any other engine (`fake`, the retired `cartesia` engine) is judged at the base floors.
 # Hard rule 7: a floor is a margin GUARD. Nothing here reaches `unit_cost_paid`, and the
@@ -2810,34 +2809,33 @@ THINNEST_PREMIUM_BAND_INR_PER_MIN: Final[Decimal] = Decimal("2.50")
 #: `byok_voice` rate.
 THINNEST_OWN_VOICE_INR_PER_MIN: Final[Decimal] = Decimal("1.50")
 
-#: ThinnestAI's wallet top-up fee on Pro, the plan Studio voices and cloning need, as a
-#: fraction: VENDOR-STATED (evaluation §10 item 7). It adds to every rupee spent there.
-THINNEST_WALLET_TOPUP_FEE: Final[Decimal] = Decimal("0.09")
-
-#: The same fee on pay-as-you-go, VENDOR-STATED (evaluation §10 item 7).
-THINNEST_PAYG_TOPUP_FEE: Final[Decimal] = Decimal("0.10")
+#: ThinnestAI's wallet top-up fee, as a fraction, on every plan: VENDOR-STATED, ThinnestAI
+#: email of 12 Oct 2026, "Top-ups carry only the payment gateway's charge, 2.36% in INR, the
+#: same for everyone". It replaces the console reading of 6 Oct (10% pay-as-you-go, 9% Pro,
+#: D-723); `apps/workers/engine_charges.correct_overstated_fees` corrects rows costed at those.
+THINNEST_TOPUP_FEE: Final[Decimal] = Decimal("0.0236")
 
 #: The Clear floor on ENGINE=thinnest for each band Clear may be sold on (D-688): the band's
-#: minute with the top-up fee of the plan that band needs. Derived.
+#: minute with the top-up fee. Derived.
 THINNEST_CLEAR_COST_FLOOR_BY_BAND: Final[Mapping[str, Decimal]] = MappingProxyType(
     {
         "premium": (
-            THINNEST_PREMIUM_BAND_INR_PER_MIN * (Decimal("1") + THINNEST_PAYG_TOPUP_FEE)
+            THINNEST_PREMIUM_BAND_INR_PER_MIN * (Decimal("1") + THINNEST_TOPUP_FEE)
         ).quantize(MONEY_Q, rounding=ROUNDING),
-        "studio": (
-            THINNEST_STUDIO_BAND_INR_PER_MIN * (Decimal("1") + THINNEST_WALLET_TOPUP_FEE)
-        ).quantize(MONEY_Q, rounding=ROUNDING),
+        "studio": (THINNEST_STUDIO_BAND_INR_PER_MIN * (Decimal("1") + THINNEST_TOPUP_FEE)).quantize(
+            MONEY_Q, rounding=ROUNDING
+        ),
     }
 )
 
-#: ₹3.27 — the Clear floor on ENGINE=thinnest when Clear is sold on the Studio band. Derived.
+#: ₹3.0708 — the Clear floor on ENGINE=thinnest when Clear is sold on the Studio band. Derived.
 THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN: Final[Decimal] = THINNEST_CLEAR_COST_FLOOR_BY_BAND["studio"]
 
 #: The Studio floor on ENGINE=thinnest: the own-voice minute with the fee, plus Cartesia's
 #: synthesis per call-minute at its dearest marginal plan rate and the frozen evidence rate
 #: (the same TTS half `CARTESIA_COST_FLOOR_INR_PER_MIN` carries). Derived.
 THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN: Final[Decimal] = (
-    THINNEST_OWN_VOICE_INR_PER_MIN * (Decimal("1") + THINNEST_PAYG_TOPUP_FEE)
+    THINNEST_OWN_VOICE_INR_PER_MIN * (Decimal("1") + THINNEST_TOPUP_FEE)
     + _worst_marginal_tts(CARTESIA_EVIDENCE_USD_INR)
 ).quantize(MONEY_Q, rounding=ROUNDING)
 
@@ -3383,11 +3381,10 @@ __all__ = [
     "THINNEST_CLEAR_COST_FLOOR_BY_BAND",
     "THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN",
     "THINNEST_OWN_VOICE_INR_PER_MIN",
-    "THINNEST_PAYG_TOPUP_FEE",
     "THINNEST_PREMIUM_BAND_INR_PER_MIN",
     "THINNEST_STUDIO_BAND_INR_PER_MIN",
     "THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN",
-    "THINNEST_WALLET_TOPUP_FEE",
+    "THINNEST_TOPUP_FEE",
     "TTS_ASSUMED_CHARS_PER_CALL_MINUTE",
     "TTS_INR_PER_10K_CHARS",
     "TTS_RATE_REFUSAL",

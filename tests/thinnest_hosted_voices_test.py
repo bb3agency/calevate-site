@@ -145,6 +145,34 @@ async def test_own_key_voices_are_read_with_their_provider() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("flag", "complete"),
+    [({"complete": True}, True), ({"complete": False}, False), ({}, False)],
+)
+async def test_an_own_key_listing_is_whole_only_when_the_platform_says_so(
+    flag: dict[str, Any], complete: bool
+) -> None:
+    """One answer, no paging parameters; `complete: false` when Cartesia was slow
+    (docs.thinnest.ai list-byok-voices, read 12 Oct 2026). A missing flag is short too: only
+    a listing the platform vouches for may withdraw a voice. Our clones come first but carry
+    no field saying so, so none is marked as ours."""
+    vendor = _Vendor(
+        {
+            ("GET", "/byok/voices", None): _ok(
+                {
+                    "provider": {"id": "cartesia", "label": "Cartesia"},
+                    "items": [{"id": "own-1", "name": "Our clone", "language": "te"}],
+                    **flag,
+                }
+            )
+        }
+    )
+    listing = await _engine(vendor).list_own_key_voices()
+    assert listing.complete is complete
+    assert [request.url.params.get("cursor") for request in vendor.seen] == [None]
+    assert listing.voices[0].is_custom is False
+
+
 async def test_an_own_key_listing_without_a_provider_names_none() -> None:
     vendor = _Vendor({("GET", "/byok/voices", None): _ok({"items": []})})
     assert (await _engine(vendor).list_own_key_voices()).provider is None

@@ -1,8 +1,7 @@
-"""The composed instructions fit ThinnestAI's 8,000-character box with room for the client.
+"""The composed instructions fit ThinnestAI's 20,000-character box with room for the client.
 
-ThinnestAI's console showed an agent at "8249/8000 — re-sent on every reply" (founder
-screenshot, 10 Oct 2026) while its API reference says 20,000; the lower figure is the
-ceiling (`engine/thinnest.INSTRUCTIONS_MAX_CHARS`). Two agents are measured, Raghava
+The box is 20,000 characters in the API, the console and MCP alike (ThinnestAI, 12 Oct 2026;
+`engine/thinnest.INSTRUCTIONS_MAX_CHARS`). Two agents are measured, Raghava
 Organics in Telugu with facts in knowledge and stages sent as native steps:
 
 * the retail STARTER, which must leave `OWNER_RESERVE` for what the owner adds;
@@ -18,6 +17,7 @@ from __future__ import annotations
 from apps.api.agents.prompt_size import measure
 from apps.api.agents.starters import starter_for
 from apps.api.engine.thinnest import INSTRUCTIONS_MAX_CHARS
+from apps.api.teach.pinned import MAX_PINNED_CHARS
 from calevate_shared.call_script import (
     CallScript,
     CollectField,
@@ -31,17 +31,13 @@ from calevate_shared.call_script import (
 )
 from calevate_shared.engine import AgentConfig, compose_engine_prompt
 
-#: Characters a starter leaves for what the owner adds. 1,700 under D-714, 900 after D-739
-#: put the turn-shape and spoken-voice rules in every prompt; D-752 tightened the platform
-#: layers so a starter leaves at least this again. Lowering it is a founder decision.
-OWNER_RESERVE = 1_100
+#: Characters a starter leaves for what the owner adds: pinned facts at their ceiling plus
+#: 7,000 of the owner's own script. Lowering it is a founder decision.
+OWNER_RESERVE = MAX_PINNED_CHARS + 7_000
 
-#: Characters the long script below must still leave free (D-752). Thin on purpose: the
-#: platform layers are at their floor without dropping a rule (the confidentiality rule and
-#: the truthful answers alone are 1,675), so more room needs the box itself to grow (vendor
-#: question 12) or the speaking rules to move to `voice.callInstructions` (questions 9 and
-#: 14). Until then the Script page meter tells the owner what to shorten.
-LONG_MARGIN = 25
+#: Characters the long script below must still leave free: room for its pinned facts to grow
+#: to their ceiling and 6,000 more of the owner's text.
+LONG_MARGIN = MAX_PINNED_CHARS + 6_000
 
 COLLECT = [
     CollectField(label="Name", required=True),

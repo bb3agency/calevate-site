@@ -195,10 +195,11 @@ class CreditPack:
 #:   yet the volume is unknown; the founder's rule is that Studio may come down towards
 #:   ₹5.00 only once Studio volume fills a Cartesia plan (about 14,000 Studio minutes a
 #:   month on Scale), through the ops console's scheduled card with its 30-day notice.
-#: * **The margins, before fixed costs** (D-728 has the working): Clear about 36% on
-#:   ThinnestAI's Premium band and about 25% on its Studio band before the Pro plan fee;
-#:   Studio about 28% at the measured 571 agent characters a minute when Cartesia is
-#:   charged per character, but negative just after each Cartesia plan upgrade.
+#: * **The margins, before fixed costs** (D-728 has the working, re-struck at the 2.36% top-up
+#:   fee of 12 Oct 2026): Clear about 43% on ThinnestAI's Premium band and about 32% on its
+#:   Studio band before the Pro plan fee; Studio about 30% at the measured 571 agent
+#:   characters a minute when Cartesia is charged per character, but negative just after
+#:   each Cartesia plan upgrade.
 #: * Nothing is below COST (`card_refusals` refuses that); a cell under 20% warns only.
 #:
 #: ⚠ **THE BONUS PERCENTAGES ARE GONE, NOT SET TO ZERO BY OVERSIGHT.** They were the margin

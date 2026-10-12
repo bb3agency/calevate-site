@@ -27,6 +27,7 @@ import {
   formatIST,
   istDateStamp,
 } from "@/components/ui";
+import { LANGUAGE_NAMES } from "@/lib/agentState";
 import { adminSession } from "@/lib/api/admin";
 import { ApiProblem } from "@/lib/api/client";
 import {
@@ -51,7 +52,6 @@ import { lookup } from "@/lib/lookup";
 import { switchBlocked, tierText, usedBy } from "./HostedVoiceList";
 import { accentOf } from "./voiceFilters";
 
-const LANGUAGE_NAMES: Record<string, string> = { "te-IN": "Telugu", "hi-IN": "Hindi", "en-IN": "English" };
 const DISPLAY_MAX = 60;
 
 /** `2026-10-11` as "11 Oct 2026": a calendar date, so no time zone is involved. */

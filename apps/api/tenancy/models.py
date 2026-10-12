@@ -27,9 +27,18 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from apps.api.agents.models import TURN_SILENCE_MAX_MS, TURN_SILENCE_MIN_MS
+from apps.api.agents.models import (
+    TURN_SILENCE_MAX_MS,
+    TURN_SILENCE_MIN_MS,
+    call_setting_checks,
+)
 from apps.api.core.rbac import ADMIN_ROLES as RBAC_ADMIN_ROLES
 from apps.api.db.base import Base, PKMixin, TimestampMixin
+
+#: How many calls one client may have at once (F7, 12 Oct 2026): an operator's choice in this
+#: range, or NULL for Calevate's default (`tenancy/call_lines`). Migration e7c3a1f9d2b4.
+CALL_LINES_MIN = 1
+CALL_LINES_MAX = 50
 
 ORG_STATUSES = ("prospect", "onboarding", "active", "suspended", "churned")
 # D-34 runs both motions on one product; D-39 puts the column in M1 because tenancy is
@@ -127,6 +136,13 @@ class Organization(PKMixin, TimestampMixin, Base):
             f"AND default_turn_silence_ms <= {TURN_SILENCE_MAX_MS})",
             name="default_turn_silence_range",
         ),
+        *call_setting_checks("default_"),
+        # How many calls this client may have at once (F7); NULL is Calevate's default.
+        CheckConstraint(
+            f"call_lines IS NULL OR (call_lines >= {CALL_LINES_MIN} "
+            f"AND call_lines <= {CALL_LINES_MAX})",
+            name="call_lines_range",
+        ),
     )
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -177,6 +193,17 @@ class Organization(PKMixin, TimestampMixin, Base):
     # (`agents/call_handling`); an agent's own value wins over both.
     default_turn_silence_ms: Mapped[int | None] = mapped_column(Integer)
     default_end_call_on_finish: Mapped[bool | None] = mapped_column(Boolean)
+    # The account's voice settings (F3, F9), each followed by every agent without its own.
+    default_nudge_after_seconds: Mapped[int | None] = mapped_column(Integer)
+    default_nudge_count: Mapped[int | None] = mapped_column(Integer)
+    default_nudge_phrase: Mapped[str | None] = mapped_column(Text)
+    default_end_after_silence_seconds: Mapped[int | None] = mapped_column(Integer)
+    default_filler_lines: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    default_ambience: Mapped[str | None] = mapped_column(Text)
+    default_ambience_volume_pct: Mapped[int | None] = mapped_column(Integer)
+    #: How many calls this client may have at once (F7, `tenancy/call_lines`): NULL is
+    #: Calevate's default, 2 for a paying client and 1 on a free trial.
+    call_lines: Mapped[int | None] = mapped_column(Integer)
     # MAY THIS ACCOUNT'S `staff` MEMBERS CURATE KNOWLEDGE — the owner-controlled half of
     # the founder's decision ("give the staff perms allowing option to owner"). FALSE for
     # every account until that account's own owner turns it on, which is why the migration

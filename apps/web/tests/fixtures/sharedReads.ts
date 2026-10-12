@@ -114,6 +114,75 @@ export const WHATSAPP_NEVER_ASKED = {
   delivery_unavailable_reason: "no_credential",
 } satisfies AlertOptIn;
 
+/** Every call handling read's bounds: the pause (D-751) and the voice settings (F3, F9). */
+export const CALL_HANDLING_BOUNDS = {
+  turn_silence_min_ms: 200,
+  turn_silence_max_ms: 3000,
+  platform_turn_silence_ms: 250,
+  platform_end_call_on_finish: true,
+  nudge_after_min_s: 5,
+  nudge_after_max_s: 180,
+  platform_nudge_after_seconds: 8,
+  nudge_count_min: 1,
+  nudge_count_max: 5,
+  platform_nudge_count: 1,
+  nudge_phrase_max_chars: 120,
+  end_after_silence_min_s: 5,
+  end_after_silence_max_s: 180,
+  platform_end_after_silence_seconds: 20,
+  filler_lines_max: 8,
+  filler_line_max_chars: 60,
+  ambiences: ["off", "office", "office-quiet"] as ("off" | "office" | "office-quiet")[],
+  platform_ambience: "off" as const,
+  ambience_volume_min_pct: 5,
+  ambience_volume_max_pct: 100,
+  platform_ambience_volume_pct: 15,
+};
+
+/** The voice settings of one level, none chosen. */
+export const VOICE_OWN_NONE = {
+  nudge_after_seconds: null,
+  nudge_count: null,
+  nudge_phrase: null,
+  end_after_silence_seconds: null,
+  filler_lines: null,
+  ambience: null,
+  ambience_volume_pct: null,
+};
+
+/** Calevate's voice settings in force. */
+export const VOICE_EFFECTIVE_DEFAULTS = {
+  nudge_after_seconds_effective: 8,
+  nudge_count_effective: 1,
+  nudge_phrase_effective: "",
+  end_after_silence_seconds_effective: 20,
+  filler_lines_effective: [] as string[],
+  ambience_effective: "off" as const,
+  ambience_volume_pct_effective: 15,
+};
+
+/** Every voice setting coming from Calevate. */
+export const VOICE_SOURCES_PLATFORM = {
+  nudge_after_seconds_source: "platform" as const,
+  nudge_count_source: "platform" as const,
+  nudge_phrase_source: "platform" as const,
+  end_after_silence_seconds_source: "platform" as const,
+  filler_lines_source: "platform" as const,
+  ambience_source: "platform" as const,
+  ambience_volume_pct_source: "platform" as const,
+};
+
+/** An account that has chosen no voice setting. */
+export const VOICE_ORGANIZATION_NONE = {
+  organization_nudge_after_seconds: null,
+  organization_nudge_count: null,
+  organization_nudge_phrase: null,
+  organization_end_after_silence_seconds: null,
+  organization_filler_lines: null,
+  organization_ambience: null,
+  organization_ambience_volume_pct: null,
+};
+
 /** One agent's pause before replying and hang-up (D-751), all on Calevate's defaults. */
 export function agentCallHandling(agentId = "agent-1") {
   return {
@@ -126,12 +195,11 @@ export function agentCallHandling(agentId = "agent-1") {
     end_call_on_finish_source: "platform",
     organization_turn_silence_ms: null,
     organization_end_call_on_finish: null,
-    bounds: {
-      turn_silence_min_ms: 200,
-      turn_silence_max_ms: 3000,
-      platform_turn_silence_ms: 250,
-      platform_end_call_on_finish: true,
-    },
+    ...VOICE_OWN_NONE,
+    ...VOICE_EFFECTIVE_DEFAULTS,
+    ...VOICE_SOURCES_PLATFORM,
+    ...VOICE_ORGANIZATION_NONE,
+    bounds: CALL_HANDLING_BOUNDS,
   };
 }
 
@@ -669,5 +737,21 @@ export function settledPending(over: Record<string, unknown> = {}) {
       { voice_tier: "studio", label: "Studio", inr_per_min: "4.00", further_open_lots: 0 },
     ],
     ...over,
+  };
+}
+
+/** A client's calls at once (F7) on Calevate's paying-client default, keyed by its route. */
+export function callLinesRoute(tenantId: string) {
+  return {
+    [`/v1/admin/organizations/${tenantId}/call-lines`]: {
+      call_lines: 2,
+      call_lines_chosen: null,
+      source: "platform",
+      on_trial: false,
+      min_lines: 1,
+      max_lines: 50,
+      paid_default: 2,
+      trial_default: 1,
+    },
   };
 }

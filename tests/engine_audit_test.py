@@ -1562,6 +1562,10 @@ _VENDOR_ONLY_KEYS = frozenset(
         # A transcript turn's wall-clock and the call's answer instant, which time key
         # moments (D-725); ours are `start_ms` and `started_at`.
         "answeredAt",
+        # ThinnestAI's `GET /models` call tier and its per-minute price in millionths of
+        # the currency; ours are `listed_call_tier` and `listed_price_per_minute`.
+        "callPricePerMinuteMicro",
+        "callTier",
         # Cartesia Line (TRD §10.5; the adapter marks which shapes are sourced, and
         # `docs/vendor/cartesia/` carries the citations since D-270).
         "agent_call_id",

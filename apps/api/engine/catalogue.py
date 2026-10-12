@@ -17,6 +17,7 @@ Two kinds of voice an engine may host (D-687):
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Literal, Protocol, runtime_checkable
 
 from calevate_shared.engine import LlmTier
@@ -57,6 +58,14 @@ class CatalogueModel(BaseModel):
     #: The reply latency the engine's own console shows for the model, in milliseconds, when
     #: on record. Shown to operators choosing a model; the engine's API returns none.
     console_latency_ms: int | None = None
+    #: The tier the engine itself says a call on this model bills at with a standard voice,
+    #: when its listing says. Checked against `surcharge` (`agents/engine_model_bands.
+    #: band_disagrees`) and never billed from: the operator-attested rate bills (hard rule 7).
+    listed_call_tier: Literal["standard", "premium"] | None = None
+    #: The engine's own price for one call minute at that tier, in `listed_currency`, plan
+    #: discount included; None when it could not say. Shown to operators only.
+    listed_price_per_minute: Decimal | None = None
+    listed_currency: str | None = None
 
 
 class EngineCatalogue(BaseModel):
@@ -100,6 +109,9 @@ class HostedVoiceListing(BaseModel):
     #: exist rather than having them vanish (a renamed or newly added band would otherwise
     #: read as the engine listing nothing in it).
     unread_bands: dict[str, int] = Field(default_factory=dict)
+    #: False when the engine says the listing may be short (a provider slow to answer). A
+    #: short listing names fewer voices than exist, so nothing it leaves out may be withdrawn.
+    complete: bool = True
 
 
 class VoiceCloneSample(BaseModel):

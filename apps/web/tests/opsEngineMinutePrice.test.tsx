@@ -37,8 +37,8 @@ function row(overrides: Partial<EngineMinutePrice>): EngineMinutePrice {
     source_note: null,
     billable: false,
     sold_as: null,
-    topup_fee_percent: "10",
-    topup_fee_plan: "pay-as-you-go",
+    topup_fee_percent: "2.36",
+    topup_fee_plan: "every plan",
     inr_per_min_with_fee: null,
     ...overrides,
   };
@@ -50,7 +50,7 @@ const ROWS: EngineMinutePrice[] = [
   row({
     rate_key: "premium",
     inr_per_min: "2.500000",
-    inr_per_min_with_fee: "2.7500",
+    inr_per_min_with_fee: "2.5590",
     effective_from: "2026-10-07T00:00:00Z",
     attested_at: "2026-10-07T00:00:00Z",
     source_note: "plan page, 7 Oct 2026",
@@ -60,10 +60,7 @@ const ROWS: EngineMinutePrice[] = [
   row({ rate_key: "studio" }),
 ];
 
-const FEES = [
-  { plan: "pay-as-you-go", percent: "10" },
-  { plan: "Pro", percent: "9" },
-];
+const FEES = [{ plan: "every plan", percent: "2.36" }];
 
 const ALLOWED = { allowed: true, reason: null };
 
@@ -127,16 +124,19 @@ describe("the top-up fee", () => {
       [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, topup_fees: FEES, as_of: "2026-10-07T06:30:00Z" },
     });
     expect(
-      await screen.findByText(/posted rate per billed minute, before its wallet top-up fee — we add the fee \(10% on pay-as-you-go, 9% on Pro\)/),
+      await screen.findByText(/posted rate per billed minute, before its wallet top-up fee — we add the fee \(2\.36% on every plan\)/),
     ).toBeTruthy();
-    expect(screen.getByText(/₹2\.7500 with the 10% top-up fee, pay-as-you-go/)).toBeTruthy();
+    expect(screen.getByText(/₹2\.5590 with the 2\.36% top-up fee, every plan/)).toBeTruthy();
   });
 
   it("builds its sentence and the all-in note from the server's figures only", () => {
-    expect(feeSentence(FEES)).toBe("10% on pay-as-you-go, 9% on Pro");
+    expect(feeSentence(FEES)).toBe("2.36% on every plan");
+    expect(feeSentence([{ plan: "pay-as-you-go", percent: "10" }, { plan: "Pro", percent: "9" }])).toBe(
+      "10% on pay-as-you-go, 9% on Pro",
+    );
     expect(
-      allInNote(row({ inr_per_min: "2.50", inr_per_min_with_fee: "2.7250", topup_fee_percent: "9", topup_fee_plan: "Pro" })),
-    ).toBe("₹2.7250 with the 9% top-up fee, Pro");
+      allInNote(row({ inr_per_min: "2.50", inr_per_min_with_fee: "2.5590" })),
+    ).toBe("₹2.5590 with the 2.36% top-up fee, every plan");
     expect(allInNote(row({}))).toBeNull();
     expect(allInNote(row({ inr_per_min_with_fee: "2.50", topup_fee_percent: "0", topup_fee_plan: null }))).toBeNull();
   });

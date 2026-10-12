@@ -38,7 +38,7 @@ from decimal import Decimal
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import lots as credit_lots
-from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
+from apps.api.billing.credit_packs import CreditPack, pack_by_id
 from apps.api.billing.credit_routes import lot_reprice_confirmation
 from apps.api.billing.credit_routes import lots_router as credit_lots_router
 from apps.api.billing.credit_routes import router as credit_router
@@ -57,7 +57,15 @@ from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.credit_lots_helpers import add_lot, lot_rows
+from tests.credit_lots_helpers import (
+    GRADUATED_CARD,
+    add_lot,
+    graduated_card,  # noqa: F401 - pytest fixture
+    graduated_pack,
+    lot_rows,
+)
+
+pytestmark = pytest.mark.usefixtures("graduated_card")
 
 
 #: BOTH routers on one app, deliberately: the wallet writes and the lot write are separate
@@ -76,16 +84,10 @@ def _client() -> AsyncClient:
 
 
 def _pack(pack_id: str) -> CreditPack:
-    """The live catalogue rung, so every rate below is READ from the card rather than typed.
-
-    ⚠ **THIS FILE USED TO TYPE THEM**, and the founder's card of 14 Sep 2026 turned a dozen
-    of those literals into assertions about a card that no longer exists — including one
-    (`₹4.50`) that made a test claim a re-price had changed a rate it no longer changes.
-    The re-price rules are about the ORDER of two rates, never about their values.
-    """
-    pack = pack_by_id(pack_id)
-    assert pack is not None, pack_id
-    return pack
+    """A rung of the card this suite installs (`graduated_card`), so every rate below is READ
+    from it rather than typed. The re-price rules are about the ORDER of two rates, never
+    about their values, and the card on sale prices every rung alike (D-728)."""
+    return graduated_pack(pack_id)
 
 
 async def _admin() -> str:
@@ -616,8 +618,8 @@ async def test_a_reprice_that_raises_both_tiers_names_both_of_them() -> None:
     contrivance.
     """
     token, tenant_id = await _admin(), await _tenant()
-    cheapest_clear = min(pack.clear_inr_per_min for pack in PACK_CATALOGUE)
-    cheapest_studio = min(pack.studio_inr_per_min for pack in PACK_CATALOGUE)
+    cheapest_clear = min(clear for clear, _studio in GRADUATED_CARD.values())
+    cheapest_studio = min(studio for _clear, studio in GRADUATED_CARD.values())
     bespoke = (cheapest_clear - Decimal("0.10"), cheapest_studio - Decimal("0.10"))
     lot_id = await add_lot(
         tenant_id,

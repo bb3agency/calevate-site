@@ -11,10 +11,11 @@ is lost.
 
 A change re-splices every agent in a worker (`RECOMPILE_JOB`): a new prompt version, applied
 and re-published on a live agent unless a script edit is staged, exactly as a knowledge
-recompile (`agents/t0.recompile_t0`). The instructions box on ThinnestAI holds 8,000
+recompile (`agents/t0.recompile_t0`). The instructions box on ThinnestAI holds 20,000
 characters and publish refuses more (`engine_prompt_too_long`), so the pinned list has its
-own ceiling, `MAX_PINNED_CHARS`, well inside the room a typical agent leaves the owner
-(`tests/agent_prompt_budget_test.py` keeps at least 1,800 free).
+own ceiling, `MAX_PINNED_CHARS` (3,000, founder decision F5, 12 Oct 2026), inside the room a
+typical agent leaves the owner (`tests/agent_prompt_budget_test.py`'s `OWNER_RESERVE`).
+Pinned facts are re-sent on every reply, so the ceiling also bounds what each turn costs.
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ RECOMPILE_JOB: Final = "recompile_pinned_facts"
 
 #: The whole pinned section, in characters, as it is compiled. A ceiling an addition may not
 #: cross; a list already over it (a migrated script) can still be edited down.
-MAX_PINNED_CHARS: Final = 1500
+MAX_PINNED_CHARS: Final = 3000
 
 _NOTES: Final = "Quick facts updated from the business's pinned facts"
 

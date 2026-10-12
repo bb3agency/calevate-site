@@ -213,6 +213,11 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
         "terms as the spoken line above — the caller's half is in `handoff.py` and this is "
         "the called party's half"
     ),
+    "apps/api/agents/specimen_scenarios.py": (
+        "the standing test callers' LINES per language (D-749): what a caller says in "
+        "Telugu, Hindi and English, keyed by tag. Content per language on the same terms "
+        "as the spoken sentences above, not a list of languages we sell"
+    ),
     "apps/api/engine/fake.py": (
         "the fake engine's stand-in for a VENDOR's voice listing. Those strings belong to "
         "the simulated vendor payload (hard rule 2), not to our offer — a fake that read "

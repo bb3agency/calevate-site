@@ -343,9 +343,10 @@ row here. It is NOT tenant-scoped and carries no `tenant_id`, exempted in
 before its wallet top-up fee** (D-678, D-723). It is the same append-only, effective-dated
 attestation as the model prices above, for an engine that reports no cost per call
 (ThinnestAI). The operator types the figure on the platform's price page or invoice, which
-is also what its per-call `costMicro` charges; the meter adds the top-up fee of the plan the
-Clear band needs (`billing/engine_minutes.topup_fee`: 10% on pay-as-you-go, 9% on Pro), so
-a figure attested with the fee already folded in would be charged twice. The ops console's
+is also what its per-call `costMicro` charges; the meter adds the wallet top-up fee, the payment
+gateway's 2.36% on every plan (`billing/engine_minutes.topup_fee`, ThinnestAI email of
+12 Oct 2026, VENDOR-STATED; D-754 replaced the 10% / 9% first read), so a figure attested
+with the fee already folded in would be charged twice. The ops console's
 per-minute panel shows the all-in figure (`inr_per_min_with_fee`) beside each posted rate.
 
 **`platform_list_rates` is what stops a CLOSED month being re-priced by a later rate

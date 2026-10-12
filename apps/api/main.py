@@ -233,6 +233,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.quality.sampling_routes import router as qa_sampling_router
     from apps.api.security.routes import router as csp_report_router
     from apps.api.teach.routes import router as teach_router
+    from apps.api.tenancy.call_lines_routes import router as call_lines_router
     from apps.api.tenancy.profile_routes import admin_router as business_profile_admin_router
     from apps.api.tenancy.profile_routes import router as business_profile_router
     from apps.api.tenancy.routes import router as tenancy_router
@@ -327,6 +328,8 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/organization/...`, so mount order is not load-bearing.
     application.include_router(call_handling_router)
     application.include_router(call_handling_admin_router)
+    # A client's calls at once (F7): `/v1/admin/organizations/{id}/call-lines`.
+    application.include_router(call_lines_router)
     # Editing an agent's extraction VARIABLES (D-460). The client router's
     # `/v1/agents/{agent_id}/extraction-schema` carries a fourth segment, so it never
     # collides with `/v1/agents/{agent_id}` on `agents_router`; the admin router names its

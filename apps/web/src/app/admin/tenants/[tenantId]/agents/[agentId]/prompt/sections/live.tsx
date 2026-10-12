@@ -459,12 +459,13 @@ function LiveConfirmation({
                 />
                 <PropertyVerdict label="Voice" verdict={engineState.data.voice_applied} />
               </dl>
-              {/* Information, never a verdict (D-720): answering on the website button or
-                  WhatsApp is acceptable and set only in the voice platform's console. */}
+              {/* Drift (D-753): Calevate agents answer on the phone only, and the settings
+                  sweep sets anything else back. */}
               {engineState.data.answers_also_on && engineState.data.answers_also_on.length > 0 ? (
                 <p className="mt-2 text-meta text-ink-muted">
-                  Also answers on: {engineState.data.answers_also_on.join(", ")} (set in the
-                  voice platform&apos;s console).
+                  Also answers on: {engineState.data.answers_also_on.join(", ")}. This agent
+                  should answer on the phone only; the settings check puts it back within half an hour, or
+                  publish it again now.
                 </p>
               ) : null}
             </>

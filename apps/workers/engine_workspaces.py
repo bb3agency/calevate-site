@@ -63,6 +63,7 @@ from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.reliability.engine_webhooks import retire_agent_webhook
 from apps.api.reliability.service import enqueue_outbox
+from apps.api.tenancy.call_lines import queue_call_lines_sync, read_call_lines
 from apps.api.tenancy.engine_workspace import (
     OWED_STATES,
     engine_has_workspaces,
@@ -143,8 +144,8 @@ async def _org(tenant_id: UUID) -> tuple[str, bool] | None:
 
 async def _activate(tenant_id: UUID, workspace: str) -> None:
     """Record the workspace as the tenant's, and owe it the follow-ups, in one transaction:
-    the business details (sent once the KYC record is verified) and the tenant's existing
-    do-not-call list, pushed in chunks."""
+    the business details (sent once the KYC record is verified), its calls at once, and the
+    tenant's existing do-not-call list, pushed in chunks."""
     from apps.api.campaigns.engine_business_details import queue_business_details_submission
 
     async with tenant_session(tenant_id) as session:
@@ -157,6 +158,8 @@ async def _activate(tenant_id: UUID, workspace: str) -> None:
             {"ws": workspace, "tid": tenant_id},
         )
         await queue_business_details_submission(session, tenant_id=tenant_id)
+        # How many calls at once the client may have there (F7), owed from the start.
+        await queue_call_lines_sync(session, tenant_id=tenant_id)
         ids = [
             str(row)
             for row in (
@@ -411,16 +414,56 @@ async def _clone_leg(
             tally["clones_forgotten"] += 1
 
 
+async def _call_lines_leg(tenant_id: UUID, workspace: str, *, repair: bool) -> str:
+    """Send the client's calls at once to its workspace (F7). `repair` reads the vendor's
+    value first and writes only when it differs. The write reads the value back itself
+    (`set_customer_call_lines` refuses an answer naming another cap)."""
+    async with tenant_session(tenant_id) as session:
+        wanted = (await read_call_lines(session, tenant_id=tenant_id)).lines
+    customers = thinnest_customers()
+    if repair:
+        held = await customers.read_customer_call_lines(workspace)
+        if held == wanted:
+            return "in_step"
+        log.warning(
+            "engine_call_lines_drift",
+            extra={"tenant_id": str(tenant_id), "held": held, "wanted": wanted},
+        )
+    await customers.set_customer_call_lines(workspace, wanted)
+    return "repaired" if repair else "set"
+
+
+async def sync_engine_call_lines(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """From the outbox: the client's calls at once sent to its own workspace, at provisioning
+    and whenever an operator changes it (`tenancy/call_lines`). A client without an active
+    workspace of its own has nothing to send: a trial's cap is the dial gate's."""
+    tenant_id = UUID(str(payload["tenant_id"]))
+    if not engine_has_workspaces():
+        return "not_applicable"
+    async with tenant_session(tenant_id) as session:
+        state = await read_workspace_state(session, tenant_id)
+    if not state.active or state.workspace_id is None or not is_own_workspace(state.workspace_id):
+        return "no_workspace"
+    try:
+        return await _call_lines_leg(tenant_id, state.workspace_id, repair=False)
+    except Exception as exc:
+        _retry_or_give_up(exc, int(ctx.get("job_try", 1)))
+        raise
+
+
 async def sweep_engine_workspaces(ctx: dict[str, Any]) -> str:
     """Daily. For each active client workspace, bounded and resumable: its business-details
-    application, and whether the clone copies we recorded for it are still there. Whether a
+    application, and whether the clone copies we recorded for it are still there. Its calls at
+    once are read back and a value changed in the vendor's console is set again (F7). Whether a
     Studio workspace is still on our Cartesia key is the hourly `studio_voice_key.
     sweep_studio_workspaces` (D-717). One workspace's failure is logged and the walk goes
     on."""
     if not engine_has_workspaces():
         return "not_applicable"
     engine = get_engine()
-    tally = dict.fromkeys(("changed", "resent", "unreadable", "clones_forgotten"), 0)
+    tally = dict.fromkeys(
+        ("changed", "resent", "unreadable", "clones_forgotten", "call_lines_repaired"), 0
+    )
     report = WalkReport()
     async for visit in walk_workspaces("engine_workspaces", include_developer=False, report=report):
         assert visit.tenant_id is not None and visit.workspace is not None
@@ -428,6 +471,8 @@ async def sweep_engine_workspaces(ctx: dict[str, Any]) -> str:
             if engine_number_provider() is not None:
                 await _business_details_leg(visit.tenant_id, tally)
             await _clone_leg(engine, visit.tenant_id, visit.workspace, tally)
+            if await _call_lines_leg(visit.tenant_id, visit.workspace, repair=True) == "repaired":
+                tally["call_lines_repaired"] += 1
         except ProblemError as exc:
             tally["unreadable"] += 1
             log.warning(
@@ -655,4 +700,5 @@ __all__ = [
     "retry_engine_workspaces",
     "submit_engine_business_details",
     "sweep_engine_workspaces",
+    "sync_engine_call_lines",
 ]

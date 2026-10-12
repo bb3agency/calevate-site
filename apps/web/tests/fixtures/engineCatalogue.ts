@@ -27,6 +27,7 @@ export function operatorEngineCatalogue(over: Partial<EngineCatalogue> = {}): En
     call_capable: true,
     plan_allows: true,
     usable_with_studio_voice: model.studio,
+    band_disagrees: false,
     price_band: model.id === "gpt-5-mini" ? "premium" : model.id.startsWith("composer") || model.id.startsWith("qwen") ? null : "none",
     latency_ms: null,
     offerable: !(model.id.startsWith("composer") || model.id.startsWith("qwen")),

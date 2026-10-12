@@ -149,6 +149,12 @@ import {
   LEAD_FIELDS_CORE_ONLY,
   settledPending,
   AGENT_SPEND_PATH,
+  callLinesRoute,
+  CALL_HANDLING_BOUNDS as SHARED_CALL_HANDLING_BOUNDS,
+  VOICE_EFFECTIVE_DEFAULTS,
+  VOICE_ORGANIZATION_NONE,
+  VOICE_OWN_NONE,
+  VOICE_SOURCES_PLATFORM,
 } from "./fixtures/sharedReads";
 import { operatorEngineCatalogue } from "./fixtures/engineCatalogue";
 
@@ -177,13 +183,8 @@ import { operatorEngineCatalogue } from "./fixtures/engineCatalogue";
 
 const ORG = { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" };
 
-/** D-751: the bounds every call handling read carries. */
-const CALL_HANDLING_BOUNDS = {
-  turn_silence_min_ms: 200,
-  turn_silence_max_ms: 3000,
-  platform_turn_silence_ms: 250,
-  platform_end_call_on_finish: true,
-};
+/** D-751, F3, F9: the bounds every call handling read carries (`fixtures/sharedReads`). */
+const CALL_HANDLING_BOUNDS = SHARED_CALL_HANDLING_BOUNDS;
 
 /** An agent with its own pause and the hang-up switched OFF, so the quiet notice renders. */
 const AGENT_CALL_HANDLING = {
@@ -196,6 +197,10 @@ const AGENT_CALL_HANDLING = {
   end_call_on_finish_source: "agent",
   organization_turn_silence_ms: 500,
   organization_end_call_on_finish: null,
+  ...VOICE_OWN_NONE,
+  ...VOICE_EFFECTIVE_DEFAULTS,
+  ...VOICE_SOURCES_PLATFORM,
+  ...VOICE_ORGANIZATION_NONE,
   bounds: CALL_HANDLING_BOUNDS,
 };
 
@@ -3357,6 +3362,8 @@ const CLIENT_SCREENS: Screen[] = [
         turn_silence_ms_effective: 250,
         end_call_on_finish: false,
         end_call_on_finish_effective: false,
+        ...VOICE_OWN_NONE,
+        ...VOICE_EFFECTIVE_DEFAULTS,
         bounds: CALL_HANDLING_BOUNDS,
       },
     },
@@ -4109,13 +4116,10 @@ const ADMIN_SCREENS: Screen[] = [
       "/v1/ops/engine-minute-prices": {
         as_of: "2026-10-02T06:30:00Z",
         prices: [
-          { engine: "thinnest", rate_key: "platform", inr_per_min: null, effective_from: null, attested_at: null, source_note: null, billable: false, sold_as: null, topup_fee_percent: "10", topup_fee_plan: "pay-as-you-go", inr_per_min_with_fee: null },
-          { engine: "thinnest", rate_key: "standard", inr_per_min: "2.000000", effective_from: "2026-10-01T00:00:00Z", attested_at: "2026-10-01T00:00:00Z", source_note: "plan page, 1 Oct 2026", billable: true, sold_as: null, topup_fee_percent: "10", topup_fee_plan: "pay-as-you-go", inr_per_min_with_fee: "2.2000" },
+          { engine: "thinnest", rate_key: "platform", inr_per_min: null, effective_from: null, attested_at: null, source_note: null, billable: false, sold_as: null, topup_fee_percent: "2.36", topup_fee_plan: "every plan", inr_per_min_with_fee: null },
+          { engine: "thinnest", rate_key: "standard", inr_per_min: "2.000000", effective_from: "2026-10-01T00:00:00Z", attested_at: "2026-10-01T00:00:00Z", source_note: "plan page, 1 Oct 2026", billable: true, sold_as: null, topup_fee_percent: "2.36", topup_fee_plan: "every plan", inr_per_min_with_fee: "2.0472" },
         ],
-        topup_fees: [
-          { plan: "pay-as-you-go", percent: "10" },
-          { plan: "Pro", percent: "9" },
-        ],
+        topup_fees: [{ plan: "every plan", percent: "2.36" }],
       },
       "/v1/ops/dashboard-data-use": OPS_DASHBOARD_DATA_USE,
       "/v1/ops/secrets": OPS_SECRETS,
@@ -4600,6 +4604,7 @@ const ADMIN_SCREENS: Screen[] = [
     element: () => <TenantNumbersPage params={tenant} />,
     routes: {
       ...TENANT_ROUTES,
+      ...callLinesRoute("t1"),
       // The client's existing number with every finding, quiet, and the message on (D-746).
       "/v1/admin/forwarding/tenants/t1?limit=5": ADMIN_FORWARDING,
       // One number we bought and one the client brought that has NO vendor handle: the

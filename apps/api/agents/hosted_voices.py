@@ -378,8 +378,9 @@ async def _apply_listing(
     provider: str,
     stamp: datetime,
 ) -> tuple[int, int]:
-    """Upsert one listing's voices and withdraw this source's rows it no longer names.
-    Curation and origin are never written here, and an empty listing is refused upstream."""
+    """Upsert one listing's voices and, when the listing is whole, withdraw this source's rows
+    it no longer names. Curation and origin are never written here, and an empty listing is
+    refused upstream."""
     rows = [_row_values(voice, provider=provider, stamp=stamp) for voice in listing.voices]
     statement = insert(PlatformVoiceCatalogEntry).values(rows)
     await session.execute(
@@ -401,8 +402,11 @@ async def _apply_listing(
             },
         )
     )
-    # Both listings are single, unpaged answers (list-voices.md:346; list-byok-voices.md:
-    # 340-379), so a listing that read is a whole one and may withdraw what it no longer names.
+    # A short listing (`complete` False: the own-key list when the voice provider was slow)
+    # leaves out voices that still exist, and withdrawing them would take voices clients
+    # chose off their agents; the caller alarms instead.
+    if not listing.complete:
+        return len(rows), 0
     result = await session.execute(
         update(PlatformVoiceCatalogEntry)
         .where(
@@ -434,6 +438,24 @@ def _alert_empty(engine: str, source: HostedVoiceSource) -> None:
             f"the voice catalogue sync read no {source} voices from the engine, so the previous "
             "list is still standing. Check the engine credential and run "
             "POST /v1/ops/voices/refresh."
+        ),
+        engine=engine,
+        source=source,
+    )
+
+
+#: A listing the engine marked as possibly short was applied without withdrawing anything.
+PARTIAL_LISTING_CODE: Final = "voice_catalogue_partial"
+
+
+def _alert_partial(engine: str, source: HostedVoiceSource, *, listed: int) -> None:
+    alert(
+        "CORE_LOGIC",
+        PARTIAL_LISTING_CODE,
+        detail=(
+            f"the voice platform said its {source} voice list may be short ({listed} listed), "
+            "so the voices it named were refreshed and none was withdrawn. The next hourly "
+            "sync asks again; if this repeats, run POST /v1/ops/voices/refresh."
         ),
         engine=engine,
         source=source,
@@ -597,6 +619,8 @@ async def sync_hosted_voices(
             )
             written += added
             pruned += dropped
+            if not studio.complete:
+                _alert_partial(name, "byok", listed=len(studio.voices))
         else:
             _alert_empty(name, "byok")
     log.info(
@@ -1241,6 +1265,7 @@ __all__ = [
     "HOSTED_SOURCES",
     "MAX_AGENTS_ON_VOICE",
     "NO_SOLD_BAND_CODE",
+    "PARTIAL_LISTING_CODE",
     "STUDIO_KEY_OFF_REASON",
     "STUDIO_NEEDS_PRO",
     "STUDIO_VOICE_PROVIDER",

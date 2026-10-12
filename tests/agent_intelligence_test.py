@@ -485,9 +485,10 @@ def test_instructions_over_the_console_ceiling_are_refused() -> None:
     from apps.api.engine.thinnest import INSTRUCTIONS_MAX_CHARS
     from tests.thinnest_publish_limits_test import _thinnest
 
-    assert INSTRUCTIONS_MAX_CHARS == 8_000
+    over_the_ceiling = "word " * (INSTRUCTIONS_MAX_CHARS // len("word ") + 200)
+    assert len(over_the_ceiling) > INSTRUCTIONS_MAX_CHARS
     with pytest.raises(ProblemError) as refused:
-        refuse_over_engine_limits(_thinnest(), _cfg("word " * 1_800))
+        refuse_over_engine_limits(_thinnest(), _cfg(over_the_ceiling))
     assert refused.value.code == PROMPT_TOO_LONG
     assert "characters too long for the calling system" in refused.value.detail
 

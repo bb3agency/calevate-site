@@ -80,6 +80,26 @@ class BoundedByConstruction:
 
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    # --- call handling (D-751, F3, F9): filler lines and the sound choices -----------------
+    **{
+        key: BoundedByConstruction(
+            by=(
+                "filler lines capped at `agents.models.FILLER_LINES_MAX` by the writer and "
+                "a CHECK on `cardinality`; the sound choices are `agents.models.AMBIENCES`, "
+                "three values declared in code."
+            )
+        )
+        for key in (
+            "GET /v1/agents/{agent_id}/call-handling",
+            "PATCH /v1/agents/{agent_id}/call-handling",
+            "GET /v1/organization/call-handling",
+            "PUT /v1/organization/call-handling",
+            "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling",
+            "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling",
+            "GET /v1/admin/organizations/{org_id}/call-handling",
+            "PUT /v1/admin/organizations/{org_id}/call-handling",
+        )
+    },
     # --- do-not-call: the evidence shown before an opt-out is restored ---------------------
     "GET /v1/dnc/{entry_id}/evidence": BoundedByConstruction(
         by="`compliance.dnc.MAX_OPTOUT_EVIDENCE` in the LIMIT, and the schema's `max_length`."

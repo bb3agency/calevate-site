@@ -17,7 +17,7 @@ NOT mounted here — the integrator wires this router into `main.py`.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Final
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -49,10 +49,16 @@ class PromptVersionOut(BaseModel):
     active: bool
 
 
+#: The longest script body an admin may save: the hosted engine's instructions ceiling
+#: (`engine/hosted_platform.THINNEST_LIMITS.prompt_chars`, 20,000). Publish still refuses a
+#: body that no longer fits once the platform rules are added (`engine_prompt_too_long`).
+PROMPT_BODY_MAX_CHARS: Final = 20_000
+
+
 class WritePromptIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    body: str = Field(min_length=20, max_length=8000)
+    body: str = Field(min_length=20, max_length=PROMPT_BODY_MAX_CHARS)
     notes: str | None = Field(default=None, max_length=200)
 
 

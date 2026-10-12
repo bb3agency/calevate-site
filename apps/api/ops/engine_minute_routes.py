@@ -66,10 +66,10 @@ class EngineMinutePriceOut(BaseModel):
     #: The platform's posted ₹ per billed minute, BEFORE its wallet top-up fee, as a decimal
     #: string; null while unattested.
     inr_per_min: str | None
-    #: The wallet top-up fee we add to every minute on this engine, in percent ("10"); "0"
+    #: The wallet top-up fee we add to every minute on this engine, in percent ("2.36"); "0"
     #: for an engine not paid from a topped-up wallet.
     topup_fee_percent: str
-    #: The plan that fee belongs to ("pay-as-you-go", "Pro"), or null with no fee.
+    #: The plans that fee applies to ("every plan"), or null with no fee.
     topup_fee_plan: str | None
     #: What a billed minute costs us with the fee added, at the ledger's four decimals; this
     #: is the figure metered. Null while unattested.
@@ -88,9 +88,9 @@ class EngineMinutePriceOut(BaseModel):
 class TopUpFeeOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    #: The voice platform's plan ("pay-as-you-go", "Pro").
+    #: The voice platform's plans the fee applies to ("every plan").
     plan: str
-    #: Its wallet top-up fee in percent ("10").
+    #: The wallet top-up fee in percent ("2.36").
     percent: str
 
 
@@ -138,7 +138,7 @@ def _percent(fee: Decimal) -> str:
     return format((fee * 100).normalize(), "f")
 
 
-#: "10% on pay-as-you-go, 9% on Pro", from the fee constants rather than retyped.
+#: "2.36% on every plan", from the fee constants rather than retyped.
 _FEE_SENTENCE = ", ".join(
     f"{_percent(fee)}% on {plan}" for fee, plan in TOPUP_FEE_PLAN_LABELS.items()
 )
@@ -215,7 +215,7 @@ async def list_engine_minute_prices(
     description=(
         "Records the voice platform's posted rate per billed minute, before its wallet top-up "
         "fee, as a NEW effective-dated row. We add the fee when metering ("
-        f"{_FEE_SENTENCE}; each row's `topup_fee_percent` says which applies, and "
+        f"{_FEE_SENTENCE}; each row's `topup_fee_percent` says what is added, and "
         "`inr_per_min_with_fee` is the figure metered). Requires `X-Confirm-Action: "
         "attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it "
         "are not offered and any that run are metered with no cost and alarmed."

@@ -1060,6 +1060,18 @@ async def check_dispatch(
         rule, reason = account_refusals[0]
         return DispatchDecision(allowed=False, rule=rule, reason=reason)
 
+    # A FREE TRIAL'S CALLS AT ONCE (F7). Its agents live in our developer workspace, whose
+    # vendor-side cap cannot be split per client, so the cap is counted here; a paying
+    # client's is held by its own workspace (`tenancy/call_lines`). Only a trial account
+    # places a test call, so only a test call asks.
+    if trial_call:
+        from apps.api.tenancy.call_lines import call_lines_blocker
+
+        busy = await call_lines_blocker(session, tenant_id=tenant_id)
+        if busy is not None:
+            rule, reason = busy
+            return DispatchDecision(allowed=False, rule=rule, reason=reason)
+
     if not within_calling_hours():
         return DispatchDecision(
             allowed=False,

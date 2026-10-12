@@ -7,7 +7,7 @@
 4. **The caller lookup.** The signature, the variables (never a number), the endpoint's one
    401 and its empty answer, and the vendor secret's capture and rotation.
 5. **Call settings on ThinnestAI.** The machine switch and ring time reach the agent body;
-   web and WhatsApp surfaces are drift that cannot be repaired from here; the call cap is
+   answering anywhere but the phone is drift the sweep repairs (F1); the call cap is
    clamped to the engine's 20 minutes.
 """
 
@@ -39,7 +39,7 @@ from apps.api.worker.engine_lookups import verify_lookup_signature
 from calevate_shared.webhook_signature import timestamped_sha256_signature
 from sqlalchemy import text
 from tests.smoke_pipeline_test import _seed_tenant
-from tests.thinnest_engine_test import _cfg
+from tests.thinnest_engine_test import _cfg, tools_state
 
 pytestmark = [pytest.mark.rls]
 
@@ -666,10 +666,10 @@ def test_other_surfaces_are_named_for_the_drift_panel() -> None:
     assert other_surfaces({"voice": {}}) == []
 
 
-def test_where_an_agent_answers_is_not_a_drift_label() -> None:
+def test_where_an_agent_answers_is_a_drift_label() -> None:
     from apps.api.agents.engine_settings import AGENT_SETTING_LABELS
 
-    assert "answer_surfaces" not in AGENT_SETTING_LABELS
+    assert "surfaces" in AGENT_SETTING_LABELS
 
 
 def _surfaces_engine(cfg: Any, held: dict[str, Any], sent: list[dict[str, Any]]) -> ThinnestEngine:
@@ -677,7 +677,7 @@ def _surfaces_engine(cfg: Any, held: dict[str, Any], sent: list[dict[str, Any]])
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/tools"):
-            return httpx.Response(200, json=engine.built_in_tools_body(cfg))
+            return httpx.Response(200, json=tools_state(engine.built_in_tools_body(cfg)))
         if request.method == "GET":
             return httpx.Response(200, json=held)
         sent.append(json.loads(request.content or b"{}"))
@@ -689,31 +689,30 @@ def _surfaces_engine(cfg: Any, held: dict[str, Any], sent: list[dict[str, Any]])
     return engine
 
 
-async def test_surfaces_only_is_no_drift_at_all() -> None:
-    cfg = _cfg()
+async def test_answering_on_the_website_or_whatsapp_is_drift() -> None:
+    """Phone only (founder decision F1, 12 Oct 2026, superseding D-720)."""
+    cfg = _cfg(has_phone_number=True)
     held = ThinnestEngine(api_key="ta_live_test")._agent_body(cfg)
-    baseline = await _surfaces_engine(cfg, held, []).settings_drift("ag_1", cfg)
+    assert held["voice"]["surfaces"] == ["phone"]
+    assert await _surfaces_engine(cfg, held, []).settings_drift("ag_1", cfg) == []
     held["voice"]["surfaces"] = ["phone", "web", "whatsapp"]
     engine = _surfaces_engine(cfg, held, [])
-    # Answering on the website or WhatsApp changes nothing the drift check reports.
-    assert await engine.settings_drift("ag_1", cfg) == baseline
-    assert not any("surface" in label for label in baseline)
+    assert await engine.settings_drift("ag_1", cfg) == ["surfaces"]
     assert await engine.answer_surfaces("ag_1") == ["website call button", "WhatsApp"]
 
 
-async def test_mixed_drift_repairs_the_others_and_never_mentions_surfaces() -> None:
+async def test_mixed_drift_repairs_surfaces_with_the_others() -> None:
     cfg = _cfg()
     held = ThinnestEngine(api_key="ta_live_test")._agent_body(cfg)
-    held["voice"]["surfaces"] = ["phone", "whatsapp"]
+    held["voice"]["surfaces"] = ["whatsapp"]
     held["voice"]["ringSeconds"] = 45
     sent: list[dict[str, Any]] = []
     engine = _surfaces_engine(cfg, held, sent)
     drifted = await engine.settings_drift("ag_1", cfg)
-    assert "ring_seconds" in drifted
-    assert not any("surface" in label for label in drifted)
-    await engine.repair_settings("ag_1", cfg, ["ring_seconds"])
-    assert sent == [{"voice": {"ringSeconds": RING_SECONDS}}]
-    assert "surfaces" not in json.dumps(sent)
+    assert set(drifted) == {"ring_seconds", "surfaces"}
+    await engine.repair_settings("ag_1", cfg, drifted)
+    # No number attached: nowhere but the phone, and not the phone yet.
+    assert sent == [{"voice": {"ringSeconds": RING_SECONDS, "surfaces": []}}]
 
 
 def test_the_call_cap_is_clamped_to_twenty_minutes_on_thinnest(

@@ -49,8 +49,11 @@ from apps.api.reliability.engine_actions import (
 )
 from apps.api.worker.engine_actions import (
     NOT_MATCHED_SAY,
+    TEST_CHAT_ANSWERS,
+    TEST_CHAT_HEADER,
     TEST_CHAT_OPT_OUT_STATUS,
     UNAVAILABLE_SAY,
+    is_test_chat,
 )
 from apps.api.worker.tools import OPTOUT_DONE_SAY
 from sqlalchemy import text
@@ -564,8 +567,123 @@ async def test_a_test_chat_opt_out_answers_as_recorded_and_writes_nothing(
     real = await _post("opt-out", ref, secret, {}, call_id=call_id)
     assert real.json()["status"] == "recorded"
     async with tenant_session(tenant_id) as session:
-        rows = (await session.execute(text("SELECT phone_e164 FROM dnc_list"))).scalars().all()
+        # Scoped to this tenant: RLS also shows the platform-wide rows other suites wrote.
+        rows = (
+            (
+                await session.execute(
+                    text("SELECT phone_e164 FROM dnc_list WHERE tenant_id = :t"),
+                    {"t": tenant_id},
+                )
+            )
+            .scalars()
+            .all()
+        )
     assert rows == ["+919876511109"]
+
+
+async def _post_test_chat(
+    tool: str, ref: str, secret: str, body: dict[str, Any], *, call_id: str | None = None
+) -> httpx.Response:
+    """An action request as ThinnestAI's test chat makes it: `X-Test-Chat: true`, and (as
+    the vendor states) no `X-Call-Id`; `call_id` adds one to prove the marker still wins."""
+    headers = {SECRET_HEADER: secret, TEST_CHAT_HEADER: "true"}
+    if call_id is not None:
+        headers[CALL_ID_HEADER] = call_id
+    transport = httpx.ASGITransport(app=api_app, client=("127.0.0.1", 44444))
+    async with httpx.AsyncClient(transport=transport, base_url="http://api") as raw:
+        return await raw.post(
+            f"/v1/worker/engine-actions/{ENGINE}/{tool}?agent={ref}",
+            content=json.dumps(body),
+            headers={**headers, "Content-Type": "application/json"},
+        )
+
+
+async def _writes(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> tuple[int, int, int, int]:
+    async with tenant_session(tenant_id) as session:
+        counts = (
+            await session.execute(
+                text(
+                    "SELECT (SELECT count(*) FROM dnc_list WHERE tenant_id = :t), "
+                    "(SELECT count(*) FROM scheduled_callbacks WHERE agent_id = :a), "
+                    "(SELECT count(*) FROM handoff_attempts WHERE agent_id = :a), "
+                    "(SELECT count(*) FROM calls WHERE agent_id = :a)"
+                ),
+                {"a": agent_id, "t": tenant_id},
+            )
+        ).one()
+    return (int(counts[0]), int(counts[1]), int(counts[2]), int(counts[3]))
+
+
+@pytest.mark.parametrize(
+    ("tool", "body", "status"),
+    [
+        ("opt-out", {"reason": "stop calling"}, TEST_CHAT_OPT_OUT_STATUS),
+        (
+            "callback",
+            {"callback_date": "2026-10-13", "callback_time": "11:00", "confirmed": "yes"},
+            "booked_in_test",
+        ),
+        ("callback-cancel", {}, "cancelled_in_test"),
+        ("handoff", {"reason": "wants a person"}, "handover_in_test"),
+    ],
+)
+async def test_a_marked_test_chat_answers_success_and_writes_nothing(
+    vendor: FakeThinnest, tool: str, body: dict[str, Any], status: str
+) -> None:
+    """F6 (12 Oct 2026). ThinnestAI's test chat marks every action request `X-Test-Chat:
+    true` and sends no call id. Each platform tool answers as it does on success, says it was
+    a test, and writes nothing; the vendor is not asked about a call.
+
+    FAILS IF: a test chat writes a do-not-call row, a call-back, a hand-over or a call row,
+    answers "not matched", or reads a call from the vendor."""
+    tenant_id, agent_id, ref, secret = await _published(vendor)
+    before = await _writes(tenant_id, agent_id)
+    asked = len(vendor.requests)
+    answer = await _post_test_chat(tool, ref, secret, body)
+    assert answer.status_code == 200
+    expected_status, expected_say = TEST_CHAT_ANSWERS[tool]
+    assert answer.json() == {"status": status, "say": expected_say}
+    assert expected_status == status
+    # Even with a live call named, the marker wins: a test writes nothing.
+    call_id, row = _live(ref, phone="919876511120")
+    vendor.live.append(row)
+    named = await _post_test_chat(tool, ref, secret, body, call_id=call_id)
+    assert named.json()["status"] == status
+    assert await _writes(tenant_id, agent_id) == before
+    assert not any(p.startswith("/calls") for _m, p, _b in vendor.requests[asked:])
+
+
+async def test_a_test_marker_other_than_true_is_not_a_test_chat(vendor: FakeThinnest) -> None:
+    """Only the value "true" marks a test; anything else takes the ordinary path, and with
+    no call named that is today's refusal, unchanged."""
+    _t, _a, ref, secret = await _published(vendor)
+    for value in ("false", "", "1"):
+        transport = httpx.ASGITransport(app=api_app, client=("127.0.0.1", 44444))
+        async with httpx.AsyncClient(transport=transport, base_url="http://api") as raw:
+            answer = await raw.post(
+                f"/v1/worker/engine-actions/{ENGINE}/callback?agent={ref}",
+                content=json.dumps({"callback_date": "2026-10-13"}),
+                headers={
+                    SECRET_HEADER: secret,
+                    TEST_CHAT_HEADER: value,
+                    "Content-Type": "application/json",
+                },
+            )
+        assert answer.json() == {"status": "caller_not_matched", "say": NOT_MATCHED_SAY}
+
+
+async def test_without_a_marker_or_a_call_every_tool_keeps_todays_refusal(
+    vendor: FakeThinnest,
+) -> None:
+    """No `X-Test-Chat` and no `X-Call-Id`: opt-out, call-back and cancel are answered as not
+    matched (no test window open), exactly as before F6, and nothing is written."""
+    tenant_id, agent_id, ref, secret = await _published(vendor)
+    before = await _writes(tenant_id, agent_id)
+    for tool in ("opt-out", "callback", "callback-cancel"):
+        answer = await _post(tool, ref, secret, {})
+        assert answer.json() == {"status": "caller_not_matched", "say": NOT_MATCHED_SAY}
+    assert await _writes(tenant_id, agent_id) == before
+    assert is_test_chat("TRUE") and is_test_chat(" true ") and not is_test_chat(None)
 
 
 async def test_a_call_that_has_ended_is_not_acted_on(vendor: FakeThinnest) -> None:

@@ -1819,8 +1819,46 @@
       },
       "AgentCallHandlingIn": {
         "additionalProperties": false,
-        "description": "Either or both. A field left out is untouched; `null` goes back to inheriting.",
+        "description": "Any of the settings. A field left out is untouched; `null` goes back to inheriting.",
         "properties": {
+          "ambience": {
+            "anyOf": [
+              {
+                "enum": [
+                  "off",
+                  "office",
+                  "office-quiet"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience"
+          },
+          "ambience_volume_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience Volume Pct"
+          },
+          "end_after_silence_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End After Silence Seconds"
+          },
           "end_call_on_finish": {
             "anyOf": [
               {
@@ -1831,6 +1869,56 @@
               }
             ],
             "title": "End Call On Finish"
+          },
+          "filler_lines": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 1000,
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filler Lines"
+          },
+          "nudge_after_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge After Seconds"
+          },
+          "nudge_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge Count"
+          },
+          "nudge_phrase": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge Phrase"
           },
           "turn_silence_ms": {
             "anyOf": [
@@ -1849,15 +1937,97 @@
       },
       "AgentCallHandlingOut": {
         "additionalProperties": false,
-        "description": "One agent's two settings: its own value (`null` inherits), the value in force and the\nlevel that chose it (`agent`, `organization` or `platform`).",
+        "description": "One agent's settings: its own value (`null` inherits), the value in force and the level\nthat chose it (`agent`, `organization` or `platform`).",
         "properties": {
           "agent_id": {
             "format": "uuid",
             "title": "Agent Id",
             "type": "string"
           },
+          "ambience": {
+            "anyOf": [
+              {
+                "enum": [
+                  "off",
+                  "office",
+                  "office-quiet"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience"
+          },
+          "ambience_effective": {
+            "enum": [
+              "off",
+              "office",
+              "office-quiet"
+            ],
+            "title": "Ambience Effective",
+            "type": "string"
+          },
+          "ambience_source": {
+            "enum": [
+              "agent",
+              "organization",
+              "platform"
+            ],
+            "title": "Ambience Source",
+            "type": "string"
+          },
+          "ambience_volume_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience Volume Pct"
+          },
+          "ambience_volume_pct_effective": {
+            "title": "Ambience Volume Pct Effective",
+            "type": "integer"
+          },
+          "ambience_volume_pct_source": {
+            "enum": [
+              "agent",
+              "organization",
+              "platform"
+            ],
+            "title": "Ambience Volume Pct Source",
+            "type": "string"
+          },
           "bounds": {
             "$ref": "#/components/schemas/CallHandlingBoundsOut"
+          },
+          "end_after_silence_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End After Silence Seconds"
+          },
+          "end_after_silence_seconds_effective": {
+            "title": "End After Silence Seconds Effective",
+            "type": "integer"
+          },
+          "end_after_silence_seconds_source": {
+            "enum": [
+              "agent",
+              "organization",
+              "platform"
+            ],
+            "title": "End After Silence Seconds Source",
+            "type": "string"
           },
           "end_call_on_finish": {
             "anyOf": [
@@ -1883,6 +2053,146 @@
             "title": "End Call On Finish Source",
             "type": "string"
           },
+          "filler_lines": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filler Lines"
+          },
+          "filler_lines_effective": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Filler Lines Effective",
+            "type": "array"
+          },
+          "filler_lines_source": {
+            "enum": [
+              "agent",
+              "organization",
+              "platform"
+            ],
+            "title": "Filler Lines Source",
+            "type": "string"
+          },
+          "nudge_after_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge After Seconds"
+          },
+          "nudge_after_seconds_effective": {
+            "title": "Nudge After Seconds Effective",
+            "type": "integer"
+          },
+          "nudge_after_seconds_source": {
+            "enum": [
+              "agent",
+              "organization",
+              "platform"
+            ],
+            "title": "Nudge After Seconds Source",
+            "type": "string"
+          },
+          "nudge_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge Count"
+          },
+          "nudge_count_effective": {
+            "title": "Nudge Count Effective",
+            "type": "integer"
+          },
+          "nudge_count_source": {
+            "enum": [
+              "agent",
+              "organization",
+              "platform"
+            ],
+            "title": "Nudge Count Source",
+            "type": "string"
+          },
+          "nudge_phrase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge Phrase"
+          },
+          "nudge_phrase_effective": {
+            "title": "Nudge Phrase Effective",
+            "type": "string"
+          },
+          "nudge_phrase_source": {
+            "enum": [
+              "agent",
+              "organization",
+              "platform"
+            ],
+            "title": "Nudge Phrase Source",
+            "type": "string"
+          },
+          "organization_ambience": {
+            "anyOf": [
+              {
+                "enum": [
+                  "off",
+                  "office",
+                  "office-quiet"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Ambience"
+          },
+          "organization_ambience_volume_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Ambience Volume Pct"
+          },
+          "organization_end_after_silence_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization End After Silence Seconds"
+          },
           "organization_end_call_on_finish": {
             "anyOf": [
               {
@@ -1893,6 +2203,53 @@
               }
             ],
             "title": "Organization End Call On Finish"
+          },
+          "organization_filler_lines": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Filler Lines"
+          },
+          "organization_nudge_after_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Nudge After Seconds"
+          },
+          "organization_nudge_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Nudge Count"
+          },
+          "organization_nudge_phrase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Nudge Phrase"
           },
           "organization_turn_silence_ms": {
             "anyOf": [
@@ -1938,8 +2295,36 @@
           "end_call_on_finish",
           "end_call_on_finish_effective",
           "end_call_on_finish_source",
+          "nudge_after_seconds",
+          "nudge_after_seconds_effective",
+          "nudge_after_seconds_source",
+          "nudge_count",
+          "nudge_count_effective",
+          "nudge_count_source",
+          "nudge_phrase",
+          "nudge_phrase_effective",
+          "nudge_phrase_source",
+          "end_after_silence_seconds",
+          "end_after_silence_seconds_effective",
+          "end_after_silence_seconds_source",
+          "filler_lines",
+          "filler_lines_effective",
+          "filler_lines_source",
+          "ambience",
+          "ambience_effective",
+          "ambience_source",
+          "ambience_volume_pct",
+          "ambience_volume_pct_effective",
+          "ambience_volume_pct_source",
           "organization_turn_silence_ms",
           "organization_end_call_on_finish",
+          "organization_nudge_after_seconds",
+          "organization_nudge_count",
+          "organization_nudge_phrase",
+          "organization_end_after_silence_seconds",
+          "organization_filler_lines",
+          "organization_ambience",
+          "organization_ambience_volume_pct",
           "bounds"
         ],
         "title": "AgentCallHandlingOut",
@@ -5746,9 +6131,90 @@
         "additionalProperties": false,
         "description": "What may be chosen and what Calevate's own defaults are.",
         "properties": {
+          "ambience_volume_max_pct": {
+            "title": "Ambience Volume Max Pct",
+            "type": "integer"
+          },
+          "ambience_volume_min_pct": {
+            "title": "Ambience Volume Min Pct",
+            "type": "integer"
+          },
+          "ambiences": {
+            "items": {
+              "enum": [
+                "off",
+                "office",
+                "office-quiet"
+              ],
+              "type": "string"
+            },
+            "title": "Ambiences",
+            "type": "array"
+          },
+          "end_after_silence_max_s": {
+            "title": "End After Silence Max S",
+            "type": "integer"
+          },
+          "end_after_silence_min_s": {
+            "title": "End After Silence Min S",
+            "type": "integer"
+          },
+          "filler_line_max_chars": {
+            "title": "Filler Line Max Chars",
+            "type": "integer"
+          },
+          "filler_lines_max": {
+            "title": "Filler Lines Max",
+            "type": "integer"
+          },
+          "nudge_after_max_s": {
+            "title": "Nudge After Max S",
+            "type": "integer"
+          },
+          "nudge_after_min_s": {
+            "title": "Nudge After Min S",
+            "type": "integer"
+          },
+          "nudge_count_max": {
+            "title": "Nudge Count Max",
+            "type": "integer"
+          },
+          "nudge_count_min": {
+            "title": "Nudge Count Min",
+            "type": "integer"
+          },
+          "nudge_phrase_max_chars": {
+            "title": "Nudge Phrase Max Chars",
+            "type": "integer"
+          },
+          "platform_ambience": {
+            "enum": [
+              "off",
+              "office",
+              "office-quiet"
+            ],
+            "title": "Platform Ambience",
+            "type": "string"
+          },
+          "platform_ambience_volume_pct": {
+            "title": "Platform Ambience Volume Pct",
+            "type": "integer"
+          },
+          "platform_end_after_silence_seconds": {
+            "title": "Platform End After Silence Seconds",
+            "type": "integer"
+          },
           "platform_end_call_on_finish": {
             "title": "Platform End Call On Finish",
             "type": "boolean"
+          },
+          "platform_nudge_after_seconds": {
+            "title": "Platform Nudge After Seconds",
+            "type": "integer"
+          },
+          "platform_nudge_count": {
+            "title": "Platform Nudge Count",
+            "type": "integer"
           },
           "platform_turn_silence_ms": {
             "title": "Platform Turn Silence Ms",
@@ -5767,7 +6233,24 @@
           "turn_silence_min_ms",
           "turn_silence_max_ms",
           "platform_turn_silence_ms",
-          "platform_end_call_on_finish"
+          "platform_end_call_on_finish",
+          "nudge_after_min_s",
+          "nudge_after_max_s",
+          "platform_nudge_after_seconds",
+          "nudge_count_min",
+          "nudge_count_max",
+          "platform_nudge_count",
+          "nudge_phrase_max_chars",
+          "end_after_silence_min_s",
+          "end_after_silence_max_s",
+          "platform_end_after_silence_seconds",
+          "filler_lines_max",
+          "filler_line_max_chars",
+          "ambiences",
+          "platform_ambience",
+          "ambience_volume_min_pct",
+          "ambience_volume_max_pct",
+          "platform_ambience_volume_pct"
         ],
         "title": "CallHandlingBoundsOut",
         "type": "object"
@@ -5849,6 +6332,87 @@
           "status"
         ],
         "title": "CallLeadOut",
+        "type": "object"
+      },
+      "CallLinesIn": {
+        "additionalProperties": false,
+        "properties": {
+          "call_lines": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Lines"
+          }
+        },
+        "required": [
+          "call_lines"
+        ],
+        "title": "CallLinesIn",
+        "type": "object"
+      },
+      "CallLinesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "call_lines": {
+            "title": "Call Lines",
+            "type": "integer"
+          },
+          "call_lines_chosen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Lines Chosen"
+          },
+          "max_lines": {
+            "title": "Max Lines",
+            "type": "integer"
+          },
+          "min_lines": {
+            "title": "Min Lines",
+            "type": "integer"
+          },
+          "on_trial": {
+            "title": "On Trial",
+            "type": "boolean"
+          },
+          "paid_default": {
+            "title": "Paid Default",
+            "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "organization",
+              "platform"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "trial_default": {
+            "title": "Trial Default",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "call_lines",
+          "call_lines_chosen",
+          "source",
+          "on_trial",
+          "min_lines",
+          "max_lines",
+          "paid_default",
+          "trial_default"
+        ],
+        "title": "CallLinesOut",
         "type": "object"
       },
       "CallMomentOut": {
@@ -14204,6 +14768,11 @@
       "EngineCatalogueModelOut": {
         "additionalProperties": false,
         "properties": {
+          "band_disagrees": {
+            "default": false,
+            "title": "Band Disagrees",
+            "type": "boolean"
+          },
           "call_capable": {
             "title": "Call Capable",
             "type": "boolean"
@@ -14234,6 +14803,44 @@
           "plan_allows": {
             "title": "Plan Allows",
             "type": "boolean"
+          },
+          "platform_call_tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "standard",
+                  "premium"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform Call Tier"
+          },
+          "platform_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform Currency"
+          },
+          "platform_price_per_minute": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform Price Per Minute"
           },
           "price_band": {
             "anyOf": [
@@ -26674,8 +27281,46 @@
       },
       "OrganizationCallHandlingIn": {
         "additionalProperties": false,
-        "description": "Both, required: the body states the whole resource, so `null` is \"follow Calevate\".",
+        "description": "The pause and the hang-up, required as before (`null` is \"follow Calevate\"). Every\nother setting is optional: named, it is set (`null` follows Calevate); left out, it is\nkept.",
         "properties": {
+          "ambience": {
+            "anyOf": [
+              {
+                "enum": [
+                  "off",
+                  "office",
+                  "office-quiet"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience"
+          },
+          "ambience_volume_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience Volume Pct"
+          },
+          "end_after_silence_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End After Silence Seconds"
+          },
           "end_call_on_finish": {
             "anyOf": [
               {
@@ -26686,6 +27331,56 @@
               }
             ],
             "title": "End Call On Finish"
+          },
+          "filler_lines": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 1000,
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filler Lines"
+          },
+          "nudge_after_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge After Seconds"
+          },
+          "nudge_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge Count"
+          },
+          "nudge_phrase": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge Phrase"
           },
           "turn_silence_ms": {
             "anyOf": [
@@ -26709,8 +27404,63 @@
       "OrganizationCallHandlingOut": {
         "additionalProperties": false,
         "properties": {
+          "ambience": {
+            "anyOf": [
+              {
+                "enum": [
+                  "off",
+                  "office",
+                  "office-quiet"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience"
+          },
+          "ambience_effective": {
+            "enum": [
+              "off",
+              "office",
+              "office-quiet"
+            ],
+            "title": "Ambience Effective",
+            "type": "string"
+          },
+          "ambience_volume_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience Volume Pct"
+          },
+          "ambience_volume_pct_effective": {
+            "title": "Ambience Volume Pct Effective",
+            "type": "integer"
+          },
           "bounds": {
             "$ref": "#/components/schemas/CallHandlingBoundsOut"
+          },
+          "end_after_silence_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End After Silence Seconds"
+          },
+          "end_after_silence_seconds_effective": {
+            "title": "End After Silence Seconds Effective",
+            "type": "integer"
           },
           "end_call_on_finish": {
             "anyOf": [
@@ -26726,6 +27476,72 @@
           "end_call_on_finish_effective": {
             "title": "End Call On Finish Effective",
             "type": "boolean"
+          },
+          "filler_lines": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filler Lines"
+          },
+          "filler_lines_effective": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Filler Lines Effective",
+            "type": "array"
+          },
+          "nudge_after_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge After Seconds"
+          },
+          "nudge_after_seconds_effective": {
+            "title": "Nudge After Seconds Effective",
+            "type": "integer"
+          },
+          "nudge_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge Count"
+          },
+          "nudge_count_effective": {
+            "title": "Nudge Count Effective",
+            "type": "integer"
+          },
+          "nudge_phrase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge Phrase"
+          },
+          "nudge_phrase_effective": {
+            "title": "Nudge Phrase Effective",
+            "type": "string"
           },
           "turn_silence_ms": {
             "anyOf": [
@@ -26748,6 +27564,20 @@
           "turn_silence_ms_effective",
           "end_call_on_finish",
           "end_call_on_finish_effective",
+          "nudge_after_seconds",
+          "nudge_after_seconds_effective",
+          "nudge_count",
+          "nudge_count_effective",
+          "nudge_phrase",
+          "nudge_phrase_effective",
+          "end_after_silence_seconds",
+          "end_after_silence_seconds_effective",
+          "filler_lines",
+          "filler_lines_effective",
+          "ambience",
+          "ambience_effective",
+          "ambience_volume_pct",
+          "ambience_volume_pct_effective",
           "bounds"
         ],
         "title": "OrganizationCallHandlingOut",
@@ -42574,7 +43404,7 @@
         "additionalProperties": false,
         "properties": {
           "body": {
-            "maxLength": 8000,
+            "maxLength": 20000,
             "minLength": 20,
             "title": "Body",
             "type": "string"
@@ -45719,7 +46549,7 @@
     },
     "/v1/admin/organizations/{org_id}/call-handling": {
       "get": {
-        "description": "The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.",
+        "description": "The account defaults every agent without a value of its own follows. `null` follows Calevate's. `turn_silence_ms` and `end_call_on_finish` are always stated; any other setting left out of a PUT is kept. A change reaches every live agent that inherits it, from its next call.",
         "operationId": "admin_get_organization_call_handling_v1_admin_organizations__org_id__call_handling_get",
         "parameters": [
           {
@@ -45751,14 +46581,14 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "One client's default pause before replying and hang-up",
+        "summary": "One client's default call settings",
         "tags": [
           "admin"
         ],
         "x-calevate-permission": "admin:tenants"
       },
       "put": {
-        "description": "The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.",
+        "description": "The account defaults every agent without a value of its own follows. `null` follows Calevate's. `turn_silence_ms` and `end_call_on_finish` are always stated; any other setting left out of a PUT is kept. A change reaches every live agent that inherits it, from its next call.",
         "operationId": "admin_set_organization_call_handling_v1_admin_organizations__org_id__call_handling_put",
         "parameters": [
           {
@@ -45800,7 +46630,97 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Set one client's default pause before replying and hang-up",
+        "summary": "Set one client's default call settings",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/organizations/{org_id}/call-lines": {
+      "get": {
+        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`.",
+        "operationId": "admin_get_call_lines_v1_admin_organizations__org_id__call_lines_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Org Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallLinesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How many calls one client may have at once",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
+      "put": {
+        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`.",
+        "operationId": "admin_set_call_lines_v1_admin_organizations__org_id__call_lines_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Org Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallLinesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallLinesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set how many calls one client may have at once",
         "tags": [
           "admin"
         ],
@@ -46926,7 +47846,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling": {
       "get": {
-        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.",
+        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\nEach resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "admin_get_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_get",
         "parameters": [
           {
@@ -46968,14 +47888,14 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "One client agent's pause before replying and hang-up",
+        "summary": "One client agent's call settings",
         "tags": [
           "admin"
         ],
         "x-calevate-permission": "admin:tenants"
       },
       "patch": {
-        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.",
+        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\nEach resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "admin_set_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patch",
         "parameters": [
           {
@@ -47027,7 +47947,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Set one client agent's pause before replying and hang-up",
+        "summary": "Set one client agent's call settings",
         "tags": [
           "admin"
         ],
@@ -52199,7 +53119,7 @@
     },
     "/v1/agents/{agent_id}/call-handling": {
       "get": {
-        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.",
+        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\nEach resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "get_agent_call_handling_v1_agents__agent_id__call_handling_get",
         "parameters": [
           {
@@ -52231,14 +53151,14 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The pause before an agent replies, and whether it hangs up when finished",
+        "summary": "An agent's call settings, and where each comes from",
         "tags": [
           "agents"
         ],
         "x-calevate-permission": "agents:read"
       },
       "patch": {
-        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.",
+        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\nEach resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "set_agent_call_handling_v1_agents__agent_id__call_handling_patch",
         "parameters": [
           {
@@ -52280,7 +53200,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Set an agent's pause before replying and hang-up, or let it inherit",
+        "summary": "Set an agent's call settings, or let them inherit",
         "tags": [
           "agents"
         ],
@@ -65840,7 +66760,7 @@
     },
     "/v1/ops/engine-minute-prices/{engine}/{rate_key}": {
       "post": {
-        "description": "Records the voice platform's posted rate per billed minute, before its wallet top-up fee, as a NEW effective-dated row. We add the fee when metering (10% on pay-as-you-go, 9% on Pro; each row's `topup_fee_percent` says which applies, and `inr_per_min_with_fee` is the figure metered). Requires `X-Confirm-Action: attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it are not offered and any that run are metered with no cost and alarmed.",
+        "description": "Records the voice platform's posted rate per billed minute, before its wallet top-up fee, as a NEW effective-dated row. We add the fee when metering (2.36% on every plan; each row's `topup_fee_percent` says what is added, and `inr_per_min_with_fee` is the figure metered). Requires `X-Confirm-Action: attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it are not offered and any that run are metered with no cost and alarmed.",
         "operationId": "attest_engine_minute_v1_ops_engine_minute_prices__engine___rate_key__post",
         "parameters": [
           {
@@ -68994,7 +69914,7 @@
     },
     "/v1/organization/call-handling": {
       "get": {
-        "description": "The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.",
+        "description": "The account defaults every agent without a value of its own follows. `null` follows Calevate's. `turn_silence_ms` and `end_call_on_finish` are always stated; any other setting left out of a PUT is kept. A change reaches every live agent that inherits it, from its next call.",
         "operationId": "get_organization_call_handling_v1_organization_call_handling_get",
         "responses": {
           "200": {
@@ -69014,14 +69934,14 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "This account's default pause before replying and hang-up",
+        "summary": "This account's default call settings",
         "tags": [
           "agents"
         ],
         "x-calevate-permission": "org:read"
       },
       "put": {
-        "description": "The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.",
+        "description": "The account defaults every agent without a value of its own follows. `null` follows Calevate's. `turn_silence_ms` and `end_call_on_finish` are always stated; any other setting left out of a PUT is kept. A change reaches every live agent that inherits it, from its next call.",
         "operationId": "set_organization_call_handling_v1_organization_call_handling_put",
         "requestBody": {
           "content": {
@@ -69051,7 +69971,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Set this account's default pause before replying and hang-up",
+        "summary": "Set this account's default call settings",
         "tags": [
           "agents"
         ],

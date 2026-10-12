@@ -11,11 +11,12 @@ call's cost is
 
 THE FEE IS OURS TO ADD, NOT THE OPERATOR'S. The attested rate is the platform's posted price
 per billed minute, which is what its price page and its per-call charge (`costMicro`) both
-state, and neither includes the top-up fee ThinnestAI takes on every rupee loaded into the
-wallet (VENDOR-STATED 8 Oct 2026, evaluation §12: 10% on pay-as-you-go, 9% on Pro). Every
-rupee a minute costs passed through that wallet first, so the fee is part of the minute's
-cost on every rate key, `byok_voice` included. Cartesia's synthesis on a Studio call is
-billed to our own key and never enters the wallet, so its `tts_kchars` row carries no fee.
+state, and neither includes the payment gateway's charge on every rupee loaded into the
+wallet: 2.36% on every plan (`billing/rates.THINNEST_TOPUP_FEE`, VENDOR-STATED in
+ThinnestAI's email of 12 Oct 2026). Every rupee a minute costs passed through that wallet
+first, so the fee is part of the minute's cost on every rate key, `byok_voice` included.
+Cartesia's synthesis on a Studio call is billed to our own key and never enters the wallet,
+so its `tts_kchars` row carries no fee.
 `topup_fee` is the one helper; the charge reconciler (`apps/workers/engine_charges.py`) uses
 the same one, so what we meter and what we compare against cannot drift apart.
 
@@ -77,19 +78,17 @@ WALLET_TOPUP_ENGINES: Final = frozenset({"thinnest"})
 #: without it was metered before the fee was added.
 TOPUP_FEE_META_KEY: Final = "topup_fee"
 
-#: The plan each top-up fee belongs to, for a sentence an operator reads.
+#: Which plans each top-up fee applies to, for a sentence an operator reads. One fee on
+#: every plan since ThinnestAI's email of 12 Oct 2026.
 TOPUP_FEE_PLAN_LABELS: Final[Mapping[Decimal, str]] = MappingProxyType(
-    {rates.THINNEST_PAYG_TOPUP_FEE: "pay-as-you-go", rates.THINNEST_WALLET_TOPUP_FEE: "Pro"}
+    {rates.THINNEST_TOPUP_FEE: "every plan"}
 )
 
 
-def thinnest_topup_fee(clear_band: str | None = None) -> Decimal:
-    """The wallet top-up fee of the plan this deployment's ThinnestAI workspace is on, as a
-    fraction. The Studio band is listed only on Pro and above, so a deployment selling Clear on
-    it is on Pro (9%); otherwise pay-as-you-go (10%) — the same reading the cost floors make
-    (`billing/rates.THINNEST_CLEAR_COST_FLOOR_BY_BAND`)."""
-    band = clear_band if clear_band is not None else get_settings().thinnest_clear_voice_band
-    return rates.THINNEST_WALLET_TOPUP_FEE if band == "studio" else rates.THINNEST_PAYG_TOPUP_FEE
+def thinnest_topup_fee() -> Decimal:
+    """ThinnestAI's wallet top-up fee as a fraction: the payment gateway's charge, the same
+    on every plan and every voice band (`billing/rates.THINNEST_TOPUP_FEE`)."""
+    return rates.THINNEST_TOPUP_FEE
 
 
 def topup_fee(engine: str) -> Decimal:

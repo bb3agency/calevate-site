@@ -46,7 +46,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Final, get_args
+from typing import Any, Final, Literal, get_args
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -173,9 +173,10 @@ _LISTING_MAX_PAGES: Final = 20
 #: console shows it", list-models.md:483-485). FOUNDER-RELAYED reading of the console,
 #: 10 Oct 2026, confirmed unchanged 11 Oct 2026; the API returns no latency
 #: (snapshots/2026-10-08/pages/api-reference/models/list-models.md:463-505). Shown to
-#: operators only. The per-minute BAND each model lifts a call to is not here: an operator
-#: records it in the ops console (`agents/engine_model_bands.py`), and this adapter returns
-#: none, so nothing here can make a model sellable.
+#: operators only. The per-minute BAND that prices a model is not here: an operator records
+#: it in the ops console (`agents/engine_model_bands.py`). The adapter returns the vendor's
+#: own `callTier` beside it only so a disagreement can be shown, so nothing here can make a
+#: model sellable.
 _MODEL_CONSOLE_LATENCY_MS: Final[dict[str, int]] = {
     "Prana": 154,
     "GPT-OSS 120B": 221,
@@ -196,23 +197,41 @@ def _catalogue_model(model_id: str, label: str, row: dict[str, Any]) -> Catalogu
         plan_allows=row.get("available") is True,
         voice_only_byok=row.get("voiceOnlyByok") is True,
         console_latency_ms=_MODEL_CONSOLE_LATENCY_MS.get(label),
+        listed_call_tier=_CALL_TIERS.get(str(row.get("callTier"))),
+        listed_price_per_minute=_micro_amount(row.get("callPricePerMinuteMicro")),
+        listed_currency=_str(row.get("currency")),
     )
+
+
+#: `GET /models` `callTier`: the tier a call on the model bills at with a standard voice;
+#: `callPricePerMinuteMicro` is that tier's minute in millionths of `currency`, plan discount
+#: included, null when it cannot be worked out (docs.thinnest.ai api-reference/models/
+#: list-models, read 12 Oct 2026). Read for operators to check the recorded band against;
+#: never billed from (hard rule 7).
+_CALL_TIERS: Final[dict[str, Literal["standard", "premium"]]] = {
+    "standard": "standard",
+    "premium": "premium",
+}
+
+
+def _micro_amount(value: Any) -> Decimal | None:
+    """Integer millionths as a `Decimal` amount, or None for anything that is not one."""
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        return None
+    return Decimal(value) / _MICRO_PER_UNIT
 
 
 # Field limits the vendor enforces with a 400 (agents.md:88-99, :161; place-call.md:70,
 # :96-100, :203-204; knowledge.md:52). Checked here so a publish is refused with a sentence
 # an operator can act on rather than a generic `engine_rejected`, and never truncated:
 # a truncated prompt loses its tail, which is where the truthful-answer rule sits.
-# `instructions`: 8,000 characters. The API reference says 20,000 (snapshots/2026-10-08/pages/
-# api-reference/agents/update-agent.md:519-524, and docs.thinnest.ai on 10 Oct 2026), but
-# ThinnestAI's own console showed our agent at "8249/8000 — re-sent on every reply" in red
-# (founder screenshot, 10 Oct 2026). The two VENDOR-PUBLISHED figures conflict; the lower one
-# is the one a published agent can break, so it is the ceiling until ThinnestAI says which
-# holds. The facts go to knowledge (`agents/engine_facts.py`) and the script's stages to the
-# native `steps` field (`_steps_body`), both outside this count. `greeting` 200
-# (create-agent.md:434); `purpose` "under 300 characters" (snapshots/2026-10-07/pages/
-# api-reference/calls/place-call.md:7).
-INSTRUCTIONS_MAX_CHARS: Final = 8_000
+# `instructions`: 20,000 characters everywhere, API, console save and MCP (ThinnestAI's email
+# of 12 Oct 2026, VENDOR-STATED; the 8,000 their console once showed was only its text box;
+# docs.thinnest.ai api-reference/agents/update-agent, read 12 Oct 2026, says 20,000). The
+# script's stages go to the native `steps` field (`_steps_body`), counted separately.
+# `greeting` 200 (create-agent.md:434); `purpose` "under 300 characters" (snapshots/
+# 2026-10-07/pages/api-reference/calls/place-call.md:7).
+INSTRUCTIONS_MAX_CHARS: Final = 20_000
 #: `businessDescription`, "One line about what the business is" (snapshots/2026-10-08/pages/
 #: api-reference/agents/update-agent.md:531-534).
 BUSINESS_DESCRIPTION_MAX_CHARS: Final = 200
@@ -230,11 +249,29 @@ CALL_SECONDS_MAX: Final = 1200
 #: default (`voice.ringSeconds`, 10-60, default 30; docs.thinnest.ai api-reference/agents/
 #: update-agent, read 10 Oct 2026) and stated on every publish so a console edit is repaired.
 RING_SECONDS: Final = 30
-#: Where an agent answers (`voice.surfaces`, read-only, set in the vendor console;
-#: create-agent.md:1219-1229), as the drift panel names each place besides the phone.
-#: Information only (D-720): answering on the website button or WhatsApp is acceptable and
-#: a planned feature, so it is never drift, never repaired and never alarmed.
+#: Where an agent answers besides the phone (`voice.surfaces`), as the drift panel names
+#: each place. We send phone only (`_agent_body`), so any of these is drift and is repaired
+#: (founder decision F1, 12 Oct 2026, superseding D-720's "information only").
 SURFACE_NAMES: Final[dict[str, str]] = {"web": "website call button", "whatsapp": "WhatsApp"}
+#: How an agent takes turns and fills pauses, the same on every agent (founder decisions F3,
+#: F4, F10, 12 Oct 2026): sent on every publish, so a console change reads as drift and is
+#: repaired. A caller interrupts after 3 words, short words over the agent are kept and
+#: answered, the greeting may be interrupted, no acknowledgement before every reply, and no
+#: end phrases, because the vendor matches them anywhere in what the caller says and a short
+#: one could end a call mid-sentence. Filler timings are the vendor's defaults, stated. Names,
+#: ranges and defaults: docs.thinnest.ai api-reference/agents/update-agent `voice`, read
+#: 12 Oct 2026 (`interruptWords` 1-6, `thinkingDelayMs` 200-5000, `thinkingRepeatMs`
+#: 1000-10000, `endPhrases` up to 12).
+PLATFORM_VOICE_VALUES: Final[dict[str, Any]] = {
+    "interruptWords": 3,
+    "holdShortSpeech": True,
+    "neverInterrupt": False,
+    "greetingUninterruptible": False,
+    "thinkingAtTurnEnd": False,
+    "thinkingDelayMs": 900,
+    "thinkingRepeatMs": 2500,
+    "endPhrases": [],
+}
 CALL_VARIABLES_MAX: Final = 20
 #: `name` on a placed call (place-call.md:895-899).
 LEAD_NAME_MAX: Final = 120
@@ -330,6 +367,10 @@ _NAME_TAG_RE: Final = re.compile(r" #cv-[0-9a-f]{12}$")
 # The code `agents.service.DIAL_NOT_PLACED_CODES` already treats as "refused before any
 # request was sent", shared with the owned runtime's dial for the same situation.
 DIAL_PRECONDITION_FAILED: Final = "carrier_dial_precondition_failed"
+
+#: The vendor's 409 code when `voice.surfaces` names phone on an agent with no number
+#: (docs.thinnest.ai api-reference/agents/update-agent, read 12 Oct 2026).
+PHONE_NUMBER_REQUIRED: Final = "phone_number_required"
 
 #: Logged when the LLM key slot refuses: no language-model key of ours is installed on this
 #: engine. Only the VOICE key is ours (D-688).
@@ -954,6 +995,19 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "lead_capture": ("captureLeads",),
     "collected_fields": ("collectFields",),
     "script_steps": ("steps",),
+    "surfaces": ("voice.surfaces",),
+    "silence_prompt": ("voice.nudgeAfterSeconds", "voice.nudges", "voice.nudgePhrase"),
+    "end_after_silence": ("voice.endAfterSilenceSeconds",),
+    "filler_lines": ("voice.thinking", "voice.thinkingLines"),
+    "filler_timing": ("voice.thinkingDelayMs", "voice.thinkingRepeatMs", "voice.thinkingAtTurnEnd"),
+    "background_sound": ("voice.ambience", "voice.ambienceVolume"),
+    "interruptions": (
+        "voice.interruptWords",
+        "voice.holdShortSpeech",
+        "voice.neverInterrupt",
+        "voice.greetingUninterruptible",
+    ),
+    "end_phrases": ("voice.endPhrases",),
 }
 _LANGUAGE_KEYS: Final = frozenset({"language", "voice.language"})
 
@@ -1074,6 +1128,14 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
                 same = _steps_held(have) == want
             elif key == "voice.turnSilenceSeconds":
                 same = _same_seconds(want, have)
+            elif key == "voice.surfaces":
+                same = _same_words(want, have, ordered=False)
+            elif key in ("voice.thinkingLines", "voice.endPhrases"):
+                same = _same_words(want, have, ordered=True)
+            elif key == "voice.nudgePhrase":
+                same = present and (have or None) == want
+            elif key == "voice.ambienceVolume":
+                same = _same_hundredths(want, have)
             else:
                 same = present and have == want and type(have) is type(want)
             if not same:
@@ -1089,6 +1151,24 @@ def _same_seconds(wanted: Any, held: Any) -> bool:
     if isinstance(held, bool) or not isinstance(held, int | float):
         return False
     return round(held * 1000) == round(float(wanted) * 1000)
+
+
+def _same_words(wanted: list[str], held: Any, *, ordered: bool) -> bool:
+    """A list of strings read back as the one we sent: surfaces as a set, filler lines and
+    end phrases in order. Both lists read back as `[]` when empty (get-agent `voice`, read
+    12 Oct 2026); `null` or a non-list is drift."""
+    if not isinstance(held, list) or not all(isinstance(item, str) for item in held):
+        return False
+    have = [item.strip() for item in held]
+    want = [item.strip() for item in wanted]
+    return have == want if ordered else sorted(set(have)) == sorted(set(want))
+
+
+def _same_hundredths(wanted: Any, held: Any) -> bool:
+    """A volume read back as the same hundredths we sent (`0.15` or `0.150`)."""
+    if isinstance(held, bool) or not isinstance(held, int | float):
+        return False
+    return round(held * 100) == round(float(wanted) * 100)
 
 
 def other_surfaces(agent: dict[str, Any]) -> list[str]:
@@ -1273,6 +1353,58 @@ class ThinnestEngine:
         """`(the vendor's id, the workspace it lives in)` for one of our handles."""
         return raw_of(handle), workspace_of(handle)
 
+    async def _write_agent(
+        self, method: str, path: str, route: str, workspace: str | None, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """`POST /agents` or `PATCH /agents/{id}`. A 409 `phone_number_required` (phone named
+        as a place to answer while the vendor holds no number for the agent; nothing was
+        saved, docs.thinnest.ai api-reference/errors, read 12 Oct 2026) is refused in words:
+        our record says a number is attached and the platform's does not."""
+        try:
+            return await self._request(
+                method,
+                path,
+                route=route,
+                workspace=workspace,
+                json=body,
+            )
+        except EngineRejectedError as exc:
+            voice = body.get("voice")
+            if exc.vendor_status == 400 and isinstance(voice, dict) and voice.get("surfaces") == []:
+                # The docs neither allow nor refuse an empty list (update-agent, read 12 Oct
+                # 2026). If it is refused, every write to an agent without a number would
+                # fail, so the write goes through without the field and an operator settles
+                # it with the vendor; the drift sweep keeps reporting the extra places.
+                alert(
+                    "CORE_LOGIC",
+                    "engine_agent_surfaces_refused",
+                    detail="ThinnestAI refused voice.surfaces [] on an agent with no number; "
+                    "the agent was saved without it and may still answer on the website "
+                    "button or WhatsApp. Ask ThinnestAI how to switch those off.",
+                )
+                return await self._request(
+                    method,
+                    path,
+                    route=route,
+                    workspace=workspace,
+                    json={**body, "voice": {k: v for k, v in voice.items() if k != "surfaces"}},
+                )
+            if exc.vendor_status != 409 or exc.vendor_code != PHONE_NUMBER_REQUIRED:
+                raise
+            log.warning("thinnest_agent_phone_number_missing", extra={"route": route})
+            raise _business_refusal(
+                "engine_agent_number_missing",
+                title="The agent's phone number is not attached on the voice platform",
+                detail=(
+                    "The agent was not changed: it should answer its phone number, but the "
+                    "voice platform has no number attached to it."
+                ),
+                remediation=(
+                    "Attach the number to the agent again from its Numbers page, then publish. "
+                    "If it keeps failing, contact us."
+                ),
+            ) from exc
+
     async def _walk(
         self,
         path: str,
@@ -1399,6 +1531,26 @@ class ThinnestEngine:
             # stated, so a console reset to null reads as drift. Whole milliseconds on our
             # side (`agents/call_handling`), divided only here.
             "turnSilenceSeconds": cfg.turn_silence_ms / 1000,
+            # Phone only (founder decision F1, 12 Oct 2026): never the website call button or
+            # WhatsApp, which a new agent answers on unless told otherwise. `phone` only once
+            # a number is attached, because adding it to an agent that answers calls and has
+            # no number is a 409 `phone_number_required`; while a number is attached the
+            # vendor keeps `phone` on whatever we send (docs.thinnest.ai api-reference/
+            # agents/update-agent `voice.surfaces`, read 12 Oct 2026).
+            "surfaces": ["phone"] if cfg.has_phone_number else [],
+            # The client's "are you still there?" settings (founder decisions F3, F9).
+            "nudgeAfterSeconds": cfg.nudge_after_seconds,
+            "nudges": cfg.nudge_count,
+            "nudgePhrase": cfg.nudge_phrase or None,
+            "endAfterSilenceSeconds": cfg.end_after_silence_seconds,
+            # The client's filler lines; empty is the vendor's own, in the caller's language.
+            "thinking": True,
+            "thinkingLines": list(cfg.filler_lines),
+            # The client's background office sound. Volume is a fraction with at most two
+            # decimals, 0.05-1 (same page); we hold whole percent.
+            "ambience": cfg.ambience,
+            "ambienceVolume": round(cfg.ambience_volume_pct / 100, 2),
+            **PLATFORM_VOICE_VALUES,
         }
         if cfg.engine_voice_id and cfg.engine_byok_voice_id:
             raise _business_refusal(
@@ -1796,13 +1948,11 @@ class ThinnestEngine:
         self.built_in_tools_body(cfg)
         raw = await self._find_agent(cfg, workspace)
         if raw is not None:
-            data = await self._request(
-                "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=body
+            data = await self._write_agent(
+                "PATCH", f"/agents/{raw}", "/agents/{ref}", workspace, body
             )
         else:
-            data = await self._request(
-                "POST", "/agents", route="/agents", workspace=workspace, json=body
-            )
+            data = await self._write_agent("POST", "/agents", "/agents", workspace, body)
             raw = _str(data.get("id"))
             if raw is None:
                 raise _bad_response("The voice platform did not return an agent id.")
@@ -1815,9 +1965,7 @@ class ThinnestEngine:
         raw, workspace = self._at(ref)
         body = self._agent_body(cfg)
         self.built_in_tools_body(cfg)
-        saved = await self._request(
-            "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=body
-        )
+        saved = await self._write_agent("PATCH", f"/agents/{raw}", "/agents/{ref}", workspace, body)
         _refuse_unsaved_steps(body, saved)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_built_in_tools(raw, workspace, cfg)
@@ -1925,8 +2073,8 @@ class ThinnestEngine:
         return drifted
 
     async def answer_surfaces(self, ref: EngineAgentRef) -> list[str]:
-        """Where else besides the phone the agent answers (`other_surfaces`). Information for
-        the drift panel; nothing compares or repairs it."""
+        """Where else besides the phone the agent answers (`other_surfaces`), for the drift
+        panel. Any such place is drift: the settings sweep compares and repairs `surfaces`."""
         raw, workspace = self._at(ref)
         agent = await self._request(
             "GET", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace
@@ -1955,9 +2103,7 @@ class ThinnestEngine:
         if voice:
             body["voice"] = voice
         if body:
-            await self._request(
-                "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=body
-            )
+            await self._write_agent("PATCH", f"/agents/{raw}", "/agents/{ref}", workspace, body)
         if {"built_in_tools", "hand_over"} & set(drifted):
             await self._apply_built_in_tools(raw, workspace, cfg)
 
@@ -2460,7 +2606,14 @@ class ThinnestEngine:
         provider's own sample when it hosts one. `409` when the workspace is not on its own
         keys (snapshots/2026-10-07b/pages/api-reference/bring-your-own-keys/
         list-byok-voices.md:7, :344-379, :452-485) — so it is read in a client workspace that
-        runs Studio, never in our developer workspace, whose switch stays off (D-717)."""
+        runs Studio, never in our developer workspace, whose switch stays off (D-717).
+
+        One request, no paging parameters: on Cartesia the answer is our own clones first,
+        then the library up to 2,000 voices, and `complete` is false when the provider was
+        slow and the list may be short (docs.thinnest.ai api-reference/bring-your-own-keys/
+        list-byok-voices, read 12 Oct 2026). Anything but `complete: true` is reported as
+        short, so the sync withdraws nothing on it. No field marks which voices are our
+        clones, so none is marked (`HostedVoice.is_custom` stays False here)."""
         data = await self._request(
             "GET", "/byok/voices", route="/byok/voices", workspace=workspace_of(None)
         )
@@ -2481,6 +2634,7 @@ class ThinnestEngine:
         return HostedVoiceListing(
             voices=voices,
             provider=_str(provider.get("id")) if isinstance(provider, dict) else None,
+            complete=data.get("complete") is True,
         )
 
     async def preview_own_key_voice(
@@ -2776,7 +2930,8 @@ class ThinnestEngine:
         """`GET /models` (snapshots/2026-10-07b/pages/api-reference/models/list-models.md:7):
         `voice` says a model is fast enough for calls, `available` that this plan may pick
         it, and `voiceOnlyByok` that a call may run on it while only the voice is our own key
-        (`bring-your-own-keys.md:44-63`)."""
+        (`bring-your-own-keys.md:44-63`); `callTier` and the minute price as `_CALL_TIERS`
+        says. Not paged (live docs, read 12 Oct 2026), so the walk reads one page."""
         model_rows, model_reason, _ = await self._walk("/models", route="/models", workspace=None)
         models = [
             _catalogue_model(model_id, label, row)

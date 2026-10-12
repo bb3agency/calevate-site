@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from apps.api.admin import service as admin_service
@@ -439,7 +440,9 @@ async def test_a_clients_own_connection_cannot_be_released_here(authorized: None
 # ------------------------------------------------------- the cron that writes it
 
 
-async def test_the_monthly_meter_reaches_every_tenants_bought_numbers(authorized: None) -> None:
+async def test_the_monthly_meter_reaches_every_tenants_bought_numbers(
+    authorized: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """**THE JOB THAT ACTUALLY HAS TO RUN, AGAINST THE REAL POLICY.**
 
     `phone_numbers` is FORCE-RLS'd, so an untenanted read of it returns zero rows, and
@@ -448,7 +451,11 @@ async def test_the_monthly_meter_reaches_every_tenants_bought_numbers(authorized
     first version of this job did exactly that and would have metered nothing, for ever,
     silently: a rental leak whose whole symptom is the absence of a row. So this test runs
     the CRON rather than the writer, and asserts on rows that reached the ledger.
+
+    The cron walks the whole shared test database, so its summary counts every suite's
+    numbers; what this test owns is its own number's outcome, read off the alarms it raised.
     """
+    from apps.workers import number_rental as rental_worker
     from apps.workers.number_rental import meter_number_rentals
 
     tenant_id = await _tenant()
@@ -466,11 +473,21 @@ async def test_the_monthly_meter_reaches_every_tenants_bought_numbers(authorized
             purpose=None,
         )
 
+    alarms: list[tuple[str, dict[str, Any]]] = []
+    real_alert = rental_worker.alert
+
+    def _recording_alert(stage: Any, code: str, **fields: Any) -> None:
+        alarms.append((code, fields))
+        real_alert(stage, code, **fields)
+
+    monkeypatch.setattr(rental_worker, "alert", _recording_alert)
     first = await meter_number_rentals({})
     # A SECOND RUN IS A NO-OP, which is what makes a re-run after a failure safe.
     second = await meter_number_rentals({})
 
-    assert "'failed': 0" in first and "'unpriced': 0" in first, first
+    assert "'failed': 0" in first, first
+    own = [code for code, fields in alarms if fields.get("number_id") == str(bought.number_id)]
+    assert not own, f"this test's number was not metered cleanly: {own}"
     assert "'metered': 0" in second, f"a re-run must replay, not charge again: {second}"
     async with tenant_session(tenant_id) as session:
         rows = (

@@ -1,7 +1,10 @@
-"""The ThinnestAI wallet top-up fee is part of a minute's cost (D-723).
+"""The ThinnestAI wallet top-up fee is part of a minute's cost (D-723), and it is 2.36% on every
+plan (ThinnestAI email of 12 Oct 2026), not the 10% / 9% it was first read as.
 
 The fixtures are the three production calls `engine_charge_mismatch` paged on, 10 Oct 2026:
-rate key `premium`, attested ₹2.50 posted, pay-as-you-go (10% fee), metered without the fee.
+rate key `premium`, attested ₹2.50 posted, metered without the fee. The "expected" column is
+the charge with the 10% fee D-723 restated them at, which the correction then takes back to
+2.36%.
 
     18 s  qty 0.3000  metered ₹1.25  costMicro ₹1.25  expected ₹1.375
     64 s  qty 1.0667  metered ₹3.75  costMicro ₹3.75  expected ₹4.125
@@ -82,16 +85,13 @@ async def _attest_platform(inr: str) -> datetime:
     return instant
 
 
-@pytest.mark.parametrize(
-    ("band", "fee", "expected"),
-    [
-        ("premium", "0.10", ("1.3750", "4.1250", "2.7500")),
-        ("studio", "0.09", ("1.3625", "4.0875", "2.7250")),
-    ],
-)
-async def test_a_minute_is_metered_at_the_posted_rate_plus_the_plans_fee(
-    on_band: Any, band: str, fee: str, expected: tuple[str, str, str]
+@pytest.mark.parametrize("band", ["premium", "studio"])
+async def test_a_minute_is_metered_at_the_posted_rate_plus_the_one_fee(
+    on_band: Any, band: str
 ) -> None:
+    """2.36% on every plan: the band Clear is sold on no longer moves the fee."""
+    fee = "0.0236"
+    expected = ("1.2795", "3.8385", "2.5590")
     on_band(band)
     assert thinnest_topup_fee() == topup_fee("thinnest") == Decimal(fee)
     assert topup_fee("pipecat") == 0
@@ -339,54 +339,83 @@ async def test_the_sweep_alarms_once_then_clears_after_the_fee_is_restated(
     )
     monkeypatch.setattr(engine_charges, "_ALARMED_KEY", f"test:{uuid.uuid4()}:{{engine}}")
 
-    real_restate = engine_charges.restate_minutes_without_fee
-
-    async def _before_the_fix(_engine: str) -> int:
+    async def _off(_engine: str) -> int:
         return 0
 
-    # Before the fix: the three calls mismatch. The first sweep alarms, the next is quiet.
-    monkeypatch.setattr(engine_charges, "restate_minutes_without_fee", _before_the_fix)
+    async def _correct_this_tenant(engine_name: str) -> int:
+        written = await engine_charges.correct_tenant_fees(tenant_id, fee=topup_fee(engine_name))
+        return len(written)
+
+    # As on 12 Oct 2026: D-723 restated the three calls at 10%. Two now cost more than their
+    # charge with 2.36% by more than the tolerance (the 18 s call is inside it). The first
+    # sweep alarms, the next is quiet.
+    assert len(await engine_charges.restate_tenant_minutes(tenant_id, fee=Decimal("0.10"))) == 3
+    monkeypatch.setattr(engine_charges, "restate_minutes_without_fee", _off)
+    monkeypatch.setattr(engine_charges, "correct_overstated_fees", _off)
     first = await engine_charges.reconcile_engine_charges({})
-    assert "matched=3" in first and "mismatched=3" in first
+    assert "matched=3" in first and "mismatched=2" in first
     assert raised == [("engine_charge_mismatch", "thinnest")]
     second = await engine_charges.reconcile_engine_charges({})
-    assert "mismatched=3" in second
+    assert "mismatched=2" in second
     assert raised == [("engine_charge_mismatch", "thinnest")], "same calls, no second alarm"
     assert resolved == []
 
-    # The fix: the sweep restates the fee first, the three calls now match, the episode ends.
+    # The fix: the sweep corrects the fee, the three calls now match, the episode ends.
+    monkeypatch.setattr(engine_charges, "correct_overstated_fees", _correct_this_tenant)
+    third = await engine_charges.reconcile_engine_charges({})
+    assert "mismatched=0" in third and "corrected=3" in third
+    assert resolved == [("engine_charge_mismatch", "thinnest")]
+    assert raised == [("engine_charge_mismatch", "thinnest")]
+
+    fourth = await engine_charges.reconcile_engine_charges({})
+    assert "mismatched=0" in fourth and "corrected=0" in fourth
+
+    # Per call, the cost the reconciler reads is now the charge with its fee.
+    for call_id, _ecid, charge in calls:
+        expected = cost_with_fee(Decimal(charge), fee=Decimal("0.0236"))
+        assert await _minute_cost(tenant_id, call_id) == expected
+
+
+@pytest.mark.rls
+async def test_a_minute_never_restated_is_restated_at_the_stated_fee(
+    monkeypatch: pytest.MonkeyPatch, on_band: Any
+) -> None:
+    """A minute metered without the fee and never restated is restated at 2.36% by the real
+    sweep, and needs no correction."""
+    import apps.workers.workspace_walk as workspace_walk
+
+    tenant_id, ref, calls = await _production_tenant()
+    engine = _Engine([EngineCharge(ecid, ref, Decimal(charge)) for _c, ecid, charge in calls])
+    real_restate = engine_charges.restate_minutes_without_fee
+
+    async def _no_clients(**_kw: Any) -> list[Any]:
+        return []
+
+    async def _tenant_of(_engine: str, agent_ref: str | None) -> uuid.UUID | None:
+        return tenant_id if agent_ref == ref else None
+
     async def _only_this_tenant(engine_name: str) -> int:
         assert await real_restate("pipecat") == 0
         written = await engine_charges.restate_tenant_minutes(tenant_id, fee=topup_fee(engine_name))
         return len(written)
 
+    async def _correct_this_tenant(engine_name: str) -> int:
+        written = await engine_charges.correct_tenant_fees(tenant_id, fee=topup_fee(engine_name))
+        return len(written)
+
+    monkeypatch.setattr(workspace_walk, "active_workspaces", _no_clients)
+    monkeypatch.setattr(engine_charges, "get_engine", lambda: engine)
+    monkeypatch.setattr(engine_charges, "_tenant_of", _tenant_of)
+    monkeypatch.setattr(engine_charges, "alert", lambda *_a, **_kw: None)
+    monkeypatch.setattr(engine_charges, "resolve_alert", lambda *_a, **_kw: None)
+    monkeypatch.setattr(engine_charges, "_ALARMED_KEY", f"test:{uuid.uuid4()}:{{engine}}")
     monkeypatch.setattr(engine_charges, "restate_minutes_without_fee", _only_this_tenant)
-    third = await engine_charges.reconcile_engine_charges({})
-    assert "mismatched=0" in third and "restated=3" in third
-    assert resolved == [("engine_charge_mismatch", "thinnest")]
-    assert raised == [("engine_charge_mismatch", "thinnest")]
-
-    fourth = await engine_charges.reconcile_engine_charges({})
-    assert "mismatched=0" in fourth and "restated=0" in fourth
-
-    # Per call, the cost the reconciler reads is now the charge with its fee.
-    async with tenant_session(tenant_id) as session:
-        for call_id, _ecid, charge in calls:
-            total = (
-                await session.execute(
-                    text(
-                        "SELECT sum(qty * unit_cost_paid) FROM usage_events "
-                        "WHERE call_id = :c AND (unit_type = 'platform_min' "
-                        "OR meta->>'kind' = :k)"
-                    ),
-                    {"c": call_id, "k": engine_charges.FEE_RESTATEMENT_META_KIND},
-                )
-            ).scalar_one()
-            expected = cost_with_fee(Decimal(charge), fee=Decimal("0.10"))
-            assert engine_charges.within_tolerance(
-                Decimal(str(total)).quantize(MONEY_Q, rounding=ROUNDING), expected
-            )
-            assert abs(Decimal(str(total)) - expected) < Decimal("0.001")
+    monkeypatch.setattr(engine_charges, "correct_overstated_fees", _correct_this_tenant)
+    outcome = await engine_charges.reconcile_engine_charges({})
+    assert "mismatched=0" in outcome and "restated=3 corrected=0" in outcome
+    for call_id, _ecid, charge in calls:
+        expected = cost_with_fee(Decimal(charge), fee=Decimal("0.0236"))
+        assert await _minute_cost(tenant_id, call_id) == expected
 
 
 @pytest.mark.rls
@@ -396,3 +425,144 @@ async def test_the_restatement_walks_every_tenant_on_the_engine(on_band: Any) ->
     after = await _ledger(tenant_id)
     assert len(after["restated"]) == 3
     assert await engine_charges.restate_minutes_without_fee("pipecat") == 0
+
+
+# --- the correction to 2.36% (12 Oct 2026) -------------------------------------------------
+
+
+async def _corrections(tenant_id: uuid.UUID) -> list[Any]:
+    async with tenant_session(tenant_id) as session:
+        return list(
+            (
+                await session.execute(
+                    text(
+                        "SELECT call_id, qty, unit_cost_paid, occurred_at, meta FROM usage_events "
+                        "WHERE tenant_id = :t AND unit_type = 'other' AND meta->>'kind' = :k "
+                        "ORDER BY call_id"
+                    ),
+                    {"t": tenant_id, "k": engine_charges.FEE_CORRECTION_META_KIND},
+                )
+            ).all()
+        )
+
+
+async def _minute_cost(tenant_id: uuid.UUID, call_id: uuid.UUID) -> Decimal:
+    async with tenant_session(tenant_id) as session:
+        total = (
+            await session.execute(
+                text(
+                    "SELECT sum(qty * unit_cost_paid) FROM usage_events WHERE call_id = :c "
+                    "AND (unit_type = 'platform_min' OR meta->>'kind' IN (:r, :k))"
+                ),
+                {
+                    "c": call_id,
+                    "r": engine_charges.FEE_RESTATEMENT_META_KIND,
+                    "k": engine_charges.FEE_CORRECTION_META_KIND,
+                },
+            )
+        ).scalar_one()
+    return Decimal(str(total)).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+@pytest.mark.rls
+async def test_a_restatement_written_at_ten_percent_is_taken_back_to_the_stated_fee() -> None:
+    """D-723 restated the production calls at 10%; the correction appends the excess as a
+    negative row, once per call, so each call costs its charge with 2.36%.
+
+    FAILS IF: the correction rewrites a row, writes twice, touches the client's side, or
+    leaves a call at anything but charge x 1.0236."""
+    tenant_id, _ref, calls = await _production_tenant()
+    await engine_charges.restate_tenant_minutes(tenant_id, fee=Decimal("0.10"))
+    before = await _ledger(tenant_id)
+
+    first, second = await asyncio.gather(
+        engine_charges.correct_tenant_fees(tenant_id, fee=Decimal("0.0236")),
+        engine_charges.correct_tenant_fees(tenant_id, fee=Decimal("0.0236")),
+    )
+    assert sorted(d for _c, d in first + second) == [
+        Decimal("0.0955"),
+        Decimal("0.1910"),
+        Decimal("0.2865"),
+    ]
+    assert await engine_charges.correct_tenant_fees(tenant_id, fee=Decimal("0.0236")) == []
+
+    after = await _ledger(tenant_id)
+    assert after["credit"] == before["credit"]
+    assert after["billed"] == before["billed"]
+    assert after["restated"] == before["restated"]
+    corrections = await _corrections(tenant_id)
+    assert {row[0] for row in corrections} == {call_id for call_id, _e, _c in calls}
+    for _call, qty, cost, occurred_at, meta in corrections:
+        assert qty == 1 and cost < 0
+        assert occurred_at == datetime(2026, 10, 10, 9, tzinfo=UTC)
+        assert meta["fee"] == "0.0236" and meta["fee_was"] == "0.10"
+        assert meta["corrected_row"] == engine_charges.FEE_RESTATEMENT_META_KIND
+        assert meta["corrected_engine_rate_key"] == "premium"
+        assert meta["voice_tier"] == "clear" and meta[LEDGER_RUNG_KEY] == "premium"
+        assert "engine_rate_key" not in meta
+    for call_id, _ecid, charge in calls:
+        assert await _minute_cost(tenant_id, call_id) == cost_with_fee(
+            Decimal(charge), fee=Decimal("0.0236")
+        )
+
+
+async def _minute_with_fee(tenant_id: uuid.UUID, *, fee: str, cost: str, priced: bool) -> uuid.UUID:
+    """A call metered after D-723: one minute row carrying the fee its cost includes."""
+    call_id = uuid7()
+    meta: dict[str, str] = {"engine_rate_key": "premium", "topup_fee": fee, "voice_tier": "clear"}
+    if priced:
+        meta |= {"billed_minutes": "1.0", "inr_per_min": "2.500000"}
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
+                "created_at, updated_at) SELECT :id, tenant_id, agent_id, :ecid, "
+                "'outbound', 'completed', now(), now() FROM calls WHERE tenant_id = :t LIMIT 1"
+            ),
+            {"id": call_id, "t": tenant_id, "ecid": f"out_{call_id.hex}"},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, "
+                "unit_cost_paid, occurred_at, meta, created_at) VALUES (:i, :t, :c, "
+                "'platform_min', 1, :p, now(), CAST(:m AS jsonb), now())"
+            ),
+            {"i": uuid7(), "t": tenant_id, "c": call_id, "p": Decimal(cost), "m": json.dumps(meta)},
+        )
+    return call_id
+
+
+@pytest.mark.rls
+async def test_a_minute_metered_with_a_higher_fee_is_corrected_and_one_at_the_fee_is_not() -> None:
+    tenant_id, _ref, _calls = await _production_tenant()
+    ten = await _minute_with_fee(tenant_id, fee="0.10", cost="2.75", priced=True)
+    nine = await _minute_with_fee(tenant_id, fee="0.09", cost="2.7250", priced=False)
+    today = await _minute_with_fee(tenant_id, fee="0.0236", cost="2.5590", priced=True)
+    written = dict(await engine_charges.correct_tenant_fees(tenant_id, fee=Decimal("0.0236")))
+    # Priced from its own minutes and rate where recorded, from its fee otherwise.
+    assert written == {ten: Decimal("0.1910"), nine: Decimal("0.1660")}
+    assert today not in written
+    assert await _minute_cost(tenant_id, ten) == Decimal("2.5590")
+    assert await _minute_cost(tenant_id, nine) == Decimal("2.5590")
+    rows = {row[0]: row[4] for row in await _corrections(tenant_id)}
+    assert rows[ten]["corrected_row"] == "platform_min" and rows[ten]["fee_was"] == "0.10"
+    assert rows[nine]["fee_was"] == "0.09"
+
+
+def test_the_excess_is_zero_when_nothing_is_over_the_fee() -> None:
+    fee = Decimal("0.0236")
+    excess = engine_charges.fee_excess
+    assert excess("platform_min", Decimal("2.5590"), {"topup_fee": "0.0236"}, fee=fee) == 0
+    assert excess("platform_min", Decimal("2.50"), {}, fee=fee) == 0
+    restated_at_fee = {"fee": "0.0236", "metered_inr": "2.50"}
+    assert excess("other", Decimal("0.0590"), restated_at_fee, fee=fee) == 0
+    assert excess("other", Decimal("0.25"), {"fee": "0.10"}, fee=fee) == 0
+
+
+@pytest.mark.rls
+async def test_the_correction_walks_every_tenant_on_the_engine(on_band: Any) -> None:
+    tenant_id, _ref, _calls = await _production_tenant()
+    await engine_charges.restate_tenant_minutes(tenant_id, fee=Decimal("0.10"))
+    assert await engine_charges.correct_overstated_fees("thinnest") >= 3
+    assert len(await _corrections(tenant_id)) == 3
+    assert await engine_charges.correct_overstated_fees("pipecat") == 0

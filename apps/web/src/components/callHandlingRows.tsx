@@ -49,7 +49,7 @@ interface RowProps<T> {
   onSave: (next: T | null, done: () => void) => void;
 }
 
-function Card({
+export function CallHandlingCard({
   name,
   checked,
   onSelect,
@@ -162,14 +162,14 @@ export function PauseRow({
           <fieldset>
             <legend className="sr-only">Pause before the agent replies</legend>
             <div className="grid gap-2 sm:grid-cols-2">
-              <Card
+              <CallHandlingCard
                 name={name}
                 checked={choice === "inherit"}
                 onSelect={() => setChoice("inherit")}
                 label={inheritLabel}
               />
               {PAUSE_PRESETS.map((preset) => (
-                <Card
+                <CallHandlingCard
                   key={preset.ms}
                   name={name}
                   checked={choice === String(preset.ms)}
@@ -178,7 +178,7 @@ export function PauseRow({
                   hint={preset.hint}
                 />
               ))}
-              <Card
+              <CallHandlingCard
                 name={name}
                 checked={choice === "custom"}
                 onSelect={() => setChoice("custom")}
@@ -311,20 +311,20 @@ export function HangUpRow({
           <fieldset>
             <legend className="sr-only">Hang up when the conversation ends</legend>
             <div className="grid gap-2 sm:grid-cols-3">
-              <Card
+              <CallHandlingCard
                 name={name}
                 checked={choice === "inherit"}
                 onSelect={() => setChoice("inherit")}
                 label={inheritLabel}
               />
-              <Card
+              <CallHandlingCard
                 name={name}
                 checked={choice === "on"}
                 onSelect={() => setChoice("on")}
                 label="On"
                 hint="The agent puts the phone down when it has finished."
               />
-              <Card
+              <CallHandlingCard
                 name={name}
                 checked={choice === "off"}
                 onSelect={() => setChoice("off")}

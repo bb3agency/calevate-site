@@ -158,7 +158,12 @@ from apps.api.billing.plans import ist_month_end, parse_billing_month
 # `extra_unavailable`'s `not_prepaid` and `purchase_ai_overage`'s refusal, i.e. WHO MAY
 # SPEND MONEY. Two spellings of one money predicate is the D-103 shape, and it agreed with
 # the original only by coincidence of nobody having edited either.
-from apps.api.billing.rates import PREPAID_TIERS, llm_inr_per_ktok, stt_rate_inr_per_minute
+from apps.api.billing.rates import (
+    PREPAID_TIERS,
+    ROUNDING,
+    llm_inr_per_ktok,
+    stt_rate_inr_per_minute,
+)
 from apps.api.billing.service import (
     _IST_MONTH,
     _IST_MONTH_WINDOW,
@@ -1168,7 +1173,7 @@ async def record_absorbed_stt_usage(
         )
     if audio_seconds < 0:
         raise ValueError("audio duration cannot be negative")
-    qty = (Decimal(audio_seconds) / Decimal(60)).quantize(Decimal("0.0001"))
+    qty = (Decimal(audio_seconds) / Decimal(60)).quantize(Decimal("0.0001"), rounding=ROUNDING)
     price = stt_rate_inr_per_minute()
     meta = json.dumps(
         {

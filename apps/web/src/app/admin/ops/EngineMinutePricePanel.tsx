@@ -52,7 +52,7 @@ export function saleNote(row: EngineMinutePrice): string {
 }
 
 /**
- * "10% on pay-as-you-go, 9% on Pro", from the server's fee list rather than typed here, so
+ * "2.36% on every plan", from the server's fee list rather than typed here, so
  * the sentence moves with the fee the meter actually adds.
  */
 export function feeSentence(fees: EngineMinutePrices["topup_fees"]): string {

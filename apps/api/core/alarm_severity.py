@@ -610,6 +610,13 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # setting, or a plan below Pro for the Studio band). Not paged: the account answered,
     # nothing a live call speaks broke this hour, and the fix is an operator's daylight act.
     "voice_catalogue_no_studio_band": "attention",
+    # The voice platform said its own-key voice list may be short; it was applied without
+    # withdrawing anything, so no client loses a voice. Asked again next hour.
+    "voice_catalogue_partial": "attention",
+    # A client's calls-at-once cap did not read back as set on the voice platform. Nobody's
+    # call fails; the client may hold more or fewer lines than chosen until it is saved again.
+    "engine_call_lines_not_saved": "attention",
+    "engine_agent_surfaces_refused": "attention",
     "voice_catalogue_sync_failed": "attention",
     # Payments cannot be verified at all, so money is arriving and nothing is crediting it.
     "razorpay_webhook_unconfigured": "page",

@@ -748,16 +748,6 @@ async def test_pinned_facts_have_a_ceiling_and_reorder_names_every_fact() -> Non
             origin="taught",
             created_by=None,
         )
-        with pytest.raises(ProblemError) as full:
-            await pinned_store.add_pinned(
-                session,
-                tenant_id=tenant_id,
-                question=None,
-                answer="x" * 1600,
-                origin="taught",
-                created_by=None,
-            )
-        assert full.value.code == "pinned_facts_full"
         await pinned_store.reorder(session, tenant_id=tenant_id, ids=[second, first])
         assert [p.id for p in await pinned_store.list_pinned(session)] == [second, first]
         with pytest.raises(ProblemError):
@@ -775,3 +765,23 @@ async def test_pinned_facts_have_a_ceiling_and_reorder_names_every_fact() -> Non
         )
         searched = await fact_store.list_facts(session, pinned=False)
         assert [f.text for f in searched] == ["Closed Sunday."]
+        # The ceiling is the whole section (`MAX_PINNED_CHARS`, 3,000): one long answer fits,
+        # a second that crosses it is refused.
+        await pinned_store.add_pinned(
+            session,
+            tenant_id=tenant_id,
+            question=None,
+            answer="y" * 2000,
+            origin="taught",
+            created_by=None,
+        )
+        with pytest.raises(ProblemError) as full:
+            await pinned_store.add_pinned(
+                session,
+                tenant_id=tenant_id,
+                question=None,
+                answer="x" * 1600,
+                origin="taught",
+                created_by=None,
+            )
+        assert full.value.code == "pinned_facts_full"

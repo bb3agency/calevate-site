@@ -131,7 +131,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
 from apps.api.agents import handoff as handoff_module
-from apps.api.agents.call_handling import resolve_end_call_on_finish, resolve_turn_silence
+from apps.api.agents.call_handling import (
+    AGENT_SETTING_COLUMNS,
+    ORG_SETTING_COLUMNS,
+    CallSettings,
+    resolve_settings,
+    settings_from_row,
+)
 from apps.api.agents.engine_choice import (
     byok_in_force,
     engine_rate_key_for,
@@ -526,6 +532,11 @@ class AgentRow(TypedDict):
     end_call_on_finish: NotRequired[bool | None]
     organization_turn_silence_ms: NotRequired[int | None]
     organization_end_call_on_finish: NotRequired[bool | None]
+    #: Every call setting, the agent's own and the account's (D-751, F3, F9); None inherits.
+    call_settings: NotRequired[CallSettings]
+    organization_call_settings: NotRequired[CallSettings]
+    #: An engine number is attached to this agent (F1).
+    has_phone_number: NotRequired[bool]
 
 
 def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
@@ -537,6 +548,32 @@ def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
     One place, so the vocabulary cannot be re-spelled at a second call site.
     """
     return value in AGENT_DIRECTIONS
+
+
+def answers_on_a_number(
+    *, status: str, direction: str, engine_agent_ref: object, number_refs: list[object]
+) -> bool:
+    """Does the voice platform hold one of these numbers as this agent's answering line?
+
+    Exactly when our number sync makes it so (`campaigns/engine_numbers.wanted_attachment`):
+    a live agent that answers calls, with a number in its own workspace. An outbound-only
+    agent is only lent a number to call out on, and the shared trial number is lent per
+    call without a row here, so neither counts: ThinnestAI adds "phone" to an agent only
+    when a number is attached to it, and refuses it otherwise (F1)."""
+    from apps.api.campaigns.engine_numbers import wanted_attachment
+
+    if not isinstance(engine_agent_ref, str) or not engine_agent_ref:
+        return False
+    agent, _calling = wanted_attachment(
+        released=False,
+        direction=direction,
+        status=status,
+        engine_agent_ref=engine_agent_ref,
+        archived=False,
+    )
+    return agent is not None and any(
+        scope_of(str(ref)) == scope_of(agent) for ref in number_refs if ref
+    )
 
 
 async def _load_agent(
@@ -586,10 +623,13 @@ async def _load_agent(
                 # The authored form of the applied version, for an engine that takes the
                 # script's stages as its own step list (`_steps_for`).
                 "pv.structured_script, "
-                # The call handling settings and the account defaults they inherit (D-751),
-                # in this statement for `default_llm_model`'s reason.
-                "a.turn_silence_ms, a.end_call_on_finish, o.default_turn_silence_ms, "
-                "o.default_end_call_on_finish "
+                # The call handling settings and the account defaults they inherit (D-751,
+                # F3, F9), in this statement for `default_llm_model`'s reason.
+                f"{AGENT_SETTING_COLUMNS}, {ORG_SETTING_COLUMNS}, "
+                # The engine numbers bound to the agent, for `answers_on_a_number` (F1).
+                "ARRAY(SELECT n.engine_number_ref FROM phone_numbers n WHERE n.agent_id = a.id "
+                "AND n.released_at IS NULL AND n.engine_number_ref IS NOT NULL "
+                "AND n.provider = :number_provider) "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -602,7 +642,7 @@ async def _load_agent(
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
                 + (" FOR UPDATE OF a" if for_update else "")
             ),
-            {"aid": agent_id},
+            {"aid": agent_id, "number_provider": ENGINE_NUMBER_PROVIDER.get(get_settings().engine)},
         )
     ).first()
     if row is None:
@@ -660,8 +700,16 @@ async def _load_agent(
         "structured_script": row[28],
         "turn_silence_ms": row[29],
         "end_call_on_finish": row[30],
-        "organization_turn_silence_ms": row[31],
-        "organization_end_call_on_finish": row[32],
+        "organization_turn_silence_ms": row[38],
+        "organization_end_call_on_finish": row[39],
+        "call_settings": settings_from_row(tuple(row[29:38])),
+        "organization_call_settings": settings_from_row(tuple(row[38:47])),
+        "has_phone_number": answers_on_a_number(
+            status=str(row[12]),
+            direction=str(direction),
+            engine_agent_ref=row[11],
+            number_refs=list(row[47] or ()),
+        ),
         # A restricted free trial never places a call back (D-697), so its agents must not
         # offer one (founder decision 1, 10 Oct 2026).
         "callbacks_offered": await restricting_trial(session, tenant_id=tenant_id) is None,
@@ -1157,6 +1205,35 @@ def _model_legs(agent: AgentRow, *, engine: VoiceEngine) -> dict[str, Any]:
     return legs
 
 
+def _call_settings_fields(agent: AgentRow) -> dict[str, Any]:
+    """The `AgentConfig` fields of the call settings, resolved agent -> account -> Calevate
+    (`agents/call_handling`). The sentinels a client chooses become the config's own: never
+    asking is no `nudge_after_seconds`, the platform's question is no `nudge_phrase`, and no
+    sound is no `ambience`. `.get`: test fixtures build partial rows, which hold only the
+    first two settings."""
+    own = agent.get("call_settings") or CallSettings(
+        turn_silence_ms=agent.get("turn_silence_ms"),
+        end_call_on_finish=agent.get("end_call_on_finish"),
+    )
+    organization = agent.get("organization_call_settings") or CallSettings(
+        turn_silence_ms=agent.get("organization_turn_silence_ms"),
+        end_call_on_finish=agent.get("organization_end_call_on_finish"),
+    )
+    v = resolve_settings(own, organization).values
+    after = v.nudge_after_seconds
+    return {
+        "turn_silence_ms": v.turn_silence_ms,
+        "end_call_on_finish": v.end_call_on_finish,
+        "nudge_after_seconds": after if after else None,
+        "nudge_count": v.nudge_count,
+        "nudge_phrase": v.nudge_phrase or None,
+        "end_after_silence_seconds": v.end_after_silence_seconds,
+        "filler_lines": v.filler_lines,
+        "ambience": None if v.ambience == "off" else v.ambience,
+        "ambience_volume_pct": v.ambience_volume_pct,
+    }
+
+
 def _to_config(
     tenant_id: UUID,
     agent: AgentRow,
@@ -1192,12 +1269,8 @@ def _to_config(
         callbacks_offered=bool(agent.get("callbacks_offered", True))
         and not call_backs_withheld(agent.get("prompt")),
         detect_machines=bool(agent.get("detect_machines", False)),
-        turn_silence_ms=resolve_turn_silence(
-            agent.get("turn_silence_ms"), agent.get("organization_turn_silence_ms")
-        ).ms,
-        end_call_on_finish=resolve_end_call_on_finish(
-            agent.get("end_call_on_finish"), agent.get("organization_end_call_on_finish")
-        ).enabled,
+        **_call_settings_fields(agent),
+        has_phone_number=bool(agent.get("has_phone_number", False)),
         forwarded_line=bool(agent.get("forwarded_line", False)),
         # THE NOTICES THE AGENT VOLUNTEERS BEFORE ITS OPENING LINE, composed from this
         # agent's two toggles by the one composer (D-163). The opening line itself (the

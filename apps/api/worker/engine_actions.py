@@ -33,9 +33,15 @@ arrive, so a minimal `in_progress` row is inserted under the vendor's call id, w
 post-call upsert (`workers/pipeline._upsert_call_row`, `ON CONFLICT (engine_call_id)`)
 then completes rather than duplicates.
 
-A TEST CHAT names no call. An opt-out that names none while the owner is testing the agent
-(`agents/test_window`) answers as a recorded one and writes nothing; every other request
-with no call is answered as not matched.
+A TEST CHAT writes nothing. Every action request from ThinnestAI's test chat carries
+`X-Test-Chat: true` and no `X-Call-Id` (ThinnestAI email of 12 Oct 2026, VENDOR-STATED), so a
+marked request is answered as the action succeeding, with a `*_in_test` status, and nothing
+is written: no DNC entry, no call-back, no cancellation, no hand-over and no client action
+(founder decision F6, 12 Oct 2026). The marker wins over a call id, because writing nothing is
+the safe reading of a request that says it is a test. A request with neither the marker nor a
+call keeps the older rule: an opt-out while the owner is testing the agent
+(`agents/test_window`) answers as recorded and writes nothing, and anything else is answered
+as not matched.
 
 ONCE PER CALL. A turn the platform re-runs on its backup model can call the same tool again
 (`reliability/in_call_once.py`), so each tool runs once per call and per
@@ -133,6 +139,33 @@ NOT_MATCHED_SAY: Final = (
 )
 #: The opt-out's answer inside a test chat: nothing written, the agent told it was done.
 TEST_CHAT_OPT_OUT_STATUS: Final = "recorded_in_test"
+
+#: The header ThinnestAI adds to every action request made from a test chat (email of
+#: 12 Oct 2026, VENDOR-STATED); its value is the string "true".
+TEST_CHAT_HEADER: Final = "X-Test-Chat"
+
+#: Per platform tool, the answer a test chat gets: what the tool's success tells the agent,
+#: so the owner hears what a caller would, and a status that says nothing was written.
+TEST_CHAT_ANSWERS: Final[dict[str, tuple[str, str]]] = {
+    OPT_OUT: (TEST_CHAT_OPT_OUT_STATUS, OPTOUT_DONE_SAY),
+    CALLBACK: ("booked_in_test", "Tell the caller that is booked for the time they agreed."),
+    CALLBACK_CANCEL: ("cancelled_in_test", "Tell the caller we will not ring them back."),
+    HANDOFF: (
+        "handover_in_test",
+        "This is a test, so nobody was contacted. Tell the person testing that on a real "
+        "call this is where the caller would be passed to the team.",
+    ),
+}
+#: A client's own action in a test chat (F6): it reaches none of the client's systems.
+TEST_CHAT_CLIENT_STATUS: Final = "done_in_test"
+TEST_CHAT_CLIENT_SAY: Final = "Done. Use the answer to reply to the caller."
+
+
+def is_test_chat(header: str | None) -> bool:
+    """Does this action request say it comes from a test chat? Only the value "true"."""
+    return (header or "").strip().lower() == "true"
+
+
 UNAVAILABLE_SAY: Final = (
     "Nothing was done: the system could not be reached just now. Do NOT tell the caller "
     "it is done. Apologise and tell them it could not be done on this call."
@@ -417,6 +450,12 @@ async def engine_action(
             detail="The action body must be a JSON object of short text values.",
         )
     ids = {"tenant_id": str(route.tenant_id), "agent_id": str(route.agent_id), "tool": tool}
+    if is_test_chat(request.headers.get(TEST_CHAT_HEADER)):
+        # Before the call is resolved and before `once_per_call`: a test chat names no call,
+        # so there is nothing to key the once-per-call guard on and nothing to write.
+        log.info("engine_action_test_chat", extra=ids)
+        status, say = TEST_CHAT_ANSWERS[tool]
+        return _answer(status, say)
 
     call_id = named_call_id(request.headers.get(CALL_ID_HEADER), args.get(CALL_ID_FIELD))
     if tool == HANDOFF:
@@ -557,6 +596,10 @@ async def client_action(
             detail="The action body must be a JSON object of short text values.",
         )
     ids = {"tenant_id": str(route.tenant_id), "agent_id": str(route.agent_id), "tool": "client"}
+    if is_test_chat(request.headers.get(TEST_CHAT_HEADER)):
+        # A test chat (F6): the client's systems are not reached and nothing is queued.
+        log.info("engine_action_test_chat", extra=ids)
+        return _answer(TEST_CHAT_CLIENT_STATUS, TEST_CHAT_CLIENT_SAY)
     call_id = named_call_id(request.headers.get(CALL_ID_HEADER), args.pop(CALL_ID_FIELD, None))
     if call_id is None:
         # The vendor's own test (`POST …/actions/{id}/test`) has no conversation and so no
@@ -605,11 +648,16 @@ async def verify_agent_secret(
 __all__ = [
     "NOT_MATCHED_SAY",
     "NO_CALL_SAY",
+    "TEST_CHAT_ANSWERS",
+    "TEST_CHAT_CLIENT_SAY",
+    "TEST_CHAT_CLIENT_STATUS",
+    "TEST_CHAT_HEADER",
     "TEST_CHAT_OPT_OUT_STATUS",
     "UNAVAILABLE_SAY",
     "ActionRoute",
     "call_locator",
     "client_action",
+    "is_test_chat",
     "named_call_id",
     "resolve_live_call",
     "router",

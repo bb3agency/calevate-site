@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import { ModelBandControl } from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/sections/modelBand";
 import type { EngineCatalogueModel } from "@/lib/api/engineCatalogue";
+import { bandLine } from "@/components/engineCatalogueList";
 import {
   ENGINE_MODEL_BANDS_PATH,
   recordEngineModelBandConfirmation,
@@ -32,6 +33,7 @@ const UNCHECKED: EngineCatalogueModel = {
   call_capable: true,
   plan_allows: true,
   usable_with_studio_voice: false,
+  band_disagrees: false,
   price_band: null,
   latency_ms: null,
   offerable: false,
@@ -124,5 +126,21 @@ describe("ModelBandControl", () => {
       { [ADMIN_ME_PATH]: ME, [ENGINE_MODEL_BANDS_PATH]: BANDS },
     );
     expect(container.textContent).toBe("");
+  });
+});
+
+describe("the platform's own tier on the model list (W8)", () => {
+  it("shows the tier and the price for a call minute when the platform states them", () => {
+    expect(bandLine({ ...UNCHECKED, price_band: "none" })).toBe("No extra charge");
+    expect(
+      bandLine({
+        ...UNCHECKED,
+        price_band: "none",
+        platform_call_tier: "standard",
+        platform_price_per_minute: "2.50",
+        platform_currency: "INR",
+        latency_ms: 800,
+      }),
+    ).toBe("No extra charge · platform lists it as standard, ₹2.50 a minute · replies in about 800 ms");
   });
 });

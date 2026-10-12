@@ -1068,15 +1068,39 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * One client's default pause before replying and hang-up
-         * @description The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.
+         * One client's default call settings
+         * @description The account defaults every agent without a value of its own follows. `null` follows Calevate's. `turn_silence_ms` and `end_call_on_finish` are always stated; any other setting left out of a PUT is kept. A change reaches every live agent that inherits it, from its next call.
          */
         get: operations["admin_get_organization_call_handling_v1_admin_organizations__org_id__call_handling_get"];
         /**
-         * Set one client's default pause before replying and hang-up
-         * @description The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.
+         * Set one client's default call settings
+         * @description The account defaults every agent without a value of its own follows. `null` follows Calevate's. `turn_silence_ms` and `end_call_on_finish` are always stated; any other setting left out of a PUT is kept. A change reaches every live agent that inherits it, from its next call.
          */
         put: operations["admin_set_organization_call_handling_v1_admin_organizations__org_id__call_handling_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/organizations/{org_id}/call-lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How many calls one client may have at once
+         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`.
+         */
+        get: operations["admin_get_call_lines_v1_admin_organizations__org_id__call_lines_get"];
+        /**
+         * Set how many calls one client may have at once
+         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`.
+         */
+        put: operations["admin_set_call_lines_v1_admin_organizations__org_id__call_lines_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1484,10 +1508,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * One client agent's pause before replying and hang-up
-         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.
+         * One client agent's call settings
+         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
          *
-         *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.
+         *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
+         *
+         *     Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
+         *
+         *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.
          */
         get: operations["admin_get_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_get"];
         put?: never;
@@ -1496,10 +1524,14 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Set one client agent's pause before replying and hang-up
-         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.
+         * Set one client agent's call settings
+         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
          *
-         *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.
+         *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
+         *
+         *     Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
+         *
+         *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.
          */
         patch: operations["admin_set_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patch"];
         trace?: never;
@@ -3262,10 +3294,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The pause before an agent replies, and whether it hangs up when finished
-         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.
+         * An agent's call settings, and where each comes from
+         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
          *
-         *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.
+         *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
+         *
+         *     Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
+         *
+         *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.
          */
         get: operations["get_agent_call_handling_v1_agents__agent_id__call_handling_get"];
         put?: never;
@@ -3274,10 +3310,14 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Set an agent's pause before replying and hang-up, or let it inherit
-         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up. Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on); `*_source` names the level in force.
+         * Set an agent's call settings, or let them inherit
+         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
          *
-         *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range`.
+         *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
+         *
+         *     Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
+         *
+         *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.
          */
         patch: operations["set_agent_call_handling_v1_agents__agent_id__call_handling_patch"];
         trace?: never;
@@ -9063,7 +9103,7 @@ export interface paths {
         put?: never;
         /**
          * Attest one engine rate per billed minute (step-up confirmed, audited)
-         * @description Records the voice platform's posted rate per billed minute, before its wallet top-up fee, as a NEW effective-dated row. We add the fee when metering (10% on pay-as-you-go, 9% on Pro; each row's `topup_fee_percent` says which applies, and `inr_per_min_with_fee` is the figure metered). Requires `X-Confirm-Action: attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it are not offered and any that run are metered with no cost and alarmed.
+         * @description Records the voice platform's posted rate per billed minute, before its wallet top-up fee, as a NEW effective-dated row. We add the fee when metering (2.36% on every plan; each row's `topup_fee_percent` says what is added, and `inr_per_min_with_fee` is the figure metered). Requires `X-Confirm-Action: attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it are not offered and any that run are metered with no cost and alarmed.
          */
         post: operations["attest_engine_minute_v1_ops_engine_minute_prices__engine___rate_key__post"];
         delete?: never;
@@ -10217,13 +10257,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * This account's default pause before replying and hang-up
-         * @description The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.
+         * This account's default call settings
+         * @description The account defaults every agent without a value of its own follows. `null` follows Calevate's. `turn_silence_ms` and `end_call_on_finish` are always stated; any other setting left out of a PUT is kept. A change reaches every live agent that inherits it, from its next call.
          */
         get: operations["get_organization_call_handling_v1_organization_call_handling_get"];
         /**
-         * Set this account's default pause before replying and hang-up
-         * @description The account defaults every agent without a value of its own follows. `null` follows Calevate's. A change reaches every live agent that inherits it, from its next call.
+         * Set this account's default call settings
+         * @description The account defaults every agent without a value of its own follows. `null` follows Calevate's. `turn_silence_ms` and `end_call_on_finish` are always stated; any other setting left out of a PUT is kept. A change reaches every live agent that inherits it, from its next call.
          */
         put: operations["set_organization_call_handling_v1_organization_call_handling_put"];
         post?: never;
@@ -11066,18 +11106,32 @@ export interface components {
         };
         /**
          * AgentCallHandlingIn
-         * @description Either or both. A field left out is untouched; `null` goes back to inheriting.
+         * @description Any of the settings. A field left out is untouched; `null` goes back to inheriting.
          */
         AgentCallHandlingIn: {
+            /** Ambience */
+            ambience?: ("off" | "office" | "office-quiet") | null;
+            /** Ambience Volume Pct */
+            ambience_volume_pct?: number | null;
+            /** End After Silence Seconds */
+            end_after_silence_seconds?: number | null;
             /** End Call On Finish */
             end_call_on_finish?: boolean | null;
+            /** Filler Lines */
+            filler_lines?: string[] | null;
+            /** Nudge After Seconds */
+            nudge_after_seconds?: number | null;
+            /** Nudge Count */
+            nudge_count?: number | null;
+            /** Nudge Phrase */
+            nudge_phrase?: string | null;
             /** Turn Silence Ms */
             turn_silence_ms?: number | null;
         };
         /**
          * AgentCallHandlingOut
-         * @description One agent's two settings: its own value (`null` inherits), the value in force and the
-         *     level that chose it (`agent`, `organization` or `platform`).
+         * @description One agent's settings: its own value (`null` inherits), the value in force and the level
+         *     that chose it (`agent`, `organization` or `platform`).
          */
         AgentCallHandlingOut: {
             /**
@@ -11085,7 +11139,37 @@ export interface components {
              * Format: uuid
              */
             agent_id: string;
+            /** Ambience */
+            ambience: ("off" | "office" | "office-quiet") | null;
+            /**
+             * Ambience Effective
+             * @enum {string}
+             */
+            ambience_effective: "off" | "office" | "office-quiet";
+            /**
+             * Ambience Source
+             * @enum {string}
+             */
+            ambience_source: "agent" | "organization" | "platform";
+            /** Ambience Volume Pct */
+            ambience_volume_pct: number | null;
+            /** Ambience Volume Pct Effective */
+            ambience_volume_pct_effective: number;
+            /**
+             * Ambience Volume Pct Source
+             * @enum {string}
+             */
+            ambience_volume_pct_source: "agent" | "organization" | "platform";
             bounds: components["schemas"]["CallHandlingBoundsOut"];
+            /** End After Silence Seconds */
+            end_after_silence_seconds: number | null;
+            /** End After Silence Seconds Effective */
+            end_after_silence_seconds_effective: number;
+            /**
+             * End After Silence Seconds Source
+             * @enum {string}
+             */
+            end_after_silence_seconds_source: "agent" | "organization" | "platform";
             /** End Call On Finish */
             end_call_on_finish: boolean | null;
             /** End Call On Finish Effective */
@@ -11095,8 +11179,58 @@ export interface components {
              * @enum {string}
              */
             end_call_on_finish_source: "agent" | "organization" | "platform";
+            /** Filler Lines */
+            filler_lines: string[] | null;
+            /** Filler Lines Effective */
+            filler_lines_effective: string[];
+            /**
+             * Filler Lines Source
+             * @enum {string}
+             */
+            filler_lines_source: "agent" | "organization" | "platform";
+            /** Nudge After Seconds */
+            nudge_after_seconds: number | null;
+            /** Nudge After Seconds Effective */
+            nudge_after_seconds_effective: number;
+            /**
+             * Nudge After Seconds Source
+             * @enum {string}
+             */
+            nudge_after_seconds_source: "agent" | "organization" | "platform";
+            /** Nudge Count */
+            nudge_count: number | null;
+            /** Nudge Count Effective */
+            nudge_count_effective: number;
+            /**
+             * Nudge Count Source
+             * @enum {string}
+             */
+            nudge_count_source: "agent" | "organization" | "platform";
+            /** Nudge Phrase */
+            nudge_phrase: string | null;
+            /** Nudge Phrase Effective */
+            nudge_phrase_effective: string;
+            /**
+             * Nudge Phrase Source
+             * @enum {string}
+             */
+            nudge_phrase_source: "agent" | "organization" | "platform";
+            /** Organization Ambience */
+            organization_ambience: ("off" | "office" | "office-quiet") | null;
+            /** Organization Ambience Volume Pct */
+            organization_ambience_volume_pct: number | null;
+            /** Organization End After Silence Seconds */
+            organization_end_after_silence_seconds: number | null;
             /** Organization End Call On Finish */
             organization_end_call_on_finish: boolean | null;
+            /** Organization Filler Lines */
+            organization_filler_lines: string[] | null;
+            /** Organization Nudge After Seconds */
+            organization_nudge_after_seconds: number | null;
+            /** Organization Nudge Count */
+            organization_nudge_count: number | null;
+            /** Organization Nudge Phrase */
+            organization_nudge_phrase: string | null;
             /** Organization Turn Silence Ms */
             organization_turn_silence_ms: number | null;
             /** Turn Silence Ms */
@@ -12498,8 +12632,45 @@ export interface components {
          * @description What may be chosen and what Calevate's own defaults are.
          */
         CallHandlingBoundsOut: {
+            /** Ambience Volume Max Pct */
+            ambience_volume_max_pct: number;
+            /** Ambience Volume Min Pct */
+            ambience_volume_min_pct: number;
+            /** Ambiences */
+            ambiences: ("off" | "office" | "office-quiet")[];
+            /** End After Silence Max S */
+            end_after_silence_max_s: number;
+            /** End After Silence Min S */
+            end_after_silence_min_s: number;
+            /** Filler Line Max Chars */
+            filler_line_max_chars: number;
+            /** Filler Lines Max */
+            filler_lines_max: number;
+            /** Nudge After Max S */
+            nudge_after_max_s: number;
+            /** Nudge After Min S */
+            nudge_after_min_s: number;
+            /** Nudge Count Max */
+            nudge_count_max: number;
+            /** Nudge Count Min */
+            nudge_count_min: number;
+            /** Nudge Phrase Max Chars */
+            nudge_phrase_max_chars: number;
+            /**
+             * Platform Ambience
+             * @enum {string}
+             */
+            platform_ambience: "off" | "office" | "office-quiet";
+            /** Platform Ambience Volume Pct */
+            platform_ambience_volume_pct: number;
+            /** Platform End After Silence Seconds */
+            platform_end_after_silence_seconds: number;
             /** Platform End Call On Finish */
             platform_end_call_on_finish: boolean;
+            /** Platform Nudge After Seconds */
+            platform_nudge_after_seconds: number;
+            /** Platform Nudge Count */
+            platform_nudge_count: number;
             /** Platform Turn Silence Ms */
             platform_turn_silence_ms: number;
             /** Turn Silence Max Ms */
@@ -12534,6 +12705,33 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "blocked";
+        };
+        /** CallLinesIn */
+        CallLinesIn: {
+            /** Call Lines */
+            call_lines: number | null;
+        };
+        /** CallLinesOut */
+        CallLinesOut: {
+            /** Call Lines */
+            call_lines: number;
+            /** Call Lines Chosen */
+            call_lines_chosen: number | null;
+            /** Max Lines */
+            max_lines: number;
+            /** Min Lines */
+            min_lines: number;
+            /** On Trial */
+            on_trial: boolean;
+            /** Paid Default */
+            paid_default: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "organization" | "platform";
+            /** Trial Default */
+            trial_default: number;
         };
         /**
          * CallMomentOut
@@ -15982,6 +16180,11 @@ export interface components {
         };
         /** EngineCatalogueModelOut */
         EngineCatalogueModelOut: {
+            /**
+             * Band Disagrees
+             * @default false
+             */
+            band_disagrees: boolean;
             /** Call Capable */
             call_capable: boolean;
             /** Label */
@@ -15994,6 +16197,12 @@ export interface components {
             offerable: boolean;
             /** Plan Allows */
             plan_allows: boolean;
+            /** Platform Call Tier */
+            platform_call_tier?: ("standard" | "premium") | null;
+            /** Platform Currency */
+            platform_currency?: string | null;
+            /** Platform Price Per Minute */
+            platform_price_per_minute?: string | null;
             /** Price Band */
             price_band?: ("none" | "premium") | null;
             /** Reason */
@@ -20944,21 +21153,68 @@ export interface components {
         };
         /**
          * OrganizationCallHandlingIn
-         * @description Both, required: the body states the whole resource, so `null` is "follow Calevate".
+         * @description The pause and the hang-up, required as before (`null` is "follow Calevate"). Every
+         *     other setting is optional: named, it is set (`null` follows Calevate); left out, it is
+         *     kept.
          */
         OrganizationCallHandlingIn: {
+            /** Ambience */
+            ambience?: ("off" | "office" | "office-quiet") | null;
+            /** Ambience Volume Pct */
+            ambience_volume_pct?: number | null;
+            /** End After Silence Seconds */
+            end_after_silence_seconds?: number | null;
             /** End Call On Finish */
             end_call_on_finish: boolean | null;
+            /** Filler Lines */
+            filler_lines?: string[] | null;
+            /** Nudge After Seconds */
+            nudge_after_seconds?: number | null;
+            /** Nudge Count */
+            nudge_count?: number | null;
+            /** Nudge Phrase */
+            nudge_phrase?: string | null;
             /** Turn Silence Ms */
             turn_silence_ms: number | null;
         };
         /** OrganizationCallHandlingOut */
         OrganizationCallHandlingOut: {
+            /** Ambience */
+            ambience: ("off" | "office" | "office-quiet") | null;
+            /**
+             * Ambience Effective
+             * @enum {string}
+             */
+            ambience_effective: "off" | "office" | "office-quiet";
+            /** Ambience Volume Pct */
+            ambience_volume_pct: number | null;
+            /** Ambience Volume Pct Effective */
+            ambience_volume_pct_effective: number;
             bounds: components["schemas"]["CallHandlingBoundsOut"];
+            /** End After Silence Seconds */
+            end_after_silence_seconds: number | null;
+            /** End After Silence Seconds Effective */
+            end_after_silence_seconds_effective: number;
             /** End Call On Finish */
             end_call_on_finish: boolean | null;
             /** End Call On Finish Effective */
             end_call_on_finish_effective: boolean;
+            /** Filler Lines */
+            filler_lines: string[] | null;
+            /** Filler Lines Effective */
+            filler_lines_effective: string[];
+            /** Nudge After Seconds */
+            nudge_after_seconds: number | null;
+            /** Nudge After Seconds Effective */
+            nudge_after_seconds_effective: number;
+            /** Nudge Count */
+            nudge_count: number | null;
+            /** Nudge Count Effective */
+            nudge_count_effective: number;
+            /** Nudge Phrase */
+            nudge_phrase: string | null;
+            /** Nudge Phrase Effective */
+            nudge_phrase_effective: string;
             /** Turn Silence Ms */
             turn_silence_ms: number | null;
             /** Turn Silence Ms Effective */
@@ -29204,6 +29460,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrganizationCallHandlingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_get_call_lines_v1_admin_organizations__org_id__call_lines_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallLinesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_set_call_lines_v1_admin_organizations__org_id__call_lines_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallLinesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallLinesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

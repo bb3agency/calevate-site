@@ -160,6 +160,11 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "the account's call handling defaults (D-751), the operator's door; the client's "
         "own `GET /v1/organization/call-handling` is `org:read` (the `llm-defaults` case)"
     ),
+    "/v1/admin/organizations/{org_id}/call-lines": (
+        "how many calls one client may have at once (F7), a commercial decision the operator "
+        "makes about the client; the client realm has no screen or route showing it, so a "
+        "view-as session has nothing of the client's to look at here"
+    ),
     "/v1/admin/numbers/available": (
         "the voice platform's own for-sale inventory (D-537) — an ops purchasing screen, "
         "and the one list that is not about any client at all: it is what OUR vendor "

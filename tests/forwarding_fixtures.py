@@ -39,14 +39,17 @@ async def make_client(prefix: str = "fwd") -> tuple[UUID, UUID, str]:
 
 
 async def give_calevate_number(tenant_id: UUID, agent_id: UUID) -> tuple[UUID, str]:
+    """A number we rented for the client in our ThinnestAI workspace, as production records
+    one: `provider = 'thinnest'`. Without it the row is an engine-owned number with no
+    rental on file, which the monthly number meter rightly alarms on for every suite after."""
     number_id = uuid.uuid4()
     e164 = f"+9180{uuid.uuid4().int % 10**8:08d}"
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
-                "direction, engine_owned, created_at, updated_at) VALUES (:id, :t, :a, :e, "
-                "'standard', 'pending', 'inbound', true, now(), now())"
+                "direction, engine_owned, provider, created_at, updated_at) VALUES (:id, :t, "
+                ":a, :e, 'standard', 'pending', 'inbound', true, 'thinnest', now(), now())"
             ),
             {"id": number_id, "t": tenant_id, "a": agent_id, "e": e164},
         )

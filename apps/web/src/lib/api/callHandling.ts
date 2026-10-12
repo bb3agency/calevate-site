@@ -84,6 +84,102 @@ export function inheritLabels(state: AgentCallHandling): { pause: string; hangUp
   };
 }
 
+export type Ambience = AgentCallHandling["ambience_effective"];
+export type CallHandlingBounds = AgentCallHandling["bounds"];
+
+/** "8 s", "1 min 30 s": a wait as people read it. */
+export function formatSeconds(seconds: number): string {
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest === 0 ? `${minutes} min` : `${minutes} min ${rest} s`;
+}
+
+/** "once", "twice", "3 times". */
+export function timesLabel(count: number): string {
+  if (count === 1) return "once";
+  if (count === 2) return "twice";
+  return `${count} times`;
+}
+
+/** "Asks after 8 s, once · hangs up after 20 s of silence", or "Never asks · …". */
+export function silenceSummary(afterSeconds: number, count: number, hangUpSeconds: number): string {
+  const ask = afterSeconds === 0 ? "Never asks" : `Asks after ${formatSeconds(afterSeconds)}, ${timesLabel(count)}`;
+  return `${ask} · hangs up after ${formatSeconds(hangUpSeconds)} of silence`;
+}
+
+export const AMBIENCE_LABELS: Record<Ambience, string> = {
+  off: "Off",
+  office: "Office",
+  "office-quiet": "Quiet office",
+};
+
+/** "Off", or "Office at 15%". */
+export function ambienceSummary(ambience: Ambience, volumePct: number): string {
+  return ambience === "off" ? AMBIENCE_LABELS.off : `${AMBIENCE_LABELS[ambience]} at ${volumePct}%`;
+}
+
+/** "The standard lines", or "3 of your own lines". */
+export function fillerSummary(lines: readonly string[]): string {
+  if (lines.length === 0) return "The standard lines";
+  return lines.length === 1 ? "1 line of your own" : `${lines.length} lines of your own`;
+}
+
+/** The voice settings one level holds; `null` follows the level above. */
+export interface VoiceSettings {
+  nudge_after_seconds: number | null;
+  nudge_count: number | null;
+  nudge_phrase: string | null;
+  end_after_silence_seconds: number | null;
+  filler_lines: string[] | null;
+  ambience: Ambience | null;
+  ambience_volume_pct: number | null;
+}
+
+export interface InheritedVoice {
+  nudge_after_seconds: number;
+  nudge_count: number;
+  nudge_phrase: string;
+  end_after_silence_seconds: number;
+  filler_lines: string[];
+  ambience: Ambience;
+  ambience_volume_pct: number;
+  /** Per setting, the level "use the default" follows: the organisation's or Calevate's. */
+  from: Record<keyof VoiceSettings, "Organisation default" | "Calevate default">;
+}
+
+const ORG = "Organisation default" as const;
+const OURS = "Calevate default" as const;
+
+/** The voice settings an agent with no value of its own follows: the account's, where it set
+ * one, else Calevate's. Read from the server's fields, never resolved here beyond that. */
+export function inheritedVoice(state: AgentCallHandling): InheritedVoice {
+  const b = state.bounds;
+  const pick = <T,>(org: T | null, platform: T): T => (org === null ? platform : org);
+  const from = (org: unknown) => (org === null ? OURS : ORG);
+  return {
+    nudge_after_seconds: pick(state.organization_nudge_after_seconds, b.platform_nudge_after_seconds),
+    nudge_count: pick(state.organization_nudge_count, b.platform_nudge_count),
+    nudge_phrase: pick(state.organization_nudge_phrase, ""),
+    end_after_silence_seconds: pick(
+      state.organization_end_after_silence_seconds,
+      b.platform_end_after_silence_seconds,
+    ),
+    filler_lines: pick(state.organization_filler_lines, []),
+    ambience: pick(state.organization_ambience, b.platform_ambience),
+    ambience_volume_pct: pick(state.organization_ambience_volume_pct, b.platform_ambience_volume_pct),
+    from: {
+      nudge_after_seconds: from(state.organization_nudge_after_seconds),
+      nudge_count: from(state.organization_nudge_count),
+      nudge_phrase: from(state.organization_nudge_phrase),
+      end_after_silence_seconds: from(state.organization_end_after_silence_seconds),
+      filler_lines: from(state.organization_filler_lines),
+      ambience: from(state.organization_ambience),
+      ambience_volume_pct: from(state.organization_ambience_volume_pct),
+    },
+  };
+}
+
 export function useAgentCallHandling(
   session: Session,
   agentId: string,
@@ -174,4 +270,33 @@ export function useAdminSetAgentCallHandling({
       client.setQueryData(callHandlingKeys.agent(slug, agentId), data);
     },
   });
+}
+
+/** What "use the default" means at the organisation level: Calevate's own values. */
+export function platformVoice(bounds: CallHandlingBounds): InheritedVoice {
+  return {
+    nudge_after_seconds: bounds.platform_nudge_after_seconds,
+    nudge_count: bounds.platform_nudge_count,
+    nudge_phrase: "",
+    end_after_silence_seconds: bounds.platform_end_after_silence_seconds,
+    filler_lines: [],
+    ambience: bounds.platform_ambience,
+    ambience_volume_pct: bounds.platform_ambience_volume_pct,
+    from: {
+      nudge_after_seconds: OURS,
+      nudge_count: OURS,
+      nudge_phrase: OURS,
+      end_after_silence_seconds: OURS,
+      filler_lines: OURS,
+      ambience: OURS,
+      ambience_volume_pct: OURS,
+    },
+  };
+}
+
+/** One hint for a row whose values may come from different levels. */
+export function rowSource(sources: readonly CallHandlingSource[]): string {
+  const first = sources[0];
+  if (first !== undefined && sources.every((s) => s === first)) return sourceLabel(first);
+  return sources.includes("agent") ? "Partly set for this agent" : "Partly your organisation default";
 }

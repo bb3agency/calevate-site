@@ -28,23 +28,28 @@ import uuid
 from decimal import Decimal
 from uuid import UUID
 
+import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import payments
-from apps.api.billing.credit_packs import CreditPack, pack_by_id
+from apps.api.billing.credit_packs import CreditPack
 from apps.api.billing.lots import CallDemand, open_lot, read_open_lots, runway
 from apps.api.billing.service import LotRates, charge_for_call, get_balance, record_entry
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
-from tests.credit_lots_helpers import lot_rows
+from tests.credit_lots_helpers import (
+    graduated_card,  # noqa: F401 - pytest fixture
+    graduated_pack,
+    lot_rows,
+)
+
+pytestmark = pytest.mark.usefixtures("graduated_card")
 
 
 def _pack(pack_id: str) -> CreditPack:
-    """The live catalogue rung. Rates are READ from the card, never typed here: the card is
-    the founder's to move (it moved on 14 Sep 2026) and none of the properties below is
-    about a particular rupee figure."""
-    pack = pack_by_id(pack_id)
-    assert pack is not None, pack_id
-    return pack
+    """A rung of the card this suite installs (`graduated_card`). Rates are READ from it,
+    never typed here: none of the properties below is about a particular rupee figure, and
+    the card on sale prices every rung alike (D-728), which would hide the phantom lot."""
+    return graduated_pack(pack_id)
 
 
 async def _tenant() -> UUID:

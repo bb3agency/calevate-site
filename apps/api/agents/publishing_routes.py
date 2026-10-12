@@ -317,9 +317,9 @@ class EngineStateOut(Strict):
     #: the platform cannot report its handover tools.
     handoff_applied: bool | None
     detail: str
-    #: Where else besides the phone the agent answers ("website call button", "WhatsApp"),
-    #: set in the voice platform's console. Information, never drift (D-720): answering
-    #: there is acceptable and a planned feature. Null where the engine cannot say.
+    #: Where else besides the phone the agent answers ("website call button", "WhatsApp").
+    #: Drift (D-753): Calevate agents answer on the phone only, and the settings sweep sets
+    #: `surfaces` back. Null where the engine cannot say.
     answers_also_on: list[str] | None = None
 
 
@@ -631,7 +631,8 @@ async def engine_state(agent_id: UUID, principal: PublishingReader) -> EngineSta
 
 
 async def _answers_also_on(agent_id: UUID, ref: str | None) -> list[str] | None:
-    """Where else the engine says the agent answers, or None when it cannot say."""
+    """Where else the engine says the agent answers (drift the settings sweep repairs,
+    D-753), or None when it cannot say."""
     from apps.api.agents.engine_settings import ReportsAnswerSurfaces
     from apps.api.engine import get_engine
 

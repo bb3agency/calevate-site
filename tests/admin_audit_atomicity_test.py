@@ -22,13 +22,16 @@ Run: uv run pytest -q tests/admin_audit_atomicity_test.py
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any, ClassVar
 from uuid import UUID
 
 import pytest
 from apps.api.admin import number_routes
+from apps.api.admin.engine_workspace_routes import buy_number_confirmation
 from apps.api.compliance import audit as audit_module
 from apps.api.core.context import Principal
+from apps.api.core.stepup import StepUp
 from apps.api.db.session import tenant_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
@@ -155,6 +158,8 @@ async def _buy(tenant_id: UUID, offer: Any) -> Any:
         None,  # type: ignore[arg-type] - the admin session is not what this writes through
         _Req(),  # type: ignore[arg-type]
         await _principal(),
+        StepUp(present=True, verified_at=datetime.now(UTC)),
+        buy_number_confirmation(tenant_id),
     )
 
 

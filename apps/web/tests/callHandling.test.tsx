@@ -6,6 +6,13 @@ import ClientCallHandlingPage from "@/app/c/[slug]/settings/call-handling/page";
 import type { Me } from "@/lib/api/client";
 import type { AgentCallHandling, OrganizationCallHandling } from "@/lib/api/callHandling";
 
+import {
+  CALL_HANDLING_BOUNDS,
+  VOICE_EFFECTIVE_DEFAULTS,
+  VOICE_ORGANIZATION_NONE,
+  VOICE_OWN_NONE,
+  VOICE_SOURCES_PLATFORM,
+} from "./fixtures/sharedReads";
 import { problem, renderClientPage } from "./harness";
 
 vi.mock("next/navigation", () => ({
@@ -39,12 +46,7 @@ const OWNER: Me = {
 };
 const STAFF: Me = { ...OWNER, role: "staff", permissions: ["agents:read", "org:read"] };
 
-const BOUNDS = {
-  turn_silence_min_ms: 200,
-  turn_silence_max_ms: 3000,
-  platform_turn_silence_ms: 250,
-  platform_end_call_on_finish: true,
-};
+const BOUNDS = CALL_HANDLING_BOUNDS;
 
 function organization(over: Partial<OrganizationCallHandling> = {}): OrganizationCallHandling {
   return {
@@ -52,6 +54,8 @@ function organization(over: Partial<OrganizationCallHandling> = {}): Organizatio
     turn_silence_ms_effective: 250,
     end_call_on_finish: null,
     end_call_on_finish_effective: true,
+    ...VOICE_OWN_NONE,
+    ...VOICE_EFFECTIVE_DEFAULTS,
     bounds: BOUNDS,
     ...over,
   };
@@ -68,6 +72,10 @@ function agent(over: Partial<AgentCallHandling> = {}): AgentCallHandling {
     end_call_on_finish_source: "platform",
     organization_turn_silence_ms: 500,
     organization_end_call_on_finish: null,
+    ...VOICE_OWN_NONE,
+    ...VOICE_EFFECTIVE_DEFAULTS,
+    ...VOICE_SOURCES_PLATFORM,
+    ...VOICE_ORGANIZATION_NONE,
     bounds: BOUNDS,
     ...over,
   };
@@ -95,7 +103,7 @@ describe("organisation call handling", () => {
       [ORG_PATH]: organization(),
     });
     await screen.findByText("Quick (0.25 s)");
-    expect(screen.getAllByText("Calevate default")).toHaveLength(2);
+    expect(screen.getAllByText("Calevate default")).toHaveLength(5);
     expect(screen.getByText("On")).toBeTruthy();
     expect(container.textContent).not.toMatch(/thinnest/i);
   });
@@ -216,5 +224,103 @@ describe("one agent's call handling", () => {
       end_call_on_finish: false,
     });
     await screen.findByText(/Finished calls stay connected, and charged/);
+  });
+});
+
+/**
+ * F3, F9: if the caller goes quiet, the lines said while the agent looks something up, and a
+ * background sound. Each row sends only its own fields (the account PUT also states the pause
+ * and hang-up it already holds), offers the default by what it resolves to, and checks the
+ * server's limits before sending.
+ */
+describe("the voice settings", () => {
+  it("saves never asking for the account with the pause and hang-up it already holds", async () => {
+    const { calls, container } = await renderClientPage(<ClientCallHandlingPage />, {
+      "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
+      [`PUT ${ORG_PATH}`]: organization({ nudge_after_seconds: 0, nudge_after_seconds_effective: 0 }),
+    });
+    await screen.findByText("Asks after 8 s, once · hangs up after 20 s of silence");
+    const changes = screen.getAllByRole("button", { name: "Change" });
+    await act(async () => {
+      fireEvent.click(changes[2]);
+    });
+    await pick(/^Never ask/);
+    await press("Save");
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}")).toEqual({
+      turn_silence_ms: null,
+      end_call_on_finish: null,
+      nudge_after_seconds: 0,
+      nudge_count: null,
+      nudge_phrase: null,
+      end_after_silence_seconds: null,
+    });
+    await screen.findByText("Never asks · hangs up after 20 s of silence");
+    expect(container.textContent).not.toMatch(/thinnest|cartesia|sarvam/i);
+  });
+
+  it("sends an agent's own lines, trimmed, and refuses a line that is too long", async () => {
+    const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
+      "/v1/me": OWNER,
+      [AGENT_PATH]: agent(),
+      [`PATCH ${AGENT_PATH}`]: agent({
+        filler_lines: ["One moment please"],
+        filler_lines_effective: ["One moment please"],
+        filler_lines_source: "agent",
+      }),
+    });
+    await screen.findByText("The standard lines");
+    const changes = screen.getAllByRole("button", { name: "Change" });
+    await act(async () => {
+      fireEvent.click(changes[3]);
+    });
+    await pick(/^Our own lines/);
+    const box = screen.getByLabelText(/One line per row/);
+    await act(async () => {
+      fireEvent.change(box, { target: { value: "x".repeat(61) } });
+    });
+    expect(screen.getByText("Each line can be up to 60 characters.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Save lines" }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => {
+      fireEvent.change(box, { target: { value: "  One moment please  \n\n" } });
+    });
+    await press("Save lines");
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).toEqual({
+      filler_lines: ["One moment please"],
+    });
+    await screen.findByText("1 line of your own");
+  });
+
+  it("switches an office sound on at a volume, and offers the default by its value", async () => {
+    const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
+      "/v1/me": OWNER,
+      [AGENT_PATH]: agent(),
+      [`PATCH ${AGENT_PATH}`]: agent({
+        ambience: "office",
+        ambience_effective: "office",
+        ambience_volume_pct: 30,
+        ambience_volume_pct_effective: 30,
+        ambience_source: "agent",
+      }),
+    });
+    await screen.findByText("Background sound");
+    const changes = screen.getAllByRole("button", { name: "Change" });
+    await act(async () => {
+      fireEvent.click(changes[4]);
+    });
+    expect(screen.getByRole("radio", { name: "Calevate default (Off)" })).toBeTruthy();
+    await pick("Office");
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/^Volume/), { target: { value: "30" } });
+    });
+    await press("Save sound");
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).toEqual({
+      ambience: "office",
+      ambience_volume_pct: 30,
+    });
+    await screen.findByText("Office at 30%");
   });
 });

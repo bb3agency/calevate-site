@@ -6,6 +6,7 @@ import TenantNumbersPage from "@/app/admin/tenants/[tenantId]/numbers/page";
 import type { TenantSummary } from "@/lib/api/admin";
 import type { TenantNumberCost } from "@/lib/api/numbers";
 
+import { callLinesRoute } from "./fixtures/sharedReads";
 import { type Routes } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
@@ -69,6 +70,7 @@ function number(overrides: Partial<TenantNumberCost> = {}): TenantNumberCost {
 function healthy(numbers: TenantNumberCost[]): Routes {
   return {
     [ADMIN_ME_PATH]: SUPERADMIN,
+    ...callLinesRoute(TENANT),
     [TENANT_PATH]: {
       id: TENANT,
       name: "Attach Clinic",

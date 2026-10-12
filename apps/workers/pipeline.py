@@ -3445,7 +3445,9 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         test_minutes = (
             minute_cost.billed_minutes
             if minute_cost is not None
-            else (Decimal(snapshot.duration_s or 0) / Decimal(60)).quantize(Decimal("0.0001"))
+            else (Decimal(snapshot.duration_s or 0) / Decimal(60)).quantize(
+                Decimal("0.0001"), rounding=ROUNDING
+            )
         )
         if await meter_test_arrival(
             session,

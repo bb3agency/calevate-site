@@ -57,6 +57,7 @@ from apps.api.billing.engine_minutes import (
     topup_fee,
 )
 from apps.api.billing.models import FORWARDING_TEST_UNIT_TYPE
+from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import account_stopped_blocker
 from apps.api.core.context import Principal
@@ -575,7 +576,7 @@ async def meter_test_arrival(
     ).first()
     if already is not None:
         return True
-    unit = (cost / minutes).quantize(Decimal("0.0001")) if minutes > 0 else Decimal(0)
+    unit = (cost / minutes).quantize(MONEY_Q, rounding=ROUNDING) if minutes > 0 else Decimal(0)
     await session.execute(
         text(
             "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, unit_cost_paid, "
@@ -597,7 +598,7 @@ async def meter_test_arrival(
             "UPDATE forwarding_tests SET cost_inr = COALESCE(cost_inr, 0) + :c, "
             "updated_at = now() WHERE id = :id"
         ),
-        {"id": test, "c": (unit * minutes).quantize(Decimal("0.0001"))},
+        {"id": test, "c": (unit * minutes).quantize(MONEY_Q, rounding=ROUNDING)},
     )
     return True
 
@@ -728,7 +729,7 @@ async def settle_test(tenant_id: UUID, test_id: UUID) -> str:
                     "unit": FORWARDING_TEST_UNIT_TYPE,
                     "qty": minutes,
                     "cost": (
-                        (leg_cost / minutes).quantize(Decimal("0.0001"))
+                        (leg_cost / minutes).quantize(MONEY_Q, rounding=ROUNDING)
                         if leg_cost is not None and minutes > 0
                         else leg_cost
                     ),

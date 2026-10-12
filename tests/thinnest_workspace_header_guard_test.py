@@ -240,7 +240,7 @@ def _tenant_ops(rec: Recorder) -> list[Callable[[], Awaitable[Any]]]:
         lambda: numbers.attach(number, agent=AGENT, calling_agent=None),
         lambda: numbers.cities(WS),
         lambda: numbers.search(WS, city="Bangalore", pattern=None, cursor=None),
-        lambda: numbers.rent(WS, "918011112222"),
+        lambda: numbers.rent(WS, "918011112222", attempt_id="p_1"),
         lambda: numbers.release(number),
         lambda: numbers.business_details(WS),
         lambda: numbers.send_business_details(

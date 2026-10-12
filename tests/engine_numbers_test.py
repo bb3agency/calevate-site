@@ -460,6 +460,46 @@ async def test_an_unreachable_platform_counts_as_refused_and_alarms(
     assert [code for code, _ in alerts] == ["engine_number_attachment_failed"]
 
 
+async def test_a_changed_attachment_brings_the_clients_live_agents_up_to_date(
+    vendor: FakeVendor,
+) -> None:
+    """F1: an agent answers on the phone only with a number attached, so a sync that moved
+    the platform's attachment queues the client's live apply (`phone_number`); one that
+    found it already right queues nothing."""
+    _admin_id, headers = await _admin()
+    tenant_id, agent_id, _ref = await _client_with_agent()
+    number = _number()
+    vendor.hold(number, rented=False)
+    number_id = (
+        await _post(
+            f"/v1/admin/numbers/tenants/{tenant_id}/engine/record", {"e164": f"+{number}"}, headers
+        )
+    ).json()["number_id"]
+
+    async def runs() -> list[str]:
+        async with untenanted_session() as session:
+            rows = await session.execute(
+                text(
+                    "SELECT reasons FROM live_apply_runs WHERE tenant_id = :t "
+                    "AND status = 'pending'"
+                ),
+                {"t": tenant_id},
+            )
+            return [reason for row in rows for reason in row[0]]
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE phone_numbers SET agent_id = :a WHERE id = :n"),
+            {"a": agent_id, "n": number_id},
+        )
+        first = await engine_numbers.sync_number_attachment(session, number_id=uuid.UUID(number_id))
+    assert first == "applied"
+    assert "phone_number" in await runs()
+    async with tenant_session(tenant_id) as session:
+        again = await engine_numbers.sync_number_attachment(session, number_id=uuid.UUID(number_id))
+    assert again == "unchanged"
+
+
 # --- the daily reconciliation ------------------------------------------------------------
 
 

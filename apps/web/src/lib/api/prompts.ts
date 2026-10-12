@@ -34,7 +34,7 @@ type Schemas = components["schemas"];
 /** One row of `GET .../prompt` — newest first; `active` marks the live version. */
 export type PromptVersion = Schemas["PromptVersionOut"];
 
-/** Body of `POST .../prompt` — the API enforces min 20 / max 8000 chars on `body`. */
+/** Body of `POST .../prompt` — the API enforces min 20 / max 20,000 chars on `body`. */
 export type WritePromptIn = Schemas["WritePromptIn"];
 
 export type PromptWrittenOut = Schemas["PromptWrittenOut"];

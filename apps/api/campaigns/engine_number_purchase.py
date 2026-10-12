@@ -342,7 +342,7 @@ async def purchase_engine_number(
                 if exc.vendor_status != 404:
                     raise
         if not held:
-            await numbers.rent(workspace, wanted)
+            await numbers.rent(workspace, wanted, attempt_id=str(purchase_id))
     except EngineRejectedError as exc:
         if exc.request_refused or exc.vendor_status in (402, 409):
             refusal = _vendor_refusal(exc)

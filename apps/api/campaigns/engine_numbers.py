@@ -492,6 +492,15 @@ async def sync_number_attachment(session: AsyncSession, *, number_id: UUID) -> S
         return "refused"
     if result.outcome in ("partial", "refused"):
         _attachment_failed(number_id, outcome=result.outcome, refusal=result.refusal)
+    if result.outcome == "applied" and row[7] is not None:
+        # Which agent answers on a number decides whether it answers on the phone at all
+        # (F1: `voice.surfaces` carries "phone" only with a number attached), so the
+        # client's live agents are brought up to date, the one that lost it included.
+        from apps.api.agents.live_apply import queue_live_apply
+
+        await queue_live_apply(
+            session, scope="tenant", tenant_id=UUID(str(row[7])), reason="phone_number"
+        )
     log.info(
         "engine_number_attachment_synced",
         extra={"number_id": str(number_id), "outcome": result.outcome, "crossed": crossed},

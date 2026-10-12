@@ -3575,6 +3575,25 @@ class AgentConfig(BaseModel):
     #: settings reads them; excluded from every dump for `detect_machines`' reason.
     turn_silence_ms: int = Field(default=250, exclude=True)
     end_call_on_finish: bool = Field(default=True, exclude=True)
+    #: When the caller goes quiet (F3, F9, 12 Oct 2026), resolved agent -> organisation ->
+    #: Calevate by `apps/api/agents/call_handling`: ask "are you still there?" after this many
+    #: seconds (None: never ask), this many times, in the client's own words (None: the
+    #: engine's own, in the caller's language), and hang up after this many seconds of
+    #: silence. Excluded from every dump for `detect_machines`' reason.
+    nudge_after_seconds: int | None = Field(default=8, exclude=True)
+    nudge_count: int = Field(default=1, exclude=True)
+    nudge_phrase: str | None = Field(default=None, exclude=True)
+    end_after_silence_seconds: int | None = Field(default=20, exclude=True)
+    #: Lines the agent says while it looks something up; () leaves the engine's own (F3).
+    filler_lines: tuple[str, ...] = Field(default=(), exclude=True)
+    #: Background office sound: None (off), "office" or "office-quiet", at this volume in
+    #: percent (F3). Excluded from every dump for `detect_machines`' reason.
+    ambience: str | None = Field(default=None, exclude=True)
+    ambience_volume_pct: int = Field(default=15, exclude=True)
+    #: An engine number is attached to this agent (`phone_numbers.agent_id`, not released),
+    #: read at publish. An engine that answers on a phone line only once a number is attached
+    #: reads it (F1). Excluded from every dump for `detect_machines`' reason.
+    has_phone_number: bool = Field(default=False, exclude=True)
     #: The engine's name for its knowledge-search tool, when the engine tells us one
     #: (`engine/hosted_platform.HostedAgentLimits.knowledge_tool`), so the prompt can name it.
     knowledge_tool: str | None = None

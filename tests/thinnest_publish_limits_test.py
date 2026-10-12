@@ -93,8 +93,8 @@ def _refusal(engine: FakeEngine, cfg: AgentConfig) -> ProblemError:
 
 
 def test_the_limits_are_the_documented_field_ceilings() -> None:
-    # 8,000: the console's ceiling, below the API reference's 20,000 (D-714).
-    assert THINNEST_LIMITS.prompt_chars == 8_000
+    # 20,000 in the API, the console and MCP alike (ThinnestAI, 12 Oct 2026).
+    assert THINNEST_LIMITS.prompt_chars == 20_000
     assert THINNEST_LIMITS.greeting_chars == 200
     assert THINNEST_LIMITS.call_opening_chars == 300
     assert THINNEST_LIMITS.call_opening_required is True
@@ -121,19 +121,19 @@ def test_a_prompt_that_fits_passes() -> None:
 
 
 def test_a_prompt_over_the_ceiling_is_refused_with_the_numbers_to_cut() -> None:
-    cfg = _cfg(system_prompt="word " * 1_800)
+    cfg = _cfg(system_prompt="word " * 4_200)
     composed = len(compose_engine_prompt(cfg))
-    assert composed > 8_000
+    assert composed > 20_000
     problem = _refusal(_thinnest(), cfg)
     assert problem.code == PROMPT_TOO_LONG
     assert problem.status == 422
     # The owner's sentence (D-752): how far over, counting everything the system receives.
     assert problem.detail == (
-        f"Your script is {composed - 8_000:,} characters too long for the calling system; "
+        f"Your script is {composed - 20_000:,} characters too long for the calling system; "
         "shorten it to put it live."
     )
     # The count is exact: a script that much shorter fits, one character longer does not.
-    room = 8_000 - (composed - len(cfg.system_prompt.strip()))
+    room = 20_000 - (composed - len(cfg.system_prompt.strip()))
     refuse_over_engine_limits(_thinnest(), _cfg(system_prompt="w" * room))
     with pytest.raises(ProblemError):
         refuse_over_engine_limits(_thinnest(), _cfg(system_prompt="w" * (room + 1)))

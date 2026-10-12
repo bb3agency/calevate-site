@@ -285,9 +285,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "voice-engine",
         "thinnest",
         "In-call language model for agents with none chosen",
-        "Clear and Studio agents with no model of their own answer calls on it; an agent "
-        "given a model in its own Model section keeps that one. Empty keeps Prana [Voice]. "
-        "Must be call-capable, priced and allowed with Studio voices.",
+        "Agents with no model of their own use it; an agent's own choice wins. Empty keeps "
+        "Prana [Voice]. Must be call-capable, priced and allowed with Studio voices.",
         _THINNEST,
     ),
     "pipecat_stream_base_url": _m(
@@ -385,9 +384,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "calling-limits",
         "trial",
         "Shared trial number",
-        "Every free-trial test call rings from this number, one our ThinnestAI workspace has "
-        "rented. No AI answers it; somebody who rings it back hears a short message saying "
-        "it only places test calls.",
+        "Free-trial test calls ring from this number, rented in our ThinnestAI workspace. No "
+        "AI answers it; a caller ringing back hears that it only places test calls.",
         _THINNEST,
     ),
     "trial_daily_call_cap": _m(
@@ -408,18 +406,16 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "calling-limits",
         "trial",
         "Studio minutes per trial account",
-        "How many minutes of test calls one trial account may make on Studio voices. Studio "
-        "speaks on our own voice key, so these minutes cost us more; once they are used, a "
-        "Studio test call is refused and Clear test calls go on. 0 allows none.",
+        "Minutes of Studio-voice test calls one trial account may make; they cost us more. "
+        "Once used, Studio test calls are refused and Clear ones go on. 0 allows none.",
         _THINNEST,
     ),
     "forwarding_test_second_number": _m(
         "calling-limits",
         "trial",
         "Second number for forwarding tests",
-        "A forwarding test rings a client's own published number from the shared trial number "
-        "and from this one at the same moment, to check two callers both get through. Pick a "
-        "second number our ThinnestAI workspace has rented. Unset, a test places one call.",
+        "A forwarding test rings the client's number from the trial number and this one at "
+        "once, to check two callers get through. One we rent; if unset, one call.",
         _THINNEST,
     ),
     "forwarding_test_daily_cap": _m(
@@ -446,9 +442,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "voice-engine",
         "thinnest",
         "Where in-call actions come from",
-        "The addresses ThinnestAI sends in-call action requests from, separated by commas. A "
-        "request from anywhere else is still served when its agent's secret is right, and "
-        "raises one alarm, so a change of address never stops a booking.",
+        "Comma-separated addresses ThinnestAI sends in-call actions from. Others are served "
+        "with the agent's right secret and raise one alarm, so bookings never stop.",
         _THINNEST,
     ),
     "thinnest_customer_plan": _m(
@@ -872,8 +867,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "notifications",
         "whatsapp",
         "Cost of one WhatsApp we send",
-        "What one message from our own WhatsApp account costs us, in rupees, read from Meta's "
-        "rate card. Used to record the cost of the save-our-number message, which we absorb.",
+        "What one message from our WhatsApp account costs us in rupees, from Meta's rate "
+        "card; records the cost of the save-our-number message, which we absorb.",
     ),
     "whatsapp_enabled": _m(
         "notifications",

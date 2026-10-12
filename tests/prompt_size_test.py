@@ -118,11 +118,11 @@ def test_the_report_carries_counts_and_never_text() -> None:
 
 
 def test_the_refusal_is_the_owner_sentence_with_the_longest_parts() -> None:
-    cfg = _cfg(SCRIPT + "\n\n[EXAMPLE CALL] style\n" + ("You: hello there\n" * 400))
+    cfg = _cfg(SCRIPT + "\n\n[EXAMPLE CALL] style\n" + ("You: hello there\n" * 1_300))
     with pytest.raises(PromptTooLongError) as caught:
         refuse_over_engine_limits(_thinnest(), cfg)
     problem = caught.value
-    over = len(compose_engine_prompt(cfg)) - 8_000
+    over = len(compose_engine_prompt(cfg)) - 20_000
     assert problem.code == PROMPT_TOO_LONG
     assert problem.detail == (
         f"Your script is {over:,} characters too long for the calling system; "
@@ -131,7 +131,7 @@ def test_the_refusal_is_the_owner_sentence_with_the_longest_parts() -> None:
     assert "example call" in (problem.remediation or "")
     assert SECRET not in f"{problem.detail} {problem.remediation}"
     recorded = live_apply.failure_detail(problem)
-    assert recorded["over_chars"] == over and recorded["limit_chars"] == 8_000
+    assert recorded["over_chars"] == over and recorded["limit_chars"] == 20_000
     assert recorded["longest"][0]["label"] == "Example call"
     assert SECRET not in json.dumps(recorded)
 
@@ -171,12 +171,12 @@ async def test_the_meter_counts_what_a_publish_sends_and_says_when_it_is_over() 
     with _selected(_thinnest()):
         async with tenant_session(tenant_id) as session:
             fits = await script_builder.compiled_preview(session, agent_id, _long_script(10))
-            over = await script_builder.compiled_preview(session, agent_id, _long_script(1_600))
-    assert fits.size.fits and fits.instructions_limit == 8_000
+            over = await script_builder.compiled_preview(session, agent_id, _long_script(4_200))
+    assert fits.size.fits and fits.instructions_limit == 20_000
     # Everything the calling system receives, not only the client's text.
     assert fits.size.total == fits.instructions_chars > 3_000
-    assert not over.size.fits and over.size.over == over.instructions_chars - 8_000
-    assert over.size.longest_script_parts()[0].chars > 7_000
+    assert not over.size.fits and over.size.over == over.instructions_chars - 20_000
+    assert over.size.longest_script_parts()[0].chars > 20_000
 
 
 async def test_save_and_put_live_refuse_before_anything_is_stored() -> None:
@@ -190,7 +190,7 @@ async def test_save_and_put_live_refuse_before_anything_is_stored() -> None:
                 )
             ).scalar()
             with pytest.raises(PromptTooLongError) as caught:
-                await script_builder.refuse_if_too_long(session, agent_id, _long_script(1_600))
+                await script_builder.refuse_if_too_long(session, agent_id, _long_script(4_200))
             after = (
                 await session.execute(
                     text("SELECT count(*) FROM prompt_versions WHERE agent_id = :a"),
@@ -254,7 +254,7 @@ async def test_a_pinned_fact_that_would_push_a_live_agent_over_is_refused() -> N
                 session, tenant_id=tenant_id, agent_id=agent_id, engine=engine
             )
     # Forty characters short of the box: the fact below does not fit beside it.
-    tenant_id, agent_id = await _agent_with_script("w" * (1 + 8_000 - size.total - 40))
+    tenant_id, agent_id = await _agent_with_script("w" * (1 + 20_000 - size.total - 40))
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agents SET status = 'live' WHERE id = :a"), {"a": agent_id}
@@ -282,7 +282,7 @@ async def test_the_tool_prints_counts_for_one_agent_and_never_text(
 ) -> None:
     from scripts import prompt_size as tool
 
-    tenant_id, agent_id = await _agent_with_script(f"[BUSINESS]\n{SECRET}\n" + "word " * 1_700)
+    tenant_id, agent_id = await _agent_with_script(f"[BUSINESS]\n{SECRET}\n" + "word " * 4_200)
     with _selected(_thinnest()):
         code = await tool.one(agent_id)
     out = capsys.readouterr().out
@@ -305,6 +305,6 @@ async def test_the_tool_lists_live_agents_one_line_each(capsys: pytest.CaptureFi
     out = capsys.readouterr().out
     line = next(x for x in out.splitlines() if x.startswith(str(agent_id)))
     total, limit, headroom = (int(v) for v in line.split()[1:4])
-    assert limit == 8_000 and headroom == limit - total
+    assert limit == 20_000 and headroom == limit - total
     assert SECRET not in out
     assert code in (0, 1, 2)

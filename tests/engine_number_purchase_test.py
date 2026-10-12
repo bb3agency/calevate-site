@@ -126,6 +126,18 @@ async def _row(tenant_id: UUID, number_id: UUID) -> Any:
         ).one()
 
 
+async def _purchase_status(tenant_id: UUID, key: str) -> str:
+    async with tenant_session(tenant_id) as session:
+        return str(
+            (
+                await session.execute(
+                    text("SELECT status FROM engine_number_purchases WHERE idempotency_key = :k"),
+                    {"k": key},
+                )
+            ).scalar_one()
+        )
+
+
 # --- the gates ----------------------------------------------------------------------------
 
 
@@ -212,6 +224,48 @@ async def test_a_purchase_rents_in_the_clients_name_charges_our_price_and_attach
     assert again.first_period == "replayed"
     assert len([s for s in account.sent if s.method == "POST" and s.path == "/phone-numbers"]) == 1
     assert await _balance(tenant_id) == before - price
+
+
+async def test_a_rent_still_in_flight_is_never_settled_as_nothing_bought(
+    account: FakeAccount,
+) -> None:
+    """`409 idempotency_in_progress` is the first attempt still running: unconfirmed and
+    left open, then finished by the next press once the number reads back as ours. Every
+    attempt carries the purchase row's id as its key."""
+    price = await _attested()
+    tenant_id, _workspace = await _client(account)
+    before = await _balance(tenant_id)
+    number = account.available[0]
+    key = f"key-{uuid.uuid4().hex}"
+    account.rent_in_flight = False
+    with pytest.raises(ProblemError) as unconfirmed:
+        await purchase_engine_number(
+            tenant_id=tenant_id,
+            number=number,
+            agent_id=None,
+            direction="both",
+            idempotency_key=key,
+            requested_by="client",
+        )
+    assert unconfirmed.value.code == "engine_number_purchase_unconfirmed"
+    assert await _purchase_status(tenant_id, key) == "renting"
+    assert await _balance(tenant_id) == before
+
+    # The first attempt finishes and the number is ours: the next press records it.
+    account.rent_in_flight = True
+    bought = await purchase_engine_number(
+        tenant_id=tenant_id,
+        number=number,
+        agent_id=None,
+        direction="both",
+        idempotency_key=key,
+        requested_by="client",
+    )
+    assert await _purchase_status(tenant_id, key) == "recorded"
+    assert bought.first_period == "charged"
+    assert await _balance(tenant_id) == before - price
+    assert len(set(account.rent_keys)) == 1 and account.rent_keys[0] is not None
+    assert account.rent_keys[0].startswith("calevate-rent-")
 
 
 async def test_a_number_somebody_else_holds_is_refused_and_nothing_is_charged(

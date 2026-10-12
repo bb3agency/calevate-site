@@ -567,6 +567,15 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/campaigns/{campaign_id}/schedule", {"start_at": "2027-01-01T10:00:00+05:30"}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}/schedule", {}, {}),
     ("DELETE", "/v1/dnc/{entry_id}", {}, {}),
+    # A neighbour's opt-out evidence is the caller's own words; restoring one would put a
+    # person who said "do not call me" back on another business's dialling list.
+    ("GET", "/v1/dnc/{entry_id}/evidence", {}, {}),
+    (
+        "POST",
+        "/v1/dnc/{entry_id}/restore",
+        {"ground": "never_asked", "latest_evidence_id": None},
+        {},
+    ),
     ("DELETE", "/v1/integrations/endpoints/{endpoint_id}", {}, {}),
     ("DELETE", "/v1/invitations/{invitation_id}", {}, {}),
     ("POST", "/v1/invitations/{invitation_id}/resend", {}, {}),

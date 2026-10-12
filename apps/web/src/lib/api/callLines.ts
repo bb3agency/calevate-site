@@ -1,0 +1,53 @@
+"use client";
+
+/**
+ * How many calls one client may have at once (F7), the operator's setting.
+ *
+ *   GET /v1/admin/organizations/{org_id}/call-lines   `admin:tenants`
+ *   PUT /v1/admin/organizations/{org_id}/call-lines   `admin:tenants`
+ *
+ * `null` is Calevate's default (the server's `paid_default` / `trial_default`); the screen
+ * renders `call_lines` and `source` as they arrive and never works out the default itself.
+ */
+
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from "@tanstack/react-query";
+
+import { adminSession } from "./admin";
+import { apiRequest } from "./client";
+import type { components } from "./schema";
+
+export type CallLines = components["schemas"]["CallLinesOut"];
+export type CallLinesIn = components["schemas"]["CallLinesIn"];
+
+export const callLinesPath = (tenantId: string) => `/v1/admin/organizations/${tenantId}/call-lines`;
+const callLinesKey = (tenantId: string) => ["call-lines", tenantId] as const;
+
+export function useCallLines(tenantId: string): UseQueryResult<CallLines> {
+  return useQuery({
+    queryKey: callLinesKey(tenantId),
+    queryFn: () => apiRequest<CallLines>(adminSession(), callLinesPath(tenantId)),
+    enabled: Boolean(tenantId),
+  });
+}
+
+export function useSetCallLines(tenantId: string): UseMutationResult<CallLines, Error, CallLinesIn> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CallLinesIn) =>
+      apiRequest<CallLines>(adminSession(), callLinesPath(tenantId), { method: "PUT", body: payload }),
+    onSuccess: (data) => {
+      client.setQueryData(callLinesKey(tenantId), data);
+    },
+  });
+}
+
+/** "2 calls at once", "1 call at once". */
+export function callsAtOnce(lines: number): string {
+  return `${lines} ${lines === 1 ? "call" : "calls"} at once`;
+}

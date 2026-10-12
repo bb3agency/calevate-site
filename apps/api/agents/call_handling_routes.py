@@ -1,4 +1,4 @@
-"""The pause before an agent replies and hanging up when it has finished, as endpoints (D-751).
+"""The call settings a client decides per agent or for the account, as endpoints (D-751, F3, F9).
 
     GET   /v1/agents/{agent_id}/call-handling                       one agent's, with sources
     PATCH /v1/agents/{agent_id}/call-handling                       set or inherit (owner)
@@ -13,11 +13,14 @@ The writes are `org:manage`, the owner's, as caller memory's are: switching the 
 leaves a finished call billed until the caller puts the phone down, which is a decision about
 the account's money. Both realms call one writer (`agents/call_handling`), which queues the
 live apply in the saving transaction (D-720), so the next call uses the new value.
+
+The account PUT names the pause and the hang-up, as it did before the F3 settings existed; the
+F3 settings it leaves out are kept, so a caller written for the first two cannot clear the rest.
 """
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
@@ -26,13 +29,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import call_handling
 from apps.api.agents.call_handling import (
+    AMBIENCE_VOLUME_DEFAULT_PCT,
+    END_AFTER_SILENCE_DEFAULT_S,
     END_CALL_ON_FINISH_DEFAULT,
+    NUDGE_AFTER_DEFAULT_S,
+    NUDGE_COUNT_DEFAULT,
     TURN_SILENCE_DEFAULT_MS,
     AgentCallHandling,
+    CallSettings,
     OrganizationCallHandling,
     SettingSource,
 )
-from apps.api.agents.models import TURN_SILENCE_MAX_MS, TURN_SILENCE_MIN_MS
+from apps.api.agents.models import (
+    AMBIENCE_VOLUME_MAX_PCT,
+    AMBIENCE_VOLUME_MIN_PCT,
+    END_AFTER_SILENCE_MAX_S,
+    END_AFTER_SILENCE_MIN_S,
+    FILLER_LINE_MAX_CHARS,
+    FILLER_LINES_MAX,
+    NUDGE_AFTER_MAX_S,
+    NUDGE_AFTER_MIN_S,
+    NUDGE_COUNT_MAX,
+    NUDGE_COUNT_MIN,
+    NUDGE_PHRASE_MAX_CHARS,
+    TURN_SILENCE_MAX_MS,
+    TURN_SILENCE_MIN_MS,
+)
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
@@ -50,6 +72,13 @@ Operator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin")
 router = APIRouter(tags=["agents"])
 admin_router = APIRouter(tags=["admin"])
 
+Ambience = Literal["off", "office", "office-quiet"]
+
+#: Bounds on the request body itself, far above any real value: the writer's range checks
+#: answer an out-of-range value in plain words; these only stop an oversized body.
+_TEXT_CAP = 1000
+_LINES_CAP = 50
+
 
 class CallHandlingBoundsOut(BaseModel):
     """What may be chosen and what Calevate's own defaults are."""
@@ -60,6 +89,24 @@ class CallHandlingBoundsOut(BaseModel):
     turn_silence_max_ms: int
     platform_turn_silence_ms: int
     platform_end_call_on_finish: bool
+    #: `nudge_after_seconds` 0 is "never ask".
+    nudge_after_min_s: int
+    nudge_after_max_s: int
+    platform_nudge_after_seconds: int
+    nudge_count_min: int
+    nudge_count_max: int
+    platform_nudge_count: int
+    nudge_phrase_max_chars: int
+    end_after_silence_min_s: int
+    end_after_silence_max_s: int
+    platform_end_after_silence_seconds: int
+    filler_lines_max: int
+    filler_line_max_chars: int
+    ambiences: list[Ambience]
+    platform_ambience: Ambience
+    ambience_volume_min_pct: int
+    ambience_volume_max_pct: int
+    platform_ambience_volume_pct: int
 
 
 def _bounds() -> CallHandlingBoundsOut:
@@ -68,12 +115,29 @@ def _bounds() -> CallHandlingBoundsOut:
         turn_silence_max_ms=TURN_SILENCE_MAX_MS,
         platform_turn_silence_ms=TURN_SILENCE_DEFAULT_MS,
         platform_end_call_on_finish=END_CALL_ON_FINISH_DEFAULT,
+        nudge_after_min_s=NUDGE_AFTER_MIN_S,
+        nudge_after_max_s=NUDGE_AFTER_MAX_S,
+        platform_nudge_after_seconds=NUDGE_AFTER_DEFAULT_S,
+        nudge_count_min=NUDGE_COUNT_MIN,
+        nudge_count_max=NUDGE_COUNT_MAX,
+        platform_nudge_count=NUDGE_COUNT_DEFAULT,
+        nudge_phrase_max_chars=NUDGE_PHRASE_MAX_CHARS,
+        end_after_silence_min_s=END_AFTER_SILENCE_MIN_S,
+        end_after_silence_max_s=END_AFTER_SILENCE_MAX_S,
+        platform_end_after_silence_seconds=END_AFTER_SILENCE_DEFAULT_S,
+        filler_lines_max=FILLER_LINES_MAX,
+        filler_line_max_chars=FILLER_LINE_MAX_CHARS,
+        ambiences=["off", "office", "office-quiet"],
+        platform_ambience="off",
+        ambience_volume_min_pct=AMBIENCE_VOLUME_MIN_PCT,
+        ambience_volume_max_pct=AMBIENCE_VOLUME_MAX_PCT,
+        platform_ambience_volume_pct=AMBIENCE_VOLUME_DEFAULT_PCT,
     )
 
 
 class AgentCallHandlingOut(BaseModel):
-    """One agent's two settings: its own value (`null` inherits), the value in force and the
-    level that chose it (`agent`, `organization` or `platform`)."""
+    """One agent's settings: its own value (`null` inherits), the value in force and the level
+    that chose it (`agent`, `organization` or `platform`)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -84,19 +148,59 @@ class AgentCallHandlingOut(BaseModel):
     end_call_on_finish: bool | None
     end_call_on_finish_effective: bool
     end_call_on_finish_source: SettingSource
+    #: Seconds of quiet before asking whether the caller is still there; 0 is never.
+    nudge_after_seconds: int | None
+    nudge_after_seconds_effective: int
+    nudge_after_seconds_source: SettingSource
+    nudge_count: int | None
+    nudge_count_effective: int
+    nudge_count_source: SettingSource
+    #: The client's own question; "" is the standard one, in the caller's language.
+    nudge_phrase: str | None
+    nudge_phrase_effective: str
+    nudge_phrase_source: SettingSource
+    end_after_silence_seconds: int | None
+    end_after_silence_seconds_effective: int
+    end_after_silence_seconds_source: SettingSource
+    #: The client's own lines while the agent looks something up; [] is the standard ones.
+    filler_lines: list[str] | None
+    filler_lines_effective: list[str]
+    filler_lines_source: SettingSource
+    ambience: Ambience | None
+    ambience_effective: Ambience
+    ambience_source: SettingSource
+    ambience_volume_pct: int | None
+    ambience_volume_pct_effective: int
+    ambience_volume_pct_source: SettingSource
     #: The account defaults an agent with no value of its own follows (`null`: Calevate's).
     organization_turn_silence_ms: int | None
     organization_end_call_on_finish: bool | None
+    organization_nudge_after_seconds: int | None
+    organization_nudge_count: int | None
+    organization_nudge_phrase: str | None
+    organization_end_after_silence_seconds: int | None
+    organization_filler_lines: list[str] | None
+    organization_ambience: Ambience | None
+    organization_ambience_volume_pct: int | None
     bounds: CallHandlingBoundsOut
 
 
 class AgentCallHandlingIn(BaseModel):
-    """Either or both. A field left out is untouched; `null` goes back to inheriting."""
+    """Any of the settings. A field left out is untouched; `null` goes back to inheriting."""
 
     model_config = ConfigDict(extra="forbid")
 
     turn_silence_ms: int | None = Field(default=None)
     end_call_on_finish: bool | None = Field(default=None)
+    nudge_after_seconds: int | None = Field(default=None)
+    nudge_count: int | None = Field(default=None)
+    nudge_phrase: str | None = Field(default=None, max_length=_TEXT_CAP)
+    end_after_silence_seconds: int | None = Field(default=None)
+    filler_lines: list[Annotated[str, Field(max_length=_TEXT_CAP)]] | None = Field(
+        default=None, max_length=_LINES_CAP
+    )
+    ambience: Ambience | None = Field(default=None)
+    ambience_volume_pct: int | None = Field(default=None)
 
 
 class OrganizationCallHandlingOut(BaseModel):
@@ -107,47 +211,143 @@ class OrganizationCallHandlingOut(BaseModel):
     turn_silence_ms_effective: int
     end_call_on_finish: bool | None
     end_call_on_finish_effective: bool
+    nudge_after_seconds: int | None
+    nudge_after_seconds_effective: int
+    nudge_count: int | None
+    nudge_count_effective: int
+    nudge_phrase: str | None
+    nudge_phrase_effective: str
+    end_after_silence_seconds: int | None
+    end_after_silence_seconds_effective: int
+    filler_lines: list[str] | None
+    filler_lines_effective: list[str]
+    ambience: Ambience | None
+    ambience_effective: Ambience
+    ambience_volume_pct: int | None
+    ambience_volume_pct_effective: int
     bounds: CallHandlingBoundsOut
 
 
 class OrganizationCallHandlingIn(BaseModel):
-    """Both, required: the body states the whole resource, so `null` is "follow Calevate"."""
+    """The pause and the hang-up, required as before (`null` is "follow Calevate"). Every
+    other setting is optional: named, it is set (`null` follows Calevate); left out, it is
+    kept."""
 
     model_config = ConfigDict(extra="forbid")
 
     turn_silence_ms: int | None
     end_call_on_finish: bool | None
+    nudge_after_seconds: int | None = Field(default=None)
+    nudge_count: int | None = Field(default=None)
+    nudge_phrase: str | None = Field(default=None, max_length=_TEXT_CAP)
+    end_after_silence_seconds: int | None = Field(default=None)
+    filler_lines: list[Annotated[str, Field(max_length=_TEXT_CAP)]] | None = Field(
+        default=None, max_length=_LINES_CAP
+    )
+    ambience: Ambience | None = Field(default=None)
+    ambience_volume_pct: int | None = Field(default=None)
+
+
+def _lines(value: tuple[str, ...] | None) -> list[str] | None:
+    return None if value is None else list(value)
+
+
+def _ambience(value: str | None) -> Ambience | None:
+    if value is None:
+        return None
+    if value == "office":
+        return "office"
+    if value == "office-quiet":
+        return "office-quiet"
+    return "off"
+
+
+def _effective(values: CallSettings) -> dict[str, object]:
+    """The `*_effective` fields of a resolved `CallSettings` (every value is set)."""
+    return {
+        "turn_silence_ms_effective": values.turn_silence_ms,
+        "end_call_on_finish_effective": values.end_call_on_finish,
+        "nudge_after_seconds_effective": values.nudge_after_seconds,
+        "nudge_count_effective": values.nudge_count,
+        "nudge_phrase_effective": values.nudge_phrase,
+        "end_after_silence_seconds_effective": values.end_after_silence_seconds,
+        "filler_lines_effective": list(values.filler_lines or ()),
+        "ambience_effective": _ambience(values.ambience) or "off",
+        "ambience_volume_pct_effective": values.ambience_volume_pct,
+    }
+
+
+def _own(values: CallSettings, prefix: str = "") -> dict[str, object]:
+    return {
+        f"{prefix}turn_silence_ms": values.turn_silence_ms,
+        f"{prefix}end_call_on_finish": values.end_call_on_finish,
+        f"{prefix}nudge_after_seconds": values.nudge_after_seconds,
+        f"{prefix}nudge_count": values.nudge_count,
+        f"{prefix}nudge_phrase": values.nudge_phrase,
+        f"{prefix}end_after_silence_seconds": values.end_after_silence_seconds,
+        f"{prefix}filler_lines": _lines(values.filler_lines),
+        f"{prefix}ambience": _ambience(values.ambience),
+        f"{prefix}ambience_volume_pct": values.ambience_volume_pct,
+    }
 
 
 def _agent_out(state: AgentCallHandling) -> AgentCallHandlingOut:
-    return AgentCallHandlingOut(
-        agent_id=state.agent_id,
-        turn_silence_ms=state.turn_silence_ms,
-        turn_silence_ms_effective=state.turn_silence.ms,
-        turn_silence_source=state.turn_silence.source,
-        end_call_on_finish=state.end_call_on_finish,
-        end_call_on_finish_effective=state.end_call.enabled,
-        end_call_on_finish_source=state.end_call.source,
-        organization_turn_silence_ms=state.organization_turn_silence_ms,
-        organization_end_call_on_finish=state.organization_end_call_on_finish,
-        bounds=_bounds(),
+    sources = state.resolved.sources
+    return AgentCallHandlingOut.model_validate(
+        {
+            "agent_id": state.agent_id,
+            **_own(state.own),
+            **_effective(state.resolved.values),
+            "turn_silence_source": sources["turn_silence_ms"],
+            "end_call_on_finish_source": sources["end_call_on_finish"],
+            **{
+                f"{field}_source": sources[field]
+                for field in call_handling.SETTING_FIELDS
+                if field not in ("turn_silence_ms", "end_call_on_finish")
+            },
+            **_own(state.organization, "organization_"),
+            "bounds": _bounds(),
+        }
     )
 
 
 def _org_out(state: OrganizationCallHandling) -> OrganizationCallHandlingOut:
-    return OrganizationCallHandlingOut(
-        turn_silence_ms=state.turn_silence_ms,
-        turn_silence_ms_effective=state.turn_silence.ms,
-        end_call_on_finish=state.end_call_on_finish,
-        end_call_on_finish_effective=state.end_call.enabled,
-        bounds=_bounds(),
+    return OrganizationCallHandlingOut.model_validate(
+        {**_own(state.own), **_effective(state.resolved.values), "bounds": _bounds()}
     )
 
 
-def _changes(payload: AgentCallHandlingIn) -> dict[str, int | bool | None]:
+def _changes(payload: BaseModel) -> dict[str, object]:
     return {
-        f: getattr(payload, f) for f in call_handling.AGENT_FIELDS if f in payload.model_fields_set
+        f: getattr(payload, f)
+        for f in call_handling.SETTING_FIELDS
+        if f in payload.model_fields_set
     }
+
+
+def _org_changes(payload: OrganizationCallHandlingIn) -> dict[str, object]:
+    """The two required settings always; the rest only when named."""
+    return {
+        **_changes(payload),
+        "turn_silence_ms": payload.turn_silence_ms,
+        "end_call_on_finish": payload.end_call_on_finish,
+    }
+
+
+def _audit_summary(changes: dict[str, object], moved: tuple[str, ...]) -> dict[str, object]:
+    """What was asked and what moved. The client's own words (the question and the filler
+    lines) are summarised by length, never copied into the audit trail."""
+    summary: dict[str, object] = {
+        key: value for key, value in changes.items() if key not in ("nudge_phrase", "filler_lines")
+    }
+    if "nudge_phrase" in changes:
+        phrase = changes["nudge_phrase"]
+        summary["nudge_phrase_chars"] = None if phrase is None else len(str(phrase))
+    if "filler_lines" in changes:
+        lines = changes["filler_lines"]
+        summary["filler_lines_count"] = None if not isinstance(lines, list) else len(lines)
+    summary["changed"] = list(moved)
+    return summary
 
 
 _AGENT_DESCRIPTION = (
@@ -155,15 +355,30 @@ _AGENT_DESCRIPTION = (
     f"{TURN_SILENCE_MIN_MS}-{TURN_SILENCE_MAX_MS} ms; longer suits callers reading out "
     "numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent "
     "has finished; with it off a finished call stays connected, and charged, until the caller "
-    "hangs up. Each resolves agent, then the account default, then Calevate's "
-    f"({TURN_SILENCE_DEFAULT_MS} ms, hang-up on); `*_source` names the level in force.\n\n"
+    "hangs up.\n\n"
+    "If the caller goes quiet: `nudge_after_seconds` "
+    f"({NUDGE_AFTER_MIN_S}-{NUDGE_AFTER_MAX_S}, or 0 for never) is when the agent asks whether "
+    f"they are still there, `nudge_count` ({NUDGE_COUNT_MIN}-{NUDGE_COUNT_MAX}) how many times, "
+    f'`nudge_phrase` (up to {NUDGE_PHRASE_MAX_CHARS} characters, "" for the standard question '
+    "in the caller's language) what it says, and `end_after_silence_seconds` "
+    f"({END_AFTER_SILENCE_MIN_S}-{END_AFTER_SILENCE_MAX_S}) when it hangs up. `filler_lines` "
+    f"(up to {FILLER_LINES_MAX} of {FILLER_LINE_MAX_CHARS} characters, [] for the standard "
+    "ones) are said while the agent looks something up. `ambience` is a background sound "
+    f"(`off`, `office`, `office-quiet`) at `ambience_volume_pct` "
+    f"({AMBIENCE_VOLUME_MIN_PCT}-{AMBIENCE_VOLUME_MAX_PCT}).\n\n"
+    "Each resolves agent, then the account default, then Calevate's "
+    f"({TURN_SILENCE_DEFAULT_MS} ms, hang-up on, ask once after {NUDGE_AFTER_DEFAULT_S} s, "
+    f"hang up after {END_AFTER_SILENCE_DEFAULT_S} s, standard lines, no sound); `*_source` "
+    "names the level in force.\n\n"
     "A change reaches a live agent straight after the save and applies from its next call; "
     "a call in progress finishes as it started. Out-of-range values are refused with "
-    "`turn_silence_out_of_range`."
+    "`turn_silence_out_of_range` or `call_setting_out_of_range`."
 )
 _ORG_DESCRIPTION = (
     "The account defaults every agent without a value of its own follows. `null` follows "
-    "Calevate's. A change reaches every live agent that inherits it, from its next call."
+    "Calevate's. `turn_silence_ms` and `end_call_on_finish` are always stated; any other "
+    "setting left out of a PUT is kept. A change reaches every live agent that inherits it, "
+    "from its next call."
 )
 
 
@@ -171,7 +386,7 @@ _ORG_DESCRIPTION = (
     "/v1/agents/{agent_id}/call-handling",
     response_model=AgentCallHandlingOut,
     openapi_extra=permission_meta("agents:read"),
-    summary="The pause before an agent replies, and whether it hangs up when finished",
+    summary="An agent's call settings, and where each comes from",
     description=_AGENT_DESCRIPTION,
 )
 async def get_agent_call_handling(
@@ -184,7 +399,7 @@ async def get_agent_call_handling(
     "/v1/agents/{agent_id}/call-handling",
     response_model=AgentCallHandlingOut,
     openapi_extra=permission_meta("org:manage"),
-    summary="Set an agent's pause before replying and hang-up, or let it inherit",
+    summary="Set an agent's call settings, or let them inherit",
     description=_AGENT_DESCRIPTION,
 )
 async def set_agent_call_handling(
@@ -195,8 +410,9 @@ async def set_agent_call_handling(
     principal: Owner,
 ) -> AgentCallHandlingOut:
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    changes = _changes(payload)
     state, moved = await call_handling.set_agent_call_handling(
-        session, tenant_id=principal.tenant_id, agent_id=agent_id, changes=_changes(payload)
+        session, tenant_id=principal.tenant_id, agent_id=agent_id, changes=changes
     )
     await write_audit(
         session,
@@ -206,7 +422,7 @@ async def set_agent_call_handling(
         object_type="agent",
         object_id=str(agent_id),
         ip=client_request_ip(request),
-        summary={**_changes(payload), "changed": list(moved)},
+        summary=_audit_summary(changes, moved),
     )
     return _agent_out(state)
 
@@ -215,7 +431,7 @@ async def set_agent_call_handling(
     "/v1/organization/call-handling",
     response_model=OrganizationCallHandlingOut,
     openapi_extra=permission_meta("org:read"),
-    summary="This account's default pause before replying and hang-up",
+    summary="This account's default call settings",
     description=_ORG_DESCRIPTION,
 )
 async def get_organization_call_handling(
@@ -228,7 +444,7 @@ async def get_organization_call_handling(
     "/v1/organization/call-handling",
     response_model=OrganizationCallHandlingOut,
     openapi_extra=permission_meta("org:manage"),
-    summary="Set this account's default pause before replying and hang-up",
+    summary="Set this account's default call settings",
     description=_ORG_DESCRIPTION,
 )
 async def set_organization_call_handling(
@@ -238,11 +454,9 @@ async def set_organization_call_handling(
     principal: Owner,
 ) -> OrganizationCallHandlingOut:
     assert principal.tenant_id is not None
+    changes = _org_changes(payload)
     state, moved = await call_handling.set_organization_call_handling(
-        session,
-        tenant_id=principal.tenant_id,
-        turn_silence_ms=payload.turn_silence_ms,
-        end_call_on_finish=payload.end_call_on_finish,
+        session, tenant_id=principal.tenant_id, changes=changes
     )
     await write_audit(
         session,
@@ -252,7 +466,7 @@ async def set_organization_call_handling(
         object_type="organization",
         object_id=str(principal.tenant_id),
         ip=client_request_ip(request),
-        summary={**payload.model_dump(), "changed": list(moved)},
+        summary=_audit_summary(changes, moved),
     )
     return _org_out(state)
 
@@ -261,7 +475,7 @@ async def set_organization_call_handling(
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling",
     response_model=AgentCallHandlingOut,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="One client agent's pause before replying and hang-up",
+    summary="One client agent's call settings",
     description=_AGENT_DESCRIPTION,
 )
 async def admin_get_agent_call_handling(
@@ -279,7 +493,7 @@ async def admin_get_agent_call_handling(
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling",
     response_model=AgentCallHandlingOut,
     openapi_extra=permission_meta("agents:write"),
-    summary="Set one client agent's pause before replying and hang-up",
+    summary="Set one client agent's call settings",
     description=_AGENT_DESCRIPTION,
 )
 async def admin_set_agent_call_handling(
@@ -289,9 +503,10 @@ async def admin_set_agent_call_handling(
     request: Request,
     principal: AgentOperator,
 ) -> AgentCallHandlingOut:
+    changes = _changes(payload)
     async with tenant_session(tenant_id) as scoped:
         state, moved = await call_handling.set_agent_call_handling(
-            scoped, tenant_id=tenant_id, agent_id=agent_id, changes=_changes(payload)
+            scoped, tenant_id=tenant_id, agent_id=agent_id, changes=changes
         )
         await write_audit(
             scoped,
@@ -301,7 +516,7 @@ async def admin_set_agent_call_handling(
             object_type="agent",
             object_id=str(agent_id),
             ip=client_request_ip(request),
-            summary={**_changes(payload), "changed": list(moved)},
+            summary=_audit_summary(changes, moved),
         )
     return _agent_out(state)
 
@@ -310,7 +525,7 @@ async def admin_set_agent_call_handling(
     "/v1/admin/organizations/{org_id}/call-handling",
     response_model=OrganizationCallHandlingOut,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="One client's default pause before replying and hang-up",
+    summary="One client's default call settings",
     description=_ORG_DESCRIPTION,
 )
 async def admin_get_organization_call_handling(
@@ -328,7 +543,7 @@ async def admin_get_organization_call_handling(
     "/v1/admin/organizations/{org_id}/call-handling",
     response_model=OrganizationCallHandlingOut,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="Set one client's default pause before replying and hang-up",
+    summary="Set one client's default call settings",
     description=_ORG_DESCRIPTION,
 )
 async def admin_set_organization_call_handling(
@@ -337,12 +552,10 @@ async def admin_set_organization_call_handling(
     request: Request,
     principal: Operator,
 ) -> OrganizationCallHandlingOut:
+    changes = _org_changes(payload)
     async with tenant_session(org_id) as scoped:
         state, moved = await call_handling.set_organization_call_handling(
-            scoped,
-            tenant_id=org_id,
-            turn_silence_ms=payload.turn_silence_ms,
-            end_call_on_finish=payload.end_call_on_finish,
+            scoped, tenant_id=org_id, changes=changes
         )
         await write_audit(
             scoped,
@@ -352,7 +565,7 @@ async def admin_set_organization_call_handling(
             object_type="organization",
             object_id=str(org_id),
             ip=client_request_ip(request),
-            summary={**payload.model_dump(), "changed": list(moved)},
+            summary=_audit_summary(changes, moved),
         )
     return _org_out(state)
 

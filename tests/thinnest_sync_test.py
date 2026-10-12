@@ -503,12 +503,16 @@ def test_cost_micro_is_rupees_without_a_float() -> None:
         assert held.engine_charged_inr is None
 
 
-@pytest.mark.parametrize(("band", "fee"), [("studio", "0.09"), ("premium", "0.10")])
-def test_the_top_up_fee_follows_the_plan_the_band_needs(band: str, fee: str) -> None:
-    assert engine_charges.thinnest_topup_fee(band) == Decimal(fee)
-    assert engine_charges.cost_with_fee(Decimal("3.00"), fee=Decimal(fee)) == (
-        Decimal("3.00") * (1 + Decimal(fee))
-    ).quantize(Decimal("0.0001"))
+@pytest.mark.parametrize("band", ["studio", "premium"])
+def test_the_top_up_fee_is_one_fee_whatever_the_band(
+    band: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2.36% on every plan (ThinnestAI email of 12 Oct 2026): the band no longer moves it."""
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "thinnest_clear_voice_band", band)
+    assert engine_charges.thinnest_topup_fee() == Decimal("0.0236")
+    assert engine_charges.cost_with_fee(Decimal("3.00"), fee=Decimal("0.0236")) == Decimal("3.0708")
 
 
 def test_the_variance_is_named_in_rupees_and_percent() -> None:
@@ -572,7 +576,7 @@ async def test_a_charge_is_kept_once_and_matched_with_its_fee(
     charge_alarms: list[tuple[str, str]],
 ) -> None:
     tenant_id, call_id = await _call_with_usage(
-        rate_key="studio", minute_cost=Decimal("3.2700"), tts=False
+        rate_key="studio", minute_cost=Decimal("3.0708"), tts=False
     )
     outcome = await engine_charges.reconcile_call_charge(
         tenant_id, call_id, Decimal("3.000000"), engine="thinnest"
@@ -596,7 +600,7 @@ async def test_a_rate_attested_without_the_fee_is_a_named_variance(
     charge_alarms: list[tuple[str, str]],
 ) -> None:
     tenant_id, call_id = await _call_with_usage(
-        rate_key="studio", minute_cost=Decimal("3.0000"), tts=False
+        rate_key="studio", minute_cost=Decimal("2.5000"), tts=False
     )
     outcome = await engine_charges.reconcile_call_charge(
         tenant_id, call_id, Decimal("3.000000"), engine="thinnest"
@@ -604,13 +608,13 @@ async def test_a_rate_attested_without_the_fee_is_a_named_variance(
     assert outcome == "variance"
     code, detail = charge_alarms[0]
     assert code == "engine_call_cost_variance"
-    assert "metered INR 3.0000 vs charged-with-fee INR 3.2700" in detail and "%" in detail
+    assert "metered INR 2.5000 vs charged-with-fee INR 3.0708" in detail and "%" in detail
 
 
 @pytest.mark.rls
 async def test_a_studio_call_needs_its_cartesia_row(charge_alarms: list[tuple[str, str]]) -> None:
     tenant_id, call_id = await _call_with_usage(
-        rate_key="byok_voice", minute_cost=Decimal("1.6350"), tts=False
+        rate_key="byok_voice", minute_cost=Decimal("1.5354"), tts=False
     )
     outcome = await engine_charges.reconcile_call_charge(
         tenant_id, call_id, Decimal("1.500000"), engine="thinnest"

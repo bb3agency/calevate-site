@@ -180,6 +180,7 @@ def platform_prompt_revision() -> str:
         render_steps,
     )
     from calevate_shared.engine import AgentConfig, compose_engine_prompt
+    from calevate_shared.languages import offered_language_tags
 
     script = CallScript(
         schema_version=2,
@@ -189,6 +190,8 @@ def platform_prompt_revision() -> str:
             )
         ],
     )
+    # Every offered language, so a change to any language's platform sentences moves it.
+    primary, *extra = offered_language_tags()
     parts: list[str] = [render_steps(native_steps(script, can=Capabilities(True, False)))]
     for callbacks, in_knowledge in ((True, True), (False, False)):
         cfg = AgentConfig(
@@ -196,8 +199,8 @@ def platform_prompt_revision() -> str:
             agent_id="a",
             name="A",
             direction="outbound",
-            language_primary="te-IN",
-            languages_extra=["hi-IN", "en-IN"],
+            language_primary=primary,
+            languages_extra=list(extra),
             system_prompt="S",
             opening_line="O",
             call_is_recorded=True,

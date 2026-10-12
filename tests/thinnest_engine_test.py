@@ -159,6 +159,26 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         "endCallOnFinish": True,
         # Always stated: 0.25 s, Calevate's default (D-751).
         "turnSilenceSeconds": 0.25,
+        # No number attached yet: nowhere, never the website button or WhatsApp (F1).
+        "surfaces": [],
+        # The client's call settings at Calevate's defaults (F3, F9).
+        "nudgeAfterSeconds": 8,
+        "nudges": 1,
+        "nudgePhrase": None,
+        "endAfterSilenceSeconds": 20,
+        "thinking": True,
+        "thinkingLines": [],
+        "ambience": None,
+        "ambienceVolume": 0.15,
+        # The same on every agent (F3, F4, F10).
+        "interruptWords": 3,
+        "holdShortSpeech": True,
+        "neverInterrupt": False,
+        "greetingUninterruptible": False,
+        "thinkingAtTurnEnd": False,
+        "thinkingDelayMs": 900,
+        "thinkingRepeatMs": 2500,
+        "endPhrases": [],
         "voice": None,
     }
     assert body["collectFields"] == [] and body["captureLeads"] is False

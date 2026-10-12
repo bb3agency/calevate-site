@@ -9,6 +9,9 @@ One customer workspace per Calevate client (D-693). VERIFIED-VENDOR-DOCS,
   (`customers.md:18-66`; `customers/create-customer.md:7, :327-418`).
 * `GET /customers?externalId=` — exact match, live ones only unless `archived=true`
   (`customers/list-customers.md:7, :20-52`).
+* `PATCH /customers/{id} {allottedCallLines}` — how many of our call lines the customer may use
+  at once, an integer from 0 or null for no cap; answers the customer as it now is
+  (docs.thinnest.ai api-reference/customers/update-customer, read 12 Oct 2026).
 * `GET /customers/{id}`, `DELETE /customers/{id}` (refused with 409 while it holds a rented
   number or WhatsApp; requests into it answer 410 from then on; erased 30 days later),
   `POST /customers/{id}/restore` until then (`customers.md:104-161`).
@@ -95,6 +98,30 @@ def _customer(row: dict[str, Any]) -> Customer:
         external_id=_str(row.get("externalId")),
         archived_at=_dt(row.get("archivedAt")),
         erase_after=_dt(row.get("eraseAfter")),
+    )
+
+
+def _call_lines(row: dict[str, Any]) -> int | None:
+    """`allottedCallLines` of a customer: a whole number from 0, or null for no cap. A value
+    of any other shape is an answer we cannot read, never "no cap"."""
+    if "allottedCallLines" not in row:
+        raise _unreadable("a customer without `allottedCallLines`")
+    value = row["allottedCallLines"]
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise _unreadable("an `allottedCallLines` that is not a whole number")
+    return value
+
+
+def _unreadable(what: str) -> ProblemError:
+    return ProblemError(
+        kind="dependency",
+        code="engine_bad_response",
+        title="Voice engine returned an unusable response",
+        detail="The voice platform answered in a shape we could not read.",
+        failure_stage="CORE_LOGIC",
+        remediation=f"ThinnestAI /customers returned {what}.",
     )
 
 
@@ -205,6 +232,46 @@ class ThinnestCustomers:
             absent_is_success=True,
             extra_refused_statuses=frozenset({409}),
         )
+
+    async def read_customer_call_lines(self, workspace_id: str) -> int | None:
+        """How many of our call lines this customer may use at once, None for no cap
+        (`allottedCallLines` on the customer)."""
+        row = await self._request("GET", f"/customers/{workspace_id}", route="/customers/{id}")
+        return _call_lines(row)
+
+    async def set_customer_call_lines(self, workspace_id: str, lines: int) -> int:
+        """Cap the customer at `lines` calls at once and return the cap read back.
+        `PATCH /customers/{id} {allottedCallLines}`, an integer from 0 or null for no cap
+        (docs.thinnest.ai api-reference/customers/update-customer, read 12 Oct 2026); the
+        answer is the customer as it now is. An answer naming another cap is refused rather
+        than taken as done: a client could otherwise hold more lines than it pays for."""
+        if isinstance(lines, bool) or lines < 0:
+            raise ProblemError(
+                kind="validation",
+                code="engine_call_lines_invalid",
+                title="Calls at once must be zero or more",
+                detail=f"{lines} is not a number of calls at once.",
+            )
+        row = await self._request(
+            "PATCH",
+            f"/customers/{workspace_id}",
+            route="/customers/{id}",
+            json={"allottedCallLines": lines},
+        )
+        held = _call_lines(row)
+        if held != lines:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_call_lines_not_saved",
+                title="The voice platform did not save the call limit",
+                detail="The number of calls at once read back from the voice platform differs "
+                "from the one sent.",
+                failure_stage="CORE_LOGIC",
+                remediation=(
+                    "Save it again. If it keeps happening, check the account on the voice platform."
+                ),
+            )
+        return held
 
     async def restore(self, workspace_id: str) -> Customer:
         return _customer(

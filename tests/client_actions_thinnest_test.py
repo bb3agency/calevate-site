@@ -27,7 +27,12 @@ from apps.api.reliability.engine_actions import (
     retire_agent_actions,
     sync_client_actions_now,
 )
-from apps.api.worker.engine_actions import NO_CALL_SAY
+from apps.api.worker.engine_actions import (
+    NO_CALL_SAY,
+    TEST_CHAT_CLIENT_SAY,
+    TEST_CHAT_CLIENT_STATUS,
+    TEST_CHAT_HEADER,
+)
 from sqlalchemy import text
 from tests import thinnest_in_call_actions_test as base
 from tests.thinnest_in_call_actions_test import (
@@ -194,6 +199,50 @@ async def test_the_vendors_own_test_runs_nothing(
     assert response.status_code == 200
     assert response.json() == {"status": "no_call", "say": NO_CALL_SAY}
     assert ran == []
+
+
+async def test_a_test_chat_answers_success_and_reaches_nothing(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F6 (12 Oct 2026): a client action called from ThinnestAI's test chat (`X-Test-Chat:
+    true`, no call id) answers success and runs nothing, queues nothing and writes no call
+    row, also when a live call is named beside the marker.
+
+    FAILS IF: a test chat reaches the client's systems or answers `no_call`."""
+    tenant_id, agent_id, ref, secret = await _published(vendor)
+    await _add_tool(tenant_id, agent_id, "look_up_order")
+    ran: list[Any] = []
+
+    async def _never(*a: Any, **k: Any) -> Any:
+        ran.append(k)
+
+    monkeypatch.setattr(in_call, "execute_action", _never)
+    call_id, row = _live(ref, phone="919876522209")
+    vendor.live.append(row)
+    for named in (None, call_id):
+        headers = {SECRET_HEADER: secret, TEST_CHAT_HEADER: "true"}
+        if named is not None:
+            headers[CALL_ID_HEADER] = named
+        transport = httpx.ASGITransport(app=api_app, client=("127.0.0.1", 44444))
+        async with httpx.AsyncClient(transport=transport, base_url="http://api") as raw:
+            response = await raw.post(
+                f"/v1/worker/engine-actions/{ENGINE}/client/look_up_order?agent={ref}",
+                content=json.dumps({"order_no": "A1"}),
+                headers={**headers, "Content-Type": "application/json"},
+            )
+        assert response.status_code == 200
+        assert response.json() == {"status": TEST_CHAT_CLIENT_STATUS, "say": TEST_CHAT_CLIENT_SAY}
+    assert ran == []
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text("SELECT count(*) FROM calls WHERE engine_call_id = :e"), {"e": call_id}
+            )
+        ).scalar_one()
+    assert rows == 0
+    # No marker and no call: today's answer, unchanged.
+    plain = await _post_client("look_up_order", ref, secret, {"order_no": "A1"})
+    assert plain.json() == {"status": "no_call", "say": NO_CALL_SAY}
 
 
 async def test_a_live_call_runs_the_action_with_the_vendors_number_for_the_caller(

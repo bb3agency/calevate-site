@@ -1,12 +1,13 @@
 "use client";
 
 /**
- * One client agent's pause before replying and hang-up (D-751), from the console: read as
+ * One client agent's call settings (D-751, F3, F9), from the console: read as
  * the client sees it (view-as), changed through the operator's own door. The same rows as
  * the client's Call handling, so an operator on the phone with an owner sees their screen.
  */
 
 import { HangUpRow, PauseRow } from "@/components/callHandlingRows";
+import { AgentVoiceRows } from "@/components/callHandlingVoiceRows";
 import { SettingRows } from "@/components/console/settingRow";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import type { useAdminAccess } from "@/app/admin/access";
@@ -43,7 +44,7 @@ export function CallHandlingPanel({
   const labels = inheritLabels(data);
   return (
     <div className="mt-8 space-y-2">
-      <h3 className="text-heading text-ink">Pauses and hang-up</h3>
+      <h3 className="text-heading text-ink">Call handling</h3>
       <RestrictionNote reason={write.reason} />
       <SettingRows className="border-y border-line">
         <PauseRow
@@ -69,6 +70,12 @@ export function CallHandlingPanel({
           saving={save.isPending && save.variables?.end_call_on_finish !== undefined}
           error={save.variables?.end_call_on_finish !== undefined ? save.error : null}
           onSave={(next, done) => save.mutate({ end_call_on_finish: next }, { onSuccess: done })}
+        />
+        <AgentVoiceRows
+          idPrefix={`admin-${agentId}`}
+          data={data}
+          canChange={write.allowed}
+          save={save}
         />
       </SettingRows>
     </div>

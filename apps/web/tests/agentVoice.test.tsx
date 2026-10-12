@@ -271,6 +271,7 @@ const ENGINE_CATALOGUE: EngineCatalogue = {
       offerable: false,
       reason: "ThinnestAI lists this model as too slow to answer a phone call.",
       usable_with_studio_voice: true,
+      band_disagrees: false,
     },
   ],
 };
