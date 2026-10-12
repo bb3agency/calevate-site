@@ -17,6 +17,7 @@ import { businessProfileFixture } from "./businessProfileFixture";
 import {
   AGENT_SPEND_PATH,
   LANES,
+  agentCallHandling,
   LEGAL_READY,
   clientLlmTiers,
   prepaidWallet,
@@ -320,6 +321,8 @@ function routes(over: Record<string, unknown> = {}) {
     // both are read on this screen, and an unanswered read is a stray `role="alert"`.
     "/v1/agents/voices": voiceCatalogue("client"),
     "/v1/agents/lanes": LANES,
+    // The Calls section reads the call-handling settings (D-751).
+    "/v1/agents/agent-1/call-handling": agentCallHandling("agent-1"),
     // The header's "spent this month" line (owners hold billing:read).
     [AGENT_SPEND_PATH]: spendThisMonth(),
     // Overview's setup checklist reads the agreements and the script's version.
