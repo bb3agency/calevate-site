@@ -175,7 +175,12 @@ from apps.api.worker.service import POSTCALL_DEDUPE_PREFIX, REMETER_DEDUPE_PREFI
 from apps.workers import call_language, call_translation, storage
 from apps.workers import extraction as extraction_module
 from apps.workers.engine_charges import reconcile_call_charge
-from apps.workers.engine_delivery import execution_truth, post_call_truth, seal_listing
+from apps.workers.engine_delivery import (
+    UNSTATED_STATUS,
+    execution_truth,
+    post_call_truth,
+    seal_listing,
+)
 from apps.workers.extraction import (
     MODEL_FAILURE,
     SarvamExtractor,
@@ -668,7 +673,13 @@ async def _upsert_call_row(
                     ":dir, :from_e, :to_e, :status, :started, :ended, :dur, "
                     "CAST(:quality AS jsonb), now(), now()) "
                     "ON CONFLICT (engine_call_id) DO UPDATE SET "
-                    "  status = EXCLUDED.status, "
+                    # A snapshot whose engine stated no status keeps the row's: its
+                    # `failed` is a default, not an outcome.
+                    "  status = CASE WHEN :stated THEN EXCLUDED.status ELSE calls.status END, "
+                    # A party the first event did not carry is filled by a later one;
+                    # one already recorded is never replaced.
+                    "  from_e164 = COALESCE(calls.from_e164, EXCLUDED.from_e164), "
+                    "  to_e164 = COALESCE(calls.to_e164, EXCLUDED.to_e164), "
                     "  started_at = COALESCE(calls.started_at, EXCLUDED.started_at), "
                     "  ended_at = COALESCE(EXCLUDED.ended_at, calls.ended_at), "
                     "  duration_s = COALESCE(EXCLUDED.duration_s, calls.duration_s), "
@@ -698,6 +709,7 @@ async def _upsert_call_row(
                     "from_e": _party_e164(snapshot.from_e164),
                     "to_e": _party_e164(snapshot.to_e164),
                     "status": snapshot.status,
+                    "stated": snapshot.raw_status not in (None, UNSTATED_STATUS),
                     "started": snapshot.started_at,
                     "ended": snapshot.ended_at,
                     "dur": snapshot.duration_s,

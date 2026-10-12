@@ -2109,23 +2109,29 @@ async def reconcile_inbound_answering(
             unchanged += 1
             continue
         try:
+            # One savepoint per agent: a failure part-way through one agent's writes is
+            # rolled back to here, and a database error does not leave the shared
+            # transaction aborted for every agent after it.
+            async with session.begin_nested():
+                if exhausted:
+                    recorded = engine.capabilities.records_audio
+                    await engine.override_call_script(
+                        ref,
+                        opening_line=credit_stop_greeting(
+                            _posture_of_row(row), call_is_recorded=recorded
+                        ),
+                        system_prompt=credit_stop_prompt(call_is_recorded=recorded),
+                    )
+                    await _stamp_inbound_silence(
+                        session, agent_id=agent_id, reason=INBOUND_SILENCE_CREDITS
+                    )
+                else:
+                    # `publish_agent` clears the stamp itself through
+                    # `_settle_inbound_silence`, so there is no second writer of the column.
+                    await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
             if exhausted:
-                recorded = engine.capabilities.records_audio
-                await engine.override_call_script(
-                    ref,
-                    opening_line=credit_stop_greeting(
-                        _posture_of_row(row), call_is_recorded=recorded
-                    ),
-                    system_prompt=credit_stop_prompt(call_is_recorded=recorded),
-                )
-                await _stamp_inbound_silence(
-                    session, agent_id=agent_id, reason=INBOUND_SILENCE_CREDITS
-                )
                 silenced += 1
             else:
-                # `publish_agent` clears the stamp itself through `_settle_inbound_silence`
-                # below, so there is no second writer of the column here.
-                await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
                 restored += 1
         except Exception as exc:
             failed += 1

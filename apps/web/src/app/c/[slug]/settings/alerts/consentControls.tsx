@@ -40,7 +40,7 @@ export function GrantControl({
           screen reader — never lose the control. */}
       <ActionButton type="button" loading={pending} disabled={!allowed} onClick={onGrant}>
         <BellRing aria-hidden className="h-4 w-4" />
-        I agree — send me WhatsApp alerts
+        I agree, send me WhatsApp alerts
       </ActionButton>
       {!allowed && reason && (
         <p className="flex items-start gap-2 text-meta text-ink-muted">

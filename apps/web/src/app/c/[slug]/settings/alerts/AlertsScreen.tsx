@@ -245,7 +245,7 @@ export function AlertsScreen() {
             <ul className="space-y-2 text-body text-ink-muted">
               <li>
                 One message per hot lead, to the owner. Never marketing, and never to your
-                customers — this setting is about messages to YOU.
+                customers. This setting is about messages to you.
               </li>
               <li>
                 Whether your agents may message your customers is a different question with

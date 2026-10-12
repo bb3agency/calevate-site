@@ -182,11 +182,6 @@ export function displayValue(field: ConfigField, value: ConfigValue): string {
   return String(value);
 }
 
-/** The draft as a person reads it, for the before → after preview. */
-export function displayDraft(field: ConfigField, draft: string): string {
-  return displayValue(field, valueOf(field, draft));
-}
-
 // --- checking a draft as it is typed -------------------------------------------------
 
 /** `a` < `b` → negative; exact, for decimal strings that must never become floats. */

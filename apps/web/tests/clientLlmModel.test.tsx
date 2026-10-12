@@ -123,6 +123,14 @@ function radio(name: RegExp): HTMLInputElement {
   return screen.getByRole("radio", { name }) as HTMLInputElement;
 }
 
+/** The radio once it can take a click: the picker stays disabled until the write permission
+ * is read, and a click before that is silently dropped. */
+async function enabledRadio(name: RegExp): Promise<HTMLInputElement> {
+  const found = (await screen.findByRole("radio", { name })) as HTMLInputElement;
+  await waitFor(() => expect(found.disabled).toBe(false));
+  return found;
+}
+
 const settingsPage = <ClientLlmModelPage params={Promise.resolve({ slug: "acme" })} />;
 
 function settingsRoutes(over: Record<string, unknown> = {}) {
@@ -216,7 +224,7 @@ describe("the account's default model tier", () => {
     );
 
     await act(async () => {
-      fireEvent.click(await screen.findByRole("radio", { name: /^Plus/ }));
+      fireEvent.click(await enabledRadio(/^Plus/));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Save model/ }));
@@ -246,8 +254,9 @@ describe("the account's default model tier", () => {
       }),
     );
 
+    const follow = await enabledRadio(/^Calevate's default/);
     await act(async () => {
-      fireEvent.click(await screen.findByRole("radio", { name: /^Calevate's default/ }));
+      fireEvent.click(follow);
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Save model/ }));
@@ -273,7 +282,7 @@ describe("the account's default model tier", () => {
     );
 
     await act(async () => {
-      fireEvent.click(await screen.findByRole("radio", { name: /^Plus/ }));
+      fireEvent.click(await enabledRadio(/^Plus/));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Save model/ }));
@@ -535,7 +544,7 @@ describe("where one agent's model tier came from", () => {
     );
 
     await act(async () => {
-      fireEvent.click(await screen.findByRole("radio", { name: /^Organisation default/ }));
+      fireEvent.click(await enabledRadio(/^Organisation default/));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Save model/ }));
@@ -552,7 +561,7 @@ describe("where one agent's model tier came from", () => {
     );
 
     await act(async () => {
-      fireEvent.click(await screen.findByRole("radio", { name: /^Plus/ }));
+      fireEvent.click(await enabledRadio(/^Plus/));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Save model/ }));

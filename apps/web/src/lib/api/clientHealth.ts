@@ -262,11 +262,6 @@ export function trendClaim(row: ClientHealth): TrendClaim {
   return { kind: "measured", droppedPct: Math.round(((from - to) * 100) / from), from, to };
 }
 
-/** The tone a severity renders in. `stop` is broken now; `warn` will break. */
-export function severityTone(severity: Severity): NoticeTone {
-  return severity === "stop" ? "stop" : "warn";
-}
-
 /** The neutral line a free-trial account carries: a state, never a fault (D-697). */
 export const ON_TRIAL_LABEL = "On free trial: test calls only";
 

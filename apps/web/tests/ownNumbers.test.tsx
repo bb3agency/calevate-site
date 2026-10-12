@@ -358,8 +358,8 @@ describe("buying a number", () => {
 describe("what the confirmation says was charged", () => {
   it.each([
     ["charged", /^₹499(\.00)? charged now for the first month, then monthly\.$/],
-    ["invoiced", /^₹499(\.00)? a month — the first month is added to your next invoice\.$/],
-    ["trial", /^₹499(\.00)? a month — free during your trial; charging starts at the first renewal after it\.$/],
+    ["invoiced", /^₹499(\.00)? a month\. The first month is added to your next invoice\.$/],
+    ["trial", /^₹499(\.00)? a month\. Free during your trial; charging starts at the first renewal after it\.$/],
     ["closed", /^₹499(\.00)? a month\.$/],
     ["before_first_period", /^₹499(\.00)? a month\.$/],
     [null, /^₹499(\.00)? a month\.$/],

@@ -100,14 +100,6 @@ export function sectionDetail(section: Pick<Section, "mode" | "instruction" | "s
   return detail;
 }
 
-/** Where a section goes when none of its branches holds. */
-export function nextTarget(sections: Section[], index: number): string | null {
-  const section = sections[index];
-  if (!section) return null;
-  if (section.otherwise) return section.otherwise;
-  return sections[index + 1]?.id ?? null;
-}
-
 export interface Edge {
   from: string;
   to: string;

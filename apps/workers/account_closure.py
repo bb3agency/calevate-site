@@ -584,13 +584,19 @@ async def sweep_due_erasures(ctx: dict[str, Any]) -> str:
                     # is what a person reads next year.
                     reason=reason or "Grace period after account closure elapsed.",
                 )
-        except ProblemError:
-            # `assert_erasable` refused. The common and CORRECT case is an account
-            # restored between the read and the write — `tenant_not_closed` — which is the
-            # undo working exactly as designed and must not page anybody. It is counted as
-            # handled rather than failed for that reason: the row's `erase_after` was
-            # cleared by the restore, so the next tick will not see it again.
-            log.info("closure_sweep_refused", extra={"tenant_id": str(tenant_id)})
+        except ProblemError as exc:
+            # `assert_erasable` refused. An account restored between the read and the
+            # write — `tenant_not_closed` — is the undo working as designed and must not
+            # page anybody: the restore cleared `erase_after`, so the next tick will not
+            # see it again. Any other refusal is a promised erasure date slipping.
+            if exc.code == "tenant_not_closed":
+                log.info("closure_sweep_refused", extra={"tenant_id": str(tenant_id)})
+                continue
+            failed += 1
+            log.error(
+                "closure_sweep_tenant_refused",
+                extra={"tenant_id": str(tenant_id), "code": exc.code},
+            )
             continue
         except Exception:
             failed += 1

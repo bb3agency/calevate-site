@@ -310,7 +310,7 @@ export function TeamScreen() {
             <>
               <span className="block font-medium text-ink">Nobody is on this account yet</span>
               <span className="mt-1 block">
-                That is unusual — an account always has at least one owner. Reload the page,
+                That is unusual: an account always has at least one owner. Reload the page,
                 and tell us if it stays empty.
               </span>
             </>
@@ -382,8 +382,8 @@ export function TeamScreen() {
           {/* Said BEFORE the click; the "Access removed" notice reports it afterwards,
               which is the wrong moment to learn it. */}
           <p>
-            Any leads assigned to them stay assigned to them and are not reassigned — you
-            would pick those up from the Leads screen.
+            Any leads assigned to them stay assigned to them and are not reassigned. You
+            can pick those up from the Leads screen.
           </p>
         </ConfirmDialog>
       )}

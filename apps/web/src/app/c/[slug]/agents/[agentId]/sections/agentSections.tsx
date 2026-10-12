@@ -64,7 +64,7 @@ export function useAgentSections(agent: Agent, slug: string): SettingsSection[] 
     },
     { id: "voice", label: "Voice", detail: "How it sounds" },
     { id: "model", label: "Model", detail: agent.llm_tier_label },
-    { id: "calls", label: "Call handling", detail: "Call length, pauses, hang-up, memory" },
+    { id: "calls", label: "Call handling", detail: "Length, pauses, silence, handover, memory" },
     { id: "advanced", label: "Settings", detail: "What it is, delete" },
   ];
 }

@@ -585,7 +585,8 @@ async def _post_test_chat(
     tool: str, ref: str, secret: str, body: dict[str, Any], *, call_id: str | None = None
 ) -> httpx.Response:
     """An action request as ThinnestAI's test chat makes it: `X-Test-Chat: true`, and (as
-    the vendor states) no `X-Call-Id`; `call_id` adds one to prove the marker still wins."""
+    the vendor states) no `X-Call-Id`; `call_id` adds one, which the marker overrides except
+    on an opt-out."""
     headers = {SECRET_HEADER: secret, TEST_CHAT_HEADER: "true"}
     if call_id is not None:
         headers[CALL_ID_HEADER] = call_id
@@ -644,6 +645,10 @@ async def test_a_marked_test_chat_answers_success_and_writes_nothing(
     expected_status, expected_say = TEST_CHAT_ANSWERS[tool]
     assert answer.json() == {"status": status, "say": expected_say}
     assert expected_status == status
+    assert await _writes(tenant_id, agent_id) == before
+    assert not any(p.startswith("/calls") for _m, p, _b in vendor.requests[asked:])
+    if tool == "opt-out":
+        return
     # Even with a live call named, the marker wins: a test writes nothing.
     call_id, row = _live(ref, phone="919876511120")
     vendor.live.append(row)
@@ -651,6 +656,30 @@ async def test_a_marked_test_chat_answers_success_and_writes_nothing(
     assert named.json()["status"] == status
     assert await _writes(tenant_id, agent_id) == before
     assert not any(p.startswith("/calls") for _m, p, _b in vendor.requests[asked:])
+
+
+async def test_a_marked_opt_out_that_names_a_live_call_is_recorded(vendor: FakeThinnest) -> None:
+    """A caller's do-not-call request is never dropped on the strength of the test marker: an
+    opt-out that names a live call of this agent is written like any other.
+
+    FAILS IF: a request carrying `X-Test-Chat: true` and a real call id loses the opt-out."""
+    tenant_id, _agent_id, ref, secret = await _published(vendor)
+    call_id, row = _live(ref, phone="919876511121")
+    vendor.live.append(row)
+    answer = await _post_test_chat("opt-out", ref, secret, {"reason": "stop"}, call_id=call_id)
+    assert answer.status_code == 200
+    assert answer.json()["status"] == "recorded"
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            (
+                await session.execute(
+                    text("SELECT phone_e164 FROM dnc_list WHERE tenant_id = :t"), {"t": tenant_id}
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert rows == ["+919876511121"]
 
 
 async def test_a_test_marker_other_than_true_is_not_a_test_chat(vendor: FakeThinnest) -> None:

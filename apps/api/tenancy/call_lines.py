@@ -59,12 +59,16 @@ class CallLines:
 
 
 async def read_call_lines(session: AsyncSession, *, tenant_id: UUID) -> CallLines:
-    """The client's calls at once, in its tenant session."""
-    chosen = (
+    """The client's calls at once, in its tenant session. An organization that does not
+    exist is a 404, never Calevate's default."""
+    row = (
         await session.execute(
             text("SELECT call_lines FROM organizations WHERE id = :tid"), {"tid": tenant_id}
         )
-    ).scalar()
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Organization")
+    chosen = row[0]
     on_trial = await restricting_trial(session, tenant_id=tenant_id) is not None
     if chosen is not None:
         return CallLines(int(chosen), int(chosen), on_trial, "organization")

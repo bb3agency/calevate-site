@@ -25,7 +25,7 @@ from apps.api.tenancy.call_lines import (
     read_call_lines,
     set_call_lines,
 )
-from apps.api.tenancy.call_lines_routes import router
+from apps.api.tenancy.call_lines_routes import call_lines_confirmation, router
 from apps.workers import engine_workspaces
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -102,6 +102,14 @@ async def test_an_operator_sets_it_and_the_workspace_is_owed_it(on_thinnest: Non
     headers = await _operator()
     async with _client() as client:
         first = await client.get(f"/v1/admin/organizations/{tenant_id}/call-lines", headers=headers)
+        unconfirmed = await client.put(
+            f"/v1/admin/organizations/{tenant_id}/call-lines",
+            headers=headers,
+            json={"call_lines": 4},
+        )
+        assert unconfirmed.status_code == 403, unconfirmed.text
+        assert unconfirmed.json()["type"].endswith("/step_up_required")
+        headers = {**headers, "X-Confirm-Action": call_lines_confirmation(tenant_id)}
         assert first.status_code == 200, first.text
         assert first.json()["call_lines"] == 2 and first.json()["source"] == "platform"
         assert first.json()["paid_default"] == 2 and first.json()["trial_default"] == 1
@@ -138,6 +146,15 @@ async def test_an_operator_sets_it_and_the_workspace_is_owed_it(on_thinnest: Non
         assert bad.status_code == 422
         assert bad.headers["content-type"].startswith("application/problem+json")
         assert bad.json()["type"].endswith("/call_lines_out_of_range")
+
+
+async def test_an_organization_that_does_not_exist_is_a_404_not_the_default() -> None:
+    headers = await _operator()
+    async with _client() as client:
+        response = await client.get(
+            f"/v1/admin/organizations/{uuid.uuid4()}/call-lines", headers=headers
+        )
+    assert response.status_code == 404, response.text
 
 
 async def test_a_client_cannot_reach_the_operators_door() -> None:

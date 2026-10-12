@@ -54,7 +54,7 @@ from apps.api.billing.payments import (
     refund_idempotency_key,
     release_refund_claim,
 )
-from apps.api.billing.platform_fee import charge_for_order, record_payment
+from apps.api.billing.platform_fee import charge_for_order, paid_with, record_payment
 from apps.api.billing.service import get_balance, to_paise
 from apps.api.billing.wallet import settle_attempt
 from apps.api.compliance.audit import write_audit
@@ -272,6 +272,23 @@ async def _apply_fee_payment(
             payment_ref=payment.payment_id,
             paid_at=datetime.now(UTC),
         )
+        if not recorded:
+            settled_by = await paid_with(session, charge_id=charge.id)
+            if settled_by is not None and settled_by != payment.payment_id.strip():
+                # A second, different payment for a fee already paid (a bank transfer
+                # recorded by an operator and an online payment, or two orders): real
+                # money received that nothing records. It needs a refund by hand.
+                alert(
+                    "ROUTE_HANDLER",
+                    "platform_fee_paid_twice",
+                    detail=(
+                        "a platform-fee payment arrived for a fee already settled by another "
+                        "payment; it was not recorded and should be refunded"
+                    ),
+                    tenant_id=str(payment.tenant_id),
+                    charge_id=str(charge.id),
+                    payment_id=payment.payment_id,
+                )
         if claim is not None:
             await mark_inbox_processed(session, row_id=claim.row_id)
     log.info(

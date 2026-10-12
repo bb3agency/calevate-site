@@ -54,6 +54,7 @@ import { needsReauthentication } from "@/lib/authn/problems";
 import { withActionCode } from "@/lib/authn/stepUpPrompt";
 import { lookup } from "@/lib/lookup";
 
+import { recordPaymentConfirmation } from "./admin";
 import { apiRequest, type Session } from "./client";
 
 import type { components } from "./schema";
@@ -319,7 +320,7 @@ export function useRecordTopUp(session: Session, tenantId: string) {
         note,
       };
       // Step-up since D-731: recorded credit is spendable the moment it lands.
-      const confirmAction = `record_payment:${tenantId}`;
+      const confirmAction = recordPaymentConfirmation(tenantId);
       return withActionCode(
         confirmAction,
         "Recording a payment onto this client's wallet.",

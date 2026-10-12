@@ -25,7 +25,12 @@ from xml.etree.ElementTree import fromstring
 import carrier_routes
 import pytest
 from apps.api.core.settings import get_settings
-from calevate_shared.carrier import VOBIZ_CALLBACK_IPS, answer_path
+from calevate_shared.carrier import (
+    VOBIZ_CALLBACK_IPS,
+    answer_path,
+    events_path,
+    transfer_path,
+)
 from calevate_shared.engine import owned_runtime_agent_ref
 from calevate_shared.worker_api import (
     CALL_CLAIM_EXPIRES_PARAM,
@@ -389,3 +394,68 @@ def test_an_unestablished_client_address_is_its_own_reason(env: Env) -> None:
     verdict = carrier_routes.verify_answer_source("vobiz", None)
 
     assert not verdict.ok and verdict.reason == "client ip not established"
+
+
+# --- 6. a selected carrier is still served only what its row declares -------------------
+
+
+class _Refusals:
+    """`carrier_routes.log`, keeping the reason each refusal names."""
+
+    def __init__(self, real: Any) -> None:
+        self._real = real
+        self.reasons: list[str] = []
+
+    def warning(self, event: str, *args: Any, **kwargs: Any) -> None:
+        if event == "carrier_request_refused":
+            self.reasons.append(kwargs["extra"]["reason"])
+        self._real.warning(event, *args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+
+@pytest.fixture
+def refusals(monkeypatch: pytest.MonkeyPatch) -> _Refusals:
+    spy = _Refusals(carrier_routes.log)
+    monkeypatch.setattr(carrier_routes, "log", spy)
+    return spy
+
+
+async def test_a_selected_carrier_whose_callbacks_are_unread_queues_nothing(
+    env: Env, refusals: _Refusals, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Plivo's callback grammar is unread, so even as the selected carrier its events route
+    refuses before reading the body: its worker job could only refuse."""
+    import webhook_routes
+
+    queued: list[str] = []
+
+    async def _enqueue(job: str, *_a: Any, **_k: Any) -> str:
+        queued.append(job)
+        return "job"
+
+    monkeypatch.setattr(webhook_routes, "enqueue", _enqueue)
+    env(CARRIER="plivo")
+
+    response = await _request(
+        events_path("plivo", _ref()),
+        headers=FORM,
+        content=_form(CallUUID=str(uuid.uuid4()), Event="Hangup"),
+    )
+
+    assert response.status_code == 404
+    assert refusals.reasons == ["status_callbacks_not_supported"]
+    assert queued == []
+
+
+async def test_a_selected_carrier_with_no_dial_grammar_is_never_served_a_transfer(
+    env: Env, refusals: _Refusals
+) -> None:
+    env(CARRIER="plivo", CARRIER_TRANSFER_ENABLED="true")
+
+    response = await _request(transfer_path("plivo", "any-token"), method="GET")
+
+    assert response.status_code == 404
+    assert "<Dial" not in response.text
+    assert refusals.reasons == ["transfer_not_supported"]

@@ -133,7 +133,7 @@ function CannotSupply({
       </NoticeBox>
       <p className="text-body text-ink-muted">
         There is nothing for you to do here. We arrange your number with
-        you, and Calevate provides it on our own telephony account — there is no operator
+        you, and Calevate provides it on our own telephony account, so there is no operator
         account for you to open.
       </p>
       {unverified && (
@@ -183,7 +183,7 @@ function HolderBlock() {
           {holder.data.holder_name} ({holder.data.holder_email})
         </p>
         <p className="mt-1 text-meta text-ink-muted">
-          Recorded once and reused for every number you take. It cannot be changed — the
+          Recorded once and reused for every number you take. It cannot be changed: the
           operator who issues the connection holds the same details.
         </p>
       </div>

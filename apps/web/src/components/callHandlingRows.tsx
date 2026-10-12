@@ -39,6 +39,8 @@ interface RowProps<T> {
   /** In force now, and the level that chose it. */
   effective: T;
   source: CallHandlingSource;
+  /** Overrides the words for `source`, for a reader who is not the account's owner. */
+  sourceHint?: string;
   /** This level's own value; `null` follows the level above. */
   own: T | null;
   /** The card that saves `null`, naming what that resolves to. */
@@ -88,6 +90,7 @@ export function PauseRow({
   idPrefix,
   effective,
   source,
+  sourceHint,
   own,
   inheritLabel,
   canChange,
@@ -123,7 +126,7 @@ export function PauseRow({
     <div>
       <SettingRow
         label="Pause before the agent replies"
-        hint={sourceLabel(source)}
+        hint={sourceHint ?? sourceLabel(source)}
         info={
           <p>
             How long the caller must be quiet before the agent decides they have finished
@@ -248,6 +251,7 @@ export function HangUpRow({
   idPrefix,
   effective,
   source,
+  sourceHint,
   own,
   inheritLabel,
   canChange,
@@ -272,7 +276,7 @@ export function HangUpRow({
     <div>
       <SettingRow
         label="Hang up when the conversation ends"
-        hint={sourceLabel(source)}
+        hint={sourceHint ?? sourceLabel(source)}
         info={<p>{HANG_UP_INFO}</p>}
         value={effective ? "On" : "Off"}
         action={

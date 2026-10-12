@@ -34,6 +34,7 @@ from main import app as voice_app  # apps/voice-runtime is on the pytest path (D
 from signed_intake import (
     ENGINE_NOTICE_JOB,
     ENGINE_OPT_OUT_JOB,
+    ENGINE_PROBLEM_JOB,
     SIGNED_INTAKES,
     delivery_attempt,
     keyed_event,
@@ -612,3 +613,28 @@ def test_the_receivers_job_names_are_the_routes_and_the_workers() -> None:
     assert webhook_routes.ENGINE_OPT_OUT_JOB == signed_intake.ENGINE_OPT_OUT_JOB
     assert webhook_routes.ENGINE_NOTICE_JOB == signed_intake.ENGINE_NOTICE_JOB
     assert signed_intake.ENGINE_NOTICE_JOB == engine_signals.ENGINE_NOTICE_JOB
+
+
+async def test_a_problem_on_a_live_call_is_queued_for_its_own_job_keyed_on_the_call(
+    captured: list[dict[str, Any]],
+) -> None:
+    """`call.problem` carries `data.callId` (webhooks "call.problem")."""
+    secret = f"s3cr3t-{uuid.uuid4().hex}"
+    ref = await _agent_with_secret(secret)
+    call_id = f"out_{uuid.uuid4().hex[:12]}"
+    event_id = f"evt_{uuid.uuid4().hex[:8]}"
+    body = json.dumps(
+        {
+            "id": event_id,
+            "event": "call.problem",
+            "data": {"callId": call_id, "agentId": ref, "kind": "slow_reply"},
+        }
+    ).encode()
+
+    response = await _post(body, ref=ref, signed=_signed(body, secret))
+
+    assert response.json()["status"] == "accepted"
+    [job] = captured
+    assert job["job"] == ENGINE_PROBLEM_JOB
+    assert job["payload"]["execution_id"] == call_id
+    assert job["job_id"] == f"{ENGINE_PROBLEM_JOB}:{ENGINE}:{call_id}:call.problem:{event_id}"

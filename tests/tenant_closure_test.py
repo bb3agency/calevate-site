@@ -28,6 +28,7 @@ file runs beside the other suites on the shared Postgres.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -1047,3 +1048,31 @@ async def test_the_profile_read_refuses_an_erased_client_exactly_as_the_edit_doe
 
     assert (await _profile(token, tenant_id)).status_code == 404
     assert (await _patch(token, tenant_id, {"name": "Ghost"})).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_other_than_a_restore_counts_as_failed_and_alarms(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only `tenant_not_closed` is the undo working; any other refusal is a promised
+    erasure date slipping, and an operator is told."""
+    from apps.workers import account_closure as worker
+
+    restored, stuck = uuid.uuid4(), uuid.uuid4()
+    alarms: list[str] = []
+
+    async def _due(_session: Any, **_kw: Any) -> list[tuple[uuid.UUID, str | None]]:
+        return [(restored, None), (stuck, None)]
+
+    async def _request(_session: Any, *, tenant_id: uuid.UUID, reason: str) -> Any:
+        code = "tenant_not_closed" if tenant_id == restored else "tenant_already_erased"
+        raise ProblemError.conflict(code, "refused")
+
+    monkeypatch.setattr(worker, "due_erasures", _due)
+    monkeypatch.setattr(worker, "request_tenant_erasure", _request)
+    monkeypatch.setattr(worker, "alert", lambda _s, code, **_kw: alarms.append(code))
+
+    totals = json.loads(await sweep_due_erasures({}))
+
+    assert totals == {"due": 2, "filed": 0, "failed": 1}
+    assert alarms == ["closure_sweep_incomplete"]

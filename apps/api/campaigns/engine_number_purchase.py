@@ -25,7 +25,9 @@ ONE NUMBER PER CLICK. The request is keyed by the caller's idempotency key and c
 `renting` BEFORE the vendor is asked, so a double-click, a retry or a lost response finds the
 same row: a finished one answers the same number, a refused one the same refusal, and an
 unfinished one is resolved by reading the number back from the vendor, never by renting
-again. The vendor documents no idempotency key for this route, so none is sent.
+again. The purchase id goes as the rent's `Idempotency-Key`; the rent page does not say it
+is honoured (OPERATIONS T-19), so the read-back stays the guarantee. A 409 "held elsewhere"
+is read back too: it may be another press of the same purchase that rented it first.
 
 RELEASE is `DELETE /phone-numbers/{n}?confirm=release`: permanent, the number goes back to
 the pool, "this month's rent is not refunded" (release-phone-number.md:7). Our own rental
@@ -60,7 +62,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
-from apps.api.engine.thinnest_numbers import digits, thinnest_numbers
+from apps.api.engine.thinnest_numbers import ThinnestNumbers, digits, thinnest_numbers
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.tenancy.engine_workspace import read_workspace_state
 from apps.api.tenancy.lifecycle import assert_account_open
@@ -239,14 +241,26 @@ async def _assert_agent_can_take_it(
         )
 
 
+async def _held_by_us(numbers: ThinnestNumbers, handle: str) -> bool:
+    """Is the number rented in the client's own workspace? Read after a 409 on the rent, so
+    a press racing another press of the same purchase is not told "somebody else holds it"
+    about a number we bought. Unreadable is "no": the refusal then stands as before."""
+    try:
+        return (await numbers.get_number(handle)).rented
+    except ProblemError:
+        return False
+
+
 async def _settle(
     tenant_id: UUID, purchase_id: UUID, *, status: str, code: str | None = None
 ) -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
+                # Only an unfinished purchase is settled: a concurrent press that recorded
+                # the number must never be turned into "refused, nothing charged".
                 "UPDATE engine_number_purchases SET status = :status, refusal_code = :code, "
-                "updated_at = now() WHERE id = :id"
+                "updated_at = now() WHERE id = :id AND status = 'renting'"
             ),
             {"status": status, "code": code, "id": purchase_id},
         )
@@ -339,12 +353,16 @@ async def purchase_engine_number(
             try:
                 held = (await numbers.get_number(handle)).rented
             except EngineRejectedError as exc:
-                if exc.vendor_status != 404:
+                if not exc.object_absent:
                     raise
         if not held:
             await numbers.rent(workspace, wanted, attempt_id=str(purchase_id))
     except EngineRejectedError as exc:
-        if exc.request_refused or exc.vendor_status in (402, 409):
+        if exc.vendor_status == 409 and await _held_by_us(numbers, handle):
+            # "Somebody else holds it" while the number is ours: another press of this same
+            # purchase rented it first. Recorded below, never settled as refused.
+            pass
+        elif exc.request_refused or exc.vendor_status in (402, 409):
             refusal = _vendor_refusal(exc)
             await _settle(tenant_id, purchase_id, status="refused", code=refusal.code)
             log.info(
@@ -352,26 +370,37 @@ async def purchase_engine_number(
                 extra={"tenant_id": str(tenant_id), "status": exc.vendor_status},
             )
             raise refusal from exc
-        raise _unconfirmed() from exc
+        else:
+            raise _unconfirmed() from exc
     except ProblemError as exc:
         raise _unconfirmed() from exc
 
-    async with tenant_session(tenant_id) as session:
-        recorded = await record_engine_number(
-            session,
-            tenant_id=tenant_id,
-            e164=f"+{wanted}",
-            direction=direction,
-            agent_id=agent_id,
-            purpose=None,
+    try:
+        async with tenant_session(tenant_id) as session:
+            recorded = await record_engine_number(
+                session,
+                tenant_id=tenant_id,
+                e164=f"+{wanted}",
+                direction=direction,
+                agent_id=agent_id,
+                purpose=None,
+            )
+            await session.execute(
+                text(
+                    "UPDATE engine_number_purchases SET status = 'recorded', number_id = :nid, "
+                    "updated_at = now() WHERE id = :id"
+                ),
+                {"nid": recorded.number_id, "id": purchase_id},
+            )
+    except ProblemError as exc:
+        # The number is rented and charged to us, so this is never the client's refusal:
+        # the row stays `renting` and the same request resumes on the read-back. A number
+        # still unrecorded the next morning is `engine_number_unrecorded`.
+        log.error(
+            "engine_number_purchase_record_failed",
+            extra={"tenant_id": str(tenant_id), "purchase_id": str(purchase_id), "code": exc.code},
         )
-        await session.execute(
-            text(
-                "UPDATE engine_number_purchases SET status = 'recorded', number_id = :nid, "
-                "updated_at = now() WHERE id = :id"
-            ),
-            {"nid": recorded.number_id, "id": purchase_id},
-        )
+        raise _unconfirmed() from exc
     log.info(
         "engine_number_purchased",
         extra={
@@ -457,7 +486,7 @@ async def forget_engine_number(session: AsyncSession, *, tenant_id: UUID, number
     try:
         held = await numbers.get_number(ref)
     except EngineRejectedError as exc:
-        if exc.vendor_status != 404:
+        if not exc.object_absent:
             raise
         held = None
     if held is not None and not is_platform_held(ref):

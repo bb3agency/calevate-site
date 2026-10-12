@@ -155,6 +155,19 @@ describe("browser accessibility gate (WCAG 2.2 A/AA, real Chromium)", () => {
     expect(failing.map((s) => `${s.viewport}/${s.palette}`), message).toEqual([]);
   });
 
+  it("has no page that scrolls sideways", () => {
+    // Desktop scans pass the same check: a page wider than 1440px is as broken as one
+    // wider than a phone, only rarer.
+    const wide = scans
+      .filter((s) => s.palette === PALETTES[0] && s.sidewaysPx > 0)
+      .map(
+        (s) =>
+          `${s.path} @ ${s.viewport}: ${s.sidewaysPx}px wider, ` +
+          `first past the edge: ${s.sidewaysCulprit ?? "not found"}`,
+      );
+    expect(wide, wide.join("\n")).toEqual([]);
+  });
+
   it("prints what it checked, so a green tick can be audited", () => {
     const rules = new Set(scans.flatMap((s) => s.evaluatedRules));
     const lines = [

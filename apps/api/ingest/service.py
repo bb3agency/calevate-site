@@ -1240,11 +1240,13 @@ async def rotate_secret(
             fields=[{"field": "grace_minutes", "rule": "range", "message": str(grace_minutes)}],
         )
     minted = None if supplied_secret else mint_secret()
-    # The tenant is the sealing context's (D-735). Read first: it never changes, so this
-    # read cannot race the rotation below, which stays one statement.
+    # The tenant is the sealing context's (D-735), so it is read before the rotation. The
+    # read locks the row: the UPDATE below then always finds it, and under RLS another
+    # tenant's source and no source are the same 404 here (ProblemError.not_found says so).
     tenant_id = (
         await session.execute(
-            text("SELECT tenant_id FROM inbound_webhooks WHERE id = :id"), {"id": webhook_id}
+            text("SELECT tenant_id FROM inbound_webhooks WHERE id = :id FOR UPDATE"),
+            {"id": webhook_id},
         )
     ).scalar()
     if tenant_id is None:
@@ -1265,11 +1267,7 @@ async def rotate_secret(
             ),
             {"id": webhook_id, "new": sealed, "grace": grace_minutes},
         )
-    ).first()
-    if row is None:
-        # Under RLS "no such source" and "another tenant's source" are the same answer,
-        # deliberately (ProblemError.not_found says so).
-        raise ProblemError.not_found("Lead source")
+    ).one()
     return Rotation(secret=minted, previous_secret_expires_at=row[0])
 
 

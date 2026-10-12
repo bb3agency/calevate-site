@@ -13,13 +13,14 @@ from __future__ import annotations
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, ConfigDict
 
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.rbac import permission_meta
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.tenancy.call_lines import (
     PAID_CALL_LINES_DEFAULT,
@@ -57,6 +58,12 @@ class CallLinesIn(BaseModel):
 
     #: `null` goes back to Calevate's default.
     call_lines: int | None
+
+
+def call_lines_confirmation(org_id: UUID) -> str:
+    """The `X-Confirm-Action` for changing one client's calls at once (D-731): more lines is
+    more calls billed at the same moment, so it is confirmed like the other commercial levers."""
+    return f"set_call_lines:{org_id}"
 
 
 def _out(state: CallLines) -> CallLinesOut:
@@ -105,8 +112,14 @@ async def admin_get_call_lines(org_id: UUID, request: Request, principal: Operat
     description=_DESCRIPTION,
 )
 async def admin_set_call_lines(
-    org_id: UUID, payload: CallLinesIn, request: Request, principal: Operator
+    org_id: UUID,
+    payload: CallLinesIn,
+    request: Request,
+    principal: Operator,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> CallLinesOut:
+    step_up.require(x_confirm_action, call_lines_confirmation(org_id))
     async with tenant_session(org_id) as scoped:
         state, moved = await set_call_lines(scoped, tenant_id=org_id, lines=payload.call_lines)
         await write_audit(
@@ -122,4 +135,4 @@ async def admin_set_call_lines(
     return _out(state)
 
 
-__all__ = ["CallLinesIn", "CallLinesOut", "router"]
+__all__ = ["CallLinesIn", "CallLinesOut", "call_lines_confirmation", "router"]

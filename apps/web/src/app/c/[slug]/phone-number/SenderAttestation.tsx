@@ -104,7 +104,7 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
         <Term id="series140" term="140-series" /> or{" "}
         <Term id="series160" term="160-series" /> voice header. TRAI requires
         promotional, service and transactional calls to a customer to be made from
-        one of those, and says so to the business whose calls they are — including
+        one of those, and says so to the business whose calls they are, including
         where its employees, partners or a call centre place them on its behalf. Your
         business holds this connection with your telephone operator, so those calls
         are yours and the requirement is addressed to you, not to Calevate.
@@ -118,7 +118,7 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
             <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
               Confirmed. Service and reminder campaigns may dial from this number.
-              Marketing campaigns may not — they need a{" "}
+              Marketing campaigns may not: they need a{" "}
               <Term id="series140" term="140-series" /> number, and no confirmation
               changes that.
             </span>
@@ -141,7 +141,7 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
           <p className="mt-2 text-meta text-ink-muted">
             You can withdraw at any time. Withdrawing records that you have changed
             your mind from that moment and stops this number carrying new campaigns.
-            It does not remove the confirmation you gave — both stay on your
+            It does not remove the confirmation you gave; both stay on your
             account&apos;s record.
           </p>
         </>
@@ -153,7 +153,7 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
             name, that your business is the sender and accepts responsibility for
             calls made from it. Marketing campaigns stay blocked either way. If you
             are not sure whether this is right for your business, take your own
-            advice before confirming — and you can withdraw it later.
+            advice before confirming. You can withdraw it later.
           </p>
           <p className="mt-3 border-l-2 border-brand pl-4 text-body text-ink">
             {statement}
@@ -230,7 +230,7 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
         >
           Campaigns will stop being able to dial from this number, and any campaign
           waiting to start from it will be refused. Your earlier confirmation is not
-          removed — this is recorded beside it as a change of mind, and you can
+          removed; this is recorded beside it as a change of mind, and you can
           confirm again later.
         </ConfirmDialog>
       )}

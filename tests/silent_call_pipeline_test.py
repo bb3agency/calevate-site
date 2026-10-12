@@ -302,3 +302,82 @@ async def test_a_late_non_terminal_webhook_cannot_reopen_a_finished_call(
         f"a late `ringing` webhook reopened a call already recorded `{terminal}` — the "
         "conflict clause and TERMINAL_STATUSES have drifted"
     )
+
+
+# --- 3. an event that states no status ----------------------------------------
+
+
+def _bare_snapshot(
+    execution_id: str,
+    agent_ref: str,
+    *,
+    status: str,
+    raw_status: str,
+    from_e164: str | None,
+    to_e164: str | None,
+) -> ExecutionSnapshot:
+    return ExecutionSnapshot(
+        engine_call_id=execution_id,
+        engine_agent_ref=agent_ref,
+        direction="inbound",
+        status=status,  # type: ignore[arg-type]
+        raw_status=raw_status,
+        terminal=status in TERMINAL_STATUSES and raw_status != "unknown",
+        billable_ready=False,
+        started_at=None,
+        ended_at=None,
+        duration_s=None,
+        from_e164=from_e164,
+        to_e164=to_e164,
+        recording_url=None,
+        transcript=[],
+        cost=None,
+        engine="fake",
+    )
+
+
+async def test_an_unstated_status_does_not_overwrite_the_row_and_parties_are_filled_in() -> None:
+    """An event whose engine stated no status (its `failed` is the adapter's default) must
+    not move the row, and a party the first event lacked is filled by a later one, never
+    replaced."""
+    reset_engine_cache()
+    agent_ref = f"unstated_{RUN}"
+    tenant_id, agent_id = await _seed_tenant(agent_ref)
+    execution_id = f"exec_unstated_{RUN}"
+    first = _bare_snapshot(
+        execution_id,
+        agent_ref,
+        status="ringing",
+        raw_status="ringing",
+        from_e164=None,
+        to_e164="+911140000000",
+    )
+    call_id = await pipeline._upsert_call(tenant_id, agent_id, first, agent_ref)
+    unstated = _bare_snapshot(
+        execution_id,
+        agent_ref,
+        status="failed",
+        raw_status="unknown",
+        from_e164="+919812345678",
+        to_e164="+911149999999",
+    )
+    assert await pipeline._upsert_call(tenant_id, agent_id, unstated, agent_ref) == call_id
+    analysed = _bare_snapshot(
+        execution_id,
+        agent_ref,
+        status="no_answer",
+        raw_status="missed",
+        from_e164=None,
+        to_e164=None,
+    )
+    assert await pipeline._upsert_call(tenant_id, agent_id, analysed, agent_ref) == call_id
+    async with tenant_session(tenant_id) as session:
+        status, from_e164, to_e164 = (
+            await session.execute(
+                text("SELECT status, from_e164, to_e164 FROM calls WHERE id = :c"),
+                {"c": call_id},
+            )
+        ).one()
+    assert status == "no_answer"
+    assert from_e164 == "+919812345678"
+    assert to_e164 == "+911140000000"

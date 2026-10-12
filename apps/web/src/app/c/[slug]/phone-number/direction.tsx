@@ -42,7 +42,7 @@ export const DIRECTIONS: { value: CallDirection; label: string; hint: string }[]
   {
     value: "outbound",
     label: "Call out from this number",
-    hint: "Your agent dials from it — reminders, follow-ups and call-backs.",
+    hint: "Your agent dials from it: reminders, follow-ups and call-backs.",
   },
   {
     value: "both",

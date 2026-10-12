@@ -232,7 +232,7 @@ export function MissingLinkCode({ what, remedy }: { what: string; remedy: string
         <NoticeBox tone="warn" title={`This ${what} link is missing its code`}>
           <p className="mt-1">
             A {what} link ends with a long code. This one arrived without it, so there is
-            nothing here to open — it does not mean the link has been used or has expired.
+            nothing here to open. It does not mean the link has been used or has expired.
           </p>
         </NoticeBox>
         <p>

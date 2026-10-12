@@ -12,10 +12,12 @@ from uuid import UUID
 import pytest
 from apps.api.compliance import consent
 from apps.api.compliance.service import DispatchDecision, add_to_dnc
+from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import tenant_session
 from apps.api.forwarding import save_number
 from apps.workers import forwarding as worker
 from apps.workers.whatsapp import SendResult, SendStatus, WhatsAppMessage
+from arq import Retry
 from sqlalchemy import text
 from tests.forwarding_fixtures import give_calevate_number, make_client
 
@@ -163,10 +165,63 @@ async def test_the_language_follows_the_caller(
     assert transport.sent[0].locale == locale
 
 
-async def test_a_transport_failure_that_may_pass_releases_the_caller(transport: Transport) -> None:
+async def test_a_transport_failure_that_may_pass_is_retried_and_releases_the_caller(
+    transport: Transport,
+) -> None:
+    """arq retries a job only for `Retry`; a plain exception would end it on the first try
+    and the message would never go."""
     transport.result = SendResult(SendStatus.TRANSPORT_FAILED, reason="cloud_api_timeout")
     tenant_id, call_id = await _booked_call()
-    with pytest.raises(RuntimeError):
+    with pytest.raises(Retry):
         await _send(tenant_id, call_id)
     transport.result = SendResult(SendStatus.DELIVERED)
     assert await _send(tenant_id, call_id) == "sent"
+
+
+async def test_the_last_attempt_records_the_failure_and_alarms(
+    transport: Transport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    alarms: list[str] = []
+    monkeypatch.setattr(worker, "alert", lambda _stage, code, **_kw: alarms.append(code))
+    transport.result = SendResult(SendStatus.TRANSPORT_FAILED, reason="cloud_api_timeout")
+    tenant_id, call_id = await _booked_call()
+    outcome = await worker.send_save_number_message(
+        {"job_try": WORKER_MAX_TRIES}, {"tenant_id": str(tenant_id), "call_id": str(call_id)}
+    )
+    assert outcome == "failed"
+    assert alarms == ["save_number_message_undelivered"]
+    async with tenant_session(tenant_id) as session:
+        status = (
+            await session.execute(
+                text("SELECT status FROM save_number_messages WHERE call_id = :cid"),
+                {"cid": call_id},
+            )
+        ).scalar()
+    assert status == "failed"
+    transport.result = SendResult(SendStatus.DELIVERED)
+    assert await _send(tenant_id, call_id) == "already_sent"
+
+
+async def test_the_forwarded_lines_sweep_keeps_going_past_a_failing_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    broken, healthy = uuid.uuid4(), uuid.uuid4()
+    alarms: list[str] = []
+    visited: list[UUID] = []
+
+    async def _tenants() -> list[UUID]:
+        return [broken, healthy]
+
+    async def _one(tenant_id: UUID) -> tuple[bool, int]:
+        visited.append(tenant_id)
+        if tenant_id == broken:
+            raise RuntimeError("database went away")
+        return True, 2
+
+    monkeypatch.setattr(worker, "live_tenants", _tenants)
+    monkeypatch.setattr(worker, "_sweep_tenant_lines", _one)
+    monkeypatch.setattr(worker, "alert", lambda _s, code, **_kw: alarms.append(code))
+
+    assert await worker.sweep_forwarded_lines({}) == "quiet:1 late:2 failed:1"
+    assert visited == [broken, healthy]
+    assert alarms == ["forwarded_lines_sweep_incomplete"]

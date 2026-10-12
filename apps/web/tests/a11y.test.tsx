@@ -50,6 +50,7 @@ import AdminClientsPage from "@/app/admin/page";
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
 import FeatureFlagsPage from "@/app/admin/tenants/[tenantId]/feature-flags/page";
 import LlmModelPage from "@/app/admin/tenants/[tenantId]/llm-model/page";
+import TenantCallHandlingPage from "@/app/admin/tenants/[tenantId]/call-handling/page";
 import FirstCampaignReviewPage from "@/app/admin/tenants/[tenantId]/first-campaign-review/page";
 import TenantInvoicePage from "@/app/admin/tenants/[tenantId]/invoice/page";
 import TenantKycPage from "@/app/admin/tenants/[tenantId]/kyc/page";
@@ -4986,6 +4987,25 @@ const ADMIN_SCREENS: Screen[] = [
     routes: {
       ...TENANT_ROUTES,
       "/v1/admin/organizations/t1/llm-defaults": LLM_DEFAULTS,
+    },
+  },
+  {
+    // A client with a pause of its own beside rows on Calevate's defaults, so both hints
+    // and every row's markup are scanned.
+    file: "admin/tenants/[tenantId]/call-handling/page.tsx",
+    realm: "admin",
+    element: () => <TenantCallHandlingPage params={tenant} />,
+    routes: {
+      ...TENANT_ROUTES,
+      "/v1/admin/organizations/t1/call-handling": {
+        turn_silence_ms: 500,
+        turn_silence_ms_effective: 500,
+        end_call_on_finish: null,
+        end_call_on_finish_effective: true,
+        ...VOICE_OWN_NONE,
+        ...VOICE_EFFECTIVE_DEFAULTS,
+        bounds: CALL_HANDLING_BOUNDS,
+      },
     },
   },
   {

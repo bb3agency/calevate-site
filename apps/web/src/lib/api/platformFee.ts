@@ -18,6 +18,7 @@ import { needsReauthentication } from "@/lib/authn/problems";
 import { withActionCode } from "@/lib/authn/stepUpPrompt";
 import { lookup } from "@/lib/lookup";
 
+import { feeWaiverConfirmation, feePaymentConfirmation } from "./admin";
 import { apiRequest, type Session } from "./client";
 
 import type { components } from "./schema";
@@ -111,13 +112,13 @@ export function useSetFeeWaiver(session: Session, tenantId: string) {
             method: "DELETE",
           })
         : withActionCode(
-            `waive_platform_fee:${tenantId}`,
+            feeWaiverConfirmation(tenantId),
             "Waiving this client's platform fee.",
             () =>
               apiRequest<AdminPlatformFee>(session, `${adminPlatformFeePath(tenantId)}/waiver`, {
                 method: "PUT",
                 body: { reason },
-                confirmAction: `waive_platform_fee:${tenantId}`,
+                confirmAction: feeWaiverConfirmation(tenantId),
               }),
             needsReauthentication,
           ),
@@ -130,7 +131,7 @@ export function useRecordFeePayment(session: Session, tenantId: string) {
   return useMutation({
     mutationFn: ({ chargeId, reference }: { chargeId: string; reference: string }) =>
       withActionCode(
-        `record_fee_payment:${tenantId}:${chargeId}`,
+        feePaymentConfirmation(tenantId, chargeId),
         "Recording a platform fee as paid.",
         () =>
           apiRequest<FeePayment>(
@@ -139,7 +140,7 @@ export function useRecordFeePayment(session: Session, tenantId: string) {
             {
               method: "POST",
               body: { reference },
-              confirmAction: `record_fee_payment:${tenantId}:${chargeId}`,
+              confirmAction: feePaymentConfirmation(tenantId, chargeId),
             },
           ),
         needsReauthentication,

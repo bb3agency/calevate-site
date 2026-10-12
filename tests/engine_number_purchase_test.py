@@ -268,6 +268,30 @@ async def test_a_rent_still_in_flight_is_never_settled_as_nothing_bought(
     assert account.rent_keys[0].startswith("calevate-rent-")
 
 
+async def test_a_409_on_a_number_already_rented_in_our_workspace_is_recorded_not_refused(
+    account: FakeAccount,
+) -> None:
+    """Another press of the same purchase rented it first, so the vendor answers this rent
+    "somebody already holds that number": read back, it is ours, and it is recorded."""
+    price = await _attested()
+    tenant_id, workspace = await _client(account)
+    number = account.available[2]
+    account.hold(workspace, number)
+    before = await _balance(tenant_id)
+    key = f"key-{uuid.uuid4().hex}"
+    bought = await purchase_engine_number(
+        tenant_id=tenant_id,
+        number=number,
+        agent_id=None,
+        direction="both",
+        idempotency_key=key,
+        requested_by="client",
+    )
+    assert await _purchase_status(tenant_id, key) == "recorded"
+    assert bought.first_period == "charged"
+    assert await _balance(tenant_id) == before - price
+
+
 async def test_a_number_somebody_else_holds_is_refused_and_nothing_is_charged(
     account: FakeAccount,
 ) -> None:

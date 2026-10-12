@@ -732,3 +732,29 @@ async def test_a_publish_whose_override_the_vendor_refuses_alerts_and_leaves_the
 
     assert "inbound_credit_cutover_failed" in _cutover_alerts(caplog)
     assert await _silenced_at(tenant_id, agent_id) is not None
+
+
+async def test_a_database_error_for_one_agent_leaves_the_transaction_usable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each agent runs inside its own savepoint: an error in one agent's writes is rolled
+    back to it, counted as that agent's failure, and the shared transaction goes on, so
+    the agents after it and the commit at the end are not lost with it."""
+    tenant_id, agent_id = await _tenant()
+    await _topup(tenant_id, "500")
+    await _publish(tenant_id, agent_id)
+    await _spend(tenant_id, "-500")
+
+    async def _broken_stamp(session: object, **_kw: object) -> None:
+        await session.execute(text("SELECT 1 / 0"))  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(agents_service, "_stamp_inbound_silence", _broken_stamp)
+    async with tenant_session(tenant_id) as session:
+        verdict = await agents_service.reconcile_inbound_answering(
+            session, get_engine(), tenant_id=tenant_id, exhausted=True
+        )
+        still_usable = (await session.execute(text("SELECT 1"))).scalar()
+
+    assert (verdict.failed, verdict.silenced) == (1, 0)
+    assert still_usable == 1
+    assert await _silenced_at(tenant_id, agent_id) is None

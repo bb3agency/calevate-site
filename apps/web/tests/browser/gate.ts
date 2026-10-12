@@ -533,6 +533,10 @@ export interface PageScan {
   /** Every rule id that produced a result of any kind — pass, fail, incomplete or n/a. */
   evaluatedRules: string[];
   violations: Violation[];
+  /** How far the page is wider than the viewport, in CSS pixels; 0 when it fits. */
+  sidewaysPx: number;
+  /** The first element that reaches past the viewport's right edge, when one does. */
+  sidewaysCulprit: string | null;
 }
 
 const AXE_SOURCE = readFileSync(require_.resolve("axe-core/axe.min.js"), "utf8");
@@ -576,6 +580,8 @@ export async function scanTarget(
       );
     }
 
+    // Once per load: a palette changes colours, never the layout.
+    const sideways = await measureSideways(page);
     const scans: PageScan[] = [];
     for (const palette of PALETTES) {
       if (palette === "dark") {
@@ -594,6 +600,8 @@ export async function scanTarget(
         runOnly: result.runOnly,
         evaluatedRules: result.evaluatedRules,
         violations: result.violations,
+        sidewaysPx: sideways.px,
+        sidewaysCulprit: sideways.culprit,
       });
     }
     return scans;
@@ -602,8 +610,30 @@ export async function scanTarget(
   }
 }
 
+/**
+ * Does the page scroll sideways? A page wider than a phone is read by dragging it left and
+ * right, which axe does not check (its reflow rule is about zoom, and is not in the tag set).
+ * Names the first element past the right edge so a failure points at its cause.
+ */
+async function measureSideways(page: Page): Promise<{ px: number; culprit: string | null }> {
+  return page.evaluate(() => {
+    const width = document.documentElement.clientWidth;
+    const px = Math.max(0, document.documentElement.scrollWidth - width);
+    if (px === 0) return { px, culprit: null };
+    for (const el of Array.from(document.body.querySelectorAll("*"))) {
+      if (el.getBoundingClientRect().right <= width + 1) continue;
+      const classes =
+        typeof el.className === "string" ? el.className.trim().split(/\s+/).slice(0, 4) : [];
+      return { px, culprit: [el.tagName.toLowerCase(), ...classes].join(".") };
+    }
+    return { px, culprit: null };
+  });
+}
+
 /** axe-core, in the page, with the declared tag set — and the raw results narrowed. */
-async function runAxe(page: Page): Promise<Omit<PageScan, "path" | "viewport" | "palette" | "status">> {
+async function runAxe(
+  page: Page,
+): Promise<Omit<PageScan, "path" | "viewport" | "palette" | "status" | "sidewaysPx" | "sidewaysCulprit">> {
   return page.evaluate(async (tags: string[]) => {
     const runner = (window as unknown as { axe?: { run: (c: Document, o: unknown) => Promise<unknown> } })
       .axe;

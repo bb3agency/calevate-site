@@ -14,9 +14,9 @@ There is no second publish path here. `publish_agent` reads the APPLIED prompt
 (`live_prompt_id`), so a client's script draft waiting behind "Put it live" is never
 published by a settings change; the change rides on the script that is already live.
 
-A CALL IN PROGRESS FINISHES ON WHAT IT STARTED WITH. On ThinnestAI a running call is not
-documented to re-read a PATCHed agent for anything but its BYOK keys, so that is UNKNOWN and
-an OPERATIONS gate (T-28), not a claim; on Pipecat the worker reads its config once per call.
+A CALL IN PROGRESS FINISHES ON WHAT IT STARTED WITH. On ThinnestAI a connected call keeps
+the configuration it started with, for every agent field (ThinnestAI email of 12 Oct 2026,
+VENDOR-STATED; OPERATIONS T-28); on Pipecat the worker reads its config once per call.
 Either way the next call, including the next dial of a running campaign, starts on the new
 settings.
 

@@ -36,6 +36,13 @@ x-python-service: &python-service
     - "host.docker.internal:host-gateway"
   restart: unless-stopped
   init: true
+  # The image runs as uid 10001 (Dockerfile `USER calevate`), which holds no capability
+  # and needs none: it binds ports above 1024 and owns everything it writes. Dropping the
+  # bounding set and forbidding setuid escalation means code execution in the app cannot
+  # regain root through a setuid binary in the base image (CIS Docker Benchmark 5.3, 5.25).
+  # Not on redis: its entrypoint drops from root to the redis user and needs SETUID/SETGID.
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
   # Bounded logs. The daily disk-hygiene cron DEPLOYMENT §7 asks for does not exist yet,
   # so the json-file driver's unbounded default is a real way to fill the VPS disk and
   # take Postgres down with it. 10x10MB per service is a ceiling, not a policy.

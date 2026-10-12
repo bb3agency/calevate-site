@@ -57,15 +57,18 @@ from calevate_shared.engine_scope import raw_of, scope_of, scoped_handle
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
-from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL, IDEMPOTENCY_HEADER
+from apps.api.engine.thinnest import (
+    AUTH_HEADER,
+    AUTH_SCHEME,
+    BASE_URL,
+    IDEMPOTENCY_HEADER,
+    IDEMPOTENCY_IN_PROGRESS_CODE,
+)
 from apps.api.engine.thinnest_workspace import workspace_headers
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, EngineRejectedError, vendor_request
 
 ENGINE: Final = "thinnest"
 
-#: The 409 code for an `Idempotency-Key` whose first request is still running (docs.thinnest.ai
-#: api-reference/errors, read 12 Oct 2026).
-IDEMPOTENCY_IN_PROGRESS: Final = "idempotency_in_progress"
 
 BusinessStatus = Literal[
     "none", "draft", "submitted", "accepted", "rejected", "suspended", "expired", "unknown"
@@ -409,7 +412,7 @@ class ThinnestNumbers:
                 extra_refused_statuses=frozenset({402, 409}),
             )
         except EngineRejectedError as exc:
-            if exc.vendor_status != 409 or exc.vendor_code != IDEMPOTENCY_IN_PROGRESS:
+            if exc.vendor_status != 409 or exc.vendor_code != IDEMPOTENCY_IN_PROGRESS_CODE:
                 raise
             return await self._rented_after_in_progress(workspace, number)
         parsed = _number(row, workspace)

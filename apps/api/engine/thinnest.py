@@ -160,6 +160,10 @@ DELIVERED_AT_HEADER: Final = "x-thinnest-delivered-at"
 #: How far a delivery time may be from our clock (webhooks.md:129-131).
 DELIVERY_TOLERANCE: Final = timedelta(minutes=5)
 IDEMPOTENCY_HEADER: Final = "Idempotency-Key"
+#: The 409 code for an `Idempotency-Key` whose first request is still being processed: it
+#: may yet succeed, so it is never a refusal (snapshots/2026-10-08/pages/api-reference/
+#: errors.md:164).
+IDEMPOTENCY_IN_PROGRESS_CODE: Final = "idempotency_in_progress"
 # customers.md:68-91: any request runs inside the customer this header names.
 
 # Every list takes `limit` (up to 100) and `cursor` and answers `{items, nextCursor}`
@@ -744,7 +748,7 @@ def _dial_precondition_failed(*, missing: str) -> ProblemError:
 #: `POST /calls` refusals the vendor documents as "the call was not placed", whatever their
 #: status (snapshots/2026-10-08/pages/api-reference/errors.md:109-134). A 5xx with one of
 #: these codes is therefore a refusal and not "the phone may be ringing".
-# `idempotency_in_progress` is deliberately absent: the first request may have placed it.
+# `idempotency_in_progress` is absent: the first request may have placed it (`_dial_refusal`).
 _DIAL_NOT_PLACED_CODES: Final = frozenset(
     {
         "opted_out",
@@ -785,6 +789,16 @@ def _dial_refusal(exc: EngineRejectedError) -> ProblemError:
     on its sentence (errors.md:18-37). A code we do not know keeps the status's generic
     meaning, which is the ladder's own reading of it."""
     code = exc.vendor_code
+    if code == IDEMPOTENCY_IN_PROGRESS_CODE:
+        # The first request with this key is still being processed (errors.md:164) and may
+        # yet place the call, so this 409 proves nothing was placed: the dial is unconfirmed.
+        return EngineRejectedError(
+            status=exc.vendor_status,
+            vendor_error=exc.vendor_error,
+            refused_statuses=frozenset(),
+            vendor_code=code,
+            vendor_reason=exc.vendor_reason,
+        )
     if code in ("opted_out", "do_not_call"):
         # The person, on the workspace's shared list. Whether the entry is this client's is
         # decided above the adapter (`compliance/platform_dnc.py`).
@@ -1374,7 +1388,22 @@ class ThinnestEngine:
                 # The docs neither allow nor refuse an empty list (update-agent, read 12 Oct
                 # 2026). If it is refused, every write to an agent without a number would
                 # fail, so the write goes through without the field and an operator settles
-                # it with the vendor; the drift sweep keeps reporting the extra places.
+                # it with the vendor; the drift sweep keeps reporting the extra places. A 400
+                # that the write without the field also gets was about another field, so the
+                # first refusal is raised and nothing is said about surfaces.
+                try:
+                    saved = await self._request(
+                        method,
+                        path,
+                        route=route,
+                        workspace=workspace,
+                        json={
+                            **body,
+                            "voice": {k: v for k, v in voice.items() if k != "surfaces"},
+                        },
+                    )
+                except EngineRejectedError:
+                    raise exc from None
                 alert(
                     "CORE_LOGIC",
                     "engine_agent_surfaces_refused",
@@ -1382,13 +1411,7 @@ class ThinnestEngine:
                     "the agent was saved without it and may still answer on the website "
                     "button or WhatsApp. Ask ThinnestAI how to switch those off.",
                 )
-                return await self._request(
-                    method,
-                    path,
-                    route=route,
-                    workspace=workspace,
-                    json={**body, "voice": {k: v for k, v in voice.items() if k != "surfaces"}},
-                )
+                return saved
             if exc.vendor_status != 409 or exc.vendor_code != PHONE_NUMBER_REQUIRED:
                 raise
             log.warning("thinnest_agent_phone_number_missing", extra={"route": route})
@@ -2255,10 +2278,10 @@ class ThinnestEngine:
                 workspace=workspace,
                 json=body,
                 headers=headers,
-                # Every 409 on this route is a call that was not placed: outside hours, a
-                # call already waiting or live for this person, no answering agent, a number
-                # without carrier credentials, or the same key in flight
-                # (place-call.md:272-286).
+                # A 409 on this route is a call that was not placed: outside hours, a call
+                # already waiting or live for this person, no answering agent, a number
+                # without carrier credentials (place-call.md:272-286). The one exception,
+                # the same key still in flight, is made unconfirmed by `_dial_refusal`.
                 # 402 is "your balance cannot pay for a call", nothing created
                 # (snapshots/2026-10-07/pages/api-reference/calls/place-call.md:379-389).
                 extra_refused_statuses=frozenset({402, 409}),

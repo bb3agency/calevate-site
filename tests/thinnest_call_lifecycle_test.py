@@ -417,6 +417,40 @@ async def test_a_403_on_a_key_that_cannot_dial_is_never_read_as_an_opt_out(
     assert raised_alarms == ["engine_key_cannot_place_calls"] * 2
 
 
+async def test_a_dial_whose_key_is_still_in_flight_is_unconfirmed_not_refused() -> None:
+    """`409 idempotency_in_progress` is the first request with this key still being
+    processed (errors.md:164): it may place the call, so it never proves nobody was rung."""
+    handler, _ = _recorder(
+        {
+            ("GET", "/agents/ag_1"): _greeting(),
+            ("POST", "/calls"): httpx.Response(
+                409, json={"error": "still processing", "code": "idempotency_in_progress"}
+            ),
+        }
+    )
+    with pytest.raises(EngineRejectedError) as raised:
+        await _engine(handler).start_outbound_call(
+            "ag_1", "+919876543210", CallContext(call_id="c-1")
+        )
+    assert raised.value.vendor_status == 409
+    assert raised.value.request_refused is False
+    assert dial_was_not_placed(raised.value) is False
+
+
+async def test_another_409_on_a_dial_is_still_not_placed() -> None:
+    handler, _ = _recorder(
+        {
+            ("GET", "/agents/ag_1"): _greeting(),
+            ("POST", "/calls"): httpx.Response(
+                409, json={"error": "busy", "code": "call_in_progress"}
+            ),
+        }
+    )
+    with pytest.raises(EngineRejectedError) as raised:
+        await _engine(handler).start_outbound_call("ag_1", "+919876543210", CallContext())
+    assert dial_was_not_placed(raised.value) is True
+
+
 async def test_a_403_with_no_code_keeps_its_generic_meaning() -> None:
     handler, _ = _recorder(
         {

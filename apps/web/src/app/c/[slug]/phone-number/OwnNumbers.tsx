@@ -66,7 +66,7 @@ const REFUSALS: Record<string, string> = {
   trial_numbers_unavailable:
     "Phone numbers are available once you add credit and verify your business. Nothing was charged.",
   engine_workspace_not_provisioned:
-    "Your calling account is still being set up. Nothing was charged — try again in a few minutes.",
+    "Your calling account is still being set up. Nothing was charged. Try again in a few minutes.",
   kyc_not_verified: "Verify your business first. Nothing was charged.",
   business_details_kyc_not_verified:
     "Verify your business first. We send the business details once it is verified.",
@@ -76,11 +76,11 @@ const REFUSALS: Record<string, string> = {
   // The server sends this for every refusal of the number itself: it may have been taken,
   // or the business details may still be under check. Nothing tells the two apart.
   engine_number_unavailable:
-    "That number could not be bought: somebody else may have taken it, or your business details are still being checked. Nothing was charged — please pick another, or try again shortly.",
+    "That number could not be bought: somebody else may have taken it, or your business details are still being checked. Nothing was charged. Pick another, or try again shortly.",
   engine_number_purchase_unconfirmed:
     "We could not confirm the purchase. Press Buy again: it finishes this same purchase and never buys a second number.",
   engine_number_agent_not_moved:
-    "That agent is not published yet, so the number cannot be put on it. Publish the agent first, then press Buy again — or buy without an agent and choose one later.",
+    "That agent is not published yet, so the number cannot be put on it. Publish the agent first, then press Buy again. Or buy without an agent and choose one later.",
   number_insufficient_credit:
     "There is not enough calling credit for the first month. Top up, then press Buy again.",
 };
@@ -111,9 +111,9 @@ export function firstPeriodSentence(period: FirstPeriod, inrPerMonth: string | n
         ? "The first month was charged now."
         : `${formatINR(inrPerMonth)} charged now for the first month, then monthly.`;
     case "invoiced":
-      return `${monthly ?? "The monthly charge"} — the first month is added to your next invoice.`;
+      return `${monthly ?? "The monthly charge"}. The first month is added to your next invoice.`;
     case "trial":
-      return `${monthly ?? "The monthly charge"} — free during your trial; charging starts at the first renewal after it.`;
+      return `${monthly ?? "The monthly charge"}. Free during your trial; charging starts at the first renewal after it.`;
     case "replayed":
       return "Your earlier request already bought this number.";
     default:
@@ -484,7 +484,7 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
                 setRequestKey(newRequestKey());
               }}
             >
-              <option value={NO_AGENT}>No agent yet — I will choose later</option>
+              <option value={NO_AGENT}>No agent yet, I will choose later</option>
               {agents.data?.map((agent) => (
                 <option key={agent.id} value={agent.id}>
                   {agent.name}

@@ -174,6 +174,12 @@ async def meter_number_rentals(ctx: dict[str, Any]) -> str:
                 "number_rental_metering_failed",
                 extra={"number_id": str(number_id), "error": exc.__class__.__name__},
             )
+    attempt = int(ctx.get("job_try", 1))
+    if failed and attempt < WORKER_MAX_TRIES:
+        # This cron runs once a month, so a transient failure is retried here or lost for
+        # the month; the record is idempotent on (number, month), so a retry costs nothing.
+        log.warning("number_rentals_metering_retry", extra={"month": month, "failed": failed})
+        raise Retry(defer=_RENEWAL_RETRY_AFTER_S[min(attempt, len(_RENEWAL_RETRY_AFTER_S)) - 1])
     if failed or unpriced:
         alert(
             "WORKER_TERMINAL",

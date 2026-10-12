@@ -855,3 +855,16 @@ async def test_two_studio_test_calls_at_once_cannot_both_pass_the_cap(
     finally:
         await _end_open_trial_calls()
     assert outcomes == ["placed", "trial_line_busy"]
+
+
+async def test_an_account_that_paid_is_not_held_to_the_trials_studio_minutes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A payment between the trial gate and the dial lifts the trial, and with it the cap."""
+    monkeypatch.setattr(get_settings(), "trial_studio_minutes", 1)
+    tenant_id, agent_id = await _trial_tenant()
+    await _on_studio(tenant_id, agent_id)
+    await _trial_call_row(tenant_id, agent_id, status="completed", seconds=120)
+    assert await _refusal(tenant_id, agent_id) == "trial_studio_minutes_used"
+    await fund_wallet(tenant_id)
+    assert await _refusal(tenant_id, agent_id) is None

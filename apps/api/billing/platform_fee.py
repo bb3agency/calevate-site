@@ -304,6 +304,11 @@ async def record_payment(
     recorded, because a fee half paid is not a state this product has a word for. The
     unique index on `charge_id` makes a redelivered webhook, or two operators recording
     the same transfer, write one row.
+
+    `ux_monthly_fee_payments_ref` is unique on `(method, payment_ref)` across every
+    tenant, so the insert can also be skipped because the REFERENCE already settled a
+    different fee. That fee is still unpaid, so it is refused rather than reported as
+    already paid, which would leave the fee due behind a success.
     """
     if amount_inr != charge.amount_inr:
         raise ProblemError.conflict(
@@ -331,7 +336,26 @@ async def record_payment(
             },
         )
     ).first()
-    return row is not None
+    if row is not None:
+        return True
+    if await paid_with(session, charge_id=charge.id) is not None:
+        return False
+    raise ProblemError.conflict(
+        "platform_fee_reference_used",
+        "This payment reference already settled another platform fee.",
+        remediation="Nothing was recorded. Check the reference against the bank statement.",
+    )
+
+
+async def paid_with(session: AsyncSession, *, charge_id: UUID) -> str | None:
+    """The payment reference this fee was settled with, or None while it is unpaid."""
+    ref = (
+        await session.execute(
+            text("SELECT payment_ref FROM monthly_fee_payments WHERE charge_id = :cid"),
+            {"cid": charge_id},
+        )
+    ).scalar()
+    return None if ref is None else str(ref)
 
 
 async def set_waiver(
@@ -421,6 +445,7 @@ __all__ = [
     "issue_charge",
     "list_charges",
     "overdue_charge",
+    "paid_with",
     "platform_fee_paused",
     "read_charge",
     "read_waiver",

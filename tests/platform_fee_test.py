@@ -352,6 +352,10 @@ async def test_a_fee_paid_through_the_webhook_never_touches_calling_credit(
     monkeypatch.setattr(settings, "razorpay_webhook_secret", WEBHOOK_SECRET)
     monkeypatch.setattr(settings, "razorpay_key_secret", "rzp_secret_fee")
     monkeypatch.setattr(settings, "razorpay_mode", None)
+    from apps.api.billing import payment_events
+
+    alarms: list[str] = []
+    monkeypatch.setattr(payment_events, "alert", lambda _s, code, **_kw: alarms.append(code))
 
     tenant_id = await _tenant()
     charge_id = await _issue(tenant_id, at=datetime.now(UTC))
@@ -402,6 +406,19 @@ async def test_a_fee_paid_through_the_webhook_never_touches_calling_credit(
     assert first.status_code == 200, first.text
     assert first.json()["status"] == "fee_paid"
     assert replay.json()["status"] == "duplicate"
+    assert alarms == [], "a redelivery of the same payment is not a second payment"
+
+    # A DIFFERENT payment for the fee already paid is money nothing records: it alarms.
+    envelope["payload"]["payment"]["entity"]["id"] = f"pay_{uuid.uuid4().hex[:14]}"
+    raw = json.dumps(envelope, separators=(",", ":")).encode()
+    headers[payments.SIGNATURE_HEADER] = hmac.new(
+        WEBHOOK_SECRET.encode(), raw, hashlib.sha256
+    ).hexdigest()
+    async with AsyncClient(transport=ASGITransport(app=hook), base_url="http://api") as http:
+        second = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+    assert second.status_code == 200, second.text
+    assert second.json()["status"] == "duplicate"
+    assert alarms == ["platform_fee_paid_twice"]
 
     async with tenant_session(tenant_id) as session:
         charge = await read_charge(session, tenant_id=tenant_id, charge_id=charge_id)

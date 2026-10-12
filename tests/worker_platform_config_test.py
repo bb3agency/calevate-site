@@ -71,7 +71,16 @@ async def _cold_process(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[None]:
     async def _quiet(*_: Any) -> None:
         return None
 
-    for name in ("stop_fx_refresher", "stop_pricing_refresher", "close_redis", "close_queue"):
+    # `apply_platform_prompt_on_start` would queue a real platform-wide live-apply run that
+    # nothing here walks, and every later test that queues a run for one client would
+    # coalesce into it instead of creating its own.
+    for name in (
+        "stop_fx_refresher",
+        "stop_pricing_refresher",
+        "close_redis",
+        "close_queue",
+        "apply_platform_prompt_on_start",
+    ):
         monkeypatch.setattr(worker_settings, name, _quiet)
     yield
     await pc.stop_config_refresher()

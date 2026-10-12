@@ -61,7 +61,7 @@ export function ResetRequestForm({ authn }: { authn: RealmAuthn }) {
           </p>
           <p className="text-xs text-ink-faint">
             No email after a few minutes? Check the spam folder, then try a different
-            address — it is more often the wrong address than a lost email.
+            address. A wrong address is more likely than a lost email.
           </p>
         </div>
       </Card>

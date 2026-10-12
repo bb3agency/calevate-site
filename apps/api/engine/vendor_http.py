@@ -288,6 +288,13 @@ def lines_busy_error() -> ProblemError:
 #: safe. 429 never reaches here: it has its own rung above.
 REQUEST_REFUSED_STATUSES = frozenset({400, 401, 403, 404})
 
+#: 404 codes that are about the request's scope, not the object it names: ThinnestAI answers
+#: `workspace_not_found` when the `Thinnest-Workspace` header names a workspace it does not
+#: know (snapshots/2026-10-08/pages/api-reference/errors.md:90, phone-numbers/
+#: get-phone-number.md:392). A delete or release told that has not found the object absent,
+#: so `absent_is_success` never reads one as "already gone".
+SCOPE_NOT_FOUND_CODES: Final = frozenset({"workspace_not_found"})
+
 #: The bound that lets the vendor's error code into a log line at all — see
 #: `_vendor_error_code`.
 _INT32_MAX = 2**31 - 1
@@ -394,6 +401,12 @@ class EngineRejectedError(ProblemError):
     def request_refused(self) -> bool:
         """True when the vendor's own docs say this status means "I did not do it"."""
         return self.vendor_status in self._refused_statuses
+
+    @property
+    def object_absent(self) -> bool:
+        """A 404 about the object named, not about the workspace it was asked in
+        (`SCOPE_NOT_FOUND_CODES`)."""
+        return self.vendor_status == 404 and self.vendor_code not in SCOPE_NOT_FOUND_CODES
 
 
 #: A dial the VENDOR refused because the person opted out with it or is on its own
@@ -676,6 +689,45 @@ def throttle_delay_s(
     return capped * rand()
 
 
+#: A path segment that RFC 3986 §5.2.4 removes or climbs out of, raw or percent-encoded.
+#: httpx applies that removal when it builds the URL, so `/contacts/{id}` with an id of
+#: `../agents/x` would be sent as `DELETE /agents/x`.
+_DOT_SEGMENTS: Final = frozenset({".", "..", "%2e", "%2e%2e", ".%2e", "%2e."})
+#: Characters that end or re-root a path, or that a server may read as a separator.
+_PATH_BREAKERS: Final = re.compile(r"[?#\\\x00-\x20\x7f]")
+
+
+def assert_safe_vendor_path(path: str) -> None:
+    """Refuse a vendor path whose interpolated ids could reach another endpoint.
+
+    Every adapter fills ids into its path template (`/agents/{ref}`, `/contacts/{id}`), and
+    the ids come from our rows or from the vendor's own answers. Checked once here, for every
+    adapter, rather than at each of the many call sites: a dot segment, a query or fragment
+    marker, a backslash or a control character in a filled path is never a real id, and is
+    exactly what an id would need to carry to turn one route into another (OWASP API Security
+    Top 10 2023, API10 "Unsafe Consumption of APIs").
+    """
+    # An absolute URL is a link the vendor issued (a recording), whose host and path are the
+    # vendor's to choose; its signed query is not a defect, so only the path is judged.
+    # Cut by hand rather than parsed: `httpx.URL` raises on a malformed vendor string, and
+    # `urlsplit` silently drops tabs and newlines, which are what this check looks for.
+    target = path
+    if "://" in path:
+        after_host = path.split("://", 1)[1].partition("/")[2]
+        target = "/" + after_host.split("?", 1)[0].split("#", 1)[0]
+    if _PATH_BREAKERS.search(target) or any(
+        segment.lower() in _DOT_SEGMENTS for segment in target.split("/")
+    ):
+        raise ProblemError(
+            kind="internal",
+            code="engine_path_refused",
+            title="Calevate stopped a voice platform call before it went out",
+            detail="A stored id was not one the voice platform could have issued.",
+            failure_stage="CORE_LOGIC",
+            remediation="Check the stored ids for this object; nothing was sent.",
+        )
+
+
 async def _vendor_response(
     client: httpx.AsyncClient,
     method: str,
@@ -689,6 +741,7 @@ async def _vendor_response(
 ) -> httpx.Response | None:
     """The throttle ladder and every refusal rung of `vendor_request`, shared with
     `vendor_audio_request`; None when an absent object is the caller's success."""
+    assert_safe_vendor_path(path)
     for attempt in range(THROTTLE_MAX_ATTEMPTS):
         try:
             response = await client.request(method, path, **kwargs)
@@ -792,7 +845,11 @@ async def _vendor_response(
             detail="The voice platform redirected the request instead of answering it.",
             failure_stage="CORE_LOGIC",
         )
-    if absent_is_success and response.status_code == 404:
+    if (
+        absent_is_success
+        and response.status_code == 404
+        and _vendor_error_name(_error_envelope(response)) not in SCOPE_NOT_FOUND_CODES
+    ):
         # NOT a swallowed error: the caller declared that an absent object satisfies
         # it. Logged at info so a compensation that found nothing to compensate is
         # still legible in the record — `delete_agent`'s caller is an orphan
@@ -999,12 +1056,14 @@ __all__ = [
     "RECIPIENT_OPTED_OUT_CODE",
     "REQUEST_REFUSED_STATUSES",
     "REQUEST_TIMEOUT_S",
+    "SCOPE_NOT_FOUND_CODES",
     "THROTTLE_BASE_S",
     "THROTTLE_MAX_ATTEMPTS",
     "THROTTLE_MAX_SLEEP_S",
     "THROTTLE_STATUS",
     "EngineRateLimitedError",
     "EngineRejectedError",
+    "assert_safe_vendor_path",
     "lines_busy_error",
     "number_daily_limit_error",
     "recipient_opted_out_error",

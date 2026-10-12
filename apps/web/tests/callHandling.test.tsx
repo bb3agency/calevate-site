@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AgentCallHandlingRows } from "@/app/c/[slug]/agents/panels/callHandling";
 import ClientCallHandlingPage from "@/app/c/[slug]/settings/call-handling/page";
+import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
+import TenantCallHandlingPage from "@/app/admin/tenants/[tenantId]/call-handling/page";
 import type { Me } from "@/lib/api/client";
 import type { AgentCallHandling, OrganizationCallHandling } from "@/lib/api/callHandling";
 
@@ -13,6 +15,7 @@ import {
   VOICE_OWN_NONE,
   VOICE_SOURCES_PLATFORM,
 } from "./fixtures/sharedReads";
+import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, renderClientPage } from "./harness";
 
 vi.mock("next/navigation", () => ({
@@ -322,5 +325,62 @@ describe("the voice settings", () => {
       ambience_volume_pct: 30,
     });
     await screen.findByText("Office at 30%");
+  });
+});
+
+describe("a client's call handling defaults, from the operator console", () => {
+  const TENANT = "t1";
+  const ADMIN_PATH = `/v1/admin/organizations/${TENANT}/call-handling`;
+  const operator = (permissions: string[]): AdminMe => ({
+    realm: "admin",
+    user_id: "op-1",
+    role: "operator",
+    permissions,
+  });
+  const routes = (permissions: string[]) => ({
+    [ADMIN_ME_PATH]: operator(permissions),
+    [`/v1/admin/tenants/${TENANT}`]: { id: TENANT, name: "Sri Stores", slug: "acme" },
+    [ADMIN_PATH]: organization({ turn_silence_ms: 500, turn_silence_ms_effective: 500 }),
+  });
+
+  it("saves through the operator's own door, not a view-as session", async () => {
+    const { calls } = await renderAdminRoute(
+      <TenantCallHandlingPage params={routeParams({ tenantId: TENANT })} />,
+      {
+        ...routes(["org:read", "admin:tenants"]),
+        [`PUT ${ADMIN_PATH}`]: organization({ turn_silence_ms: 700, turn_silence_ms_effective: 700 }),
+      },
+    );
+    await screen.findByText("Relaxed (0.5 s)");
+    expect(screen.getByText("This client's default")).toBeTruthy();
+    const [pauseChange] = await screen.findAllByRole("button", { name: "Change" });
+    await act(async () => {
+      fireEvent.click(pauseChange!);
+    });
+    await pick(/Unhurried \(0\.7 s\)/);
+    await press("Save pause");
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    const put = calls.find((c) => c.method === "PUT");
+    expect(put?.path).toBe(ADMIN_PATH);
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({ turn_silence_ms: 700, end_call_on_finish: null });
+    await screen.findByText("Unhurried (0.7 s)");
+  });
+
+  it("offers no change to an operator without the tenant permission", async () => {
+    await renderAdminRoute(
+      <TenantCallHandlingPage params={routeParams({ tenantId: TENANT })} />,
+      routes(["org:read"]),
+    );
+    await screen.findByText("Relaxed (0.5 s)");
+    expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
+  });
+
+  it("renders the server's refusal when the read fails", async () => {
+    await renderAdminRoute(<TenantCallHandlingPage params={routeParams({ tenantId: TENANT })} />, {
+      ...routes(["org:read", "admin:tenants"]),
+      [ADMIN_PATH]: problem(404, { title: "Not found", detail: "No such client." }),
+    });
+    await screen.findByText("No such client.");
+    expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
   });
 });

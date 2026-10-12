@@ -146,6 +146,16 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         ("/v1/kb/teach/upload", "POST", "costly"),
         ("/v1/kb/teach/{teaching_id}/words", "POST", "costly"),
         ("/v1/copilot/routines/{routine_id}/run", "POST", "costly"),
+        # Routes that ring a real phone or push an agent to the voice platform; these sat
+        # at `client_api` / `admin_api` beside siblings that were already weighted.
+        ("/v1/calls/{call_id}/callback", "POST", "costly"),
+        ("/v1/trial/calls", "POST", "costly"),
+        ("/v1/admin/tenants/{tenant_id}/trial/test-call", "POST", "costly"),
+        ("/v1/integrations/credentials/{credential_id}/test", "POST", "costly"),
+        ("/v1/agents/{agent_id}/script/publish", "POST", "costly"),
+        ("/v1/agents/{agent_id}/script/apply", "POST", "costly"),
+        ("/v1/agents/{agent_id}/script/undo", "POST", "costly"),
+        ("/v1/agents/{agent_id}/script", "PUT", "client_api"),
         ("/v1/auth/signup", "POST", "auth"),
         ("/healthz/ready", "GET", "exempt"),
         # The public rate card must NOT fall into `client_api`: its one caller is the

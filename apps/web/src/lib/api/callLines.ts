@@ -18,7 +18,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, callLinesConfirmation, confirmedAdminRequest } from "./admin";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
 
@@ -40,7 +40,11 @@ export function useSetCallLines(tenantId: string): UseMutationResult<CallLines, 
   const client = useQueryClient();
   return useMutation({
     mutationFn: (payload: CallLinesIn) =>
-      apiRequest<CallLines>(adminSession(), callLinesPath(tenantId), { method: "PUT", body: payload }),
+      confirmedAdminRequest<CallLines>(
+        callLinesPath(tenantId),
+        { method: "PUT", body: payload, confirmAction: callLinesConfirmation(tenantId) },
+        "Changing how many calls this client may have at once.",
+      ),
     onSuccess: (data) => {
       client.setQueryData(callLinesKey(tenantId), data);
     },

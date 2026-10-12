@@ -130,7 +130,7 @@ function RoleControl({
           </button>
           <span className="basis-full text-meta text-ink-muted">
             {pendingRole === "owner"
-              ? `${who} will be able to see your invoice, invite and remove people — including you.`
+              ? `${who} will be able to see your invoice, invite and remove people, including you.`
               : `${who} will lose access to billing and will no longer be able to change who is on this team.`}
           </span>
         </>
@@ -176,7 +176,7 @@ function RoleCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
       <span className="block">
         <span className="text-ink-muted">{roleLabel(row.member.role)}</span>
         <span className="block text-meta text-ink-faint">
-          You cannot change your own access — ask another owner.
+          You cannot change your own access. Ask another owner.
         </span>
       </span>
     );
@@ -284,7 +284,7 @@ export function teamColumns(ctx: TeamTableContext): DataColumn<TeamRow>[] {
           <InfoTip label="roles">
             <p>
               An account always keeps at least one owner: the last one cannot be removed or
-              moved to staff. Nobody can change their own role — ask another owner.
+              moved to staff. Nobody can change their own role. Ask another owner.
             </p>
           </InfoTip>
         </span>

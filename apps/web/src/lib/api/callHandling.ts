@@ -8,6 +8,8 @@
  *   GET   /v1/organization/call-handling                         `org:read`
  *   PUT   /v1/organization/call-handling                         `org:manage`
  *   PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-handling     the operator's door
+ *   GET   /v1/admin/organizations/{org_id}/call-handling         `admin:tenants`
+ *   PUT   /v1/admin/organizations/{org_id}/call-handling         `admin:tenants`
  *
  * Each value resolves agent, then the account default, then Calevate's, on the server; the
  * screens render `*_effective` and `*_source` as they arrive and never resolve it themselves.
@@ -268,6 +270,48 @@ export function useAdminSetAgentCallHandling({
       ),
     onSuccess: (data) => {
       client.setQueryData(callHandlingKeys.agent(slug, agentId), data);
+    },
+  });
+}
+
+const adminOrganizationPath = (tenantId: string) =>
+  `/v1/admin/organizations/${tenantId}/call-handling`;
+const adminOrganizationKey = (tenantId: string) =>
+  ["call-handling", "admin", tenantId, "organization"] as const;
+
+/** The operator's read of one client's account defaults (`admin:tenants`). */
+export function useAdminOrganizationCallHandling(
+  tenantId: string,
+): UseQueryResult<OrganizationCallHandling> {
+  return useQuery({
+    queryKey: adminOrganizationKey(tenantId),
+    queryFn: () =>
+      apiRequest<OrganizationCallHandling>(adminSession(), adminOrganizationPath(tenantId)),
+    enabled: Boolean(tenantId),
+  });
+}
+
+/**
+ * The operator's write of one client's account defaults. Every agent read of that client is
+ * dropped too, since an agent that inherits a moved value now resolves differently; `slug` is
+ * the client's, which keys those reads.
+ */
+export function useAdminSetOrganizationCallHandling(
+  tenantId: string,
+  slug: string | undefined,
+): UseMutationResult<OrganizationCallHandling, Error, OrganizationCallHandlingIn> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: OrganizationCallHandlingIn) =>
+      apiRequest<OrganizationCallHandling>(adminSession(), adminOrganizationPath(tenantId), {
+        method: "PUT",
+        body: payload,
+      }),
+    onSuccess: (data) => {
+      client.setQueryData(adminOrganizationKey(tenantId), data);
+      if (!slug) return;
+      client.setQueryData(callHandlingKeys.organization(slug), data);
+      return client.invalidateQueries({ queryKey: callHandlingKeys.agents(slug) });
     },
   });
 }

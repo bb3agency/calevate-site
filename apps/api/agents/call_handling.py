@@ -489,8 +489,13 @@ async def read_agent_call_handling(session: AsyncSession, agent_id: UUID) -> Age
 
 
 def _clean(changes: Mapping[str, object]) -> dict[str, object]:
-    """The changes as stored: filler lines trimmed into a tuple."""
+    """The changes as stored: filler lines trimmed into a tuple, the nudge phrase trimmed. A
+    blank phrase is '' (the platform's own): kept as spaces it would be sent as a phrase and
+    read back trimmed, which is drift no repair can clear."""
     out = dict(changes)
+    phrase = out.get("nudge_phrase")
+    if isinstance(phrase, str):
+        out["nudge_phrase"] = phrase.strip()
     lines = out.get("filler_lines")
     if lines is not None:
         if not isinstance(lines, list | tuple):

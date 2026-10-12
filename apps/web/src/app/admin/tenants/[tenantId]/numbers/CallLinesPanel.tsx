@@ -61,6 +61,7 @@ export function CallLinesPanel({ tenantId, canWrite }: { tenantId: string; canWr
                     className={TEXT_ACTION}
                     onClick={() => {
                       setValue(data.call_lines_chosen === null ? "" : String(data.call_lines_chosen));
+                      save.reset();
                       setEditing(true);
                     }}
                   >
@@ -108,7 +109,15 @@ export function CallLinesPanel({ tenantId, canWrite }: { tenantId: string; canWr
                 <button type="submit" className={PRIMARY_BUTTON} disabled={!valid || save.isPending}>
                   {save.isPending ? "Saving" : "Save"}
                 </button>
-                <button type="button" className={TEXT_ACTION} onClick={() => setEditing(false)}>
+                <button
+                  type="button"
+                  className={TEXT_ACTION}
+                  onClick={() => {
+                    // A refusal belongs to the attempt it answered, not to the next one.
+                    save.reset();
+                    setEditing(false);
+                  }}
+                >
                   Cancel
                 </button>
               </div>

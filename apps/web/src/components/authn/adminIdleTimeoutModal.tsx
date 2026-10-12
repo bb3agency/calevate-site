@@ -184,7 +184,7 @@ export function AdminIdleTimeoutModal({ enabled }: { enabled: boolean }) {
                   diagnose is the same defect one layer down. */}
               <p className="mt-1">
                 {isUnreachable(failure)
-                  ? "Your session has not been ended — the request did not reach Calevate. " +
+                  ? "Your session has not been ended: the request did not reach Calevate. " +
                     "Check your connection and try again before the timer runs out."
                   : "Your session has not been ended, and Calevate refused the request " +
                     "rather than failing to receive it. Try again before the timer runs " +

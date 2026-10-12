@@ -124,8 +124,8 @@ export function PhoneNumberScreen() {
               )}
               {ours.some(waiting) && (
                 <p className="text-body text-ink-muted">
-                  A number with an agent on it is not ready to take calls yet — we are still
-                  connecting it. Please wait until it says <em>Ready to answer</em> before you
+                  A number with an agent on it is not ready to take calls yet; we are still
+                  connecting it. Wait until it says <em>Ready to answer</em> before you
                   set the forwarding up, or callers will reach silence. There is nothing for
                   you to do here.
                 </p>
@@ -151,7 +151,7 @@ export function PhoneNumberScreen() {
                 </InfoTip>
               </h2>
               <p className="text-body text-ink-muted">
-                Do not forward these anywhere — they are what your agents call out from.
+                Do not forward these anywhere. Your agents call out from them.
               </p>
               {theirs.map((number) => (
                 <NumberCard key={number.id} number={number} releasable={ownNumbers && number.releasable === true} />

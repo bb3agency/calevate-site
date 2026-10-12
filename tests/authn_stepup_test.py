@@ -505,7 +505,10 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # ONE MORE records an engine model's per-minute band (`ops/engine_model_band_routes.py`,
     # `engine_model_band_confirmation`, bound to engine and model): it decides whether the
     # model is sold and beside which voice rate.
-    assert sites == 76, f"found {sites} step-up call sites, expected 76; the census went stale"
+    # ONE MORE sets how many calls one client may have at once
+    # (`tenancy/call_lines_routes.py`, `call_lines_confirmation`, bound to the client): more
+    # lines is more calls billed at the same moment.
+    assert sites == 77, f"found {sites} step-up call sites, expected 77; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

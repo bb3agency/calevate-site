@@ -405,6 +405,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # A forwarded number that normally brings calls has had none for three days (D-746): one
     # client, and the client is told in the product too. Once per episode.
     "forwarded_line_quiet": "attention",
+    # The hourly forwarded-line walk could not check some clients (D-746); it runs again
+    # within the hour.
+    "forwarded_lines_sweep_incomplete": "attention",
     # The shared trial number's paused line did not take its settings (D-742): callers who
     # ring it back hear the platform's standard sentence; test calls go on.
     "trial_line_agent_not_held": "attention",
@@ -529,6 +532,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "account_notice_unknown_event": "attention",
     "closure_sweep_incomplete": "attention",
     "hot_lead_whatsapp_exhausted": "attention",
+    # The once-per-caller "save our number" WhatsApp (D-746) failed every attempt: one caller,
+    # one client, never retried.
+    "save_number_message_undelivered": "attention",
     "hot_lead_whatsapp_rejected": "attention",
     "campaign_escalation_exhausted": "attention",
     "campaign_escalation_rejected": "attention",
@@ -617,6 +623,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # call fails; the client may hold more or fewer lines than chosen until it is saved again.
     "engine_call_lines_not_saved": "attention",
     "engine_agent_surfaces_refused": "attention",
+    # A stored or vendor-returned id would have turned one vendor route into another; the
+    # request was never sent. Not paged: nothing was changed on the platform.
+    "engine_path_refused": "attention",
     "voice_catalogue_sync_failed": "attention",
     # Payments cannot be verified at all, so money is arriving and nothing is crediting it.
     "razorpay_webhook_unconfigured": "page",
@@ -660,6 +669,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "platform_fee_sweep_truncated": "attention",
     "platform_fee_notice_no_billing_email": "attention",
     "platform_fee_payment_unmatched": "page",
+    # A second payment for a fee already settled: money received that nothing records.
+    "platform_fee_paid_twice": "page",
     # The cap doing exactly its job. One client's outbound stopped, by their own configured
     # ceiling — a thing to see on a screen, not to be woken for.
     "tenant_spend_capped": "attention",

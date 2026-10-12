@@ -36,11 +36,17 @@ from sqlalchemy import text
 
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
+from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
 from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.reliability.engine_intake_keys import open_delivery, seal_delivery
 from apps.workers.storage import read_engine_payload
+
+log = get_logger(__name__)
+
+#: The raw status an adapter records when the engine stated none (`raw_status or "unknown"`).
+UNSTATED_STATUS: Final = "unknown"
 
 
 @runtime_checkable
@@ -138,10 +144,27 @@ async def execution_truth(
     *,
     listed: Mapping[str, Any] | None = None,
 ) -> ExecutionSnapshot:
-    """The ingest job's read: a delivery, else the fetch, else (404) the listing row."""
+    """The ingest job's read: a delivery, else the fetch, else (404) the listing row.
+
+    A delivery that states no status (a `call.completed` body is not documented field by
+    field) is not taken as the call's outcome: the fetch is asked instead, because an
+    unstated status reads as `failed`, which is terminal and would stop the later
+    `call.analysed` from recording `no_answer`, `busy` or `voicemail`. When the fetch
+    cannot answer, the delivery's snapshot stands."""
     document = delivered_document(engine.name, execution_id, delivery)
     if document is not None:
-        return snapshot_of_document(engine, document, execution_id=execution_id)
+        delivered = snapshot_of_document(engine, document, execution_id=execution_id)
+        if delivered.raw_status not in (None, UNSTATED_STATUS):
+            return delivered
+        try:
+            fetched = await engine.get_execution(execution_id)
+        except ProblemError as exc:
+            log.info(
+                "engine_delivery_status_unstated",
+                extra={"execution_id": execution_id, "reason": type(exc).__name__},
+            )
+            return delivered
+        return fetched if fetched.raw_status not in (None, UNSTATED_STATUS) else delivered
     try:
         return await engine.get_execution(execution_id)
     except EngineRejectedError as exc:
@@ -211,6 +234,7 @@ async def post_call_truth(
 
 
 __all__ = [
+    "UNSTATED_STATUS",
     "ReadsDeliveries",
     "delivered_document",
     "execution_truth",

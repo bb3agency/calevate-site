@@ -29507,7 +29507,9 @@ export interface operations {
     admin_set_call_lines_v1_admin_organizations__org_id__call_lines_put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 org_id: string;
             };

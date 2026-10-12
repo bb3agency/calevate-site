@@ -108,7 +108,7 @@ export function NumberAssignment({
             setAgentId(event.target.value === NOBODY ? null : event.target.value)
           }
         >
-          <option value={NOBODY}>Nobody — take this number off any agent</option>
+          <option value={NOBODY}>Nobody (take this number off any agent)</option>
           {unlisted !== null && (
             <option value={unlisted}>The agent it is on now (not in your agent list)</option>
           )}

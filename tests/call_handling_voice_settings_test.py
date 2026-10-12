@@ -149,9 +149,17 @@ async def test_an_agent_takes_each_setting_and_says_where_it_comes_from() -> Non
         assert got["nudge_after_seconds_source"] == "organization"
         assert got["organization_nudge_after_seconds"] == 12
         assert got["filler_lines"] == ["One moment please", "Let me check"]
+        assert got["nudge_phrase"] == "Are you there?"
         assert got["ambience_effective"] == "office"
         assert got["ambience_source"] == "organization"
         assert got["end_after_silence_seconds_effective"] == 45
+
+        # A blank phrase is the platform's own, never a phrase of spaces.
+        blank = await client.patch(
+            f"/v1/agents/{agent_id}/call-handling", headers=headers, json={"nudge_phrase": "   "}
+        )
+        assert blank.status_code == 200, blank.text
+        assert blank.json()["nudge_phrase"] == ""
 
         # A field left out of the account PUT is kept.
         kept = await client.put(

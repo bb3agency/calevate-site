@@ -93,5 +93,3 @@ export const SELF_CHECKS: string[] = [
 
 export const RING_TIME_INFO =
   "Phone networks take 5 to 30 seconds. 0 means your phone does not ring: calls go straight to your agent, so you get the all-calls code. Some networks use their own ring time; the test shows what yours does.";
-
-export const LOOP_HINT = "Use a phone that does not forward to your Calevate number.";

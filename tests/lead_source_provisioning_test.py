@@ -722,10 +722,9 @@ async def test_the_service_refuses_a_grace_the_request_model_would_never_pass() 
 
 
 async def test_rotating_a_source_that_is_not_this_tenants_finds_nothing() -> None:
-    """`UPDATE … RETURNING` under RLS: another tenant's row is not merely refused, it is
-    not there. The 404 is what turns "zero rows changed" into an answer instead of a
-    silent success — the exact defect that would let a client believe they had rotated a
-    secret that never moved."""
+    """Under RLS another tenant's row is not merely refused, it is not there. The locked
+    read before the UPDATE turns that into a 404 instead of a silent success — the exact
+    defect that would let a client believe they had rotated a secret that never moved."""
     tenant_a, _slug_a, _token_a = await _make_tenant()
     tenant_b, _slug_b, _token_b = await _make_tenant()
     webhook_id = await _one_source(tenant_a)

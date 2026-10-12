@@ -114,7 +114,7 @@ export function ModelsScreen({ slug }: { slug: string }) {
         actions={
           <InfoTip label="AI model" align="end">
             <p>
-              Your plan may add a per-minute charge for choosing one — each option below says
+              Your plan may add a per-minute charge for choosing one. Each option below says
               exactly what it adds to your bill, and &ldquo;no extra charge&rdquo; means it adds
               nothing.
             </p>

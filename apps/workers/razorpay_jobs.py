@@ -71,13 +71,23 @@ async def sweep_auto_recharge(ctx: dict[str, Any]) -> dict[str, int]:
             ).all()
         ]
     for tenant_id in pending_tenants:
-        expired += await expire_unanswered(tenant_id)
+        try:
+            expired += await expire_unanswered(tenant_id)
+        except Exception:
+            # One tenant's failure must not stop every other wallet's recharge this tick.
+            log.exception("auto_recharge_expire_crashed", extra={"tenant_id": str(tenant_id)})
+            failed += 1
     for tenant_id, customer_id, token_id in await pending_mandates():
         try:
             if await refresh_pending_mandate(tenant_id, customer_id, token_id):
                 refreshed += 1
         except ProblemError:
             log.warning("auto_recharge_mandate_refresh_failed", extra={"tenant_id": str(tenant_id)})
+        except Exception:
+            log.exception(
+                "auto_recharge_mandate_refresh_crashed", extra={"tenant_id": str(tenant_id)}
+            )
+            failed += 1
     for tenant_id in await due_tenants():
         try:
             outcome = await maybe_start_recharge(tenant_id)

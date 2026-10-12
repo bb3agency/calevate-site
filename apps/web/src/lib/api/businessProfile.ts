@@ -21,8 +21,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
-import { LANGUAGE_CHOICES, LANGUAGE_NAMES } from "@/lib/agentState";
-import { lookup } from "@/lib/lookup";
+import { LANGUAGE_CHOICES } from "@/lib/agentState";
 
 import { adminSession } from "./admin";
 import { agentKeys } from "./agents";
@@ -342,15 +341,6 @@ export function stepStates(profile: BusinessProfile): Record<StepId, StepState> 
   const out = {} as Record<StepId, StepState>;
   for (const step of profile.setup.steps) out[step.id] = step.state;
   return out;
-}
-
-/** The first step still to do, or `null` when every step is answered or skipped. */
-export function nextStep(profile: BusinessProfile): StepId | null {
-  return profile.setup.steps.find((step) => step.state === "todo")?.id ?? null;
-}
-
-export function languageLabel(tag: string): string {
-  return lookup(LANGUAGE_NAMES, tag) ?? tag;
 }
 
 /** The languages a business can choose, with their one set of names. */

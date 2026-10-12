@@ -11,6 +11,7 @@ from decimal import Decimal
 from typing import Any, Final
 from uuid import UUID
 
+from arq import Retry
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +19,9 @@ from apps.api.billing.models import WHATSAPP_MESSAGE_UNIT_TYPE
 from apps.api.campaigns.engine_numbers import live_tenants
 from apps.api.compliance.consent import read_messaging_consent
 from apps.api.compliance.service import check_dispatch
+from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -44,6 +47,8 @@ log = get_logger(__name__)
 FORWARDING_SWEEP_MINUTE: Final = 26
 #: A test still `placing` this long after it was created never got its legs reported.
 STALE_PLACING_S: Final = 600
+#: Waits before the save-our-number WhatsApp is retried after a send that may pass.
+_SEND_RETRY_AFTER_S: Final = (30.0, 120.0)
 
 
 def _ids(payload: dict[str, Any]) -> tuple[UUID, UUID]:
@@ -83,33 +88,57 @@ async def _fail_unplaced(session: AsyncSession) -> None:
     )
 
 
+async def _sweep_tenant_lines(tenant_id: UUID) -> tuple[bool, int]:
+    """One client's quiet-line check and late test settlement: (line went quiet, settled)."""
+    async with tenant_session(tenant_id) as session:
+        has_lines = (
+            await session.execute(text("SELECT EXISTS (SELECT 1 FROM forwarded_lines)"))
+        ).scalar()
+        if not has_lines:
+            return False, 0
+        outcome = await quiet.sweep_tenant(session, tenant_id=tenant_id)
+        await _fail_unplaced(session)
+        stale = (
+            await session.execute(
+                text(
+                    "SELECT id FROM forwarding_tests WHERE status = 'ringing' "
+                    "AND window_ends_at < now() - make_interval(secs => :s)"
+                ),
+                {"s": ARRIVAL_WINDOW.total_seconds()},
+            )
+        ).all()
+    for (test_id,) in stale:
+        await settle_test(tenant_id, UUID(str(test_id)))
+    return outcome == "quiet", len(stale)
+
+
 async def sweep_forwarded_lines(ctx: dict[str, Any]) -> str:
-    """Hourly: open or close quiet-line episodes, and settle tests whose job was lost."""
-    quiet_lines = late = 0
+    """Hourly: open or close quiet-line episodes, and settle tests whose job was lost. One
+    client's failure is counted and alarmed after the walk; it does not stop the others."""
+    quiet_lines = late = failed = 0
     for tenant_id in await live_tenants():
-        async with tenant_session(tenant_id) as session:
-            has_lines = (
-                await session.execute(text("SELECT EXISTS (SELECT 1 FROM forwarded_lines)"))
-            ).scalar()
-            if not has_lines:
-                continue
-            outcome = await quiet.sweep_tenant(session, tenant_id=tenant_id)
-            quiet_lines += outcome == "quiet"
-            await _fail_unplaced(session)
-            stale = (
-                await session.execute(
-                    text(
-                        "SELECT id FROM forwarding_tests WHERE status = 'ringing' "
-                        "AND window_ends_at < now() - make_interval(secs => :s)"
-                    ),
-                    {"s": ARRIVAL_WINDOW.total_seconds()},
-                )
-            ).all()
-        for (test_id,) in stale:
-            await settle_test(tenant_id, UUID(str(test_id)))
-            late += 1
-    log.info("forwarded_lines_swept", extra={"quiet": quiet_lines, "late_settled": late})
-    return f"quiet:{quiet_lines} late:{late}"
+        try:
+            went_quiet, settled = await _sweep_tenant_lines(tenant_id)
+        except Exception:
+            failed += 1
+            log.exception("forwarded_lines_tenant_failed", extra={"tenant_id": str(tenant_id)})
+            continue
+        quiet_lines += went_quiet
+        late += settled
+    log.info(
+        "forwarded_lines_swept",
+        extra={"quiet": quiet_lines, "late_settled": late, "failed": failed},
+    )
+    if failed:
+        alert(
+            "WORKER_TERMINAL",
+            "forwarded_lines_sweep_incomplete",
+            detail=(
+                f"{failed} client(s) could not be checked for a quiet forwarded line or a "
+                "late forwarding test this hour; the sweep runs again in an hour"
+            ),
+        )
+    return f"quiet:{quiet_lines} late:{late} failed:{failed}"
 
 
 # --- "save our number" ---------------------------------------------------------------------
@@ -255,11 +284,33 @@ async def send_save_number_message(ctx: dict[str, Any], payload: dict[str, Any])
             )
             return "sent"
         if result.retryable:
-            # Released, so the outbox's retry can claim this caller again.
-            await session.execute(
-                text("DELETE FROM save_number_messages WHERE id = :id"), {"id": message_id}
+            attempt = int(ctx.get("job_try", 1))
+            if attempt < WORKER_MAX_TRIES:
+                # arq retries only on `Retry` (arq 0.28); a plain exception would end the job
+                # here and the message would never go. The claim is released so the retry
+                # can take this caller again.
+                await session.execute(
+                    text("DELETE FROM save_number_messages WHERE id = :id"), {"id": message_id}
+                )
+                raise Retry(defer=_SEND_RETRY_AFTER_S[min(attempt, len(_SEND_RETRY_AFTER_S)) - 1])
+            await _finish(
+                session,
+                message_id,
+                status="failed",
+                code="transport_failed",
+                language=locale,
             )
-            raise RuntimeError("save_number_transport_failed")
+            alert(
+                "WORKER_DELIVERY",
+                "save_number_message_undelivered",
+                detail=(
+                    f"the save-our-number WhatsApp could not be sent after {attempt} attempt(s); "
+                    "the caller is not tried again"
+                ),
+                tenant_id=str(tenant_id),
+                call_id=str(call_id),
+            )
+            return "failed"
         await _finish(
             session, message_id, status="failed", code=result.reason[:64], language=locale
         )

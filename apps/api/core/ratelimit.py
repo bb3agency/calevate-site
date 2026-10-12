@@ -319,6 +319,11 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/campaigns/*/contacts", "bulk_write", _m("POST")),
     # --- cost-weighted: a vendor round trip, an LLM call, or an email --------------
     Rule("/v1/leads/*/call", "costly", _m("POST")),
+    # The other doors that ring a real phone. Each has its own gate (the dial gate, the trial
+    # day cap), which bounds how many calls connect but not how fast the gate is asked.
+    Rule("/v1/calls/*/callback", "costly", _m("POST")),
+    Rule("/v1/trial/calls", "costly", _m("POST")),
+    Rule("/v1/admin/tenants/*/trial/test-call", "costly", _m("POST")),
     # The forwarding test (D-746): real calls we pay for, also capped per client per day.
     Rule("/v1/forwarding/lines/*/tests", "costly", _m("POST")),
     # The dashboard assist (D-127). `costly` for the reason that profile names — it is
@@ -364,6 +369,14 @@ RULES: tuple[Rule, ...] = (
     # reason; this one resolved to `client_api` (240/min), which made an authenticated
     # money-burner and a public-host prober out of the one action surface a person clicks.
     Rule("/v1/agents/*/actions/*/test", "costly", _m("POST")),
+    # Proves a stored connection by calling its vendor (Razorpay, an OAuth token endpoint).
+    Rule("/v1/integrations/credentials/*/test", "costly", _m("POST")),
+    # The client's own publish, apply and undo push the agent to the voice platform: several
+    # vendor writes on the platform's shared key per click, the same work as the admin
+    # routes below, which were weighted while these fell through to `client_api`.
+    Rule("/v1/agents/*/script/publish", "costly", _m("POST")),
+    Rule("/v1/agents/*/script/apply", "costly", _m("POST")),
+    Rule("/v1/agents/*/script/undo", "costly", _m("POST")),
     Rule("/v1/lead-sources/*/meta/**", "costly", _m("POST")),
     Rule("/v1/integrations/endpoints/**", "costly", _m("POST")),
     # The ADMIN copilot (`copilot/admin_routes.py`). `/v1/copilot/ask` is weighted for the

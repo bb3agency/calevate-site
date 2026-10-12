@@ -15,6 +15,7 @@ import pytest
 from apps.api.agents import clone_copies
 from apps.api.agents import service as agents_service
 from apps.api.campaigns import engine_numbers
+from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from calevate_shared.engine import AgentConfig
@@ -324,3 +325,61 @@ def test_the_forward_prompt_hands_over_and_keeps_the_truthful_answers() -> None:
     prompt = agents_service.healer_forward_prompt(call_is_recorded=False)
     assert "hand the caller to a person" in prompt
     assert agents_service.truthful_answer_directive(call_is_recorded=False) in prompt
+
+
+async def test_lifting_a_forwarded_hold_clears_the_forward_before_the_agent_is_republished(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Republishing first would leave callers ringing the client's phone while the agent
+    is already back."""
+    tenant_id, agent_id, _ = await _published("liftfwd")
+    order: list[str] = []
+    real_publish = agents_service.publish_agent
+
+    async def _clear(_session: Any, *, tenant_id: UUID, agent_id: UUID) -> int:
+        order.append("clear_forward")
+        return 1
+
+    async def _publish(session: Any, **kwargs: Any) -> Any:
+        order.append("publish")
+        return await real_publish(session, **kwargs)
+
+    monkeypatch.setattr(engine_numbers, "numbers_can_forward", lambda: True)
+    monkeypatch.setattr(engine_numbers, "clear_agent_forwards", _clear)
+    monkeypatch.setattr(agents_service, "publish_agent", _publish)
+    async with tenant_session(tenant_id) as session:
+        await agents_service._stamp_inbound_silence(
+            session, agent_id=agent_id, reason=agents_service.INBOUND_SILENCE_HEALER
+        )
+        assert await agents_service.lift_healer_silence(
+            session, tenant_id=tenant_id, agent_id=agent_id
+        )
+    assert order == ["clear_forward", "publish"]
+    assert await _reason(tenant_id, agent_id) is None
+
+
+async def test_a_paying_clients_studio_voice_never_lands_in_our_developer_workspace() -> None:
+    """Without a client workspace on the config the Studio switch is refused before any
+    vendor write, so our key is never switched on in the developer workspace for it."""
+    tenant_id, agent_id = await _tenant_agent()
+    engine = HostingEngine()
+    config = AgentConfig(
+        tenant_id=str(tenant_id),
+        agent_id=str(agent_id),
+        name="studio",
+        direction="inbound",
+        system_prompt="x",
+        opening_line="Hello",
+    )
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as caught:
+            await agents_service._studio_in_client_workspace(
+                session,
+                engine,
+                tenant_id=tenant_id,
+                rate_key=agents_service.BYOK_VOICE_RATE_KEY,
+                config=config,
+                trial=False,
+            )
+    assert caught.value.code == "engine_workspace_not_provisioned"
+    assert engine.installed == [] and engine.enabled == 0

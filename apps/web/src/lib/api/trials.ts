@@ -48,6 +48,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { needsReauthentication } from "@/lib/authn/problems";
 import { withActionCode } from "@/lib/authn/stepUpPrompt";
 
+import { endTrialConfirmation } from "./admin";
 import { apiRequest, type Session } from "./client";
 import { creditsKey } from "./credits";
 
@@ -207,7 +208,7 @@ export function useEndTrial(session: Session, tenantId: string) {
   return useMutation({
     mutationFn: ({ outcome, reason }: TrialEndDraft) => {
       const body: TrialEndIn = { outcome, reason: reason.trim() };
-      const confirmAction = `end_trial:${tenantId}:${outcome}`;
+      const confirmAction = endTrialConfirmation(tenantId, outcome);
       return withActionCode(
         confirmAction,
         "Ending this client's trial.",

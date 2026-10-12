@@ -132,3 +132,10 @@ def test_a_rental_period_date_has_its_own_door_and_an_instant_is_refused_at_it()
     assert billing_month_of_ist_date(date(2026, 8, 31)) == "2026-08"
     with pytest.raises(TypeError):
         billing_month_of_ist_date(datetime(2026, 8, 31, 23, 0, tzinfo=IST))
+
+
+def test_a_naive_instant_is_refused_rather_than_read_in_the_host_zone() -> None:
+    """A naive datetime would be read in the process's own zone, so a UTC container and an
+    IST laptop would bill 23:00 on 31 August to different months."""
+    with pytest.raises(ValueError, match="aware instant"):
+        ist_billing_month(datetime(2026, 8, 31, 23, 0))

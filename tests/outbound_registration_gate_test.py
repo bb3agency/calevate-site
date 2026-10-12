@@ -34,6 +34,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents.service import agent_outbound_number_blocker
+from apps.api.compliance import registration
 from apps.api.compliance.service import check_dispatch
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
@@ -162,6 +163,28 @@ async def test_single_lead_is_not_refused_for_an_inactive_tm_link() -> None:
     decision = await _gate(tenant_id, agent_id)
     # D-692: the DLT layer is inactive; this state no longer refuses the dial.
     assert decision.rule not in _RETIRED_DLT_RULES, decision.rule
+
+
+async def test_the_retained_entity_check_names_the_first_gap_in_the_chain() -> None:
+    """No gate asks `pe_registration_blocker` since D-692, but it is kept with its rule
+    names, so what it would answer stays pinned: missing, then not active (naming the
+    status), then the TM link."""
+    missing, _ = await _tenant_agent()
+    submitted, _ = await _tenant_agent()
+    await _record_pe(submitted, status="submitted", tm_link_status="pending")
+    unlinked, _ = await _tenant_agent()
+    await _record_pe(unlinked, status="active", tm_link_status="pending")
+
+    found: dict[str, tuple[str, str] | None] = {}
+    for name, tenant_id in (("missing", missing), ("submitted", submitted), ("unlinked", unlinked)):
+        async with tenant_session(tenant_id) as session:
+            found[name] = await registration.pe_registration_blocker(session, tenant_id=tenant_id)
+
+    assert found["missing"] == ("pe_registration_missing", registration.PE_MISSING_REASON)
+    not_active = found["submitted"]
+    assert not_active is not None and not_active[0] == "pe_registration_not_active"
+    assert "registration is submitted" in not_active[1]
+    assert found["unlinked"] == ("tm_link_not_active", registration.TM_LINK_REASON)
 
 
 # --- the header half: from WHAT number ---------------------------------------

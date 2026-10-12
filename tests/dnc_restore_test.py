@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from apps.api.compliance import dnc
@@ -23,9 +23,12 @@ from apps.api.compliance.optout import (
     record_call_optout,
 )
 from apps.api.compliance.service import check_dispatch
+from apps.api.core.errors import ProblemError
 from apps.api.core.logging import JsonFormatter
+from apps.api.core.settings import Settings
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from tests.dnc_test import _client, _code, _headers, _insert_global, _number, _tenant
 
 
@@ -308,3 +311,146 @@ async def test_staff_cannot_restore() -> None:
             json={"ground": "never_asked", "latest_evidence_id": None},
         )
     assert refused.status_code == 403
+
+
+async def test_a_platform_wide_entry_shows_no_opt_out_records_and_is_not_restorable() -> None:
+    """A global row has no tenant, so no client's consent ledger can be behind it."""
+    _tenant_id, _agent_id, slug, token = await _tenant()
+    entry_id = await _insert_global(_number())
+    evidence = await _evidence(token, slug, entry_id)
+    assert evidence == {"restorable": False, "records": []}
+
+
+async def test_a_note_longer_than_the_limit_is_refused_and_nothing_is_restored() -> None:
+    """The wire admits twice the limit so the service can name the rule; the limit is the
+    service's, counted after whitespace is collapsed."""
+    tenant_id, agent_id, slug, token = await _tenant()
+    phone = _number()
+    entry_id = await _opted_out(tenant_id, phone, call_id=None)
+    [record] = (await _evidence(token, slug, entry_id))["records"]
+    async with _client() as http:
+        refused = await http.post(
+            f"/v1/dnc/{entry_id}/restore",
+            headers=_headers(token, slug),
+            json={
+                "ground": "asked_to_be_called",
+                "note": "x" * (dnc.RESTORE_NOTE_MAX + 1),
+                "latest_evidence_id": record["id"],
+            },
+        )
+    assert refused.status_code == 422
+    assert _code(refused) == "dnc_restore_note_too_long"
+    async with tenant_session(tenant_id) as session:
+        decision = await check_dispatch(
+            session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
+        )
+    assert decision.rule == "dnc"
+
+
+async def test_the_service_refuses_a_ground_it_does_not_know() -> None:
+    """The route's schema names the two grounds; the service is the authority for any other
+    caller, and an unattested reason never takes a number off the list."""
+    tenant_id, _agent_id, _slug, _token = await _tenant()
+    entry_id = await _opted_out(tenant_id, _number(), call_id=None)
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as caught:
+            await dnc.restore_optout(
+                session,
+                tenant_id=tenant_id,
+                entry_id=entry_id,
+                ground="client_says_so",
+                note=None,
+                latest_evidence_id=None,
+            )
+    assert caught.value.code == "dnc_restore_unknown_ground"
+
+
+class _ChangedBeforeLock:
+    """The caller's session, with another connection committing `change` just before the
+    restore takes its row lock: the window between the unlocked read and the lock."""
+
+    def __init__(self, session: AsyncSession, change: str, entry_id: uuid.UUID) -> None:
+        self._session = session
+        self._change = change
+        self._entry_id = entry_id
+
+    async def execute(self, statement: Any, params: Any = None) -> Any:
+        if "FOR UPDATE" in str(statement):
+            await _as_owner(self._change, entry_id=self._entry_id)
+        return await self._session.execute(statement, params)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._session, name)
+
+
+async def _as_owner(sql: str, *, entry_id: uuid.UUID) -> None:
+    """A committed write from outside the tenant's RLS, as operations makes one."""
+    owner_url = Settings().alembic_database_url
+    assert owner_url, "ALEMBIC_DATABASE_URL required: the write is made outside RLS"
+    owner = create_async_engine(owner_url)
+    try:
+        async with owner.begin() as conn:
+            await conn.execute(text(sql), {"id": entry_id})
+    finally:
+        await owner.dispose()
+
+
+async def _restore_racing(
+    tenant_id: uuid.UUID, entry_id: uuid.UUID, change: str, latest: uuid.UUID
+) -> str | None:
+    async with tenant_session(tenant_id) as session:
+        racing = cast(AsyncSession, _ChangedBeforeLock(session, change, entry_id))
+        try:
+            await dnc.restore_optout(
+                racing,
+                tenant_id=tenant_id,
+                entry_id=entry_id,
+                ground="never_asked",
+                note=None,
+                latest_evidence_id=latest,
+            )
+        except ProblemError as refused:
+            return refused.code
+    return None
+
+
+async def test_an_entry_removed_while_restoring_is_not_found() -> None:
+    tenant_id, _agent_id, slug, token = await _tenant()
+    entry_id = await _opted_out(tenant_id, _number(), call_id=None)
+    [record] = (await _evidence(token, slug, entry_id))["records"]
+
+    code = await _restore_racing(
+        tenant_id, entry_id, "DELETE FROM dnc_list WHERE id = :id", uuid.UUID(record["id"])
+    )
+
+    assert code == "not_found"
+
+
+async def test_an_entry_that_stopped_being_a_persons_opt_out_is_never_deleted() -> None:
+    """The DELETE re-states the restorable sources, so a row corrected to a regulator's
+    entry after the screen read it stays on the list and the restore reports not found."""
+    tenant_id, agent_id, slug, token = await _tenant()
+    phone = _number()
+    entry_id = await _opted_out(tenant_id, phone, call_id=None)
+    [record] = (await _evidence(token, slug, entry_id))["records"]
+
+    code = await _restore_racing(
+        tenant_id,
+        entry_id,
+        "UPDATE dnc_list SET source = 'regulator' WHERE id = :id",
+        uuid.UUID(record["id"]),
+    )
+
+    assert code == "not_found"
+    async with tenant_session(tenant_id) as session:
+        source = (
+            await session.execute(
+                text("SELECT source FROM dnc_list WHERE id = :id"), {"id": entry_id}
+            )
+        ).scalar()
+    assert source == "regulator"
+    async with tenant_session(tenant_id) as session:
+        decision = await check_dispatch(
+            session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
+        )
+    assert decision.rule == "dnc"

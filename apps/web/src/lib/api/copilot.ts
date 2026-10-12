@@ -35,6 +35,7 @@ import { needsReauthentication } from "@/lib/authn/problems";
 import { withActionCode } from "@/lib/authn/stepUpPrompt";
 import { lookup } from "@/lib/lookup";
 
+import { undoCopilotConfirmation } from "./admin";
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
@@ -160,7 +161,7 @@ export function useUndoAction(session: Session, realm: "client" | "admin") {
         return apiRequest<CopilotUndoOut>(session, undoPath(realm, actionId), { method: "POST" });
       }
       // The admin realm's undo takes step-up (D-731), bound to the action.
-      const confirmAction = `undo_copilot_action:${actionId}`;
+      const confirmAction = undoCopilotConfirmation(actionId);
       return withActionCode(
         confirmAction,
         "Undoing something the assistant did.",

@@ -38,7 +38,10 @@ A TEST CHAT writes nothing. Every action request from ThinnestAI's test chat car
 marked request is answered as the action succeeding, with a `*_in_test` status, and nothing
 is written: no DNC entry, no call-back, no cancellation, no hand-over and no client action
 (founder decision F6, 12 Oct 2026). The marker wins over a call id, because writing nothing is
-the safe reading of a request that says it is a test. A request with neither the marker nor a
+the safe reading of a request that says it is a test, with one exception: an opt-out that
+names a call is acted on as a real one. Dropping a real caller's do-not-call request is the
+failure that cannot be undone (a wrongly added number is restored from the DNC screen), and a
+test chat names no call. A request with neither the marker nor a
 call keeps the older rule: an opt-out while the owner is testing the agent
 (`agents/test_window`) answers as recorded and writes nothing, and anything else is answered
 as not matched.
@@ -450,14 +453,16 @@ async def engine_action(
             detail="The action body must be a JSON object of short text values.",
         )
     ids = {"tenant_id": str(route.tenant_id), "agent_id": str(route.agent_id), "tool": tool}
-    if is_test_chat(request.headers.get(TEST_CHAT_HEADER)):
+    call_id = named_call_id(request.headers.get(CALL_ID_HEADER), args.get(CALL_ID_FIELD))
+    if is_test_chat(request.headers.get(TEST_CHAT_HEADER)) and not (
+        tool == OPT_OUT and call_id is not None
+    ):
         # Before the call is resolved and before `once_per_call`: a test chat names no call,
         # so there is nothing to key the once-per-call guard on and nothing to write.
         log.info("engine_action_test_chat", extra=ids)
         status, say = TEST_CHAT_ANSWERS[tool]
         return _answer(status, say)
 
-    call_id = named_call_id(request.headers.get(CALL_ID_HEADER), args.get(CALL_ID_FIELD))
     if tool == HANDOFF:
 
         async def _handoff() -> dict[str, Any]:

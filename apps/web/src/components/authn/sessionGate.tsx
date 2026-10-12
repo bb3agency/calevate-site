@@ -169,7 +169,7 @@ export function SessionGate({
           >
             <p className="mt-1">
               Calevate did not answer, so we do not know whether your session is
-              still good — this is usually the connection. Nothing on this
+              still good. This is usually the connection. Nothing on this
               screen has signed you out. Try again, or sign in if it keeps
               failing.
             </p>
