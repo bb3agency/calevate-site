@@ -1,6 +1,6 @@
 # Email to Ashutosh (ThinnestAI), draft of 11 Oct 2026
 
-Superseded on 12 Oct 2026 by `thinnest-email-2026-10-12-consolidated.md` (not sent).
+Sent on 11 Oct 2026 and answered in part (`thinnest-replies-2026-10-12.md`); its open questions are carried into `thinnest-email-2026-10-12-consolidated.md`.
 
 For the founder to send from the Calevate address. It carries the Gemini request and every
 question not yet sent: the ten queued after the 11 Oct production calls and questions 23-33.
