@@ -256,3 +256,48 @@ D-728). Our own model on their voices would be the set-up to price in the same c
 3. Is `voice.surfaces: []` accepted on an agent with no number? We send it so a new agent does not
    answer on the website button or WhatsApp; if it is refused we save the agent without it and
    alarm (`engine_agent_surfaces_refused`).
+
+## 10. Ashutosh's answer on the automated-call notice (TRAI TCCCPR regulation 4), received 13 Oct 2026
+
+Answers question 10 of the consolidated email (§10, six parts). **VENDOR-STATED, and
+second-hand:** ThinnestAI relays what Plivo, their telephony provider, told them. **Every
+part is still open**; ThinnestAI is waiting on Plivo's written clarification and will send it.
+**Founder, 13 Oct 2026: record it and wait for their confirmation.**
+
+| Our question | Their answer | Still open |
+|---|---|---|
+| 10.1 Which licensed operator issues and originates the numbers | Licensed Indian telecom operators provide the numbering and network origination underneath Plivo. | **Which operator** stands behind each of our numbers. |
+| 10.2 Who is the Originating Access Provider | Plivo coordinates with its underlying operators for origination and regulatory compliance. | Whether the operator or Plivo handles the regulation 4 notice for customer workspaces. They have asked Plivo in writing. |
+| 10.3 How a client gives the notice | Plivo is still working out the workflow for the 080/022 fixed-line numbers with its access-provider partners. | No endpoint, form or process through ThinnestAI yet; to be shared once Plivo confirms. |
+| 10.4 What acknowledgement comes back | No standard acknowledgement, reference number or certificate confirmed yet. Meanwhile: keep the written notice sent to the provider and any written acknowledgement, with the workspace, business identity, numbers, call purpose and submission date. | The evidence form. |
+| 10.5 Existing declarations | For existing 080/022 fixed-line numbers, each number must be mapped to the business actually making the calls; where a platform calls for a client, the compliance ID must be the client's. Plivo says the mapping can be reviewed and updated in its console or API. | Whether automated-call notices and their purposes are declared today for every client workspace, or whether one account-level declaration covers all clients. |
+| 10.6 DLT declarations under the Third Amendment | The CLI registration and DLT declaration workflow is being developed with the access-provider partners. | Who submits each declaration, how client-specific ones are recorded, and what evidence is issued. |
+
+Their interim advice: keep our own records of the business making the calls, the purpose and
+nature of each automated-calling use, the numbers used, and the customer consent and campaign
+records.
+
+**What it changes in Calevate today: nothing in code.**
+- **The notice stays the client's job.** Regulation 4 binds the Sender, and a client is the
+  Sender (`compliance/autodialer.py`). Nothing in this reply says ThinnestAI or Plivo gives
+  the notice for a workspace. So the outbound gate keeps refusing a dial until the client has
+  recorded its notice (`autodialer_notice_blocker`, `autodialer_notices`), and no screen tells
+  a client it is compliant.
+- **Records.** The interim advice matches what we already keep per client: business identity
+  (KYC record, D-692/D-696), numbers rented in the client's own name in its own workspace
+  (D-693), consent and DNC records, campaigns, and the notice record with its date and stated
+  objective.
+- **Number mapping (10.5).** Our numbers are rented in each client's own workspace and business
+  name (D-693). Whether Plivo's own mapping for each number names the client and carries the
+  client's compliance ID is not something we can see from here. Ask for it in the follow-up.
+- **OPERATIONS gate 59 stays open.** No operative text, notice form, unit or acknowledgement
+  has been confirmed.
+
+**Ask in the follow-up, once Plivo answers:**
+1. The licensed operator behind each number we rent, and whether Plivo or that operator is the
+   Originating Access Provider.
+2. The notice procedure for a client (to whom, in what form, through which channel), and the
+   acknowledgement it returns.
+3. Whether each of our clients' numbers is mapped at Plivo to that client's business and
+   compliance ID, and how we can read that mapping per workspace.
+4. Who records the DLT declaration under the Third Amendment, per client.
