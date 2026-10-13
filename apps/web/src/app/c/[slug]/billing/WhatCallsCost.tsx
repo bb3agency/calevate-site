@@ -134,11 +134,10 @@ export function WhatCallsCost({
               <dt className="font-medium text-ink">{labels[tier]}</dt>
               {/* The "down to X on the largest pack" half is CONDITIONAL because a card
                   may price a voice flat: `credit_packs.py::card_refusals` refuses only a
-                  bigger pack that buys a DEARER minute, so equal rungs are a legal card and
-                  the next one prices the cheaper voice at ₹4.00 on every rung
-                  (`docs/PIPECAT-MIGRATION.md` §12). Unguarded it renders "₹4.00 a minute,
-                  down to ₹4.00 on the largest pack" — a discount offered where the card
-                  grants none, in a paying client's own billing screen. Same guard as
+                  bigger pack that buys a DEARER minute, so equal rungs are a legal card.
+                  Unguarded a flat voice renders "₹X a minute, down to ₹X on the largest
+                  pack" — a discount offered where the card grants none, in a paying
+                  client's own billing screen. Same guard as
                   `/pricing`'s `bandSentence`, from the same helper. */}
               <dd className="tabular-nums text-ink-muted">
                 <strong className="font-semibold text-ink">

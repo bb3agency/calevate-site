@@ -417,7 +417,7 @@ async def test_a_provisioned_number_cannot_name_a_neighbours_agent(
                 "e164": _spare_number("160"),
                 "series": "160",
                 "agent_id": str(agent_a),
-                "provider": "vobiz",
+                "provider": "plivo",
             },
         )
 
@@ -458,7 +458,7 @@ async def test_provisioning_a_number_against_this_tenants_own_agent_still_works(
                 "e164": _spare_number("160"),
                 "series": "160",
                 "agent_id": str(agent_b),
-                "provider": "vobiz",
+                "provider": "plivo",
             },
         )
         # `agent_id` is nullable and a number provisioned before its agent exists is the
@@ -469,7 +469,7 @@ async def test_provisioning_a_number_against_this_tenants_own_agent_still_works(
                 "Authorization": f"Bearer {token}",
                 "X-Confirm-Action": f"provision_number:{org_b['id']}",
             },
-            json={"e164": _spare_number(), "series": "standard", "provider": "vobiz"},
+            json={"e164": _spare_number(), "series": "standard", "provider": "plivo"},
         )
 
     assert attached.status_code == 201, attached.text

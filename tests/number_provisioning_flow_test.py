@@ -40,7 +40,7 @@ from apps.api.engine import get_engine
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements, accept_carrier_application
+from tests.conftest import accept_agreements
 
 pytestmark = [pytest.mark.rls]
 
@@ -86,10 +86,6 @@ async def _tenant() -> dict[str, Any]:
     # KYC is the subject here (it gates activation), so each test writes its own verified
     # record with `_verify_kyc` or leaves the tenant unverified on purpose.
     await accept_agreements(tenant_id, kyc_and_pledge=False)
-    # The carrier approves each client business before a number may be rented for it.
-    # Supplied, never assumed away — without it a purchase reports
-    # `carrier_application_not_accepted` in place of the answer under test.
-    await accept_carrier_application(tenant_id)
     await _topup(tenant_id)
     return created
 
@@ -178,7 +174,7 @@ async def _topup(tenant_id: uuid.UUID, amount: str = "5000.00") -> None:
 
     Supplied rather than assumed away: `assert_can_afford` refuses before the vendor is
     called, so a fixture without this reports `number_insufficient_credit` in place of the
-    property under test — the shape `accept_carrier_application` argues for.
+    property under test.
     """
     async with tenant_session(tenant_id) as session:
         await record_entry(

@@ -9,8 +9,7 @@ Create Date: 2026-08-22 11:20:00.000000
 and was written by nothing, because the two summary numbers were VOICE-TO-VOICE — the
 interval between the caller finishing a word and the caller hearing audio — and both ends
 of that interval live on the PSTN leg that our stack is not in (D-25/D-33). Nothing could
-write it honestly then and nothing can now. `tests/call_latency_column_test.py` keeps that
-drop true in four places and this migration does not touch any of them.
+write it honestly then and nothing can now, and this migration does not bring it back.
 
 What lands here is a DIFFERENT quantity with a real source: the engine's own view of its
 own pipeline, per turn, which it publishes on every execution

@@ -110,16 +110,9 @@ _CREDENTIAL_SUFFIXES = (
 #: one line here and one row on the register — which is the point.
 VENDOR_OF: dict[str, str | None] = {
     "sarvam": "Sarvam",
-    "gnani": "Gnani",
     "supermemory": "Supermemory",
-    # The media stream address and the two halves of the channel our own container on that
-    # platform uses to reach our API. All the Pipecat Cloud leg, and `PIPECAT_WORKER_*` is
-    # deliberately not a credential FOR Pipecat's API (see CLAUDE.md) — it still only
-    # exists because the worker runs there. The bare `pipecat` token is derived below with
-    # the other engine names.
-    "pipecat_stream": "Pipecat Cloud",
-    "pipecat_worker": "Pipecat Cloud",
-    "pipecat_worker_api": "Pipecat Cloud",
+    # Our Cartesia key, installed in ThinnestAI workspaces as the Studio voice key (D-688).
+    "cartesia": "Cartesia",
     # R2 is Cloudflare's object storage; the endpoint is how we address it.
     "object_store": "Cloudflare",
     # NO IDENTITY, DELIBERATELY. An OTLP collector address is whatever an operator points
@@ -127,10 +120,6 @@ VENDOR_OF: dict[str, str | None] = {
     # The public `monitoring` category describes it; choosing a vendor for it adds a
     # register row and replaces this `None`.
     "otel_exporter_otlp": None,
-    "plivo": "Plivo",
-    # The carrier the switch selects by default (D-662): its credential pair and its API base.
-    "vobiz": "Vobiz",
-    "vobiz_api": "Vobiz",
     # `Settings.thinnest_api_base_url` (D-678); the engine token itself is derived below.
     "thinnest_api": "ThinnestAI",
     "razorpay": "Razorpay",
@@ -221,10 +210,6 @@ def _engine_vendor(engine: str) -> str | None:
     """
     if engine == "fake":
         return None  # an in-process double; there is no company behind it.
-    if engine == "cartesia":
-        return "Cartesia"
-    if engine == "pipecat":
-        return "Pipecat Cloud"
     if engine == "thinnest":
         return "ThinnestAI"
     raise ValueError(
@@ -241,7 +226,7 @@ VENDOR_OF.update({name: _engine_vendor(name) for name in get_args(EngineName)})
 
 SETTINGS_ANCHORS = frozenset({"sarvam", "sentry"})
 REGISTER_ANCHORS = frozenset({"Cartesia", "Microsoft", "Sarvam"})
-PUBLIC_ANCHORS = frozenset({"language-models", "speech-to-text", "telephony"})
+PUBLIC_ANCHORS = frozenset({"language-models", "post-call-extraction", "telephony"})
 
 _FIELD = re.compile(r"^[a-z][a-z0-9_]*$")
 

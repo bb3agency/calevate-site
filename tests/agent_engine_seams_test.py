@@ -6,8 +6,8 @@ publish. What differs is the vendor agent: one THIS publish created is reclaimed
 nothing of ours will ever point at it; one a re-publish was updating is the agent the
 client's calls run on, and deleting it would take the agent off the air.
 
-Unpublishing removes the in-call actions and the carrier's routing object, and a failure
-there alarms without undoing the pause or archive.
+Unpublishing removes the in-call actions, and a failure there alarms without undoing the
+pause or archive.
 """
 
 from __future__ import annotations
@@ -140,44 +140,5 @@ async def test_actions_that_cannot_be_removed_alarm_and_do_not_fail_the_pause(
     assert await agents_service.retire_in_call_actions(agent_id=uuid7(), ref=REF) == 0
     assert [(stage, code) for stage, code, _ in alerts] == [
         ("CORE_LOGIC", "engine_actions_not_retired")
-    ]
-    assert "engine_unreachable" in alerts[0][2]
-
-
-class _BindingEngine:
-    """An adapter whose carrier keeps a per-agent routing object (`RetiresAgentBindings`)."""
-
-    name = "pipecat"
-
-    def __init__(self, outcome: bool | ProblemError) -> None:
-        self.outcome = outcome
-        self.retired: list[str] = []
-
-    async def retire_agent_bindings(self, ref: str) -> bool:
-        self.retired.append(ref)
-        if isinstance(self.outcome, ProblemError):
-            raise self.outcome
-        return self.outcome
-
-
-async def test_an_archived_agents_carrier_binding_is_removed(
-    monkeypatch: pytest.MonkeyPatch, alerts: list[tuple[str, str, str]]
-) -> None:
-    engine = _BindingEngine(True)
-    monkeypatch.setattr(agents_service, "get_engine", lambda: engine)
-    assert await agents_service.retire_agent_carrier_bindings(agent_id=uuid7(), ref=REF) is True
-    assert engine.retired == [REF]
-    assert alerts == []
-
-
-async def test_a_carrier_binding_that_cannot_be_removed_alarms_and_keeps_the_archive(
-    monkeypatch: pytest.MonkeyPatch, alerts: list[tuple[str, str, str]]
-) -> None:
-    engine = _BindingEngine(_unreachable())
-    monkeypatch.setattr(agents_service, "get_engine", lambda: engine)
-    assert await agents_service.retire_agent_carrier_bindings(agent_id=uuid7(), ref=REF) is False
-    assert engine.retired == [REF]
-    assert [(stage, code) for stage, code, _ in alerts] == [
-        ("CORE_LOGIC", "carrier_binding_not_retired")
     ]
     assert "engine_unreachable" in alerts[0][2]

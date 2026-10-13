@@ -139,7 +139,7 @@ describe("the section menu", () => {
     );
     const current = nav.querySelectorAll('[aria-current="true"]');
     expect(current).toHaveLength(1);
-    expect(current[0].textContent).toBe("Identity & carrier");
+    expect(current[0].textContent).toBe("Identity & approval");
     // The sidebar owns "page"; the menu must not make a second claim.
     expect(nav.querySelector('[aria-current="page"]')).toBeNull();
   });

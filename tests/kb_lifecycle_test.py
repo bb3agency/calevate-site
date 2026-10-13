@@ -27,7 +27,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.kb import service as kb_service
-from calevate_shared.engine import EngineAgentRef, EngineKBRef, KBSourceRef, VoiceEngine
+from calevate_shared.engine import EngineAgentRef, EngineKBRef, KBSourceRef
 from sqlalchemy import text
 from tests.kb_workflow_test import _tenant_with_published_agent
 
@@ -415,16 +415,3 @@ async def test_a_live_version_we_cannot_address_blocks_the_publish() -> None:
 # --------------------------------------------------------------------------------
 # The contract itself
 # --------------------------------------------------------------------------------
-
-
-def test_the_engine_contract_can_express_a_withdrawal() -> None:
-    """The protocol-level regression.
-
-    The defect was not a bug in `apps/api/kb`; it was a contract with no way to say
-    "remove this". Any future adapter is written against `VoiceEngine`, so if these
-    methods fall off the Protocol the same divergence returns silently for the next
-    engine — the conformance suite can only test clauses the contract names.
-    """
-    for method in ("attach_kb", "detach_kb", "list_kb"):
-        assert hasattr(VoiceEngine, method), f"the contract lost `{method}`"
-    assert isinstance(get_engine(), VoiceEngine)

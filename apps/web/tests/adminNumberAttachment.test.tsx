@@ -54,7 +54,7 @@ function number(overrides: Partial<TenantNumberCost> = {}): TenantNumberCost {
     e164: "+918041234567",
     series: "standard",
     dlt_status: "pending",
-    provider: "plivo",
+    provider: null,
     engine_owned: false,
     engine_linked: true,
     agent_id: null,
@@ -347,12 +347,12 @@ describe("recording a number is on the numbers screen, not on a campaign screen"
     // REQUIRED by `ProvisionNumberIn`: a body without it is a 422 on every submit.
     await waitFor(() =>
       expect(calls).toEqual([
-        { e164: "+918041234567", series: "standard", provider: "vobiz", direction: "inbound" },
+        { e164: "+918041234567", series: "standard", provider: "thinnest", direction: "inbound" },
       ]),
     );
   });
 
-  it("sends the direction and the carrier's number id the operator chose", async () => {
+  it("sends the direction and the voice platform's number id the operator chose", async () => {
     const calls: unknown[] = [];
     await render({
       ...healthy([]),
@@ -369,7 +369,7 @@ describe("recording a number is on the numbers screen, not on a campaign screen"
     // Outbound "call this lead" is refused as `number_inbound_only` unless the number was
     // recorded for outgoing calls, and nothing changes the direction afterwards.
     fireEvent.change(screen.getByLabelText("Calls on this number"), { target: { value: "both" } });
-    fireEvent.change(screen.getByLabelText("Carrier's number id (optional)"), {
+    fireEvent.change(screen.getByLabelText("The voice platform's number id (optional)"), {
       target: { value: " 0192f0aa-aaaa-7000-8000-000000000999 " },
     });
     fireEvent.click(screen.getByRole("button", { name: "Record this number" }));
@@ -379,7 +379,7 @@ describe("recording a number is on the numbers screen, not on a campaign screen"
         {
           e164: "+918041234567",
           series: "standard",
-          provider: "vobiz",
+          provider: "thinnest",
           direction: "both",
           engine_number_ref: "0192f0aa-aaaa-7000-8000-000000000999",
         },
@@ -387,7 +387,7 @@ describe("recording a number is on the numbers screen, not on a campaign screen"
     );
   });
 
-  it("records a number rented on the voice platform under that platform, and offers no carrier", async () => {
+  it("records a number under the voice platform that holds it, and names that platform", async () => {
     const calls: unknown[] = [];
     await render({
       ...healthy([]),
@@ -412,10 +412,7 @@ describe("recording a number is on the numbers screen, not on a campaign screen"
     fireEvent.change(await screen.findByLabelText("The number, with its country code"), {
       target: { value: "+918041234567" },
     });
-    const carrier = screen.getByLabelText("Carrier") as HTMLSelectElement;
-    await waitFor(() => expect(carrier.value).toBe("thinnest"));
-    expect(carrier.disabled).toBe(true);
-    expect(Array.from(carrier.options).map((o) => o.value)).toEqual(["thinnest"]);
+    await screen.findByText("Held on: ThinnestAI");
     fireEvent.change(screen.getByLabelText("Calls on this number"), { target: { value: "both" } });
     fireEvent.click(screen.getByRole("button", { name: "Record this number" }));
 
@@ -424,50 +421,6 @@ describe("recording a number is on the numbers screen, not on a campaign screen"
         { e164: "+918041234567", series: "standard", provider: "thinnest", direction: "both" },
       ]),
     );
-  });
-});
-
-/**
- * A number the vendor quoted NO PRICE for cannot be bought, and the purchase never
- * invents one.
- *
- * ⚠ The confirm dialog used to send `monthly_price_usd ?? "0"`. The Buy button beside the
- * offer is disabled without a price, so the fallback was unreachable — and it was a
- * FABRICATED figure on a money field one edit away from being reached, which would have
- * recorded a monthly rental costing nothing and metered it that way for ever (hard rule
- * 7). The state the dialog reads is now narrowed to priced offers, so there is no value it
- * can hold for which a price has to be invented; this pins the half an operator sees.
- */
-describe("an unpriced number is refused rather than bought at an invented price", () => {
-  it("disables the buy and says why, and no purchase is attempted", async () => {
-    const { calls } = await render({
-      ...healthy([]),
-      "/v1/admin/numbers/available?country=IN": [
-        {
-          e164: "+918040000001",
-          locality: "Bengaluru",
-          region: "KA",
-          provider: "plivo",
-          // The vendor's row carried no readable price.
-          monthly_price_usd: null,
-        },
-      ],
-    });
-
-    fireEvent.click(await screen.findByRole("button", { name: /Search/ }));
-
-    const buy = (await screen.findByRole("button", { name: "Buy" })) as HTMLButtonElement;
-    expect(buy.disabled).toBe(true);
-    // The reason, where the operator is looking, rather than a dead control.
-    expect(
-      await screen.findByText(/A number with no quoted price cannot be bought/),
-    ).toBeTruthy();
-
-    fireEvent.click(buy);
-    await waitFor(() => expect(screen.queryByText(/Buy \+918040000001/)).toBeNull());
-    expect(
-      calls.some((call) => call.method === "POST" && call.path.endsWith("/buy")),
-    ).toBe(false);
   });
 });
 

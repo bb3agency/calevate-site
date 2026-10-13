@@ -1,7 +1,7 @@
-"""Lead ingest when the carrier account has no line or dial slot free (D-663).
+"""Lead ingest when no outbound line is free or the calling number is spent for the day.
 
 The property: the lead lands and the call is not lost. `dispatch_call` refuses before any
-row exists (`carrier_lines_busy`, `carrier_pacing`), and ingest books a call-back due now
+row exists (`ingest.service.LINE_REFUSALS`), and ingest books a call-back due now
 for the dispatch tick to dial when a line frees, instead of rolling the enquiry back.
 """
 
@@ -12,7 +12,8 @@ from typing import Any
 
 import pytest
 from apps.api.db.session import tenant_session
-from apps.api.engine.carrier_pacing import lines_busy, pacing_timed_out
+from apps.api.engine.dial_lines import lines_busy
+from apps.api.engine.vendor_http import number_daily_limit_error
 from apps.api.ingest import service as ingest_service
 from apps.api.ingest.routes import SECRET_HEADER
 from apps.api.ingest.service import INGEST_CALLBACK_PREFIX
@@ -29,7 +30,7 @@ def _daytime(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.parametrize(
     ("refusal", "phone"),
-    [(lines_busy, "9876507701"), (pacing_timed_out, "9876507702")],
+    [(lines_busy, "9876507701"), (number_daily_limit_error, "9876507702")],
 )
 async def test_a_busy_account_books_the_call_back_and_keeps_the_lead(
     monkeypatch: pytest.MonkeyPatch, refusal: Any, phone: str

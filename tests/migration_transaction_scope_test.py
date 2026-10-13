@@ -89,21 +89,3 @@ def test_the_online_migration_runs_one_transaction_per_revision() -> None:
         "Anything else here is a per-revision transaction boundary nobody can read off "
         "the line, on the property three runbooks describe."
     )
-
-
-def test_every_document_that_rests_on_the_setting_still_names_it() -> None:
-    """A guard whose subject has moved is worse than no guard.
-
-    If somebody rewrites the failure model in these documents — say, because they decided
-    the whole-run transaction was acceptable after all — this test should fail so the
-    setting and the prose are revisited together, rather than the setting quietly
-    outliving the sentences it was added for.
-    """
-    for relative in DOCUMENTS_RESTING_ON_IT:
-        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
-        assert "transaction_per_migration" in text, (
-            f"{relative} states a per-revision migration failure model but no longer "
-            "names `transaction_per_migration`, which is the only reason that model is "
-            "true. Either cite it or correct the prose — do not leave a reader to assume "
-            "alembic's default gives them this."
-        )

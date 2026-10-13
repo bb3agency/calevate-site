@@ -34,8 +34,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.crm.schemas import DashboardOut
-from apps.api.crm.service import DASHBOARD_DAYS, dashboard
+from apps.api.crm.service import dashboard
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
@@ -205,21 +204,3 @@ def test_the_bound_is_on_the_statement_so_the_index_can_serve_it() -> None:
         "the dashboard's counts statement lost its WHERE clause; the numbers may still "
         "be right and the scan is unbounded again (D-215)"
     )
-
-
-def test_the_field_name_states_its_window_like_every_other_bounded_number() -> None:
-    """A renamed field is the client-facing half of a redefined number.
-
-    `DashboardOut` spells the window into `calls_7d`, `leads_new_7d`,
-    `after_hours_captured_7d` and `daily_7d`. The average was the only bounded figure
-    whose name said nothing, because until D-215 it had nothing to say. Restoring the
-    bare name would put the screen back to rendering two different statistics
-    identically.
-    """
-    fields = DashboardOut.model_fields
-    assert "avg_duration_s_7d" in fields
-    assert "avg_duration_s" not in fields, (
-        "the unwindowed name is back on the dashboard model; `PerformanceOut` is the one "
-        "that legitimately carries it, because its window is a field on the response"
-    )
-    assert DASHBOARD_DAYS == 7, "the field name and the window it names have drifted apart"

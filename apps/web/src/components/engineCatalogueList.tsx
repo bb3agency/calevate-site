@@ -29,8 +29,8 @@ import { CLIENT_PREVIEW_PATH } from "@/lib/api/voicePreview";
  * agent's Model section; only an operator sees the platform's real models (D-679).
  *
  * The voices are the ones an operator added and enabled, grouped by rung, Clear then Studio,
- * as cards like the client voice picker (`agents/panels/voiceCards.tsx`): the same card, the
- * same quiet treatment for a voice that cannot be chosen, the same save bar.
+ * as cards, with a quiet treatment for a voice that cannot be chosen and a save bar that
+ * appears only once the choice differs from the saved one.
  *
  * "Platform default" sends `null`, which the server refuses by name once a choice has been
  * published, because the platform keeps the last voice it was given. Where the account runs

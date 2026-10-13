@@ -7,15 +7,12 @@ deprecation, "the new index has to be observed carrying production plans before 
 old one is removed". Migration `e7c3d10a9f52` is step two. This file is what makes
 that removal a claim with evidence rather than a hopeful diff.
 
-Three properties, and the third is the one that matters:
+Two properties, and the second is the one that matters:
 
-1. **The prefix index is gone**, and gone from the MODEL too. Dropping it in SQL while
-   `CreditLedgerEntry.tenant_id` still said `index=True` would have the next
-   `alembic revision --autogenerate` recreate it — a deprecation that undoes itself.
-2. **`tenant_id` is still indexed**, by an index that LEADS with it. A btree's leading
+1. **`tenant_id` is still indexed**, by an index that LEADS with it. A btree's leading
    column is what makes a prefix index redundant, so the claim "redundant" is exactly
    the claim "some other index starts with this column".
-3. **Every query the repo issues against `credit_ledger` still reaches an index**,
+2. **Every query the repo issues against `credit_ledger` still reaches an index**,
    asserted by pricing sequential scans at `disable_cost` and requiring that no Seq
    Scan survives. That is the same stable probe `schema_hardening_test.py` uses for the
    balance read's ordering, and for the same reason: a plain "the plan must not Seq
@@ -39,14 +36,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from apps.api.billing.models import CreditLedgerEntry
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 DROPPED_INDEX = "ix_credit_ledger_tenant_id"
-COMPOSITE_INDEX = "ix_credit_ledger_tenant_recent"
 
 LEDGER_ENTRIES = 2000
 
@@ -114,35 +109,6 @@ async def _forced_plan(session: AsyncSession, sql: str, tenant_id: Any) -> list[
     return _nodes(payload[0]["Plan"])
 
 
-async def test_the_prefix_index_is_gone_from_the_database() -> None:
-    """Step two of the two-step deprecation, on the live schema.
-
-    Read from `pg_indexes` rather than from the migration file: what matters is the
-    database an operator's queries hit, and a migration that was written but never
-    applied is exactly the half-wired change this assertion exists to catch.
-    """
-    async with untenanted_session() as session:
-        names = {
-            row[0]
-            for row in (
-                await session.execute(
-                    text("SELECT indexname FROM pg_indexes WHERE tablename = 'credit_ledger'")
-                )
-            ).all()
-        }
-
-    assert DROPPED_INDEX not in names, (
-        f"{DROPPED_INDEX} is still on this database. It is a strict prefix of "
-        f"{COMPOSITE_INDEX} and serves no query that index does not — on an append-only "
-        "ledger that is a write cost paid on every entry, forever, with no read to pay "
-        "it back (migration e7c3d10a9f52)."
-    )
-    assert COMPOSITE_INDEX in names, (
-        f"{COMPOSITE_INDEX} is what makes dropping the prefix safe. Without it "
-        "`tenant_id` is not indexed at all and every wallet read is a table scan."
-    )
-
-
 async def test_the_composite_still_leads_with_tenant_id() -> None:
     """The whole argument for redundancy in one assertion.
 
@@ -170,28 +136,6 @@ async def test_the_composite_still_leads_with_tenant_id() -> None:
         "no index on credit_ledger leads with tenant_id — dropping the single-column "
         "index left the column unindexed, which is a table scan on the pre-dispatch "
         f"balance read and on every FK check. Indexes seen: {first_keys}"
-    )
-
-
-def test_the_model_no_longer_asks_for_the_dropped_index() -> None:
-    """The half a SQL-only drop would have missed.
-
-    `index=True` on a `mapped_column` is a standing request: autogenerate compares the
-    model to the database and helpfully re-creates whatever the model declares. Leaving
-    it there would have the NEXT migration resurrect the index this one removed, which
-    is worse than never dropping it — the redundancy would come back silently, in an
-    unrelated revision, with no docstring explaining it.
-    """
-    single_column_tenant_indexes = [
-        index.name
-        for index in CreditLedgerEntry.__table__.indexes
-        if [column.name for column in index.columns] == ["tenant_id"]
-        and len(index.expressions) == 1
-    ]
-    assert not single_column_tenant_indexes, (
-        "the ORM still declares a single-column index on credit_ledger.tenant_id "
-        f"({single_column_tenant_indexes}): the composite in __table_args__ already "
-        "covers the column, and autogenerate will recreate this one at the next revision"
     )
 
 

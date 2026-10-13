@@ -64,8 +64,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   // ("whose invoice is this?") and two tables would be two spellings of "Cartesia".
   //
   // Keyed by the PROVIDER the wire names, so a label follows the data rather than the
-  // engine: `sarvam` and `gnani` rows exist only where those vendors spoke (`ENGINE=pipecat`,
-  // and append-only history), and `thinnest` rows only where ThinnestAI hosts the call.
+  // engine: `sarvam` and `gnani` rows are append-only history from before ThinnestAI hosted
+  // the call, and `thinnest` rows are calls ThinnestAI hosts.
   sarvam: "Sarvam",
   cartesia: "Cartesia",
   gnani: "Gnani",
@@ -754,7 +754,7 @@ function EmbeddingAttestForm({
           minLength={3}
           value={sourceNote}
           onChange={(e) => setSourceNote(e.target.value)}
-          placeholder="e.g. Google Cloud billing export 2026-09, embedding input tokens"
+          placeholder="e.g. Azure billing export 2026-09, embedding input tokens"
           className={FIELD}
         />
         {valid.error("embeddingSourceNote")}
@@ -770,7 +770,7 @@ function EmbeddingAttestForm({
         phrase={word}
         value={confirm}
         onChange={setConfirm}
-        hint="A correction is added as a new entry — nothing is overwritten. Confirming a price here also rebuilds every published knowledge pack once, so the agents start answering out of the new index."
+        hint="A correction is added as a new entry — nothing is overwritten."
       />
 
       <div className="flex gap-2">

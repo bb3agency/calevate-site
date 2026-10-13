@@ -88,12 +88,10 @@ export function MarginPanel({ tenantId }: { tenantId: string }) {
 /**
  * What the margin's cost side is MADE of, by the OVERAGE RUNG each call was metered on.
  *
- * ## WHAT THIS CARD ACTUALLY SPLITS, because it used to say something else
+ * ## WHAT THIS CARD SPLITS
  *
- * It was headed "Cost by TTS rung" and labelled its two buckets "Premium (v3)" and
- * "Value (v2)", which claimed a split by Bulbul model version. It is not that split. The
- * server reads `usage_events.meta.tts_tier` (`billing/service.py::_ROW_TIER_SQL`), and
- * that key is stamped by `apps/workers/pipeline.py` with `BASE_OVERAGE_RUNG` — the PLAN'S
+ * It splits by the plan's overage rate, not by voice. The server reads
+ * `usage_events.meta.tts_tier` (`billing/service.py::_ROW_TIER_SQL`), and that key is stamped by `apps/workers/pipeline.py` with `BASE_OVERAGE_RUNG` — the PLAN'S
  * OVERAGE-RATE SLOT, `plans.overage_rate` against `plans.overage_rate_second`. The code
  * says so in three places and one of them in capitals: `billing/service.py:1825-1832`
  * ("overage-rate slots ... NOT voice-quality tiers"), `pipeline.py` beside the stamp
@@ -102,10 +100,8 @@ export function MarginPanel({ tenantId }: { tenantId: string }) {
  * different fact stamped on a different key (`meta.voice_tier`), and this card does not
  * report it.
  *
- * So the old labels were wrong twice: they used rung vocabulary this product does not use,
- * and they named an axis the numbers do not come from. `overage_rate_second` is NULL on
- * every plan today, so in practice every minute lands in the base bucket — which is
- * exactly the reading an operator needs, and exactly what "Premium (v3)" hid.
+ * `overage_rate_second` is NULL on every plan today, so in practice every minute lands in
+ * the base bucket — which is exactly the reading an operator needs.
  *
  * A thin margin is not actionable on its own — the operator's next move differs depending
  * on whether the minutes are all on the base rate (the plan is underpriced, or the rate

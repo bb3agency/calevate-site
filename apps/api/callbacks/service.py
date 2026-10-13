@@ -1,9 +1,9 @@
 """Requested callbacks — every read and write of `scheduled_callbacks`, in one module.
 
 A caller says "ring me back Tuesday at four". The agent books it mid-call through the
-voice worker's `book_callback` tool, which writes the row inside the request
-(`apps/api/worker/tools.book_callback`), the campaign dispatch tick dials it at its time
-through
+engine's call-back action, which writes the row inside the request
+(`apps/api/worker/in_call_tools.book_callback_for`), the campaign dispatch tick dials it at
+its time through
 `agents.service.dispatch_call` — the ONE outbound entry point — and the client watches all
 of it on `GET /v1/callbacks`.
 

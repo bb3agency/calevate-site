@@ -47,7 +47,7 @@ describe("openEventStream", () => {
   it("a GET carries no body and no correlation id", async () => {
     const fetchMock = vi.fn().mockResolvedValue(sse([]));
     vi.stubGlobal("fetch", fetchMock);
-    await openEventStream(SESSION, "/v1/calls/x/speaking", { onEvent: () => {} });
+    await openEventStream(SESSION, "/v1/example/stream", { onEvent: () => {} });
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(init.method).toBe("GET");
     expect(init.body).toBeUndefined();

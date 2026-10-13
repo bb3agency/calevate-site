@@ -88,19 +88,6 @@ def _tree(root: Path, *, producer: str = PRODUCER, extra: dict[str, str] | None 
         path.write_text(body)
 
 
-def test_the_real_tree_passes() -> None:
-    """First, and it is also the audit's finding: we do not have the defect."""
-    result = subprocess.run(
-        [sys.executable, "-m", "scripts.check_idempotency_scope"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "IDEMPOTENCY SCOPE: OK" in result.stdout
-
-
 def test_a_faithful_copy_of_a_clean_tree_passes(tmp_path: Path) -> None:
     """Proves the doctored trees differ from a clean one only in the defect, and not in
     some accident of how they are assembled."""

@@ -343,7 +343,7 @@ async def test_a_band_for_a_model_that_cannot_be_offered_is_refused(
     elif case == "slow":
         model_id = SLOW.model_id
     elif case == "other_engine":
-        engine_name = "pipecat"
+        engine_name = "fake"
     else:
         band = "studio"
     headers = {

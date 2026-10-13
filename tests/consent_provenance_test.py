@@ -132,17 +132,14 @@ async def _campaign(
 async def _register_pe(
     session: Any,
     tenant_id: uuid.UUID,
-    *,
-    status: str = "active",
-    tm_link_status: str = "active",
 ) -> None:
     await service.record_dlt_registration(
         session,
         tenant_id=tenant_id,
         pe_id="110200001234567890",
         entity_name="Provenance Motors Pvt Ltd",
-        status=status,
-        tm_link_status=tm_link_status,
+        status="active",
+        tm_link_status="active",
     )
 
 
@@ -360,31 +357,6 @@ async def test_a_client_with_no_pe_registration_launches_under_d692() -> None:
     # D-692: clients do not register on DLT; KYC and the pledge are the precondition.
     assert [b.rule for b in blockers] == [], [b.rule for b in blockers]
     assert result["status"] == "running"
-
-
-@pytest.mark.parametrize("pe_status", ["not_started", "submitted", "suspended", "rejected"])
-async def test_a_pe_registration_that_is_not_live_no_longer_blocks(pe_status: str) -> None:
-    tenant_id, agent_id = await _tenant()
-    async with tenant_session(tenant_id) as session:
-        await _register_pe(session, tenant_id, status=pe_status)
-        campaign_id = await _campaign(session, tenant_id, agent_id)
-        blockers = await service.launch_blockers(
-            session, tenant_id=tenant_id, campaign_id=campaign_id
-        )
-    assert [b.rule for b in blockers] == [], (pe_status, [b.rule for b in blockers])
-
-
-@pytest.mark.parametrize("tm_link", ["not_linked", "pending", "revoked"])
-async def test_a_pe_without_a_live_tm_link_no_longer_blocks(tm_link: str) -> None:
-    """D-692: the TM link is no longer asked by the launch gate."""
-    tenant_id, agent_id = await _tenant()
-    async with tenant_session(tenant_id) as session:
-        await _register_pe(session, tenant_id, tm_link_status=tm_link)
-        campaign_id = await _campaign(session, tenant_id, agent_id)
-        blockers = await service.launch_blockers(
-            session, tenant_id=tenant_id, campaign_id=campaign_id
-        )
-    assert [b.rule for b in blockers] == [], [b.rule for b in blockers]
 
 
 async def test_an_active_pe_with_a_live_tm_link_and_recorded_provenance_launches() -> None:

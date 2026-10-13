@@ -113,7 +113,7 @@ async def _record_number(
             e164=_e164("160"),
             series="160",
             agent_id=agent_id,
-            provider="plivo",
+            provider="thinnest",
             purpose="reception",
             engine_number_ref=ref,
         )

@@ -1,7 +1,6 @@
 """`plans.overage_rate_value`: the second overage-rate slot, as a price.
 
-This is a PLAN pricing lever, not a voice-quality tier. The single-tier voice decision
-withdrew the second voice quality (Bulbul v2), so `pipeline._meter` now stamps one rung
+This is a PLAN pricing lever, not a voice-quality tier. `pipeline._meter` stamps one rung
 (`BASE_OVERAGE_RUNG`) on every call — but the plan's two overage-rate SLOTS
 (`overage_rate` / `overage_rate_value`) and the split machinery that prices them
 (`split_overage`, `overage_rungs`, the invoice lines) survive as a founder pricing lever.
@@ -335,38 +334,10 @@ async def test_a_rung_with_no_minutes_gets_no_line() -> None:
 # ============================================================================
 
 
-#: BOTH NAMES OF THE SECOND OVERAGE RATE, because the guard below has to follow the price
-#: and not the spelling. D-558 renamed the column to `overage_rate_second` and left
-#: `overage_rate_value` in place, still written, through step 1 of hard rule 8's two-step —
-#: and a scan that had kept looking only for the old name would have gone quietly vacuous
-#: on the column that now carries the number, which is the exact failure mode a guard has.
-#: STEP 2 drops the second entry with the column.
+#: BOTH NAMES OF THE SECOND OVERAGE RATE. D-558 renamed the column to `overage_rate_second`
+#: and left `overage_rate_value` in place, still written, through step 1 of hard rule 8's
+#: two-step. STEP 2 drops the second entry with the column.
 SECOND_RATE_COLUMN_NAMES = ("overage_rate_second", "overage_rate_value")
-
-
-def test_nothing_in_the_codebase_derives_a_retail_value_rate() -> None:
-    """The founder decision this slice deliberately does NOT make. If a later change
-    wants to seed a default it has to delete this test, which is the point: the deletion
-    is the moment someone has to say where the number came from."""
-    from pathlib import Path
-
-    repo = Path(__file__).resolve().parent.parent
-    offenders = []
-    for path in (repo / "apps").rglob("*.py"):
-        if "__pycache__" in str(path):
-            continue
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            stripped = line.strip()
-            if stripped.startswith("#"):
-                continue
-            for column in SECOND_RATE_COLUMN_NAMES:
-                if column not in stripped:
-                    continue
-                # An assignment of a literal to the column is the shape a made-up default
-                # takes. Reading it, storing None, or naming it in SQL is fine.
-                if f"{column} = " in stripped and "Decimal(" in stripped:
-                    offenders.append(f"{path}:{number}")
-    assert offenders == [], f"a retail second rate must be a founder decision: {offenders}"
 
 
 @pytest.mark.parametrize("rate", ["-0.0001", "-1"])

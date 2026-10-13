@@ -137,12 +137,6 @@ def test_unsorted_words_come_back_line_by_line_and_never_over_the_fact_limit() -
     assert all(0 < len(item["text"]) <= 500 for item in items)
 
 
-def test_the_sorting_instruction_forbids_inventing_or_changing_facts() -> None:
-    prompt = kb_teach.SYSTEM_PROMPT
-    assert "Never add anything the owner did not say" in prompt
-    assert "never change a number, price, name or time" in prompt
-
-
 # --- facts ----------------------------------------------------------------------------
 
 

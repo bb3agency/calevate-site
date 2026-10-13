@@ -39,7 +39,6 @@ async def bind_number_for_tests(
 
     The one place a fixture gives an agent a number to dial from.
     """
-    from apps.api.core.settings import get_settings
     from apps.api.db.base import uuid7
     from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER
 
@@ -224,68 +223,6 @@ async def verify_kyc_and_pledge_for_tests(tenant_id: uuid.UUID) -> None:
                 text_sha256=PLEDGE_TEXT_SHA256,
                 ip=None,
             )
-
-
-async def accept_carrier_application(tenant_id: uuid.UUID) -> None:
-    """Give a tenant the accepted CARRIER compliance application a supplied number needs.
-
-    Our carrier treats us as a reseller and requires a separate approved application for
-    each customer before a number can be rented for them
-    (`docs/evidence/orchestrator-commercial-and-carrier-2026-09-13.md` §5.2), so
-    `campaigns.number_supply.buy_number` and `agents.service.provision_number`
-    (`engine_owned=True`) both refuse a tenant without one. Fixtures written before that
-    rule build a tenant that cannot lawfully be given a number, so a test about the rental
-    meter or the release path fails on a gate it is not about.
-
-    Exactly the shape and exactly the argument of `arm_agent_for_outbound` and
-    `accept_agreements` above: it does NOT soften the gate — it records the same facts
-    through the same writers production uses, including the operator the CHECK constraint
-    demands. Idempotent.
-    """
-    from apps.api.compliance.carrier_application import (
-        ensure_application_row,
-        read_carrier_application,
-        record_carrier_decision,
-        submit_application,
-    )
-    from apps.api.db.base import uuid7
-    from apps.api.db.session import tenant_session, untenanted_session
-
-    async with tenant_session(tenant_id) as session:
-        if (await read_carrier_application(session, tenant_id=tenant_id)).is_accepted:
-            return
-
-    admin_id = uuid7()
-    async with untenanted_session() as session:
-        await session.execute(
-            text(
-                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
-                "VALUES (:id, 'Carrier Ops', 'operator', now(), now())"
-            ),
-            {"id": admin_id},
-        )
-    async with tenant_session(tenant_id) as session:
-        application_id = await ensure_application_row(session, tenant_id=tenant_id)
-        # The object references are supplied rather than stored: this fixture is about the
-        # APPLICATION's state, and standing up object storage to prove a gate about
-        # paperwork would make every number test depend on a bucket.
-        await submit_application(
-            session,
-            tenant_id=tenant_id,
-            application_id=application_id,
-            document_kind="gst_certificate",
-            document_object_ref=f"carrier-compliance/{tenant_id}/{application_id}/x/registration.pdf",
-            document_filename="gst-certificate.pdf",
-            signed_application_ref=None,
-        )
-        await record_carrier_decision(
-            session,
-            tenant_id=tenant_id,
-            application_id=application_id,
-            status="accepted",
-            recorded_by_admin_id=admin_id,
-            carrier_application_id=f"CA-{uuid.uuid4().hex[:10]}",
-        )
 
 
 #: A business profile complete enough for an agent to go live (D-695): open round the
@@ -689,10 +626,10 @@ def _no_ambient_credentials() -> Iterator[None]:
     # engine's key is stripped by the code that already exists.
     #
     # AND FROM THE MANAGED SECRET SET, which is the wider door and the one D-410 walked
-    # through. `all_credential_env_keys()` covers the ENGINE adapters only — today
-    # `CARTESIA_API_KEY` — so every non-engine vendor credential was
-    # still borrowable from a developer's `.env`. That went unnoticed while the model
-    # vendor's credential was a service-account JSON nobody exported; D-410 replaced it
+    # through. `all_credential_env_keys()` covers the ENGINE adapters only, so every
+    # non-engine vendor credential was still borrowable from a developer's `.env`. That
+    # went unnoticed while the model vendor's credential was a service-account JSON nobody
+    # exported; D-410 replaced it
     # with three ordinary strings (`AZURE_OPENAI_RESOURCE`, `AZURE_OPENAI_DEPLOYMENT`,
     # `AZURE_OPENAI_API_KEY`) that a developer MUST set locally to work gates 16f and 20b.
     # With all three present — any two is not enough — `eval_provider_test`'s two
@@ -707,9 +644,9 @@ def _no_ambient_credentials() -> Iterator[None]:
     from apps.api.engine import all_credential_env_keys
     from apps.api.ops.secret_service import manageable_secret_keys
 
-    # The env-only credentials too (the carrier pair, the Gnani key, the caller-claim
-    # signing key): `manageable_secret_keys()` excludes them by construction, and a real
-    # value in a developer's `.env` changes what the answer route and the worker boot do.
+    # The env-only credentials too (the ThinnestAI key, the engine intake keys):
+    # `manageable_secret_keys()` excludes them by construction, and a real value in a
+    # developer's `.env` changes what the adapter and the webhook routes do.
     stripped = (
         *AMBIENT_CREDENTIALS,
         *all_credential_env_keys(),
@@ -795,12 +732,8 @@ async def platform_offers_voices() -> None:
     from tests.voice_fixture import platform_can_speak, seed_platform_voices
 
     await seed_platform_voices()
-    # ⚠ **THE SECOND CALL IS NEW (18 Sep 2026) AND IT SOFTENS NOTHING.** The fixture's
-    # voices are Cartesia's since the Sarvam TTS leg was withdrawn, and a BYOK voice needs
-    # a key and an attested price before anybody may be offered it (hard rule 7) — work a
-    # real operator does, not a gate. `platform_can_speak` does exactly that work and
-    # NOTHING else: Gnani stays unattested, so the value rung is as unofferable in this
-    # suite as it is in production.
+    # Attests the Studio voice price, which a real operator does before any Studio voice
+    # may be offered (hard rule 7); it softens no gate.
     platform_can_speak()
     async with untenanted_session() as session:
         await load_voice_catalogue(session)
@@ -813,21 +746,16 @@ def _tts_price_reader_is_restored() -> Iterator[None]:
     `voice_offer.install_tts_price_reader` rebinds PROCESS state, exactly as the catalogue
     snapshot below does, and several suites install their own predicate (or uninstall it, to
     exercise the cold default) to drive an offerability arm. Without this the next test in
-    the same worker inherits a platform that has attested nothing — which, since the Sarvam
-    TTS leg was withdrawn (18 Sep 2026), means a platform on which NO voice is offerable at
-    all. That failure lands in the test that runs next, never in the one that caused it.
+    the same worker inherits a platform that has attested nothing, on which no Studio voice
+    is offerable. That failure lands in the test that runs next, never in the one that
+    caused it.
     """
     from apps.api.agents import voice_offer
-    from tests.voice_fixture import FIXTURE_TTS_CREDENTIAL_READER, FIXTURE_TTS_PRICE_READER
+    from tests.voice_fixture import FIXTURE_TTS_PRICE_READER
 
     yield
     if voice_offer._price_reader is not FIXTURE_TTS_PRICE_READER:
         voice_offer.install_tts_price_reader(FIXTURE_TTS_PRICE_READER)
-    # GROUND 1's READER IS RESTORED THE SAME WAY, for the same reason: a suite that
-    # uninstalls it to exercise the cold default would otherwise leave every later test on
-    # a platform holding no key, and that failure lands in whichever test runs next.
-    if voice_offer._credential_reader is not FIXTURE_TTS_CREDENTIAL_READER:
-        voice_offer.install_tts_credential_reader(FIXTURE_TTS_CREDENTIAL_READER)
 
 
 @pytest.fixture(autouse=True)
@@ -880,11 +808,9 @@ class FakeS3:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
         #: When this store says each object was written. A REAL store reports
-        #: `LastModified` on every listed object and `workers/pack_gc.py` deletes on the
-        #: strength of it, so a fake that omitted it would let that sweep's grace period
-        #: pass every test by never being satisfied. Keys planted directly into `objects`
-        #: deliberately get NO entry here — "age unknown" is a state the collector has to
-        #: fail closed on, and it needs a way to be produced.
+        #: `LastModified` on every listed object and `storage.objects_under` carries it.
+        #: Keys planted directly into `objects` get NO entry here, so "age unknown" is a
+        #: state a test can produce.
         self.written_at: dict[str, datetime] = {}
         self.fail = False
 
@@ -939,30 +865,6 @@ def s3(monkeypatch: pytest.MonkeyPatch) -> FakeS3:
     fake = FakeS3()
     monkeypatch.setattr(storage, "_client", lambda: fake)
     return fake
-
-
-@pytest.fixture
-def worker_token(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """`Settings.pipecat_worker_api_token` — the credential this deployment issued its own
-    voice worker (D-621), configured for the duration of one test.
-
-    **IT IS HERE AND NOT IN A HELPER MODULE FOR A MECHANICAL REASON.** Six test files need
-    it, and a fixture that is IMPORTED is also a name the importing module binds — which
-    ruff reads as `F811` the moment a test takes it as a parameter. `s3` above is the
-    established shape for a fixture with many consumers.
-
-    Supplied explicitly rather than by default because `_no_ambient_credentials` strips the
-    real ones, which is the correct default — and because "no token configured" is itself one
-    of the behaviours under test (`worker_api_test.
-    test_an_unconfigured_deployment_authenticates_nobody`), so the cache is cleared on BOTH
-    sides of the yield.
-    """
-    from tests.worker_api_harness import TOKEN
-
-    monkeypatch.setenv("PIPECAT_WORKER_API_TOKEN", TOKEN)
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
 
 
 # --- reserved test domains resolve, so the egress guard can judge them ---------------

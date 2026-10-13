@@ -240,7 +240,7 @@ jobs:
         # the adapter modules — and compares it against the published `/legal/subprocessors`
         # register, in both directions. It needs no database, which is why it sits here
         # rather than in a job that has one. Added 18 Sep 2026 because the register had gone
-        # THREE vendors stale (Supermemory, Gnani, an operator-set tracing endpoint) while
+        # vendors stale (among them an operator-set tracing endpoint) while
         # `apps/web/tests/legal.test.tsx` passed — that test compares the register with
         # itself, so nothing was watching the side that drifts.
         run: uv run python -m scripts.check_subprocessor_coverage

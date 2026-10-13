@@ -426,8 +426,3 @@ def test_the_filename_falls_back_to_the_slug_and_never_trusts_the_key() -> None:
     )
     assert odd == "shop-a-x-call-2026-10-11-0530.audio"
     assert '"' not in odd and ";" not in odd
-
-
-def test_the_outbox_and_the_backfill_name_the_job_the_worker_registers() -> None:
-    assert TRANSLATE_CALL_JOB == call_translation.JOB_NAME
-    assert call_translation.translate_call_job.__name__ == TRANSLATE_CALL_JOB

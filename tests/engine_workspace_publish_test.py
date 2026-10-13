@@ -1,4 +1,4 @@
-"""Agents and voices in a client's own ThinnestAI workspace (D-693), and Pipecat unchanged.
+"""Agents and voices in a client's own ThinnestAI workspace (D-693).
 
 * A publish creates a NEW vendor agent in the client's own workspace; a tenant with none is
   refused and nothing reaches the vendor.
@@ -7,7 +7,7 @@
   its knowledge claims go so the D-689 catch-up re-attaches everything, and the old vendor
   agent is deleted only afterwards, by `retire_moved_engine_agent`, never while a call is on it.
 * One of our clones is cloned again into the client's workspace from the sealed sample.
-* On `ENGINE=pipecat` none of this is reached.
+* On an engine without workspaces none of this is reached.
 """
 
 from __future__ import annotations
@@ -318,21 +318,17 @@ async def test_a_voice_that_is_not_our_clone_is_the_same_id_everywhere() -> None
         )
 
 
-# --- Pipecat stays as it was --------------------------------------------------------------
+# --- an engine without workspaces is unchanged -------------------------------------------
 
 
-class _PipecatNamed(FakeEngine):
-    name = "pipecat"
-
-
-async def test_pipecat_never_reads_a_workspace_and_its_config_is_unchanged(
+async def test_an_engine_without_workspaces_never_reads_one_and_its_config_is_unchanged(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`ENGINE=pipecat` is byte-for-byte unchanged: no resolver read, no workspace on the
-    config, the same unscoped refs, the same serialised config."""
+    """An engine without workspaces is byte-for-byte unchanged: no resolver read, no
+    workspace on the config, the same unscoped refs, the same serialised config."""
 
     async def _never(*_a: Any, **_k: Any) -> str:
-        raise AssertionError("the workspace resolver is never asked on pipecat")
+        raise AssertionError("the workspace resolver is never asked on this engine")
 
     monkeypatch.setattr(agents_service, "resolve_workspace", _never)
     cfg = AgentConfig(
@@ -343,7 +339,7 @@ async def test_pipecat_never_reads_a_workspace_and_its_config_is_unchanged(
         system_prompt="x",
         opening_line="Hello",
     )
-    engine = _PipecatNamed()
+    engine = FakeEngine()
     async with tenant_session(uuid.uuid4()) as session:
         out = await agents_service._in_client_workspace(
             session, engine, tenant_id=uuid.uuid4(), agent={}, config=cfg
@@ -354,8 +350,8 @@ async def test_pipecat_never_reads_a_workspace_and_its_config_is_unchanged(
     with_workspace = cfg.model_copy(update={"engine_workspace": "org_x"})
     assert with_workspace.model_dump() == cfg.model_dump(), "excluded from every dump"
     assert "@" not in await engine.create_agent(cfg)
-    assert resolver.engine_has_workspaces("pipecat") is False
-    assert agents_service._moves_workspace("pipecat:t:a", cfg) is False
+    assert resolver.engine_has_workspaces("fake") is False
+    assert agents_service._moves_workspace("fake:t:a", cfg) is False
 
 
 async def test_deleting_our_clone_deletes_its_copies_in_client_workspaces(

@@ -64,11 +64,8 @@ def test_a_bundle_priced_under_the_cost_floor_is_named_as_below_cost() -> None:
     # A rate DERIVED as 90% of the floor, so every minute the client uses loses money. This
     # is the shape the write path refuses outright.
     #
-    # ⚠ It was a flat ₹7,000 / 2,000 min = ₹3.50, typed when the floor was ₹3.70 and still
-    # under it at ₹4.1211. D-592 moved the engine leg to Pipecat's active minute, the floor
-    # fell to ₹3.3111, and ₹3.50 became a PROFITABLE rate — so the test asserting it was
-    # refused was asserting the opposite of the truth. A literal on the wrong side of a
-    # moving line is the failure mode; the fee is derived now.
+    # Derived rather than typed: a literal sits on the wrong side of the floor the moment a
+    # cost leg moves.
     under = (SELF_SERVE_COST_FLOOR_INR_PER_MIN * Decimal("0.9")).quantize(Decimal("0.01"))
     m = committed_plan_margin(monthly_fee=under * 2000, included_min=2000, overage_rate=None)
     assert under < SELF_SERVE_COST_FLOOR_INR_PER_MIN

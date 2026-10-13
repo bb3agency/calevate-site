@@ -848,8 +848,7 @@ async def add_global_numbers(
         # this door. `session` has no tenant GUC by design, so it cannot see
         # `organizations` at all; `admin_session()` widens `USING` on that one table and
         # nothing else, and it is how every fleet walk in this repo gets its tenant list
-        # (`agents/voice_offer.count_live_cartesia_agents:601`,
-        # `ops/engine_latency.engine_latency_report`). The read is outside the
+        # (`ops/engine_latency.engine_latency_report`). The read is outside the
         # suppression's transaction and the WRITES below are inside it, which is the right
         # way round: a directory that went stale between the two costs one un-cancelled
         # promise that the fire-time gate refuses anyway, while a cancellation outside the

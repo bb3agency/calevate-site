@@ -345,15 +345,12 @@ paragraph above states, made executable. If the checker cannot answer, the deplo
 rather than guessing, because guessing "rollback" on a forward deploy would swap new code
 onto an old schema.
 
-**If `voice-runtime` is the unhealthy one**, that is the urgent case: it serves the
-carrier's answer documents, so **no new call can connect** — Vobiz fetches the answer URL
-before any audio flows, and an inbound caller gets whatever Vobiz does on a failed fetch.
-Calls already in progress are unaffected (the voice worker on Pipecat Cloud holds the
-call). Their hangup and `RecordStop` callbacks are refused while it is down; Vobiz retries
-a callback up to 3 times (`docs/evidence/vobiz-api-contract.md` §6), and the worker's
-settlement to the api still records each call and its final status. Expect recordings and
-carrier costs to land late or need a re-read rather than leads to go missing. Roll back
-rather than debug forward.
+**If `voice-runtime` is the unhealthy one**, that is the urgent case: it receives
+ThinnestAI's signed `call.completed` and `call.analysed` webhooks, so while it is down no
+finished call is recorded. Calls themselves are unaffected (ThinnestAI runs them). A
+lost delivery is settled later by the reconciliation re-drive from `GET /calls/{id}`
+(alarm index, `engine_webhook_reenabled`), so expect transcripts, leads and costs to land
+late rather than go missing. Roll back rather than debug forward.
 
 ## 5. Failed at `deploy web` or the nginx steps
 

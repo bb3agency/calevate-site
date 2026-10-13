@@ -1,155 +1,42 @@
-"""The worker→API wire models (D-621), imported by BOTH sides so they cannot disagree.
+"""The in-call tool wire models, and the call-knowledge vocabulary.
 
-**WHY THESE LIVE IN `packages/shared` AND NOT IN EITHER END.** `apps/voice-worker` runs on
-Pipecat Cloud and `apps/api` runs on the VPS; between them is the only network hop in this
-product where a field name is a deployment contract rather than a function call. Two
-declarations of one JSON body is the "one way per problem" defect with a wire between them:
-they agree on the day they are written and diverge on the day one is edited, and the failure
-is a 422 on a live call rather than a red test. One module, two importers, no drift.
+The engine's in-call actions (`apps/api/worker/engine_actions.py`) parse their request
+into these models and hand them to `apps/api/worker/in_call_tools.py`, which answers with
+the `*Out` models. They live in `packages/shared` because the vocabulary is shared with
+the tests of every engine that reaches those tools.
 
-This is the same argument `calevate_shared.events` already rests on — `CallEvent` and
-`TranscriptTurn` are shared for exactly this reason, and the batch below simply carries
-lists of them rather than restating their fields.
-
-**WHAT THIS CONTRACT IS SHAPED BY — one rule, from `docs/evidence/worker-http-contract.md`:**
-
-    THE WORKER SENDS WHAT IT OBSERVED. THE SERVER DECIDES WHAT THAT MEANS.
-
-The worker is compute on a third party's infrastructure. It reports quantities, turns and
-statuses. It does not compute money, hold a rate card, resolve a tenant, or name a row id.
-Everything below is readable as an answer to "what did this container witness?", and nothing
-below is an instruction to write a particular row. That is what lets `PLATFORM_KEK` and the
-database credential stay on our side of the wall (§12.5 gate 6, option 3).
-
-Two consequences that look like omissions and are the design:
-
-* **No `calls.id` anywhere.** The worker knows its own `engine_call_id`
-  (`pipecat_call_ref(tenant, call_id)`) and the server resolves it under RLS. A worker that
-  could name a row id could name somebody else's.
-* **No money in the request.** `unit_cost_inr` and `total_inr` are absent by construction,
-  not merely optional. Hard rule 7 says the figure that reaches `unit_cost_paid` is an
-  attested one, and the server holds the rate card; the worker sends QUANTITIES.
-
-  `metered_rows` returns the legs it could measure AND a refusal per leg it could not, and
-  this module carries both in one body (D-625) — refusing the whole settlement on one
-  unwitnessed leg would discard the measurements of the others permanently. See
-  `SettlementRequest`.
+`KnowledgeState` is the vocabulary of `calls.knowledge_state`, kept for the rows that
+carry it.
 """
 
 from __future__ import annotations
 
-import hashlib
-import hmac
-import math
-import time
-from datetime import datetime
-from decimal import Decimal
-from typing import Annotated, Final, Literal, get_args
-from uuid import UUID
+from typing import Final, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
-from calevate_shared import carrier_token
-from calevate_shared.engine import AgentConfig, CallLatency, ModelConfig
-from calevate_shared.events import CallDirection, CallEvent, TranscriptTurn
-
-#: Every model here forbids unknown fields. A body carrying a key the server does not know
+#: Every model here forbids unknown fields: a body carrying a key the server does not know
 #: is a client built against a different contract, and answering it 422 at the edge is how
 #: that is found on the first call rather than in a column nobody filled.
 _STRICT = ConfigDict(extra="forbid")
 
-#: Ceilings on every list a client can grow. `check_list_bounds` governs RESPONSES and
-#: correctly does not reach these, but its argument does: *"what needs a ceiling is a list
-#: whose length is CALLER-CONTROLLED"*, and from the server's side that is exactly what a
-#: request body is. The client here is a container on a third party's infrastructure holding
-#: a token; "our own worker would never send a million turns" is a fact about the code we
-#: ship today, not about what can arrive on the socket.
-#:
-#: Both are far above any legitimate batch — `PIPECAT_WORKER_TURN_BATCH_SIZE` defaults to 8
-#: (D-620) — so no real flush is ever refused. They exist so that the failure mode of a
-#: malformed or hostile body is a 422 at the edge rather than a 1 vCPU host materialising
-#: the list in Python and then looping INSERTs over it.
-MAX_TURNS_PER_BATCH: Final = 500
-MAX_EVENTS_PER_BATCH: Final = 50
-
-#: A settlement carries one quantity per metered leg, and §1.3 declares a handful
-#: (`meter.MeteredLeg`). ⚠ **DELIBERATELY NOT `len(MeteredLeg)` AND NOT THAT COUNT WRITTEN
-#: OUT.** `packages/shared` may not import `apps/` — that is a kept import contract — so the
-#: enum is unreachable from here, and restating its size as a literal would be a number that
-#: drifts silently the day a sixth leg is declared (hard rule 4's defect class).
-#:
-#: So this is a MEMORY BOUND and not a claim about how many legs exist: comfortably above
-#: any real settlement, low enough that a malformed body is refused at the edge. The
-#: all-or-nothing rule over the real leg set is enforced where the legs are actually known —
-#: `worker/service`, against `MeteredLeg` itself.
-MAX_QUANTITIES: Final = 32
-
-#: And one refusal per leg nobody could price, for the same reason and with the same
-#: argument: a MEMORY BOUND, not a claim about how many legs exist. Since D-625 a settlement
-#: can carry both lists at once (a leg we measured settles beside a leg we could not), so the
-#: two bounds are declared separately rather than one being read as the other's complement.
-MAX_REFUSALS: Final = 32
-#: Turns one settlement may report timings for. A MEMORY BOUND, like the two above: a turn
-#: is a caller utterance answered, and even a call held at a generous cap for an hour stays
-#: well under this. The worker stops recording at the same number and says so in
-#: `CallLatency.parse_warnings`, so a long call is truncated visibly rather than refused.
-MAX_LATENCY_TURNS: Final = 2000
-MAX_LATENCY_WARNINGS: Final = 8
-
-#: The platform's call cap when an agent's owner has chosen none, DERIVED rather than
-#: retyped. `agents/service.effective_call_cap` already resolves `agents.max_call_duration_s`
-#: against `agents/models.CALL_CAP_DEFAULT_S` before `AgentConfig` is built, so the resolved
-#: config a worker is served always carries a real integer and this default is only ever
-#: read by a caller constructing a `SessionConfig` by hand (a test, a local run).
-#:
-#: ⚠ **NOT THE LITERAL `600`, AND THAT IS THE WHOLE POINT.** `packages/shared` cannot import
-#: `apps/`, so `CALL_CAP_DEFAULT_S` is unreachable from here — but `AgentConfig.
-#: max_call_duration_s` carries the same number as its own field default and IS reachable, so
-#: the value is read off the model instead of being spelled a third time. A platform constant
-#: with two spellings is hard rule 4's "named here rather than copied" defect, and a cap the
-#: console shows while the worker enforces a different one is the version of it that costs a
-#: client money.
-DEFAULT_CALL_CAP_S: Final[int] = int(AgentConfig.model_fields["max_call_duration_s"].default)
-
-#: WHO IS ON THE FAR END, OR THE NAMED REASON WE CANNOT SAY.
-#:
-#: ⚠ **DECLARED HERE BECAUSE `apps/api` CANNOT IMPORT THE WORKER.** `voice_worker/carrier.
-#: CallerIdentityState` is the same four words and is the authority on what they mean; the
-#: directory is hyphenated and lives in another deployable, so the wire needs its own
-#: spelling. `carrier.py` should import THIS one rather than declaring a second — that is a
-#: one-line change in a file this change was not permitted to touch, and it is reported
-#: rather than made.
-#:
-#: The four states are not decoration. A `None` number that means four unrelated things
-#: cannot be triaged, which is exactly how `calls.from_e164` came to be empty on every call
-#: of this engine with nothing anywhere saying why:
+#: WHO IS ON THE FAR END, OR THE NAMED REASON WE CANNOT SAY. A `None` number that means
+#: several unrelated things cannot be triaged:
 #:
 #: * ``known`` — a number is in hand.
-#: * ``withheld_by_carrier`` — our pinned client DOES read this carrier's field and the
-#:   carrier put nothing in it. A real carrier answer (caller ID withheld, or absent).
-#: * ``unparsed_by_client`` — the client maps no field for this carrier, so nobody can say
-#:   whether one was sent. This is Plivo today, and it is an UNKNOWN, not a finding.
+#: * ``withheld_by_carrier`` — the carrier put nothing in the caller field.
+#: * ``unparsed_by_client`` — nothing maps a caller field for this call, so nobody can say
+#:   whether one was sent. An UNKNOWN, not a finding.
 #: * ``not_read`` — nobody looked. The default.
 CallerIdentityState = Literal["known", "withheld_by_carrier", "unparsed_by_client", "not_read"]
 
 
-#: WHETHER THIS CALL HAD ITS CLIENT'S KNOWLEDGE, OR THE NAMED REASON IT DID NOT.
+#: WHETHER A CALL HAD ITS CLIENT'S KNOWLEDGE, OR THE NAMED REASON IT DID NOT — the values
+#: `calls.knowledge_state` may hold (its CHECK constraint is built from `KNOWLEDGE_STATES`).
 #:
-#: ⚠ **DECLARED HERE AND NOT IN THE WORKER, FOR `CallerIdentityState`'S REASON.**
-#: `apps/api` cannot import `apps/voice-worker`, so a vocabulary declared only over there
-#: is one the server can neither check nor constrain a column against — every string a
-#: client sent would land in `calls.knowledge_state`. `voice_worker/knowledge.
-#: UnavailableReason` IS the four-member type below, aliased rather than re-spelled, so the
-#: two deployables and the CHECK constraint cannot drift apart.
-#:
-#: A `None` that means several things cannot be triaged, so the report is a total answer
-#: and not only a failure:
-#:
-#: * ``available`` — the pack loaded and every question is answered out of it.
-#: * ``no_pack`` — this agent has published no knowledge base. Ordinary and permanent, not
-#:   a degradation: the agent says so rather than saying it cannot look right now.
-#: * the four below — a pack WAS configured and the call ran without it, so every question
-#:   for the whole call answered `temporarily_unavailable`.
+#: * ``available`` — the knowledge loaded and every question was answered out of it.
+#: * ``no_pack`` — the agent had no knowledge base. Ordinary, not a degradation.
+#: * the four below — knowledge WAS configured and the call ran without it.
 KnowledgeUnavailableReason = Literal[
     "fetch_failed", "absent", "unsupported_format", "identity_mismatch"
 ]
@@ -166,499 +53,23 @@ KnowledgeState = Literal[
 KNOWLEDGE_STATES: Final[frozenset[str]] = frozenset(get_args(KnowledgeState))
 
 #: The states that mean THE CALL ANSWERED NOTHING — what an alarm fires on and what an
-#: operator counts. `tests/worker_knowledge_report_test.py` asserts these are exactly the
-#: states `KnowledgeState` holds beyond `available` and `no_pack`, so the two declarations
-#: above cannot drift without a red test.
+#: operator counts.
 DEGRADED_KNOWLEDGE_STATES: Final[frozenset[str]] = frozenset(get_args(KnowledgeUnavailableReason))
 
-
-class KnowledgeReport(BaseModel):
-    """What the container found when it went for this call's knowledge pack.
-
-    **IT IS AN OBSERVATION AND CARRIES NO VERDICT**, which is this module's rule: the
-    worker says what it saw, and `worker/service` decides whether that is worth an alarm,
-    which severity it is, and how many calls it has already happened to.
-
-    **ONE REPORT PER CALL, ON THE FIRST BATCH THAT LEAVES.** The pack is resolved once,
-    while the phone is ringing, and nothing changes it for the rest of the call — so this
-    is a session fact and rides beside `agent_id` and `direction` for their reason, rather
-    than being re-sent per turn.
-
-    HARD RULE 6: a state word and a content hash. The digest names an OBJECT, not a person,
-    and the four failure words are authored in this repository.
-    """
-
-    model_config = _STRICT
-
-    state: KnowledgeState
-    #: The pack digest the session asked for, `""` when none was configured. Present on the
-    #: failure path especially: it is the handle on the object that did not load, and it is
-    #: what makes one store outage legible as one cause behind many calls.
-    #:
-    #: PINNED TO THE SHAPE A DIGEST HAS, for `AttestationIn.observed_prompt_sha256`'s
-    #: reason: the only producer is `hashlib`, so a truncated or upper-cased value is a
-    #: client built wrong, and a 422 at the edge finds that on the first call rather than
-    #: leaving an unmatchable string in the alarm an operator is trying to triage with.
-    digest: str = Field(default="", pattern=r"^([0-9a-f]{64})?$")
-
-
-class WorkerSessionOut(BaseModel):
-    """What one published agent is, answered for a worker about to take its call.
-
-    Replaces the SELECT in `voice_worker/config.py`, field for field. `tenant_id` and
-    `agent_id` are ANSWERED rather than asked for: the worker presents an
-    `engine_agent_ref` and the server resolves it.
-    """
-
-    model_config = _STRICT
-
-    tenant_id: UUID
-    agent_id: UUID
-    agent_config_version_id: UUID
-    system_prompt: str
-    #: The control plane's own hash. The worker RECOMPUTES it rather than trusting it —
-    #: that disagreement is §1.1's attestation and it must survive the transport.
-    prompt_sha256: str
-    models: ModelConfig
-    engine_agent_ref: str | None = None
-    #: The agent's primary language, always served: the voice speaks it and a turn with no
-    #: detected language is stamped with it. NOT a transcriber switch — the worker detects
-    #: when `models.stt_autodetect` is on or `languages_extra` is non-empty.
-    language: str | None = None
-    #: The other languages the agent may answer in (`AgentConfig.languages_extra`, D-666).
-    #: Non-empty means the worker lets the transcriber detect the caller's language
-    #: instead of pinning `language`, which stays the primary the voice is configured for.
-    languages_extra: list[str] = Field(default_factory=list, max_length=8)
-    greet_first: bool = True
-    knowledge_pack_sha256: str | None = None
-    #: Hard rule 5's sentence, carried so the worker can prove it is in the prompt it runs.
-    ai_disclosure_line: str | None = None
-    #: The published `AgentConfig.opening_line` — the notices the agent's D-163 toggles
-    #: switched on — which the worker speaks VERBATIM before the model greets, so a model
-    #: cannot paraphrase or drop a disclosure. `""` is a recorded choice to volunteer nothing.
-    opening_line: str = ""
-    #: HOW LONG THIS AGENT'S CALLS MAY RUN, IN SECONDS — the cap the console already writes
-    #: (`agents/publishing_routes.py:403`).
-    #:
-    #: ⚠ **NOTHING ELSE ENFORCES IT ON THIS ENGINE.** `assemble_call` sets
-    #: `idle_timeout_secs=None` deliberately (a phone call has its own end), so without this
-    #: a call that never ends never ends — burning a client's credits against a cap they set
-    #: and were shown, which is a money defect under hard rule 7 before it is a trust one.
-    #: The worker enforces it by pushing an `EndWorkerFrame`
-    #: (`pipeline.CallDurationCap`), which DRAINS — the caller hears the end of the
-    #: sentence in flight, not a dead line.
-    max_call_duration_s: int = DEFAULT_CALL_CAP_S
-
-
-#: A carrier's id for one call. Vobiz and Plivo both issue a UUID (`CallUUID`); the bound
-#: and the character set refuse anything that is not an identifier before it reaches a
-#: column an erasure request to the carrier will quote.
-CarrierCallId = Annotated[
-    str, StringConstraints(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._:-]+$")
-]
-
-
-class ObservationBatch(BaseModel):
-    """What the container witnessed since the last batch: statuses and spoken turns.
-
-    ONE BODY FOR BOTH because they are one fact — what happened on this call — and because
-    the server has to order them anyway: a turn may arrive before the status that opened the
-    call (Pipecat dispatches every handler as its own task), and the existing sink already
-    converges both on one call-row upsert for exactly that reason.
-
-    Empty lists are legal. A flush with nothing in it is a no-op the client is allowed to
-    send rather than a condition it must check for.
-
-    ⚠ **`agent_id` AND `direction` ARE ON THE BATCH, NOT ONLY ON THE EVENTS.**
-    `TranscriptTurn` carries neither and `CallEvent` declares `agent_id` nullable, so the
-    FIRST batch of a call — routinely a flush of turns, because Pipecat dispatches every
-    handler as its own task and a turn can beat the event that opened the call — would name
-    nothing the server could mint a `calls` row from. They are session facts, so they travel
-    with the session's batch; deriving them from whichever event happened to be in it would
-    be a guess on a FORCE-RLS'd row's `agent_id`.
-    """
-
-    model_config = _STRICT
-
-    #: Whose agent this call is running. The server refuses a batch whose events name a
-    #: different one (`worker/service._refuse_identity`).
-    agent_id: UUID
-    direction: CallDirection
-    #: THE TWO PARTIES, AND TODAY NOTHING CAN FILL THEM ON PLIVO — WHICH IS THE POINT.
-    #:
-    #: `calls.from_e164` is not decoration: `leads.phone_e164` is NOT NULL and the post-call
-    #: pipeline derives it from this field on inbound (`workers/pipeline.py:1903,1968`);
-    #: caller memory filters on `c.from_e164 IS NOT NULL` as a hard condition
-    #: (`workers/caller_memory_distil.py:206`); and a DPDP erasure takes its SUBJECT from the
-    #: same field (`pipeline.py:1600`). A call with no number files no lead, grows no memory,
-    #: and has nothing to erase against.
-    #:
-    #: On the Bolna leg these rode `ExecutionSnapshot`, the POLLER's record (TRD §5:
-    #: "payloads as hints, poller as truth"), which is why `CallEvent` never carried them.
-    #: Pipecat has no poller — this contract IS the snapshot — so they belong here, as
-    #: session facts, beside `agent_id` and `direction` and for the same reason.
-    #:
-    #: ⚠ **WHAT FILLS THEM, AND WHAT STILL CANNOT** (DEPLOYMENT §12.5 gate 9).
-    #: `carrier.CallerIdentity` models the answer as a four-state verdict (`known`,
-    #: `withheld_by_carrier`, `unparsed_by_client`, `not_read`), `pipeline.
-    #: NormalizedEventBoundary` writes the number onto every `CallEvent` it emits when the
-    #: state is `known`, and `worker/service.record_observations` takes it from the events
-    #: when the batch names no party. Two facts about the PINNED client are unchanged and
-    #: still bound what can arrive: Pipecat's Plivo branch writes only `streamId`/`callId`
-    #: (`runner/utils.py:257-262`) so `from_number` stays `None` with nothing consulted
-    #: (`runner/types.py:94`) — that is `unparsed_by_client`, an UNKNOWN rather than a
-    #: finding. The outbound dial is the control plane's (D-662). Telnyx (`:253`) and
-    #: Exotel (`:270`) both write `"from"`, so the next carrier may simply hand it over.
-    #: Absent, these leave the column NULL, which every reader above already tolerates.
-    #:
-    #: ⚠ **THE STATE DOES NOT RIDE HERE AND THAT IS NOT AN OVERSIGHT.** `calls` has no
-    #: column for it and this change adds no migration, so the verdict is carried where a
-    #: reader can act on it instead: on the tool bodies below, where it decides SYNCHRONOUSLY
-    #: what an agent may tell a caller who has just asked not to be called again.
-    from_e164: str | None = None
-    to_e164: str | None = None
-    #: The carrier's own id for the call (Vobiz/Plivo `start.callId`), stored once as
-    #: `calls.carrier_call_id`: the join key for the carrier's hangup webhook, its CDR and
-    #: a transfer. `None` where no carrier leg exists.
-    carrier_call_id: CarrierCallId | None = None
-    events: list[CallEvent] = Field(default_factory=list, max_length=MAX_EVENTS_PER_BATCH)
-    turns: list[TranscriptTurn] = Field(default_factory=list, max_length=MAX_TURNS_PER_BATCH)
-    #: WHETHER THIS CALL HAD ITS KNOWLEDGE, SENT ONCE AND THEN NOT AGAIN.
-    #:
-    #: It rides an observation batch rather than travelling as a request of its own because
-    #: it IS an observation — "what did this container witness?" — and because a fifth route
-    #: would be a second channel for the same fact, on a path whose whole point is that the
-    #: client is one door. It costs no extra round trip: the batch was going anyway.
-    #:
-    #: `None` on every batch after the first, and on every batch a client that predates this
-    #: field sends. The server leaves the column alone rather than clearing it.
-    knowledge: KnowledgeReport | None = None
-
-
-class ObservationsOut(BaseModel):
-    """What the server did with a batch, in numbers the client can log but not act on.
-
-    `turns_written` is smaller than the batch when a retry re-sent turns the server already
-    had — which is the idempotency working, not an error, and the client must not treat the
-    difference as loss.
-    """
-
-    model_config = _STRICT
-
-    turns_written: int
-    turns_already_present: int
-    status: str | None = None
-
-
-#: Who is audible on a live call (D-656). `None` on the wire is silence.
-SpeakingSide = Literal["caller", "agent"]
-
-#: The largest sequence number a container can send. A call is capped at `CALL_CAP_MAX_S`
-#: (one hour) and the worker sends at most a few states a second, so this is far above any
-#: real call and exists so the value always fits the server's integer comparison.
-MAX_SPEAKING_SEQ: Final = 1_000_000
-
-
-class SpeakingStateIn(BaseModel):
-    """Who is speaking on this call right now, as the container last saw it (D-656).
-
-    Ids ride the path (the call ref) and nothing else rides here: no audio, no text, no
-    number. `seq` increases with every state the container sends for the call, and the
-    server keeps only the highest it has seen — so a request that timed out on the client and
-    landed late cannot overwrite a newer state.
-    """
-
-    model_config = _STRICT
-
-    speaker: SpeakingSide | None
-    seq: int = Field(ge=0, le=MAX_SPEAKING_SEQ)
-    #: When this state began, on the container's clock (UTC).
-    at: datetime
-
-
-class SpeakingStateOut(BaseModel):
-    """`accepted` is False when the server already held a newer state for the call."""
-
-    model_config = _STRICT
-
-    accepted: bool
-
-
-#: The widest quantity any leg of one call can honestly report, and the narrowest bound that
-#: cannot refuse a real call. A call is capped at `CALL_CAP_MAX_S`; the largest unit any leg
-#: counts in is seconds of audio, so six figures is already several orders of magnitude of
-#: headroom. The point is not the exact number — it is that SOME number exists.
-MAX_METERED_QTY: Final = Decimal("1000000")
-
-#: Prose the server stores verbatim. `call_metering_refusals.detail`/`.remediation` are
-#: `TEXT`, and the table is append-only, so an unbounded string is a permanent one.
-MAX_REFUSAL_TEXT: Final = 500
-
-#: An identifier the server matches or stores: a leg name, a unit type, a machine code.
+#: An identifier the server matches or stores: a date, a time, a machine code.
 MAX_IDENTIFIER: Final = 64
-
-#: The five legs a call can be metered or refused on.
-#:
-#: ⚠ **THIS LIVES IN THE WIRE MODULE AND THE WORKER'S `MeteredLeg` IS DERIVED FROM IT.**
-#: `apps/api` cannot import `apps/voice-worker`, so a vocabulary declared only in the
-#: worker is one the server cannot check — every string a client sent would be echoed into
-#: `call_metering_refusals.leg`. A claim that two deployables agree has to be something one
-#: of them can actually check.
-MeteredLegName = Literal["carrier", "runtime", "stt", "tts", "llm"]
-
-#: The same five as a set, for a caller that needs membership rather than a type.
-METERED_LEGS: Final[frozenset[str]] = frozenset(get_args(MeteredLegName))
-
-
-class MeteredQuantity(BaseModel):
-    """One leg's measured quantity, with NO price attached.
-
-    `unit_cost_inr` and `total_inr` are deliberately absent: see this module's docstring.
-    The server multiplies, because the server is what holds an attested rate.
-
-    ⚠ **`qty` MUST STAY BOUNDED AND NON-NEGATIVE.** Refusing a PRICE from the worker buys
-    nothing if the server then multiplies any magnitude it is handed by an attested rate and
-    INSERTs the product into `usage_events`, which hard rule 4 makes INSERT-only. An
-    unbounded `qty: Decimal` accepts `-99999999`, so one holder of the worker token could
-    mint a permanent self-issued credit that nothing but a compensating entry could answer,
-    and `1e50` is an unpayable charge by the same door. `allow_inf_nan=False` because a NaN
-    in a NUMERIC column poisons every SUM taken over that tenant's usage for ever.
-
-    A refund is a compensating entry an operator makes. It is not a quantity a container on
-    somebody else's infrastructure reports.
-    """
-
-    model_config = _STRICT
-
-    leg: MeteredLegName
-    unit_type: str = Field(max_length=MAX_IDENTIFIER)
-    qty: Decimal = Field(ge=0, le=MAX_METERED_QTY, allow_inf_nan=False)
-    #: ⚠ **BOUNDED, AND THE SERVER DECIDES WHICH KEYS SURVIVE.** `worker/service._write_usage`
-    #: is the one reader; what it persists is an allow-list, because `meta->>'tts_tier'` is
-    #: the rung every client-facing split reads and `meta->>'model'` chooses an LLM rate —
-    #: neither is a thing a vendor-hosted container gets to assert about our money.
-    meta: dict[str, str] = Field(default_factory=dict, max_length=16)
-
-
-class SettlementRefusal(BaseModel):
-    """Why ONE leg could not be metered — the shape `call_metering_refusals` already stores.
-
-    A refusal is a FACT the worker observed (it could not read a quantity), which is why it
-    travels in the same direction as everything else here.
-
-    ⚠ **`leg` IS THE KEY, NOT A LABEL (D-625).** A settlement carries a refusal per leg
-    nobody could price and a quantity per leg somebody could, and the server refuses a body
-    that names one leg in both places (`worker/service._check_settlement`).
-    """
-
-    model_config = _STRICT
-
-    #: ⚠ **BOUNDED BECAUSE THEY ARRIVE OVER HTTP.** "Every refusal string is authored in
-    #: this repository" is true of the client we ship and enforced of no client, and these
-    #: land in an append-only table as `TEXT`.
-    leg: MeteredLegName
-    code: str = Field(max_length=MAX_IDENTIFIER)
-    detail: str = Field(max_length=MAX_REFUSAL_TEXT)
-    remediation: str | None = Field(default=None, max_length=MAX_REFUSAL_TEXT)
-
-
-#: What a settlement may say the call ended as. Named so the worker can hold one without
-#: retyping the vocabulary.
-SettlementStatus = Literal["completed", "failed", "no_answer", "busy", "cancelled"]
-
-#: The same five as a set, for a caller that needs membership rather than a type.
-SETTLEMENT_STATUSES: Final[frozenset[str]] = frozenset(get_args(SettlementStatus))
-
-
-class UnverifiedCallClaim(BaseModel):
-    """The stream URL carried a call claim that did not verify, so this call ran as inbound.
-
-    The worker cannot tell a forgery from a deployment whose voice-runtime and worker hold
-    different `CARRIER_CLAIM_SECRET` values; the server can, because only the second names a
-    `calls` row we dialled. So the worker reports what it saw and the server decides.
-
-    `claimed_call_id` is the id the unverified claim named, when it was a uuid at all. It is
-    attacker-controlled and only ever compared against this tenant's own rows under RLS.
-    """
-
-    model_config = _STRICT
-
-    claimed_call_id: UUID | None = None
-
-
-class SettlementRequest(BaseModel):
-    """The terminal write, and the one that carries D-607.
-
-    **A REFUSAL NAMES A LEG; QUANTITIES NAME OTHER LEGS (D-625).** The rejected alternative
-    is "a refusal OR quantities, never both": under it, the worker never holding the
-    carrier's CDR at settlement (it is read afterwards) means every call settles as one
-    carrier refusal and the STT seconds, TTS
-    characters and LLM tokens the worker genuinely measured are discarded — unrecoverably,
-    because an append-only ledger cannot be corrected once the settlement has answered. "We
-    could not witness the connected minute" is not a reason to disown the three legs we DID
-    witness.
-
-    What that rule protects is stated per leg instead: the carrier's authority is untouched,
-    nothing invents a connected minute or a charge, and a leg nobody can price still becomes
-    a `call_metering_refusals` row rather than a zero.
-
-    So the invariant the server checks is DISJOINTNESS, not exclusivity: no leg may be
-    refused twice, and no leg may appear in `refusals` and in `quantities` at once. It is
-    validated rather than trusted, because a client is a thing on somebody else's
-    infrastructure.
-
-    ⚠ **BOTH EMPTY IS LEGAL.** It is the third state `meter.py` distinguishes deliberately
-    — a session that transcribed and synthesised nothing has no leg to price, which is not
-    a leg nobody can price — and it still has to
-    settle, because the outbox row that starts the post-call pipeline rides the settlement
-    (D-607).
-
-    The server writes the call row, the ledger-or-refusal and the outbox row that triggers
-    the post-call pipeline IN ONE TRANSACTION, exactly as the sink does today. That
-    guarantee is relocated to the side that owns the database, which is where a transaction
-    belongs — it is not weakened, and `docs/evidence/worker-http-contract.md` records why.
-    """
-
-    model_config = _STRICT
-
-    final_status: SettlementStatus
-    direction: CallDirection
-    agent_id: UUID
-    #: The published configuration version this call ran, as the session read answered it.
-    #: The server prices the LLM and TTS legs from THAT row's model config — its own record —
-    #: and refuses a version that is not this agent's. `None` (a worker older than the
-    #: field) prices from the agent's currently published version.
-    agent_config_version_id: UUID | None = None
-    #: Carried here TOO, and not only on `ObservationBatch`, because settlement upserts the
-    #: call row itself: a call that failed before its first flush is minted HERE, and a row
-    #: minted without the parties is a lead and an erasure subject lost at the one moment
-    #: nothing else will supply them. Same nullability and same gate as the batch's pair.
-    from_e164: str | None = None
-    to_e164: str | None = None
-    #: Carried here too for the same reason as the parties: a call that ends before its
-    #: first flush has its row minted by the settlement. Same meaning as the batch's field.
-    carrier_call_id: CarrierCallId | None = None
-    refusals: list[SettlementRefusal] = Field(default_factory=list, max_length=MAX_REFUSALS)
-    quantities: list[MeteredQuantity] = Field(default_factory=list, max_length=MAX_QUANTITIES)
-    #: The pipeline's own per-turn timings for this call, in the normalized shape every
-    #: engine reports (`voice_worker/latency.py` builds it). `None` is a call on which no
-    #: user turn was answered, which is a different fact from a turn whose legs went
-    #: unmeasured. It rides the settlement rather than a route of its own because the
-    #: settlement is already the one terminal write, and the server stores it in the same
-    #: transaction as the outbox row whose pipeline reads it back.
-    latency: CallLatency | None = None
-    #: Present when this call's stream URL carried a call claim that did not verify. `None`
-    #: on every call whose claim verified or that carried none.
-    call_claim_unverified: UnverifiedCallClaim | None = None
-
-    @field_validator("latency")
-    @classmethod
-    def _latency_is_bounded_and_finite(cls, value: CallLatency | None) -> CallLatency | None:
-        # `CallLatency` is the engine-neutral model and carries no bounds of its own, so the
-        # wire adds them. A NaN or a negative interval would reach a NUMERIC column and a
-        # jsonb CHECK inside the settlement's transaction; refusing it here keeps a malformed
-        # measurement from ever competing with the ledger for that transaction.
-        if value is None:
-            return None
-        if len(value.turns) > MAX_LATENCY_TURNS:
-            raise ValueError(f"latency carries more than {MAX_LATENCY_TURNS} turns")
-        if len(value.parse_warnings) > MAX_LATENCY_WARNINGS or any(
-            len(warning) > MAX_REFUSAL_TEXT for warning in value.parse_warnings
-        ):
-            raise ValueError("latency warnings exceed their bound")
-        if value.region is not None and len(value.region) > MAX_IDENTIFIER:
-            raise ValueError("latency region exceeds its bound")
-        figures = [value.time_to_first_audio_ms]
-        for turn in value.turns:
-            if turn.turn < 1:
-                raise ValueError("latency turns are numbered from 1")
-            figures.extend((turn.stt_ms, turn.llm_ttft_ms, turn.tts_ttfa_ms))
-        for figure in figures:
-            if figure is not None and (not math.isfinite(figure) or figure < 0):
-                raise ValueError("latency figures must be finite and non-negative")
-        return value
-
-
-class SettlementOut(BaseModel):
-    """What the settlement did, including the answer a RETRY gets.
-
-    `already_settled` is the honest answer to a re-delivery and is not an error: a worker
-    whose POST timed out after the server committed must be able to retry, and a second
-    attempt has to report "this was already done" rather than either failing or writing the
-    ledger twice. An append-only ledger has no UPDATE to correct a double write with.
-    """
-
-    model_config = _STRICT
-
-    already_settled: bool
-    rows_written: int
-    #: HOW MANY LEGS WERE RECORDED AS UNPRICEABLE, not whether any was (D-625). A bool could
-    #: not distinguish "the carrier leg had no CDR and the other three settled" from "nothing
-    #: could be priced at all", which is exactly the distinction partial settlement exists to
-    #: make and the one an operator reads `rows_written` beside.
-    refusals_recorded: int
-    post_call_enqueued: bool
-
-
-class AttestationIn(BaseModel):
-    """What the worker recomputed about the prompt it actually loaded (§1.1).
-
-    **THE WORKER SENDS WHAT IT OBSERVED; THE SERVER DECIDES WHAT THAT MEANS.** This body is
-    the sharpest case of that rule in the contract, so it carries the digest and NOT the
-    verdict: `voice_worker/pipeline.AssembledCall` computes `prompt_matches_config_version`
-    for its own logging, and a client-supplied "yes it matched" would make
-    `agents/config_versions.Attestation.matches` agree with the caller by construction —
-    which is the `control_plane` defect `config_versions.py` exists to close. The server
-    re-reads `agent_config_versions.prompt_sha256` and compares.
-
-    ⚠ **THIS ROUTE IS THE TABLE'S ONLY PRODUCTION WRITER (D-626).** Without it
-    `record_attestation` is called by tests alone, `PipecatEngine.get_agent` answers
-    `system_prompt_readable=False` for every agent for ever, and hard rule 5's engine-side
-    verification never runs on this leg — the digest is computed in the worker and reaches
-    nothing.
-
-    `agent_id` is on the body as well as in the ref the route is posted to, and the server
-    refuses a disagreement rather than reconciling it — `ObservationBatch`'s posture, for
-    its reason.
-    """
-
-    model_config = _STRICT
-
-    agent_id: UUID
-    #: The immutable version this process says it loaded. The server checks it belongs to
-    #: that agent before it writes anything.
-    agent_config_version_id: UUID
-    #: sha256 of the system prompt in this container's memory, lowercase hex. PINNED to that
-    #: shape here so a truncated or upper-cased digest is a 422 at the edge rather than a
-    #: permanent false mismatch in a table whose whole job is to make mismatches meaningful.
-    observed_prompt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-
-class AttestationOut(BaseModel):
-    """The verdict, answered back so the worker can log what the control plane concluded.
-
-    `matches=False` IS NOT AN ERROR and the route does not fail on it: a stale worker, a
-    version published after the session started, or a prompt truncated on the way into the
-    process are all findings this row exists to preserve. `agents/verification.py` and the
-    drift sweep score them; the writer sees one.
-    """
-
-    model_config = _STRICT
-
-    attestation_id: UUID
-    matches: bool
 
 
 # --- the four in-call tools ----------------------------------------------------------
 #
-# The handlers in `apps/api/worker/tools.py` reach the one service function that owns each
-# write (`compliance/optout.record_call_optout`, `callbacks/service.book`,
+# `apps/api/worker/in_call_tools.py` reaches the one service function that owns each write
+# (`compliance/optout.record_call_optout`, `callbacks/service.book`,
 # `callbacks/service.cancel_for_phones`). Two implementations of "add this caller to the DNC
 # list" is the defect this arrangement exists to prevent.
 #
-# **THE STATUS WORDS ARE `recorded` / `booked` / `cancelled`, NOT `accepted`**: the worker
-# names its own call ref, the server resolves the tenant from it and does the write IN THE
-# REQUEST, so saying "accepted" would be under-claiming in a sentence an agent reads out.
+# **THE STATUS WORDS ARE `recorded` / `booked` / `cancelled`, NOT `accepted`**: the write
+# happens IN THE REQUEST, so saying "accepted" would be under-claiming in a sentence an
+# agent reads out.
 #
 # **`say` IS GUIDANCE FOR THE AGENT, IN ENGLISH, WHICH ITS OWN LLM RENDERS INTO THE
 # CALLER'S LANGUAGE** — `calling_window.SlotRefusal`'s rule, which these follow because the
@@ -666,23 +77,23 @@ class AttestationOut(BaseModel):
 
 #: The longest model-authored string a tool body may carry. `workers/optout._REASON_CHARS`
 #: (80) and `callbacks.MAX_NOTE` (200) are what the values are truncated to where they are
-#: STORED; this is the bound at the edge, for `MAX_REFUSAL_TEXT`'s reason — a language model
-#: has no length contract and an unbounded body is a 1 vCPU host materialising it.
+#: STORED; this is the bound at the edge: a language model has no length contract and an unbounded
+#: body is a 1 vCPU host materialising it.
 MAX_TOOL_TEXT: Final = 500
 
 
 class CallerIdentityIn(BaseModel):
-    """What the container observed about who is on the far end, carried per tool call.
+    """Who is on the far end, carried per tool call.
 
-    **IT IS ON THE TOOL BODY AND NOT ONLY ON `ObservationBatch` BECAUSE THE DECISION IS
-    SYNCHRONOUS.** The agent is waiting for an answer it is about to SAY, so whether the
+    **IT IS ON THE TOOL BODY BECAUSE THE DECISION IS SYNCHRONOUS.** The agent is waiting for an
+    answer it is about to SAY, so whether the
     call names a caller has to be readable in the moment, not discovered by a job after the
     caller has hung up believing they were removed.
 
     `state` is the fact; `e164` is the number and only ever travels with `state="known"`.
     Hard rule 6: the number is carried, never logged — the server logs `state` and nothing
-    else, and `state` is authored in `voice_worker/carrier.py` rather than built from wire
-    data, so it cannot smuggle one.
+    else, and `state` is set by our own code rather than built from wire data, so it
+    cannot smuggle one.
     """
 
     model_config = _STRICT
@@ -727,9 +138,8 @@ class OptOutToolOut(BaseModel):
 class CallbackBookIn(BaseModel):
     """ "Ring me back Tuesday at four", already resolved by the model into date and time.
 
-    `confirmed` IS A BOOL ON THIS WIRE AND A NARROW PARSE IN THE WORKER
-    (`true`/`"true"`/`"yes"` and nothing else, in `voice_worker/call_tools.py`), so the
-    contract between the two halves of OUR product carries a decided boolean rather than a
+    `confirmed` IS A BOOL HERE AND A NARROW PARSE AT THE EDGE (`true`/`"yes"` and nothing
+    else, `worker/engine_actions.py`), so the tool receives a decided boolean rather than a
     string to re-interpret.
     """
 
@@ -766,7 +176,7 @@ class CallbackToolOut(BaseModel):
 
 
 class CallbackCancelIn(BaseModel):
-    """ "Actually, don't ring me back." No time in it at all — `_cancel_callback`'s rule.
+    """ "Actually, don't ring me back." No time in it at all.
 
     A cancellation must not be able to fail because a date could not be parsed, and it is
     NOT an opt-out: "do not ring me back on Tuesday" is not "never call me again", and
@@ -801,10 +211,7 @@ class HandoffToolIn(BaseModel):
     summary: str | None = Field(default=None, max_length=MAX_TOOL_TEXT)
 
 
-#: What became of a request for a person. ONE vocabulary, declared here because both halves
-#: of the product import it: the server decides which word is true, `voice_worker/
-#: call_tools.py` holds the sentence the agent says for each, and neither may invent a
-#: member the other has no sentence for.
+#: What became of a request for a person, in a word the agent can act on.
 #:
 #: **THE THREE FAILURES ARE SEPARATE WORDS BECAUSE THEY ARE SEPARATE SENTENCES.** "Nobody
 #: picked up", "there is nobody on duty" and "this line cannot transfer at all" all end the
@@ -834,21 +241,10 @@ HandoffOutcome = Literal[
 class HandoffToolOut(BaseModel):
     """What became of the request for a person, in a word the agent has a sentence for.
 
-    ⚠ **`owned_runtime` CANNOT TRANSFER A CALLER TODAY, AND THE REFUSAL IS THE FEATURE.**
-    `engine/pipecat.PIPECAT_CAPABILITIES` declares `transfer=False` and
-    `in_call_handoff=False` — facts about a carrier surface nobody has read, not policy —
-    and `update_agent` already refuses to publish an agent carrying a handoff config on this
-    engine. So `not_available` is the only answer any deployment currently gives, and it is
-    the path to build first rather than the edge case.
-
-    What was there before this tool existed was WORSE than a refusal: with no tool at all a
-    model asked to fetch a human answers from its priors, says "putting you through now",
-    and the caller hears nothing happen. `build_knowledge_tool`'s posture applied to the
-    second-hardest question a caller asks — advertised and honest.
-
-    **THE WORKER DOES NOT TRUST `say` TO CARRY THAT INVARIANT.** `call_tools.py` keys its
-    own guidance on `status`, so an agent cannot be told it connected somebody unless this
-    field says `connected`, whatever prose an answer carries beside it.
+    No engine we run carries a second leg of ours, so `not_available` is the only answer
+    given today (`worker/in_call_tools.request_handoff_unplaced`). That is better than no
+    tool: a model asked to fetch a human with no tool at all answers from its priors, says
+    "putting you through now", and the caller hears nothing happen.
     """
 
     model_config = _STRICT
@@ -858,250 +254,22 @@ class HandoffToolOut(BaseModel):
     reason: str = ""
 
 
-# --- POST /v1/worker/agents/{engine_agent_ref}/caller-memory -----------------------------
-
-#: The most facts one answer carries, and the longest each may be. The server reads
-#: `compliance/caller_memory.RECALL_LIMIT` facts of at most `MAX_FACT_CHARS`, both below
-#: these; the bound is the wire's, so a changed server constant cannot grow the body unseen.
-MAX_RECALLED_FACTS: Final = 10
-MAX_RECALLED_FACT_CHARS: Final = 500
-
-
-class CallerMemoryIn(BaseModel):
-    """The number now ringing, as the container observed it.
-
-    In the BODY rather than the path or the query string: a request line is what an access
-    log records, and this one would carry a phone number (hard rule 6).
-    """
-
-    model_config = _STRICT
-
-    caller_e164: str = Field(pattern=r"^\+[1-9]\d{6,14}$")
-
-
-class CallerMemoryOut(BaseModel):
-    """What this agent remembers about the caller, newest first. Empty for a caller it has
-    not met, and for an agent whose client has not switched caller continuity on."""
-
-    model_config = _STRICT
-
-    facts: list[str] = Field(default_factory=list, max_length=MAX_RECALLED_FACTS)
-
-
-# --- the sealed caller claim on the stream URL ----------------------------------------
-#
-# `apps/voice-runtime/carrier_routes.py` reads the calling party off the carrier's answer
-# request and hands it to the worker on the stream URL it mints. Anything can open the
-# worker's socket, so a number on that URL is believed only when it opens under the key both
-# deployables hold (neither may import the other; both import this package).
-#
-# SEALED (AES-256-GCM, `calevate_shared.carrier_token`) RATHER THAN MAC'D, because a MAC
-# authenticates the number and leaves it in the clear: the stream URL is a request line, so
-# every proxy and edge between the carrier and Pipecat Cloud would log the caller's number
-# (hard rule 6). The sealed payload binds the number to ONE agent ref and a short expiry, so
-# a captured URL can neither be replayed onto another agent nor reused once it has expired.
-
-#: The query parameter carrying the sealed claim, beside `caller_state`.
-CALLER_SEAL_PARAM: Final = "caller_seal"
-
-#: The AEAD associated data a caller claim is sealed under, so a transfer token or any other
-#: sealed payload of ours can never be opened as a caller claim.
-CALLER_CLAIM_PURPOSE: Final = "caller-claim"
-
-#: How long a minted claim stays valid, in seconds. The carrier opens the stream straight
-#: after fetching the answer document, so this only has to cover that hop plus clock skew
-#: between the VPS and Pipecat Cloud; anything longer widens the replay window for nothing.
-CALLER_CLAIM_TTL_S: Final = 120
-
-#: How far in the future an expiry may lie before it is refused as not ours: the TTL plus
-#: a skew allowance. No minter of ours writes one further ahead.
-_CLAIM_MAX_FUTURE_S: Final = CALLER_CLAIM_TTL_S + 60
-
-#: The shortest key accepted, in bytes. ONE floor for the sealed claim and the call-claim
-#: HMAC derived from the same secret, so a secret one of them accepts the other cannot refuse.
-MIN_CALLER_CLAIM_KEY_BYTES: Final = carrier_token.MIN_SECRET_BYTES
-
-
-def usable_caller_claim_key(secret: str | None) -> bytes | None:
-    """The key as bytes, or `None` when it is absent or shorter than the floor.
-
-    `None` means "sign nothing / believe nothing", which is the safe reading on both sides:
-    the answer leg forwards the state without a number, and the worker never learns one.
-    """
-    usable = carrier_token.usable_secret(secret)
-    return None if usable is None else usable.encode()
-
-
-def seal_caller_claim(secret: str, *, ref: str, e164: str, now: float | None = None) -> str:
-    """The sealed claim the answer leg puts on the stream URL for one caller of one agent."""
-    return carrier_token.seal(
-        secret,
-        CALLER_CLAIM_PURPOSE,
-        {"ref": ref, "e164": e164},
-        ttl_s=CALLER_CLAIM_TTL_S,
-        now=now,
-    )
-
-
-def open_caller_claim(
-    secret: str | None, *, ref: str, token: str | None, now: float | None = None
-) -> str | None:
-    """The number our answer leg sealed for THIS ref, still in time, or `None`.
-
-    `None` on every failure — no key, no token, a forged or truncated token, another agent's
-    claim, an expired or far-future expiry, a payload without a number — and the caller treats
-    all of them alike: the number is not believed.
-    """
-    if not token or not ref:
-        return None
-    instant = time.time() if now is None else now
-    body = carrier_token.open_sealed(secret, CALLER_CLAIM_PURPOSE, token, now=instant)
-    if body is None or body.get("ref") != ref:
-        return None
-    expiry = body.get("exp")
-    if not isinstance(expiry, int) or expiry > instant + _CLAIM_MAX_FUTURE_S:
-        return None
-    e164 = body.get("e164")
-    return e164 if isinstance(e164, str) and e164 else None
-
-
-# --- the signed call claim on the stream URL (outbound dials) --------------------------
-#
-# An outbound call reaches the worker through the same answer route as an inbound one, so
-# the worker cannot read the direction or OUR call id off the socket. The answer leg mints
-# both onto the stream URL under an HMAC keyed by the same secret as the caller claim. The
-# two cannot stand in for each other: the claim is sealed under an HKDF-derived key and a
-# purpose label, the MAC is keyed by the secret itself. Without a valid one the worker
-# treats the call as inbound and mints its own id (see `UnverifiedCallClaim`).
-
-#: Query parameters carrying our call id, its direction, the MAC and its expiry.
-CALL_ID_PARAM: Final = "call"
-CALL_DIRECTION_PARAM: Final = "dir"
-CALL_CLAIM_MAC_PARAM: Final = "call_mac"
-CALL_CLAIM_EXPIRES_PARAM: Final = "call_exp"
-
-_CALL_CLAIM_DOMAIN: Final = b"calevate-call-claim-v1"
-
-
-def _call_claim_message(*, ref: str, call_id: str, direction: str, expires_at: int) -> bytes:
-    return b"\x00".join(
-        (
-            _CALL_CLAIM_DOMAIN,
-            ref.encode(),
-            call_id.encode(),
-            direction.encode(),
-            str(expires_at).encode(),
-        )
-    )
-
-
-def call_claim_mac(
-    key: bytes, *, ref: str, call_id: str, direction: CallDirection, expires_at: int
-) -> str:
-    """The MAC the answer leg puts on the stream URL for one dialled call of one agent."""
-    message = _call_claim_message(
-        ref=ref, call_id=call_id, direction=direction, expires_at=expires_at
-    )
-    return hmac.new(key, message, hashlib.sha256).hexdigest()
-
-
-def verify_call_claim(
-    key: bytes | None,
-    *,
-    ref: str,
-    call_id: str | None,
-    direction: str | None,
-    expires_at: str | None,
-    mac: str | None,
-    now: float,
-) -> bool:
-    """Is this (call id, direction) what our answer leg minted for this ref, still in time?
-
-    False on every failure, and the worker then falls back to an inbound call with a
-    freshly minted id. A direction outside `CallDirection` is refused before the MAC.
-    """
-    if key is None or not mac or not expires_at or not call_id or not ref:
-        return False
-    if direction not in ("inbound", "outbound"):
-        return False
-    try:
-        expiry = int(expires_at)
-    except ValueError:
-        return False
-    if expiry < now or expiry > now + _CLAIM_MAX_FUTURE_S:
-        return False
-    expected = call_claim_mac(
-        key,
-        ref=ref,
-        call_id=call_id,
-        direction=direction,  # type: ignore[arg-type]
-        expires_at=expiry,
-    )
-    return hmac.compare_digest(mac.encode(), expected.encode())
-
-
 __all__ = [
-    "CALLER_CLAIM_PURPOSE",
-    "CALLER_CLAIM_TTL_S",
-    "CALLER_SEAL_PARAM",
-    "CALL_CLAIM_EXPIRES_PARAM",
-    "CALL_CLAIM_MAC_PARAM",
-    "CALL_DIRECTION_PARAM",
-    "CALL_ID_PARAM",
-    "DEFAULT_CALL_CAP_S",
     "DEGRADED_KNOWLEDGE_STATES",
     "KNOWLEDGE_STATES",
-    "MAX_EVENTS_PER_BATCH",
     "MAX_IDENTIFIER",
-    "MAX_LATENCY_TURNS",
-    "MAX_LATENCY_WARNINGS",
-    "MAX_METERED_QTY",
-    "MAX_QUANTITIES",
-    "MAX_RECALLED_FACTS",
-    "MAX_RECALLED_FACT_CHARS",
-    "MAX_REFUSALS",
-    "MAX_REFUSAL_TEXT",
-    "MAX_SPEAKING_SEQ",
     "MAX_TOOL_TEXT",
-    "MAX_TURNS_PER_BATCH",
-    "METERED_LEGS",
-    "MIN_CALLER_CLAIM_KEY_BYTES",
-    "SETTLEMENT_STATUSES",
-    "AttestationIn",
-    "AttestationOut",
     "CallbackBookIn",
     "CallbackCancelIn",
     "CallbackCancelOut",
     "CallbackToolOut",
     "CallerIdentityIn",
     "CallerIdentityState",
-    "CallerMemoryIn",
-    "CallerMemoryOut",
-    "CarrierCallId",
     "HandoffOutcome",
     "HandoffToolIn",
     "HandoffToolOut",
-    "KnowledgeReport",
     "KnowledgeState",
     "KnowledgeUnavailableReason",
-    "MeteredLegName",
-    "MeteredQuantity",
-    "ObservationBatch",
-    "ObservationsOut",
     "OptOutToolIn",
     "OptOutToolOut",
-    "SettlementOut",
-    "SettlementRefusal",
-    "SettlementRequest",
-    "SettlementStatus",
-    "SpeakingSide",
-    "SpeakingStateIn",
-    "SpeakingStateOut",
-    "UnverifiedCallClaim",
-    "WorkerSessionOut",
-    "call_claim_mac",
-    "open_caller_claim",
-    "seal_caller_claim",
-    "usable_caller_claim_key",
-    "verify_call_claim",
 ]

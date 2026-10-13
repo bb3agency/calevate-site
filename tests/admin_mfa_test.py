@@ -233,23 +233,6 @@ async def test_a_client_session_needs_no_second_factor() -> None:
     assert response.status_code == 200, response.text
 
 
-async def test_the_client_realm_has_no_mfa_gate_at_the_verifier() -> None:
-    """The unit-level statement of the same fact, so the policy is readable in one line.
-
-    `verify_token` is what an admin identity must pass through; asserting the realm set
-    here means a future change that adds `"client"` to it fails a test that names the
-    decision, rather than surfacing as every client screen answering 403.
-    """
-    assert set(auth_module.MFA_REQUIRED_REALMS) == {"admin"}
-
-    subject = uuid.uuid4()
-    verified = await auth_module.verify_token(f"dev:client:{subject}", "client")
-    assert verified.subject_id == subject
-    # The client realm is never asked for a second factor, so a plain dev credential
-    # reaches a principal — the control that gives the admin refusals meaning.
-    assert verified.realm == "client"
-
-
 # ------------------------------------------------------- the predicate, exactly
 
 

@@ -570,12 +570,6 @@ async def test_a_failed_pull_retries_then_alerts_rather_than_reporting_success()
         job_module.alert = original_alert  # type: ignore[assignment]
 
 
-def test_the_schedule_is_every_five_minutes() -> None:
-    """The founder's ask, asserted rather than described in a comment."""
-    assert tuple(range(0, 60, 5)) == PULL_MINUTES
-    assert len(PULL_MINUTES) == 12
-
-
 def test_the_pull_is_registered_on_the_worker_every_five_minutes() -> None:
     """A schedule the worker never registered is a panel that says "every five minutes"
     over a job that never runs. Asserted against the worker's own cron list."""

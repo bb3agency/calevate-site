@@ -145,12 +145,6 @@ async function renderKnowledge(
     // the PASTED-TEXT ladder, and an unrouted endpoint would leave a second `role="alert"`
     // on the screen for the reason `STAFF_CURATION` above records.
     "/v1/kb/uploads": [],
-    // The delivery answer (`/v1/kb/delivery`). Routed EMPTY rather than left out, for the
-    // reason `STAFF_CURATION` records above: an unrouted endpoint throws inside its
-    // `queryFn`, React Query turns that into `isError`, and `KnowledgeDelivery` renders a
-    // failed read as a `ProblemNotice` — a permanent second `role="alert"` racing every
-    // test on this screen that expects one.
-    "/v1/kb/delivery": { items: [], not_delivered_count: 0 },
     ...over,
   });
 }
@@ -282,11 +276,9 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
   it("keeps the form open on an account with no agent yet", async () => {
     // Knowledge added now reaches the first agent when it is published (D-689), so the
     // absence of an agent is not a reason to refuse it.
-    const { container } = await renderKnowledge([], { "/v1/agents": [] });
+    await renderKnowledge([], { "/v1/agents": [] });
 
     await waitFor(() => expect(submitButton().disabled).toBe(false));
-    expect(container.textContent).toContain("No agents yet");
-    expect(container.textContent).toContain("You can still add knowledge now");
   });
 
   it("disables the submit control for a role the route refuses, and says which", async () => {

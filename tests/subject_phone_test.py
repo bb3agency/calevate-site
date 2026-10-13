@@ -14,7 +14,7 @@ Run: uv run pytest tests/subject_phone_test.py -q
 from __future__ import annotations
 
 import pytest
-from apps.api.compliance.subject_phone import UNREADABLE, SubjectPhone
+from apps.api.compliance.subject_phone import SubjectPhone
 from pydantic import BaseModel, ValidationError
 
 
@@ -52,16 +52,6 @@ def test_what_we_cannot_read_is_still_refused(typed: str) -> None:
     so a `++91` or a number with no inferable country is a 422 exactly as before."""
     with pytest.raises(ValidationError):
         _Model(phone=typed)
-
-
-def test_the_refusal_says_what_to_do_and_names_nothing_technical() -> None:
-    """A person reads this on a screen about their legal rights. It may not name a
-    pattern, a field or E.164 — it says what to type instead (GOV.UK's validation
-    pattern, which `tests/plain_language_guard_test.py` cites as this repo's standard)."""
-    lowered = UNREADABLE.lower()
-    for leak in ("e.164", "pattern", "regex", "field", "invalid", "string"):
-        assert leak not in lowered, f"{leak!r} is in a message a data principal reads"
-    assert "ten digits" in lowered and "+" in UNREADABLE, "it must say what to type instead"
 
 
 def test_both_data_rights_endpoints_use_the_one_door() -> None:

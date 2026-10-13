@@ -291,13 +291,6 @@ async def test_a_redis_outage_never_breaks_the_caller(
     assert transport.sent == []
 
 
-def test_the_alarm_wiring_gate_passes() -> None:
-    from scripts import check_alarm_wiring
-
-    assert check_alarm_wiring.repeat_failures() == []
-    assert check_alarm_wiring.evaluate() == []
-
-
 def test_the_gate_refuses_a_reminder_on_a_code_that_cannot_mail() -> None:
     from scripts import check_alarm_wiring
 

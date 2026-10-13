@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import importlib.util
 import uuid
+from collections.abc import Callable, Iterator
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from types import ModuleType
@@ -43,8 +45,8 @@ from apps.api.agents.llm_models import (
     CLIENT_UNAVAILABLE_REASON,
     LLM_MODEL_SOURCES,
     available_models,
-    deployment_for,
     every_selectable_model_is_priced,
+    install_llm_credential_reader,
     offerable_models,
     resolve_llm_model,
     selectable_models,
@@ -56,7 +58,12 @@ from apps.api.agents.llm_routes import router as llm_router
 from apps.api.agents.llm_tiers import LLM_TIERS, tier_of_model
 from apps.api.agents.routes import router as agents_router
 from apps.api.agents.service import publish_agent
-from apps.api.billing.rates import PRICED_LLM_MODELS, llm_cost_inr_per_minute
+from apps.api.billing.rates import (
+    PRICED_LLM_MODELS,
+    LlmPriceAttestation,
+    install_llm_price_attestations,
+    llm_cost_inr_per_minute,
+)
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.core.settings import get_settings
@@ -90,12 +97,15 @@ API_KEY = "azure-static-key-under-test"
 #: The deployment for the PLATFORM's model. Deliberately unlike any model identifier, so a
 #: test that confuses a deployment with a model fails rather than coincidentally passing.
 DEFAULT_DEPLOYMENT = "calevate-voice-default"
-#: The deployment an operator would create for the OTHER allow-listed model.
-ALTERNATE_DEPLOYMENT = "calevate-voice-alt"
 
-#: The allow-listed model that is NOT the shipped default — named by derivation rather
-#: than typed, so a change to the Literal moves this file with it (D-104).
+#: The Azure model the deployment was NOT made from: permitted, but not addressable here.
+#: Named by derivation rather than typed, so a change to the Literal moves this file with it
+#: (D-104).
 ALTERNATE_MODEL = next(iter(AZURE_OPENAI_MODELS - {AZURE_OPENAI_DEFAULT_MODEL}))
+
+#: A second model a client can really choose: one Azure deployment serves one model, so the
+#: other choice is on the OpenAI direct leg, with its key installed and its price attested.
+SECOND_MODEL = min(m for m in OPENAI_DIRECT_MODELS if m in SELECTABLE_LLM_MODELS)
 
 
 def _load_revision(stem: str) -> ModuleType:
@@ -113,8 +123,8 @@ def _load_revision(stem: str) -> ModuleType:
     return module
 
 
-def _azure(monkeypatch: pytest.MonkeyPatch, *, deployments: str = "") -> None:
-    """A deployment with a complete Azure leg, and whatever extra deployments are named."""
+def _azure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A deployment with a complete Azure leg, made from the platform's default model."""
     settings = get_settings()
     for field, value in (
         ("azure_openai_resource", RESOURCE),
@@ -127,9 +137,8 @@ def _azure(monkeypatch: pytest.MonkeyPatch, *, deployments: str = "") -> None:
         # this fixture installs no key for. `azure_openai_model` no longer answers for it —
         # that field says which model the DEPLOYMENT was made from and nothing else.
         ("platform_llm_model", AZURE_OPENAI_DEFAULT_MODEL),
-        ("azure_openai_deployments", deployments),
-        # The client chooses TIERS (D-680); on this fixture the two tiers that matter point at
-        # the two Azure models, so a tier choice exercises exactly the leg configured here.
+        # The client chooses TIERS (D-680); on this fixture the plus tier points at the Azure
+        # model the deployment was not made from, so choosing it meets the refusal.
         ("llm_tier_standard_model", AZURE_OPENAI_DEFAULT_MODEL),
         ("llm_tier_plus_model", ALTERNATE_MODEL),
     ):
@@ -145,18 +154,36 @@ async def _keep_patched_settings(*, force: bool = False) -> None:
     del force
 
 
-def _azure_leg_for_both_models(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A deployment that can actually serve BOTH allow-listed models — the state a client
-    picking between them is in.
+def _second_model_attestation() -> LlmPriceAttestation:
+    return LlmPriceAttestation(
+        model=SECOND_MODEL,
+        input_usd_per_mtok=Decimal("0.75"),
+        output_usd_per_mtok=Decimal("4.50"),
+        read_on=date(2026, 9, 1),
+        attested_by="founder",
+        source="OpenAI invoice under test",
+    )
 
-    Every route test below that CHOOSES a model needs this, and needed it from the moment a
-    credential became one of the three offerability conditions: with no Azure leg configured
-    there is nothing to choose from, because the engine's passthrough runs the engine's own
-    bundled models rather than ours (see `test_with_no_azure_leg_no_model_is_offerable_on_
-    any_leg`). They used to run on `_no_azure`, which offered every Azure model on a
-    deployment with no Azure — the defect this file now pins.
+
+def _azure_leg_for_both_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two models a client can actually choose between: the Azure deployment's, and
+    `SECOND_MODEL` on the OpenAI direct leg with its key installed and its price attested.
+
+    Every route test below that CHOOSES a model needs this: with no leg configured there is
+    nothing to choose from (`test_with_no_azure_leg_no_model_is_offerable_on_any_leg`). The
+    plus tier points at `SECOND_MODEL` here.
     """
-    _azure(monkeypatch, deployments=f"{ALTERNATE_MODEL}={ALTERNATE_DEPLOYMENT}")
+    _azure(monkeypatch)
+    monkeypatch.setattr(get_settings(), "llm_tier_plus_model", SECOND_MODEL, raising=False)
+    install_llm_credential_reader(lambda: frozenset({"azure_openai", "openai"}))
+    install_llm_price_attestations(lambda: {SECOND_MODEL: _second_model_attestation()})
+
+
+@pytest.fixture(autouse=True)
+def _uninstall_readers() -> Iterator[None]:
+    yield
+    install_llm_credential_reader(None)
+    install_llm_price_attestations(None)
 
 
 def _no_azure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -165,7 +192,6 @@ def _no_azure(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = get_settings()
     for field in ("azure_openai_resource", "azure_openai_api_key", "azure_openai_deployment"):
         monkeypatch.setattr(settings, field, None, raising=False)
-    monkeypatch.setattr(settings, "azure_openai_deployments", "", raising=False)
 
 
 # --- 1. the three levels ---------------------------------------------------------------
@@ -206,8 +232,8 @@ def test_the_platform_default_and_the_azure_deployments_model_are_two_settings(
 ) -> None:
     """They were ONE field, and the founder's answer is a model the Azure Literal cannot hold.
 
-    `azure_openai_model` keeps its own job — which model the DEPLOYMENT was made from, hence
-    which deployment `deployment_for` returns from the singular field — and must not follow
+    `azure_openai_model` keeps its own job — which model the DEPLOYMENT was made from, and
+    hence which Azure model is offerable — and must not follow
     the platform default anywhere.
     """
     _azure(monkeypatch)
@@ -215,29 +241,9 @@ def test_the_platform_default_and_the_azure_deployments_model_are_two_settings(
         get_settings(), "platform_llm_model", "gemini-2.5-flash-lite", raising=False
     )
     assert llm_models.platform_default_model() == "gemini-2.5-flash-lite"
-    # The singular deployment field still answers for the AZURE model, not for the platform's.
-    assert deployment_for(AZURE_OPENAI_DEFAULT_MODEL) == DEFAULT_DEPLOYMENT
-    assert deployment_for("gemini-2.5-flash-lite") is None
-
-
-def test_a_platform_default_on_a_leg_with_no_key_publishes_on_the_engines_own_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The state every unconfigured deployment is in, including CI and every local run, and
-    the state the founder's is in until the Google key and the price attestation land.
-
-    Nobody chose, and we hold no credential for the leg the platform default runs on: the
-    engine answers from its OWN default rather than the publish refusing. A CHOICE we cannot
-    address is still the loud refusal — that half is asserted in
-    `tests/in_call_llm_provider_test.py`.
-    """
-    _no_azure(monkeypatch)
-    monkeypatch.setattr(
-        get_settings(), "platform_llm_model", "gemini-2.5-flash-lite", raising=False
-    )
-    from apps.api.agents import service
-
-    assert service.in_call_llm(None) == {"llm_model": None}
+    # The deployment still serves the AZURE model, not the platform's.
+    assert AZURE_OPENAI_DEFAULT_MODEL in offerable_models()
+    assert "gemini-2.5-flash-lite" not in offerable_models()
 
 
 def test_the_platform_answers_last_and_is_the_live_setting_not_the_frozen_constant(
@@ -271,17 +277,6 @@ def test_with_no_azure_leg_no_model_is_offerable_on_any_leg(
     a heading reading AZURE OPENAI, priced, selectable, one of them badged as the model
     running now. The founder asked why, having configured no Azure account.
 
-    **THIS TEST USED TO ASSERT THE OPPOSITE**, on the ground that `in_call_llm` sends the
-    model identifier straight to the engine so "anything the Azure catalogue admits can
-    genuinely run". The premise is true and the conclusion did not follow: the engine's
-    passthrough serves those two identifiers from its OWN bundled tier, where they are
-    OPENAI models and the Azure spellings are different wire values —
-    `gpt-4.1-mini`/`gpt-4o-mini` under OpenAI against `azure/gpt-4.1-mini`/`azure/gpt-4o-mini`
-    under Azure OpenAI (VERIFIED-VENDOR-DOCS,
-    `bolna-findings/mirror/pages/pricing/preferred-models.md:69-74`) — and are inside the
-    engine's flat per-minute rate rather than our per-token Azure card (same page, :12). So
-    the row named a vendor the call would not touch and quoted a price nobody would pay.
-
     All three legs now answer one question: is a credential installed? None is, so nothing is
     offerable — and every row says so rather than going missing (the test below).
     """
@@ -299,23 +294,13 @@ def test_an_azure_key_alone_does_not_offer_a_model_the_deployment_map_cannot_add
     assert not offerable_models() & (OPENAI_DIRECT_MODELS | GOOGLE_DIRECT_MODELS)
 
 
-def test_with_an_azure_leg_only_the_models_with_a_deployment_are_addressable(
+def test_with_an_azure_leg_only_the_model_the_deployment_was_made_from_is_addressable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _azure(monkeypatch)
     assert offerable_models() == {AZURE_OPENAI_DEFAULT_MODEL}
-    _azure(monkeypatch, deployments=f"{ALTERNATE_MODEL}={ALTERNATE_DEPLOYMENT}")
-    assert offerable_models() == AZURE_OPENAI_MODELS
-
-
-def test_the_platform_models_deployment_comes_from_its_own_field_and_the_map_cannot_win(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Two fields, no model named twice — and if one ever is, the field the engine's
-    credential store is populated from wins. Letting the map win would point published
-    agents at one deployment and the vendor's own credential entry at another."""
-    _azure(monkeypatch, deployments=f"{AZURE_OPENAI_DEFAULT_MODEL}=someone-elses-deployment")
-    assert deployment_for(AZURE_OPENAI_DEFAULT_MODEL) == DEFAULT_DEPLOYMENT
+    monkeypatch.setattr(get_settings(), "azure_openai_model", ALTERNATE_MODEL, raising=False)
+    assert offerable_models() == {ALTERNATE_MODEL}
 
 
 def test_a_cleared_deployment_field_is_not_a_deployment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -323,18 +308,18 @@ def test_a_cleared_deployment_field_is_not_a_deployment(monkeypatch: pytest.Monk
     deployment id — returning it would build a URL addressing a host and no model."""
     _azure(monkeypatch)
     monkeypatch.setattr(get_settings(), "azure_openai_deployment", "   ", raising=False)
-    assert deployment_for(AZURE_OPENAI_DEFAULT_MODEL) is None
+    assert AZURE_OPENAI_DEFAULT_MODEL not in offerable_models()
 
 
 @pytest.mark.parametrize(
-    ("deployments", "why"),
+    ("configure", "why"),
     [
-        ("", "nothing configured beyond the platform's own model"),
-        (f"{ALTERNATE_MODEL}={ALTERNATE_DEPLOYMENT}", "both models deployed"),
+        (_azure, "nothing configured beyond the platform's own model"),
+        (_azure_leg_for_both_models, "a second leg with its key and an attested price"),
     ],
 )
 def test_the_offered_set_and_the_addressable_set_are_the_same_set(
-    monkeypatch: pytest.MonkeyPatch, deployments: str, why: str
+    monkeypatch: pytest.MonkeyPatch, configure: Callable[[pytest.MonkeyPatch], None], why: str
 ) -> None:
     """**THE INVARIANT.** A model that can be offered must be one the wire can address,
     and a model the wire can address must be offered — in both directions, so neither
@@ -344,7 +329,7 @@ def test_the_offered_set_and_the_addressable_set_are_the_same_set(
     menu marks available, what the validator accepts, and what `offerable_models()`
     says can run.
     """
-    _azure(monkeypatch, deployments=deployments)
+    configure(monkeypatch)
     addressable = offerable_models()
 
     offered = {option.model for option in available_models() if option.is_available}
@@ -473,19 +458,6 @@ def test_null_is_always_accepted_because_it_means_inherit(monkeypatch: pytest.Mo
     platform, and a validator that refused it would strand whoever chose first."""
     _azure(monkeypatch)
     assert validate_llm_model(None, field="llm_model") is None
-
-
-def test_the_chosen_model_picks_the_deployment_and_the_priced_half_agrees(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The wire half of the whole feature: choosing the dearer model addresses the DEARER
-    model's deployment, not the default one. Before D-454 this call returned
-    `DEFAULT_DEPLOYMENT` whatever was chosen."""
-    from apps.api.agents import service
-
-    _azure(monkeypatch, deployments=f"{ALTERNATE_MODEL}={ALTERNATE_DEPLOYMENT}")
-    assert service.in_call_llm(ALTERNATE_MODEL)["llm_model"] == ALTERNATE_DEPLOYMENT
-    assert service.in_call_llm(None)["llm_model"] == DEFAULT_DEPLOYMENT
 
 
 # --- 3. every selectable model is priced -------------------------------------------------
@@ -692,7 +664,7 @@ async def test_an_agent_reports_its_tier_and_which_level_chose_it(
         stored = (
             await session.execute(text("SELECT default_llm_model FROM organizations"))
         ).scalar()
-    assert stored == ALTERNATE_MODEL
+    assert stored == SECOND_MODEL
 
 
 def _assert_names_no_model(body: str) -> None:
@@ -863,25 +835,25 @@ async def test_an_operator_can_set_it_for_any_client_and_the_change_is_audited(
             written = await client.put(
                 f"/v1/admin/organizations/{tenant_id}/llm-defaults",
                 headers={"Authorization": f"Bearer {operator}"},
-                json={"default_llm_model": ALTERNATE_MODEL},
+                json={"default_llm_model": SECOND_MODEL},
             )
             assert written.status_code == 200, written.text
-            assert written.json()["default_llm_model"] == ALTERNATE_MODEL
+            assert written.json()["default_llm_model"] == SECOND_MODEL
 
             read_back = await client.get(
                 f"/v1/admin/organizations/{tenant_id}/llm-defaults",
                 headers={"Authorization": f"Bearer {operator}"},
             )
             assert read_back.status_code == 200, read_back.text
-            assert read_back.json()["effective_default"] == ALTERNATE_MODEL
+            assert read_back.json()["effective_default"] == SECOND_MODEL
             # The operator sees each agent's real model; the client realm reads tiers.
             in_force = {row["agent_id"]: row for row in read_back.json()["agents"]}
-            assert in_force[str(_agent_id)]["llm_model_effective"] == ALTERNATE_MODEL
+            assert in_force[str(_agent_id)]["llm_model_effective"] == SECOND_MODEL
             assert in_force[str(_agent_id)]["llm_model_source"] == "organization"
             assert {row["tier"] for row in read_back.json()["available"]} <= {*LLM_TIERS}
 
     assert "admin.organization_llm_default_set" in await _audited_actions(tenant_id)
-    assert _summaries(caplog) == [{"default_llm_model": ALTERNATE_MODEL, "changed": True}]
+    assert _summaries(caplog) == [{"default_llm_model": SECOND_MODEL, "changed": True}]
 
 
 async def test_a_client_setting_their_own_default_is_audited(
@@ -900,7 +872,7 @@ async def test_a_client_setting_their_own_default_is_audited(
     assert response.status_code == 200, response.text
 
     assert await _audited_actions(tenant_id) >= {"organization.llm_default_set"}
-    assert _summaries(caplog) == [{"default_llm_model": ALTERNATE_MODEL, "changed": True}]
+    assert _summaries(caplog) == [{"default_llm_model": SECOND_MODEL, "changed": True}]
 
 
 async def _audited_actions(tenant_id: uuid.UUID) -> set[str]:
@@ -976,22 +948,10 @@ async def test_the_agents_own_model_change_is_audited_with_the_model(
                 assert response.status_code == 200, response.text
 
     assert _summaries(caplog) == [
-        {"fields": "llm_tier", "llm_model": ALTERNATE_MODEL},
+        {"fields": "llm_tier", "llm_model": SECOND_MODEL},
         {"fields": "llm_tier", "llm_model": None},
         {"fields": "name"},
     ]
-
-
-async def _engine_model(engine: FakeEngine, ref: str) -> str | None:
-    """What this engine is HOLDING for that agent, on the LLM leg.
-
-    Through `get_agent`, the adapter's own read-back, rather than by reaching into its
-    dictionary: `publish_agent` verifies through the same call, so a test that read the
-    private store could pass while the read-back a publish depends on answered otherwise.
-    """
-    snapshot = await engine.get_agent(ref)
-    assert snapshot.models is not None
-    return snapshot.models.llm_model
 
 
 async def _published(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:
@@ -1037,11 +997,14 @@ async def test_moving_the_account_default_reaches_the_agents_it_moves(
     ref = await _published(tenant_id, agent_id)
     engine = get_engine()
     assert isinstance(engine, FakeEngine)
-    # Nobody has chosen, so the platform's own model answers — and on a deployment WITH an
-    # Azure leg the wire value is that model's DEPLOYMENT ID, never its name (D-454). This
-    # used to run with no Azure leg at all and assert `None`, which stopped being a state a
-    # client can choose a model from once a credential became an offerability condition.
-    assert await _engine_model(engine, ref) == DEFAULT_DEPLOYMENT
+    published: list[str] = []
+    original = engine.update_agent
+
+    async def counting(agent_ref: str, config: AgentConfig) -> None:
+        published.append(str(agent_ref))
+        await original(agent_ref, config)
+
+    monkeypatch.setattr(engine, "update_agent", counting)
 
     draft_id = await _second_agent(tenant_id)
     async with _client(_app()) as client:
@@ -1053,7 +1016,7 @@ async def test_moving_the_account_default_reaches_the_agents_it_moves(
         assert put.status_code == 200, put.text
 
     await drain_live_apply(tenant_id)
-    assert await _engine_model(engine, ref) == ALTERNATE_DEPLOYMENT
+    assert published == [ref]
     async with tenant_session(tenant_id) as session:
         draft = (
             await session.execute(
@@ -1069,10 +1032,10 @@ async def test_an_agent_with_its_own_model_is_left_where_it_is(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The account default moves the agents that INHERIT it and no others — the sentence
-    both screens print, checked against the config the engine is actually holding."""
+    both screens print, checked against the agent's stored choice."""
     _azure_leg_for_both_models(monkeypatch)
     tenant_id, agent_id, bearer = await _tenant()
-    ref = await _published(tenant_id, agent_id)
+    await _published(tenant_id, agent_id)
     headers = {"Authorization": f"Bearer {bearer}"}
 
     async with _client(_app()) as client:
@@ -1090,10 +1053,13 @@ async def test_an_agent_with_its_own_model_is_left_where_it_is(
         assert moved.status_code == 200, moved.text
 
     await drain_live_apply(tenant_id)
-    engine = get_engine()
-    assert isinstance(engine, FakeEngine)
-    # The agent's OWN choice, addressed as the deployment serving it.
-    assert await _engine_model(engine, ref) == DEFAULT_DEPLOYMENT
+    async with tenant_session(tenant_id) as session:
+        own = (
+            await session.execute(
+                text("SELECT llm_model FROM agents WHERE id = :aid"), {"aid": agent_id}
+            )
+        ).scalar()
+    assert own == AZURE_OPENAI_DEFAULT_MODEL
 
 
 async def test_re_sending_the_value_already_on_file_pushes_nothing(
@@ -1132,10 +1098,10 @@ async def test_re_sending_the_value_already_on_file_pushes_nothing(
     await drain_live_apply(tenant_id)
     assert published == [ref]
     assert _summaries(caplog) == [
-        {"default_llm_model": ALTERNATE_MODEL, "changed": True},
-        {"default_llm_model": ALTERNATE_MODEL, "changed": False},
+        {"default_llm_model": SECOND_MODEL, "changed": True},
+        {"default_llm_model": SECOND_MODEL, "changed": False},
     ]
-    assert (await _read_org_default(tenant_id)) == ALTERNATE_MODEL
+    assert (await _read_org_default(tenant_id)) == SECOND_MODEL
 
 
 async def _read_org_default(tenant_id: uuid.UUID) -> str | None:
@@ -1158,64 +1124,6 @@ async def _second_agent(tenant_id: uuid.UUID) -> uuid.UUID:
             language_primary="te-IN",
             max_call_duration_s=None,
         )
-
-
-async def test_a_model_whose_deployment_was_removed_refuses_the_go_live_in_words(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """THE REFUSAL A CLIENT ACTUALLY MEETS, at the button that puts an agent on the phone.
-
-    `in_call_llm` refuses to publish a model with no deployment, and the unit test for that
-    calls the decision point directly. This is the other half: what the person pressing
-    "go live" is told. It must be a 422 problem+json naming the model and what to do — a
-    `business_rule`, not a 500 — because the state is reachable by an operator removing a
-    `model=deployment` entry under an account that had already chosen, and the client who
-    then cannot activate their agent has to be told something they can act on.
-    """
-    _azure(monkeypatch, deployments=f"{ALTERNATE_MODEL}={ALTERNATE_DEPLOYMENT}")
-    tenant_id, agent_id, bearer = await _tenant()
-    headers = {"Authorization": f"Bearer {bearer}"}
-    async with tenant_session(tenant_id) as session:
-        await prompts.write_prompt_version(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            body="Greet the caller in Telugu and take their appointment details.",
-            notes=None,
-            created_by=None,
-        )
-
-    async with _client(_app()) as client:
-        chosen = await client.put(
-            "/v1/organization/llm-defaults",
-            headers=headers,
-            json={"default_llm_tier": "plus"},
-        )
-        assert chosen.status_code == 200, chosen.text
-
-        # The operator removes the deployment the account is now on.
-        _azure(monkeypatch)
-
-        refused = await client.post(f"/v1/agents/{agent_id}/activate", headers=headers)
-
-    assert refused.status_code == 422, refused.text
-    assert refused.headers["content-type"].startswith("application/problem+json")
-    body = refused.json()
-    assert body["type"].endswith("/llm_model_not_deployed")
-    assert body["kind"] == "business_rule"
-    # The client is told the TIER, never the model behind it (D-680).
-    assert "Plus" in body["detail"]
-    assert ALTERNATE_MODEL not in body["detail"]
-    assert body["remediation"]
-    # And nothing was half-done: the agent is still a draft, not a live agent nobody can
-    # publish.
-    async with tenant_session(tenant_id) as session:
-        status = (
-            await session.execute(
-                text("SELECT status FROM agents WHERE id = :aid"), {"aid": agent_id}
-            )
-        ).scalar()
-    assert str(status) == "draft"
 
 
 # --- 5. hard rule 1 ------------------------------------------------------------------------
@@ -1269,7 +1177,7 @@ async def test_a_neighbours_model_default_is_invisible_and_unwritable(
 async def test_the_database_refuses_a_model_the_api_would_have_refused() -> None:
     """The CHECK is not belt-and-braces for the validator: a restore that lands without
     constraints, an importer, or an operator's hand-run UPDATE during an incident all
-    reach these columns without passing a Pydantic model, and `in_call_llm` reads the
+    reach these columns without passing a Pydantic model, and the publish reads the
     result on a live phone line."""
     tenant_id, agent_id, _bearer = await _tenant()
     for statement, params in (

@@ -36,7 +36,6 @@ from tests.platform_support import requires_uvloop_platform
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = REPO_ROOT / "compose.prod.yml"
 VOICE_RUNTIME_PYPROJECT = REPO_ROOT / "apps" / "voice-runtime" / "pyproject.toml"
-DEPLOYMENT_DOC = REPO_ROOT / "docs" / "DEPLOYMENT.md"
 
 
 def _voice_runtime_command() -> list[str]:
@@ -127,18 +126,3 @@ def test_the_shipped_worker_count_is_the_one_the_measurement_prescribes() -> Non
         f"{workers[0]} no longer defaults to 4 processes, which is what DEPLOYMENT §2a "
         "derives for production from D-55's measured rate"
     )
-
-
-def test_the_document_still_says_what_this_file_is_checking() -> None:
-    """A guard whose premise has silently moved is worse than no guard.
-
-    If someone re-measures on a different host and rewrites §2a, these assertions should
-    be revisited in the same change rather than left pinning a number the document no
-    longer claims.
-    """
-    doc = DEPLOYMENT_DOC.read_text(encoding="utf-8")
-    assert "uvloop" in doc, (
-        "DEPLOYMENT.md no longer mentions uvloop, but this file pins it as a premise of "
-        "the ack budget — re-read §2a and update both together"
-    )
-    assert "--workers" in doc, "DEPLOYMENT.md no longer prescribes a worker count"

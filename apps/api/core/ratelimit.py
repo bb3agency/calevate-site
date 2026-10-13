@@ -156,32 +156,14 @@ PROFILES: dict[str, LimitProfile] = {
     # read and five Decimal divisions — no database, no vendor, nothing a flood can
     # amplify. No tenant dimension because there is no tenant.
     "public_read": LimitProfile("public_read", per_client=600, per_tenant=None),
-    # The voice worker's own door (`/v1/worker/**`), for `webhook_ingest`'s reason and
-    # with the same relationship inverted: the caller is a container on Pipecat Cloud serving
-    # EVERY tenant from whatever egress address the platform gives it, so a per-caller
-    # ceiling is a near-global one. Under `client_api` this sat at 240/min for the whole
-    # platform, and one live call costs roughly seven requests a minute (an 8-turn batch
-    # every 10s, plus the session read and the settlement) — so about 34 concurrent calls
-    # saturated it. The 429 is not a retry-and-carry-on: a dropped SETTLEMENT is the only
-    # producer of the post-call outbox row on this engine, and there is no poller behind it,
-    # so it loses that call's extraction, CRM columns and lead permanently.
-    #
-    # The tenant dimension is deliberately absent: the tenant is inside the call ref in the
-    # path, not a segment we can key on, and the bound that matters here is the platform's.
-    #
-    # 600 is the platform's declared per-caller ceiling and the same number
-    # `webhook_ingest` takes for the same reason — about 85 concurrent calls of headroom
-    # at seven requests each. Going past it is a decision-log entry, not a number typed here
-    # (`tests/rate_limit_census_test.py` enforces exactly that).
+    # The voice engine's door (`/v1/worker/**`: in-call actions and caller lookups), for
+    # `webhook_ingest`'s reason: the caller is the engine serving EVERY tenant from a
+    # handful of egress addresses, so a per-caller ceiling is a near-global one, and a 429
+    # here is a caller whose opt-out or call-back was not recorded. The tenant dimension is
+    # absent because the tenant is resolved from the per-agent secret, not a path segment.
+    # 600 is the platform's declared per-caller ceiling, `webhook_ingest`'s number; going
+    # past it is a decision-log entry (`tests/rate_limit_census_test.py`).
     "worker_api": LimitProfile("worker_api", per_client=600, per_tenant=None),
-    # The worker's live speaking state (D-656), in a bucket of its own so that the busiest
-    # minute of conversation on the platform can never 429 a settlement — the settlement is
-    # the only producer of a call's post-call row, and the speaking state is decoration the
-    # worker drops on any refusal. The worker sends a state only when it has held for its
-    # debounce, plus a heartbeat while someone is mid-sentence, so a call costs a few dozen a
-    # minute: this ceiling is roughly twenty concurrent calls at full fidelity, after which
-    # the indicator lags and nothing else does. Raising it is a decision-log entry.
-    "worker_live": LimitProfile("worker_live", per_client=600, per_tenant=None),
     # Anything the table does not name: 404 probes, a path that has not been routed yet.
     # NOT reachable from a mounted API route — the census test fails the build first —
     # so this exists purely so that scanning for unrouted paths is not free.
@@ -292,9 +274,6 @@ RULES: tuple[Rule, ...] = (
     # `client_api`'s — which was sized for one signed-in person, not for a site.
     Rule("/v1/public/**", "public_read"),
     Rule("/v1/worker/**", "worker_api"),
-    # A FAMILY rule (no method set), not a cost weight: its purpose is a separate bucket,
-    # not a tighter one. See the `worker_live` profile.
-    Rule("/v1/worker/calls/*/speaking", "worker_live"),
     # --- families -----------------------------------------------------------------
     Rule("/v1/**", "client_api"),
     Rule("/v1/admin/**", "admin_api"),
@@ -390,7 +369,6 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/admin/tenants/*/agents/*/undo", "costly", _m("POST")),
     Rule("/v1/ops/secrets/*/test", "costly", _m("POST")),
     Rule("/v1/ops/secrets/kek/rewrap", "costly", _m("POST")),
-    Rule("/v1/ops/carrier/probe", "costly", _m("POST")),
 )
 
 

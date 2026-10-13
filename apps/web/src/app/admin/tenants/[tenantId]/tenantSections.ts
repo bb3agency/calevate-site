@@ -39,8 +39,9 @@ export const TENANT_SECTION_GROUPS: readonly TenantSectionGroup[] = [
     label: "Compliance",
     items: [
       // Named for the question ("why can this client not have a number") rather than for
-      // either record: both our identity check and the carrier's application live here.
-      { path: "/kyc", label: "Identity & carrier" },
+      // either record: both our identity check and the voice platform's number approval
+      // live here.
+      { path: "/kyc", label: "Identity & approval" },
       { path: "/readiness", label: "Before their first call" },
       { path: "/dnd-scrub", label: "DND scrub" },
       { path: "/first-campaign-review", label: "Campaign review" },

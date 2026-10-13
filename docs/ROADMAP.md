@@ -16,20 +16,16 @@ Version 1.0. No calendar dates (by choice); order and gates are binding. Guiding
 - DLT: **you (the proprietor) register once as the Telemarketer (TM)**; **each client is a
   Principal Entity (PE)** who binds your TM-ID in the PE–TM chain (playbook §0). TM/header
   registrations follow Udyam — no separate entity has to "exist" first, only Udyam.
-- **The first real call** (BLOCKER-1) replaces the Bolna pilot, which will not run: D-639
-  deleted the adapter and OPERATIONS §2 withdraws its Bolna-phrased gates. The owned runtime
-  (D-592) on the founder's Vobiz test account (D-662) is placed through
-  `runbooks/vobiz-first-live-call.md`, which closes PIPECAT-MIGRATION §6 step 6 and the
-  OPERATIONS §2 V-series readings (latency, recording, media anchoring, CDR cost).
-- Vendor accounts, each key installed in the ops console (or the Pipecat Cloud secret set
-  where PLATFORM-CONFIG §4 says so) and each price ATTESTED there before anything is sold on
-  it (hard rule 7): Sarvam (STT); Cartesia and Gnani (TTS, D-547/D-629); the three LLM legs
-  of `multi-provider-byok` — an **Azure OpenAI resource in East US 2** with a **Regional
-  Standard** (never Global) deployment (D-410/D-449; OPERATIONS §2 gates 20 / 20b / 20c),
-  OpenAI direct, and Google for Gemini (D-456; `gemini-2.5-flash-lite` is the platform
-  default); Pipecat Cloud (`ap-south`); and Vobiz, whose written consent to client traffic
-  is gate V-10. The Sheets service account for lead sync (D-23) is a separate Google
-  credential.
+- **The first real call** (BLOCKER-1) is placed on the ThinnestAI engine (D-678..D-682)
+  through `runbooks/thinnest-first-live-call.md`.
+- Vendor accounts, each key installed in the ops console and each price ATTESTED there before
+  anything is sold on it (hard rule 7): ThinnestAI (the engine: numbers, telephony, speech,
+  in-call model); Cartesia (our key, used through ThinnestAI BYOK for Studio, D-688); Sarvam
+  (the first post-call extraction pass); and the language legs of `multi-provider-byok` — an
+  **Azure OpenAI resource in East US 2** with a **Regional Standard** (never Global)
+  deployment (D-410/D-449; OPERATIONS §2 gates 20 / 20b / 20c), OpenAI direct, and Google for
+  Gemini (D-456; `gemini-2.5-flash-lite` is the platform default). The Sheets service account
+  for lead sync (D-23) is a separate Google credential.
 - Reserve calevate.tech DNS zones (admin., app., api.), R2 bucket, GitHub org + repo skeleton,
   Terraform state. ⚠AMENDED (D-461): **no Clerk to provision** — D-177 deleted the identity
   vendor and authentication is first-party (`apps/api/authn/` is the only authenticator; see
@@ -37,11 +33,11 @@ Version 1.0. No calendar dates (by choice); order and gates are binding. Guiding
   D-180 chose a Hostinger India VPS (India-leaning by founder decision, not required for the
   data plane: `docs/DEPLOYMENT.md` §0), and `infra/` still provisions no host at all, so hosting
   is a founder decision recorded in D-180, not a DigitalOcean Bangalore project to stand up here.
-- Sales asset #0: the live Telugu clinic demo agent on a real number — our own stack on the
-  founder's Vobiz test number once the first real call has run; it doubles as OPERATIONS §2
-  gate 3 (the Telugu ear test). This is also the pitch tool.
+- Sales asset #0: the live Telugu clinic demo agent on a real number once the first real call
+  has run; it doubles as OPERATIONS §2 gate T-6 (Telugu on a real phone line). This is also
+  the pitch tool.
 
-Gate G0: first real call placed and its V-series readings recorded + demo agent taking calls.
+Gate G0: first real call placed + demo agent taking calls.
 
 ## 2. Milestone 1 — Client #1 Live (thin vertical slice)
 
@@ -319,32 +315,28 @@ Gate G3: retrieval T3 p95 ≤ 100ms measured; QA report shipped to every client 
 
 ## 5. Milestone 4 — Phase-2 Engine (own orchestration) [enter only on trigger]
 
-> **Entered early, on the founder's decision rather than on this trigger:** D-592 (13 Sep
-> 2026) made our own Pipecat loop on Pipecat Cloud `ap-south` the engine, D-639 deleted
-> Bolna, and D-662 put the telephony on Vobiz directly. `docs/PIPECAT-MIGRATION.md` is the
-> construction manual. The text below is the plan as it was written; there is no rented
-> engine to shadow, and the language leg is `multi-provider-byok` (D-456) with Gemini on
-> offer, not Azure alone.
+> ThinnestAI (D-678..D-682) runs every call (D-763). Own orchestration stays a parked
+> phase, entered only on the trigger below.
 
 Trigger (pre-committed in TRD §10): sustained > ~10–15k min/month across tenants OR a
 feature blocked by rented pipeline (T1/T2 tiers, custom turn-taking) OR engine risk event.
-- Runtime behind the same VoiceEngine interface; Vobiz/Exotel SIP direct; models
-  unchanged (Sarvam speech in-call; the language leg is Azure OpenAI `eastus2` under the
+- Runtime behind the same VoiceEngine interface; SIP direct to an Indian carrier; models
+  unchanged (Sarvam STT in-call; the language leg is Azure OpenAI `eastus2` under the
   declared posture and the first post-call extraction pass is Sarvam, permanently — so a
-  self-hosted runtime moves neither. D-410/D-449: there is no Gemini leg and no Vertex
-  account, and this line said there was until 22 Aug 2026). Two candidates, decided at the gate on measured
-  evidence, not now (D-32): **Pipecat on CPU droplets** (D-02's original plan; first-party
-  Exotel serializer + Sarvam plugins; we build the per-call dispatcher and scale-out) or
-  **LiveKit Cloud** (ap-south Mumbai region verified; first-party Sarvam plugin; turn
-  detection + barge-in in-SDK; managed scaling — but concurrency tiers cap at 5/20/600
-  with a 10× cost cliff past 20, and its economics only beat the alternatives above
-  ~5k min/month). Both carry the same Indic caveat: **turn detection is an orchestration
-  property BYOK models do not fix** — LiveKit's detector excludes Telugu and degrades to
-  VAD-only; budget for endpointing work (e.g. Sarvam stt-mode) on either path.
+  self-hosted runtime moves neither; D-410/D-449). Candidates are chosen at the gate on
+  measured evidence, not now (D-32): a self-hosted open-source orchestration framework on
+  CPU hosts (we build the per-call dispatcher and scale-out) or **LiveKit Cloud**
+  (ap-south Mumbai region verified; first-party Sarvam plugin; turn detection + barge-in
+  in-SDK; managed scaling — but concurrency tiers cap at 5/20/600 with a 10× cost cliff
+  past 20, and its economics only beat the alternatives above ~5k min/month). Every
+  candidate carries the same Indic caveat: **turn detection is an orchestration property
+  BYOK models do not fix** — LiveKit's detector excludes Telugu and degrades to VAD-only;
+  budget for endpointing work (e.g. Sarvam stt-mode) on any path.
 - Shadow mode: mirror a % of calls; compare latency/quality/cost vs the rented engine via the
   regression suite + usage_events; migrate tenant-by-tenant.
 Phase 3 (GPU self-host) stays parked until >~50k min/month AND open Telugu TTS reaches
-Bulbul-class quality — revisit quarterly, decide on usage_events data, not vibes.
+the quality of the commercial voices we sell — revisit quarterly, decide on usage_events
+data, not vibes.
 
 ## 6. Decision Log (binding; append entries to change anything above)
 
@@ -1000,6 +992,7 @@ Bulbul-class quality — revisit quarterly, decide on usage_events data, not vib
 | D-760 | **A do-not-call request that names a call is recorded even with the test-chat marker (12 Oct 2026, amends D-757)** | Security audit of 12 Oct 2026: under D-757 a request carrying `X-Test-Chat: true` and a real `X-Call-Id` wrote nothing, so a caller's opt-out would be lost the day the vendor marks a real call. `worker/engine_actions` now lets a named call id win for the opt-out only; it resolves the call as any other (live, this agent) and writes the do-not-call row. Every other tool keeps "marker wins". ThinnestAI states a test chat sends no call id, so a real test chat is unaffected. | Keeping "marker wins" for the opt-out (losing a do-not-call request cannot be undone, while a wrongly added number is restored from the DNC screen); letting the call id win for every tool (a client action would then reach the client's systems on a marked request). |
 | D-761 | **Changing a client's calls at once needs the step-up confirmation (12 Oct 2026, extends D-731)** | `PUT /v1/admin/organizations/{id}/call-lines` takes `StepUpGate` with `X-Confirm-Action: set_call_lines:<org>` (`tenancy/call_lines_routes.call_lines_confirmation`); the admin panel sends it through `confirmedAdminRequest`. More lines is more calls billed at the same moment, the same class as the other commercial levers in D-731. The operator's call-handling defaults for a client stay without it: the client can set the same values on its own settings screen and no money moves. | Step-up on every admin settings write (a code prompt for pauses and hang-up timings the client controls itself). |
 | D-762 | **The TCCCPR Regulation 4 autodialer notice is removed from the product; a disclosure inside the no-cold-calls pledge (version 2) replaces it (founder decision, 13 Oct 2026; amends D-637 and D-692)** | Founder: clients buy and use a product and cannot be expected to notify their telecom providers; KYC and the client's consent (the pledge) are the replacement. On 13 Oct 2026 ThinnestAI, relaying Plivo, could not name the access provider for a number or a notice process (`docs/vendor/thinnest-replies-2026-10-12.md` §10), so no client could complete the notice and every outbound client was refused by it. `check_dispatch`, `campaigns.service.launch_blockers` and `legal/readiness` no longer ask it; `compliance/autodialer.py`, `compliance/autodialer_routes.py` (`GET`/`POST /v1/compliance/autodialer-notice`, now 404), the client's notice panel and its copilot surface are deleted. `check_dispatch` lost its `dlt_governed` flag, which selected nothing once the notice went. KYC, the pledge, the DNC scrub, calling hours, consent, the agreements and hard rule 5 are unchanged. `compliance/outbound_pledge.PLEDGE_VERSION` is 2: the pledge gains "How your automated calls are placed" (Calevate's AI voice agent, Calevate's licensed telephony partners, numbers rented in the business's name; what Calevate keeps for every call and that it may share it with a telecom provider or regulator that asks; calls only for the purposes set in the client's campaigns), names no vendor (D-679) and claims no compliance. **Every client re-accepts before its next outbound call** (`outbound_pledge_outdated`), which is intended. Terms revision 15 (clause 4 and 5) and Acceptable Use revision 6 (section 2.9 becomes the disclosure) drop the notice duty; both NOT material, because the client is asked for less and the disclosure is accepted through the pledge. `autodialer_notices` and its rows are kept unwritten, with RLS and the append-only triggers, and dropped in a later release (hard rule 8). The regulation still binds the Sender in law; the founder accepted that risk, and OPERATIONS §2 gate 59 stays open for its text and for ThinnestAI/Plivo's answer. | Keeping the per-client notice gate (no client could satisfy it, so it stopped all outbound); an admin hold-and-release in its place (an operator would clear each client on nothing the client could give); Calevate sending one platform notice for every client (the access provider's counterparty is the Sender, and ThinnestAI/Plivo have not said such a route exists). |
+| D-763 | **The Pipecat engine is removed from the product (founder, 13 Oct 2026: delete everything that exists only for `ENGINE=pipecat`, carefully, and leave no trace of it); ThinnestAI is the only engine, with `fake` for tests** — supersedes D-592's engine choice and D-662's carrier; amends D-674 (the prompt layer stays, the output guard goes) | **Removed**: `apps/voice-worker` and its Pipecat Cloud deployment (`scripts/deploy/pipecat-worker-setup.sh`, `scripts/pipecat_build_context.py`); our own carrier telephony (Vobiz, the Plivo carrier and transfer providers, voice-runtime's carrier routes, events and auth, the carrier event and recording workers, carrier compliance applications, number search and purchase through our carrier); our own voice legs (Gnani, Cartesia direct `engine/cartesia.py`, the Sarvam speech remnants); the Pipecat worker API (session, settlement, observations, speaking, attestation, caller memory); the in-call own-key model leg, voice offer, curation and admission for our loop, the knowledge pack built for our worker, live speaking, owned-runtime settings and config, and the Pipecat adapter. `EngineName` is `thinnest` and `fake`; every removed setting is in `RETIRED_ENV_KEYS` as `"D-763"`. Docs: `docs/PIPECAT-MIGRATION.md` (its still-true parts moved to TRD and DATA-MODEL), `runbooks/vobiz-first-live-call.md`, `vobiz-findings/` and the fourteen Pipecat/Vobiz/Gnani evidence files are deleted; OPERATIONS gates 3, 55, 56, 57 and V-1..V-11 are retired. Legal: Vobiz, Plivo (as our carrier), Pipecat Cloud, Gnani and the Cartesia contingency engine leave the sub-processor register, and the public speech-to-text category goes; sub-processors revision 21, privacy 22, DPA 14 and Terms 16 drop our own call program, carrier, hosting platform and second voice company, all NOT material (fewer recipients, none used on the live deployment). **Kept, because ThinnestAI uses it**: its in-call actions and caller lookups (`worker/engine_actions.py`, `engine_lookups.py`, their helpers moved to `worker/in_call_tools.py`), its signed webhooks in voice-runtime (hard rule 3 still binds it), dial limiting (`engine/carrier_pacing.py` keeps its engine half as `engine/dial_lines.py`), the dedupe prefixes (moved to `billing/dedupe_keys.py`), Studio through ThinnestAI BYOK and Clear, the `clear`/`studio` rungs and billing, Sarvam's first extraction pass, the Azure dashboard assistant, `CONFIDENTIALITY_RULE` and the truthful-answer block. **No migration** (hard rule 8): tables and columns only the Pipecat engine wrote stay, unwritten, and are dropped in the next release; stored `'pipecat'` values stay admitted by the database CHECK until then. The tag `pre-pipecat-removal` (`85bf6084`) keeps the removed engine one checkout away. | Keeping it switched off (every guard, setting, legal disclosure and test kept paying for an engine no call ran on, and "configured, not enabled" rows on the legal pages described a path nobody used); deleting the tables now (hard rule 8: never drop in the release that stops writing). |
 
 ### 6a. Surfaced by a decision, deliberately not decided in it
 
@@ -1010,7 +1003,7 @@ Not binding and not a row: a row is a decision, and these are the questions a de
 voice on the IMMEDIATE lane and `LANES` says so, but `set_agent_voice` does not publish — so no
 agent obeys the lane table, and the client screen renders "voice" under "Applies straight away".
 Reconciling it means either auto-republishing (which re-voices a live line on an unrun ear test,
-against OPERATIONS §2 gate 3) or amending an authoritative doc. Separately, `publish_variant`
+against OPERATIONS §2 gate T-6) or amending an authoritative doc. Separately, `publish_variant`
 sends the agent's CONFIGURED voice to experiment arms, so starting an experiment can move part of
 the traffic while the mirror still reports "republish required" — over-reporting, which is the
 safe direction, and pre-existing. Both need a decision; neither blocks anything today.

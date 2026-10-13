@@ -68,8 +68,8 @@ const QUESTIONS: { q: string; a: string }[] = [
      * NO FIGURE AND NO LADDER-SHAPE CLAIM HERE, and there cannot be either: this is a
      * `"use client"` component holding no card, so a typed rate is the drift
      * `lib/api/rateCard.ts` exists to prevent, and "the rate comes down the more you buy"
-     * is false of a card that prices a voice flat — which the next one does for the cheaper
-     * voice (`docs/PIPECAT-MIGRATION.md` §12). Every other surface asks
+     * is false of a card that prices a voice flat, which `card_refusals` permits. Every
+     * other surface asks
      * `rateCard.ladderFalls` first; this one cannot, so it may only write what is true of
      * every card. If it ever needs a shape claim it needs the card, and then it is not this
      * file.
@@ -97,8 +97,8 @@ const QUESTIONS: { q: string; a: string }[] = [
      * therefore CONSERVATIVE rather than false —
      * this console has a file input
      * (`app/c/[slug]/knowledge/AddDocument.tsx:133`, behind `POST /v1/kb/uploads`, D-534),
-     * and `PIPECAT_CAPABILITIES.knowledge_base` is `True` with an in-process pack search
-     * registered as a call tool (`docs/PIPECAT-MIGRATION.md` §8.1).
+     * and `THINNEST_CAPABILITIES.knowledge_base` is `True`: the business's knowledge also
+     * reaches the voice platform as agent-scoped documents (`apps/api/engine/thinnest.py`).
      *
      * ⚠ UNRESOLVED CONFLICT: `docs/TRD.md:802` still says in-call retrieval is "T0 and
      * nothing else", which the code above contradicts. `docs/` wins, so this is flagged

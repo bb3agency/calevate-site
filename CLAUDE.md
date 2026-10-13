@@ -8,12 +8,11 @@ mirrors this manual for other coding agents.
 
 ## What this system is (30 seconds)
 
-### Current engine (8 Oct 2026): `ENGINE=thinnest`
-
-**Production runs `ENGINE=thinnest` (deployed 7 Oct 2026).** ThinnestAI hosts the whole call:
-its own numbers, telephony, STT, LLM, TTS and recording (D-678..D-682). Vobiz, Pipecat Cloud
-and our voice worker carry nothing on this engine. D-687 and D-688 (8 Oct 2026, superseding
-D-681's "Clear = Premium band" and its "Studio on hold", and D-687's Studio workspace):
+Clients get AI phone agents (inbound receptionist + outbound campaigns). **The engine is
+ThinnestAI (`ENGINE=thinnest`, production since 7 Oct 2026)**: it hosts the whole call — its
+own numbers, telephony, STT, LLM, TTS and recording (D-678..D-682). `ENGINE` accepts
+`thinnest` and `fake` (tests only). Our own Pipecat loop was removed by D-763 (13 Oct 2026);
+the tag `pre-pipecat-removal` keeps it one checkout away. D-687 and D-688 (8 Oct 2026):
 
 - **Clear** = ThinnestAI's stack end to end, speaking the ThinnestAI voice band the console
   setting `thinnest_clear_voice_band` names: **Premium** (default; pay-as-you-go, ₹2.50/min)
@@ -38,8 +37,8 @@ D-681's "Clear = Premium band" and its "Studio on hold", and D-687's Studio work
   (console, default 15; `trial_studio_minutes_used`). Studio agents also get the
   in-call default model, which must be `voiceOnlyByok`. Admin screens call ThinnestAI's own
   bands "ThinnestAI Premium band" / "ThinnestAI Studio band"; clients see only Clear and Studio.
-- **Knowledge belongs to the client** and every agent of that client carries it, on both
-  engines: Pipecat agents share it too (D-689, founder 9 Oct 2026).
+- **Knowledge belongs to the client** and every agent of that client carries it (D-689,
+  founder 9 Oct 2026).
 - **The adapter follows ThinnestAI's 8 Oct docs** (D-690, D-691): built-in tools pinned at
   publish, `voice.language`, `answersCalls` pause, caller memory `recap`/`fresh`, signed
   (v2) webhooks deduped on the event id, numbers recorded and attached in our console, DNC
@@ -56,309 +55,81 @@ D-681's "Clear = Premium band" and its "Studio on hold", and D-687's Studio work
   their next publish recreates them. Never fall back to the developer workspace for a client
   resource. Plan cap: 3 customers on pay-as-you-go (OPERATIONS T-8).
 - **Clients never clone**; they pick and preview voices the admin added and enabled.
-- **Gnani is not used on ThinnestAI**, and client-facing text names no provider (D-679).
+- **Client-facing text names no provider** (D-679).
 
-`docs/THINNEST-INTEGRATION.md` is the engine's plan and build state. **Everything below about
-Pipecat, Sarvam STT, Gnani Clear, `TtsModel`, `voice_offer` and Vobiz describes
-`ENGINE=pipecat`**, which is kept unchanged and must stay so; read it as the record of that
-engine, not as what production runs. On `ENGINE=thinnest` Sarvam still runs the first
-post-call extraction pass, and Azure OpenAI still serves the dashboard assistant.
+`docs/THINNEST-INTEGRATION.md` is the engine's plan and build state. There is no second
+engine to fall back to: a bad release is rolled back by redeploying the previous image.
 
-### The Pipecat engine (`ENGINE=pipecat`)
+### Language models outside the call
 
-Clients get AI phone agents (inbound receptionist + outbound campaigns) built on our own
-Pipecat conversation loop (`apps/voice-worker`, D-592) with BYOK models; the rented Bolna
-engine D-31 chose was deleted from the code by D-639 (26 Sep 2026), and `ENGINE` accepts
-`fake`, `cartesia` and `pipecat`. **Speech is TWO VENDORS ON TWO
-DIFFERENT LEGS, and the TTS half is chosen PER AGENT (D-547)** — STT is Sarvam Saaras
-throughout, TTS is `apps/api/agents/voices.py::TtsModel`, which is
-`Literal["sonic-3.5", "timbre-v2.5"]`: Cartesia Sonic 3.5 (**Studio**, ₹2.06–3.09 per
-call-minute, TRD §10.1) or Gnani Timbre v2.5 (**Clear**, ₹0.97–1.46 per call-minute,
-published but not yet sellable — see below).
-⚠ **THIS LINE SAID `Literal["bulbul:v3", "sonic-3.5"]` AND "Sarvam Bulbul v3 or Cartesia
-Sonic 3.5", AND THAT IS TWO CORRECTIONS DEEP NOW.** D-618 (15 Sep 2026) made the Literal
-THREE by adding Gnani; **D-629 (18 Sep 2026) made it two again with a DIFFERENT PAIR** —
-Sarvam left the TEXT-TO-SPEECH leg entirely and Gnani took the Clear (value) rung it had
-held. Read the split before you write anything about this: **Sarvam STT is untouched.**
-Saaras still transcribes every call, still receives the caller's AUDIO and the raw
-transcript, still runs the first extraction pass, and is still a published sub-processor
-with its cross-border transfers and its ToS s.17.5 training permission disclosed word for
-word (`/legal/subprocessors` §3.4, `/legal/privacy` §6). What went is the leg where Sarvam
-SPEAKS, and nothing else about that vendor narrowed.
-**THE PROVIDER IS NO LONGER THE SAME WORD AS THE VOICE TIER, AND THIS LINE USED TO SAY IT
-WAS** ("the provider IS the voice tier … and it prices the minute"). D-618 separated the two
-vocabularies and D-629 keeps them apart: `voices.VOICE_TIER_OF_PROVIDER` maps a PROVIDER to
-the priced RUNG it bills on — `gnani` → `billing/rates.VALUE_VOICE_TIER`.
-⚠ **THAT CONSTANT IS `"clear"` SINCE 19 SEP 2026 AND THIS LINE SAID `"sarvam"`, WITH A
-REASON THAT WAS TRUE AND HAS EXPIRED.** The reason given was that `"sarvam"` was the
-LEDGER's and the wire's name for the rung and renaming a money column is a migration nobody
-had run. Somebody ran it: `f1c40d8b6e93` renames `credit_lots.sarvam_inr_per_min` →
-`clear_inr_per_min` and `cartesia_inr_per_min` → `studio_inr_per_min`, and REFUSES against
-a non-empty table, because those rates are frozen at purchase. `VoiceTier` is
-`Literal["clear", "studio"]`, `VALUE_VOICE_TIER == "clear"`, `PREMIUM_VOICE_TIER ==
-"studio"`, and the wire, the web client and `usage_events.meta.voice_tier` all moved with
-them. **Rungs are `clear`/`studio`; vendors are `gnani`/`cartesia`; the two sets no longer
-share a member.** They used to share `cartesia`, and that overlap was hiding three live
-bugs — the voice picker, the agent detail panel and the client publishing panel each looked
-a rate up by PROVIDER among rows keyed by TIER, so from 18 Sep 2026 a Gnani agent's rate
-simply did not render. `OfferedVoiceOut.voice_tier` and `AgentVoiceOut.voice_tier` are what
-the browser reads now, rather than re-deriving the mapping. The
-mapping is `VoiceTier | None` and `voices.voice_tier()` RAISES `UnpricedVoiceProviderError`
-on a `None`, which is the machinery a provider with no rung would use — no provider is in
-that state today. Plan §2.3 invariant 7 still holds in the half that matters: the tier is
-DERIVED from the chosen voice's id and stored nowhere it could disagree. What keeps a Gnani
-minute from being sold is not the tier map but the OFFER seam — `agents/voice_offer.py`'s
-attested-price ground, hard rule 7.
-⚠ **GNANI DO PUBLISH A PRICE, AND THIS PARAGRAPH SPENT A DAY SAYING THEY DO NOT.** It read
-"Gnani publish **no price**: no per-character rate, no per-second rate, no currency, no free
-tier", and the only figure it allowed was a RESELLER's. That was a NOT-FINDING WRITTEN DOWN
-AS A VENDOR FACT — a previous session did not locate the page and recorded the absence as
-knowledge, which is the exact failure hard rule 11 exists for, committed about the rule's own
-subject. **Gnani's console publishes ₹27.00 / 10,000 characters for Text to Speech and a
-60 requests/minute limit** (`app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and
-relayed with a screenshot; the host is not reachable from this container, so this is a
-founder-relayed reading of a PRIMARY source — **VENDOR-PUBLISHED**). The provenance half of
-the old paragraph was right and survives: the ₹27 already in this tree came from a reseller's
-page for their own platform, refusing it was correct, and a figure that turns out to match is
-still not a source.
-⚠ **THE CLEAR RUNG STILL CANNOT BE SOLD, AND THAT IS HARD RULE 7 WORKING RATHER THAN A GAP.**
-A published catalogue price is not an invoice. `agents/voice_offer.tts_price_is_billable`
-opens on an operator's attestation only — the same standard that makes the Gemini catalogue
-price `verified=False` on the LLM leg — so every Gnani voice is still refused and every
-client surface still says the rung is unavailable. **One attestation in the ops console
-unblocks the lot** (`docs/PIPECAT-MIGRATION.md` §6 step 9). ⚠ Also note what does NOT refuse
-it: `VOICE_TIER_OF_PROVIDER["gnani"]` is `VALUE_VOICE_TIER`, not `None`; the gate is the
-offer seam and never the tier map.
-⚠ **`TTS_INR_PER_10K_CHARS` IS THE CLEAR RUNG'S PUBLISHED PER-CHARACTER RATE AGAIN (₹27.00),
-AND FOR ONE DAY IT WAS A FROZEN PLACEHOLDER.** It was Sarvam's Bulbul v3 list rate; when the
-Sarvam TTS leg was withdrawn it survived FROZEN at ₹30 as "the last figure anybody actually
-read for a value-rung voice", because the rung's new vendor was believed to publish nothing.
-It is now struck at Gnani's own number — the same job, the same rung, the same class of
-source. (The premium/value `Mapping[TtsTier, Decimal]` of the old ladder is still deleted;
-Bulbul **v2** is still withdrawn and still prices nothing, D-36's "value tier" reading having
-been wrong since 10 Sep 2026.) It is divided INTO the Clear rung's cost FLOOR and is not a
-rate a client pays. `scripts/check_docs_drift.py` §4b guards TWO rungs again — `code_tts_rates()`
-carries `timbre-v2.5` beside `sonic-3.5`, and the day §10.1 states a rate the code does not
-hold, it fails naming the rung. **Language is
-Azure OpenAI in East US 2**
-— `AZURE_LOCATION` (`eastus2`), whose deployment is made from `AZURE_OPENAI_DEFAULT_MODEL`
-(`gpt-4o-mini`), with `gpt-4.1-mini` a live config switch.
-⚠ **THE PLATFORM'S OWN DEFAULT MODEL IS NO LONGER THAT CONSTANT AND IS NO LONGER ON THIS
-LEG (4 Sep 2026).** The founder's answer is **`gemini-2.5-flash-lite`**, carried by
-`PLATFORM_DEFAULT_LLM_MODEL` and by its own live setting `Settings.platform_llm_model` —
-because the platform rung of `agent → organization → platform` used to read
-`Settings.azure_openai_model`, whose type is the Azure Literal and cannot hold a model on
-either of the other two declared legs. `AZURE_OPENAI_DEFAULT_MODEL` keeps its two other
-jobs unchanged and is still the right constant for both: the default of
-`azure_openai_model` (which model the Azure DEPLOYMENT was made from, pushed to the
-engine's credential store) and `billing/rates.BASE_RATE_LLM_MODEL`, the FROZEN model the
-plan rate is struck against — so no account's bill moves and none is re-classified, and
-TRD §10's fifteen cost points are unrepriced. ⚠ **A DEPLOYMENT CANNOT RUN THE NEW DEFAULT
-UNTIL ITS GOOGLE KEY IS INSTALLED IN THE OPS CONSOLE AND ITS PRICE ATTESTED** — the Gemini
-catalogue price is `verified=False` (vendor-published, founder-relayed, not fetchable from
-here), so hard rule 7 keeps it out of `unit_cost_paid`; until both land, an account that
-has chosen nothing runs the ENGINE's own default and the picker marks the row unavailable
-with its ground. **D-410 supersedes D-400/D-404 on the in-call leg and
-D-127 on the dashboard leg; Vertex is OUT of this product and Gemini is now OFFERED on its
-two safe models (see the multi-provider paragraph below, which supersedes D-456 on the
-offering question). D-449 (22 Aug 2026)
-MOVED THE REGION OFF INDIA** — because the engine's
-orchestrator is US-hosted (`bolna-findings/mirror/pages/concepts/security.md:29`, AWS
-us-east-1), so every in-call turn was an ocean round trip inside an unmeasured 350ms TTFT
-budget, and because Microsoft's Standard (regional) matrix does not offer our default model
-in `southindia`. **The default model is UNCHANGED and TRD §10 is UNREPRICED** — that
-contradiction was `southindia`-only. **The client-facing India warranty is WITHDRAWN, not
-narrowed.** **D-456 (22 Aug 2026) THEN RENAMED THE POSTURE TO `multi-provider-byok`** and
-made it THREE declared legs — `azure_openai`, `openai`, `google`. It is not a region change
-and it moves no traffic: `eastus2`, the default model, the rate card and TRD §10 are all
-untouched. The name lost its `us-` prefix because Google's Developer API has NO region to
-request (its SDK raises before a packet leaves the machine), so a posture promising one
-region would be a claim one of its own declared legs cannot keep.
+1. **Dashboard AI** (user-triggered, over redacted data) runs on **Azure OpenAI in East US 2**
+   (`AZURE_LOCATION`, `eastus2`), deployment made from `AZURE_OPENAI_DEFAULT_MODEL`
+   (`gpt-4o-mini`). D-127's rules G-1..G-7 (redaction before the call, no raw PII, the
+   disclosed Sarvam fallback) bind it. `AZURE_OPENAI_DEFAULT_MODEL` is also
+   `billing/rates.BASE_RATE_LLM_MODEL`, the frozen model the plan rate is struck against.
+2. **First post-call extraction** stays on **Sarvam, permanently**, because it reads the RAW
+   transcript; `GEMINI_EXTRACTION_DEFAULT is False` in `apps/workers/extraction.py`.
 
-**ALL THREE LEGS ARE NOW ON OFFER, AND D-456's "ONLY AZURE IS SELECTABLE" IS SUPERSEDED.**
-Clients bring no BYOK: the founder holds all three vendor accounts and installs all three
-keys in the ops console, so the product has to offer the choices. **`SELECTABLE_LLM_MODELS`
-NO LONGER EQUALS `AZURE_OPENAI_MODELS`** — any assertion or sentence still saying it does is
-out of date. It is `gpt-4o-mini`, `gpt-4.1-mini`, `gpt-5.4-mini` (OpenAI direct) and
-`gemini-2.5-flash` / `-flash-lite` (Google). Three things changed to allow it, and each
-matters more than the widening:
+The platform's own default model is `PLATFORM_DEFAULT_LLM_MODEL` (`gemini-2.5-flash-lite`),
+read through the live setting `Settings.platform_llm_model`. **What a client may pick is
+`agents/llm_models.offerable_models()`, never a constant** — selectable AND its provider's
+credential installed AND its price attested. Hard rule 7 is structural here: a catalogue
+price has no path to `unit_cost_paid`; `billing/rates.py::llm_inr_per_ktok` is the one door
+and it opens only on an operator-attested figure or one read from the vendor, and raises
+otherwise. Every `gemini-3.*` is `selectable=False` (Gemini 3 Flash does not support full
+thinking-off, so a candidate can come back empty), and `ModelLifecycle.retirement_stance`
+separates "the vendor announced nothing" from "nobody looked".
 
-1. **The billing price became an OPERATOR ATTESTATION and `LlmPrice` became a CATALOGUE
-   REFERENCE.** Hard rule 7 is unweakened and is now structural rather than a flag: the
-   catalogue price has NO path to `unit_cost_paid` at all, `billing/rates.py::
-   llm_inr_per_ktok` is the one door and it opens only on an attested figure or a catalogue
-   figure somebody read from the vendor, and it RAISES otherwise. `llm_cost_inr_per_minute`
-   keeps reading the reference so TRD §10's margin model is the same number in CI.
-2. **The GPT-5 traps are applied at the wire.** `LlmModelSpec.traps` had no runtime reader:
-   the adapter sent `temperature: 0.1` unconditionally, which a GPT-5 model rejects at agent
-   CREATE. `ModelConfig.llm_traps` carries them to `engine/bolna.py::_llm_trap_settings`.
-3. **The Gemini trap is real and splits the leg.** Google's own docs say `thinkingBudget: 0`
-   disables thinking on 2.5 flash/flash-lite (which the engine sends) and that Gemini 3
-   Flash "do not support full thinking-off" — so 3.x can return a candidate with no content,
-   which on a phone call is dead air. Every `gemini-3.*` is `selectable=False` with the
-   ground recorded. ⚠ **The "Gemini retires 16 Oct 2026" claim was WRONG** — that date
-   belonged to preview snapshots, the GA ids carry no announced shutdown, and it propagated
-   out of our own `model_lifecycle.py` as if it were fact. Hard rule 11 is the response, and
-   `ModelLifecycle.retirement_stance` now separates "the vendor announced nothing" from
-   "nobody looked". `gpt-5.6-luna` is withheld solely because nobody has read a page for it.
+**There is no India residency claim about any language leg, and you must not write as if
+there is.** `<resource>.openai.azure.com` names no region, so `scripts/check_model_residency.py`
+proves only what the code can (one spelling of the region, no endpoint built outside
+`azure_openai_base_url()`); that the resource is really in East US 2 and is **Regional
+Standard, not Global** is attested by a human in the portal (OPERATIONS §2 gates 20, 20c).
+Sarvam is an Indian company, which is not a residency claim: its privacy policy says
+personal data *"may be transferred to and processed in countries outside India"* (US cloud
+and analytics, EU model and security vendors), and **Sarvam ToS v2.0 (eff. 29 July 2026)
+s.17.5** permits training on Inputs/Outputs, displaceable only by a signed order form
+(s.6.2), which we do not have. So our "no vendor trains on your data" promise is narrowed and
+the vendor position is disclosed (`/legal/dpa` cl.2, `/legal/privacy` §6,
+`/legal/subprocessors`). Sarvam retention: content 30 days after last access by default,
+described as user-configurable — nobody has located that setting, so do not write that we
+changed it. **Evidence class: VENDOR-PUBLISHED** (founder-relayed, 27 Aug 2026);
+`sarvam.ai` and `docs.sarvam.ai` are egress-blocked from this container.
 
-**What a client may pick is `agents/llm_models.offerable_models()`, never a constant** —
-selectable AND its provider's credential installed AND its price attested. Read the three
-LLM surfaces separately — two moved, one deliberately did not:
-
-1. **In-call** (inside the engine, BYOK) — the engine calls our Azure deployment on
-   `azure_openai_base_url(resource)`, which emits
-   `https://{resource}.openai.azure.com/openai/v1`. That is the **v1 surface**: it is
-   OpenAI-compatible, has no `api-version` to keep current, and takes a **STATIC API KEY** in
-   `Authorization: Bearer`. There is no rotation cron, no dead man, no org policy and no
-   12-hour ceiling — D-404's whole machinery existed because a regional Vertex endpoint
-   took no static key, and it is deleted. `engine/bolna.py::_llm_routing` maps our
-   vocabulary to **`provider: "azure-openai"`** — a FIRST-CLASS Bolna provider, so the
-   `custom` route (whose credential path was never verified, retired gate 16c) is not
-   used. **THIS SAID `"azure"` UNTIL THEIR DOCS WERE READ (D-417)**: D-410 chose it from a
-   provider matrix and a dashboard dropdown, both human-readable LABELS, which is the wrong
-   class of evidence for a wire value; their docs print the machine-readable one twice
-   (`bolna-findings/mirror/pages/providers/llm-model/azure-openai.md:20,59`).
-   **`azure_openai_deployment` is NOT `azure_openai_model`**: on Azure you deploy a model
-   under an id you choose and call THAT id, so the deployment name is config and can never
-   be derived. **The credential-FIELDS assumption is CLOSED and the guess was wrong**
-   (D-417): their Azure provider takes four flat entries — `AZURE_OPENAI_API_KEY`,
-   `AZURE_OPENAI_MODEL`, `AZURE_OPENAI_API_BASE`, `AZURE_OPENAI_API_VERSION`
-   (`providers.md:40,96-102`) — and the store is `{provider_name, provider_value}`, so it
-   is **four** `POST /providers` calls, not one. `Settings.bolna_llm_credential_name`
-   (`applies: live`) now defaults to `AZURE_OPENAI_API_KEY`; `AZURE` would have 401'd on
-   the first turn of the first call. ⚠ ONE HALF STAYS OPEN: whether
-   `AZURE_OPENAI_API_VERSION` is real on the v1 surface, where two of their own pages
-   disagree — OPERATIONS §2 gate 16f, and no value is invented for it.
-   `agents/service.py::in_call_llm` remains the ONE place the leg is decided for an agent.
-   ⚠ **This paragraph describes the Bolna leg, which D-639 deleted**: there is no Bolna
-   work left to do, and none of the calls above should be made.
-   **Where the vendor facts now come from**: their doc HOST is still egress-blocked here
-   (`www.bolna.ai` → 403 on CONNECT, re-measured 20 Aug 2026), but their 335 pages were
-   fetched elsewhere and delivered as a read-only mirror at `bolna-findings/mirror/` with a
-   per-page SHA-256 `MANIFEST.json`. That is the **VERIFIED-VENDOR-DOCS** class every
-   vendor claim in this tree now cites, page and line; the ten lane reports over it are
-   `docs/evidence/bolna-*.md`. **Never edit, reformat or move it** — ruff is configured to
-   exclude it (`force-exclude`) because a repo-wide `ruff format .`, the exact command the
-   Commands section below tells you to run, once rewrote the vendor's code blocks inside
-   nine pages that other lanes were citing by line number.
-2. **Dashboard AI** (user-triggered, over redacted data) — same resource, same region,
-   same model constants. D-127's rules (G-1..G-7: redaction before the call, no raw PII,
-   the disclosed Sarvam fallback) are unchanged and now bind Azure.
-3. **First post-call extraction** — stays on **Sarvam, permanently**, because it reads
-   the RAW transcript; `GEMINI_EXTRACTION_DEFAULT is False` in `apps/workers/extraction.py`
-   and D-410 does not move it.
-
-**THERE IS NO INDIA RESIDENCY CLAIM ABOUT THE LANGUAGE LEG ANY MORE, AND YOU MUST NOT
-WRITE AS IF THERE IS.** Vertex put `asia-south1` in the hostname AND the path, so the guard
-could prove residency from the AST. `<resource>.openai.azure.com` names no region: the
-region is a property of the RESOURCE. So `scripts/check_model_residency.py` proves what it
-still can — one spelling of the region (`AZURE_LOCATION`), no `Settings` field carrying a
-region, no Azure endpoint constructible outside `azure_openai_base_url()`, and a builder
-that cannot emit a region other than the declared posture's — and the rest is **attested by
-a human in the portal**: that the resource is really in East US 2 (gate 20) and that the
-deployment is **Regional Standard and NOT Global** (gate 20c). Gates 20/20b/20c/20d all
-SURVIVE D-449 re-aimed; none retires, because the posture still pins one region and is
-still Regional Standard. Global is Azure's DEFAULT and processes worldwide, so it does not
-downgrade the promise from India to America — it deletes the only enforceable property the
-posture has left. Speech is still Sarvam and the first extraction pass is still Sarvam.
-**⚠ "AND STILL INDIAN" WAS WITHDRAWN ON 27 AUG 2026, AND THIS LINE USED TO SAY IT — READ
-THE CORRECTION BEFORE REPEATING EITHER HALF.** Sarvam is an Indian COMPANY; that is not a
-residency claim, and the sentence that "what leaves India is the transcript" was wrong in
-the direction that matters — **the AUDIO may leave too, on the SPEECH leg, before any
-language model sees a word.** Sarvam's own privacy policy ("Cross-Border Data Transfers")
-says personal data *"may be transferred to and processed in countries outside India"*,
-naming **United States** cloud infrastructure (AWS, GCP, Azure) and analytics providers and
-**European Union** model and security vendors, with EU SCCs, adequacy decisions and DPAs as
-the safeguards; its *"Data Localization (Indian Users)"* carve-out storing **voice biometric
-data in India** reads as scoped to **Content Studio**, not to Voice Agents / API traffic, and
-payment data is likewise India-stored. **Two more facts from the same reading, both
-load-bearing.** (a) Sarvam **ToS v2.0, effective 29 July 2026, s.17.5** permits Sarvam to use
-Inputs, Outputs and usage data **to train its models**, per its Privacy Policy and applicable
-law and *"(where required) subject to your consent, which you may decline or withdraw"*, with
-access to certain Offerings possibly restricted if declined — **it does not vary by tier**
-(free credits, Starter PAYG and paid alike), and **s.6.2** makes a signed order form or
-enterprise agreement the ONLY instrument that can displace it. We have none, so **the
-client-facing "no vendor trains on your data" promise is NARROWED, not softened**: ours is
-unqualified, the vendor position is disclosed (`/legal/dpa` cl.2, `/legal/privacy` §6,
-`/legal/subprocessors` §3.4). (b) Retention, for any sub-processor description: content
-(Inputs/Outputs) 30 days after last access by default and described as user-configurable —
-⚠ **nobody has located where that setting is changed, so do not write that we changed it**;
-account data account + 90 days; voice samples until consent withdrawal + 30 days; security
-incident logs 7 years; deletion within 30 days of request verification save for legal
-retention, live proceedings, or technical limits (anonymised instead).
-**EVIDENCE CLASS: VENDOR-PUBLISHED** (Sarvam Terms of Service v2.0, eff. 29 July 2026,
-ss.6.2/17.5, and Sarvam Privacy Policy — read by the founder at `www.sarvam.ai` on
-27 Aug 2026 and relayed). **⚠ `sarvam.ai` and `docs.sarvam.ai` REMAIN EGRESS-BLOCKED FROM
-THIS CONTAINER** — the evidence arrived by another route; a fetch from here still 403s, and
-saying "read this session" of it would be false. All of which is why OPERATIONS §2 gate
-37(a) (is a voice recording SPDI biometric data?) now governs the LIVE CONVERSATION and not
-only the archive, and why it now bites the SPEECH leg too. **OpenAI direct is still not adopted, but the
-reason everyone quotes is SPENT**: D-448 refused it because it offers no Indian INFERENCE,
-and D-449 stopped asking for Indian inference, so that ground no longer discriminates.
-Azure is retained on an enterprise DPA, modified abuse monitoring, deployment-level model
-and retirement control (`scripts/check_model_lifecycle.py` consumes it), and a migration
-cost already specified. D-410 also records Sarvam-via-Custom-LLM, Krutrim and DeepSeek,
-each with its reason. **BRD R-04's 16 Oct 2026 retirement is GONE** —
-`GEMINI_DEFAULT_LLM_RETIRES` and the test that turned CI red thirty days out are deleted,
-and no vendor deadline is currently running against this product. Our
-code = admin console, client dashboards,
-schema-driven lead extraction/CRM, RAG knowledge bases, metering/billing, compliance
-(TRAI/DLT/DPDP). Latency-critical voice path is isolated in `apps/voice-runtime`.
-
-**Telephony on `ENGINE=pipecat` is Vobiz (D-662), behind a carrier switch** (on
-`ENGINE=thinnest`, ThinnestAI's own numbers carry every call). Calls are placed and answered
-through `apps/api/engine/carrier.py` (`vobiz.py`; `plivo_carrier.py` is the fallback),
-chosen by `Settings.carrier` (`CARRIER`, console-managed, default `vobiz`). Vobiz records
-the call and our copy is kept 90 days (D-668/D-670); every URL we give Vobiz carries
-`VOBIZ_CALLBACK_SECRET` until Vobiz signs callbacks (D-673, OPERATIONS §2 gate 55). It
-carries the founder's own test calls only until Vobiz consents in writing to client
-traffic (gate V-10).
+Our code = admin console, client dashboards, schema-driven lead extraction/CRM, knowledge
+bases, metering/billing, compliance (TRAI/DLT/DPDP), and the engine adapter. ThinnestAI's
+signed webhooks land on `apps/voice-runtime`; its in-call actions and caller lookups land on
+`/v1/worker/engine-actions/**` and `/v1/worker/engine-lookups/**` on the api.
 
 ## Repo layout
 
 ```
 apps/web            Next.js 15 (App Router) + TS — admin.calevate.tech + app.calevate.tech
 apps/api            FastAPI modular monolith — tenancy, agents, crm, billing, kb, ...
-apps/voice-runtime  FastAPI — carrier answer documents and status callbacks, engine
-                    webhooks. LATENCY-CRITICAL. (Its in-call tool routes went with
-                    D-650; the worker reaches `/v1/worker/**` on the api instead.)
-apps/workers        ARQ workers — post-call pipeline, carrier events and recordings,
-                    embeddings, campaigns, number rental, retention
-apps/voice-worker   Pipecat conversation loop — our own container on Pipecat Cloud
-                    ap-south. Python package `voice_worker`; everything an operator types
-                    is `pipecat-worker`. Hard rule 2 names it as the third home for
-                    vendor imports (D-592).
+apps/voice-runtime  FastAPI — the engine's signed webhooks. LATENCY-CRITICAL.
+apps/workers        ARQ workers — post-call pipeline, embeddings, campaigns, retention
 packages/shared     Pydantic models, VoiceEngine protocol, normalized events
 infra/              nginx templates, backup units + wal-g config, object-lifecycle policy,
                     and Terraform whose ONLY resource is that S3 lifecycle configuration.
                     No host, no network, no DNS, and NOTHING here has ever been applied.
-.github/workflows/  CI (this used to be listed under infra/, where it does not live)
+.github/workflows/  CI
 docs/               BRD, TRD, DATA-MODEL, SECURITY-COMPLIANCE, FLOWS, OPERATIONS, ROADMAP
 runbooks/           Incident procedures
 ```
 
-`docs/DEPLOYMENT.md` is the accurate account of what deployment IS, and this line used to
-contradict it twice: it said "Terraform (DO Bangalore)" when the Terraform provisions no
-host at all and D-25 moved hosting to a general-purpose Hetzner-class VPS (India
-co-location is required only for in-call-path services). `infra/README.md` §5 lists what a
+`docs/DEPLOYMENT.md` is the accurate account of what deployment is: a general-purpose
+Hetzner-class VPS (D-25); the Terraform provisions no host. `infra/README.md` §5 lists what a
 human must do before any of it is real — `terraform validate` has never been run.
 
 ## Commands
 
 ```
 uv sync --all-packages           # install python deps (never pip install directly).
-                                 # --all-packages IS REQUIRED: plain `uv sync` installs the
-                                 # root, whose dependencies are the SERVER IMAGE's set
-                                 # (api, voice-runtime, workers — D-667), and leaves the
-                                 # voice worker's pipecat tree out, so every test that
-                                 # imports `voice_worker` fails at collection. Every `uv sync` in
-                                 # `.github/workflows/ci.yml` uses this exact form —
-                                 # the `backend` job's "Install dependencies" step and
-                                 # the `types` and audit jobs — and
-                                 # `tests/guardrail_audit_test.py` requires it of every
-                                 # job. Cited by JOB/STEP NAME: this note said
-                                 # `ci.yml:63`, which is a Postgres health-interval.
+                                 # --all-packages installs every workspace member, not
+                                 # only those the root depends on. Every
+                                 # `uv sync` in `.github/workflows/ci.yml` uses this form
+                                 # and `tests/guardrail_audit_test.py` requires it of
+                                 # every job.
 uv run pytest                    # all tests; -k rls for tenancy tests
 uv run ruff check --fix . && uv run ruff format .
 uv run mypy apps packages        # strict; must pass. NOT `mypy .` — see below.
@@ -387,33 +158,18 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
    docs/DATA-MODEL.md §1). Never write queries that bypass RLS; never use the admin DB
    role in app code paths. Any new tenant table ships WITH its policy in the same
    migration and a cross-tenant zero-rows test.
-2. **Engine isolation**: only `apps/api/engine/`, its voice-runtime twin, and
-   **`apps/voice-worker/`** may import vendor SDKs or see vendor payload shapes.
-   Everything else consumes OUR normalized models (`CallEvent`, `TranscriptTurn`). Raw
-   vendor payloads go to object storage refs, never into typed columns. EVERY adapter
-   must pass the conformance suite in `packages/shared/tests/engine_conformance/` — the
-   set is `pyproject.toml`'s `forbidden_modules` under `[tool.importlinter]`, NAMED here
-   rather than copied because this rule shipped enumerating "(bolna, fake)" while
-   `engine/cartesia.py` already existed, which is the count-in-prose defect hard rule 4
-   exists for.
-   ⚠ **THE THIRD HOME IS NEW (D-592, 13 Sep 2026) AND IT WIDENS THE LIST, NOT THE RULE.**
-   D-31 rented the engine, so the adapter CALLED a vendor over HTTP and one directory
-   could hold every vendor shape. Pipecat is a framework we DEPLOY: the conversation loop
-   now runs in our own container on Pipecat Cloud `ap-south`, importing `pipecat-ai`,
-   `sarvamai` and Cartesia directly. What the rule protects is unchanged and is now
-   enforced one place further out — **the worker emits OUR normalized events, never a
-   Pipecat frame**, and nothing downstream of it learns Pipecat exists. Moving the
-   boundary's location while keeping the boundary is maintenance; leaving a fourth
-   deployable unnamed and letting vendor imports land wherever they were convenient is
-   exactly the drift this rule stops. The worker does NOT belong in `apps/api` (a
-   monolith carrying tenancy, billing and the console, which has no business in a voice
-   container) nor in `apps/voice-runtime` (hard rule 3 forbids heavy imports there by
-   name, and an ONNX turn-detection pipeline is the heaviest import in this tree).
-3. **voice-runtime discipline**: webhook handlers verify authenticity per engine (HMAC
-   where the engine signs; an unsigned engine gets execution-id dedupe, payloads as
-   hints, poller as truth — TRD §5), ack < 500ms,
-   defer all real work to ARQ. No heavy imports, no synchronous LLM calls, no DB writes beyond the
-   minimal event row. Never couple its deploy to `api` changes.
+2. **Engine isolation**: only `apps/api/engine/` and its voice-runtime twin may import vendor
+   SDKs or see vendor payload shapes. Everything else consumes OUR normalized models
+   (`CallEvent`, `TranscriptTurn`). Raw vendor payloads go to object storage refs, never into
+   typed columns. EVERY adapter must pass the conformance suite in
+   `packages/shared/tests/engine_conformance/`; the guarded set is `pyproject.toml`'s
+   `forbidden_modules` under `[tool.importlinter]` (named, not copied, so prose cannot drift
+   from it).
+3. **voice-runtime discipline**: it receives the engine's webhooks (ThinnestAI signs them;
+   `signed_intake.py`). Handlers verify authenticity per engine (HMAC where the engine signs;
+   an unsigned engine gets execution-id dedupe, payloads as hints, poller as truth — TRD §5),
+   ack < 500ms, defer all real work to ARQ. No heavy imports, no synchronous LLM calls, no DB
+   writes beyond the minimal event row. Never couple its deploy to `api` changes.
 4. **Append-only ledgers**: every table in `apps/api/db/registry.APPEND_ONLY_TABLES` is
    INSERT-only. No UPDATE/DELETE anywhere in code; fixes are compensating entries.
    The list is NAMED here rather than copied because this rule shipped enumerating three
@@ -749,11 +505,12 @@ passes its own test.
 ## Domain vocabulary (use these exact terms)
 
 tenant/organization (client business) · agent (a configured voice AI) · engine (the voice
-runtime `ENGINE` selects; our own Pipecat loop since D-592) · carrier (Vobiz, D-662) ·
-extraction schema (per-agent field list driving CRM columns) ·
-T0–T4 (RAG tiers, TRD §6) · PE/TM (DLT Principal Entity = client, Telemarketer = Calevate) ·
-140/160-series (promotional vs service number classes) · compliance gate (campaign launch
-blocker) · big red switch (global outbound halt).
+runtime `ENGINE` selects; ThinnestAI in production) · workspace (a client's ThinnestAI
+customer workspace, D-693) · Clear/Studio (the two voice rungs clients see) · extraction
+schema (per-agent field list driving CRM columns) · T0–T4 (RAG tiers, TRD §6) · PE/TM (DLT
+Principal Entity = client, Telemarketer = Calevate) · 140/160-series (promotional vs service
+number classes) · compliance gate (campaign launch blocker) · big red switch (global
+outbound halt).
 
 ## When implementing backend code
 
@@ -763,107 +520,21 @@ or migration, follow its module anatomy, bootstrap order, error ladder, reliabil
 triad (idempotency/outbox/inbox), and CAS concurrency doctrine. Deviations need a
 decision-log entry.
 
-## When touching `apps/voice-worker` (the Pipecat leg)
+## When touching agent prompts
 
-⚠ **THE DIRECTORY IS `voice-worker` AND EVERYTHING AN OPERATOR TYPES IS `pipecat-worker`.
-THAT IS DELIBERATE, NOT DRIFT (16 Sep 2026).** Renamed because "voice worker" does not say
-where the thing runs: the env vars (`PIPECAT_WORKER_*`), the `Settings` fields
-(`pipecat_worker_api_token` / `_base_url`), the Pipecat Cloud `agent_name` and `secret_set`,
-and `scripts/deploy/pipecat-worker-setup.sh` all carry the platform's name now. What did NOT
-move is the DIRECTORY and the Python package `voice_worker`, because hard rule 2 names the
-path, the Dockerfile copies it, `[tool.importlinter]` contracts are written against it and
-every import in this deployable spells it — a blast radius with nothing on the other side,
-since nobody outside this repository ever types it.
-
-**AND THE TOKEN IS NOT `PIPECAT_API_TOKEN`, WHICH WAS ASKED FOR AND IS THE ONE NAME THAT
-WOULD BE WRONG.** It authenticates OUR worker to OUR API; it is not a credential for
-Pipecat's own API and never travels there. A name implying otherwise sends the next person
-looking in the wrong dashboard for a value that does not exist in it.
-
-
-The vendor ships its own agent-authoring guide INSIDE the pinned wheel, and it is the
-primary source for this deployable — `.venv/lib/python3.12/site-packages/pipecat/cli/
-agent_templates/AGENTS.md` (315 lines; their `CLAUDE.md` beside it is a one-line include of
-it). It is VERIFIED-VENDOR-DOCS, hash-pinned by `uv.lock`, and it is READABLE FROM HERE
-while `docs.pipecat.ai` is egress-blocked (measured 15 Sep 2026, HTTP 000). Read it before
-writing Pipecat code; cite it by line.
-
-**THEIR ANTI-STALENESS RULE IS OUR HARD RULE 11, AND THIS REPO HAS ALREADY PAID FOR IT.**
-`AGENTS.md:135` — *"if you're about to type a Pipecat class name, import path, or service
-parameter from memory — stop and run `check_deprecation` / `search_api` first"* — and
-golden rule 2 at `:13` names the failure mode outright: *"Confidently-wrong old APIs are the
-#1 failure mode."* Two defects in one day came from exactly this shape: `handle_sigterm=True`
-was shipped believing it drains (it calls `cancel()`, `runner.py:347`; the draining method is
-`stop_when_done()`, `:322`), and `_publication_date` was built on a remembered claim that
-`date.fromisoformat` accepts a datetime (it does not on 3.12), which refused every FBIL
-record in production.
-
-⚠ **THIS PARAGRAPH USED TO END "the `cli` extra IS installed, so `check_deprecation` /
-`search_api` are available — use them rather than recalling an API", AND THAT WAS ITSELF A
-CLAIM MADE FROM MEMORY AND NEVER CHECKED (corrected 16 Sep 2026).** It is FALSE. The pin is
-`pipecat-ai[sarvam,websocket]==1.10.0` (`apps/voice-worker/pyproject.toml`), the `cli` extra
-is not among those extras, and `.venv/bin/pipecat --help` answers *"The Pipecat CLI needs
-its optional dependencies (the `cli` extra), which aren't installed"* — `typer` and
-`questionary` are absent from the tree. So those two tools are NOT available here, and a
-session that goes looking for them loses the time instead of checking the API.
-
-What IS readable, and is the substitute: the vendor's guide itself at
-`.venv/lib/python3.12/site-packages/pipecat/cli/agent_templates/AGENTS.md` (package DATA,
-which ships with the wheel whether or not the CLI's dependencies do — that is why the file
-being present proved nothing about the extra), and the installed source under
-`.venv/lib/python3.12/site-packages/pipecat/`. Read the class you are about to name, in the
-tree that is actually pinned. That is what the last three corrections in this section were
-each recovered by, and it needs no extra.
-
-**Terminology is current-or-wrong** (`AGENTS.md:143-147`). `PipelineWorker` is the runnable
-unit; **`PipelineTask` is a DEPRECATED ALIAS**. "Task" means an asyncio task and nothing
-else. Do not reintroduce the old vocabulary.
-
-**Pipeline order is a correctness property, not a style** (`AGENTS.md:163-179`). The cascade
-is `transport.input() -> STT -> user aggregator -> LLM -> TTS -> transport.output() ->
-assistant aggregator`, and **the assistant aggregator goes AFTER `transport.output()`** so it
-records what was actually spoken rather than what was generated. Their words: *"Getting this
-order wrong is a common, subtle bug."* `pipeline.py` already has it right, with the reason
-cited; keep it. Ours adds two processors to their cascade: `language_tap` before the user
-aggregator, and **`output_guard` (`voice_worker/output_guard.PromptLeakGuard`) between the
-LLM and the TTS** — it takes over the TTS's own sentence aggregation and checks every
-sentence before it can be spoken (D-674, below).
-
-**An agent never reveals its instructions (D-674).** Two layers, because a prompt rule
-alone fails to an adaptive attacker and a filter alone cuts the agent off mid-sentence.
+**An agent never reveals its instructions (D-674).**
 `calevate_shared.engine.CONFIDENTIALITY_RULE` is composed by `compose_engine_prompt` after
 the client's fence and before the truthful-answer block, and is verified like that block:
-`mint_config_version` refuses without it, the publish verifier refuses an engine prompt
-missing `CONFIDENTIALITY_MARKER`, and the drift sweep reports it — so an agent published
-before D-674 reads as drift until republished. `PromptLeakGuard` suppresses a sentence that
-reproduces platform text, a turn that reproduces the client's instructions, or a machine
-identifier, speaks one decline and drops the rest of the turn; it logs ids and a reason
-only. Never weaken either layer to make a prompt change pass, and keep hard rule 5's two
-truthful answers outside both (SECURITY-COMPLIANCE §6.1, PROMPT-GUIDE §1.6).
-
-**Change a running pipeline by PUSHING A FRAME, never by calling a method on an object in
-it** (`AGENTS.md:153`). Reaching in directly jumps the queue ahead of frames already in
-flight and causes ordering bugs that only appear under real timing.
+the publish verifier refuses an engine prompt missing `CONFIDENTIALITY_MARKER`, and the
+drift sweep reports it — so an agent published
+before D-674 reads as drift until republished. Never weaken it to make a prompt change pass,
+and keep hard rule 5's two truthful answers outside it (SECURITY-COMPLIANCE §6.1,
+PROMPT-GUIDE §1.6).
 
 **The LLM's output is spoken, so the prompt must forbid what cannot be** — markdown, bullets,
-asterisks, headings, emoji (`AGENTS.md:180`). We already do this, and more thoroughly:
-`calevate_shared/engine.py:2748` plus digit-by-digit numbers for phone and OTP at `:2722`.
-Carry those sentences into any prompt change rather than rewriting around them.
-
-**MAKE IT VERIFIABLE BEFORE MAKING IT FANCY** (golden rule 3, `AGENTS.md:14`). Pipecat ships
-a behavioural eval harness — headless scenarios, no live call — with two kinds: SCRIPTED
-(exact turns, `text_contains` / `function_call` / `within_ms` assertions) and SIMULATED (an
-LLM plays a caller pursuing a goal, and a judge scores the transcript). This matters more
-here than in a typical app for one reason: **NO REAL CALL HAS EVER BEEN PLACED ON THIS
-PRODUCT** (BLOCKER-1), so a scenario suite is the only thing that can show the agent greets,
-answers truthfully when asked whether it is an AI (hard rule 5), searches the knowledge base
-instead of answering from memory, respects `found` / `ambiguous` / `not_found`, and replies
-in the caller's language — before a caller is the one who finds out. Treat a behaviour that
-matters as unproven until a scenario asserts it.
-
-**Ask for credentials, never invent them** (golden rule 4, `AGENTS.md:15`) — the same
-instruction hard rule 11 gives, and the reason `PLIVO_AUTH_ID` is env-only rather than a
-console field it can never reach.
+asterisks, headings, emoji — and reads phone numbers and OTPs digit by digit. Those
+sentences live in `calevate_shared/engine.py`; carry them into any prompt change rather than
+rewriting around them.
 
 ## When implementing, prefer
 
@@ -876,23 +547,15 @@ console field it can never reach.
 ## Do NOT
 
 - Run a SEPARATE vector service, add a message broker, or a second backend language.
-  ⚠ **D-502 (1 Sep 2026) REVERSED D-28 ON THE STORE, AND THIS BULLET USED TO READ
-  "self-host vector infrastructure (RAG/memory is a managed API service per D-28)".**
-  What the rule protects is "no new deployable, no new backup unit, no new restore drill,
-  no new region, no new vendor" — and `pgvector` is an EXTENSION in the Postgres this repo
-  already runs, backs up and drills, so `kb_chunks` adds none of those. A managed vector
-  cloud, a self-hosted Qdrant/Weaviate container, or a second database still do, and are
-  still refused. The bake-off (`docs/evidence/kb-retrieval-bakeoff.md` §5.2) took that
-  reading deliberately; if it is ever rejected, the whole of D-502 falls and option 1 is
-  the answer. **The founder's condition is part of the decision**: adopt it now, and move
-  to Pinecone or Weaviate if the compute load makes it necessary once there are clients —
-  which is what `calevate_shared.retrieval.RetrievalProvider` and
-  `apps/api/retrieval/service.get_retriever` exist to keep to one adapter.
-  ⚠ **IN-CALL RETRIEVAL DID NOT CHANGE AND MUST NOT**: it is T0 and the engine's own KB,
-  `tests/kb_tiers_test.py` pins voice-runtime's route inventory as an equality, and this
-  store serves the dashboard copilot and the CRM paths only.
-- Call model providers directly from request handlers (workers or engine only), except the
-  in-call RAG tool endpoint which has a 100ms budget — measure it.
+  `pgvector` is an extension in the Postgres this repo already runs, backs up and drills, so
+  `kb_chunks` adds no deployable, backup unit, restore drill, region or vendor (D-502, which
+  reversed D-28 on the store); a managed vector cloud, a self-hosted Qdrant/Weaviate
+  container or a second database would add them, and are refused. The founder's condition
+  is part of D-502: move to Pinecone or Weaviate if the compute load makes it necessary once
+  there are clients — which is what `calevate_shared.retrieval.RetrievalProvider` and
+  `apps/api/retrieval/service.get_retriever` keep to one adapter. In-call retrieval is the
+  engine's own knowledge base; this store serves the dashboard copilot and the CRM paths.
+- Call model providers directly from request handlers (workers or engine only).
 - Store secrets in DB/env-committed files; use the secrets manager references.
 - Touch `infra/` prod without the plan output in the PR.
 - Weaken any Hard Rule to make a test pass.

@@ -82,11 +82,6 @@ three are built, and each is worth knowing where to find:
    alone cannot say "looked at, nothing owed" — `kb_documents.gloss_state` is the worked
    example of why that third state has to exist.
 
-**AND A THIRD DOOR OUT EXISTS**, which matters for anything added to this module: the
-worker API's caller-memory read answers the owned runtime at inbound call setup (D-641). It
-reads through `recall()` like every other reader, which is the property that makes the gate
-below worth having in one place.
-
 **WHAT IS NOT DECIDED HERE.** How a fact is produced from a call is the distillation
 worker's business (`workers/caller_memory_distil.py`, built to `workers/copilot_memory.py`'s
 shape: a cron, bounded spend, a durable per-call marker as the idempotency key), and this

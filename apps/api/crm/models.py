@@ -204,13 +204,8 @@ class Call(PKMixin, TimestampMixin, Base):
             "to_e164",
             postgresql_where=text("to_e164 IS NOT NULL"),
         ),
-        # HOW MANY OF THIS AGENT'S CALLS HAVE ANSWERED NOTHING LATELY (migration
-        # e2a91c7f45b8). One fetch failure is not one bad call: Pipecat Cloud reuses a
-        # container across sessions, so a store outage degrades every call that lands on
-        # it until it is replaced — and `worker/service` counts this window so the alarm
-        # reads "the 7th call in an hour" rather than "a call". PARTIAL over the four
-        # failure states, which is the count's own WHERE and which a healthy platform
-        # leaves empty.
+        # Calls of the former owned runtime that answered without their knowledge (migration
+        # e2a91c7f45b8). PARTIAL over the four failure states; kept with the column.
         Index(
             "ix_calls_knowledge_degraded",
             "agent_id",
@@ -236,30 +231,20 @@ class Call(PKMixin, TimestampMixin, Base):
         ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     engine_call_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    #: THE CARRIER'S OWN ID FOR THIS CALL (migration c7f1a9d4e620), which is a DIFFERENT
-    #: vendor's identifier from the one above: `engine_call_id` is ours-or-the-engine's,
-    #: this is the telephony provider's, taken from the websocket handshake
-    #: (`voice_worker/carrier.py`, whose own docstring says the two are not the same id).
+    #: OUR FORMER CARRIER'S OWN ID FOR THIS CALL (migration c7f1a9d4e620), a different vendor's
+    #: identifier from `engine_call_id`. It exists for the erasure we cannot perform
+    #: ourselves: a written request to the carrier has to name the calls by its own id.
     #:
-    #: IT EXISTS FOR THE ERASURE WE CANNOT PERFORM OURSELVES. A DPDP §12 certificate is
-    #: honest that a sub-processor holds its own records and that they are asked for in
-    #: writing; a written request has to name the calls, and the carrier's CDR is keyed on
-    #: THEIR id. Without this the request names a number and a date range — wider than the
-    #: request should be and slower for the vendor to answer.
-    #:
-    #: Written by the worker's settlement and the dial path (`worker/service._UPSERT_CALL_SQL`,
-    #: first value wins), and read by both erasures, which quote it in the `telephony` task.
+    #: No longer written; it was set once per call (first value wins), and is
+    #: read by both erasures, which quote it in the `telephony` task.
     #: Nullable because calls that predate the carrier leg have no such id and never will — a
     #: backfill would be inventing identifiers. It is deliberately NOT cleared by any erasure
     #: arm: it names a row in somebody else's system rather than describing a person, and
     #: destroying the only handle on a copy we are obliged to have erased is the failure
     #: `recording_erasure_holds` exists to prevent.
     carrier_call_id: Mapped[str | None] = mapped_column(Text)
-    #: The carrier holding this call's leg (migration f5c2a8e41d07): stamped by the dial gate
-    #: on the intent row, by the dial itself, and by the first carrier callback for an
-    #: inbound call. Hang-up, the call-record read and the line count address THIS carrier,
-    #: not whatever `Settings.carrier` says now. NULL on rows that predate the column; their
-    #: readers fall back to the switch.
+    #: The former carrier that held this call's leg (migration f5c2a8e41d07). No longer
+    #: written; kept for historical rows until the column is dropped (hard rule 8).
     carrier: Mapped[str | None] = mapped_column(Text)
     direction: Mapped[str] = mapped_column(String, nullable=False)
     from_e164: Mapped[str | None] = mapped_column(Text)
@@ -275,9 +260,8 @@ class Call(PKMixin, TimestampMixin, Base):
     # same sweep and the same erasure. NULL on every call that never handed over, which is
     # almost all of them.
     transfer_recording_url: Mapped[str | None] = mapped_column(Text)
-    #: The CARRIER's id for its recording of this call (D-668): reported by `RecordStop`,
-    #: resolved to a download by `workers/carrier_recordings`, quoted or deleted at the
-    #: carrier by an erasure. Never a URL; `recording_url` is our copy.
+    #: Our former carrier's id for its recording of this call (D-668), quoted at the carrier by
+    #: an erasure. No longer written. Never a URL; `recording_url` is our copy.
     carrier_recording_id: Mapped[str | None] = mapped_column(Text)
     #: When our copy of the carrier's recording was stored, and when the carrier confirmed
     #: its own copy deleted, one day later (migration c5d82f1a9e47).
@@ -318,16 +302,9 @@ class Call(PKMixin, TimestampMixin, Base):
     caller_memory_state: Mapped[str] = mapped_column(
         String, nullable=False, server_default="pending"
     )
-    #: DID THIS CALL HAVE ITS CLIENT'S KNOWLEDGE, AND IF NOT, WHY NOT (migration
-    #: e2a91c7f45b8)? `calevate_shared.worker_api.KnowledgeState` — `available`,
-    #: `no_pack`, or one of the four ways a configured pack fails to load.
-    #:
-    #: THE FOUR FAILURE STATES MEAN THE CALL ANSWERED NOTHING: `voice_worker/knowledge.py`
-    #: replies `temporarily_unavailable` to every question for the rest of the call. Before
-    #: this column the only trace was a log line inside a container a vendor operates.
-    #:
-    #: NULL means nobody reported — every call that predates the column, and every call of
-    #: the rented engine, which has no such report. It is deliberately NOT read as "fine".
+    #: Whether a call of the former owned runtime had its client's knowledge (migration
+    #: e2a91c7f45b8; `calevate_shared.worker_api.KnowledgeState`). No longer written; NULL on
+    #: every engine call. Kept until the column is dropped (hard rule 8).
     knowledge_state: Mapped[str | None] = mapped_column(Text)
     campaign_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))  # FK lands M2
     #: A free-trial test call (D-697), placed from the shared trial number. What the trial's
@@ -594,7 +571,7 @@ class CallEngineLatency(PKMixin, TimestampMixin, Base):
     """What the ENGINE says its own pipeline cost on one call, per turn.
 
     **THIS IS NOT `calls.latency` COMING BACK** (migration `f1a7c39d5be2` dropped that
-    column, and `tests/call_latency_column_test.py` keeps it dropped). That column promised
+    column). That column promised
     `turn_p50`/`turn_p95` — VOICE-TO-VOICE numbers, the interval between the caller
     finishing a word and the caller hearing audio. Both ends of that interval exist on the
     PSTN leg, our stack is not in the audio path (D-25/D-33), and nothing could ever have

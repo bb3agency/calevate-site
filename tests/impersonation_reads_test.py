@@ -143,14 +143,6 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "client-realm counterpart at all. A support person inside a client's account is "
         "looking at that client's screens, and none of them names a Calevate operator."
     ),
-    "/v1/admin/tenants/{tenant_id}/carrier-application": (
-        "one client's compliance application with OUR carrier, as ops reads it. The "
-        "client's own view of the same fact is `GET /v1/compliance/carrier-application`, "
-        "which is `org:read` and therefore fully reachable through impersonation — so a "
-        "support person in a view-as session sees exactly the screen the client is "
-        "looking at, and this path is the operator's door to the same resource for an "
-        "account they are NOT impersonating (the `llm-defaults` case above, exactly)"
-    ),
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling": (
         "one agent's pause before replying and hang-up (D-751), the operator's door for an "
         "account they are not impersonating; the client's own `GET /v1/agents/{agent_id}/"
@@ -200,18 +192,6 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "client must never see. What they DO see is `GET /v1/public/rate-card`, which is "
         "unauthenticated and carries the rates alone; an impersonated session is a client "
         "dashboard and has no screen showing what a minute costs Calevate"
-    ),
-    "/v1/ops/voices": (
-        "which voices this PLATFORM offers (D-588) — the operator's curation table, and it "
-        "is not a view of any client's screen. Every row is a fact about OUR one voice "
-        "platform account (which voices it lists, which the founder cloned on it, when we "
-        "last read it) plus one number that is cross-tenant by construction: how many LIVE "
-        "agents across EVERY client are on each voice, which is exactly what a client may "
-        "not be shown. The client's own view of the same catalogue is a different route "
-        "entirely — `GET /v1/agents/voices` is `agents:read`, which D-22 admits — and it "
-        "answers per audience, with the operator grounds stripped out. So a support person "
-        "in a view-as session sees exactly the picker the client sees, and loses nothing by "
-        "not reaching this one."
     ),
     "/v1/ops/maintenance": (
         "the maintenance board (D-544) — the open window, what its drain is still waiting "

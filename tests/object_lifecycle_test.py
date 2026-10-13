@@ -51,7 +51,6 @@ import pytest
 from apps.workers import storage
 from apps.workers.retention import RECORDING_FLOOR_DAYS
 from apps.workers.storage import delivery_body_key, kb_object_key, payload_key, recording_key
-from calevate_shared.knowledge_pack import pack_object_key
 from scripts.seed import DEFAULT_RETENTION_POLICIES
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -230,13 +229,8 @@ def test_rule_prefixes_match_the_keys_storage_actually_writes(policy: dict) -> N
         "a client's uploaded document would accumulate under a prefix nothing bounds"
     )
 
-    assert applier.PACKS_PREFIX in prefixes
-    written_pack = pack_object_key(uuid4(), uuid4(), "a" * 64)
-    assert written_pack.startswith(applier.PACKS_PREFIX), (
-        f"pack_object_key() now writes {written_pack!r}, which no lifecycle rule matches — "
-        "and a knowledge pack is the one object here that NOTHING ELSE ever deletes: it is "
-        "immutable and content-addressed, so every correction a client makes leaves the "
-        "previous pack behind for ever"
+    assert applier.PACKS_PREFIX in prefixes, (
+        "knowledge-packs/ holds immutable objects nothing else deletes; only this rule bounds them"
     )
 
     assert written_body.startswith(applier.BODIES_PREFIX), (
@@ -271,7 +265,6 @@ def test_every_written_prefix_is_covered_by_some_rule(policy: dict) -> None:
         recording_key(uuid4(), uuid4()),
         payload_key(tenant_id=uuid4(), call_id=uuid4(), engine="bolna", execution_id="exec-1"),
         kb_object_key(tenant_id=uuid4(), upload_id=uuid4(), slot="original", suffix="pdf"),
-        pack_object_key(uuid4(), uuid4(), "b" * 64),
     ):
         assert any(written.startswith(prefix) for prefix in covered), (
             f"nothing expires {written!r} — it accumulates forever"
@@ -282,7 +275,7 @@ def test_no_prefix_storage_writes_is_missing_from_this_file(policy: dict) -> Non
     """THE REVERSE DIRECTION, and it is why a sixth prefix could land unnoticed.
 
     Every check above enumerates the key builders BY HAND — `recording_key`,
-    `payload_key`, `kb_object_key`, `pack_object_key`, `delivery_body_key` — so a prefix
+    `payload_key`, `kb_object_key`, `delivery_body_key` — so a prefix
     added to `storage.py` after they were written is invisible to all of them. That is the
     count-in-prose defect hard rule 4 exists for, applied to a list of buckets instead of a
     list of tables, and it had already happened: `CARRIER_DOCUMENT_PREFIX` has been in
@@ -326,37 +319,6 @@ def test_no_prefix_storage_writes_is_missing_from_this_file(policy: dict) -> Non
             f"the reason registered for {prefix!r} is too short to be an argument — an "
             "exemption list nobody has to justify an entry in is where a register rots"
         )
-
-
-def test_the_knowledge_pack_rule_is_a_ceiling_and_not_a_retention_mechanism(
-    policy: dict,
-) -> None:
-    """A short expiry on `knowledge-packs/` deletes exactly the WRONG objects, and this is
-    the test that says so before somebody tidies up storage costs.
-
-    S3 expiry runs from an object's CREATION. A pack is rebuilt only when a client changes
-    their knowledge, so the pack a live agent answers out of gets OLDER the longer that
-    client's knowledge has been correct — the best-behaved client on the platform is the
-    one whose live pack expires first. The symptom is an agent that retrieves nothing while
-    every screen reports its knowledge as published, and nothing anywhere reports it.
-
-    So the floor asserted here is the other growth ceilings' number: whatever this rule
-    says, it may not be shorter than the prefix whose objects are ALSO the live artefact
-    (`kb-uploads/`, which holds the very documents these packs are built from). The real
-    reclamation mechanism is a reference-aware sweep that does not exist yet —
-    `apply_lifecycle.PACKS_PREFIX` carries the whole argument and what is UNKNOWN in it.
-    """
-    by_prefix = {prefix: days for _, prefix, days in _enabled_expiry_rules(policy)}
-    packs = by_prefix.get(applier.PACKS_PREFIX)
-    assert packs is not None, (
-        "nothing expires knowledge-packs/ — immutable, content-addressed objects that "
-        "no other mechanism ever removes accumulate for ever"
-    )
-    assert packs >= by_prefix[applier.UPLOADS_PREFIX], (
-        f"knowledge-packs/ expires after {packs}d, sooner than the uploads those packs are "
-        "built from. A pack outlives the source document or the agent loses its knowledge "
-        "with nobody to notice"
-    )
 
 
 # --- 4. It is a valid S3 lifecycle document -----------------------------------------
@@ -630,19 +592,3 @@ def test_the_terraform_declares_no_bucket_and_therefore_cannot_place_one() -> No
         for name in ("main.tf", "variables.tf", "versions.tf")
     )
     assert 'resource "aws_s3_bucket"' not in hcl
-
-
-def test_both_bucket_checklists_name_the_hint_and_both_are_separate_one_shots() -> None:
-    """The recordings bucket and the wal-g backup bucket are two independent one-shot
-    decisions, and each has to say so where the human creating it will read it.
-
-    FAILS IF: either checklist loses the `apac` hint, or the backup checklist stops flagging
-    that it is a SEPARATE decision from the recordings bucket — the specific way this gets
-    half-done, because the two buckets are created in different steps on different days by
-    someone who has already "done the R2 bucket".
-    """
-    recordings = (REPO_ROOT / "infra" / "README.md").read_text(encoding="utf-8")
-    backups = (REPO_ROOT / "infra" / "backup" / "README.md").read_text(encoding="utf-8")
-    for name, text in (("infra/README.md", recordings), ("infra/backup/README.md", backups)):
-        assert "`apac`" in text, f"{name} no longer names the location hint (D-450)"
-    assert "SEPARATE one-shot" in backups

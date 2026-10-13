@@ -18,7 +18,7 @@ The four groups:
   nobody enrolled is never shadowed and the arm is never even asked.
 * **The switch** — `retrieval_shadow_arm` is LIVE (`core/platform_config`), so the
   comparison starts and stops between two requests with nothing redeployed. That is the
-  rollback `docs/PIPECAT-MIGRATION.md` §8.6 requires of every step before step 15 may run.
+  rollback ROADMAP D-604 requires before `kb_chunks` may be retired.
 
 NO NETWORK AND NO STORE. Both arms are fakes here: what is under test is the wrapper's
 promise, and a real store would only make the promise harder to see.

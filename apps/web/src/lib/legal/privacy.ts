@@ -15,16 +15,14 @@ import type { LegalDocument } from "./types";
  * 2. **There is NO India residency claim left in this notice, and none may be added.**
  *    "Everything stays in India" was never available: object storage is Cloudflare R2 with
  *    no India-only jurisdiction, and the call runs on ThinnestAI (production since 7 Oct
- *    2026), whose policy stores in India but lets its language-model step leave it; on
- *    `ENGINE=pipecat` it runs on Pipecat Cloud in a region whose country is not
- *    established, over a carrier (Vobiz) that states no processing location. The
- *    language leg runs in Azure OpenAI East US 2 (D-449)
- *    across three offered providers (D-456). The speech leg is with an INDIAN COMPANY,
+ *    2026), whose policy stores in India but lets its language-model step leave it. The
+ *    dashboard language leg runs in Azure OpenAI East US 2 (D-449) across three offered
+ *    providers (D-456). Post-call extraction is with an INDIAN COMPANY,
  *    which is a different claim from Indian data: that vendor's privacy policy says
  *    personal data "may be transferred to and processed in countries outside India",
  *    naming US cloud infrastructure and EU model and security vendors, and its
  *    India-storage carve-out covers content-studio voice biometrics and payment data
- *    rather than our API traffic — so the AUDIO may leave India as it is spoken
+ *    rather than our API traffic — so the transcript may leave India
  *    (VENDOR-PUBLISHED: Sarvam Privacy Policy, "Cross-Border Data Transfers", read by the
  *    founder 27 Aug 2026 and relayed; `sarvam.ai` is egress-blocked here, so a re-fetch
  *    will fail). The application host remains Indian (D-180).
@@ -551,8 +549,8 @@ export const PRIVACY_POLICY: LegalDocument = {
                     "delivered can be answered with evidence rather than a " +
                     "reconstruction. Where a voice platform returns a raw document for a " +
                     "call, we archive that too; it carries your number and the transcript. " +
-                    "The hosted voice platform that runs calls today returns one with " +
-                    "each call's results; our own call program, when used, returns none.",
+                    "The hosted voice platform that runs calls returns one with each " +
+                    "call's results.",
                 },
                 {
                   term: "Anything else you volunteer",
@@ -816,9 +814,8 @@ export const PRIVACY_POLICY: LegalDocument = {
             "to be wider than we could keep: WE do not use client or caller data to " +
             "train, fine-tune or evaluate any model. What a vendor may do with what we " +
             "send it is that vendor's own term, and one of them says something we have " +
-            "to pass on rather than promise away. The speech provider — the one that " +
-            "reads every transcript first after the call, and hears the call itself when " +
-            "calls run on our own call program — publishes terms of service " +
+            "to pass on rather than promise away. The provider that reads every " +
+            "transcript first after the call publishes terms of service " +
             "(version 2.0, effective 29 July 2026) which permit it, at their paragraph " +
             "17.5, to " +
             "use inputs, outputs and usage data to train its machine-learning models, in " +
@@ -837,8 +834,7 @@ export const PRIVACY_POLICY: LegalDocument = {
           // 7 Oct 2026 (`docs/evidence/thinnest-ai-evaluation.md` §10 item 11), not a signed
           // agreement, so it is reported as its statement. The dearer quality's vendor:
           // VENDOR-PUBLISHED, RELAYED (`docs/evidence/cartesia-tts-verification-2026-09-06.md`
-          // §A5). The third company (the cheaper quality on our own call program only):
-          // NOTHING read, all three of its sites egress-blocked (measured 15 Sep 2026).
+          // §A5).
           //
           // None is NAMED here: the names belong in the sub-processor register.
           kind: "para",
@@ -852,44 +848,33 @@ export const PRIVACY_POLICY: LegalDocument = {
             "sub-processor page carries the rest. It speaks the cheaper of the two voice " +
             "qualities an agent can speak in with its own voices. The dearer quality is " +
             "synthesised by a separate company, on our own account with it, to which the " +
-            "platform passes the agent's words; and a third company would speak the " +
-            "cheaper quality if calls ran on our own call program instead. Neither of " +
-            "those two is the company that reads your transcript, which until " +
-            "18 September 2026 spoke the cheaper quality; both voice qualities have left " +
-            "it, and what it does with what it receives is unchanged and set out above. " +
-            "Of the two voice-synthesis companies, one has a published privacy policy " +
-            "saying it may use the information it receives to generate output and to " +
+            "platform passes the agent's words. That company is not the one that reads " +
+            "your transcript. Its published privacy policy says it may use the " +
+            "information it receives to generate output and to " +
             "train and enhance the models behind its services, with an opt-out form " +
             "whose effect is forward-only — it stops future use for training and does " +
             "not reach anything used before the day it is submitted; its no-retention " +
             "option, under which submitted text and generated audio are not kept at all, " +
             "is sold only on its enterprise plan, and on the plans we could buy what it " +
             "keeps is governed by its published data-processing agreement instead, and " +
-            "we have not established what those periods are. For the other we have " +
-            "established nothing at all: its own sites cannot be reached from the " +
-            "environment we build in, so nobody here has read its position on training, " +
-            "on retention or on anything else, and we will not repeat a position we have " +
-            "not read.",
+            "we have not established what those periods are.",
         },
         {
           kind: "para",
           text:
-            "What reaches either of those two companies is narrower than the word voice " +
+            "What reaches that company is narrower than the word voice " +
             "suggests, and it is worth being exact: the words the agent speaks, sent as " +
             "text while it speaks them, which can include personal data you have given, " +
             "such as your name or the details of an order, where the agent says it back. " +
             "Not your own audio, not the transcript of what you said, not the recording, " +
             "and nothing from a client's dashboard. Since 11 October 2026 the company " +
             "that synthesises the dearer quality receives those words on every call " +
-            "answered or made by an agent a client has put on that quality. Nothing has " +
-            "been sent to the third company. This paragraph used to end by telling a " +
-            "client who would rather none of it applied to their callers that they could " +
-            "keep every agent on the other voice quality. That is withdrawn rather than " +
-            "reworded: an agent on the cheaper quality today is spoken by the hosted " +
-            "voice platform and the providers it uses, which it has not named to us voice " +
-            "by voice, so no choice of voice keeps synthesis with a company we can place. " +
-            "Section 3.6 of the sub-processor page describes both companies and carries " +
-            "the rest, including what nobody has established about each.",
+            "answered or made by an agent a client has put on that quality. An agent on " +
+            "the cheaper quality is spoken by the hosted voice platform and the providers " +
+            "it uses, which it has not named to us voice by voice, so no choice of voice " +
+            "keeps synthesis with a company we can place. Section 3.6 of the " +
+            "sub-processor page describes that company and carries the rest, including " +
+            "what nobody has established about it.",
         },
       ],
     },
@@ -975,9 +960,7 @@ export const PRIVACY_POLICY: LegalDocument = {
             "processed outside India, the transcript reaches a language model turn by " +
             "turn while you are still speaking, and the company that reads the " +
             "transcript after the call may itself process it outside India under its " +
-            "own published policy; on our own call program, neither the carrier nor " +
-            "the hosting platform has been established to process it in India at all. " +
-            "We will not put our own answer to an " +
+            "own published policy. We will not put our own answer to an " +
             "undecided question in front of you. We do the thing that is right under " +
             "either answer: call audio is handled as though it may be sensitive personal " +
             "data, every category of recipient it reaches is on the sub-processor page, and the " +
@@ -989,24 +972,17 @@ export const PRIVACY_POLICY: LegalDocument = {
           kind: "definitions",
           items: [
             {
-              term: "The first reading of your transcript is by an Indian COMPANY, which is not the same as staying in India; BOTH voice qualities are spoken by companies other than that one; the language model runs outside India, and where depends on the model",
+              term: "The first reading of your transcript is by an Indian COMPANY, which is not the same as staying in India; the voice is spoken by companies other than that one; the language model we run ourselves is outside India, and where depends on the model",
               detail:
                 "Calls run on a hosted voice platform, which recognises what you say, " +
                 "runs the model that answers you and speaks; the entry on the call " +
                 "itself, below, says where. After the call, the first pass that reads " +
                 "your transcript and pulls the fields out of it runs on an Indian " +
-                "provider, which also does the speech recognition if calls run on our " +
-                "own call program instead. Voice synthesis — the step that turns the " +
-                "agent's words into the voice you hear — is not done by that provider " +
-                "for any agent. This entry said it was for every agent until " +
-                "7 September 2026 and for the first of the two voice qualities until " +
-                "18 September 2026; on that date the provider was removed from the " +
-                "synthesis step altogether, and BOTH voice qualities are now spoken by " +
-                "others: the cheaper by the hosted voice platform and the dearer by a " +
-                "separate company with an entry of its own below, because we cannot tell " +
-                "you where it processes. Nothing else about the Indian provider changed: " +
-                "it still reads your transcript first, and everything this entry says " +
-                "next about it is unchanged. " +
+                "provider. Voice synthesis — the step that turns the agent's words into " +
+                "the voice you hear — is not done by that provider for any agent: the " +
+                "cheaper voice quality is spoken by the hosted voice platform and the " +
+                "dearer by a separate company with an entry of its own below, because we " +
+                "cannot tell you where it processes. " +
                 "Calling the provider Indian names the COMPANY, not the country " +
                 "the processing happens in, and until 27 August 2026 this notice let you " +
                 "read it as both. That provider's published privacy policy says personal " +
@@ -1015,55 +991,37 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "and security vendors, under Standard Contractual Clauses, adequacy " +
                 "decisions and data-processing agreements; the India-storage commitments " +
                 "it does make cover voice biometric data in its content-studio product " +
-                "and payment data, not the ordinary speech traffic a call generates. So " +
-                "your transcript may leave India after every call, and your audio as it " +
-                "is spoken when calls run on our own call program, " +
-                "and we have withdrawn the sentence that implied otherwise rather than " +
-                "qualifying it. Section 3.4 of the sub-processor page sets out what that " +
-                "vendor's terms permit. The language model we run ourselves — the in-app " +
-                "assistant a client opens from their own dashboard, and the model that " +
-                "holds the conversation when calls run on our own call program — runs on " +
-                "one of three " +
-                "providers you can choose between: a hyperscale cloud provider's service " +
-                "(configured for its East US 2 region, in the United States, and the one " +
-                "we run by default), a second provider in the United States, or a third " +
-                "whose developer service names no region we can request. Not all three " +
-                "serve both legs, " +
-                "and that is a limit of ours rather than of theirs: the in-app assistant " +
-                "runs only on a provider whose published position on training with what " +
-                "it receives someone here has actually read and, where the answer turns " +
-                "on which plan our own account is on, recorded against that account. " +
-                "The second of those is not one of them today, so a client whose agents " +
-                "run one of its models still gets the assistant, answered by the provider " +
-                "we run " +
-                "by default, and the screen tells them so rather than leaving them to " +
-                "assume. Since 9 October 2026 the in-app assistant itself runs first on " +
-                "the third provider, whose developer service names no region we can " +
-                "request — so what you type into the assistant, and what it looks up in " +
-                "your account to answer, may be processed anywhere that provider " +
-                "operates — and only while we hold a recorded confirmation that our own " +
-                "account with it is on a plan under which it does not train on what is " +
-                "submitted. When it cannot answer, the hyperscale provider in East US 2 " +
-                "answers instead, unless we switch that fallback off. Read that at the speed the call " +
-                "runs at: on the in-call leg what you say leaves India as text on every " +
-                "turn, as you say it, because the model has to answer you in the " +
-                "conversation rather than after it. It is not a batch that goes abroad " +
-                "when the call ends. This used to say all models " +
-                "were served from one account and region and that your choice did not " +
-                "move the answer; that is no longer true, and the claim is withdrawn — " +
-                "your choice of model is also a choice of which provider processes the " +
-                "language leg and where. Until 22 August 2026 the default service was " +
+                "and payment data, not the ordinary API traffic our service generates. " +
+                "So your transcript may leave India after every call, and we have " +
+                "withdrawn the sentence that implied otherwise rather than qualifying it. " +
+                "Section 3.4 of the sub-processor page sets out what that vendor's terms " +
+                "permit. The language model we run ourselves — the in-app assistant a " +
+                "client opens from their own dashboard — runs on one of three providers: " +
+                "a hyperscale cloud provider's service (configured for its East US 2 " +
+                "region, in the United States, and the one we run by default), a second " +
+                "provider in the United States, or a third whose developer service names " +
+                "no region we can request. The assistant runs only on a provider whose " +
+                "published position on training with what it receives someone here has " +
+                "actually read and, where the answer turns on which plan our own account " +
+                "is on, recorded against that account. The second of those is not one of " +
+                "them today, so it receives nothing. Since 9 October 2026 the in-app " +
+                "assistant runs first on the third provider — so what you type into the " +
+                "assistant, and what it looks up in your account to answer, may be " +
+                "processed anywhere that provider operates — and only while we hold a " +
+                "recorded confirmation that our own account with it is on a plan under " +
+                "which it does not train on what is submitted. When it cannot answer, " +
+                "the hyperscale provider in East US 2 answers instead, unless we switch " +
+                "that fallback off. Until 22 August 2026 the default service was " +
                 "configured for the South India region and this notice said so; the " +
                 "claim that the language model runs in India is withdrawn, not reworded. " +
-                "What the build enforces, unchanged by the move to more than one " +
-                "provider: the set of providers our code may reach for the language leg " +
-                "is fixed in the source, it appears there once, no setting anyone can " +
-                "edit may carry a region, an endpoint or a provider, and the release " +
-                "fails if any of that stops being true — so no code we ship can send the " +
-                "model request to a provider or a place the source does not declare, and " +
-                "that set moves only by a reviewed code change. What it cannot enforce, " +
-                "stated plainly because the distinction is real: for the leg served from " +
-                "the hyperscale provider, the endpoint address does not name its own " +
+                "What the build enforces: the set of providers our code may reach for " +
+                "the language model is fixed in the source, it appears there once, no " +
+                "setting anyone can edit may carry a region, an endpoint or a provider, " +
+                "and the release fails if any of that stops being true — so no code we " +
+                "ship can send the model request to a provider or a place the source " +
+                "does not declare, and that set moves only by a reviewed code change. " +
+                "What it cannot enforce, stated plainly because the distinction is real: " +
+                "for the hyperscale provider, the endpoint address does not name its own " +
                 "region, and the region belongs to the account resource that address " +
                 "points at — which resource that is, is an operational setting of ours. " +
                 "So that the account we are configured to use, and its model deployment, " +
@@ -1083,9 +1041,8 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "The dearer voice quality is spoken by a company we cannot place, and we " +
                 "would rather say so than name a country",
               detail:
-                "An agent speaks in one of two voice qualities, and since " +
-                "18 September 2026 neither of them is synthesised by the company " +
-                "described above. The dearer one is " +
+                "An agent speaks in one of two voice qualities, and neither of them is " +
+                "synthesised by the company described above. The dearer one is " +
                 "synthesised by a different company, and " +
                 "we have not established where it processes: its published documents, " +
                 "as read to us, name no region and make no data-residency commitment, " +
@@ -1100,21 +1057,12 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "summarised into a location. What reaches it is the words the agent " +
                 "speaks, as text, and section 6 sets out both that and what its terms " +
                 "permit it to do with them. It has received them since 11 October 2026, " +
-                "for agents a client has put on that quality. The cheaper quality is spoken by the hosted voice platform that " +
-                "runs the call, in its own voices, by providers it has not named to us " +
-                "voice by voice; the entry on the call itself, below, says what it has " +
-                "told us about where it processes. If calls ran on our own call program " +
-                "instead, the cheaper quality would be spoken by a third company, added " +
-                "on 15 September 2026, about which we have established even less: all " +
-                "three of its own sites refuse a connection from the environment we build " +
-                "in, so nobody here has read where it processes, what it keeps, or what " +
-                "its terms permit — and we will not borrow the answers above for it. " +
-                "Nothing has been sent to it either. " +
-                "⚠ Until 18 September 2026 this entry told you that keeping your agents " +
-                "on the other voice quality kept an unplaceable company out of your " +
-                "calls. There is no such quality now, and that is withdrawn rather than " +
-                "reworded. Section 3.6 of the sub-processor page describes both companies " +
-                "and lists what nobody here has established about each.",
+                "for agents a client has put on that quality. The cheaper quality is " +
+                "spoken by the hosted voice platform that runs the call, in its own " +
+                "voices, by providers it has not named to us voice by voice; the entry on " +
+                "the call itself, below, says what it has told us about where it " +
+                "processes. Section 3.6 of the sub-processor page describes the dearer " +
+                "quality's company and lists what nobody here has established about it.",
             },
             {
               term:
@@ -1173,12 +1121,8 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "as a term we hold. On the dearer voice quality the agent's words also " +
                 "go to the separate company described above. We copy the recording into " +
                 "our own storage. So the live audio and the transcript produced from it " +
-                "should not be assumed to stay in India while the call is happening. If " +
-                "calls are switched back to our own call program, the conversation runs " +
-                "on a hosting platform in a region it names only by its own label, which " +
-                "nobody here has placed in a country, and the sound of the call reaches " +
-                "it through our telephone carrier, which does not state where it " +
-                "processes or stores call data. Our own copies are the system of record " +
+                "should not be assumed to stay in India while the call is happening. " +
+                "Our own copies are the system of record " +
                 "and are held as described above. The sub-processor page carries the " +
                 "detail.",
             },
@@ -1238,10 +1182,8 @@ export const PRIVACY_POLICY: LegalDocument = {
           text:
             "Our copies of call recordings are kept for 90 days and then deleted. The " +
             "hosted voice platform that runs the call also records it, and keeps its own " +
-            "copy for the period its plan sets, between 30 and 75 days. When calls run " +
-            "on our own call program, our telephone carrier records instead; its copy is " +
-            "deleted one day after we have saved ours, and it never keeps a copy longer " +
-            "than its own limit of up to 30 days. The database refuses to store a " +
+            "copy for the period its plan sets, between 30 and 75 days. The database " +
+            "refuses to store a " +
             "shorter recording period, and the " +
             "retention job refuses to act on one if it somehow existed. Clients in " +
             "regulated sectors — banking, insurance, securities — may be subject to " +
@@ -1333,11 +1275,9 @@ export const PRIVACY_POLICY: LegalDocument = {
                   "duration, never less than five minutes and never more than two hours " +
                   "and five minutes — so that it outlives the audio it opens. Section " +
                   "4.1 says why.",
-                "Incoming telephone-carrier callbacks are accepted only from the carrier's " +
-                  "published source addresses, and are treated as hints: the call record " +
-                  "read back from the carrier over its authenticated interface is the " +
-                  "record of truth. " +
-                  "Outgoing webhooks to a client's own systems are signed.",
+                "Incoming callbacks from the hosted voice platform are accepted only " +
+                  "when they carry a valid signature made with a secret it shares with " +
+                  "us. Outgoing webhooks to a client's own systems are signed.",
                 "Per-client spend and rate ceilings, and a global switch that halts all " +
                   "outbound dialling at once.",
               ],
@@ -1541,12 +1481,10 @@ export const PRIVACY_POLICY: LegalDocument = {
                   "destruction date is fixed at the moment the request runs, and the audio " +
                   "is destroyed automatically on that date without a second request. The " +
                   "certificate states the date.",
-                "The telephone carrier's recordings of the calls are deleted through " +
-                  "the carrier's published deletion. Its call records, and copies held " +
-                  "by a voice platform a call ran on, are reported as unconfirmed. The " +
-                  "carrier publishes no way to delete one person's call records, so " +
-                  "removing them is a written request, and we will not certify a " +
-                  "deletion we cannot show.",
+                "Copies of the calls held by the hosted voice platform the calls ran " +
+                  "on — its recordings and call records — are reported as unconfirmed: " +
+                  "we ask it to delete them, and we will not certify a deletion we " +
+                  "cannot show.",
                 "Knowledge content a client uploaded is SEARCHED for the number, and the " +
                   "number of matching documents is reported on the erasure certificate — " +
                   "but nothing in it is edited or deleted. This list said the content was " +

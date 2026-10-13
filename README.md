@@ -11,11 +11,8 @@ The operating manual for coding agents is [CLAUDE.md](CLAUDE.md) (and
 ```
 apps/web            Next.js 15 (App Router) + TS — admin.calevate.tech + app.calevate.tech
 apps/api            FastAPI modular monolith
-apps/voice-runtime  FastAPI — carrier answer documents and callbacks (Vobiz, D-662),
-                    engine webhooks. LATENCY-CRITICAL.
-apps/voice-worker   Pipecat conversation loop on Pipecat Cloud ap-south (D-592);
-                    Python package `voice_worker`
-apps/workers        ARQ workers — post-call pipeline, carrier events, recordings,
+apps/voice-runtime  FastAPI — ThinnestAI's signed engine webhooks. LATENCY-CRITICAL.
+apps/workers        ARQ workers — post-call pipeline, recordings,
                     embeddings, campaigns, number rental
 packages/shared     Pydantic models, VoiceEngine protocol, normalized events
 infra/              nginx templates, backup units + wal-g config, object-lifecycle
@@ -57,7 +54,7 @@ remain authoritative on intent.
 | Topic | Note |
 |---|---|
 | Host ports | Postgres is on **5433** and Redis on **6380** — 5432/6379 are held by another project on this machine. Container-internal ports are unchanged. |
-| `uv sync` | Must be `uv sync --all-packages`. A bare `uv sync` installs the virtual root, whose dependencies are the server image's three members (D-667), and leaves out the voice worker and its pipecat tree. |
+| `uv sync` | Must be `uv sync --all-packages`, as CI runs it. A bare `uv sync` installs the virtual root, whose dependencies are the server image's three members (D-667). |
 | Nested workspace | `create-next-app` drops a `pnpm-workspace.yaml` **and** a `pnpm-lock.yaml` inside `apps/web`. Both were deleted: the nested file marks `apps/web` as a second workspace root with `ignoredBuiltDependencies`, which breaks `pnpm -C apps/web <script>`. Delete them again if a scaffold or upgrade recreates them. |
 | voice-runtime | Started with `--app-dir apps/voice-runtime` because the directory is hyphenated and therefore not importable as `apps.voice_runtime`. |
 | Platform | Windows 11 native. Postgres/Redis/MinIO run in Docker, so Linux parity holds where it matters. |
@@ -76,11 +73,12 @@ been updated to match; changing any of these needs a new entry.
 
 ## What still blocks a client going live
 
-The engine is our own Pipecat loop (D-592; Bolna was deleted by D-639) and the carrier is
-Vobiz (D-662). What still stands between the build and a client's first call is outside the
-code: the first real call (`runbooks/vobiz-first-live-call.md`, BLOCKER-1), Vobiz's written
-consent to client traffic (OPERATIONS §2 gate V-10), DLT registration for outbound, and the
-first deploy (`runbooks/first-deploy.md`). [docs/README.md](docs/README.md) lists them with
-their gates. The adapter interface in `packages/shared/src/calevate_shared/engine.py` stays
-engine-agnostic, and the `fake` engine (`ENGINE=fake`, the default) is what local
-development and the test suite run against.
+Production runs `ENGINE=thinnest`: ThinnestAI hosts the whole call (D-678, deployed 7 Oct
+2026), and `ENGINE` accepts only `thinnest` and `fake` (D-763). What still stands between
+the build and a client's calls is outside the code: the first live call checklist
+(`runbooks/thinnest-first-live-call.md`) and ThinnestAI's open answers (OPERATIONS §2, the
+T-series gates), the plan's workspace cap, and each client's KYC and no-cold-calls pledge
+for outbound (D-692). [docs/README.md](docs/README.md) lists them with their gates. The
+adapter interface in `packages/shared/src/calevate_shared/engine.py` stays engine-agnostic,
+and the `fake` engine (`ENGINE=fake`, the default) is what local development and the test
+suite run against.

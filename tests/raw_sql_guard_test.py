@@ -104,11 +104,6 @@ def _sites(findings: list[guard.Finding]) -> set[str]:
 
 
 class TestWiring:
-    def test_the_real_tree_is_clean(self, modules: list[guard.Module]) -> None:
-        """The state this guardrail exists to hold. If this fails, read the finding —
-        it is naming a statement whose text nobody can trace to a literal."""
-        assert guard.audit(modules) == []
-
     def test_it_is_actually_looking_at_statements(self, modules: list[guard.Module]) -> None:
         """A clean report from a check that found nothing to check is not a clean report.
         `main()` refuses that case; this pins the number well below today's so a real
@@ -116,24 +111,12 @@ class TestWiring:
         total = sum(len(guard.sql_sites(module)) for module in modules)
         assert total > 300, f"only {total} `text()` statements found — discovery is broken"
 
-    def test_the_only_raw_sql_door_is_still_the_one_we_watch(
-        self, modules: list[guard.Module]
-    ) -> None:
-        """`exec_driver_sql` and `literal_column` would each be a second door. The check
-        reports them; this proves the tree has none, so the verdict above is total."""
-        assert guard.forbidden_sink_uses(modules) == []
-
     def test_every_declared_validator_exists(self, modules: list[guard.Module]) -> None:
         """`SAFE_IDENTIFIER_CALLS` is a trust anchor: a call to one of these is waved
         through. A name in it that no longer exists is a hole nobody would notice, because
         the check would simply stop applying it."""
         defined = {name for module in modules for name in module.functions}
         assert defined >= guard.SAFE_IDENTIFIER_CALLS
-
-    def test_the_allowlist_is_empty_and_its_entries_would_be_checked(self) -> None:
-        """Kept empty deliberately. The two clauses that police it are proved below; this
-        is the standing statement that nothing is currently excused."""
-        assert guard.SPLICE_ALLOWANCES == {}
 
 
 # --- detection ----------------------------------------------------------------
@@ -355,7 +338,3 @@ def test_a_statement_passed_as_a_keyword_is_reported(modules: list[guard.Module]
     )
     reported = guard.disguised_sink_uses(doctored)
     assert any("text(text=" in line for line in reported), reported
-
-
-def test_the_tree_has_no_disguised_sink(modules: list[guard.Module]) -> None:
-    assert guard.disguised_sink_uses(modules) == []

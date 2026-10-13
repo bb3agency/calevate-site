@@ -445,131 +445,6 @@
         "title": "AddNumbersOut",
         "type": "object"
       },
-      "AddVoiceFormOut": {
-        "additionalProperties": false,
-        "description": "EVERYTHING THE ADD FORM NEEDS, from the server.\n\nThe browser composes none of it. Which providers exist, which models run on them, which\nlanguages this product sells and why a provider cannot be picked are all facts with a\nsingle source in `agents/languages.py`, `agents/voices.py` and\n`agents/voice_admission.py`, and a second copy in TypeScript is the copy that goes stale\nthe day a model changes.",
-        "properties": {
-          "languages": {
-            "items": {
-              "enum": [
-                "te-IN",
-                "hi-IN",
-                "en-IN"
-              ],
-              "type": "string"
-            },
-            "title": "Languages",
-            "type": "array"
-          },
-          "providers": {
-            "items": {
-              "$ref": "#/components/schemas/VoiceProviderOptionOut"
-            },
-            "title": "Providers",
-            "type": "array"
-          }
-        },
-        "required": [
-          "providers",
-          "languages"
-        ],
-        "title": "AddVoiceFormOut",
-        "type": "object"
-      },
-      "AddVoiceIn": {
-        "additionalProperties": false,
-        "description": "THE FACTS FOR ONE CLONED VOICE, as an operator types them.\n\nEvery field is BOUNDED here and VERIFIED in `agents/voice_admission.py`: this layer stops\na megabyte of junk reaching a vendor call, and that layer decides whether the voice\nplatform agrees. `provider` and `tts_model` are bare strings rather than Literals on\npurpose \u2014 a Literal would make a wrong provider a 422 from the framework with a schema\ndump for a body, and the whole point is that it is refused with a SENTENCE naming what\nthis product does run.",
-        "properties": {
-          "engine_voice_id": {
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Engine Voice Id",
-            "type": "string"
-          },
-          "label": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Label",
-            "type": "string"
-          },
-          "languages": {
-            "items": {
-              "enum": [
-                "te-IN",
-                "hi-IN",
-                "en-IN"
-              ],
-              "type": "string"
-            },
-            "maxItems": 8,
-            "minItems": 1,
-            "title": "Languages",
-            "type": "array"
-          },
-          "provider": {
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Provider",
-            "type": "string"
-          },
-          "tts_model": {
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Tts Model",
-            "type": "string"
-          }
-        },
-        "required": [
-          "provider",
-          "tts_model",
-          "engine_voice_id",
-          "label",
-          "languages"
-        ],
-        "title": "AddVoiceIn",
-        "type": "object"
-      },
-      "AddVoiceOut": {
-        "additionalProperties": false,
-        "description": "The voice as it now stands, and whether anybody can actually be put on it yet.",
-        "properties": {
-          "next_step": {
-            "title": "Next Step",
-            "type": "string"
-          },
-          "offerable": {
-            "title": "Offerable",
-            "type": "boolean"
-          },
-          "offered": {
-            "title": "Offered",
-            "type": "integer"
-          },
-          "unofferable_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Unofferable Reason"
-          },
-          "voice": {
-            "$ref": "#/components/schemas/CuratedVoiceOut"
-          }
-        },
-        "required": [
-          "voice",
-          "offered",
-          "offerable",
-          "unofferable_reason",
-          "next_step"
-        ],
-        "title": "AddVoiceOut",
-        "type": "object"
-      },
       "AdjustmentIn": {
         "additionalProperties": false,
         "description": "A compensating entry, described by what it corrects rather than by what it moves.\n\n`amount_inr` is a POSITIVE magnitude \u2014 how much of the named entry to take back. The\ndirection is derived from that entry (`CorrectableEntry.compensating_delta`), so the\none thing a form here cannot get wrong is the sign.",
@@ -2489,73 +2364,6 @@
         "title": "AgentDailySpendOut",
         "type": "object"
       },
-      "AgentDeliveryOut": {
-        "additionalProperties": false,
-        "description": "One agent, and whether its knowledge is live on the phone.\n\nNothing here is caller-derived (hard rule 6): counts of the CLIENT's own approved\nchunks, the digest of their own text, and one timestamp. `kb/delivery.py` states the\nfull argument, including why no call row is joined.",
-        "properties": {
-          "agent_id": {
-            "format": "uuid",
-            "title": "Agent Id",
-            "type": "string"
-          },
-          "agent_name": {
-            "title": "Agent Name",
-            "type": "string"
-          },
-          "awaiting_translation": {
-            "title": "Awaiting Translation",
-            "type": "integer"
-          },
-          "last_reached_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Reached At"
-          },
-          "live_chunks": {
-            "title": "Live Chunks",
-            "type": "integer"
-          },
-          "pack_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pack Id"
-          },
-          "state": {
-            "enum": [
-              "no_knowledge",
-              "live",
-              "preparing",
-              "not_delivered"
-            ],
-            "title": "State",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id",
-          "agent_name",
-          "state",
-          "pack_id",
-          "live_chunks",
-          "awaiting_translation",
-          "last_reached_at"
-        ],
-        "title": "AgentDeliveryOut",
-        "type": "object"
-      },
       "AgentLifecycleOut": {
         "additionalProperties": false,
         "description": "The result of a lifecycle move, as the screen that pressed the button needs it.\n\nNAMED `AgentLifecycleOut` AND NOT `LifecycleOut`, which is what it was called for an\nhour. `admin/routes.py` already has a `LifecycleOut` (the TENANT lifecycle), and two\nmodels of the same name in one app make FastAPI qualify BOTH in the OpenAPI document \u2014\nso the admin console's generated type silently renamed itself to\n`apps__api__admin__routes__LifecycleOut` and every screen using it broke, from a change\nin a different module. The collision is invisible until the snapshot is regenerated,\nwhich is why it is recorded here rather than just fixed.",
@@ -4332,42 +4140,6 @@
         "title": "Body_record_hosted_clone_consent_v1_ops_voices_hosted_clone_consent_post",
         "type": "object"
       },
-      "Body_submit_v1_compliance_carrier_application_post": {
-        "properties": {
-          "document": {
-            "contentMediaType": "application/octet-stream",
-            "title": "Document",
-            "type": "string"
-          },
-          "document_kind": {
-            "enum": [
-              "gst_certificate",
-              "certificate_of_incorporation",
-              "udyam_registration"
-            ],
-            "title": "Document Kind",
-            "type": "string"
-          },
-          "signed_application": {
-            "anyOf": [
-              {
-                "contentMediaType": "application/octet-stream",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Signed Application"
-          }
-        },
-        "required": [
-          "document_kind",
-          "document"
-        ],
-        "title": "Body_submit_v1_compliance_carrier_application_post",
-        "type": "object"
-      },
       "Body_teach_upload_v1_kb_teach_upload_post": {
         "properties": {
           "file": {
@@ -4522,17 +4294,6 @@
           "env_var": {
             "title": "Env Var",
             "type": "string"
-          },
-          "held_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Held By"
           },
           "key": {
             "title": "Key",
@@ -7581,245 +7342,6 @@
         "title": "CapturedFieldsOut",
         "type": "object"
       },
-      "CarrierApplicationOut": {
-        "additionalProperties": false,
-        "description": "This account's carrier compliance application, as we last knew it.\n\nEvery field except `recorded` and `is_accepted` is nullable, because all of them are\ngenuinely absent before anything is filed. `is_accepted` is computed server-side for\nthe reason `KycRecordOut.is_verified` is: \"is `submitted` good enough\" is a question\nthe console must not answer for itself, and this response and the dial gate must never\ndisagree.",
-        "properties": {
-          "carrier": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Carrier"
-          },
-          "carrier_application_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Carrier Application Id"
-          },
-          "decided_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Decided At"
-          },
-          "document_filename": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Document Filename"
-          },
-          "document_kind": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Document Kind"
-          },
-          "is_accepted": {
-            "title": "Is Accepted",
-            "type": "boolean"
-          },
-          "recorded": {
-            "title": "Recorded",
-            "type": "boolean"
-          },
-          "rejection_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rejection Reason"
-          },
-          "required": {
-            "title": "Required",
-            "type": "boolean"
-          },
-          "signed_application_on_file": {
-            "title": "Signed Application On File",
-            "type": "boolean"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "enum": [
-                  "not_started",
-                  "documents_required",
-                  "submitted",
-                  "accepted",
-                  "rejected",
-                  "expired"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Status"
-          },
-          "submitted_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Submitted At"
-          }
-        },
-        "required": [
-          "recorded",
-          "carrier",
-          "status",
-          "carrier_application_id",
-          "document_kind",
-          "document_filename",
-          "signed_application_on_file",
-          "rejection_reason",
-          "submitted_at",
-          "decided_at",
-          "is_accepted",
-          "required"
-        ],
-        "title": "CarrierApplicationOut",
-        "type": "object"
-      },
-      "CarrierDecisionIn": {
-        "additionalProperties": false,
-        "properties": {
-          "carrier_application_id": {
-            "anyOf": [
-              {
-                "maxLength": 200,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Carrier Application Id"
-          },
-          "carrier_status": {
-            "anyOf": [
-              {
-                "maxLength": 64,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Carrier Status"
-          },
-          "rejection_reason": {
-            "anyOf": [
-              {
-                "maxLength": 2000,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rejection Reason"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "enum": [
-                  "documents_required",
-                  "accepted",
-                  "rejected",
-                  "expired"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Status"
-          }
-        },
-        "title": "CarrierDecisionIn",
-        "type": "object"
-      },
-      "CarrierDecisionOut": {
-        "additionalProperties": false,
-        "properties": {
-          "carrier_application_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Carrier Application Id"
-          },
-          "changed": {
-            "title": "Changed",
-            "type": "boolean"
-          },
-          "status": {
-            "enum": [
-              "documents_required",
-              "accepted",
-              "rejected",
-              "expired"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "tenant_id": {
-            "format": "uuid",
-            "title": "Tenant Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "tenant_id",
-          "status",
-          "carrier_application_id",
-          "changed"
-        ],
-        "title": "CarrierDecisionOut",
-        "type": "object"
-      },
       "CarrierGuideOut": {
         "additionalProperties": false,
         "properties": {
@@ -7882,46 +7404,6 @@
           "note"
         ],
         "title": "CarrierGuideOut",
-        "type": "object"
-      },
-      "CarrierProbeOut": {
-        "additionalProperties": false,
-        "description": "The configured carrier pair's verdict, in the same vocabulary as `SecretTestOut`.",
-        "properties": {
-          "carrier": {
-            "enum": [
-              "vobiz",
-              "plivo"
-            ],
-            "title": "Carrier",
-            "type": "string"
-          },
-          "detail": {
-            "title": "Detail",
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "accepted",
-              "rejected",
-              "unreachable",
-              "no_probe"
-            ],
-            "title": "Outcome",
-            "type": "string"
-          },
-          "verified": {
-            "title": "Verified",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "carrier",
-          "outcome",
-          "detail",
-          "verified"
-        ],
-        "title": "CarrierProbeOut",
         "type": "object"
       },
       "CartesiaLadderPointOut": {
@@ -12698,183 +12180,6 @@
         "title": "CreditsOut",
         "type": "object"
       },
-      "CuratedVoiceOut": {
-        "additionalProperties": false,
-        "description": "One row of the Voices table.\n\nA SUPERSET of the catalogue `Voice` rather than an envelope around it, for\n`OfferedVoiceOut`'s reason in `agents/voice_routes.py`: the operator's table and the\nclient's picker describe one voice, and nesting it would give the console two shapes to\nrender the same thing in.",
-        "properties": {
-          "curated_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Curated At"
-          },
-          "engine_voice_id": {
-            "title": "Engine Voice Id",
-            "type": "string"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "languages": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Languages",
-            "type": "array"
-          },
-          "live_agents": {
-            "title": "Live Agents",
-            "type": "integer"
-          },
-          "offered": {
-            "title": "Offered",
-            "type": "boolean"
-          },
-          "origin": {
-            "enum": [
-              "synced",
-              "operator"
-            ],
-            "title": "Origin",
-            "type": "string"
-          },
-          "provider": {
-            "title": "Provider",
-            "type": "string"
-          },
-          "source": {
-            "title": "Source",
-            "type": "string"
-          },
-          "state": {
-            "enum": [
-              "enabled",
-              "disabled",
-              "archived"
-            ],
-            "title": "State",
-            "type": "string"
-          },
-          "synced_at": {
-            "format": "date-time",
-            "title": "Synced At",
-            "type": "string"
-          },
-          "tier_label": {
-            "title": "Tier Label",
-            "type": "string"
-          },
-          "tts_model": {
-            "title": "Tts Model",
-            "type": "string"
-          },
-          "voice_id": {
-            "title": "Voice Id",
-            "type": "string"
-          },
-          "withdrawn_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Withdrawn At"
-          },
-          "withdrawn_note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Withdrawn Note"
-          }
-        },
-        "required": [
-          "voice_id",
-          "label",
-          "provider",
-          "tier_label",
-          "tts_model",
-          "engine_voice_id",
-          "languages",
-          "source",
-          "state",
-          "origin",
-          "offered",
-          "synced_at",
-          "curated_at",
-          "withdrawn_at",
-          "withdrawn_note",
-          "live_agents"
-        ],
-        "title": "CuratedVoiceOut",
-        "type": "object"
-      },
-      "CuratedVoicesOut": {
-        "additionalProperties": false,
-        "description": "The whole cached catalogue AND what an operator needs to read it.\n\nNO FIELD HAS A DEFAULT, for `VoiceCatalogueOut`'s reason: a Pydantic default makes the\nfield optional in the generated TypeScript, and every one of these is a fact the console\nmust be able to trust rather than treat as falsy when absent.",
-        "properties": {
-          "cached": {
-            "title": "Cached",
-            "type": "integer"
-          },
-          "form": {
-            "$ref": "#/components/schemas/AddVoiceFormOut"
-          },
-          "note": {
-            "title": "Note",
-            "type": "string"
-          },
-          "offered": {
-            "title": "Offered",
-            "type": "integer"
-          },
-          "scope": {
-            "enum": [
-              "decided",
-              "all"
-            ],
-            "title": "Scope",
-            "type": "string"
-          },
-          "source": {
-            "title": "Source",
-            "type": "string"
-          },
-          "voices": {
-            "items": {
-              "$ref": "#/components/schemas/CuratedVoiceOut"
-            },
-            "title": "Voices",
-            "type": "array"
-          }
-        },
-        "required": [
-          "voices",
-          "source",
-          "offered",
-          "scope",
-          "cached",
-          "note",
-          "form"
-        ],
-        "title": "CuratedVoicesOut",
-        "type": "object"
-      },
       "DashboardDataUseAttestIn": {
         "additionalProperties": false,
         "properties": {
@@ -13538,29 +12843,6 @@
           "has_certificate"
         ],
         "title": "DeletionRequestSummaryOut",
-        "type": "object"
-      },
-      "DeliveryListOut": {
-        "additionalProperties": false,
-        "description": "A declared model rather than a bare list, for `StaffCurationOut`'s reason and one\nmore: `not_delivered_count` is the server's own tally, so the dashboard badge is never\ncomputed from a page the ceiling truncated.",
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/AgentDeliveryOut"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "not_delivered_count": {
-            "title": "Not Delivered Count",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "items",
-          "not_delivered_count"
-        ],
-        "title": "DeliveryListOut",
         "type": "object"
       },
       "DeliveryOut": {
@@ -26798,120 +26080,6 @@
         "title": "OfferedNumberOut",
         "type": "object"
       },
-      "OfferedVoiceOut": {
-        "additionalProperties": false,
-        "description": "A catalogue voice AND whether it may be chosen on this deployment right now (D-547).\n\nTHE CATALOGUE AND THE VERDICT ARE TWO FACTS AND THEY TRAVEL TOGETHER, for\n`VoiceCatalogueOut`'s own reason one level up: a caller needs the rows and the verdict\nabout them, and inferring the verdict from which rows arrived is the bug. `selectable`\non the envelope answers \"may a voice be chosen here AT ALL\" (the engine's business,\nD-93); this answers \"may THIS one\" (the platform's \u2014 a key, a price, a cap), and the two\nare independent.\n\n**A SHORTER LIST WOULD BE THE WRONG ANSWER, AND FILTERING IS EXACTLY WHAT THIS SHAPE\nPREVENTS.** A Cartesia voice that is missing from the response is indistinguishable from\na Cartesia tier this product does not sell \u2014 so the operator who pasted the key an hour\nago has no way to see that the PRICE is what is still missing, and the client who asks\nfor the premium voice is told nothing at all. Every voice is returned; `reason` says why\nan unavailable one is unavailable, in a sentence naming the one action that fixes it.\n\nA SUPERSET OF `Voice` rather than an envelope around it: the picker renders the same\nfields it always did, and the two new ones are additive on the wire.",
-        "properties": {
-          "gender": {
-            "anyOf": [
-              {
-                "enum": [
-                  "female",
-                  "male",
-                  "neutral"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Gender"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "languages": {
-            "items": {
-              "enum": [
-                "te-IN",
-                "hi-IN",
-                "en-IN"
-              ],
-              "type": "string"
-            },
-            "title": "Languages",
-            "type": "array"
-          },
-          "not_on_offer": {
-            "title": "Not On Offer",
-            "type": "boolean"
-          },
-          "note": {
-            "title": "Note",
-            "type": "string"
-          },
-          "offerable": {
-            "title": "Offerable",
-            "type": "boolean"
-          },
-          "provider": {
-            "enum": [
-              "cartesia",
-              "gnani"
-            ],
-            "title": "Provider",
-            "type": "string"
-          },
-          "speaker": {
-            "title": "Speaker",
-            "type": "string"
-          },
-          "tier_label": {
-            "title": "Tier Label",
-            "type": "string"
-          },
-          "tts_model": {
-            "enum": [
-              "sonic-3.5",
-              "timbre-v2.5"
-            ],
-            "title": "Tts Model",
-            "type": "string"
-          },
-          "unavailable_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Unavailable Reason"
-          },
-          "verified": {
-            "default": false,
-            "title": "Verified",
-            "type": "boolean"
-          },
-          "voice_tier": {
-            "title": "Voice Tier",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "label",
-          "provider",
-          "tts_model",
-          "speaker",
-          "languages",
-          "note",
-          "unavailable_reason",
-          "not_on_offer",
-          "offerable",
-          "tier_label",
-          "voice_tier"
-        ],
-        "title": "OfferedVoiceOut",
-        "type": "object"
-      },
       "OperatorCreateIn": {
         "additionalProperties": false,
         "properties": {
@@ -30148,7 +29316,6 @@
           },
           "provider": {
             "enum": [
-              "vobiz",
               "plivo",
               "thinnest"
             ],
@@ -34076,57 +33243,6 @@
         "title": "SetCallCapIn",
         "type": "object"
       },
-      "SetCurationIn": {
-        "additionalProperties": false,
-        "description": "One voice, one destination state.\n\n`extra=\"forbid\"` so a caller cannot smuggle a second field into a request whose whole\npoint is one decision \u2014 and so a console still sending an older spelling is told,\ninstead of having it dropped while the row moves anyway.",
-        "properties": {
-          "state": {
-            "enum": [
-              "enabled",
-              "disabled",
-              "archived"
-            ],
-            "title": "State",
-            "type": "string"
-          },
-          "voice_id": {
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Voice Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "voice_id",
-          "state"
-        ],
-        "title": "SetCurationIn",
-        "type": "object"
-      },
-      "SetCurationOut": {
-        "additionalProperties": false,
-        "description": "The row as it now stands, plus what changed in this process because of it.",
-        "properties": {
-          "next_step": {
-            "title": "Next Step",
-            "type": "string"
-          },
-          "offered": {
-            "title": "Offered",
-            "type": "integer"
-          },
-          "voice": {
-            "$ref": "#/components/schemas/CuratedVoiceOut"
-          }
-        },
-        "required": [
-          "voice",
-          "offered",
-          "next_step"
-        ],
-        "title": "SetCurationOut",
-        "type": "object"
-      },
       "SetDisplayLabelIn": {
         "additionalProperties": false,
         "properties": {
@@ -34200,84 +33316,6 @@
           "person_clone"
         ],
         "title": "SetPersonCloneIn",
-        "type": "object"
-      },
-      "SetVoiceIn": {
-        "additionalProperties": false,
-        "description": "One field, because the tenant and the agent are both in the path now.\n\n`extra=\"forbid\"` so a caller cannot smuggle a second config string (an llm_model, a\ntts_provider) into a request whose whole point is one curated choice \u2014 and so a\ncaller still sending the old `tenant_id` body field is told, rather than having it\nsilently dropped while the path decides the tenant.",
-        "properties": {
-          "voice_id": {
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Voice Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "voice_id"
-        ],
-        "title": "SetVoiceIn",
-        "type": "object"
-      },
-      "SetVoiceOut": {
-        "additionalProperties": false,
-        "properties": {
-          "agent_id": {
-            "format": "uuid",
-            "title": "Agent Id",
-            "type": "string"
-          },
-          "agent_status": {
-            "title": "Agent Status",
-            "type": "string"
-          },
-          "changed": {
-            "title": "Changed",
-            "type": "boolean"
-          },
-          "engine_synced": {
-            "title": "Engine Synced",
-            "type": "boolean"
-          },
-          "live_voice_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Live Voice Id"
-          },
-          "next_step": {
-            "title": "Next Step",
-            "type": "string"
-          },
-          "published": {
-            "title": "Published",
-            "type": "boolean"
-          },
-          "republish_required": {
-            "title": "Republish Required",
-            "type": "boolean"
-          },
-          "voice": {
-            "$ref": "#/components/schemas/Voice"
-          }
-        },
-        "required": [
-          "agent_id",
-          "voice",
-          "agent_status",
-          "published",
-          "engine_synced",
-          "live_voice_id",
-          "republish_required",
-          "changed",
-          "next_step"
-        ],
-        "title": "SetVoiceOut",
         "type": "object"
       },
       "SheetEndpointOut": {
@@ -41076,11 +40114,6 @@
             ],
             "title": "Billable Without Attestation Reason"
           },
-          "credential_held_elsewhere": {
-            "default": false,
-            "title": "Credential Held Elsewhere",
-            "type": "boolean"
-          },
           "credential_installed": {
             "title": "Credential Installed",
             "type": "boolean"
@@ -42255,10 +41288,7 @@
             "type": "string"
           },
           "provider": {
-            "enum": [
-              "cartesia",
-              "gnani"
-            ],
+            "const": "cartesia",
             "title": "Provider",
             "type": "string"
           },
@@ -42267,10 +41297,7 @@
             "type": "string"
           },
           "tts_model": {
-            "enum": [
-              "sonic-3.5",
-              "timbre-v2.5"
-            ],
+            "const": "sonic-3.5",
             "title": "Tts Model",
             "type": "string"
           },
@@ -42290,52 +41317,6 @@
           "note"
         ],
         "title": "Voice",
-        "type": "object"
-      },
-      "VoiceCatalogueOut": {
-        "additionalProperties": false,
-        "description": "The catalog AND whether it may be chosen from (D-93).\n\nIT USED TO BE A BARE `list[Voice]`, and that shape cannot express the one answer this\nendpoint now has to be able to give. On an engine that supplies its own voices the\nhonest response is \"no selection here, and that is normal\" \u2014 and a bare list has\nexactly one way to say it, `[]`, which the console reads as \"this agent has no voices\navailable\" and renders as a claim about the product. (The console's own comment in\n`VoicePanel` says exactly that, which is how the shape was found to be wrong.) An\nempty list and a closed choice are different facts, and the envelope keeps them\ndifferent.\n\nThe same argument `ExecutionListing` makes: the caller needs the rows AND the verdict\nabout them, and inferring the verdict from the length of the rows is the bug.\n\nNO FIELD HERE HAS A DEFAULT. A Pydantic field with a default is OPTIONAL in the\ngenerated TypeScript, and every one of these is a field the console must trust: a\n`selectable` that can arrive undefined would be read as falsy and hide the picker on\na perfectly capable engine.",
-        "properties": {
-          "control": {
-            "title": "Control",
-            "type": "string"
-          },
-          "note": {
-            "title": "Note",
-            "type": "string"
-          },
-          "selectable": {
-            "title": "Selectable",
-            "type": "boolean"
-          },
-          "source": {
-            "title": "Source",
-            "type": "string"
-          },
-          "tiers": {
-            "items": {
-              "$ref": "#/components/schemas/VoiceTierAvailabilityOut"
-            },
-            "title": "Tiers",
-            "type": "array"
-          },
-          "voices": {
-            "items": {
-              "$ref": "#/components/schemas/OfferedVoiceOut"
-            },
-            "title": "Voices",
-            "type": "array"
-          }
-        },
-        "required": [
-          "control",
-          "selectable",
-          "voices",
-          "source",
-          "note",
-          "tiers"
-        ],
-        "title": "VoiceCatalogueOut",
         "type": "object"
       },
       "VoiceCatalogueRefreshOut": {
@@ -42399,58 +41380,9 @@
         "title": "VoiceCatalogueRefreshOut",
         "type": "object"
       },
-      "VoiceProviderOptionOut": {
-        "additionalProperties": false,
-        "description": "ONE PROVIDER THE ADD FORM OFFERS \u2014 including one it offers only to REFUSE.\n\nEvery entry is a provider this product RUNS (`OUR_PROVIDERS`, derived from the model\nregistry). One can still be unselectable: a provider whose minute nobody has priced must\nnot have a voice admitted against it, because an admitted voice arrives ENABLED and hard\nrule 7 has nothing to charge it against. It is shown with its reason rather than omitted,\nso an operator holding a finished clone learns what is missing instead of concluding the\nconsole is broken.",
-        "properties": {
-          "models": {
-            "items": {
-              "enum": [
-                "sonic-3.5",
-                "timbre-v2.5"
-              ],
-              "type": "string"
-            },
-            "title": "Models",
-            "type": "array"
-          },
-          "provider": {
-            "title": "Provider",
-            "type": "string"
-          },
-          "selectable": {
-            "title": "Selectable",
-            "type": "boolean"
-          },
-          "tier_label": {
-            "title": "Tier Label",
-            "type": "string"
-          },
-          "unavailable_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Unavailable Reason"
-          }
-        },
-        "required": [
-          "provider",
-          "tier_label",
-          "models",
-          "selectable",
-          "unavailable_reason"
-        ],
-        "title": "VoiceProviderOptionOut",
-        "type": "object"
-      },
       "VoiceStateOut": {
         "additionalProperties": false,
-        "description": "The voice CONFIGURED on the agent and the voice the engine was last SENT.\n\nTwo fields because they are two facts. `PATCH .../agents/{aid}/voice` writes our row\nand stops there, so a live agent keeps its old voice until the next publish \u2014 one\nvalue labelled \"the voice\" would be a claim about a client's phone line that nobody\nchecked.\n\n`live` is null when nothing is recorded as sent, which reads two ways and is\ndisambiguated by `PendingOut.published`: an unpublished agent has nothing live, and\na published one was published before the mirror existed (or with no voice set). Both\nresolve to `republish_required` when a voice is configured, because a sync we cannot\nprove is not a sync.",
+        "description": "The voice CONFIGURED on the agent and the voice the engine was last SENT.\n\nTwo fields because they are two facts. A voice written to our row\nreaches the engine only at a publish, so a paused agent keeps its old voice \u2014 one\nvalue labelled \"the voice\" would be a claim about a client's phone line that nobody\nchecked.\n\n`live` is null when nothing is recorded as sent, which reads two ways and is\ndisambiguated by `PendingOut.published`: an unpublished agent has nothing live, and\na published one was published before the mirror existed (or with no voice set). Both\nresolve to `republish_required` when a voice is configured, because a sync we cannot\nprove is not a sync.",
         "properties": {
           "configured": {
             "anyOf": [
@@ -42502,51 +41434,9 @@
         "title": "VoiceStateOut",
         "type": "object"
       },
-      "VoiceTierAvailabilityOut": {
-        "additionalProperties": false,
-        "description": "ONE VOICE TIER, AND WHETHER THIS DEPLOYMENT HAS ANYTHING IN IT (D-617).\n\n**A TIER THAT IS ABSENT HAS TO SAY SO, AND UNTIL THIS FIELD EXISTED IT DID NOT.** The\ncatalogue is the engine account's own list (D-585), so a tier with no rows in it simply\ndid not appear \u2014 and a picker grouped by tier then rendered a shorter list with nothing\nanywhere saying a whole quality was missing. A founder looking at an agent configured on\na Studio voice saw a picker with only a Clear section and no statement of any kind, which\nis \"we do not know\" rendered as \"nothing happened\".\n\n`OfferedVoiceOut` answers \"may THIS voice be chosen\"; the per-voice refusal cannot\nanswer this one, because the question is about rows that are NOT THERE. A count is not a\nverdict either, which is why `note` is composed server-side and printed verbatim \u2014 the\nsame argument `VoiceCatalogueOut.note` makes one level up.\n\nTHE LIST IS EVERY TIER THIS PRODUCT SELLS, derived from the model registry\n(`voice_admission.OUR_PROVIDERS`), never from the rows that happened to arrive. Deriving\nit from the catalogue is precisely the bug: a tier with no rows would be absent from its\nown availability report.",
-        "properties": {
-          "in_catalogue": {
-            "title": "In Catalogue",
-            "type": "integer"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          },
-          "offerable": {
-            "title": "Offerable",
-            "type": "integer"
-          },
-          "provider": {
-            "title": "Provider",
-            "type": "string"
-          }
-        },
-        "required": [
-          "provider",
-          "label",
-          "offerable",
-          "in_catalogue",
-          "note"
-        ],
-        "title": "VoiceTierAvailabilityOut",
-        "type": "object"
-      },
       "VoiceTierRateOut": {
         "additionalProperties": false,
-        "description": "What ONE voice tier costs this client's NEXT minute, for the voice picker.\n\n**NOT THE CARD'S RATE.** A client who bought a \u20b915,000 pack holds minutes at the rates\nthat pack froze, and a picker quoting today's card would quote a price they do not pay\n(plan \u00a72.1: a lot knows what it was SOLD at). So this is the rate on the OLDEST OPEN\nLOT \u2014 the one the next call is actually drawn from \u2014 and `further_open_lots` says how\nmany purchases sit behind it at rates of their own, which is what stops a single\nfigure being read as the price of the whole wallet.\n\n`inr_per_min` is null when there is no open lot to answer from (an empty or overdrawn\nwallet). It is a real state, not a missing value, and the alternative \u2014 falling back to\nthe card \u2014 would quote a rate the client has not bought.\n\n`label` is the CLIENT-FACING name of the tier and `voice_tier` is the token. Both are\npublished because they answer different questions: no client-facing surface names a\ntier with anything but its product name (founder, 7 Sep 2026), while `voice_tier` is\nwhat a ledger row and a `meta.lots` split are reconciled on. The label comes from\n`billing/rates.voice_tier_label`, never a literal here and never a second copy in the\nbrowser \u2014 one definition, sent down, for the reason the money figures are.\n\n\u26a0 **THIS FIELD WAS CALLED `provider` AND THIS DOCSTRING CALLED IT \"THE VENDOR\"\n(until 19 Sep 2026).** It never carried a vendor. It carried the rung, which happened\nto be spelled with a vendor's name \u2014 and on the Clear rung that name had been wrong\nsince 18 Sep 2026, when Sarvam stopped speaking on this product at all.",
+        "description": "What ONE voice tier costs this client's NEXT minute, for the voice picker.\n\n**NOT THE CARD'S RATE.** A client who bought a \u20b915,000 pack holds minutes at the rates\nthat pack froze, and a picker quoting today's card would quote a price they do not pay\n(plan \u00a72.1: a lot knows what it was SOLD at). So this is the rate on the OLDEST OPEN\nLOT \u2014 the one the next call is actually drawn from \u2014 and `further_open_lots` says how\nmany purchases sit behind it at rates of their own, which is what stops a single\nfigure being read as the price of the whole wallet.\n\n`inr_per_min` is null when there is no open lot to answer from (an empty or overdrawn\nwallet). It is a real state, not a missing value, and the alternative \u2014 falling back to\nthe card \u2014 would quote a rate the client has not bought.\n\n`label` is the CLIENT-FACING name of the tier and `voice_tier` is the token. Both are\npublished because they answer different questions: no client-facing surface names a\ntier with anything but its product name (founder, 7 Sep 2026), while `voice_tier` is\nwhat a ledger row and a `meta.lots` split are reconciled on. The label comes from\n`billing/rates.voice_tier_label`, never a literal here and never a second copy in the\nbrowser \u2014 one definition, sent down, for the reason the money figures are.",
         "properties": {
           "further_open_lots": {
             "title": "Further Open Lots",
@@ -48293,68 +47183,6 @@
         "x-calevate-permission": "agents:write"
       }
     },
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice": {
-      "patch": {
-        "description": "The operator's door onto the same write, for the onboarding wizard and for support acting as themselves: the tenant is named in the path because an admin principal has no tenant of its own, which also makes the audit row self-documenting. A client edits their own agent's voice on `PATCH /v1/agents/{agent_id}/voice` instead.\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a voice the platform is not speaking. If that push fails nothing is saved. Callers hear it from the NEXT call \u2014 a call already in progress is not disturbed.\n\nA draft or paused agent is not published by this: there is nothing live to update, and the next publish carries the voice. `engine_synced` says which happened.\n\nAn id outside the catalog is refused with `unknown_voice`. A catalogue voice this deployment cannot put a client on \u2014 no vendor key, no attested price, the platform-wide cap reached \u2014 is refused with `voice_not_available`, and the detail names the actual ground.",
-        "operationId": "set_agent_voice_v1_admin_tenants__tenant_id__agents__agent_id__voice_patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "tenant_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Tenant Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetVoiceIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SetVoiceOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Set an agent's voice from the catalog (admin realm \u2014 onboarding)",
-        "tags": [
-          "agents",
-          "admin"
-        ],
-        "x-calevate-permission": "agents:write"
-      }
-    },
     "/v1/admin/tenants/{tenant_id}/business-profile": {
       "get": {
         "description": "Read-only. An operator edits the profile through view-as, where the same writes\nand the same audit apply. Audited as an admin read: it holds staff names and mobiles.",
@@ -48599,96 +47427,6 @@
           }
         },
         "summary": "Record a national DND (NCPR) scrub of this campaign's list (step-up, audited)",
-        "tags": [
-          "admin"
-        ],
-        "x-calevate-permission": "admin:tenants"
-      }
-    },
-    "/v1/admin/tenants/{tenant_id}/carrier-application": {
-      "get": {
-        "description": "What this client has sent the carrier and where it stands. Read-only; the decision is recorded by POST to the same path.",
-        "operationId": "read_for_tenant_v1_admin_tenants__tenant_id__carrier_application_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "tenant_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Tenant Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CarrierApplicationOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "One client's carrier compliance application",
-        "tags": [
-          "admin"
-        ],
-        "x-calevate-permission": "admin:tenants"
-      },
-      "post": {
-        "description": "Records the carrier's own decision. `accepted` is the only state that lets a number be rented for this client, and it requires the carrier's `compliance_application_id` \u2014 the reference a number purchase has to quote. `rejected` requires the carrier's reason, which the client is shown. `documents_required` sends the client back for more paperwork, and `expired` records an approval that has lapsed or been suspended. There is deliberately no client-facing twin: a business that could accept its own application would be opening the number gate on a decision nobody made.",
-        "operationId": "record_decision_v1_admin_tenants__tenant_id__carrier_application_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "tenant_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Tenant Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CarrierDecisionIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CarrierDecisionOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Record what the carrier decided about this client's compliance application",
         "tags": [
           "admin"
         ],
@@ -50936,7 +49674,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/numbers": {
       "post": {
-        "description": "Records a telephone number Calevate provides for this client on its own carrier account (Vobiz), so the campaign launch gate can match its series against a campaign's classification. The client opens no operator account and issues no credentials. `dlt_status` starts `pending` and is a separate, deliberate step. A number held on the voice platform (`provider: thinnest`) must be on the platform's own list (`engine_number_not_held`), may not be another client's line (`engine_number_answered_by_other_client`), and a rented one is priced from the attested monthly rate with its first month collected.",
+        "description": "Records a telephone number held for this client, so the campaign launch gate can match its series against a campaign's classification. The client opens no operator account and issues no credentials. `dlt_status` starts `pending` and is a separate, deliberate step. A number held on the voice platform (`provider: thinnest`) must be on the platform's own list (`engine_number_not_held`), may not be another client's line (`engine_number_answered_by_other_client`), and a rented one is priced from the attested monthly rate with its first month collected.",
         "operationId": "provision_number_v1_admin_tenants__tenant_id__numbers_post",
         "parameters": [
           {
@@ -52304,35 +51042,6 @@
         "x-calevate-permission": "agents:read"
       }
     },
-    "/v1/agents/voices": {
-      "get": {
-        "description": "The catalogue, plus one capability read and \u2014 only when it could decide anything \u2014\none platform-wide count.\n\nClient-realm readable on purpose \u2014 a client is legally the Principal Entity and\nshould be able to see what their own agent sounds like, exactly as they can read\nits disclosure line (`AgentOut.disclosure_line`). `requires()` defaults to\n`realm=\"any\"`, so an admin (including one impersonating, since this is a read) gets\nthe same answer \u2014 one catalog, no realm-specific truth.\n\n\u26a0 **\"NO DB, NO NETWORK\" USED TO BE THE FIRST LINE OF THIS DOCSTRING AND IS NOW WRONG\nTWICE OVER, WHICH IS WHY IT SAYS SO.** The Cartesia agent cap (D-547 \u00a70 Q10) is a count\nof live Cartesia agents across every tenant, measured only when the two cheap grounds\nhave already passed and the catalogue actually holds a Cartesia voice. And since D-588\nevery render also reads the CURATION rows \u2014 one SELECT over a platform-scoped table of\ntens of rows \u2014 because only the voices an operator has enabled may be offered, and that\nis a decision somebody may have made ten seconds ago on the screen they are still\nlooking at. Neither read is on a call path.\n\n**AN EMPTY `voices` LIST IS A REAL AND CORRECT ANSWER.** A deployment nobody has synced,\nor one where nobody has enabled anything, offers nothing \u2014 `note` says which of the two\nit is and what to do. Do not render it as a failure.\n\nThe capability read is the SAME selector `set_agent_voice` uses, and that is the whole\npoint: this endpoint is what the picker is built from, so if the two could disagree\nthe console would offer precisely the choice the write refuses.",
-        "operationId": "list_voices_v1_agents_voices_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/VoiceCatalogueOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "The voices an agent may speak in, each with its availability (client-readable)",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "agents:read"
-      }
-    },
     "/v1/agents/{agent_id}": {
       "get": {
         "description": "ONE row, by id, under the caller's own RLS session \u2014 so a neighbour's agent id and\nan id nobody minted are the same 404 (hard rule 1).",
@@ -53478,7 +52187,7 @@
     },
     "/v1/agents/{agent_id}/pending": {
       "get": {
-        "description": "Backs the unsaved-changes banner and the voice picker. `agents:read`, not `agents:write`: this is the view that explains why an edit has not taken effect, so it must be readable by someone who may only look (D-22).\n\n`voice.configured` is what `PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice` wrote; `voice.live` is what the engine was last sent. They differ until a publish, which is what `voice.republish_required` reports. A null `voice.live` on a published agent means we have no record of what it is holding \u2014 read it with `published`, and never as 'in sync'.",
+        "description": "Backs the unsaved-changes banner and the voice picker. `agents:read`, not `agents:write`: this is the view that explains why an edit has not taken effect, so it must be readable by someone who may only look (D-22).\n\n`voice.configured` is the voice on our agent row; `voice.live` is what the engine was last sent. They differ until a publish, which is what `voice.republish_required` reports. A null `voice.live` on a published agent means we have no record of what it is holding \u2014 read it with `published`, and never as 'in sync'.",
         "operationId": "pending_v1_agents__agent_id__pending_get",
         "parameters": [
           {
@@ -54594,57 +53303,6 @@
         "summary": "Chat with the live agent in text, as a caller would",
         "tags": [
           "teach"
-        ],
-        "x-calevate-permission": "agents:write"
-      }
-    },
-    "/v1/agents/{agent_id}/voice": {
-      "patch": {
-        "description": "Sets the voice on one of your own agents. Hear the options first with `GET /v1/agents/voices`; a voice returned there with `offerable: false` is refused here, with the same sentence that read said.\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a voice the platform is not speaking. If that push fails nothing is saved. Callers hear it from the NEXT call \u2014 a call already in progress is not disturbed.\n\nA draft or paused agent is not published by this: there is nothing live to update, and the next publish carries the voice. `engine_synced` says which happened.\n\nAn id outside the catalog is refused with `unknown_voice`. A catalogue voice this deployment cannot put a client on \u2014 no vendor key, no attested price, the platform-wide cap reached \u2014 is refused with `voice_not_available`, and the detail names the actual ground.",
-        "operationId": "set_my_agent_voice_v1_agents__agent_id__voice_patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetVoiceIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SetVoiceOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Choose the voice this agent speaks in (D-586)",
-        "tags": [
-          "agents"
         ],
         "x-calevate-permission": "agents:write"
       }
@@ -57651,62 +56309,6 @@
         "x-calevate-permission": "calls:read_raw"
       }
     },
-    "/v1/calls/{call_id}/speaking": {
-      "get": {
-        "description": "Each frame is `{speaker, live, since}`: one at once, one per change, and a last one\nwith `live: false` when the call ends. See `crm/live_speaking.py` for the transport\nchoice and the store behind it.",
-        "operationId": "stream_call_speaking_v1_calls__call_id__speaking_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "call_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Call Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/event-stream": {
-                "itemSchema": {
-                  "properties": {
-                    "data": {
-                      "type": "string"
-                    },
-                    "event": {
-                      "type": "string"
-                    },
-                    "id": {
-                      "type": "string"
-                    },
-                    "retry": {
-                      "minimum": 0,
-                      "type": "integer"
-                    }
-                  },
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Who is speaking on a live call \u2014 streamed as text/event-stream (D-656)",
-        "tags": [
-          "crm"
-        ],
-        "x-calevate-permission": "calls:read"
-      }
-    },
     "/v1/calls/{call_id}/test-case": {
       "post": {
         "operationId": "make_call_a_test_v1_calls__call_id__test_case_post",
@@ -58579,72 +57181,6 @@
           "compliance"
         ],
         "x-calevate-permission": "org:read"
-      }
-    },
-    "/v1/compliance/carrier-application": {
-      "get": {
-        "description": "Our telephony carrier approves each client business separately before a number can be rented for it. This is where that application stands: what was sent, what the carrier said, and what is needed next. A business with nothing on file yet gets `recorded: false` and a 200.",
-        "operationId": "read_application_v1_compliance_carrier_application_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CarrierApplicationOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "This account's carrier compliance application \u2014 absence is data, not a 404",
-        "tags": [
-          "compliance"
-        ],
-        "x-calevate-permission": "org:read"
-      },
-      "post": {
-        "description": "Upload ONE proof of business registration \u2014 a GST certificate, a Certificate of Incorporation, or a Udyam Registration certificate \u2014 as a PDF, JPEG or PNG. A PAN card on its own is not accepted. The first application must also carry the signed, sealed application form. Calevate forwards it to the carrier; the decision appears on this same endpoint.",
-        "operationId": "submit_v1_compliance_carrier_application_post",
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_submit_v1_compliance_carrier_application_post"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CarrierApplicationOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Send this business's registration documents to the carrier",
-        "tags": [
-          "compliance"
-        ],
-        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/compliance/deletion-requests": {
@@ -62057,35 +60593,6 @@
           "tenancy"
         ],
         "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/kb/delivery": {
-      "get": {
-        "description": "For every agent on the roster: whether the knowledge this account published is the knowledge the agent is actually answering callers out of, and when it last changed. `preparing` heals itself within the hour; `not_delivered` does not and means the agent is still answering out of its previous knowledge.",
-        "operationId": "list_delivery_v1_kb_delivery_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeliveryListOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Whether each agent's published knowledge has reached the phone",
-        "tags": [
-          "knowledge-base"
-        ],
-        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/kb/facts": {
@@ -65925,35 +64432,6 @@
         "x-calevate-permission": "ops:manage"
       }
     },
-    "/v1/ops/carrier/probe": {
-      "post": {
-        "description": "Sends ONE read-only authenticated request to the selected carrier with the pair this process was started with, and reports whether it authenticated. Takes no candidate: the pair is env-only, so there is nothing to paste. Changes nothing.",
-        "operationId": "probe_carrier_v1_ops_carrier_probe_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CarrierProbeOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Ask the carrier whether the credential pair this deployment holds works",
-        "tags": [
-          "ops"
-        ],
-        "x-calevate-permission": "platform:secrets"
-      }
-    },
     "/v1/ops/config": {
       "get": {
         "description": "Lists every `Settings` field that can be managed from the console: its current value in the serving process, where that value came from (`env` / `db` / `default`), who set it and when. A key set in the environment is reported `source: env` and `editable: false` \u2014 the environment always wins over the store, so offering to change it here would be a field that does nothing. Credentials are NOT in this list; they live encrypted in platform_secrets.",
@@ -66418,7 +64896,7 @@
     },
     "/v1/ops/embedding-prices/{model}": {
       "post": {
-        "description": "Records what an ENCODER costs this account, read off your own vendor console or invoice, as a NEW effective-dated row \u2014 a correction is a later attestation, never an edit. Requires `X-Confirm-Action: attest_embedding_price:<model>`. The figure is USD per million **INPUT** tokens as a decimal string, and there is NO OUTPUT PRICE TO ENTER: an embedding request returns a vector, so the vendor bills no output leg and the column is stored NULL. Until this exists, a client's uploaded knowledge is indexed by word-matching only \u2014 nothing is embedded, nothing is charged, and the panel says so with its ground. The model identifier is sent VERBATIM and may contain a slash (`models/gemini-embedding-2`).",
+        "description": "Records what an ENCODER costs this account, read off your own vendor console or invoice, as a NEW effective-dated row \u2014 a correction is a later attestation, never an edit. Requires `X-Confirm-Action: attest_embedding_price:<model>`. The figure is USD per million **INPUT** tokens as a decimal string, and there is NO OUTPUT PRICE TO ENTER: an embedding request returns a vector, so the vendor bills no output leg and the column is stored NULL. Until this exists, a client's uploaded knowledge is indexed by word-matching only \u2014 nothing is embedded, nothing is charged, and the panel says so with its ground. The model identifier is sent VERBATIM and may contain one interior slash (a vendor-prefixed `models/<name>`).",
         "operationId": "attest_embedding_model_price_v1_ops_embedding_prices__model__post",
         "parameters": [
           {
@@ -68846,127 +67324,6 @@
           "ops"
         ],
         "x-calevate-permission": "platform:config"
-      }
-    },
-    "/v1/ops/voices": {
-      "get": {
-        "description": "By default, the voices somebody has decided about: every voice added here, plus any voice a sync cached that an operator moved off the arrival state. Voices the platform has since stopped listing are shown last and marked.\n\nOnly `enabled` voices can be chosen for an agent, by a client or by an admin. `cached` says how many voices are in the cache altogether; `?scope=all` returns them, which is a reference list rather than a to-do list \u2014 a voice does not have to be cached before it can be added.",
-        "operationId": "list_voices_v1_ops_voices_get",
-        "parameters": [
-          {
-            "description": "`decided` (default) or `all` \u2014 see the response's `scope`.",
-            "in": "query",
-            "name": "scope",
-            "required": false,
-            "schema": {
-              "default": "decided",
-              "description": "`decided` (default) or `all` \u2014 see the response's `scope`.",
-              "enum": [
-                "decided",
-                "all"
-              ],
-              "title": "Scope",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CuratedVoicesOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "The voices this platform has added (admin realm)",
-        "tags": [
-          "ops"
-        ],
-        "x-calevate-permission": "ops:manage"
-      },
-      "patch": {
-        "description": "Decides whether ANY agent, in any client account, may be put on this voice. Only `enabled` voices are offered.\n\n**It changes no agent and no call.** An agent already speaking this voice keeps speaking it \u2014 on the call in progress, on the next call, and on its next publish. Disabling or archiving removes it from the picker; moving an agent off it is a separate, deliberate act on that agent. `live_agents` on the response says how many are affected.\n\nA voice the platform has stopped listing can still be curated \u2014 the state is kept against the day it returns \u2014 but it cannot be offered whatever state it is in.\n\nIdempotent: setting the state a voice is already in is a success, not a conflict.",
-        "operationId": "set_voice_curation_v1_ops_voices_patch",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetCurationIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SetCurationOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Enable, disable or archive one voice for the whole platform (audited)",
-        "tags": [
-          "ops"
-        ],
-        "x-calevate-permission": "ops:manage"
-      },
-      "post": {
-        "description": "Adds ONE voice \u2014 normally one cloned at the provider \u2014 by the facts its synthesizer block needs: the provider, the model, the voice id that provider knows it by, the name it shows there, and which of this product's languages it serves.\n\n**Every fact is checked against the models this product runs.** Where the engine keeps a catalogue of its own, each fact is checked against that list too, and an id it does not list is refused by name \u2014 publishing on such an id would fail at create time on a client's phone line rather than on this screen; if that list cannot be read the add is REFUSED and retryable. On an engine whose catalogue IS this table there is no second list to read, and the operator's attestation is the authority.\n\nAn added voice arrives ENABLED \u2014 typing its facts is the decision to offer it. It can still be unofferable for a separate reason (an unattested price, a missing vendor key, the Cartesia agent cap), and the response says which.\n\nIdempotent: adding a voice already in the cache adopts it \u2014 the row becomes an operator-attested, enabled one, and any withdrawal stamp is cleared.",
-        "operationId": "add_voice_v1_ops_voices_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AddVoiceIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AddVoiceOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Add one voice by its facts, attested by an operator (audited)",
-        "tags": [
-          "ops"
-        ],
-        "x-calevate-permission": "ops:manage"
       }
     },
     "/v1/ops/voices/clones": {

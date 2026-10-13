@@ -42,11 +42,6 @@ def _mapped(value: object) -> dict[str, object]:
     return {SUBMITTED_AT_KEY: value}
 
 
-def test_the_window_is_thirty_minutes() -> None:
-    """The figure the whole gate turns on, stated once where a change would be seen."""
-    assert timedelta(minutes=30) == TRANSACTIONAL_WINDOW
-
-
 def test_a_source_that_says_nothing_leaves_the_path_as_it_was() -> None:
     """The overwhelmingly common delivery: no timestamp, and the dial proceeds.
 

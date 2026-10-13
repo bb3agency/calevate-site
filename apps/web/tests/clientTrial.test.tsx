@@ -160,7 +160,7 @@ describe("the trial chip in the top bar", () => {
     if (view === null) throw new Error("expected a trial");
     const { baseElement } = render(<TrialChipView view={view} creditsHref={CREDITS} open now={hoursBefore(3)} />);
     const text = (baseElement.textContent ?? "").toLowerCase();
-    for (const word of ["cost to", "vobiz", "cartesia", "gnani", "sarvam", "pipecat", "thinnest"]) {
+    for (const word of ["cost to", "cartesia", "sarvam", "plivo", "thinnest"]) {
       expect(text).not.toContain(word);
     }
   });

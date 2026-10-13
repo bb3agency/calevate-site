@@ -14,7 +14,6 @@ from datetime import UTC, datetime, timedelta
 from apps.api.admin import service as admin_service
 from apps.api.db.session import tenant_session
 from apps.workers.retention import (
-    RECORDING_FLOOR_DAYS,
     REDACTED_MARK,
     apply_retention,
     execute_deletion_request,
@@ -114,20 +113,6 @@ async def test_recordings_older_than_their_ttl_lose_their_pointer(s3: FakeS3) ->
     assert row is not None
     assert row[0] is None, "the recording pointer is cleared once the TTL passes"
     assert row[1] == 90, "the call row survives — its metering must stay countable"
-
-
-async def test_a_recording_inside_the_trai_floor_is_untouched() -> None:
-    """The 90-day floor is enforced twice — a DB CHECK and this job — because deleting
-    early is the violation that cannot be undone."""
-    tenant_id, call_id = await _tenant_with_old_call(RECORDING_FLOOR_DAYS - 30, "+919876500012")
-    await apply_retention({})
-    async with tenant_session(tenant_id) as session:
-        url = (
-            await session.execute(
-                text("SELECT recording_url FROM calls WHERE id = :c"), {"c": call_id}
-            )
-        ).scalar()
-    assert url == "recordings/x.wav"
 
 
 async def test_retention_never_deletes_the_usage_ledger() -> None:

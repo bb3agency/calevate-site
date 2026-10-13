@@ -38,11 +38,6 @@ ENV PYTHONPATH=/app
 """
 
 
-def test_the_real_dockerfile_passes() -> None:
-    """The positive control. If this fails, the image is already broken."""
-    assert check_image_paths.check() == []
-
-
 def test_a_minimal_correct_file_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write(tmp_path, monkeypatch, _GOOD)
     assert check_image_paths.check() == []

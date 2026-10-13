@@ -53,7 +53,7 @@ blocked EXCEPT service-implicit, transactional traffic (OTPs, transaction alerts
 appointment reminders) is delivered whatever the preference, and it is
 service-EXPLICIT — marketing sent under a consent — and promotional that a preference
 suppresses. (Operator/aggregator DLT documentation is unanimous on this:
-smsgatewaycenter.com/sms-types, plivo.com/blog/implicit-sms-content-template-types-in-india,
+smsgatewaycenter.com/sms-types,
 fast2sms.com/help/dlt-sms-faq. Checked 2026-08.)
 
 Our three-member `campaigns.classification` maps onto it without interpretation:

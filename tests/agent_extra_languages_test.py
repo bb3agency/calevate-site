@@ -6,9 +6,7 @@ a call. Now:
 1. `_to_config` publishes it, narrowed to the languages the product sells, never the
    primary, each once;
 2. `compose_engine_prompt` names the languages the agent may answer in, and keeps the
-   speaking rules and the truthful-answer floor binding in every one of them;
-3. the worker session carries it, and the worker's transcriber detects the caller's
-   language instead of pinning the primary (`voice_worker_pipeline_test`).
+   speaking rules and the truthful-answer floor binding in every one of them.
 
 A one-language agent's prompt is unchanged, so only agents with extras get a new prompt
 hash.
@@ -23,8 +21,6 @@ import pytest
 from apps.api.agents.languages import published_extra_languages
 from apps.api.agents.service import _to_config
 from apps.api.engine import get_engine
-from apps.api.engine.pipecat import PipecatEngine
-from apps.api.worker import service as worker_service
 from calevate_shared.engine import (
     CLIENT_SCRIPT_OPEN,
     TRUTHFUL_ANSWER_MARKER,
@@ -33,7 +29,6 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     truthful_answer_directive,
 )
-from tests.pipecat_engine_test import _config, _make_the_agent_live, _org
 
 
 def _agent(**overrides: Any) -> AgentConfig:
@@ -126,35 +121,3 @@ def test_an_agent_with_extras_is_told_which_languages_it_may_answer_in() -> None
 def test_one_extra_language_reads_as_one_name() -> None:
     prompt = compose_engine_prompt(_agent(languages_extra=["hi-IN"]))
     assert "You may also speak Hindi." in prompt
-
-
-# ------------------------------------------------------------------- the worker session
-
-
-async def test_the_worker_session_carries_the_extras() -> None:
-    tenant_id, agent_id = await _org()
-    cfg = _config(tenant_id, agent_id).model_copy(update={"languages_extra": ["hi-IN"]})
-    ref = await PipecatEngine().create_agent(cfg)
-    await _make_the_agent_live(tenant_id, agent_id, ref)
-
-    served = await worker_service.load_session(ref)
-
-    assert served.languages_extra == ["hi-IN"]
-    # The primary is always served: it is what the voice speaks. Whether the transcriber
-    # detects is the worker's call from `languages_extra` and `models.stt_autodetect`.
-    assert served.language == "te-IN"
-    assert "--- LANGUAGES ---" in served.system_prompt
-
-
-async def test_the_worker_session_serves_the_primary_when_detection_is_on() -> None:
-    """A `None` here made every Gnani call fail, because that voice needs a language."""
-    tenant_id, agent_id = await _org()
-    cfg = _config(tenant_id, agent_id)
-    cfg = cfg.model_copy(update={"models": cfg.models.model_copy(update={"stt_autodetect": True})})
-    ref = await PipecatEngine().create_agent(cfg)
-    await _make_the_agent_live(tenant_id, agent_id, ref)
-
-    served = await worker_service.load_session(ref)
-
-    assert served.models.stt_autodetect
-    assert served.language == "te-IN"

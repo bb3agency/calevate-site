@@ -14,7 +14,7 @@
 > | Lead | Verdict from the page bodies | Where |
 > |---|---|---|
 > | **A** — our two Azure model ids absent from their Azure page | **WRONG, and it was the highest-stakes lead here.** Their Azure "Supported models" table lists all four `gpt-4o`/`gpt-4.1` variants including both *mini*s; the index sentence was a marketing summary of the top of a table, not an allow-list. No fork, no defect. **What the same pages DID find** was a real defect the lead never suspected: our wire `provider` string and our credential name were both wrong (D-417). | `bolna-providers-llm.md` §1–3 |
-> | **B** — model landscape a generation ahead; BYOK may be pointless | **Half right, and the inference was wrong.** Our exact stack IS inside the flat-rate bundle — but *"When you bring your own keys (BYOK), Bolna does not charge for those components"* (`pricing/call-pricing.md:75`), so the 6¢ is a SUM, not a floor, and BYOK's cost case survives. What actually breaks the margin target is D-36's default TTS: `bulbul:v3` is NOT on the included list. | D-423, `bolna-executions-cost.md` §E |
+> | **B** — model landscape a generation ahead; BYOK may be pointless | **Half right, and the inference was wrong.** Our exact stack IS inside the flat-rate bundle — but *"When you bring your own keys (BYOK), Bolna does not charge for those components"* (`pricing/call-pricing.md:75`), so the 6¢ is a SUM, not a floor, and BYOK's cost case survives. What actually breaks the margin target is D-36's default TTS: Sarvam's v3 TTS model is NOT on the included list. | D-423, `bolna-executions-cost.md` §E |
 > | **C** — Indian-server processing may retire gate 9's verdict | **It retired it in the OTHER direction.** Their default is the US for everything, India residency is an Enterprise purchase, and its requirements EXCLUDE BYOK — so buying it would move zero calls. Gate 9 now tests a decision, not a measurement. | D-415, `bolna-compliance-residency.md` §2, §5 |
 > | **D** — a Violations API we had never heard of | **CONFIRMED and acted on.** Nothing pushes it, nothing signs it, and the only channel is a list endpoint; an hourly poller is built and gate 9v carries the five questions their pages do not answer. | D-416, `bolna-compliance-residency.md` §1 |
 > | **E** — dispositions may be the extraction feature we built | **Not a switch, and the real find was elsewhere**: the adapter was passing the vendor's *category-nested* `extracted_data` into a field our tree reads as flat. | `bolna-kb-extraction.md` |
@@ -150,7 +150,7 @@ Measured by grep across `apps`, `packages`, `docs`, `scripts`, `runbooks`:
 | IVR agents / DTMF | 2 | partial | Keypad routing; relevant to inbound receptionist flows. |
 | Bolna CLI | 29 | **0** | `bolna docs fetch` renders a docs page in a terminal — a second route to this mirror. |
 
-Known already, no gap: Exotel (21 files), Vobiz (17), SIP trunking (8), sub-accounts (8),
+Known already, no gap: Exotel (21 files), SIP trunking (8), sub-accounts (8),
 `calling_guardrails` (D-351 exists because of it), auto-retry (5), OpenRouter (5).
 
 ## 7. Pages that map straight onto an open gate

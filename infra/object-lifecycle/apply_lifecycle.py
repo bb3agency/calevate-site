@@ -75,43 +75,12 @@ BODIES_PREFIX = "webhook-bodies/"
 # What this rule bounds is the residue neither of those names: an object stored by a
 # request whose transaction then rolled back.
 UPLOADS_PREFIX = "kb-uploads/"
-# The frozen in-call knowledge packs (D-599, `calevate_shared.knowledge_pack.
-# pack_object_key`). A CEILING, at the same number as the two above, and the reasoning is
-# worth stating because the obvious alternative is wrong in a way that is invisible until a
-# call goes quiet.
-#
-# These objects are IMMUTABLE AND CONTENT-ADDRESSED: a new pack is a new key and the old
-# key is never rewritten, so nothing ever tidies itself up — a client correcting a price
-# every week leaves one small object per correction for ever. That is the growth this rule
-# bounds.
-#
-# **WHY NOTHING SHORTER, WHICH IS THE WHOLE ARGUMENT.** S3 expiry is measured from an
-# object's CREATION, not from its last read, and the pack a live agent answers out of is
-# whichever one its knowledge last produced — so the LONGER a client's knowledge has been
-# correct, the closer their pack is to expiry. A 90- or 365-day rule would therefore delete
-# the live pack of the best-behaved client on the platform and leave the churning one's
-# alone, and the symptom is an agent that retrieves nothing while every screen says its
-# knowledge is published. `knowledge-packs/` is the one prefix here where a short expiry
-# targets exactly the wrong objects.
-#
-# **UNKNOWN: whether R2 offers any last-ACCESS-based expiry.** `developers.cloudflare.com`
-# is egress-blocked from this container and nobody has read the page, so no such rule is
-# written. The conservative option is this one: the same 7-year ceiling the other two
-# growth-bounded prefixes carry, which makes the residual risk an unedited knowledge base
-# older than seven years rather than one older than a quarter.
-#
-# **WHAT ACTUALLY RECLAIMS THE SPACE is a reference-aware sweep, and it now exists**:
-# `apps/workers/pack_gc.py` (D-611) deletes a pack no `agents.knowledge_pack_sha256` names,
-# after a seven-day grace that covers the publish path's store-before-pointer write order.
-# This file cannot express that and never will, because a bucket rule cannot read a
-# database — which is why the rule below stays exactly where it is rather than being
-# shortened now that something else is doing the reclaiming. The two are not alternatives:
-# the sweep reclaims what it can positively attribute to a live tenant, and this ceiling is
-# the backstop under everything it refuses to touch (a closed tenant's objects, a key this
-# platform did not write, an object the store reports no age for).
+# The frozen in-call knowledge packs (D-599) written before D-763 removed the engine that
+# read them. Nothing writes here any more; the same 7-year ceiling as the prefixes above
+# bounds what is left.
 PACKS_PREFIX = "knowledge-packs/"
-# A client's CARRIER COMPLIANCE submission (`storage.carrier_document_key`) — the signed
-# application and the supporting document behind it, the evidence a telecom carrier
+# A client's CARRIER COMPLIANCE submission from before D-763 — the signed application and
+# the supporting document behind it, the evidence a telecom carrier
 # accepted this business. A CEILING, at the same number as the three above, and it is
 # here because it was MISSING: this prefix has been written since the carrier-application
 # flow shipped and appeared in no rule, no constant in this file and no assertion in

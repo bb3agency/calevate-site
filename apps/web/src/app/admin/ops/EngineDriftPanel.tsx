@@ -18,22 +18,6 @@ import type { EngineDriftState } from "./opsSurfaceState";
  * table we own agreeing with itself and wrong, and until the half-hourly sweep existed
  * they were found only by whoever thought to open one agent's screen.
  *
- * **"TWO DIVERGENCES, BOTH AT A VENDOR" WAS THE WHOLE LIST AND IS NO LONGER (D-592).**
- * On an `owned_runtime` engine there is no vendor and no vendor console: the far side of
- * this comparison is `apps/voice-worker`, and `VoiceEngine.get_agent`'s contract says so
- * in as many words — *"the running worker recomputes the prompt digest from what is in
- * its memory and writes it to `agent_config_attestations`, and THAT is what this method
- * reports"* (`packages/shared/src/calevate_shared/engine.py`, the `get_agent` docstring).
- * So a drift there means the worker is running a config version the control plane did not
- * publish, and an unreadable agent means NO WORKER HAS ATTESTED — a process that may not
- * be up, not a supplier having a slow afternoon. The two readings are different work for
- * an operator, and this panel cannot tell them apart: `PlatformStateOut` carries no engine
- * name (nor does `EngineDriftOut`), so nothing on the wire says which engine produced
- * these counts. The prose below is therefore written to be TRUE ON BOTH and to name
- * neither mechanism — it used to name only the vendor one. Publishing the engine on the
- * platform read is what would let this panel say which; that is a backend change and is
- * recorded as one rather than guessed at here.
- *
  * ## Three numbers, not one, and the middle one is the point
  *
  * `out_of_sync` is a PROVEN mismatch and is the only one that is an alarm. `undetermined`
@@ -127,7 +111,7 @@ export function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
           >
             <p className="mt-1">
               {read.undetermined > 0
-                ? `${formatCount(read.undetermined)} could not be read back and will be retried on the next sweep. If it persists, check the supplier, or that our worker is up.`
+                ? `${formatCount(read.undetermined)} could not be read back and will be retried on the next sweep. If it persists, check the supplier.`
                 : "No divergence found."}
             </p>
           </NoticeBox>

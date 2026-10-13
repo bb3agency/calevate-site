@@ -116,7 +116,7 @@ def _admin_gates(t: str) -> list[tuple[str, str, dict[str, Any] | None, str]]:
         (
             "POST",
             f"/v1/admin/tenants/{t}/numbers",
-            {"e164": "+918000000003", "series": "standard", "provider": "vobiz"},
+            {"e164": "+918000000003", "series": "standard", "provider": "plivo"},
             f"provision_number:{t}",
         ),
         ("POST", f"/v1/admin/tenants/{t}/kyc", {"status": "submitted"}, f"record_kyc:{t}"),

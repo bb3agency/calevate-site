@@ -193,27 +193,19 @@ TENANT_ERASURE_LIMITATIONS: tuple[str, ...] = (
     "the date the last of them is destroyed on, which happens without a second "
     "request.",
     "Copies held outside Calevate's database by the engine that ran the calls are "
-    "reported as 'unconfirmed_pending_vendor_api'. The call program is Calevate's own and "
-    "its records are erased here, but it runs on a hosting platform whose retention of "
-    "what passed through it has not been established; where a call ran on a third-party "
-    "voice platform instead, that platform keeps its own record of it. Neither can be "
-    "deleted by this system, so this certificate does not claim a deletion it cannot "
-    "show: confirm the engine-side erasure in writing before telling the client their "
-    "data is gone everywhere. The same holds for three more vendors that handled these "
-    "calls: the telephone carrier, which keeps its own records of every call it "
-    "connected and publishes no way to delete one, and the speech and language services, "
-    "which publish no way to delete one customer's data. Each is a written request "
-    "opened against this erasure, and none is recorded here as made. The agents "
-    "themselves are not deleted and the telephone numbers are not released. When the "
-    "account was closed, each number was detached from its agent at the telephone "
-    "carrier where that carrier supports it, and Calevate's own call program refuses to "
-    "hold a conversation for a closed or erased account, so a person dialling this "
-    "client's old number does not reach an answering agent there and nothing further "
-    "about that call is recorded here. An agent that ran on a third-party voice platform "
-    "is outside that refusal and answers until it is retired on that platform. Releasing "
-    "the numbers with the telephony provider, and retiring any such agent, are manual "
-    "steps, and a call that still reaches us after this certificate is what raises the "
-    "alarm that they are outstanding.",
+    "reported as 'unconfirmed_pending_vendor_api'. Calevate's own records of the calls are "
+    "erased here, but the calls ran on a third-party voice platform, which keeps its own "
+    "record of them, and this system cannot delete it, so this certificate does not claim "
+    "a deletion it cannot show: confirm the engine-side erasure in writing before telling "
+    "the client their data is gone everywhere. The same holds for three more vendors that "
+    "handled these calls: the telephone carrier, which keeps its own records of every call "
+    "it connected, and the speech and language services, which publish no way to delete "
+    "one customer's data. Each is a written request opened against this erasure, and none "
+    "is recorded here as made. The agents themselves are not deleted and the telephone "
+    "numbers are not released: an agent answers on the voice platform until it is retired "
+    "there. Releasing the numbers with the telephony provider, and retiring the agents, "
+    "are manual steps, and a call that still reaches us after this certificate is what "
+    "raises the alarm that they are outstanding.",
     "The knowledge base this client's agents answered from is not erased — the sources "
     "they uploaded, the version currently live, any copy a third-party voice platform "
     "holds, and "
@@ -221,8 +213,8 @@ TENANT_ERASURE_LIMITATIONS: tuple[str, ...] = (
     "that content FOR, so unlike a single person's request it does not look. What does "
     "reach PART of it is the account's own knowledge-base retention period, which "
     "deletes the documents this client replaced or had rejected once they pass it. It "
-    "does not reach the packs: every time this client published, the approved text was "
-    "frozen into a sealed pack that the agent answered out of during calls, and nothing "
+    "does not reach the packs: until 13 October 2026 every publish froze the approved "
+    "text into a sealed pack that the agent answered out of during calls, and nothing "
     "in this system deletes one — not this erasure, not that retention period. Removing "
     "the live content is manual work on every copy, and so is removing a pack.",
     "The files this client uploaded are not deleted by this erasure, and that is stated "
@@ -344,24 +336,17 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
         keyword="engine",
         outcome="unconfirmed",
         why=(
-            "The call program is Calevate's own and its records of these calls are erased "
-            "here, but it runs on a hosting platform whose retention of what passed "
-            "through it has not been established, and a call that ran on a third-party "
-            "voice platform left a record there. This system can delete neither, so this "
-            "certificate reports engine-side deletion as "
+            "Calevate's own records of these calls are erased here, but the calls ran on a "
+            "third-party voice platform, which left a record there. This system cannot "
+            "delete it, so this certificate reports engine-side deletion as "
             "'unconfirmed_pending_vendor_api' rather than claiming something it cannot "
-            "show; each is a written request, opened against this erasure. So are the "
-            "copies held by the telephone carrier — its records of every call it "
-            "connected, which its published interface lists and exports but cannot "
-            "delete — and by the speech and language services, neither of which publishes "
-            "a way to delete one customer's data. None of those requests is recorded here "
-            "as made. The agents are not deleted and the numbers are not released. The "
-            "close detached each number from its agent where the carrier supports it, "
-            "and Calevate's own call program holds no conversation for a closed or "
-            "erased account, so the account acquires no further caller records and a "
-            "caller dialling the old number does not reach an answering agent there. An "
-            "agent on a third-party voice platform answers until it is retired there. "
-            "Releasing the numbers with the telephony provider is a manual step."
+            "show; it is a written request, opened against this erasure. So are the copies "
+            "held by the telephone carrier — its records of every call it connected — and "
+            "by the speech and language services, neither of which publishes a way to "
+            "delete one customer's data. None of those requests is recorded here as made. "
+            "The agents are not deleted and the numbers are not released: an agent on the "
+            "voice platform answers until it is retired there. Releasing the numbers with "
+            "the telephony provider is a manual step."
         ),
         authority=(
             "SECURITY-COMPLIANCE §4 — the vendor erasure commitment is an open "
@@ -382,8 +367,9 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "search the content for. Documents the client replaced or had rejected are "
             "deleted once they pass this account's knowledge-base retention period. "
             "A COPY THAT CLOCK DOES NOT REACH, named because leaving it out would make "
-            "the sentence above read as the whole story: each publish froze the approved "
-            "text into a sealed, content-addressed knowledge pack — the copy an agent "
+            "the sentence above read as the whole story: until 13 October 2026 each publish "
+            "froze the approved text into a sealed, content-addressed knowledge pack — the "
+            "copy an agent "
             "actually answered out of on a call — and no erasure arm and no retention "
             "period deletes a pack, superseded or live. If caller details were put into "
             "the live content, finding and removing them is manual work on every copy, "
@@ -732,8 +718,8 @@ _SCOPE_COUNTS: Final = (
     # reason: it is the copy a reader cannot check by eye.
     "caller_vectors_erased",
     "caller_memories_erased",
-    # The documents withdrawn from the external search index (box 3,
-    # `docs/PIPECAT-MIGRATION.md` §8.4). On the certificate for the two counts above's
+    # The documents withdrawn from the external search index (box 3). On the certificate
+    # for the two counts above's
     # reason and one more: it is the only copy of this account's data that is NOT in our
     # Postgres, so it is the one a reader most needs told about explicitly.
     "indexed_documents_purged",

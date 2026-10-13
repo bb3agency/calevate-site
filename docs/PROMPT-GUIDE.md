@@ -35,8 +35,8 @@ change, promoted staging→live, rollbackable.
    truthfully. Auto-inserted by `compose_engine_prompt` as `CONFIDENTIALITY_RULE` after the
    client script; a script line granting permission to share does nothing. Do not write
    secrets into a script on the strength of this rule: SECURITY-COMPLIANCE §6.1 explains
-   why a prompt is not a security control, and the voice worker's output guard is the
-   enforcing layer.
+   why a prompt is not a security control, and no layer of ours sits between the engine's
+   model and its voice.
 
 ## 2. Prompt structure (template order matters for TTFT and adherence)
 

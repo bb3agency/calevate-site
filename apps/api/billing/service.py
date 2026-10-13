@@ -3623,18 +3623,10 @@ async def margin_for_tenant(
     is the sum of `unit_cost_paid`, which the pipeline stamps per usage row at capture
     time with the fx rate it used, so a later rate move cannot rewrite history.
 
-    ⚠ **`cost_inr` IS THE SUM OF THE LEGS THAT COULD BE PRICED, AND IT DOES NOT SAY SO.**
-    On the owned runtime a call's cost is five independently metered legs (D-595), and any
-    leg nobody can honestly price writes a `call_metering_refusals` row INSTEAD of a
-    `usage_events` row — deliberately, because a fabricated ₹0 on an append-only ledger is
-    worse than a visible gap (`voice_worker/meter.py`). Nothing on this path reads that
-    table, so a month with refused legs produces a `cost_inr` and a `margin_pct` that are
-    arithmetically correct over the rows that exist and are MISSING money, in the
-    flattering direction. **The live instance of that is the RUNTIME leg**: what a Pipecat
-    Cloud active minute bills is UNKNOWN (OPERATIONS §2 gate 57), so until an operator
-    attests it from an invoice every Pipecat call refuses that leg and the margin here
-    reads better than it is.
-    **CLOSED (19 Sep 2026): `legs_unpriced` is that count, published beside the figure.**
+    **`cost_inr` IS THE SUM OF THE LEGS THAT COULD BE PRICED.** A leg nobody could honestly
+    price was recorded as a `call_metering_refusals` row instead of a `usage_events` row
+    (the former owned runtime's metering, D-595), so `legs_unpriced` counts those rows
+    beside the figure.
     It is a COUNT and not a rupee estimate, deliberately — the whole reason those legs have
     no `usage_events` row is that nobody can honestly price them, so totalling them would be
     the fabrication the refusal exists instead of. A non-zero count means `cost_inr` is a

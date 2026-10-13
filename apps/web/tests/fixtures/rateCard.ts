@@ -25,7 +25,7 @@ import type { PublicRateCard } from "@/lib/api/rateCard";
  * way `_pack_out` floors it. `tests/public_rate_card_test.py` is what pins the server's
  * arithmetic; this is only the shape the browser is handed.
  *
- * ⚠ **THE CARD IS THE FOUNDER'S OF 14 SEP 2026** (`docs/PIPECAT-MIGRATION.md` §12): Clear
+ * ⚠ **THE CARD IS THE FOUNDER'S OF 14 SEP 2026** (`docs/BRD.md` §6.1): Clear
  * FLAT at ₹4.00 on all six rungs, Studio falling 7.00 → 5.50. The flat column is not a
  * copy-paste slip — it is what makes `from_clear_inr_per_min` equal `list_rate_inr_per_min`
  * here, which is the case `pricing/page.tsx::bandSentence` and

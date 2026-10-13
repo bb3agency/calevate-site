@@ -112,10 +112,9 @@ DYNAMIC_ENQUEUE_SITES: dict[str, str] = {
         "reads, so the name is covered at the producer where it is actually chosen"
     ),
     "apps/voice-runtime/webhook_routes.py::work.job": (
-        "the shared inbox claim enqueues the job its caller names on `InboxWork`. Both "
-        "callers (the engine receiver in this file and `carrier_events.py`) also key the "
-        "job with `job_id_for(<module-level constant>, ...)`, which this scan reads, so "
-        "each name is checked at the site that chooses it"
+        "the shared inbox claim enqueues the job its caller names on `InboxWork`. Every "
+        "caller in this file also keys the job with `job_id_for(<module-level constant>, "
+        "...)`, which this scan reads, so each name is checked at the site that chooses it"
     ),
 }
 

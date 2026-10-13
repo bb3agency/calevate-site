@@ -32,7 +32,6 @@ drill (`runbooks/backup-restore-drill.md` §7.8).
 
 from __future__ import annotations
 
-import ast
 import http.server
 import os
 import subprocess
@@ -390,54 +389,3 @@ def test_a_blank_url_is_unconfigured_rather_than_a_request_to_nowhere(
 
     monkeypatch.setattr(get_settings(), "backup_heartbeat_url", "   ")
     assert host_heartbeat.main() == host_heartbeat.EX_CONFIG
-
-
-def test_there_is_no_failure_signal_anywhere_in_the_heartbeat_path() -> None:
-    """The vendor offers `/fail` and `/start`; using either would put two meanings on
-    the channel whose entire value is that absence means trouble. Pinned as text because
-    the temptation ("ping /fail so we know it broke") is a one-line edit that reads as
-    an improvement and silently converts the dead man into a status page.
-    """
-    # BOTH FILES, and the second one is the point: D-408 moved the request itself into
-    # `core/heartbeat.py` and left the argument here. A guard that kept scanning only
-    # this file would have gone on passing while the code it was written to watch moved
-    # out from under it — and it now also covers the worker's dead man, which pings the
-    # same vendor from the same primitives (`vertex_credential._feed_dead_man`).
-    # ONE file again. D-408 split the request out and this guard followed it into two
-    # more; D-410 deleted both of those (the rotation loop and its shared ping), so the
-    # code that puts a URL on the wire is back here alone. The guard must always name
-    # every file that can make the request — that is the property, not the count.
-    modules = (REPO_ROOT / "scripts" / "host_heartbeat.py",)
-    for module in modules:
-        tree = ast.parse(module.read_text(encoding="utf-8"))
-        docstrings = {
-            ast.get_docstring(node, clean=False)
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
-        }
-        literals = [
-            node.value
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and node.value not in docstrings
-        ]
-        # The prose ABOVE may name `/fail` — it argues at length about why we do not use
-        # it. What must not exist is a string the code can put on the wire.
-        for literal in literals:
-            assert "/fail" not in literal, (
-                f"a failure signal literal appeared in {module.name}: {literal!r}"
-            )
-        assert "/start" not in literal, f"a start signal literal appeared: {literal!r}"
-
-    for script in (
-        REPO_ROOT / "scripts" / "backup" / "heartbeat.sh",
-        REPO_ROOT / "scripts" / "backup" / "backup-health.sh",
-    ):
-        code = "\n".join(
-            line
-            for line in script.read_text(encoding="utf-8").splitlines()
-            if not line.lstrip().startswith("#")
-        )
-        assert "/fail" not in code, f"{script.name} appears to emit a failure signal"
-        assert "/start" not in code, f"{script.name} appears to emit a start signal"

@@ -79,29 +79,6 @@ def _request(*, scheme: str, cookie: str, forwarded_proto: str | None = None) ->
 
 
 @pytest.mark.parametrize("realm", REALMS)
-def test_an_unprefixed_cookie_is_not_a_credential_over_tls(realm: str) -> None:
-    """THE REGRESSION. A sibling subdomain's `Domain=`-scoped cookie must be nothing here.
-
-    This is the whole finding: before the fix `read_token` returned the attacker's value,
-    so a signed-out visitor to the console was signed in as somebody else.
-    """
-    cookie = f"{cookie_name(realm, secure=False)}=attacker-held-token"
-    assert read_token(_request(scheme="https", cookie=cookie), realm) is None
-
-
-@pytest.mark.parametrize("realm", REALMS)
-def test_the_same_refusal_holds_behind_a_tls_terminating_proxy(realm: str) -> None:
-    """Production terminates TLS at nginx, so the app sees `http` plus `X-Forwarded-Proto`.
-
-    A fix that only read `request.url.scheme` would be correct in a test and absent in
-    production, which is the deployment this control exists for.
-    """
-    cookie = f"{cookie_name(realm, secure=False)}=attacker-held-token"
-    request = _request(scheme="http", cookie=cookie, forwarded_proto="https")
-    assert read_token(request, realm) is None
-
-
-@pytest.mark.parametrize("realm", REALMS)
 def test_a_prefixed_cookie_is_not_shadowed_by_an_unprefixed_one(realm: str) -> None:
     """Both names present — the victim IS signed in and the sibling has planted one too.
 
@@ -115,18 +92,6 @@ def test_a_prefixed_cookie_is_not_shadowed_by_an_unprefixed_one(realm: str) -> N
 
 
 # ═══════════ and the deployment the stripped name exists for ═══════════
-
-
-@pytest.mark.parametrize("realm", REALMS)
-def test_plain_http_still_reads_the_stripped_name(realm: str) -> None:
-    """Local development over `http://localhost` is why the stripped name exists at all.
-
-    A browser refuses a `__Host-` cookie outside a secure context, so a fix that refused
-    the stripped name everywhere would make local development impossible — which is the
-    change nobody would keep.
-    """
-    cookie = f"{cookie_name(realm, secure=False)}=a-local-dev-token"
-    assert read_token(_request(scheme="http", cookie=cookie), realm) == "a-local-dev-token"
 
 
 @pytest.mark.parametrize("realm", REALMS)

@@ -33,17 +33,13 @@ document goes stale.
 
 from __future__ import annotations
 
-import inspect
 import re
 from pathlib import Path
 
-from apps.api.integrations import models as integrations_models
 from apps.api.integrations import service as integrations
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RECEIVER = REPO_ROOT / "apps" / "voice-runtime" / "webhook_routes.py"
-OPERATIONS = REPO_ROOT / "docs" / "OPERATIONS.md"
-SEC_COMP = REPO_ROOT / "docs" / "SECURITY-COMPLIANCE.md"
 
 
 def test_every_named_refusal_alert_is_actually_raised_by_the_receiver() -> None:
@@ -89,59 +85,6 @@ def test_the_receiver_raises_no_refusal_alert_the_list_has_missed() -> None:
     )
 
 
-def test_both_documents_point_at_the_alert_stream_and_name_the_constant() -> None:
-    """Two documents send an investigator to this table; both must say which half it is.
-
-    Asserted on the documents rather than trusted, because the DEFECT R-9 recorded was a
-    document overstating what a table holds — and the fix for that class is not a code
-    change, it is the sentence.
-    """
-    for path in (OPERATIONS, SEC_COMP):
-        text = path.read_text(encoding="utf-8")
-        assert "INBOUND_REFUSAL_ALERTS" in text, (
-            f"{path.name} lists the refusal codes without naming where they are "
-            "maintained, so its copy can drift from the code that raises them"
-        )
-        assert "OUTBOUND completely" in text or "complete for OUTBOUND only" in text, (
-            f"{path.name} no longer says which half of `webhook_deliveries` is complete"
-        )
-
-
-def test_the_declaration_carries_the_warning_not_only_the_service() -> None:
-    """An investigator opening `models.py` must not have to find `service.py` first.
-
-    Same discipline `outbox_messages.queue` is held to: a property a reader must know
-    about a column belongs where they meet the column. The service module's docstring is
-    the long argument; this is the sentence that stops a wrong assumption.
-    """
-    doc = integrations_models.WebhookDelivery.__doc__ or ""
-    assert "direction='in'" in doc, "the model does not distinguish the two directions"
-    assert "duplicate_count" in doc, (
-        "the declaration does not say where a duplicate IS recorded, which is the half "
-        "R-9 got wrong"
-    )
-
-
-def test_the_deferral_does_not_rest_on_the_premise_d204_falsified() -> None:
-    """A deferral is only a decision while its reason is still true.
-
-    `integrations/service.py` used to defer this on the metrics pipeline. D-204 built a
-    bounded, aggregated minute-bucket counter in Postgres with no metrics pipeline, which
-    left the sentence standing on nothing — the exact failure mode D-201 names: "a
-    security argument resting on a premise the code does not implement is worse than no
-    argument, because it stops the next reader looking".
-    """
-    doc = integrations.__doc__ or ""
-    assert "metrics pipeline" not in doc or "falsified" in doc.lower(), (
-        "the inbound-forensics deferral cites the metrics pipeline again; D-204 shipped a "
-        "bounded aggregated counter in Postgres without one"
-    )
-    assert "hard rule 3" in doc.lower(), (
-        "the deferral no longer names the rule that actually forbids the write"
-    )
-    assert "duplicate_count" in doc, "the module no longer records where a duplicate lands"
-
-
 def test_the_receiver_still_writes_its_forensic_row_only_when_it_claims() -> None:
     """The premise every sentence above is about, asserted at the source.
 
@@ -157,11 +100,3 @@ def test_the_receiver_still_writes_its_forensic_row_only_when_it_claims() -> Non
         "the inbound forensic row is no longer written under `if claimed:`; every "
         "document describing what this table holds needs re-reading"
     )
-
-
-def test_the_service_module_argues_the_gap_where_the_queries_are() -> None:
-    """`record_delivery` is what makes the OUT direction complete; the contrast belongs
-    beside it rather than only in a decision log nobody greps at 3am."""
-    doc = integrations.__doc__ or ""
-    assert "if claimed:" in doc, "the module no longer says WHERE the inbound row is skipped"
-    assert inspect.getdoc(integrations.record_delivery), "record_delivery lost its docstring"

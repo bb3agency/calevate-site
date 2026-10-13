@@ -453,10 +453,10 @@ describe("what each document must contain", () => {
   it("does not place the carrier in India, and names no former voice platform as a row", () => {
     /*
      * The narrower version of the test above, on the category the caller's audio passes
-     * through. Since D-679 the page is a table of CATEGORIES and names no carrier, but the
-     * fact survives the name: the carrier in use states no processing location, so the
-     * Telephony row's Location cell must say so and must not name India (founder's
-     * instruction, 2 Oct 2026). A former voice platform may not come back as a row.
+     * through. Since D-679 the page is a table of CATEGORIES and names no carrier. The hosted
+     * voice platform carries every call, so the Telephony row defers to its row and must not
+     * name India itself (founder's instruction, 2 Oct 2026). A former voice platform may not
+     * come back as a row.
      */
     const rows = blocksOf(bySlug("subprocessors")).flatMap((block) =>
       block.kind === "table" ? block.rows : [],
@@ -468,21 +468,21 @@ describe("what each document must contain", () => {
     const carrier = rows.filter((row) => (row[0] ?? "") === "Telephony");
     expect(carrier, "the carrier must have exactly one register row").toHaveLength(1);
     const location = carrier[0]?.[3] ?? "";
-    expect(location).toMatch(/Not stated by the carrier in use/);
+    expect(location).toMatch(/As the voice-platform row describes/);
     expect(
       location,
       "the Location cell may not place the carrier in India",
     ).not.toMatch(/India/);
-    // The recording disclosure travels with the category, not with the name.
-    expect(carrier[0]?.[2] ?? "").toMatch(/keep for 90\s+days/);
-    expect(carrier[0]?.[2] ?? "").toMatch(/one day after our copy is saved/);
+    // The recording disclosure travels with the category that carries the call.
+    const platform = rows.filter((row) => (row[0] ?? "") === "Voice platform");
+    expect(platform[0]?.[2] ?? "").toMatch(/keep for 90\s+days/);
   });
 
   /**
    * THE LIVE ENGINE IS THE HOSTED VOICE PLATFORM, AND ITS COMMITMENTS ARE NOT OURS (D-687).
    *
    * Production runs `ENGINE=thinnest` since 7 Oct 2026, so the register's Status column has
-   * to say the hosted voice platform is Core and the carrier on our own account is not.
+   * to say the hosted voice platform is Core and carries every call.
    * Its India and no-training statements came in an email (VENDOR-STATED,
    * `docs/evidence/thinnest-ai-evaluation.md` §10 item 11) with no signed agreement, so
    * the Addendum may not warrant a data-processing contract with it, and every document
@@ -496,7 +496,7 @@ describe("what each document must contain", () => {
     expect(platform, "the voice-platform category must have one row").toHaveLength(1);
     expect(platform[0]?.[4] ?? "").toMatch(/^Core: the hosted voice platform runs every call/);
     const carrier = rows.filter((row) => (row[0] ?? "") === "Telephony");
-    expect(carrier[0]?.[4] ?? "").toMatch(/carrier on our own account[^.]*configured, not enabled/);
+    expect(carrier[0]?.[4] ?? "").toMatch(/^Core: the hosted voice platform carries every call/);
 
     const dpa = textOf(bySlug("dpa")).replace(/\s+/g, " ");
     expect(dpa).toMatch(
@@ -564,7 +564,7 @@ describe("what each document must contain", () => {
     expect(rows, "the page has no category rows to check").toContain(
       "Cloud hosting and database",
     );
-    for (const unnamed of ["Microsoft", "Sarvam", "Vobiz", "Cartesia", "Gnani"]) {
+    for (const unnamed of ["Microsoft", "Sarvam", "Cartesia"]) {
       expect(
         PUBLICLY_NAMED_SUBPROCESSORS,
         `${unnamed} is a white-label vendor and must not be printable`,
@@ -824,14 +824,12 @@ describe("what each document must contain", () => {
     // The old promise must not survive anywhere: it is the sentence that goes false the
     // moment a number is set, and its return would be silent.
     expect(terms).not.toMatch(/does not change what you pay/);
-    // The DPA and the register point at that clause rather than restating the figure —
-    // two statements of what a client pays is the drift clause 6.1 exists to prevent.
-    for (const slug of ["dpa", "subprocessors"]) {
-      expect(
-        textOf(bySlug(slug)),
-        `/legal/${slug} does not point at the fees clause`,
-      ).toMatch(/clause 6\.1 of the\s+Terms of Service/i);
-    }
+    // The DPA points at that clause rather than restating the figure — two statements of
+    // what a client pays is the drift clause 6.1 exists to prevent.
+    expect(
+      textOf(bySlug("dpa")),
+      "/legal/dpa does not point at the fees clause",
+    ).toMatch(/clause 6\.1 of the\s+Terms of Service/i);
   });
 
   /**
@@ -993,27 +991,23 @@ describe("what each document must contain", () => {
         `/legal/${slug} does not exclude the caller's audio`,
       ).toMatch(/(?:Not|never) (?:your own|the caller's) audio/);
       // The dearer quality's company has received agents' words since 11 October 2026
-      // (production usage; D-727 opened Studio to trials), and the other synthesis company
-      // still nothing. A document saying nothing was sent to EITHER is now false.
+      // (production usage; D-727 opened Studio to trials). A document saying nothing was
+      // sent to it is now false.
       expect(
         prose,
         `/legal/${slug} omits that the vendor has received agents' words since 11 October 2026`,
       ).toMatch(/since 11 October 2026/);
       expect(
         prose,
-        `/legal/${slug} omits that nothing has been sent to the other synthesis company`,
-      ).toMatch(/[Nn]othing has been sent to the (?:third|second) company/);
-      expect(
-        prose,
         `/legal/${slug} still says nothing was sent to either synthesis company`,
       ).not.toMatch(/[Nn]othing has been sent to either of them/);
     }
 
-    // WHERE it processes is unknown in both, and neither resolves it to a country.
+    // WHERE it processes is unknown, and neither document resolves it to a country.
     expect(privacy).toMatch(/we have not established where it processes/);
     expect(privacy).toMatch(/will not fill that in with a plausible country/);
     expect(dpa).toMatch(
-      /where either of them processes is a thing we have not established/,
+      /where that company processes is a thing we have not established/,
     );
 
     // The DPA's sub-processor warranty is narrowed for the row whose agreement nobody has
@@ -1026,9 +1020,9 @@ describe("what each document must contain", () => {
     // neither document may offer a client a voice quality that keeps an unplaceable
     // synthesiser away from their callers. That is the property pinned here, because it is
     // the one that cannot be softened back.
-    for (const [slug, prose] of [
-      ["privacy", privacy],
-      ["dpa", dpa],
+    for (const [slug, prose, neither] of [
+      ["privacy", privacy, /neither of them is synthesised by the company described above/],
+      ["dpa", dpa, /the cheaper is spoken by the hosted voice platform/],
     ] as const) {
       expect(
         prose,
@@ -1046,7 +1040,7 @@ describe("what each document must contain", () => {
       expect(
         prose,
         `/legal/${slug} does not say BOTH qualities left the speech provider`,
-      ).toMatch(/both voice qualities/i);
+      ).toMatch(neither);
     }
 
     // The company's NAME stays on the register. A voice quality is a product choice, and

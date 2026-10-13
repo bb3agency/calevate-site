@@ -60,7 +60,7 @@ export function LiveCallsPill({ slug }: { slug: string }) {
   const count = live.data.length;
   const label = count >= LIVE_PAGE ? `${LIVE_PAGE}+` : String(count);
   const noun = count === 1 ? "call" : "calls";
-  // One call opens that call, where the live panel shows who is speaking; several open the
+  // One call opens that call, where the live panel shows how long it has run; several open the
   // call log filtered to the ones in progress.
   const only = count === 1 ? live.data[0] : undefined;
   const target = only

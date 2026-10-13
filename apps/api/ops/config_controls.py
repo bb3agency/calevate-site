@@ -61,12 +61,9 @@ FREE_TEXT: Final[dict[str, str]] = {
         "a model id or console name from ThinnestAI's live list, checked when it is saved"
     ),
     "object_store_bucket": "a bucket name chosen when the storage was created",
-    "cartesia_from_number_id": "an id from Cartesia's console; no API here lists them",
-    "vobiz_callback_ips": "a list of network addresses Vobiz publishes",
     "thinnest_action_source_ips": "a list of network addresses ThinnestAI tells us it calls from",
     "azure_openai_resource": "the resource name chosen in the Azure portal",
     "azure_openai_deployment": "a deployment id chosen in the Azure portal",
-    "azure_openai_deployments": "model=deployment pairs chosen in the Azure portal",
     "azure_openai_embedding_deployment": "a deployment id chosen in the Azure portal",
     "supermemory_embedding_model": "whatever model the self-hosted install was set up with",
     "razorpay_key_id": "a key id issued in the Razorpay dashboard",

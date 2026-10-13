@@ -221,9 +221,11 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
   disclosure_line TEXT NOT NULL,  -- LEGACY: the two sentences joined, whatever the
     -- toggles say. Still written, no longer read by the publish path — step 1 of a
     -- two-step deprecation (hard rule 8); step 2 drops it (D-163).
-  status ENUM[draft,live,paused,archived], engine ENUM[cartesia,fake,pipecat,thinnest]
-    -- `ck_agents_engine_enum` is rendered from `calevate_shared.config.SELECTABLE_ENGINES`
-    -- (derived from `EngineName`, never retyped; `agents/models.ENGINES`). 'bolna' left with
+  status ENUM[draft,live,paused,archived], engine ENUM[fake,thinnest]
+    -- `EngineName` is `thinnest` and `fake` since D-763 (`calevate_shared.config.
+    -- SELECTABLE_ENGINES`, derived and never retyped; `agents/models.ENGINES`). The database
+    -- CHECK `ck_agents_engine_enum` still admits 'cartesia' and 'pipecat' until next
+    -- release's migration narrows it (hard rule 8); nothing writes them. 'bolna' left with
     -- D-639; 'thinnest' returned with D-678 (migration f3a8c61d2e57).
   archived_at TIMESTAMPTZ,   -- e4b90d27c1f6. NOT a delete and not `deleted_at`: the row
     -- stays, its calls and leads stay readable, and the agent can be restored to `paused`.
@@ -240,21 +242,11 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
   live_prompt_id → prompt_versions,          -- a4e7b2c95d18
   live_tts_voice, live_tts_provider,         -- c8b3f14e7a29; NULL = nothing recorded as
                                              -- sent, never "in sync" (no backfill: see D-74)
-  knowledge_pack_sha256 TEXT,                -- b5d3a91e7c64, D-599. The content digest of
-    -- the in-call knowledge pack this agent's LIVE published corpus was last frozen into
-    -- (`calevate_shared.knowledge_pack`); with tenant_id and agent_id it is the whole
-    -- object key, which is why no URL is stored. Written by the KB PUBLISH path
-    -- (`kb/service.publish_source`/`withdraw_source` → `kb/pack.refresh_published_pack`)
-    -- and, through the SAME helper, by the English-gloss sweep (`workers/kb_gloss.py`),
-    -- which rebuilds the pack of every agent whose digest its glosses moved — a pack is
-    -- frozen at publish and the gloss lands afterwards, so without that the in-call index
-    -- would hold no English at all. Never by `publish_agent`: the pack's content is a
-    -- function of `kb_chunks` and `kb_documents` alone.
-    -- NOT on `agent_config_versions`, whose ON CONFLICT DO NOTHING is only correct while
-    -- every column is a function of its two digests — a T1-T4 publish moves neither.
-    -- NULL = nothing published yet, which is what SessionConfig reports as "no knowledge
-    -- base"; withdrawing the last source points at an EMPTY pack instead, so "withdrew
-    -- everything" and "never wrote anything down" stay two facts.
+  knowledge_pack_sha256 TEXT, knowledge_pack_recorded_at TIMESTAMPTZ,
+    -- b5d3a91e7c64, D-599. NO LONGER WRITTEN (D-763); dropped next release. The digest of
+    -- the in-call knowledge pack our own engine loaded, and when it was recorded. On
+    -- ThinnestAI the client's knowledge reaches every agent as vendor knowledge documents
+    -- (D-689, `engine_kb_routes`), so nothing derives a pack.
   max_call_duration_s)                       -- the per-agent cost-runaway ceiling
 prompt_versions(id, tenant_id, agent_id, version INT, body TEXT, compiled_t0_context TEXT,
   notes TEXT, created_by, published_at, UNIQUE(agent_id,version))   -- full history + rollback
@@ -289,15 +281,11 @@ lead_call_holds(id, tenant_id, lead_id FK leads CASCADE, agent_id, source,
 pipecat_agents(id, tenant_id → organizations RESTRICT, agent_id → agents RESTRICT,
   variant_id → prompt_experiment_variants RESTRICT NULL, engine_agent_ref TEXT UNIQUE,
   name, agent_config_version_id, resolved_config JSONB, created_at, updated_at)
-  -- The owned runtime's own record of an agent (D-592, migration e2f5a91c8d47): what a
-  -- rented engine would hold for us, held by us, and what the worker's session read loads.
-  -- Plain FORCEd tenant RLS, NOT append-only (a publish replaces it; `agent_config_versions`
-  -- is the ledger). `engine_agent_ref` = `pipecat:<tenant>:<agent>`.
-  -- ONE RECORD PER AGENT AND PER EXPERIMENT ARM (D-663, migration d9a6e2c85b41): unique
-  -- INDEX ux_pipecat_agents_agent_variant (agent_id, variant_id) NULLS NOT DISTINCT replaced
-  -- the one-per-agent unique, so an A/B arm publishes on the owned runtime; NULL variant_id
-  -- is the agent's own record, and an arm keeps the real agent_id so its call settles
-  -- against the agent.
+  -- NO LONGER WRITTEN (D-763); dropped next release. Our own engine's record of an agent
+  -- (D-592, migration e2f5a91c8d47), one per agent and per experiment arm
+  -- (ux_pipecat_agents_agent_variant, D-663). FORCEd tenant RLS until the drop.
+  -- `agent_config_versions` and `agent_config_attestations` (append-only) and
+  -- `pipecat_kb_objects` were written only for that engine too and go in the same release.
 phone_numbers(id, tenant_id, agent_id, e164 UNIQUE, series ENUM[140,160,standard],
   provider, engine_number_ref, dlt_status ENUM[pending,registered,blocked], purpose TEXT,
   engine_owned BOOL NOT NULL DEFAULT false, purchase_price_usd NUMERIC(12,4),
@@ -306,15 +294,13 @@ phone_numbers(id, tenant_id, agent_id, e164 UNIQUE, series ENUM[140,160,standard
   activated_at TIMESTAMPTZ, client_inr_per_month NUMERIC(12,2),
   carrier_binding_id TEXT, rental_charged_from DATE)
   -- `direction`, `activated_at` and `client_inr_per_month` land with migration
-  -- c9d41f7b2e08, the client's own browse/buy/assign flow (`campaigns/number_catalog.py`).
-  -- `provider` NAMES THE CARRIER since migration c8f5d1b74a30 (D-663): existing spellings
-  -- were normalised and `ck_phone_numbers_provider_carrier` allows only NULL, 'vobiz' or
-  -- 'plivo'; the dial gate refuses a number not on the active carrier
-  -- (`number_not_on_carrier`).
-  -- `carrier_binding_id` (migration d4a7b2c91e30, D-662) is the carrier's id for what the
-  -- number is attached to — on Vobiz, the Application whose answer URL routes it to an
-  -- agent. Written by `engine/pipecat.bind_inbound_number`; NULL until the first bind and
-  -- left as the last attachment after an unbind.
+  -- c9d41f7b2e08, the client's own browse/buy/assign flow.
+  -- `provider` names who supplies the number: `ck_phone_numbers_provider_carrier` allows
+  -- NULL, 'vobiz', 'plivo' or 'thinnest' (migration a3d9e6f1c204). Every number on
+  -- ThinnestAI is 'thinnest'; 'vobiz' and 'plivo' are no longer written (D-763) and leave
+  -- the CHECK next release.
+  -- `carrier_binding_id` (migration d4a7b2c91e30, D-662): NO LONGER WRITTEN (D-763);
+  -- dropped next release. It held our own carrier's attachment id for the number.
   -- `rental_charged_from` (migration e8b14d6a2c57, D-665) is the first rental period the
   -- CLIENT is charged for. NULL = from the purchase (every new number); the migration
   -- stamped each existing client-priced number with its first renewal date after the deploy,
@@ -411,40 +397,28 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
   status ENUM[queued,ringing,in_progress,completed,failed,no_answer,busy,voicemail],
   carrier TEXT NULL CHECK (carrier IS NULL OR carrier IN ('vobiz','plivo')),
                                        -- (D-663, migration f5c2a8e41d07, ck_calls_carrier_enum)
-                                       -- the carrier holding this call's leg, stamped by the dial
-                                       -- gate's intent row, the dial, or the first carrier callback
-                                       -- of an inbound call. Hang-up, the CDR read and the line
-                                       -- count address THIS carrier, not the current
-                                       -- `Settings.carrier`; NULL (rows before the column) falls
-                                       -- back to the switch. INDEX ix_calls_carrier_live
-                                       -- (tenant_id, carrier, created_at) WHERE status IN
-                                       -- ('queued','ringing','in_progress') serves the line count.
-  carrier_call_id TEXT NULL,           -- the carrier's own call id (Vobiz CallUUID), written by
-                                       -- the dial path and the worker's settlement, first value
-                                       -- wins; read by both erasures, which quote it on the
-                                       -- `telephony` task (D-664). Never cleared by an erasure: it
-                                       -- names a row in the carrier's system, not a person.
+                                       -- NO LONGER WRITTEN (D-763); dropped next release, with
+                                       -- INDEX ix_calls_carrier_live. Our own carrier's leg.
+  carrier_call_id TEXT NULL,           -- NO LONGER WRITTEN (D-763); dropped next release. Our
+                                       -- own carrier's call id. Still READ by both erasures,
+                                       -- which quote it on a `telephony` processor-erasure task
+                                       -- for rows from test calls placed before D-763 (D-664).
                                        -- INDEX ix_calls_tenant_carrier_call_id (migration
                                        -- d4a7b2c91e30) WHERE carrier_call_id IS NOT NULL.
   started_at, ended_at, duration_s INT, recording_url TEXT,     -- OUR storage, not engine's
   transfer_recording_url TEXT NULL,    -- the transferred leg's recording (D-533, migration
                                        -- b8d1f04c73a9): OUR key, same bucket, retention and
                                        -- erasure as recording_url; NULL unless the call handed over.
-  carrier_recording_id TEXT NULL,      -- the carrier's opaque id for the recording it made
-                                       -- (D-668, migration b3e9c4a71f20). The copy job resolves
-                                       -- it and writes OUR key to recording_url; an erasure
-                                       -- deletes or quotes it at the carrier. CHECK
-                                       -- ck_calls_carrier_recording_id_shape: id-shaped, never a
-                                       -- bare digit run (hard rule 6). INDEX
-                                       -- ix_calls_recording_uncopied (tenant_id, created_at)
-                                       -- WHERE carrier_recording_id IS NOT NULL AND
-                                       -- recording_url IS NULL serves the copy sweep.
+  carrier_recording_id TEXT NULL,      -- NO LONGER WRITTEN (D-763); dropped next release, with
+                                       -- CHECK ck_calls_carrier_recording_id_shape and INDEX
+                                       -- ix_calls_recording_uncopied. Our own carrier's recording
+                                       -- id (D-668); read by the erasures as carrier_call_id is.
   recording_copied_at TIMESTAMPTZ NULL, carrier_recording_deleted_at TIMESTAMPTZ NULL,
-                                       -- (D-670, migration c5d82f1a9e47) when OUR copy was stored,
-                                       -- and when the carrier's copy was deleted one day later.
-                                       -- INDEX ix_calls_carrier_recording_undeleted (tenant_id, created_at) WHERE
-                                       -- carrier_recording_id, recording_url set and the carrier
-                                       -- copy not yet deleted serves the deletion sweep.
+                                       -- (D-670, migration c5d82f1a9e47) NO LONGER WRITTEN
+                                       -- (D-763); dropped next release, with INDEX
+                                       -- ix_calls_carrier_recording_undeleted. A ThinnestAI
+                                       -- recording is copied by `engine/recording_source.py`
+                                       -- into `recording_url`.
   disclosure_played BOOL, consent_recording ENUM[granted,declined,na],
   outcome_tag ENUM[call_back_booked,needs_you,answered,transferred,hung_up_early,missed],
                                        -- DERIVED from facts after extraction (crm/outcomes,
@@ -484,17 +458,14 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
 --   INDEX ix_calls_erased_subject_ref (tenant_id, erased_subject_ref) WHERE erased_subject_ref
 --   IS NOT NULL — partial because the population is: only erased calls carry a value.
 -- Also on `calls`, documented where they are produced: caller_memory_state (§7, D-513),
---   knowledge_state (migration e2a91c7f45b8: `calevate_shared.worker_api.KnowledgeState`,
---   NULL = nobody reported, never read as "fine") and crm_notified_at (migration
---   e83b5d1a4c07: when the CRM fan-out was promised for this call).
+--   knowledge_state (migration e2a91c7f45b8; NO LONGER WRITTEN, D-763, dropped next
+--   release: our own engine reported whether its knowledge pack loaded) and crm_notified_at
+--   (migration e83b5d1a4c07: when the CRM fan-out was promised for this call).
 -- FUNCTION carrier_lines_in_use(p_carrier, live_horizon, ring_horizon) → integer
---   (D-663, migration a6d3b9f52e18). SECURITY INVOKER; walks each tenant under its own
---   `app.tenant_id` (the same per-tenant loop as queued_dial_scan) and counts calls holding a
---   line on the carrier in BOTH directions: ringing/in_progress inside live_horizon, queued
---   inside ring_horizon, plus inbound rows with no carrier stamped. `agents.service.
---   dispatch_call` calls it under one advisory lock in the dial's intent transaction and
---   refuses with `carrier_lines_busy`; the call row's status IS the hold, so nothing has to
---   release a line.
+--   (D-663, migration a6d3b9f52e18). NO LONGER CALLED (D-763); dropped next release. The dial
+--   gate counts ThinnestAI's outbound lines with its own query under the same advisory lock
+--   (`agents.service._hold_engine_line`, `engine/dial_lines.py`); the call row's status IS
+--   the hold, so nothing has to release a line.
 -- FUNCTION queued_dial_scan — the big red switch's recall scan — reaches `ringing` dials as
 --   well as `queued` ones since migration b7e4c0a63f29 (D-663).
 -- INDEX ix_calls_tenant_started (tenant_id, started_at DESC NULLS LAST, id DESC)
@@ -724,6 +695,10 @@ kb_chunks(id, tenant_id, agent_id, source_id, document_id, tsv tsvector,
 --    was unusable" — kb_documents.gloss_state's argument, one table over.
 --  * `source_id` is denormalised beside `document_id`, because provenance on a result is
 --    the SOURCE's own name — what the client called the thing they uploaded.
+-- WHAT IT SERVES: the dashboard copilot and CRM search, never a call — in-call knowledge is
+--   ThinnestAI's own knowledge base (D-689). Whether a managed store (Supermemory) may ever
+--   replace it, the four reasons `kb_documents` stays ours whatever the store is, and the
+--   three-release retirement it would take (stop reading, stop writing, drop) are TRD §6.3.
 caller_chunks(id, tenant_id, subject_kind ENUM[lead,call_turn,call_summary,caller_memory],
   subject_id UUID, idx INT, call_id UUID NULL, agent_id UUID, subject_ref TEXT,
   subject_ref_kek_id INT, first_turn_idx INT NULL, last_turn_idx INT NULL,
@@ -816,59 +791,46 @@ usage_events(id, tenant_id, call_id NULL, unit_type ENUM[telephony_s,stt_s,stt_m
   tts_chars,tts_kchars,llm_tok_in,llm_tok_out,llm_ktok_in,llm_ktok_out,platform_min,
   number_rental,other,ai_assist_ktok_in,ai_assist_ktok_out], qty NUMERIC,
   unit_cost_paid NUMERIC, occurred_at, meta JSONB)  -- INSERT-only; no UPDATE/DELETE grants
--- `stt_min` (D-638, migration c5e8a1f47b92) — the STT leg per MINUTE of audio, on both
---   engines. Per second the Saaras rate (₹30/hour = ₹0.008333…/s) stores as 0.0083 in
---   NUMERIC(12,4), 0.4% light; per minute it is ₹0.5000 exactly. `stt_s` is written by
---   nothing any more and stays in the CHECK for the rows already on the ledger; every
---   reader costs a row as `qty * unit_cost_paid` in its own unit, so both sum correctly.
+-- `stt_min` (D-638, migration c5e8a1f47b92) — the STT leg per MINUTE of audio, written
+--   only for an engine that reports a per-leg cost breakdown; a ThinnestAI call is metered
+--   per attested minute (TRD §10.0) and writes none. Per second the Saaras rate (₹30/hour =
+--   ₹0.008333…/s) stores as 0.0083 in NUMERIC(12,4), 0.4% light; per minute it is ₹0.5000
+--   exactly. `stt_s` is written by nothing any more and stays in the CHECK for the rows
+--   already on the ledger; every reader costs a row as `qty * unit_cost_paid` in its own
+--   unit, so both sum correctly.
 -- INDEX ux_usage_events_tenant_call_stt_min UNIQUE (tenant_id, call_id, unit_type)
 --   WHERE call_id IS NOT NULL AND unit_type = 'stt_min' (c5e8a1f47b92).
--- `llm_tok_*` vs `llm_ktok_*` (D-592, migration a3f1c6e82d47) — the same split `tts_chars`
---   vs `tts_kchars` makes one leg down, for the same reason, arriving from the other
---   engine. `llm_tok_in`/`llm_tok_out` carry the RENTED engine's reported leg charge at
---   `qty = 1`: Bolna bills the language leg with no token count (TRD §5), so there is no
---   quantity to price against. On an `owned_runtime` call WE run the model, Pipecat's
---   `LLMTokenUsage` reports real counts (PIPECAT-MIGRATION §1.3), and the count belongs in
---   `qty` with the attested per-thousand rate in `unit_cost_paid`. Two unit types rather
+-- `llm_tok_*` vs `llm_ktok_*` (D-592, migration a3f1c6e82d47). `llm_tok_in`/`llm_tok_out`
+--   carry a rented engine's reported leg charge at `qty = 1`, with no token count to price
+--   against. `llm_ktok_in`/`llm_ktok_out` carried a real token count in thousands, with the
+--   attested per-thousand rate in `unit_cost_paid`; they are NO LONGER WRITTEN (D-763) and
+--   stay in the CHECK for the rows already on the ledger (an append-only ledger keeps its
+--   history; the units leave the CHECK only if no row holds them). Two unit types rather
 --   than a re-reading of the old two, because a `qty` whose unit depends on which engine
---   ran the call is a column no reader can sum — and this ledger is append-only, so the
---   ambiguity would be permanent. THOUSANDS for `ai_assist_ktok_*`'s arithmetic:
---   `unit_cost_paid` is NUMERIC(12,4) and `gpt-4o-mini` input at ~₹0.0000144 a token
---   stores as 0.0000, i.e. the input leg of every call metered as exactly free.
+--   ran the call is a column no reader can sum. THOUSANDS for `ai_assist_ktok_*`'s
+--   arithmetic: `unit_cost_paid` is NUMERIC(12,4) and `gpt-4o-mini` input at ~₹0.0000144 a
+--   token stores as 0.0000.
 -- INDEX ux_usage_events_tenant_call_ktok UNIQUE (tenant_id, call_id, unit_type)
 --   WHERE call_id IS NOT NULL AND unit_type IN ('llm_ktok_in','llm_ktok_out')
---   (a3f1c6e82d47). A THIRD disjoint partial key, on `ux_usage_events_tenant_call_kchars`'
---   pattern and for its reason. NO `created_at` floor, unlike its two siblings: the floors
---   exist to exempt rows written before the index, and these two unit types had no rows at
---   all — the CHECK constraint made them unwritable until that migration ran.
+--   (a3f1c6e82d47), on `ux_usage_events_tenant_call_kchars`' pattern.
 
 call_metering_refusals(id, tenant_id, call_id, leg, code, detail, remediation,
   occurred_at, created_at)                          -- INSERT-only; no UPDATE/DELETE grants
--- A LEG OF ONE CALL THAT COULD NOT BE HONESTLY PRICED (D-592, migration a3f1c6e82d47).
---   Hard rule 7 wants OUR real cost on every `usage_events` row, and PIPECAT-MIGRATION §1.3
---   meters five legs independently — so five refusals are now possible where one was, and
---   a refused leg has no honest representation in that ledger: `qty = 0` meters real spend
---   as free, and omitting the row is indistinguishable from a call that had no such leg.
---   `apps/voice-worker/voice_worker/sink.py` writes one row here instead, carrying the four
---   fields `meter.py`'s `LegNotMeterableError` family already produces.
--- APPEND-ONLY for `usage_events`' reason applied to the hole beside it: the row exists
---   precisely because a leg could not reach that ledger, and an UPDATE could only rewrite
---   why. A later settlement that succeeds writes `usage_events` rows; "this call was
---   unmetered until the CDR arrived" stays true afterwards, which is the fact an operator
---   needs once the invoice is out.
--- NO PII, GUARANTEED BY THE SCHEMA: every column is an id, a machine code, or prose this
---   repository authored. `call_id` is ON DELETE RESTRICT exactly as `usage_events.call_id`
---   is — an append-only row a cascade can delete is not append-only.
--- INDEX ix_call_metering_refusals_tenant_occurred (tenant_id, occurred_at DESC) — "what is
---   unmetered, newest first", which is the only question this table is read for, beside
---   `admin/health.py::calls_unmetered`.
+-- NO LONGER WRITTEN (D-763); dropped next release. A leg of one call on our own engine
+--   that could not be honestly priced (D-592, migration a3f1c6e82d47): a refused leg had no
+--   honest `usage_events` representation (`qty = 0` meters real spend as free), so the
+--   refusal was recorded here instead. On ThinnestAI an unpriced minute is a `usage_events`
+--   row with a NULL cost and an alarm (TRD §10.0). Append-only and FORCE-RLS'd until the
+--   drop; every column is an id, a machine code or prose this repository authored.
+-- INDEX ix_call_metering_refusals_tenant_occurred (tenant_id, occurred_at DESC).
 -- `tts_chars` vs `tts_kchars` (D-547, migration f4b90c1d7e26) — TWO synthesizer units,
 --   because there are two ways to know what synthesis cost and they are not the same
 --   measurement. `tts_chars` carries the ENGINE's own reported leg charge at `qty = 1`
---   (the engine buys Sarvam synthesis and bills us for it, reporting no character count).
---   `tts_kchars` carries OUR OWN count for a BYOK voice: Bolna charges nothing for a
---   component you bring your own key for, so the cost is the operator-attested plan rate
---   (`platform_tts_prices`) times the characters the agent spoke, counted from
+--   (the engine buys the synthesis and bills us for it, reporting no character count).
+--   `tts_kchars` carries OUR OWN count for a voice on our own key — on ThinnestAI the Studio
+--   voice, Cartesia on our key, which Cartesia bills to us directly and ThinnestAI does not
+--   — so the cost is the operator-attested Cartesia rate (`platform_tts_prices`) times the
+--   characters the agent spoke, counted from
 --   `transcript_turns`. `pipeline._tts_cost_row` writes one or the other, decided by the
 --   voice, never both — and writes NEITHER rather than a zero when a BYOK call has no
 --   attested price, because a fabricated ₹0 on an append-only ledger reads exactly like a
@@ -892,9 +854,8 @@ call_metering_refusals(id, tenant_id, call_id, leg, code, detail, remediation,
 --   predicate.
 -- INDEX ux_usage_events_carrier_cdr UNIQUE (tenant_id, call_id) WHERE call_id IS NOT NULL
 --   AND unit_type = 'other' AND meta->>'kind' = 'carrier_cdr' (migration d4a7b2c91e30,
---   D-662). The carrier's CDR sets OUR cost for a call as one compensating row; this key
---   makes a re-read of the same CDR land once. The client's billable minutes stay the
---   worker's measured duration (D-648).
+--   D-662). Our own carrier's CDR set our cost for a call as one compensating row; NO
+--   LONGER WRITTEN (D-763), and the index is dropped next release.
 -- `number_rental` FINALLY HAS A WRITER (D-537): `apps/api/billing/number_rental.py`, one row
 --   per bought number per IST billing month, idempotent in the DATABASE on the ref
 --   `number_rental:<number_id>:<YYYY-MM>` against `ux_usage_events_tenant_unit_ref`. `qty` is
@@ -1344,55 +1305,19 @@ autodialer_notices(id, tenant_id → organizations RESTRICT, state ENUM[notified
 --   the two reads the callback consent check makes.
 carrier_compliance_applications(id, tenant_id → organizations ON DELETE RESTRICT,
   carrier ENUM[plivo,vobiz] NOT NULL, UNIQUE (tenant_id, carrier),
-  -- 'vobiz' admitted by migration d4a7b2c91e30 (D-662). The application GATES only on
-  -- Plivo (D-666): `carrier_application.CARRIERS_REQUIRING_APPLICATION = {"plivo"}`, read
-  -- against `Settings.carrier`, so on Vobiz every gate that asks for an accepted application
-  -- stands aside and the table is kept for the Plivo fallback.
   status ENUM[not_started,documents_required,submitted,accepted,rejected,expired] NOT NULL
     DEFAULT 'not_started',
   carrier_application_id TEXT NULL,
   document_kind ENUM[gst_certificate,certificate_of_incorporation,udyam_registration] NULL,
   document_object_ref TEXT NULL, document_filename TEXT NULL,
   signed_application_ref TEXT NULL, rejection_reason TEXT NULL,
-  recorded_by_admin_id → admin_users NULL, submitted_at, decided_at,
-  CHECK (status NOT IN ('submitted','accepted','rejected','expired')
-         OR (document_kind IS NOT NULL AND document_object_ref IS NOT NULL
-             AND submitted_at IS NOT NULL)),
-  CHECK (status <> 'accepted' OR (carrier_application_id IS NOT NULL
-         AND decided_at IS NOT NULL)),
-  CHECK (status <> 'rejected' OR (rejection_reason IS NOT NULL AND decided_at IS NOT NULL)),
-  CHECK (status NOT IN ('accepted','rejected') OR recorded_by_admin_id IS NOT NULL))
-  -- THE RESELLER STAGE (migration c7a4f9e15b03). Our telephony carrier distinguishes a
-  -- Direct Brand (one compliance application, for its own calls) from a RESELLER, which
-  -- needs a separate APPROVED application for EACH customer — and Calevate is a reseller.
-  -- So every tenant needs its own accepted application before a number can be rented for
-  -- them, and the purchase then carries the carrier's `compliance_application_id`.
-  -- `docs/evidence/orchestrator-commercial-and-carrier-2026-09-13.md` §5.2.
-  -- ⚠ EVIDENCE CLASS: everything known about the carrier's requirements is REPORTED
-  -- (research-agent reading, founder-relayed, 12 Sep 2026; `www.plivo.com` is
-  -- egress-blocked here). So the STATUS vocabulary is OURS and the carrier's own words are
-  -- mapped onto it in `compliance/carrier_application.py`, which REFUSES an unmapped one
-  -- rather than storing it; their document list, ~5 MB file ceiling and ~99-char filename
-  -- limit are one named constant each in that module, checked at the door and deliberately
-  -- NOT baked into a CHECK, because a reported number must be correctable without a
-  -- migration. Their approval SLA is not modelled at all — it is reported for one number
-  -- class and explicitly unpublished for the others.
-  -- Read by `compliance.service.carrier_application_blocker` as
-  -- `carrier_application_missing` / `carrier_application_not_accepted` (the DIAL gate,
-  -- scoped to agents holding a number WE supplied — `phone_numbers.engine_owned` — since
-  -- a client's own connection is not rented under our reseller relationship) and by
-  -- `carrier_application.assert_carrier_application_accepted` (the ACQUISITION gate, tier-
-  -- and supply-blind, asked by `number_supply.buy_number` before it spends and by
-  -- `agents.service.provision_number` for an `engine_owned` row). Both gates bind only
-  -- while the carrier is Plivo (D-666); on Vobiz no row is read. One mutable row per
-  -- tenant per carrier, absent from APPEND_ONLY_TABLES for `kyc_records`' reason: this is
-  -- current state — an approval lapses, or is suspended after unresolved UCC complaints —
-  -- and `audit_log` holds who changed it.
-  -- NEVER the document bytes: the two `*_ref` columns are object-store keys minted by
-  -- `workers/storage.carrier_document_key`, whose per-SUBMISSION segment keeps a
-  -- resubmission from overwriting the bytes the carrier refused. And deliberately NOT a
-  -- second copy of the registry identifier — `kyc_records.document_ref` already holds this
-  -- business's GSTIN/CIN/Udyam, and two columns holding one fact is how they disagree.
+  recorded_by_admin_id → admin_users NULL, submitted_at, decided_at, + the four status CHECKs)
+  -- NO LONGER WRITTEN OR GATED ON (D-763); dropped next release. A tenant's compliance
+  -- application with our own carrier (migration c7a4f9e15b03, D-662, D-666). On ThinnestAI
+  -- the equivalent is the client workspace's business-details application, read from the
+  -- vendor (`tenant_engine_workspaces`, THINNEST-INTEGRATION §3a). The retention sweep still
+  -- reads the table so any document bytes its two `*_ref` columns point at are erased with
+  -- the tenant; the document bytes were never stored in the row.
 first_campaign_reviews(id, tenant_id UNIQUE → organizations ON DELETE RESTRICT,
   status ENUM[approved,rejected] NOT NULL,
   reviewed_campaign_id → campaigns ON DELETE SET NULL,

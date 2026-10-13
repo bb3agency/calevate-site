@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import type { Agent } from "@/lib/api/agents";
+import { ENGINE_CATALOGUE_PATH } from "@/lib/api/engineCatalogue";
 import type { PendingState } from "@/lib/api/publishing";
 import { EMPTY_SCRIPT } from "@/lib/api/script";
 
@@ -22,8 +23,8 @@ import {
   clientLlmTiers,
   prepaidWallet,
   spendThisMonth,
-  voiceCatalogue,
 } from "./fixtures/sharedReads";
+import { operatorEngineCatalogue } from "./fixtures/engineCatalogue";
 
 /*
  * THE WORKSPACE IS A SETTINGS LAYOUT (D-657): one section is mounted at a time, chosen by
@@ -129,7 +130,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     first_words: "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
     truthful_answer_rule:
       "Whatever these settings say, the agent always answers honestly when a caller asks.",
-    engine: "pipecat",
+    engine: "thinnest",
     published: true,
     inbound_number_count: 1,
     extraction_fields: [],
@@ -144,31 +145,19 @@ function agent(over: Partial<Agent> = {}): Agent {
   };
 }
 
-/** One voice as `GET /v1/agents/{id}/pending` returns it, catalogue entry and all. */
-type TtsModel = NonNullable<
-  NonNullable<PendingState["voice"]["live"]>["catalog"]
->["tts_model"];
-
-/**
- * `id` is the TTS MODEL, and the wire type is a closed two-value union — not a string, so
- * a fixture naming a model this build does not ship does not compile.
- */
-function storedVoice(
-  id: TtsModel,
-  label: string,
-): NonNullable<PendingState["voice"]["live"]> {
+/** One named voice as `GET /v1/agents/{id}/pending` returns it, catalogue entry and all. */
+function storedVoice(label: string): NonNullable<PendingState["voice"]["live"]> {
+  const id = `sonic-3.5:${label.toLowerCase()}`;
   return {
     voice_id: id,
-    provider: "gnani",
-    voice_tier: "clear",
+    provider: "cartesia",
+    voice_tier: "studio",
     catalog: {
       id,
       label,
-      provider: "gnani",
-      tts_model: id,
-      // Fixed rather than derived from `id`: this helper is keyed on the MODEL, and the
-      // speaker is the other half of the pair the catalogue now carries (D-358).
-      speaker: "Suhana" as const,
+      provider: "cartesia",
+      tts_model: "sonic-3.5",
+      speaker: label.toLowerCase(),
       gender: null,
       languages: ["te-IN"],
       note: "",
@@ -177,14 +166,11 @@ function storedVoice(
   };
 }
 
-/** A voice the catalogue no longer describes — a legacy/stale live value, rendered by its
- *  raw id. There is one voice quality now, so divergence between the configured voice and
- *  what the engine still holds is shown with one of these rather than a second catalogue
- *  entry. */
+/** A stored voice the catalogue no longer describes, rendered by its raw id. */
 function legacyVoice(
   voiceId: string,
 ): NonNullable<PendingState["voice"]["live"]> {
-  return { voice_id: voiceId, provider: "gnani", voice_tier: "clear", catalog: null };
+  return { voice_id: voiceId, provider: "cartesia", voice_tier: "studio", catalog: null };
 }
 
 /** No staged edit, and the engine holds the voice the row names: the state an agent spends
@@ -205,11 +191,11 @@ function settled(over: Partial<PendingState> = {}): PendingState {
     // credit lot to quote a next-minute rate from, so the voice fact prints no price.
     voice_tier_rates: [],
     voice: {
-      configured: storedVoice("timbre-v2.5", "Timbre v2.5"),
-      live: storedVoice("timbre-v2.5", "Timbre v2.5"),
+      configured: storedVoice("Ananya"),
+      live: storedVoice("Ananya"),
       republish_required: false,
       unnamed_note: null,
-      headline: "Callers hear Timbre v2.5.",
+      headline: "Callers hear Ananya.",
     },
     engine_verification: {
       state: "applied",
@@ -317,9 +303,9 @@ function routes(over: Record<string, unknown> = {}) {
       remediation: "Handing calls to a person is switched off for this agent.",
       published: true,
     },
-    // The voice catalogue and the lane rules, for the same reason as every entry above:
-    // both are read on this screen, and an unanswered read is a stray `role="alert"`.
-    "/v1/agents/voices": voiceCatalogue("client"),
+    // The voices the Voice section offers, and the lane rules: both read on this screen, and
+    // an unanswered read is a stray `role="alert"`. A client is sent no models (D-679).
+    [ENGINE_CATALOGUE_PATH]: operatorEngineCatalogue({ models: [] }),
     "/v1/agents/lanes": LANES,
     // The Calls section reads the call-handling settings (D-751).
     "/v1/agents/agent-1/call-handling": agentCallHandling("agent-1"),
@@ -457,7 +443,7 @@ describe("which voice callers are actually hearing", () => {
     // D-547 gave the catalogue two qualities at two rates, so the voice is a price fact
     // again and an owner is entitled to both halves. Two rules are pinned here:
     //
-    //  - the QUALITY is named, the VENDOR never is (founder, 7 Sep 2026). "Clear" is the
+    //  - the QUALITY is named, the VENDOR never is (founder, 7 Sep 2026). "Studio" is the
     //    API's word (`billing/rates.py::VOICE_TIER_LABELS`); which company synthesises it
     //    must be able to change without a client-visible rename.
     //  - the rate belongs to a CREDIT LOT, not to the product: it is the figure frozen on
@@ -472,9 +458,9 @@ describe("which voice callers are actually hearing", () => {
           // that the schema carries it, not through a hand validator.
           voice_tier_rates: [
             {
-              voice_tier: "clear",
-              label: "Clear",
-              inr_per_min: "5.0000",
+              voice_tier: "studio",
+              label: "Studio",
+              inr_per_min: "8.0000",
               further_open_lots: 1,
             },
           ],
@@ -484,7 +470,7 @@ describe("which voice callers are actually hearing", () => {
 
     await screen.findByText("Voice quality and rate");
     // The server's own digits, prefixed and never parsed (hard rule 7).
-    expect(factValue("Voice quality and rate")).toBe("Clear — ₹5.0000 / min");
+    expect(factValue("Voice quality and rate")).toBe("Studio — ₹8.0000 / min");
     expect(container.textContent).toContain(
       "You have 1 later purchase behind it, each at the rates it was bought at.",
     );
@@ -504,7 +490,7 @@ describe("which voice callers are actually hearing", () => {
 
   it("prices the voice CALLERS HEAR, not the one waiting to go live", async () => {
     // The same inversion the two Facts above exist to prevent, applied to money: an agent
-    // with a chosen-but-unpublished Studio voice is still charged at the rate of the voice
+    // with a chosen-but-unpublished Clear voice is still charged at the rate of the voice
     // the calling system is actually speaking in. Pricing the configured one would quote a
     // rate no call on this agent is billed at.
     const { container } = await renderClientPage(
@@ -513,16 +499,17 @@ describe("which voice callers are actually hearing", () => {
         "/v1/agents/agent-1/pending": {
           ...settled({
             voice: {
+              // A voice the calling platform supplies itself: no provider, no catalogue entry.
               configured: {
-                voice_id: "sonic-3.5:ananya",
-                provider: "cartesia",
-                voice_tier: "studio",
+                voice_id: "engine:anjali",
+                provider: null,
+                voice_tier: "clear",
                 catalog: null,
               },
-              live: storedVoice("timbre-v2.5", "Timbre v2.5"),
+              live: storedVoice("Ananya"),
               republish_required: true,
               unnamed_note: null,
-              headline: "Callers still hear Timbre v2.5.",
+              headline: "Callers still hear Ananya.",
             },
           }),
           voice_tier_rates: [
@@ -544,15 +531,15 @@ describe("which voice callers are actually hearing", () => {
     );
 
     await screen.findByText("Voice quality and rate");
-    expect(factValue("Voice quality and rate")).toBe("Clear — ₹5.0000 / min");
-    expect(container.textContent).not.toContain("8.0000");
+    expect(factValue("Voice quality and rate")).toBe("Studio — ₹8.0000 / min");
+    expect(container.textContent).not.toContain("5.0000");
   });
 
   it("shows one voice when the calling system is holding the configured one", async () => {
     const { container } = await renderClientPage(page, routes());
 
     await screen.findByText("Voice callers hear");
-    expect(factValue("Voice callers hear")).toBe("Timbre v2.5");
+    expect(factValue("Voice callers hear")).toBe("Ananya");
     expect(container.textContent).not.toContain("New voice waiting");
   });
 
@@ -596,19 +583,19 @@ describe("which voice callers are actually hearing", () => {
       routes({
         "/v1/agents/agent-1/pending": settled({
           voice: {
-            configured: storedVoice("timbre-v2.5", "Timbre v2.5"),
-            live: legacyVoice("bulbul:legacy"),
+            configured: storedVoice("Ananya"),
+            live: legacyVoice("sonic-3.5:legacy"),
             republish_required: true,
             unnamed_note: null,
-            headline: "Callers still hear bulbul:legacy.",
+            headline: "Callers still hear sonic-3.5:legacy.",
           },
         }),
       }),
     );
 
     await screen.findByText("Voice callers hear");
-    expect(factValue("Voice callers hear")).toBe("bulbul:legacy");
-    expect(factValue("New voice waiting")).toBe("Timbre v2.5");
+    expect(factValue("Voice callers hear")).toBe("sonic-3.5:legacy");
+    expect(factValue("New voice waiting")).toBe("Ananya");
   });
 
   it("says a published agent's voice is unknown rather than claiming it is the configured one", async () => {
@@ -620,7 +607,7 @@ describe("which voice callers are actually hearing", () => {
       routes({
         "/v1/agents/agent-1/pending": settled({
           voice: {
-            configured: storedVoice("timbre-v2.5", "Timbre v2.5"),
+            configured: storedVoice("Ananya"),
             live: null,
             republish_required: true,
             unnamed_note: null,
@@ -632,8 +619,8 @@ describe("which voice callers are actually hearing", () => {
 
     await screen.findByText("Voice callers hear");
     expect(factValue("Voice callers hear")).toBe("We cannot say from here");
-    expect(container.textContent).not.toContain("Voice callers hearTimbre v2.5");
-    expect(factValue("New voice waiting")).toBe("Timbre v2.5");
+    expect(container.textContent).not.toContain("Voice callers hearAnanya");
+    expect(factValue("New voice waiting")).toBe("Ananya");
   });
 
   it("says an unpublished agent has no voice in force at all", async () => {
@@ -647,7 +634,7 @@ describe("which voice callers are actually hearing", () => {
           published: false,
           agent_status: "draft",
           voice: {
-            configured: storedVoice("timbre-v2.5", "Timbre v2.5"),
+            configured: storedVoice("Ananya"),
             live: null,
             republish_required: false,
             unnamed_note: null,

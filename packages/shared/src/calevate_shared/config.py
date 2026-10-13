@@ -20,7 +20,6 @@ from pydantic_settings.sources import DotEnvSettingsSource
 # what an Azure resource name may look like are facts about the leg an engine runs, and a
 # second spelling of either in this file is the drift that lets the console accept a value
 # the endpoint builder then refuses.
-from calevate_shared.carrier import DEFAULT_CARRIER, CarrierName
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
     AZURE_RESOURCE_PATTERN,
@@ -100,6 +99,27 @@ RETIRED_ENV_KEYS: Mapping[str, str] = MappingProxyType(
         "BOLNA_WEBHOOK_SOURCE_IPS": "D-639",
         # D-642 deleted the during-call action address nothing served after D-639.
         "ACTIONS_CALLBACK_BASE_URL": "D-642",
+        # D-763 deleted these settings with the code that read them.
+        "AZURE_OPENAI_DEPLOYMENTS": "D-763",
+        "CARRIER": "D-763",
+        "CARRIER_CLAIM_SECRET": "D-763",
+        "CARRIER_CPS": "D-763",
+        "CARRIER_RECORDING_ENABLED": "D-763",
+        "CARRIER_TRANSFER_ENABLED": "D-763",
+        "CARTESIA_FROM_NUMBER_ID": "D-763",
+        "GNANI_API_KEY": "D-763",
+        "PIPECAT_STREAM_BASE_URL": "D-763",
+        "PIPECAT_WORKER_API_BASE_URL": "D-763",
+        "PIPECAT_WORKER_API_TOKEN": "D-763",
+        "PLIVO_AUTH_ID": "D-763",
+        "PLIVO_AUTH_TOKEN": "D-763",
+        "VOBIZ_API_BASE_URL": "D-763",
+        "VOBIZ_AUTH_ID": "D-763",
+        "VOBIZ_AUTH_TOKEN": "D-763",
+        "VOBIZ_CALLBACK_IPS": "D-763",
+        "VOBIZ_CALLBACK_SECRET": "D-763",
+        "VOBIZ_CALLBACK_SECRET_RETIRED": "D-763",
+        "VOBIZ_SIGNATURE_REQUIRED": "D-763",
     }
 )
 
@@ -176,15 +196,13 @@ class _RetiredEnvKeyGuard(PydanticBaseSettingsSource):
 Environment = Literal["local", "staging", "prod"]
 # `thinnest` is the ThinnestAI control-plane engine (D-678, `docs/THINNEST-INTEGRATION.md`);
 # D-31's earlier retirement of that vendor predates any adapter and is superseded.
-# `cartesia` is a REAL adapter with a real conformance run (D-93), not a placeholder —
-# but D-94 gates ADOPTING it on three triggers, one of which (BYOC SIP from an Indian
-# DLT-registered carrier) is unanswered. Selectable, not recommended.
+# `fake` runs the whole pipeline offline for local work and tests.
 #
 # THE ONE DEFINITION OF WHAT `ENGINE=` MAY BE (D-103). It is a `Literal` because pydantic
 # validates the setting against it and mypy checks every comparison against it, and
 # neither can be done with a runtime set — so this is the one spelling of these names on
 # the selection axis, and `SELECTABLE_ENGINES` below is how every other module asks.
-EngineName = Literal["fake", "cartesia", "pipecat", "thinnest"]
+EngineName = Literal["fake", "thinnest"]
 
 #: The same set as a value, for the callers that need to CHECK membership rather than
 #: annotate a field — `get_args` on the Literal, never a second tuple beside it.
@@ -381,14 +399,10 @@ class Settings(BaseSettings):
     # Engine selection is per-environment; `fake` is the default for local work so
     # the whole pipeline runs offline (DEV-SETUP.md §3).
     engine: EngineName = "fake"
-    #: Cartesia Line control-plane key, sent as `X-API-Key` (D-93). Absent ⇒ the adapter
-    #: reports itself unavailable through the one capability selector rather than failing
-    #: at the first call, which is the same shape `payment_capability()` uses.
+    #: Our Cartesia key: the Studio rung speaks on it through ThinnestAI's own-key voice
+    #: (`scope: voice`, D-717/D-727), installed into each Studio workspace by
+    #: `agents/studio_voices`.
     cartesia_api_key: str | None = None
-    #: Cartesia's id for the outbound caller ID. Absent ⇒ outbound calls REFUSE rather
-    #: than dial from whatever number the vendor picks: a promotional campaign leaving on
-    #: a service-series number is a TCCCPR breach we would discover from a complaint.
-    cartesia_from_number_id: str | None = Field(default=None, max_length=128)
     #: ThinnestAI API key (`ta_live_…`, full access: a Build key cannot place calls —
     #: `thinnest-findings/mirror/pages/api-reference/authentication.md:29-37`). ENV-ONLY
     #: (`core/settings.ENV_ONLY_REASONS`). Absent ⇒ the adapter reports itself unconfigured.
@@ -448,7 +462,7 @@ class Settings(BaseSettings):
     #: raised free on request (VENDOR-STATED, ThinnestAI's email of 11 Oct 2026). Set this to
     #: the figure they confirm for our account, on the day they confirm it. The dial gate
     #: keeps `inbound_reserved_lines` of it free for callers
-    #: (`engine/carrier_pacing.outbound_line_pool`).
+    #: (`engine/dial_lines.outbound_line_pool`).
     thinnest_max_concurrent_calls: int = Field(default=5, ge=1, le=1000)
     #: Which ThinnestAI plan our developer account is on, as an operator attests it (D-693). It
     #: sets how many customer workspaces we may hold: 3 on pay-as-you-go, 100 on Pro, 1,000
@@ -505,183 +519,10 @@ class Settings(BaseSettings):
     #: still sets each managed client's trial by hand. Bounded like `billing/trials`.
     self_serve_trial_days: int = Field(default=7, ge=1, le=365)
     self_serve_trial_free_minutes: int = Field(default=30, ge=1, le=1000)
-    #: The Gnani TTS key (D-618), read by `apps/voice-worker` and by nothing on this host.
-    #:
-    #: **A `Settings` FIELD THAT THIS DEPLOYMENT NEVER READS THE VALUE OF, FOR D-614's
-    #: REASON EXACTLY.** Declared here because `Settings` is what `env_var_for`,
-    #: `env_declares`, `ENV_ONLY_DISPLAY` and the ops console's env-only panel are all
-    #: derived from — a credential outside it has no row anywhere an operator looks, which
-    #: is what made the carrier pair undiscoverable. It is classified `ENV_ONLY` in
-    #: `core/settings.ENV_ONLY_REASONS` (so the console shows it and REFUSES to store it)
-    #: and tagged in `ENV_ONLY_FOREIGN_ENV` (so its absence from this host renders as the
-    #: correct permanent state rather than as a fault).
-    #:
-    #: The consumer is `voice_worker.gnani_tts` inside the Pipecat Cloud container, which
-    #: must never hold `PLATFORM_KEK` and therefore can never open `platform_secrets`.
-    #: `apps/api` holds no Gnani client at all: there is nothing here to give a key to.
-    gnani_api_key: str | None = None
-    #: The credential the VOICE WORKER presents to `/v1/worker/*` (D-621), and the base URL
-    #: it presents it to.
-    #:
-    #: It opens the worker's WRITE surface — transcript turns, call status and the
-    #: settlement that carries D-607 — so it is never shared with a credential a third
-    #: party holds.
-    #:
-    #: CONSOLE-MANAGED, unlike `gnani_api_key`: `apps/api` READS this value to verify the
-    #: header, so it has a reader on this host and belongs in the credential store. The SAME
-    #: value also goes in the worker's Pipecat Cloud secret set — DEPLOYMENT §12.2's standing
-    #: instruction that a human puts the value in both places, with nothing fetching one from
-    #: the other. `cartesia_api_key` is the existing precedent for that shape.
-    #:
-    #: ABSENT => every `/v1/worker/*` route answers 401 to everybody: an unconfigured
-    #: deployment authenticates nobody rather than authenticating anybody.
-    pipecat_worker_api_token: str | None = Field(default=None, max_length=256)
-    #: Where the worker reaches `apps/api`. NOT a secret; read by the worker only, which is
-    #: why it is env-only on that side and has no reader on this host.
-    pipecat_worker_api_base_url: str | None = Field(default=None, max_length=512)
-    #: The `wss://` base of the DEPLOYED voice worker, which the carrier is sent to by the
-    #: answer document (`apps/voice-runtime/carrier_routes.py`, D-610).
-    #:
-    #: NOT A SECRET and not derivable: it is the address Pipecat Cloud gives our deployed
-    #: agent, and that hostname scheme is UNKNOWN from this container (`docs.pipecat.ai`
-    #: is egress-blocked). ABSENT => the answer route REFUSES with a named problem rather
-    #: than serving a document that points at nothing — a call that connects to a guessed
-    #: host rings and dies in silence, which is the failure a caller notices and nobody
-    #: else does. Configuration rather than a constant because the same code has to serve
-    #: a local run, a staging deployment and production without a rebuild.
-    pipecat_stream_base_url: str | None = Field(default=None, max_length=512)
-    #: The HMAC key that signs the caller number the answer leg puts on the stream URL
-    #: (`calevate_shared.worker_api.caller_claim_mac`), so the worker can believe it.
-    #:
-    #: ENV-ONLY, AND IN TWO ENVIRONMENTS WITH THE SAME VALUE: `apps/voice-runtime` signs
-    #: with it, and that service does not decrypt the credential store
-    #: (`start_config_refresher(with_secrets=False)`); the worker verifies with it inside
-    #: Pipecat Cloud, which can never open that store. ABSENT or shorter than 32 bytes =>
-    #: the answer leg forwards the caller STATE with no number and the worker believes no
-    #: number, so every in-call act that needs one answers that it cannot identify the
-    #: caller. Never the worker API token: that credential opens the ledger's write surface
-    #: and must not double as a signing key.
-    carrier_claim_secret: str | None = Field(default=None, max_length=256)
-
-    # ── THE CARRIER, AND THE ONE CREDENTIAL ON THE PIPECAT PATH THAT HAD NO HOME AT
-    #    ALL (D-614) ──────────────────────────────────────────────────────────────
-    #
-    # `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` are the account id and secret of the carrier
-    # the owned runtime answers the phone on. Until this decision they existed in exactly
-    # two places in this repository — two `Final` constants in
-    # `apps/voice-worker/voice_worker/boot.py` and two entries in
-    # `scripts/check_env_parity.CONTAINER_ENV_KEYS` — so they were the only credential on
-    # the whole Pipecat path with NO row in the platform's own credential inventory: no
-    # `last_four`, no rotation history, no audit line, and nothing on any screen. An
-    # operator asking "has this deployment ever been given a carrier credential?" had to
-    # read a Markdown table to learn that the question existed.
-    #
-    # ⚠ **THEY ARE `ENV_ONLY` AND THE CONSOLE MUST NEVER OFFER A BOX FOR THEM**
-    # (`core/settings.ENV_ONLY_REASONS`, which carries the full argument, and
-    # `ENV_ONLY_FOREIGN_ENV`, which names the environment that actually holds them). The
-    # reader is `pipecat.serializers.PlivoFrameSerializer`, inside a container on Pipecat
-    # Cloud, and that container cannot read `platform_secrets`: the store is sealed with
-    # `PLATFORM_KEK` and `PLATFORM_KEK` must never be in that image (DEPLOYMENT §12.2).
-    # A stored value would therefore be one the consumer can NEVER read — PLATFORM-CONFIG
-    # §8's "a field that silently does nothing", in its worst form, because the operator
-    # would be rotating a live carrier credential on a screen that cannot reach it.
-    #
-    # SO WHY BE `Settings` FIELDS AT ALL, IF NO PROCESS THAT CONSTRUCTS `Settings` READS
-    # THEM? Because `Settings` is this repo's REGISTER of what configuration exists, not
-    # only its reader: `env_var_for`, `env_declares`, `ENV_ONLY_DISPLAY`,
-    # `GET /v1/ops/config`'s env-only panel, `check_env_parity` and `check_deploy_env` all
-    # derive from `Settings.model_fields`. `resend_api_key` is the precedent and the shape
-    # is identical — a credential whose true consumer is a process on another box, held as
-    # a declared, displayed, un-storable field. The one DIFFERENCE is stated rather than
-    # glossed: `resend_api_key` is ALSO read by `apps/api/core/transport.py`, so
-    # "does this host declare it" is a meaningful question for it and is NOT one for these
-    # two. `ENV_ONLY_FOREIGN_ENV` is what stops the console rendering their absence from
-    # the VPS as a fault.
-    #
-    # NOT `api_key`-SHAPED NAMES, AND NOT RENAMED TO BE. The spelling is the vendor's own
-    # (`PlivoFrameSerializer(auth_id=..., auth_token=...)`, `pipecat-ai==1.10.0` as
-    # installed, `serializers/plivo.py:79-92`, read 15 Sep 2026) and `boot.py` spells every
-    # variable exactly as its `Settings` field is spelled, so one value goes under one name
-    # into both homes. `plivo_auth_token` matches `_SECRET_NAME_FRAGMENTS` through `token`;
-    # `plivo_auth_id` matches nothing, which is correct — it is an account identifier used
-    # as the HTTP Basic username, not a secret — and it is kept out of the plaintext
-    # `platform_settings` table by `ENV_ONLY_KEYS` rather than by its name.
-    #
-    # BOUNDS ARE SHAPE-ONLY AND ARE NOT A CLAIM ABOUT THE VENDOR'S FORMAT: `www.plivo.com`
-    # and `api.plivo.com` are EGRESS-BLOCKED from this container (re-measured 15 Sep 2026,
-    # `curl: (56) CONNECT tunnel failed, response 403`), so the LENGTH and ALPHABET Plivo
-    # actually issues are UNKNOWN here. These ceilings only stop a paste of something that
-    # is plainly not a credential.
-    plivo_auth_id: str | None = Field(default=None, max_length=128)
-    plivo_auth_token: str | None = Field(default=None, max_length=256)
-
-    # ── THE CARRIER SWITCH (D-662) ──────────────────────────────────────────────────
-    #
-    # Which carrier the platform DIALS on and binds numbers to. Both carriers' answer and
-    # events routes stay served whatever this says, so a number pointed at the other one
-    # keeps answering until it is rebound. `calevate_shared.carrier` holds the names.
-    carrier: CarrierName = DEFAULT_CARRIER
-    #: The Vobiz account id and token (`X-Auth-ID` / `X-Auth-Token`,
-    #: `vobiz-findings/mirror/pages/api-reference/authentication.md:9-16`). ENV-ONLY: the
-    #: token is also the callback signing key, and voice-runtime, which verifies callbacks,
-    #: never opens the credential store. Never in the Pipecat worker's secret set: the
-    #: worker ends a call with the stream's `stop` message and needs no credential.
-    vobiz_auth_id: str | None = Field(default=None, max_length=64)
-    vobiz_auth_token: str | None = Field(default=None, max_length=256)
-    #: The REST base. Configurable so a test double can stand in; the vendor's value is
-    #: `https://api.vobiz.ai/api/v1` (`applications/create-application.md:10`).
-    vobiz_api_base_url: str = Field(
-        default="https://api.vobiz.ai/api/v1", max_length=255, pattern=r"^https?://[^\s]+$"
-    )
-    #: Refuse a Vobiz callback that carries no valid `X-Vobiz-Signature-V3`. Off until the
-    #: console shows how signing is switched on: Vobiz sends no signature headers unless the
-    #: callback URL has auth credentials configured
-    #: (`concepts/validating-callbacks.md:56-64`), so turning this on first refuses every
-    #: call. OPERATIONS §2 gate 55.
-    vobiz_signature_required: bool = False
-    #: Comma-separated override of Vobiz's published callback source addresses
-    #: (`calevate_shared.carrier.VOBIZ_CALLBACK_IPS`). Unset uses the published list.
-    vobiz_callback_ips: str | None = Field(default=None, max_length=1024)
-    #: The shared secret on every URL we register with Vobiz (`calevate_shared.carrier.
-    #: CALLBACK_SECRET_PARAM`, D-673). A Vobiz request without it is refused even from a
-    #: Vobiz address, because every Vobiz customer sends from those addresses. Unset or
-    #: under `MIN_CALLBACK_SECRET_CHARS` is "no secret": every Vobiz request is refused
-    #: outside `local`. ENV-ONLY: voice-runtime checks it and never opens the credential
-    #: store. Never the claim key or the auth token, because Vobiz's console and call
-    #: records show this one.
-    vobiz_callback_secret: str | None = Field(default=None, max_length=256)
-    #: The previous `vobiz_callback_secret`, still ACCEPTED while Applications and calls
-    #: registered under it drain, and never written onto a URL. Unset is the normal state.
-    vobiz_callback_secret_retired: str | None = Field(default=None, max_length=256)
-    #: Outbound calls started per second, at most. The account's CPS limit is in its
-    #: account object (`account/account-object.md:41-46`); the founder's account shows 1
-    #: (Vobiz console, founder-relayed, 2 Oct 2026, VENDOR-PUBLISHED). Enforced once per
-    #: dial in `agents.service.dispatch_call` (`engine/carrier_pacing.py`).
-    carrier_cps: int = Field(default=1, ge=1, le=50)
-    #: Simultaneous calls the carrier account carries, inbound and outbound together. The
-    #: founder's account shows 3 concurrent calls (Vobiz console, founder-relayed, 2 Oct
-    #: 2026, VENDOR-PUBLISHED); Vobiz refuses a dial over it with `429`
-    #: (`call/make-call.md:134`). The dial gate keeps `inbound_reserved_lines` of it free for
-    #: inbound callers (`engine/carrier_pacing.outbound_line_pool`), OPERATIONS §2 gate V-5.
+    #: Simultaneous calls on an engine with no call ceiling of its own (the fake engine), inbound
+    #: and outbound together. An engine with its own ceiling uses that instead
+    #: (`engine/dial_lines.outbound_line_pool`).
     carrier_concurrency: int = Field(default=3, ge=1, le=1000)
-    #: Whether the Vobiz transfer contract counts as verified. Off by default: Vobiz itself
-    #: calls the accept-by-keypress step "currently unverified" (`xml/dial.md:56`). On is
-    #: necessary and not sufficient: the `<Dial>` ending arrives on a later callback, so the
-    #: transfer registry still offers no handover (`outcome_arrives_late`) until a hand-off
-    #: mode exists that tells the caller first.
-    carrier_transfer_enabled: bool = False
-    #: Whether Vobiz records the calls it carries (founder decision, 3 Oct 2026, D-668):
-    #: a self-closing `<Record recordSession="true" redirect="false"/>` before the
-    #: `<Stream>` in the answer document (`xml/record/stream-with-record.md:11-25`). It
-    #: decides two things that must agree for hard rule 5: what a PUBLISH composes
-    #: (`engine/pipecat.capabilities_for_carrier` → `records_audio`, so the opening notice
-    #: and the truthful answer say "recorded"), and whether the answer route records at
-    #: all. The route records only an agent whose published answer URL carries the
-    #: recorded segment (`calevate_shared.carrier.answer_path(recorded=True)`), so turning
-    #: this ON records nobody until agents are republished, and turning it OFF stops
-    #: recording on the next call while agents published under ON still say "recorded"
-    #: until they are republished. Ignored on Plivo, whose recording surface is unread.
-    carrier_recording_enabled: bool = True
     # USD→INR for every cost a vendor quotes in dollars (number rentals, the console's
     # margin figures), stamped with its source wherever it reaches a ledger row (hard
     # rule 7).
@@ -715,9 +556,8 @@ class Settings(BaseSettings):
     sarvam_api_key: str | None = None
     # THE GOOGLE AI STUDIO (GEMINI DEVELOPER API) KEY. It is a LIVE credential with real
     # readers: `ops/model_pricing.py` maps the `google` provider to it, the dashboard
-    # copilot (`copilot/service.py`), the KB pack encoder (`kb/pack_vectors.py`) and the
-    # OCR leg (`workers/document_ocr.py`) all read it, and a client on a Gemini agent runs
-    # the IN-CALL leg on it. Anyone reasoning that an installed Gemini key is inert is
+    # copilot (`copilot/service.py`) and the OCR leg (`workers/document_ocr.py`) read it. Anyone
+    # reasoning that an installed Gemini key is inert is
     # wrong.
     #
     # THERE IS NO REGION TO ASK FOR ON THIS API — VENDOR-PUBLISHED and confirmed. Google's
@@ -924,39 +764,6 @@ class Settings(BaseSettings):
     azure_openai_deployment: str | None = Field(
         default=None, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
     )
-    # THE DEPLOYMENT SERVING EVERY **OTHER** ALLOW-LISTED MODEL — the field that makes a
-    # client's model CHOICE reach the wire instead of only the invoice (D-454).
-    #
-    # **THE DEFECT IT CLOSES, because a mapping field looks like gold-plating until you
-    # see it.** `agents.llm_model` and `organizations.default_llm_model` let an account
-    # pick between `gpt-4o-mini` and `gpt-4.1-mini`, which differ 2.7x in price. On Azure
-    # the API addresses a DEPLOYMENT id, so with only the field above configured, a client
-    # who picked the dearer model would be QUOTED and metered at its rate while every call
-    # ran the cheaper deployment — charging for something we did not deliver, invisibly,
-    # because nothing in a transcript or an execution payload names the model that
-    # answered. Hard rule 7 is not only "use NUMERIC"; it is that a price describes what
-    # actually happened.
-    #
-    # **A MAP, AND THIS FIELD IS THE HALF THAT IS NOT ALREADY SPELT ABOVE.**
-    # `azure_openai_deployment` is, and stays, the deployment for `azure_openai_model` —
-    # the pair this file already says must move together. So this
-    # field carries the OTHERS, and an entry here naming `azure_openai_model` is IGNORED
-    # rather than merged: two fields answering for one model is exactly how they come to
-    # disagree, and the one the credential store reads has to win.
-    # `apps/api/agents/llm_models.deployment_for()` is the single resolver over both, and
-    # nothing else may read either field to answer "which deployment serves this model".
-    #
-    # **A BOUNDED STRING RATHER THAN `dict[str, str]`, and the reason is a guardrail
-    # rather than taste.** `scripts/check_config_applies.py` requires every console-managed
-    # field to be BOUNDED and fails closed on a shape it cannot bound-check — an object has
-    # neither a `maxLength` nor a numeric range, so a dict field would have had to weaken
-    # that guard (or teach it a new shape) to land. A `KEY=VALUE,KEY=VALUE` string is the
-    # standard way this is carried in an environment anyway, and `pattern` makes the shape
-    # a boundary refusal at the console rather than a parse error at 3am: nothing
-    # malformed can be stored, so the parser has no failure branch to get wrong.
-    #
-    # 512 characters is far above the two entries the allow-list can produce and far below
-    # the megabyte a jsonb-replicated string could otherwise carry.
     # THE EMBEDDING DEPLOYMENT — a THIRD deployment field, and it has to be one (D-502).
     #
     # An embedding model is served under its own Azure deployment, distinct from every chat
@@ -995,10 +802,9 @@ class Settings(BaseSettings):
     retrieval_provider: Literal["compiled-facts", "pgvector", "supermemory"] = "compiled-facts"
     # WHERE A SELF-HOSTED SUPERMEMORY ANSWERS, or None on every deployment that has none.
     #
-    # `supermemory` is the third value above (`docs/PIPECAT-MIGRATION.md` §8, 14 Sep 2026):
-    # box 3, running ON box 2 until the first client. **It is never on the call path** — the
-    # in-call knowledge pack is fetched once per session and searched in the worker's own
-    # memory (§8.1), and nothing in `apps/voice-worker` or `apps/voice-runtime` reads this.
+    # `supermemory` is the third value above (TRD §6.3): box 3, running ON box 2 until the
+    # first client. **It is never on the call path** — nothing in `apps/voice-runtime` reads
+    # this.
     #
     # THREE FIELDS RATHER THAN ONE, because they fail differently and an operator fixes them
     # in different places: this is a URL on our own box, the next is a credential the vendor
@@ -1033,7 +839,7 @@ class Settings(BaseSettings):
     supermemory_embedding_model: str | None = Field(default=None, max_length=100)
     # WHICH STORE IS ASKED THE SAME QUESTION IN THE DARK, AND WHOSE QUESTIONS MAY BE ASKED.
     #
-    # `docs/PIPECAT-MIGRATION.md` §8.6. Step 15 retires `kb_chunks` in favour of box 3, and
+    # TRD §6.3. Step 15 retires `kb_chunks` in favour of box 3, and
     # nothing in this tree can yet say whether that trade wins or loses answers. These two
     # run the challenger against live traffic WITHOUT serving it: `retrieval/shadow.py`
     # returns the primary arm's own result object and writes the difference to a log line.
@@ -1056,18 +862,6 @@ class Settings(BaseSettings):
     # raising, because this is read on the request path and a typo must cost a comparison,
     # never an answer.
     retrieval_shadow_tenant_ids: str | None = Field(default=None, max_length=2000)
-    azure_openai_deployments: str = Field(
-        default="",
-        max_length=512,
-        # Empty, or `model=deployment` pairs joined by commas. The deployment half is the
-        # same character class and the same 64-character ceiling as the field above, so a
-        # value that is legal here is legal there — one rule about what an Azure
-        # deployment id may look like, written twice only because a regex cannot import.
-        pattern=(
-            r"^$|^[A-Za-z0-9][A-Za-z0-9._-]*=[A-Za-z0-9][A-Za-z0-9._-]{0,63}"
-            r"(,[A-Za-z0-9][A-Za-z0-9._-]*=[A-Za-z0-9][A-Za-z0-9._-]{0,63})*$"
-        ),
-    )
     # WHICH MODEL THE DEPLOYMENT WAS MADE FROM — read by the cost model, never sent.
     #
     # **THIS IS THE `gpt-4.1-mini` SWITCH** and the reason it is config rather than a
@@ -1101,9 +895,8 @@ class Settings(BaseSettings):
     # (`PLATFORM_DEFAULT_LLM_MODEL`), which the Azure Literal cannot hold.
     #
     # `applies: live` for the same reason the field above is: nothing publishes this value on
-    # its own: `GET /v1/organization/llm-defaults` resolves it per request and `in_call_llm`
-    # resolves it at publish, so an operator changing it moves the picker's "the model we run
-    # by default" within one config poll, and moves a live agent on its next publish.
+    # its own: `GET /v1/organization/llm-defaults` resolves it per request, so an operator
+    # changing it moves the picker's "the model we run by default" within one config poll.
     #
     # ⚠ CHANGING IT DOES NOT CHANGE ANY CLIENT'S BILL. The plan rate is struck against
     # `billing/rates.BASE_RATE_LLM_MODEL`, deliberately frozen at `AZURE_OPENAI_DEFAULT_MODEL`
@@ -1118,7 +911,7 @@ class Settings(BaseSettings):
     # release can flip either way, and a stored value that stops validating BRICKS THE BOOT
     # of a running deployment rather than reporting a problem. An unofferable default is
     # reported instead, where it can be acted on — the picker marks the row unavailable with
-    # its ground, `in_call_llm` refuses the publish, and the ops console shows why.
+    # its ground and the ops console shows why.
     platform_llm_model: LlmModelName = PLATFORM_DEFAULT_LLM_MODEL
     # WHICH MODEL EACH CLIENT-FACING TIER RESOLVES TO (D-680). A client picks a tier —
     # Standard, Plus or Pro — and never a model; `apps/api/agents/llm_tiers.py` turns the
@@ -1159,13 +952,8 @@ class Settings(BaseSettings):
     # Cartesia agents across every tenant has reached this; an operator raises it here, on
     # a screen, after choosing to. Default 2, the founder's rule; 0 switches the tier off.
     #
-    # ⚠ **WHILE THE CLEAR RUNG CANNOT BE SOLD, THIS IS THE PLATFORM-WIDE CEILING ON LIVE
-    # AGENTS, FULL STOP.** It was struck as a cap on the DEARER tier with Sarvam serving the
-    # value rung; the value rung's occupant (Gnani) cannot be sold until somebody attests
-    # its price (`agents/voice_offer.py`), so there is no cheaper tier to overflow into and
-    # the third client cannot be onboarded without an operator raising this. That is a
-    # plan-cost decision, a founder's to make on a screen — an engineer raising it to make
-    # an onboarding work is a vendor bill nobody decided to take on.
+    # Raising it is a plan-cost decision, a founder's to make on a screen — an engineer
+    # raising it to make an onboarding work is a vendor bill nobody decided to take on.
     cartesia_agent_cap: int = Field(default=2, ge=0, le=10_000)
     # WHICH SARVAM TRANSCRIBER EVERY AGENT IS PUBLISHED WITH (D-583).
     #
@@ -1640,7 +1428,7 @@ class Settings(BaseSettings):
     # How many of the account's simultaneous lines outbound dials may not use, as a count an
     # operator can read at a glance. Unset keeps `inbound_reserve_ratio` of the lines instead;
     # either way at least one line always stays open for a caller
-    # (`engine/carrier_pacing.outbound_line_pool`).
+    # (`engine/dial_lines.outbound_line_pool`).
     inbound_reserved_lines: int | None = Field(default=None, ge=1, le=10_000)
     # The share kept free only while `inbound_reserved_lines` is unset:
     # `max(1, ceil(lines * ratio))`. Kept as a setting, not folded into a constant, because
@@ -1793,15 +1581,12 @@ class Settings(BaseSettings):
     # selector; the only name with anything behind it today is `razorpay`, and any
     # other name resolves to `provider_not_implemented` rather than looking configured.
     payment_provider: str | None = Field(default=None, max_length=64)
-    # WHICH telephony vendor may sell this deployment a phone number (D-05: Exotel, with
-    # Vobiz for the 140-series and Plivo for the 160-series — the engine's own
-    # regulated-numbers table, `bolna-findings/mirror/pages/guides/inbound/
-    # obtaining-regulated-phone-numbers.md:15-16`). Config rather than an inference from a
-    # credential, for the same reason `payment_provider` is: a key is not a statement that
-    # the capability exists. NO ADAPTER EXISTS FOR ANY VALUE — `apps/api/campaigns/
+    # WHICH carrier a client's own connection is held with (Model B). Config rather than an
+    # inference from a credential, for the same reason `payment_provider` is: a key is not
+    # a statement that the capability exists. NO ADAPTER EXISTS FOR ANY VALUE — `apps/api/campaigns/
     # provisioning.py` owns the one selector and `PROVISIONING_IMPLEMENTED` is False —
     # so this setting currently decides only WHICH refusal an operator sees. A name
-    # outside {exotel, plivo, vobiz} resolves to `provider_not_implemented` rather than
+    # outside {exotel, plivo} resolves to `provider_not_implemented` rather than
     # looking configured; that module's comment carries the evidence for each name,
     # including why `twilio` is deliberately not one of them.
     number_provider: str | None = Field(default=None, max_length=64)

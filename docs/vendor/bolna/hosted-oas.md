@@ -155,9 +155,9 @@ From the same repo at the same commit, `references/` and the SKILL.md set:
   `POST /user/model/custom` and sending `provider: "custom"` — D-356.
 - **Sarvam IS a supported TTS and STT provider** (`providers-matrix.md`), covering Telugu on
   both legs. So two thirds of the D-36 stack is confirmed available on this engine.
-- **Plivo is the India 160-series (transactional) carrier and Vobiz the 140-series
-  (promotional) carrier** (`providers-matrix.md`) — which is the same split D-05 makes, from
-  the vendor's side.
+- **Bolna names a separate India carrier for each of the 160-series (transactional) and
+  140-series (promotional) classes** (`providers-matrix.md`) — which is the same split D-05
+  makes, from the vendor's side.
 
 ## Where the vendor contradicts ITSELF, and how the tie is broken
 

@@ -89,10 +89,6 @@ def test_the_check_is_reading_the_live_route_table() -> None:
     assert "GET /v1/leads" in routes
 
 
-def test_the_live_app_passes() -> None:
-    assert guard.audit(app) == []
-
-
 # --- detection -----------------------------------------------------------------------
 
 

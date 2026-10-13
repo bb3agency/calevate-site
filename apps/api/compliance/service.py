@@ -86,12 +86,6 @@ from apps.api.billing.service import current_billing_month, get_balance, plan_ti
 from apps.api.billing.trials import trial_billing_active
 from apps.api.callbacks.service import cancel_for_phones
 from apps.api.compliance.caller_ref import ANONYMIZED_PREFIX
-from apps.api.compliance.carrier_application import (
-    CARRIER_APPLICATION_MISSING_REASON,
-    carrier_application_not_accepted_reason,
-    carrier_application_required,
-    read_carrier_application,
-)
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
 from apps.api.compliance.engine_dnc import queue_engine_dnc_push
 from apps.api.compliance.first_campaign import (
@@ -595,75 +589,6 @@ async def outbound_pledge_blocker(
     return await pledge_blocker(session, tenant_id=tenant_id)
 
 
-async def carrier_application_blocker(
-    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
-) -> tuple[str, str] | None:
-    """`(rule, reason)` if the CARRIER's own approval of this business is missing, else None.
-
-    **THE RESELLER STAGE.** Our carrier treats us as a reseller, not a direct brand, which
-    means it requires *a separate approved compliance application for each customer* before
-    that customer's number may be rented or used
-    (`docs/evidence/orchestrator-commercial-and-carrier-2026-09-13.md` §5.2, REPORTED
-    12 Sep 2026). `campaigns/provisioning.py` and `campaigns/number_supply.buy_number`
-    refuse to ACQUIRE such a number without an accepted application; this is the dial-time
-    half, and it exists because acceptance can stop being true after the number is in hand
-    — a carrier suspends an application after unresolved UCC complaints (§5.6), and the
-    number does not change when it does.
-
-    **SCOPED TO NUMBERS WE SUPPLIED, AND THAT IS A DELIBERATE JUDGEMENT, NOT A WEAKENING.**
-    The carrier's rule is about numbers rented on OUR account for a customer —
-    `phone_numbers.engine_owned`, the column that already means exactly that. A client who
-    brought their own connection on their own operator account (Model B,
-    `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9) is not dialling under our reseller relationship
-    at all, and refusing them would be enforcing a carrier's rule against a carrier that is
-    not in the call. It would also do real damage: no tenant on this platform has an
-    application yet, so a tier-blind, supply-blind blocker would halt every existing
-    client's calling on a data-entry backlog the moment it shipped — the exact outcome
-    `compliance/kyc.py` records this repo having already paid for once with
-    `tm_registration_missing`, and the reason the KYC DIAL gate is narrower than the KYC
-    PROVISIONING gate.
-
-    **AGENT-SCOPED rather than tenant-scoped**, for the same precision: the dial presents a
-    header resolved from a number bound to THIS agent (`resolve_caller_id`, D-420), so what
-    matters is whether THAT number is one of ours. A tenant running one agent on a
-    carrier-supplied number and another on their own connection gets the right answer for
-    each, instead of one answer for both.
-
-    Released numbers are excluded: the row is kept so a closed month's costs still refer to
-    it, and it cannot be dialled from.
-
-    Returns the PAIR rather than a bool for `kyc_blocker`'s reason — "nothing filed" and
-    "filed and not accepted" are different facts with different next actions, and the dial
-    gate and the launch preview must name them identically.
-
-    None on a carrier that needs no per-client application (Vobiz, D-666). The dial uses
-    the switch's carrier (`resolve_caller_id` presents only numbers on it), so the switch is
-    the carrier this asks about.
-    """
-    if not carrier_application_required():
-        return None
-    supplied = (
-        await session.execute(
-            text(
-                "SELECT 1 FROM phone_numbers WHERE agent_id = :aid AND engine_owned "
-                "AND released_at IS NULL LIMIT 1"
-            ),
-            {"aid": agent_id},
-        )
-    ).first()
-    if supplied is None:
-        return None
-    application = await read_carrier_application(session, tenant_id=tenant_id)
-    if not application.recorded or application.status == "not_started":
-        return ("carrier_application_missing", CARRIER_APPLICATION_MISSING_REASON)
-    if not application.is_accepted:
-        return (
-            "carrier_application_not_accepted",
-            carrier_application_not_accepted_reason(str(application.status)),
-        )
-    return None
-
-
 async def first_campaign_hold_blocker(
     session: AsyncSession, *, tenant_id: UUID
 ) -> tuple[str, str] | None:
@@ -944,8 +869,7 @@ async def check_dispatch(
 
     `trial_call` marks a FREE-TRIAL TEST CALL (D-697, `agents/trial_calls.py`). A trial
     account is refused every other outbound call, and only a trial account may place a
-    test call. A test call is not asked for KYC (it unlocks only after payment) or the
-    carrier application (it rings from Calevate's own shared number, not the client's);
+    test call. A test call is not asked for KYC (it unlocks only after payment);
     it is still asked the halt, the drain, the account, the
     agent and its truthful answers (hard rule 5), the pledge, the agreements, the spend cap,
     calling hours, the India-only destination, the do-not-call list and consent."""
@@ -1202,21 +1126,6 @@ async def check_dispatch(
     # The Regulation 4 autodialer notice that used to be asked here was removed by D-762;
     # the disclosure in pledge v2 replaces it.
 
-    # AND WHETHER THE CARRIER STILL APPROVES OF THIS BUSINESS — the reseller stage
-    # (evidence doc 2026-09-13 §5.2). Asked LAST because it is the most specific refusal in
-    # the gate and a client should read the general ones first. It is the carrier's own
-    # contractual condition on a number rented through us and binds whatever channel the
-    # call is on; the WhatsApp escalation path has no `phone_numbers` row of ours to match,
-    # so it is unaffected by construction rather than by exemption.
-    carrier_block = (
-        None
-        if trial_call
-        else await carrier_application_blocker(session, tenant_id=tenant_id, agent_id=agent_id)
-    )
-    if carrier_block is not None:
-        rule, reason = carrier_block
-        return DispatchDecision(allowed=False, rule=rule, reason=reason)
-
     return DispatchDecision(allowed=True)
 
 
@@ -1350,7 +1259,6 @@ __all__ = [
     "account_stopped_blocker",
     "add_to_dnc",
     "assert_dispatch_allowed",
-    "carrier_application_blocker",
     "check_dispatch",
     "credits_exhausted",
     "first_campaign_hold_blocker",

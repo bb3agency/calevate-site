@@ -1,44 +1,19 @@
-"""The number-provisioning provider set, held against the engine's own carrier table.
+"""The number-provisioning provider set, observed through the one selector.
 
 `campaigns/provisioning.py::KNOWN_PROVIDERS` is the set of carriers a CLIENT may hold
 their own connection with, and a name outside it resolves to `provider_not_implemented` —
 "we do not support that vendor at all". So the membership of that tuple is a behavioural
-claim and not a note: naming a carrier that actually allocates a series we sell must never
-produce that refusal, because it sends an operator to change a setting that was right.
+claim and not a note: naming a supported carrier must never produce that refusal, because
+it sends an operator to change a setting that was right.
 
-**D-537 CHANGED WHAT THE OTHER SIDE OF THAT SPLIT IS, AND THIS FILE USED TO ASSERT THE OLD
-ONE.** It expected `no_provisioning_adapter:<carrier>` — a constant that meant "supported
-vendor, no adapter written". There is no carrier-direct adapter and there is not going to
-be one: a number this product supplies is bought THROUGH THE VOICE ENGINE, on the engine's
-own carrier account. What refuses now is the legal gate — no written VNO/reseller status
-is recorded — which is a different fact with a different fix, and asserting it here is what
-stops the two being confused again.
-
-WHY THIS IS PINNED TO THE VENDOR RATHER THAN TO ITSELF. `NUMBER_SERIES` enumerates the
-DLT number classes we model (`agents/models.py:44`). Bolna maps each regulated class onto
-exactly one Indian carrier, in a table rather than in prose — `bolna-findings/mirror/
-pages/guides/inbound/obtaining-regulated-phone-numbers.md:13-16`:
-
-    | Number Series  | Use Case                                     | Telephony Provider |
-    | **140-series** | Telemarketing and promotional calls          | Vobiz              |
-    | **160-series** | Transactional and service calls (banking...) | Plivo              |
-
-A series we accept at the purchase route whose carrier we refuse to be configured with is
-a request that cannot be satisfied however the deployment is set up, and it fails at the
-worst moment: after KYC has passed, with an operator-facing reason ("unsupported vendor")
-that names the wrong problem. `plivo` was missing for exactly that reason and this test is
-what would have caught it.
-
-It asserts a SUPERSET, not equality: `exotel` is legitimately in the tuple without being
-in that table — Bolna integrates it as bring-your-own-account rather than as a series
-carrier — and pinning the tuple exactly would turn adding a vendor into editing a test
-that has no opinion about it.
+What refuses a supported carrier is the legal gate — no written VNO/reseller status is
+recorded (D-537) — which is a different fact with a different fix, and asserting it here
+is what stops the two being confused.
 """
 
 from __future__ import annotations
 
 import pytest
-from apps.api.agents.models import NUMBER_SERIES
 from apps.api.campaigns.provisioning import (
     KNOWN_PROVIDERS,
     NOT_AUTHORIZED_REASON,
@@ -47,53 +22,29 @@ from apps.api.campaigns.provisioning import (
 )
 from apps.api.core.settings import get_settings
 
-#: The engine's regulated-series carrier table, transcribed from the citation above.
-#: Keys are checked against `NUMBER_SERIES` below so a series renamed in our enum breaks
-#: this map rather than silently dropping out of the check.
-SERIES_CARRIER = {"140": "vobiz", "160": "plivo"}
 
-
-def test_the_carrier_map_only_names_series_we_model() -> None:
-    """Guard on the guard: a `NUMBER_SERIES` edit must not orphan a row of the table."""
-    assert set(SERIES_CARRIER) <= set(NUMBER_SERIES), (
-        "the vendor's carrier table names a series our own enum does not"
-    )
-
-
-def test_every_regulated_series_carrier_is_a_configurable_provider() -> None:
-    """The refusal an operator gets must name the real problem.
-
-    Naming the carrier that allocates a series we sell has to resolve to "no adapter
-    yet", never to "unsupported vendor" — the second sends them to change a setting that
-    was already right.
-    """
-    missing = sorted(
-        {carrier for carrier in SERIES_CARRIER.values() if carrier not in KNOWN_PROVIDERS}
-    )
-    assert not missing, (
-        f"carriers Bolna allocates regulated numbers through are not configurable: {missing}"
-    )
-
-
-@pytest.mark.parametrize(("series", "carrier"), sorted(SERIES_CARRIER.items()))
-def test_a_carrier_resolves_to_the_missing_adapter_and_not_to_an_unknown_vendor(
-    monkeypatch: pytest.MonkeyPatch, series: str, carrier: str
+@pytest.mark.parametrize("carrier", KNOWN_PROVIDERS)
+def test_a_known_carrier_refuses_on_the_legal_gate_and_not_as_an_unknown_vendor(
+    monkeypatch: pytest.MonkeyPatch, carrier: str
 ) -> None:
-    """The membership above, observed through the ONE selector rather than asserted twice.
-
-    A tuple can contain a name and the selector still classify it wrongly; this reads the
-    reason string every surface actually shows.
-    """
+    """Read through the ONE selector rather than asserted against the tuple: a tuple can
+    contain a name and the selector still classify it wrongly."""
     monkeypatch.setattr(get_settings(), "number_provider", carrier)
     capability = number_provisioning_capability()
 
-    assert capability.available is False, (
-        f"{series}: no deployment has recorded a written reseller authorisation"
-    )
+    assert capability.available is False, "no deployment has recorded a reseller authorisation"
     assert capability.reason == NOT_AUTHORIZED_REASON, (
-        f"{series}-series carrier {carrier!r} must refuse on the LEGAL gate — the thing "
-        f"that is actually missing — got {capability.reason!r}"
+        f"carrier {carrier!r} must refuse on the LEGAL gate — the thing that is actually "
+        f"missing — got {capability.reason!r}"
     )
     assert not str(capability.reason).startswith(PROVIDER_NOT_IMPLEMENTED_REASON), (
-        f"{series}-series carrier {carrier!r} reported as an unsupported vendor"
+        f"carrier {carrier!r} reported as an unsupported vendor"
     )
+
+
+def test_an_unknown_carrier_is_reported_as_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Non-vacuity: without it the check above could pass on a selector that never refuses
+    a vendor by name."""
+    monkeypatch.setattr(get_settings(), "number_provider", "twilio")
+    capability = number_provisioning_capability()
+    assert capability.reason == f"{PROVIDER_NOT_IMPLEMENTED_REASON}:twilio"

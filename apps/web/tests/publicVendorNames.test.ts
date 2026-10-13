@@ -28,8 +28,8 @@ import { copyUnder, type CopyString } from "./copyScan";
  * ## The two rules, and why the second one is scoped away from the client realm
  *
  * 1. **No voice or telephony vendor, anywhere a client or a stranger reads.** The list is
- *    the speech and voice vendors, the models they are sold under (`Bulbul`, `Sonic`,
- *    `Timbre`) and, since D-679, the carriers and call platforms Calevate resells under a
+ *    the speech and voice vendors, the model they are sold under (`Sonic`) and, since
+ *    D-679, the carriers and call platforms Calevate resells under a
  *    white label — a sentence naming the MODEL is the same disclosure as one naming the
  *    company. The legal documents are held to the same rule by `legalVendorNames.test.ts`.
  * 2. **No wire identifier on the marketing surfaces.** `plainLanguageGuard.test.ts` already
@@ -96,7 +96,7 @@ const MARKETING_SURFACES = PUBLIC_SURFACES.filter((root) => root !== "src/app/c"
  * ban that fired on "supersonic" is a ban somebody deletes.
  */
 const VOICE_VENDOR =
-  /\b(sarvam|cartesia|bulbul|saaras|sonic|gnani|timbre|vobiz|plivo|pipecat|thinnest(?:ai)?|bolna|exotel)\b/i;
+  /\b(sarvam|cartesia|saaras|sonic|plivo|thinnest(?:ai)?|bolna|exotel)\b/i;
 
 /** A wire identifier: two or more lowercase words joined by underscores. */
 const WIRE_NAME = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;

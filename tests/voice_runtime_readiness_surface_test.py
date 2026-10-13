@@ -61,7 +61,7 @@ from httpx import ASGITransport, AsyncClient  # noqa: E402  — the DRIVER, see 
 # measured as an acquisition. The delta below is taken AFTER it is imported, which is what
 # makes the measurement honest: anything the request pulls in is new, and `httpx` arriving
 # through the app would show up as `httpx.<submodule>` or, more to the point, as
-# `apps.api.engine.cartesia` — which imports it and is measured directly.
+# `apps.api.engine.thinnest` — which imports it and is measured directly.
 async def main_():
     before = sorted(sys.modules)
     transport = ASGITransport(app=main.app)
@@ -85,7 +85,7 @@ def readiness_probe() -> dict[str, object]:
     the config probe runs on every branch, and the import being asserted about happens
     inside `runtime_config_missing_keys` before any environment check.
 
-    `ENGINE=cartesia` IS load-bearing, and leaving it to the ambient environment made this
+    `ENGINE=thinnest` IS load-bearing, and leaving it to the ambient environment made this
     weaker than it looks: `build_engine` branches on the name, so on the default `fake`
     the revert-proof shows `apps.api.engine.fake` and NO `httpx` — a vendor adapter that
     pulls in an HTTP client is never reached. Pinning an HTTP-speaking engine measures the
@@ -96,7 +96,7 @@ def readiness_probe() -> dict[str, object]:
         proc = subprocess.run(
             [sys.executable, "-c", _READY_PROBE, str(out)],
             cwd=REPO_ROOT,
-            env={**os.environ, "PYTHONPATH": "", "APP_ENV": "local", "ENGINE": "cartesia"},
+            env={**os.environ, "PYTHONPATH": "", "APP_ENV": "local", "ENGINE": "thinnest"},
             capture_output=True,
             text=True,
             timeout=180,
@@ -147,7 +147,7 @@ def _prod(**overrides: object) -> Settings:
         "redis_url": "redis://localhost:6379/0",
         "object_store_endpoint": "https://example.invalid",
         "object_store_bucket": "calevate-prod",
-        "engine": "cartesia",
+        "engine": "thinnest",
     }
     # `_env_file=None`: the receiver probe now reads env-only keys (`CARRIER_CLAIM_SECRET`)
     # that a developer's `.env` may hold, and these assertions are about this configuration.
@@ -168,16 +168,11 @@ def test_the_receiver_probe_does_not_demand_the_kek() -> None:
     """Readiness for a service that is CALLED BY the vendor rather than calling it.
 
     The config poller here runs `with_secrets=False`, so this process never unwraps a DEK
-    and a missing `PLATFORM_KEK` is not a fault it can have. What it does need under
-    `ENGINE=pipecat` is `tests/owned_runtime_readiness_test.py`'s subject.
+    and a missing `PLATFORM_KEK` is not a fault it can have. What it does need is the engine
+    intake key, which opens the sealed secret every delivery is verified against.
     """
-    assert webhook_receiver_missing_keys(_prod()) == []
-    assert webhook_receiver_missing_keys(_prod(engine="pipecat")) == [
-        "PIPECAT_STREAM_BASE_URL",
-        "CARRIER_CLAIM_SECRET",
-        "VOBIZ_CALLBACK_SECRET",
-        "WEBHOOK_BASE_URL",
-    ]
+    assert webhook_receiver_missing_keys(_prod()) == ["ENGINE_INTAKE_KEK"]
+    assert webhook_receiver_missing_keys(_prod(engine="fake")) == []
 
 
 def test_the_receiver_probe_does_not_demand_another_deployables_credentials() -> None:
@@ -189,7 +184,7 @@ def test_the_receiver_probe_does_not_demand_another_deployables_credentials() ->
     settings = _prod()
     full = set(runtime_config_missing_keys(settings))
     receiver = set(webhook_receiver_missing_keys(settings))
-    assert "CARTESIA_API_KEY" in full, (
+    assert "THINNEST_API_KEY" in full, (
         "the full probe no longer names the engine credential — this comparison has "
         "stopped measuring the difference it exists to measure"
     )
@@ -197,4 +192,4 @@ def test_the_receiver_probe_does_not_demand_another_deployables_credentials() ->
         f"the receiver probe reports {sorted(receiver - full)}, which the full probe does "
         "not — the two have diverged in the wrong direction"
     )
-    assert "CARTESIA_API_KEY" not in receiver
+    assert "THINNEST_API_KEY" not in receiver

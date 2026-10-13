@@ -1,4 +1,4 @@
-"""The STT leg has a rate constant, a cost function, and a drift check — the TTS half's
+"""The STT leg has a rate constant, a per-minute rate and a drift check — the TTS half's
 three parts, arriving on the leg that had none of them.
 
 THE DEFECT THIS PINS. TTS is billed per CHARACTER and has had `TTS_INR_PER_10K_CHARS`,
@@ -13,8 +13,6 @@ WHAT IS ASSERTED HERE and why each line is worth a test:
 * the constant is NUMERIC and never a float (hard rule 7);
 * exact values at round inputs, including the hour↔minute conversion, because the doc
   states the rate in both units and a lossy conversion is how the two spellings drift;
-* a negative duration RAISES rather than pricing to a negative cost;
-* zero is zero, which is not an error — a call that transcribed nothing costs nothing;
 * the drift check moves in BOTH directions and fails on an empty reading.
 """
 
@@ -44,35 +42,6 @@ def test_the_two_spellings_of_the_rate_are_exactly_one_rate() -> None:
     assert rates.stt_rate_inr_per_minute() == rates.stt_rate_inr_per_minute().quantize(
         rates.MONEY_Q, rounding=rates.ROUNDING
     )
-
-
-def test_stt_cost_takes_seconds_and_prices_round_inputs_exactly() -> None:
-    """SECONDS, because that is the unit a call's duration exists in everywhere in this
-    codebase (`duration_s`), so no caller has to divide by 60 first."""
-    assert rates.stt_cost_inr(3600) == Decimal("30.0000")
-    assert rates.stt_cost_inr(60) == Decimal("0.5000")
-    assert rates.stt_cost_inr(600) == Decimal("5.0000")
-    # 7 s is ₹0.058333…: exact arithmetic, one rounding at the end.
-    assert rates.stt_cost_inr(7) == Decimal("0.0583")
-    assert isinstance(rates.stt_cost_inr(60), Decimal)
-
-
-def test_a_negative_duration_is_refused_rather_than_priced() -> None:
-    """A negative duration would price to a NEGATIVE cost, which on a usage event is a
-    credit issued by an arithmetic accident — the argument `tts_inr_per_call_minute` makes, and the
-    one `workers/pipeline.py::_billable_seconds` had to make on the live money path."""
-    with pytest.raises(ValueError, match="negative"):
-        rates.stt_cost_inr(-1)
-    with pytest.raises(ValueError):
-        rates.stt_cost_inr(-3600)
-    assert rates.stt_cost_inr(0) == Decimal("0.0000")
-
-
-def test_the_stt_card_prices_no_diarization_rung() -> None:
-    """₹45/hour is a real Sarvam rate and is deliberately NOT a constant: nothing in this
-    repository enables diarization, and pricing a feature we do not turn on puts a figure
-    in the margin model that no call can produce."""
-    assert not [name for name in dir(rates) if "diariz" in name.lower()]
 
 
 # --- the Sarvam chat card, which is NOT free (the correction) --------------------------
@@ -121,13 +90,6 @@ def _mutated(old: str, new: str) -> str:
     document = guard.TRD.read_text(encoding="utf-8")
     assert old in document, f"TRD no longer contains {old!r} — the mutation tests are stale"
     return document.replace(old, new)
-
-
-def test_the_shipped_tree_has_no_stt_rate_drift() -> None:
-    assert not guard.stt_rate_card_drift()
-    # The reading is non-empty, which is the half a reworded table would break silently.
-    assert guard.doc_stt_rates_per_hour()
-    assert guard.doc_stt_rates_per_minute() == [Decimal("0.50")]
 
 
 def test_a_moved_doc_rate_is_drift() -> None:

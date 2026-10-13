@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { DataTable, sortRows, type DataColumn } from "@/components/console/dataTable";
 import { InfoTip } from "@/components/console/infoTip";
-import { SPEAKER_HOLD_MS, SpeakingIndicator } from "@/components/console/speakingIndicator";
 import { compareDecimal } from "@/components/console/valueFlash";
 import { CopyButton } from "@/components/interior/copy-button";
 import { SegmentedControl } from "@/components/interior/segmented-control";
@@ -217,32 +216,5 @@ describe("DataTable", () => {
     const marked = container.querySelectorAll(".value-flash");
     expect(marked).toHaveLength(1);
     expect(marked[0].textContent).toBe("completed");
-  });
-});
-
-describe("SpeakingIndicator", () => {
-  it("is invisible to a screen reader and marks the side that is speaking", () => {
-    const { container, rerender } = render(<SpeakingIndicator speaker={null} />);
-    expect(container.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
-    expect(container.textContent).not.toContain("Speaking");
-    rerender(<SpeakingIndicator speaker="agent" labels={{ caller: "Caller", agent: "Reception" }} />);
-    const agentSide = screen.getByText("Reception").closest("div");
-    expect(agentSide?.textContent).toContain("Speaking");
-    expect(screen.getByText("Caller").closest("div")?.textContent).not.toContain("Speaking");
-  });
-
-  it("holds the last speaker briefly through a pause, then lets go", () => {
-    vi.useFakeTimers();
-    try {
-      const { container, rerender } = render(<SpeakingIndicator speaker="caller" />);
-      rerender(<SpeakingIndicator speaker={null} />);
-      expect(container.textContent).toContain("Speaking");
-      act(() => {
-        vi.advanceTimersByTime(SPEAKER_HOLD_MS + 10);
-      });
-      expect(container.textContent).not.toContain("Speaking");
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });

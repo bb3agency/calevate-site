@@ -13,7 +13,6 @@ import {
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import {
-  KB_ALL_DELIVERED,
   WHATSAPP_NEVER_ASKED,
   adminOverviewSummaryReads,
 } from "./fixtures/sharedReads";
@@ -204,7 +203,6 @@ describe("the console reads the deprecated rung names when the API has not moved
         // the paths it really requests them on.
         "/v1/kb/sources?status=pending_approval": [],
         "/v1/kb/sources?status=approved": [],
-        "/v1/kb/delivery": KB_ALL_DELIVERED,
         ...adminOverviewSummaryReads(TENANT),
         "/v1/agents": [],
         "/v1/campaigns/numbers": [],

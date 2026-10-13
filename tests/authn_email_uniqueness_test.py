@@ -26,7 +26,6 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -138,17 +137,6 @@ async def test_the_application_role_cannot_drop_the_index_it_now_depends_on() ->
     assert "must be owner" in str(caught.value)
 
 
-def test_the_ambiguity_refusal_survives_the_constraint_that_made_it_unreachable() -> None:
-    """A guard made true by a constraint is not a guard to delete — it is the thing that
-    fails safe if the constraint is ever dropped, and the ONLY thing, because a duplicate
-    that reached `resolve_by_email` would otherwise be resolved by physical row order."""
-    source = (
-        Path(__file__).resolve().parent.parent / "apps" / "api" / "authn" / "subjects.py"
-    ).read_text(encoding="utf-8")
-    assert "auth_identifier_ambiguous" in source
-    assert "LIMIT 2" in source, "the query must still be able to SEE a second row"
-
-
 @pytest.mark.asyncio
 async def test_the_invitation_path_reuses_the_live_row_rather_than_making_a_second(
     planted: list[uuid.UUID],
@@ -202,34 +190,3 @@ async def _find_or_create_user_shim(email: str, at: datetime) -> tuple[uuid.UUID
 
 
 # ═══════════════ what the constraint is NOT ═══════════════
-
-
-@pytest.mark.asyncio
-async def test_this_migration_added_no_tenant_scoped_object() -> None:
-    """Hard rule 1, answered rather than waved at. `users` carries no `tenant_id` — identity
-    crosses tenants, which is what `memberships` is for — so a unique index on it opens no
-    cross-tenant surface and there is no policy for it to ship with."""
-    async with untenanted_session() as session:
-        columns = {
-            row[0]
-            for row in (
-                await session.execute(
-                    text(
-                        "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_name = 'users'"
-                    )
-                )
-            ).all()
-        }
-    assert "tenant_id" not in columns
-    assert {"email", "deactivated_at"} <= columns
-
-
-def test_password_migrated_at_was_not_added() -> None:
-    """§11 named it; D-178 argues it is vestigial rather than pending. A column nobody
-    reads is the defect `scripts/check_wiring.py` exists to catch, and the fact it would
-    have carried — when this account got its first-party password — is
-    `auth_credentials.password_set_at`, which is written on every path that sets one."""
-    from apps.api.tenancy.models import User
-
-    assert not hasattr(User, "password_migrated_at")

@@ -116,12 +116,19 @@ def _display(path: Path) -> str:
 # ══════════════════════════════════════════════════════════ 1. write-only columns
 
 
+_D763_REASON = (
+    "D-763: no code reads this column any more; kept with its rows under hard rule 8's "
+    "two-step and dropped by the D-763 drop migration next release"
+)
+
 #: Columns with a writer and no reader, as of the day this guard landed. A BASELINE, not
 #: an allowlist, on `check_wiring.UNWIRED_BASELINE`'s exact terms: `stale_baselines()`
 #: fails on any entry whose column has since gained a reader or ceased to exist, so it can
 #: only shrink, and a NEW write-only column fails outright. Every entry says what closes
 #: it — an entry that cannot say that is a defect wearing a comment.
 WRITE_ONLY_BASELINE: dict[str, str] = {
+    "AgentConfigAttestation.agent_config_version_id": _D763_REASON,
+    "PipecatAgent.agent_config_version_id": _D763_REASON,
     "AutodialerNotice.notified_on": (
         "its only writer left is `scripts/restore_drill.py`'s fixture row, which gives the "
         "append-only trigger a row to probe; the product stopped reading and writing "
@@ -577,8 +584,7 @@ def stub_bodies(roots: Iterable[Path] | None = None) -> list[str]:
 
     A documented constant return is allowed through when the docstring says so —
     `engine/fake.py::holds_credentials` returns True because the fake adapter IS its own
-    vendor, and `engine/cartesia.py::_cost` returns None because a guessed currency is
-    worse than no cost. The rule is the same one CLAUDE.md applies everywhere: a deferral
+    vendor. The rule is the same one CLAUDE.md applies everywhere: a deferral
     that names what closes it is a decision; one that does not is a leftover.
     """
     scan = SCAN_ROOTS if roots is None else tuple(roots)

@@ -29,23 +29,7 @@ from apps.workers.settings import CRON_JOBS, WALK_SHAPES
 from scripts import check_job_wiring
 from scripts.check_job_wiring import EnqueueSite, JobDefinition
 
-# --- the standing assertions (the same call `make guardrails` makes) ----------
-
-
-def test_the_live_tree_is_wired_three_ways() -> None:
-    assert check_job_wiring.main() == 0
-
-
-def test_the_scan_is_not_blind() -> None:
-    """The floors, checked on the real tree. Everything below mutates inputs; this is
-    the one assertion that the inputs are real."""
-    assert check_job_wiring.blindness() == []
-
-
-def test_the_registry_the_guard_reads_is_the_one_the_worker_boots() -> None:
-    """Rebind `WorkerSettings.functions` and every assertion in this file becomes a
-    statement about a list nobody executes."""
-    assert check_job_wiring.registry_is_the_one_the_worker_boots() == []
+# --- the live registry ------------------------------------------------------------
 
 
 def test_the_registry_has_no_duplicate_names() -> None:

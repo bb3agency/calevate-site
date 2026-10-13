@@ -1,8 +1,7 @@
 "use client";
 
 /**
- * THE CLIENT'S PHONE NUMBERS — record one, say which agent answers it, and (Model A only)
- * buy or release one.
+ * THE CLIENT'S PHONE NUMBERS — record one, say which agent answers it, and release one.
  *
  * Primary job, in one sentence: *get this client's number answering an agent.*
  *
@@ -26,22 +25,20 @@
  * The list is the screen: each row is where an operator says who answers a number, and a
  * number nobody answers says so on its own row. Recording a new number is the header's
  * action and opens in a drawer (the form keeps the screen's only `PRIMARY_BUTTON_LG`).
- * Buying is disclosed at the bottom — it is Model A, and this deployment holds no reseller
- * authorisation, so every call on that path refuses by name until one is recorded.
+ * Renting a number in the client's own name happens on the voice platform's panel
+ * (`EngineNumbersPanel`).
  *
- * ## Three things this screen must not get wrong
+ * ## Two things this screen must not get wrong
  *
- * 1. **A purchase spends real money on a recurring commitment and cannot be undone by
- *    retrying.** Confirmation states the monthly cost; `retry: false` on the mutation.
- * 2. **The going-live gate is a legal fact** and the screen prints the server's own
+ * 1. **The going-live gate is a legal fact** and the screen prints the server's own
  *    refusal rather than composing a cheerier one.
- * 3. **`agent_id` and `engine_linked` are the two facts between a recorded number and a
+ * 2. **`agent_id` and `engine_linked` are the two facts between a recorded number and a
  *    ringing phone.** Every row says where it stands on both.
  */
 
 import { EmptySketch } from "@/components/console/emptySketch";
 import { useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { Plus } from "lucide-react";
 
 import { useAdminAccess } from "@/app/admin/access";
 import { HAIRLINE_LIST } from "@/components/admin/kit";
@@ -52,16 +49,13 @@ import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { useFormValidation } from "@/components/formValidation";
 import {
-  Disclosure,
   FIELD,
   FIELD_HINT,
-  FIELD_INLINE,
   FIELD_LABEL,
   PRIMARY_BUTTON,
   PRIMARY_BUTTON_LG,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON,
   Skeleton,
   formatPhone,
 } from "@/components/ui";
@@ -72,12 +66,9 @@ import {
   type ProvisionNumberBody,
 } from "@/lib/api/admin";
 import {
-  useAvailableNumbers,
-  useBuyNumber,
   useReleaseNumber,
   useTenantEngineNumbers,
   useTenantNumberCosts,
-  type AvailableNumber,
   type TenantNumberCost,
 } from "@/lib/api/numbers";
 
@@ -88,25 +79,7 @@ import { NumberRow } from "./NumberRow";
 import { WorkspacePanel } from "./WorkspacePanel";
 
 type Series = ProvisionNumberBody["series"];
-type Carrier = ProvisionNumberBody["provider"];
 type Direction = ProvisionNumberBody["direction"];
-
-/**
- * A search result WITH a quoted monthly price — the only thing this screen will buy.
- *
- * **THE PURCHASE USED TO SEND `monthly_price_usd ?? "0"`.** The button above is
- * disabled without a price, so the fallback was unreachable — and it was a FABRICATED
- * FIGURE on a money field sitting one edit away from being reached, which would have
- * recorded a rental that bills every month at a cost of nothing. Hard rule 7 is about the
- * numbers we record, and "the guard above happens to stop it" is the weakest form that
- * rule can take. Narrowing the state instead makes the whole class a type error: there is
- * no longer any value `buying` can hold for which a price has to be invented.
- */
-type PricedNumber = AvailableNumber & { monthly_price_usd: string };
-
-function isPriced(offer: AvailableNumber): offer is PricedNumber {
-  return typeof offer.monthly_price_usd === "string" && offer.monthly_price_usd !== "";
-}
 
 export function NumbersScreen({ tenantId }: { tenantId: string }) {
   const tenant = useTenant(tenantId);
@@ -125,30 +98,18 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
   // is — is `standard`, and a 140/160 preselect quietly proposes a regulated class to
   // somebody recording an ordinary landline.
   const [series, setSeries] = useState<Series>("standard");
-  // The carrier the number is held on. Vobiz is the platform's carrier (D-662); the dial
-  // gate presents a number only on the carrier it is recorded on (`number_not_on_carrier`).
-  const [carrier, setCarrier] = useState<Carrier>("vobiz");
-  // On a voice platform that rents numbers in its own console (ThinnestAI, D-678) the only
-  // provider a call there can present is that platform: the server refuses any other
-  // provider at the dial gate, and refuses `thinnest` on any other deployment.
+  // A number is recorded on the voice platform (D-678): the only provider a call can present
+  // is that platform, and the server refuses any other at the dial gate.
   const engineNumbers = useTenantEngineNumbers(tenantId);
   const engineHeld = engineNumbers.data?.managed_in_engine_console === true;
   const engineLabel = engineNumbers.data?.platform ?? "the voice platform";
-  const recordAs: Carrier = engineHeld ? "thinnest" : carrier;
   // `inbound` matches the server's own default: it is the leg no regulation restricts. A
   // number an agent should also call OUT from must say so here, or the dial gate refuses
   // it as `number_inbound_only` — there is no later control that changes it.
   const [direction, setDirection] = useState<Direction>("inbound");
   const [engineRef, setEngineRef] = useState("");
 
-  const [country, setCountry] = useState<"IN" | "US">("IN");
-  const [pattern, setPattern] = useState("");
-  const [searching, setSearching] = useState(false);
-  const offers = useAvailableNumbers(country, pattern, searching);
-
-  const buy = useBuyNumber(tenantId);
   const release = useReleaseNumber(tenantId);
-  const [buying, setBuying] = useState<PricedNumber | null>(null);
   const [releasing, setReleasing] = useState<TenantNumberCost | null>(null);
   const [recording, setRecording] = useState(false);
 
@@ -216,112 +177,11 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
         </ul>
       )}
 
-      {/* Disclosed, with the fact in the closed state: this path refuses by name on this
-          deployment until a reseller authorisation is recorded (Model A). */}
-      <Disclosure
-        title="Buy a number"
-        subtitle="Model A only: refused on this deployment until a reseller authorisation is recorded."
-      >
-        <div className="space-y-4 px-4 pb-4 sm:px-6">
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1">
-              <span className={FIELD_LABEL}>Country</span>
-              <select
-                className={FIELD_INLINE}
-                value={country}
-                onChange={(ev) => {
-                  setCountry(ev.target.value as "IN" | "US");
-                  setSearching(false);
-                }}
-              >
-                <option value="IN">India</option>
-                <option value="US">United States</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1">
-              {/* THE VENDOR'S OWN UNIT — "3-character prefix", not a regex and not a
-                  city. Labelled in their terms so an operator typing "Hyderabad" is not
-                  puzzled by an empty result. */}
-              <span className={FIELD_LABEL}>Starts with (optional, up to 3 digits)</span>
-              <input
-                className={FIELD_INLINE}
-                value={pattern}
-                maxLength={8}
-                placeholder="80"
-                onChange={(ev) => {
-                  setPattern(ev.target.value.trim());
-                  setSearching(false);
-                }}
-              />
-            </label>
-            <button
-              type="button"
-              className={SECONDARY_BUTTON}
-              disabled={!write.allowed || offers.isFetching}
-              onClick={() => setSearching(true)}
-            >
-              <Search aria-hidden className="h-3.5 w-3.5" />
-              {offers.isFetching ? "Searching…" : "Search"}
-            </button>
-          </div>
-
-          {offers.error && <ProblemNotice error={offers.error} />}
-          {buy.error && <ProblemNotice error={buy.error} />}
-
-          {searching &&
-            !offers.error &&
-            (offers.isLoading || !offers.data ? (
-              <Skeleton rows={3} />
-            ) : offers.data.length === 0 ? (
-              <p className="text-body text-ink-muted">
-                The voice platform has nothing available matching that. Try a different
-                prefix — this is their inventory today, not a permanent answer.
-              </p>
-            ) : (
-              <ul className={HAIRLINE_LIST}>
-                {offers.data.map((offer) => (
-                  <li key={offer.e164} className="flex flex-wrap items-center gap-3 py-2.5 text-body">
-                    <span className="font-mono text-ink">{formatPhone(offer.e164)}</span>
-                    {offer.region && <span className="text-ink-muted">{offer.region}</span>}
-                    {offer.provider && <span className="text-meta text-ink-muted">{offer.provider}</span>}
-                    <span className="text-ink-muted">
-                      {/* The vendor's own figure, in the vendor's own currency. */}
-                      {offer.monthly_price_usd
-                        ? `$${offer.monthly_price_usd} / month`
-                        : "no price quoted"}
-                    </span>
-                    <span className="ml-auto">
-                      <button
-                        type="button"
-                        className={SECONDARY_BUTTON}
-                        disabled={!write.allowed || !offer.monthly_price_usd || buy.isPending}
-                        onClick={() => {
-                          // The type, not the disabled attribute, is what keeps an
-                          // unpriced number out of the purchase — see `PricedNumber`.
-                          if (isPriced(offer)) setBuying(offer);
-                        }}
-                      >
-                        Buy
-                      </button>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ))}
-          {searching && offers.data?.some((offer) => !offer.monthly_price_usd) && (
-            <p className="text-meta text-ink-muted">
-              A number with no quoted price cannot be bought: its monthly cost would never
-              be recorded, and an unbilled monthly cost is a leak nobody sees.
-            </p>
-          )}
-        </div>
-      </Disclosure>
-
       <Drawer
         open={recording}
         onClose={() => setRecording(false)}
         title="Record a number"
-        description="A number already held on a carrier account. Recording it buys nothing."
+        description="A number already held on the voice platform. Recording it buys nothing."
       >
         <form
           className="space-y-4"
@@ -331,7 +191,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
               {
                 e164,
                 series,
-                provider: recordAs,
+                provider: "thinnest",
                 direction,
                 // A blank field means "not known yet", which the row's own link control
                 // fills in later; it is never sent as an empty handle.
@@ -348,8 +208,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
           })}
         >
           <p className="text-body text-ink-muted">
-            Recording a number here is what lets an agent be put on it. To buy a new one,
-            use the search on this page instead.
+            Recording a number here is what lets an agent be put on it.
           </p>
           {record.error && <ProblemNotice error={record.error} />}
           <label className="block">
@@ -391,24 +250,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
               </InfoTip>
             </div>
           </div>
-          <label className="block">
-            <span className={FIELD_LABEL}>Carrier</span>
-            <select
-              className={FIELD}
-              value={recordAs}
-              disabled={!write.allowed || engineHeld}
-              onChange={(ev) => setCarrier(ev.target.value as Carrier)}
-            >
-              {engineHeld ? (
-                <option value="thinnest">{engineLabel}</option>
-              ) : (
-                <>
-                  <option value="vobiz">Vobiz</option>
-                  <option value="plivo">Plivo</option>
-                </>
-              )}
-            </select>
-          </label>
+          <p className="text-body text-ink-muted">Held on: {engineLabel}</p>
           <div>
             <label className="block">
               <span className={FIELD_LABEL}>Calls on this number</span>
@@ -430,7 +272,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
           </div>
           <div>
             <label className="block">
-              <span className={FIELD_LABEL}>Carrier&apos;s number id (optional)</span>
+              <span className={FIELD_LABEL}>The voice platform&apos;s number id (optional)</span>
               <input
                 value={engineRef}
                 maxLength={200}
@@ -440,9 +282,9 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
               />
             </label>
             <p className={FIELD_HINT}>
-              The id the carrier gives this number (on Vobiz, the number&apos;s id in its
-              number list). No agent can answer the number until it is set; you can also add
-              it later on the number&apos;s row.
+              The id the voice platform gives this number in its number list. No agent can
+              answer the number until it is set; you can also add it later on the
+              number&apos;s row.
             </p>
           </div>
           <button
@@ -454,35 +296,6 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
           </button>
         </form>
       </Drawer>
-
-      {buying && (
-        <ConfirmDialog
-          title={`Buy ${formatPhone(buying.e164)} for ${tenant.data?.name ?? "this client"}?`}
-          confirmLabel="Buy the number"
-          pendingLabel="Buying…"
-          pending={buy.isPending}
-          error={buy.error}
-          onCancel={() => setBuying(null)}
-          onConfirm={() =>
-            buy.mutate(
-              {
-                e164: buying.e164,
-                country,
-                provider: buying.provider,
-                monthly_price_usd: buying.monthly_price_usd,
-              },
-              { onSuccess: () => setBuying(null) },
-            )
-          }
-        >
-          <p>
-            This charges the platform account now and{" "}
-            <strong>${buying.monthly_price_usd} every month</strong> until the number is
-            released. It cannot be undone by trying again — a repeat buys a second number
-            and starts a second rental.
-          </p>
-        </ConfirmDialog>
-      )}
 
       {releasing && (
         <ConfirmDialog

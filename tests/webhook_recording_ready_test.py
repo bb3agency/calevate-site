@@ -185,11 +185,11 @@ def test_recording_ready_without_the_link_opt_in_is_refused() -> None:
     assert exc.value.code == "recording_ready_requires_recording_url"
 
 
-def test_recording_ready_with_the_link_opt_in_is_accepted() -> None:
-    assert_recording_ready_has_its_opt_in(
-        _body(["call.recording_ready"], include_recording_url=True)
-    )
-
-
-def test_other_events_need_no_link_opt_in() -> None:
-    assert_recording_ready_has_its_opt_in(_body(["lead.created", "call.completed"]))
+@pytest.mark.parametrize(
+    ("events", "opted_in"),
+    [(["call.recording_ready"], True), (["lead.created", "call.completed"], False)],
+)
+def test_an_endpoint_that_needs_no_further_opt_in_is_accepted(
+    events: list[str], opted_in: bool
+) -> None:
+    assert_recording_ready_has_its_opt_in(_body(events, include_recording_url=opted_in))

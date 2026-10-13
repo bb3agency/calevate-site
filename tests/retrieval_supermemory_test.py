@@ -1,8 +1,8 @@
 """The Supermemory seam: selection, tenancy, degradation, metering, and what is logged.
 
 **THERE IS NO NETWORK IN THIS FILE AND THERE MUST NOT BE.** Supermemory is not installed
-and `supermemory.ai` is egress-blocked from this container (`docs/PIPECAT-MIGRATION.md`
-§8.5), so the vendor is faked at the ONE seam that touches a socket —
+and `supermemory.ai` is egress-blocked from this container (ROADMAP D-604),
+so the vendor is faked at the ONE seam that touches a socket —
 `supermemory.SupermemoryTransport` — and everything above it runs for real. That is the
 same split `tests/retrieval_pgvector_test.py` takes at `chat.embed`, and it is the split
 that matters here for a second reason: the whole adapter is written against a contract

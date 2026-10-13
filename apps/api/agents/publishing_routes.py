@@ -15,32 +15,12 @@ Three questions and two buttons:
 
 WHY THE AGENT'S VOICE IS READ HERE AND NOT ON `AgentOut`
 --------------------------------------------------------
-`PATCH .../agents/{aid}/voice` shipped without any read, so the admin picker could set a
-voice and never show one. The obvious fix — put `tts_voice` on `AgentOut` — was
-rejected, and the reason is the feature itself rather than tidiness:
-
-- **`AgentOut` has nowhere to put the second answer.** A voice is two facts, configured
-  and live, because `set_agent_voice` writes our row without touching the engine. A
-  single `tts_voice` field on the roster row would render as "the voice" and be wrong on
-  exactly the agents where it matters — the published ones with an unpublished change.
-  Adding BOTH to `AgentOut` would move two-speed publishing onto a read that knows
-  nothing else about it, giving the concept two homes. This endpoint is already the one
-  that answers "what is configured, what is live, what does it take to close the gap"
-  for the script and the call cap; the voice is the third instance of one question, not
-  a new one.
-- **`AgentOut` is the ROSTER, and it is on hot paths.** It backs the client agents
-  screen and the agent pickers on Leads, Campaigns, Knowledge and Lead sources, and
-  `get_agent` is implemented as "list them all and filter", so every field added there
-  is paid per agent by five screens that want a name and an id. This read is per agent
-  and already fetched by the one screen that sets a voice.
-- **A dedicated ADMIN read was rejected too**, for a reason that outranks both: the
-  voice is not admin-only information. `list_voices` is client-realm readable on the
-  stated grounds that a client "is legally the Principal Entity and should be able to
-  see what their own agent sounds like", and D-36's ladder is a PRICE ladder — premium
-  and value bill at different rates (`plans.overage_rate` vs `overage_rate_second`,
-  §2b's "honest degraded-tier billing"), and `usage_events.meta.tts_tier` already
-  records which rung a call ran on. A client billed by rung must be able to read the
-  rung. What stays admin-only is the WRITE, which is D-21 and unchanged.
+A voice is two facts, configured and live, and this endpoint is already the one that
+answers "what is configured, what is live, what does it take to close the gap" for the
+script and the call cap; the voice is the third instance of one question, not a new one.
+`AgentOut` is the ROSTER and is on hot paths (`get_agent` is "list them all and filter"),
+so every field added there is paid per agent by five screens that want a name and an id.
+The read is client-realm because a client billed by rung must be able to read the rung.
 
 WHY THE READS ARE CLIENT-REALM AND THE WRITES ARE NOT
 -----------------------------------------------------
@@ -69,19 +49,19 @@ had to raise a support ticket to change it. So `PATCH /v1/agents/{agent_id}/call
 is the client door (`agents:write`, held by `owner` and `staff`), the admin path stays
 for an operator acting as themselves during onboarding, and both call ONE writer,
 `publishing.set_call_cap` — `agents/llm_routes.py`'s two-doors-one-writer pattern,
-adopted rather than re-invented, and the same shape `voice_routes.py` now has. The
+adopted rather than re-invented. The
 tenant rides in the ADMIN path for the reason `prompt_routes.py` states at length: an
 admin principal has no tenant of its own.
 
 ⚠ **MOUNT THIS ROUTER BEFORE `agents.routes.router`.** FastAPI matches in declaration
 order and `/v1/agents/{agent_id}` happily matches the literal segment `lanes`, so the
 wrong order turns `GET /v1/agents/lanes` into a 422 about `agent_id` not being a UUID.
-Same hazard, same fix, as `voice_routes.py`'s `/v1/agents/voices`;
+The same hazard applies to every literal segment under `/v1/agents`;
 `tests/two_speed_publishing_routes_test.py` mounts both in the correct order so a
 regression fails a test rather than a demo.
 
 NOT mounted in `main.py` — the integrator wires this router in, exactly as with
-`agents/prompt_routes.py`, `agents/voice_routes.py` and `compliance/export_routes.py`.
+`agents/prompt_routes.py` and `compliance/export_routes.py`.
 The OpenAPI snapshot and the generated TS client are therefore unchanged by this wave
 and stay fresh; they go stale on the commit that mounts it.
 
@@ -126,7 +106,7 @@ log = get_logger(__name__)
 
 # No prefix — the reads live in the client realm's `/v1/agents` space and the
 # mutations under `/v1/admin/tenants/{tenant_id}/...`, so a shared prefix could only
-# describe one of them. Same resolution, and the same reason, as `voice_routes.py`.
+# describe one of them.
 router = APIRouter(tags=["agents"])
 
 # `Annotated` aliases rather than `Depends()` defaults: this file is not `routes.py`,
@@ -136,8 +116,9 @@ PublishingWriter = Annotated[Principal, Depends(requires("agents:write", realm="
 #: THE CLIENT DOOR'S LOCK (D-586) — `realm` left at its `"any"` default, so `current_any`
 #: admits the account's own `owner` or `staff` from a client session and an ADMIN principal
 #: only when the impersonation header is present. Exactly the population the founder named:
-#: the owner, their staff, and an operator viewing as them. `voice_routes.VoiceWriter` is
-#: the same alias for the same reason; see it for why `agents:write` and not `org:manage`.
+#: the owner, their staff, and an operator viewing as them. `agents:write` and not
+#: `org:manage`, because the person who needs to change a live agent's settings is as
+#: likely to be staff as the owner.
 CapWriter = Annotated[Principal, Depends(requires("agents:write"))]
 # Reads the tenant DIRECTORY cross-tenant so the audit row can be written on it; it
 # unlocks no agent rows. Every mutation below does its work inside the tenant's own
@@ -194,12 +175,11 @@ class AgentVoiceOut(Strict):
     #: WHICH RUNG THIS VOICE BILLS ON, beside the vendor that speaks it. `None` exactly when
     #: `provider` is — an id this build cannot resolve names no rung either.
     #:
-    #: ⚠ **ADDED 19 SEP 2026 WITH THE BUG IT FIXES ALREADY LIVE.** The client console priced
-    #: the live voice with `voiceTierRate(rates, ...provider)` — a PROVIDER matched against
-    #: rate rows keyed by TIER. It worked only while each provider's name equalled its
-    #: rung's, and stopped on 18 Sep 2026 when Gnani took the Clear rung: the panel found no
-    #: row and printed no rate for the very voice the client was being charged for. The
-    #: server knows `VOICE_TIER_OF_PROVIDER`; a browser re-deriving it is a second copy.
+    #: Sent rather than re-derived: a client console that priced
+    #: the live voice with `voiceTierRate(rates, ...provider)` matched a PROVIDER against
+    #: rate rows keyed by TIER and printed no rate once a provider's name stopped equalling
+    #: its rung.
+    #: The server knows `VOICE_TIER_OF_PROVIDER`; a browser re-deriving it is a second copy.
     voice_tier: str | None
     catalog: Voice | None
 
@@ -207,8 +187,8 @@ class AgentVoiceOut(Strict):
 class VoiceStateOut(Strict):
     """The voice CONFIGURED on the agent and the voice the engine was last SENT.
 
-    Two fields because they are two facts. `PATCH .../agents/{aid}/voice` writes our row
-    and stops there, so a live agent keeps its old voice until the next publish — one
+    Two fields because they are two facts. A voice written to our row
+    reaches the engine only at a publish, so a paused agent keeps its old voice — one
     value labelled "the voice" would be a claim about a client's phone line that nobody
     checked.
 
@@ -343,11 +323,6 @@ class VoiceTierRateOut(Strict):
     what a ledger row and a `meta.lots` split are reconciled on. The label comes from
     `billing/rates.voice_tier_label`, never a literal here and never a second copy in the
     browser — one definition, sent down, for the reason the money figures are.
-
-    ⚠ **THIS FIELD WAS CALLED `provider` AND THIS DOCSTRING CALLED IT "THE VENDOR"
-    (until 19 Sep 2026).** It never carried a vendor. It carried the rung, which happened
-    to be spelled with a vendor's name — and on the Clear rung that name had been wrong
-    since 18 Sep 2026, when Sarvam stopped speaking on this product at all.
     """
 
     voice_tier: str
@@ -480,8 +455,7 @@ async def list_lanes(_: PublishingReader) -> LanesOut:
         "Backs the unsaved-changes banner and the voice picker. `agents:read`, not "
         "`agents:write`: this is the view that explains why an edit has not taken "
         "effect, so it must be readable by someone who may only look (D-22).\n\n"
-        "`voice.configured` is what "
-        "`PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice` wrote; "
+        "`voice.configured` is the voice on our agent row; "
         "`voice.live` is what the engine was last sent. They differ until a publish, "
         "which is what `voice.republish_required` reports. A null `voice.live` on a "
         "published agent means we have no record of what it is holding — read it with "
@@ -519,7 +493,9 @@ def _render_voice(voice: publishing.AgentVoice | None) -> AgentVoiceOut | None:
         # describes what is on the agent, and a provider nobody has priced still has a name
         # worth showing. So the absence is carried as `None` and the screen says nothing.
         voice_tier=(
-            VOICE_TIER_OF_PROVIDER.get(cast(VoiceProvider, provider))
+            voice.tier
+            if voice.tier is not None
+            else VOICE_TIER_OF_PROVIDER.get(cast(VoiceProvider, provider))
             if provider in VOICE_TIER_OF_PROVIDER
             else None
         ),
@@ -811,8 +787,7 @@ async def set_my_agent_call_cap(
 
     `agents:write` rather than `org:manage`: the cap is what stops a stuck call spending
     an account's credit, and the person watching that happen is as likely to be staff as
-    the owner. See `voice_routes.VoiceWriter` for the full argument — it is one decision
-    covering both settings, not two.
+    the owner.
     """
     assert principal.tenant_id is not None  # `requires()` resolves a tenant for this realm
     return await _apply_cap(

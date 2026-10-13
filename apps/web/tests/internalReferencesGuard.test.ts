@@ -107,7 +107,7 @@ const CLIENT_RULES: ReadonlyArray<readonly [string, RegExp]> = [
   ["our stack", /\bthe API\b|\bendpoints?\b|\bpayloads?\b|\bwebhooks?\b/i],
   [
     "a vendor",
-    /\b(?:sarvam|cartesia|bulbul|saaras|sonic|gnani|timbre|vobiz|plivo|pipecat|thinnest(?:ai)?|bolna|exotel)\b/i,
+    /\b(?:sarvam|cartesia|saaras|sonic|plivo|thinnest(?:ai)?|bolna|exotel)\b/i,
   ],
 ];
 

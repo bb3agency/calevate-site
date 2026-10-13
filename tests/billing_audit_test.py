@@ -803,9 +803,8 @@ def _gst_registered_supplier(monkeypatch: pytest.MonkeyPatch):
 
 
 async def test_a_carrier_charge_for_an_unanswered_dial_is_not_a_call_on_the_usage_panel() -> None:
-    """The carrier's CDR lands as an `other` row (`apps/workers/carrier_events`), including
-    for a busy or unanswered dial it charged us for. That is our cost and was never metered
-    for the client, so it must not add a call to the client's count."""
+    """A charge for a busy or unanswered dial lands as an `other` row. That is our cost and
+    was never metered for the client, so it must not add a call to the client's count."""
     tenant_id, agent_id = await _tenant("managed")
     await _seed_usage(tenant_id, agent_id, minutes=2)
     busy_call = uuid7()

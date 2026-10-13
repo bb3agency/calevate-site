@@ -85,7 +85,7 @@ async def test_attestation_refuses_what_it_cannot_meter() -> None:
             # Positive, but NUMERIC(12,4) would store it as ₹0.0000 per minute.
             ("thinnest", "platform", "0.00001", "attested_price_not_meterable"),
             ("thinnest", "gold", "1", "engine_minute_price_unknown_rate_key"),
-            ("pipecat", "platform", "1", "engine_minute_price_unknown_engine"),
+            ("fake", "platform", "1", "engine_minute_price_unknown_engine"),
         ):
             with pytest.raises(ProblemError) as refused:
                 await attest_engine_minute_price(

@@ -698,15 +698,12 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # a credential rather than pretending otherwise. The trailing slash keeps the
     # exemption to the reporting surface; there is exactly one route under it.
     "/reports/v1/",
-    # THE VOICE WORKER'S OWN SERVER HALF (D-621). Unauthenticated in the registry's sense
-    # — `apps/voice-worker` runs on Pipecat Cloud, holds no Calevate session and has no
-    # membership to check a permission against — and gated by a Bearer token THIS
-    # deployment issues it (`pipecat_worker_api_token`), compared in constant time, with an
-    # unconfigured deployment answering nobody. It is the widest of the tokens on this
-    # list, because it opens a WRITE surface rather than a read, which is why it is its own
-    # credential. The trailing slash keeps the
-    # exemption to this surface; all three routes under it are declared in
-    # `scripts/check_public_routes.UNAUTHENTICATED_ROUTES`.
+    # THE VOICE ENGINE'S IN-CALL ACTIONS AND CALLER LOOKUPS (D-678). Unauthenticated in the
+    # registry's sense — the engine holds no Calevate session and has no membership to
+    # check a permission against — and gated per request by the secret minted for each
+    # vendor agent (`worker/engine_actions.py`) or the engine's signature
+    # (`worker/engine_lookups.py`). The trailing slash keeps the exemption to this surface;
+    # every route under it is declared in `scripts/check_public_routes.UNAUTHENTICATED_ROUTES`.
     "/v1/worker/",
     # The public SELF-SERVE RATE CARD (D-545): the list rate and the credit-pack ladder,
     # read by the marketing site's server to put "from ₹X/min" on `/pricing` and the live

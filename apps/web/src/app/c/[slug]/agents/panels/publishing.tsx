@@ -12,8 +12,7 @@
 
 import { formatCallCap, formatINR, formatIST, formatRupeeRate, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
 import { SettingRow } from "@/components/console/settingRow";
-import type { PendingChange, PendingState } from "@/lib/api/publishing";
-import { voiceTierRate } from "@/lib/api/voices";
+import { voiceTierRate, type PendingChange, type PendingState } from "@/lib/api/publishing";
 
 /** The field name the server gives a staged script in `PendingOut.pending`. */
 export const SCRIPT_FIELD = "script";

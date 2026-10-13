@@ -104,9 +104,9 @@ export function useAttestModelPrice() {
  * carried in the TYPES (`AttestEmbeddingPriceInput` has no output field) rather than in a
  * comment, because a nullable field on a form is a field somebody eventually fills in.
  *
- * ITS OWN PATH, because an encoder identifier contains a SLASH (`models/gemini-embedding-2`
- * — the string Google's OpenAI-compatibility surface lists, the string the wire takes and
- * the string the ledger records). It is interpolated RAW, never `encodeURIComponent`d: the
+ * ITS OWN PATH, because an encoder identifier may contain a SLASH (a vendor-prefixed
+ * `models/<name>` — the string an OpenAI-compatibility surface lists, the string the wire
+ * takes and the string the ledger records). It is interpolated RAW, never `encodeURIComponent`d: the
  * server's route takes a `:path` parameter precisely so that no `%2F` — which proxies
  * normalise or refuse — ever appears in the URL.
  */
@@ -123,7 +123,7 @@ export type EmbeddingPriceWrite = Schemas["EmbeddingPriceWriteOut"];
  * The step-up string for attesting ONE encoder's price, copied VERBATIM from
  * `apps/api/ops/model_price_routes.py::embedding_attest_confirmation`. Its own prefix, so
  * a header captured while pricing a chat model cannot be replayed against the encoder that
- * decides how every published knowledge pack is built.
+ * indexes the knowledge base.
  */
 export function embeddingAttestConfirmation(model: string): string {
   return `attest_embedding_price:${model}`;

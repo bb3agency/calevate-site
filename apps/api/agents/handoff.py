@@ -10,14 +10,11 @@ TWO.** The evidence is in `calevate_shared.engine.HandoffSpec` and
 `docs/evidence/handoff-warm-transfer.md`; the summary a reader of THIS file needs:
 
 * **The whisper is not achievable.** Playing a message to the called party before bridging
-  needs control of the caller's telephony leg — Plivo's `<Dial confirmSound=…>` is the
-  shape (VERIFIED-VENDOR-SDK: `plivo/plivo-python@master`, `plivo/xml/DialElement.py`,
-  `confirm_sound`/`confirm_key`/`confirm_timeout`; the live-call redirect is
-  `plivo/resources/calls.py:299-338`, `POST /Call/{uuid}` with `legs` + `aleg_url`, read
-  4 Sep 2026). We hold NO telephony credential: no Plivo or Exotel client, no auth id, no
-  auth token, and `campaigns/provisioning.PROVISIONING_IMPLEMENTED` is False. The engine
-  places the leg on the account connected to IT. So what reaches the person is a message on
-  their phone as it rings, not a voice in their ear — the founder's own stated second
+  needs control of the caller's telephony leg (a carrier's dial-with-confirm-sound verb).
+  We hold NO telephony credential: no carrier client, no auth id, no auth token, and
+  `campaigns/provisioning.PROVISIONING_IMPLEMENTED` is False. The engine places the leg on
+  the account connected to IT. So what reaches the person is a message on their phone as
+  it rings, not a voice in their ear — the founder's own stated second
   choice — and this module never pretends otherwise.
 * **In-call failover down the list is not achievable.** The engine latches after the first
   handover and answers every later attempt with "Call transfer already in progress"
@@ -74,6 +71,17 @@ from apps.workers.redaction import redact
 #: kept identical so the two screens cannot disagree about what a roster is.
 MAX_HANDOFF_MEMBERS: Final = 10
 
+#: What the agent must tell a caller when our hand-over action places no leg. One producer:
+#: this sentence is the difference between an honest refusal and a caller left on hold, and
+#: a second copy is a second chance to soften it into a promise. It forbids "transferring
+#: you now" and "please hold" because both are true only of a leg that was placed.
+HANDOFF_DEGRADED_SAY: Final = (
+    "You CANNOT put this caller through to a person on this line, and you must not say you "
+    "are transferring them or ask them to hold. Tell them plainly that you are not able to "
+    "connect them right now, apologise, and offer either to have somebody call them back — "
+    "then use the call-back tool if they agree — or to take a message."
+)
+
 #: What a client is told when a handover number is outside India, beside the field.
 HANDOFF_NUMBER_NOT_INDIA: Final = (
     "Calevate can only put callers through to Indian numbers. Enter this person's mobile "
@@ -84,11 +92,10 @@ HANDOFF_NUMBER_NOT_INDIA: Final = (
 def india_handoff_number(value: str) -> str:
     """Pydantic after-validator for every number written to a handover roster.
 
-    The India-only freeze (`compliance.service.INDIA_E164_PREFIX`) refuses a non-`+91`
-    bridged leg at call time (`transfer_providers/vobiz.start_transfer`); this refuses it
-    when the number is registered, so the roster never holds a number the platform will
-    not ring and the client is told while they are looking at the form rather than by a
-    caller who was never put through. The business profile's contacts
+    The India-only freeze (`compliance.service.INDIA_E164_PREFIX`) is refused when the
+    number is registered, so the roster never holds a number the platform will not ring
+    and the client is told while they are looking at the form rather than by a caller who
+    was never put through. The business profile's contacts
     (`tenancy/business_profile.BusinessContactIn`), the one place a roster number is typed,
     validate through this function.
 
@@ -111,9 +118,8 @@ MAX_BRIEF_CHARS: Final = 600
 def redacted_brief(raw: object) -> str | None:
     """The model's words about a live conversation, redacted and bounded, or None.
 
-    The one producer of `handoff_attempts.reason` / `summary` for BOTH paths that write
-    them — the rented engine's job (`workers/handoff`) and the in-call tool
-    (`handoff_execution.place_handoff`). The prose can carry anything the caller said out
+    The one producer of `handoff_attempts.reason` / `summary`, written by the engine's
+    hand-over job (`workers/handoff`). The prose can carry anything the caller said out
     loud (a card number, an Aadhaar, a second phone number), and SEC-COMP §4's
     `text_redacted` rule applies to the column exactly as to a transcript.
     """
@@ -193,15 +199,6 @@ _UNAVAILABLE_REASONS: Final[dict[str, str]] = {
         "yet, so your handover list is saved and not in use — callers asking for a person "
         "are told plainly and offered a call-back instead. Nothing needs changing here."
     ),
-}
-
-
-#: The reasons that are about the CLIENT'S OWN ROSTER rather than about the platform.
-#: DERIVED from the table above rather than retyped, so a reason added there joins this set
-#: the day it appears — `worker/tools.py` keys the agent's own wording on it, and a member
-#: missing from a hand-written copy would be a caller told the wrong thing.
-ROSTER_UNAVAILABLE_REASONS: Final[frozenset[str]] = frozenset(_UNAVAILABLE_REASONS) - {
-    PLATFORM_CANNOT_TRANSFER
 }
 
 
@@ -356,9 +353,9 @@ async def spec_for(
     """
     # THE PLATFORM IS ASKED BEFORE THE ROSTER, and it decides on its own.
     #
-    # An engine that can hand a caller over by neither mechanism — not its own in-call
-    # tool, not our carrier seam — has no destination to be given, and publishing one
-    # would put a number on a platform that cannot dial it. It is answered as a VERDICT
+    # An engine that cannot hand a caller over in-call has no destination to be given, and
+    # publishing one would put a number on a platform that cannot dial it. It is answered as
+    # a VERDICT
     # with its own reason rather than by refusing the publish: see
     # `transfer_providers.transfer_blocked_reason` for why the refusal moved.
     blocked = transfer_blocked_reason(get_engine())
@@ -406,12 +403,12 @@ def handoff_spec(duty: OnDuty, *, trigger: str | None, language: str) -> Handoff
 
 
 __all__ = [
+    "HANDOFF_DEGRADED_SAY",
     "HANDOFF_NUMBER_NOT_INDIA",
     "HANDOFF_SPOKEN_TEMPLATES",
     "HANDOFF_TRIGGER_DEFAULT",
     "MAX_BRIEF_CHARS",
     "MAX_HANDOFF_MEMBERS",
-    "ROSTER_UNAVAILABLE_REASONS",
     "OnDuty",
     "RosterMember",
     "handoff_spec",

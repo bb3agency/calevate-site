@@ -88,14 +88,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # that "no column, config row or client-authored script can withdraw it" has nowhere
     # to live for that dial — the same class as the drift codes above, not a config nit.
     "engine_compliance_floor_absent": "page",
-    # PAGE, and the reasoning is the inverse of `pack_gc`'s two `attention` codes: this one
-    # costs a CALLER, not object-store spend. It is raised by `apps/voice-runtime/
-    # carrier_routes.py` when the carrier asks where to stream and
-    # `PIPECAT_STREAM_BASE_URL` is unset — so the answer document cannot be built and EVERY
-    # inbound call on the owned runtime fails, with a real person on the line hearing
-    # nothing. The fix is one operator action (set the variable), which is exactly what a
-    # page is for.
-    "carrier_stream_base_not_configured": "page",
     # voice-runtime's own refusals. `attention`: the ack path shed a webhook, which the
     # poller reconciles (TRD §5 makes the poller the truth and the webhook
     # a hint) — but a RUN of them is the queue being down, which is what the board shows.
@@ -123,9 +115,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # is nothing for an operator to do. A wall of these on the console is a signal
     # (someone is hammering us); one of them is not.
     "rate_limited": "record",
-    # Redis refused a live speaking-state write (D-656). The next state replaces it within
-    # a second and the call itself is untouched; a Redis outage pages through its own checks.
-    "live_state_unavailable": "record",
     "too_many_attempts": "record",
     "resend_too_soon": "record",
     "service_load_shed": "record",
@@ -171,7 +160,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # right latency for "a capability is off" — it was already off yesterday.
     "kb_detach_failed": "attention",
     "engine_capability_absent": "attention",
-    "engine_capability_unverified": "attention",
     "engine_not_configured": "attention",
     # A number cannot be sold until an operator attests its monthly price (hard rule 7),
     # so this is a sale stopped on a task only we can clear. `attention` and not `page`:
@@ -191,7 +179,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "kyc_webhook_expired_run": "attention",
     "engine_number_not_linked": "attention",
     "engine_number_purchase_unusable": "attention",
-    "engine_caller_id_not_configured": "attention",
     "engine_publish_not_applied": "attention",
     # An operator recording a model band while the engine returned only part of its model
     # list: the record is refused, and nothing a client runs is affected.
@@ -199,8 +186,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "number_provisioning_not_configured": "attention",
     "number_resale_not_authorized": "attention",
     "payments_not_configured": "attention",
-    "voice_check_unavailable": "attention",
-    "voice_check_incomplete": "attention",
     # A DIAL WE COULD NOT CONFIRM — the call may or may not have been placed, so it is
     # not "nothing happened". `attention` rather than `page` for `unhandled_exception`'s
     # reason: one is a blip the poller reconciles, and a run of them is an outage that
@@ -257,29 +242,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # AI-disclosure and recording-notice lines are not ours — the invariant that "no
     # column, config row or client-authored script can withdraw it" is exactly what has
     # been withdrawn. Not a config nit.
-    # Hard rule 5's composer failed its own check, so the config version was refused and
-    # nothing was published. It pages not because a caller is at risk — the refusal is the
-    # system working — but because every OTHER reader of that prompt (publish read-back,
-    # `verification.judge`, the drift sweep) assumes the floor is already there and scores
-    # accordingly. A composer that can drop it once is one none of them can trust.
-    "agent_config_floor_absent": "page",
-    # D-674's twin of the above. Nothing reached a caller, but the composer emits the rule
-    # unconditionally, so this firing means it no longer does — and then no agent anywhere
-    # can be minted a config version, which is every publish stopped.
-    "agent_config_confidentiality_absent": "page",
-    # The mint path collided on a row it then could not read. Degraded, not dangerous: the
-    # client is told to retry and nothing was written. `attention` rather than `page`
-    # because the usual cause is a tenant-scope mistake on our side, which is a bug to fix
-    # in daylight — the alternative cause (a row really disappearing from an append-only
-    # table) would announce itself through the immutability guards, far louder than this.
-    "agent_config_version_unreadable": "attention",
-    # `engine_agent_drift_detected`'s condition on the owned runtime, so it takes the same
-    # rung: a live agent is running a script this platform did not compose. It is one row
-    # and still a page because the evidence is content-addressed — a worker attests the
-    # version id it was served and the digest is taken over that version's own bytes, so
-    # there is no staleness reading under which one mismatch is benign and worth waiting
-    # for a second.
-    "agent_config_attestation_mismatch": "page",
     "engine_agent_drift_detected": "page",
     # A client's number answers nobody. Their whole inbound product is off.
     "engine_inbound_binding_failed": "page",
@@ -336,13 +298,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "outstanding_probe_incomplete": "record",
     "outstanding_probe_budget_exhausted": "record",
     "call_duration_negative": "attention",
-    # A call settled TERMINAL with NEITHER party known (D-628). `attention` and not `page`
-    # for the reason this file exists: nothing produces `calls.from_e164`/`to_e164` on the
-    # Pipecat leg yet (DEPLOYMENT §12.5 gate 9), so it fires on every call of that engine
-    # until the carrier work lands — and a code that pages on every call is the inbox nobody
-    # reads. Its neighbours are on this rung already: `opt_out_unattributable` and the
-    # `in_call_optout_*` family are the same failure (a suppression with no number).
-    "call_settled_without_parties": "attention",
     "reconciliation_fetch_failed": "record",
     "reconciliation_probe_incomplete": "record",
     "reconciliation_listing_incomplete": "attention",
@@ -813,15 +768,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_kb_account_listing_incomplete": "attention",
     "engine_kb_orphans_detected": "attention",
     "kb_orphan_sweep_abandoned": "attention",
-    # THE KNOWLEDGE-PACK COLLECTOR (D-611). Both `attention` and neither is close to a
-    # page, because this sweep's whole design is that its failures cost SPACE and never a
-    # caller: it aborts before its first delete on any error, and it only ever removes
-    # packs no agent references. `knowledge_pack_residue_unattributable` is a report about
-    # objects it deliberately will not touch; `knowledge_pack_gc_abandoned` is a day of
-    # object-store spend. A page for either would train an operator to ignore the one
-    # alarm in this family that IS urgent (`knowledge_pack_publish_failed` below).
-    "knowledge_pack_residue_unattributable": "attention",
-    "knowledge_pack_gc_abandoned": "attention",
     # An owner's ID image held past its 30-day hold (D-692). Attention, not a page: the
     # next nightly tick retries, but a person's ID kept past its stated life is a broken
     # promise an operator should see the same day.
@@ -834,33 +780,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # Our server's IPv4 is not on the provider's allow-list: every DigiLocker run fails
     # until an operator adds it, so attention the same day rather than a page.
     "verification_provider_ip_not_whitelisted": "attention",
-    # ONE CLIENT'S KNOWLEDGE IS LIVE EVERYWHERE EXCEPT ON THE PHONE: the publish committed
-    # and the in-call pack could not be built or stored, so the agent keeps answering out
-    # of the pack it last loaded. Bounded to one agent, self-healing on the next publish of
-    # any source on it, and the corrected price is already on every screen — `attention`,
-    # not a page. What it is NOT is `record`: the client has been told the correction is
-    # live, and on the one surface that talks to their callers it is not.
-    "knowledge_pack_publish_failed": "attention",
-    # THE SAME OUTCOME AS THE LINE ABOVE WITH A DIFFERENT REMEDY, WHICH IS WHY IT IS ITS
-    # OWN CODE: this one is not a storage fault, so an operator sent to check the bucket
-    # finds it healthy and learns nothing. The agent's corpus has outgrown what the voice
-    # worker can fetch while the phone rings, and the fix is the client's sources.
-    # `attention` for the publish alarm's reasons exactly, plus one: it is PERMANENT rather
-    # than self-healing — every later publish on that agent refuses the same way until
-    # somebody prunes.
-    "knowledge_pack_too_large": "attention",
-    # A CALL THAT ANSWERED NOTHING. The pack did not load, so the agent replied
-    # "I cannot verify that right now" to every question for the whole call — and, because
-    # Pipecat Cloud reuses a container, to every question on every call that landed on the
-    # same container after it. The alarm carries the count.
-    #
-    # `attention` and not `page`, deliberately: the call still ran, the caller was still
-    # told truthfully it was an AI, an opt-out still worked, nothing is mis-metered and
-    # nothing is destroyed — and the failure repeats per call, which is the exact shape
-    # D-591 says must not reach an inbox. Its neighbours sit on the same rung for the same
-    # reason (`call_settled_without_parties`). What makes it
-    # findable is not loudness but the count beside it on the console.
-    "call_ran_without_knowledge": "attention",
     # THE EXTERNAL SEARCH INDEX DISAGREES WITH THE PUBLISHED CORPUS: a publish or a
     # withdrawal committed and box 3 would not take the change. `attention` for the pack
     # alarm's reason exactly — bounded to one source, invisible to the client's agent (the
@@ -886,12 +805,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # cross-script questions keep missing those chunks. Degraded retrieval on one arm, and
     # the next tick re-selects the same rows by difference — attention, never a page.
     "kb_gloss_rekey_failed": "attention",
-    # The gloss was bought and stored and the FROZEN IN-CALL PACK built from it was not
-    # rebuilt, so the agent keeps answering the phone out of a pack with no English in it —
-    # 0.083 recall@1 on a Telugu-script question (`tests/in_call_retrieval_recall_test.py`,
-    # measured 14 Sep 2026). Worse than its sparse-key twin above and still not a page: the
-    # scan selects by difference, so the next tick re-selects exactly the same agents.
-    "kb_gloss_pack_refresh_failed": "attention",
     # A publish reached some of a client's agents and others kept the previous version
     # (D-689). The catch-up converges it without anyone acting; attention, never a page.
     "kb_fan_out_incomplete": "attention",
@@ -905,68 +818,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # Rows of caller data that a DPDP erasure structurally CANNOT reach. An erasure that
     # reports success and leaves personal data behind is the worst shape a §12 failure has.
     "caller_subject_key_unreachable": "page",
-    # The carrier leg (D-662). A refused carrier request is an edge or a vendor renumber,
-    # read on the board; a callback naming another agent's call is a mis-binding or a
-    # spoofed path and pages; the rest lose a status or a cost row, which the CDR sweep
-    # recovers.
-    "carrier_source_rejected": "attention",
-    # D-675: the carrier fell back because an answer URL failed, so a real caller was
-    # turned away with a busy tone. Every one is a lost call.
-    "carrier_answer_fallback_served": "page",
-    "carrier_event_ingest_abandoned": "page",
-    "carrier_event_call_unresolved": "attention",
-    "carrier_event_call_mismatch": "page",
-    "carrier_cdr_missing": "attention",
-    "carrier_cdr_cost_unpriced": "attention",
-    "carrier_cdr_read_abandoned": "attention",
-    "carrier_cdr_sweep_incomplete": "attention",
-    # The carrier's recording of a call (D-668). A recording the carrier no longer holds
-    # and we never copied is audio gone for good, and one still uncopied past six hours may
-    # be about to be (the carrier's retention may be three days): both page. The rest are
-    # one call or one retryable leg the sweep or the erasure's written request covers.
-    "carrier_recording_lost": "page",
-    "carrier_recording_copy_overdue": "page",
-    "carrier_recording_copy_failed": "attention",
-    "carrier_recording_unresolved": "attention",
-    "carrier_recording_ended_early": "attention",
-    "carrier_recording_callback_unset": "attention",
-    "carrier_recording_sweep_incomplete": "attention",
-    "carrier_recording_delete_failed": "attention",
-    # D-670: our copy gone while the row still names it means the carrier's is now the
-    # only one, and a carrier copy past its one-day deletion is a broken promise to callers.
-    "carrier_recording_ours_missing": "page",
-    "carrier_recording_delete_overdue": "page",
-    "carrier_dial_precondition_failed": "attention",
-    "carrier_application_listing_too_long": "attention",
-    "carrier_number_listing_too_long": "attention",
     # Both refuse a dial before it leaves, so nothing is lost and the contact keeps its
     # place; sustained `carrier_lines_busy` means the account's line count is too small.
+    "carrier_dial_precondition_failed": "attention",
     "carrier_lines_busy": "attention",
-    # A recording Vobiz files under another call is refused rather than stored against
-    # this one, so no other caller's audio lands on this call.
-    "carrier_recording_call_mismatch": "attention",
-    "carrier_pacing": "record",
-    # A mis-set CARRIER_CLAIM_SECRET breaks EVERY call we dial, not one: refused at the
-    # answer when voice-runtime has no usable key, settled on the wrong row when the worker's
-    # differs. Both page; one setting fixes both.
-    "carrier_call_claim_key_missing": "page",
-    "carrier_call_claim_mismatch": "page",
-    # Calls that ended without the worker's record of them. Each one is already recovered
-    # as far as it can be — a row written, a cost read, a pipeline promised — so a single
-    # occurrence needs reading, not waking; a run of them shows on the board as a count.
-    # The abandoned finalise is the exception: nothing else will promise that pipeline.
-    "inbound_call_never_reached_worker": "attention",
-    "answered_call_never_reached_worker": "attention",
-    "carrier_hangup_never_received": "attention",
-    "worker_settlement_missing": "attention",
-    "call_finalise_abandoned": "page",
-    "carrier_binding_not_retired": "attention",
-    # A closed or erased account's number still reaches us. The call was refused before
-    # anything was said, so nobody is misled; what is outstanding is a carrier act.
-    "inbound_call_on_closed_account": "attention",
-    # No credentials for the carrier the calls are on: every carrier cost is missing until
-    # an operator installs them, and the sweep re-reads the owed records once they are.
-    "carrier_cdr_reader_unconfigured": "attention",
     # The auto-healer (D-701). A sustained dip is already being repaired and the client
     # told, so it is read on the board; a broken line, a platform outage, a relapse, a hold
     # the platform refused and an incident that needs a person are each callers going

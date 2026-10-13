@@ -2,8 +2,8 @@
 
 On `ENGINE=thinnest` the agent calls our opt-out, call-back, call-back cancel and handoff
 tools as ThinnestAI custom actions (`reliability/engine_actions.py` registers them). The
-write each one makes is the Pipecat worker's, unchanged: every route below ends in a
-`worker/tools.*_for` function, so there is still one implementation of "add this caller to
+write each one makes is in `worker/in_call_tools.py`: every route below ends in one of its
+`*_for` functions, so there is one implementation of "add this caller to
 the DNC list" and one of "book this call-back".
 
 AUTHENTICATION, before anything is parsed. The action carries `X-Agent-Secret`, a value we
@@ -111,20 +111,20 @@ from apps.api.reliability.engine_actions import (
     open_action_secret,
 )
 from apps.api.reliability.in_call_once import once_per_call
-from apps.api.worker.service import refuse_wrong_engine
-from apps.api.worker.tools import (
+from apps.api.worker.in_call_tools import (
     OPTOUT_DONE_SAY,
     CallLocator,
     ToolCall,
     book_callback_for,
     cancel_callback_for,
     record_opt_out_for,
+    refuse_wrong_engine,
     request_handoff_unplaced,
 )
 
 log = get_logger(__name__)
 
-router = APIRouter(prefix=ACTIONS_PATH, tags=["voice-worker"])
+router = APIRouter(prefix=ACTIONS_PATH, tags=["engine-actions"])
 
 _REF_MAX: Final = 128
 #: The largest body an action of ours can produce: six bounded strings in a JSON object.
@@ -245,7 +245,7 @@ def _clip(value: str | None, limit: int) -> str | None:
 
 
 def _yes(value: str | None) -> bool:
-    """The narrow parse `voice_worker/call_tools` applies to `confirmed`: yes or true only."""
+    """The narrow parse of `confirmed`: yes or true only."""
     return (value or "").strip().lower() in {"yes", "true"}
 
 
@@ -332,7 +332,8 @@ def _tool_call(row: Any) -> ToolCall:
 
 
 def call_locator(route: ActionRoute, live: LiveCall, phone_e164: str) -> CallLocator:
-    """The `worker/tools.CallLocator` for a live vendor call, run in the tool's own session."""
+    """The `worker/in_call_tools.CallLocator` for a live vendor call, run in the tool's own
+    session."""
 
     async def locate(session: AsyncSession) -> ToolCall:
         row = (
@@ -570,7 +571,7 @@ async def client_action(
 
     The same gates as the platform's four tools, in the same order: the agent's secret, the
     workspace, the engine, then the live call. What runs is decided by
-    `actions/in_call.run_in_call_action`, the door the Pipecat worker uses too.
+    `actions/in_call.run_in_call_action`, the one door a client action runs through.
     """
     route = await verify_agent_secret(engine, agent, request.headers.get(SECRET_HEADER))
     if route is None:

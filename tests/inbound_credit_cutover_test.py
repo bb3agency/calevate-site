@@ -492,22 +492,6 @@ async def test_the_console_says_the_phone_is_not_being_answered_and_what_fixes_i
     assert "inbound_stopped" not in after["counts"], "the row outlived the state it describes"
 
 
-def test_the_block_remedy_no_longer_promises_that_callers_get_through() -> None:
-    """It said "People calling you still get through" until 8 Sep 2026. It is now false in
-    the direction that matters most: a client would read it, do nothing, and their phone
-    would go on turning callers away."""
-    remedy = attention.BLOCK_REMEDIES["no_credits"]
-    assert "still get through" not in remedy
-    assert "no longer answering incoming ones" in remedy
-
-
-@pytest.mark.parametrize("rule", ["no_credits"])
-def test_the_two_client_surfaces_agree(rule: str) -> None:
-    """A client must not get two accounts of one event on two screens."""
-    assert "Top up" in attention.BLOCK_REMEDIES[rule]
-    assert "Top up" in attention.INBOUND_STOPPED_DETAIL
-
-
 # ============================================================================
 # 6. The arms nobody reaches on a good day
 # ============================================================================

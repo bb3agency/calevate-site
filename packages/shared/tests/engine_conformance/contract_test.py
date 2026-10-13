@@ -67,22 +67,15 @@ KNOWN_SOURCE_IP = "198.51.100.7"
 UNKNOWN_SOURCE_IP = "203.0.113.9"
 
 
-#: THE TWO VOICE TIERS THIS PRODUCT SELLS, as `(provider, model, speaker)` (D-547).
+#: THE VOICE TIERS AN AGENT CAN NAME, as `(provider, model, speaker)` (D-547), one row per
+#: `TtsProvider`.
 #:
-#: **THE CARTESIA SPEAKER IS A FIXTURE STRING AND IS NOT A VOICE ID.** Nobody in this tree
-#: has read a real Cartesia voice id — the library is behind a login and
-#: `voices.CARTESIA_CATALOG_SOURCE` is empty for exactly that reason — so inventing one that
+#: **THE CARTESIA SPEAKER IS A FIXTURE STRING AND IS NOT A VOICE ID.** Inventing one that
 #: LOOKED real would be the laundering hard rule 11 forbids, dressed as a test fixture. What
 #: these clauses measure is the LEG (does the provider survive the round trip, or is it
-#: refused by name), which no real id is needed for.
-#: ⚠ **THE SARVAM ROW LEFT ON 18 Sep 2026** with the TEXT-TO-SPEECH leg it named; `sarvam`
-#: is not a `TtsProvider` any more. **The STT leg below is untouched** and still says
-#: `stt_provider="sarvam"` — Saaras transcribes every call, and that is a different
-#: vocabulary from this one. Index 0 is the default every existing clause builds.
-_VOICE_TIERS: Final = (
-    ("cartesia", "sonic-3.5", "conformance-placeholder-not-a-real-voice-id"),
-    ("gnani", "timbre-v2.5", "Suhana"),
-)
+#: refused by name), which no real id is needed for. Index 0 is the default every clause
+#: builds.
+_VOICE_TIERS: Final = (("cartesia", "sonic-3.5", "conformance-placeholder-not-a-real-voice-id"),)
 
 
 def _byok_models(engine: VoiceEngine, *, tier: int = 0) -> ModelConfig:
@@ -186,9 +179,8 @@ AGENT_HOSTING_VALUES: tuple[AgentHosting, ...] = AgentHosting.__args__  # type: 
 #:
 #: On that shape an account HAS agents whether or not our API client made them — they are
 #: programs deployed from a repository — so a clause that needs a ref cannot get one from
-#: `create_agent`, which refuses. Both subjects of this shape answer about this ref: the
-#: Cartesia stub seeds it (`_cartesia_handler`), and `FakeEngine`'s call and knowledge-base
-#: methods are keyed on whatever ref they are given.
+#: `create_agent`, which refuses. `FakeEngine`'s call and knowledge-base methods are keyed on
+#: whatever ref they are given.
 DEPLOYED_AGENT_REF = "agent_deployed"
 
 
@@ -253,30 +245,21 @@ def _dial_context(
 #: A CLOSED SET, checked by membership, so an adapter that fails for some OTHER reason
 #: still fails the clause — which is the whole value of the assertion this replaces.
 #:
-#: It used to be one code spelled inline, and that was correct while exactly one adapter
-#: refused. `engine_compliance_floor_absent` is `cartesia`'s: an externally-deployed engine
-#: whose outbound body has no field a prompt could ride in must refuse every dial rather
-#: than place one with no truthful-answer rule on it (D-282). `engine_capability_unverified`
-#: is `pipecat`'s and is a different honest answer to the same question: the dial is a
-#: CARRIER call, `api.plivo.com` is egress-blocked from the build environment and its REST
-#: surface has not been read, so the telephony leg is not written
-#: (`docs/evidence/pre-build-blockers-2026-09-13.md` §10). Hard rule 11 forbids inventing
-#: it, and `capabilities.py` reserves exactly this code for "not VERIFIED" as against "this
-#: platform cannot".
+#: `engine_compliance_floor_absent` is `capabilities.require_call_compliance_floor`'s: an
+#: externally-deployed engine whose outbound body has no field a prompt could ride in must
+#: refuse every dial rather than place one with no truthful-answer rule on it (D-282).
 #:
-#: A third entry needs the same treatment: a sentence saying which adapter, and why the
+#: A new entry needs the same treatment: a sentence saying which adapter, and why the
 #: refusal is a property of the world rather than of the adapter.
-DIAL_REFUSAL_CODES: Final[frozenset[str]] = frozenset(
-    {"engine_compliance_floor_absent", "engine_capability_unverified"}
-)
+DIAL_REFUSAL_CODES: Final[frozenset[str]] = frozenset({"engine_compliance_floor_absent"})
 
 
 async def _place_call(engine: VoiceEngine, *, to: str = "+919876543210") -> str | None:
     """Dial once through whichever shape this engine is, or None if it refuses by name.
 
-    `cartesia` is the refusing case and it is not a failure: its outbound body has no field
-    a prompt could ride in, so it declines every dial rather than placing one with no
-    truthful-answer rule on it (D-282). A clause that needs a placed call has nothing to
+    An externally-deployed engine whose outbound body has no field a prompt could ride in
+    declines every dial rather than placing one with no truthful-answer rule on it (D-282),
+    and that is not a failure. A clause that needs a placed call has nothing to
     measure there and says so by skipping, rather than by asserting something weaker.
     """
     cfg = _agent_config(engine)
@@ -317,10 +300,9 @@ def _assert_snapshot_is_ours(snapshot: ExecutionSnapshot, engine: VoiceEngine) -
     Written as a helper rather than inline because there are TWO routes a snapshot reaches
     us by — the authenticated single fetch and the reconciliation listing — and for as long
     as the checks lived inside the fetch clause the listing route was normalized only by
-    hope. That is not a hypothetical: `pipecat` places no dial (its carrier REST surface is
-    unread, `DIAL_REFUSAL_CODES`), so the fetch clause returns early on it and EVERY
-    statement this suite makes about a normalized snapshot was, on the newest adapter,
-    made about nothing at all.
+    hope: an adapter that refuses every dial (`DIAL_REFUSAL_CODES`) makes the fetch clause
+    return early, and every statement about a normalized snapshot would then be made about
+    nothing at all.
 
     One function, called from both, so a clause added here cannot apply to one route and
     not the other — which is the drift that produced the gap in the first place.
@@ -828,7 +810,7 @@ async def test_ending_a_call_the_engine_does_not_hold_is_reported(
 ) -> None:
     """`end_call` had NO clause at all, and the adapters disagreed underneath it (D-187).
 
-    A vendor adapter POSTs to the vendor — `/agents/calls/{id}/end` on Cartesia — and
+    A vendor adapter POSTs to the vendor and
     surfaces the 404 as `engine_rejected`.
     `FakeEngine` looked the id up, found nothing and returned None, so the whole pipeline
     running offline (DEV-SETUP §3) reported a hang-up that never happened. Same shape as
@@ -858,8 +840,8 @@ async def test_a_stop_says_what_it_caught_and_never_overclaims(engine: VoiceEngi
 
     A DNC suppression may later have to answer "prove this number was not called", and
     `RecallOutcome.PREVENTED` is the only value anything is allowed to record that on. So
-    the clause every adapter must meet is not "return PREVENTED" — Cartesia's stop route
-    is inferred and cannot know, and answers `UNKNOWN` on purpose — it is that whatever
+    the clause every adapter must meet is not "return PREVENTED" — an adapter whose
+    vendor's stop route cannot know answers `UNKNOWN` on purpose — it is that whatever
     comes back is a member of the vocabulary, so a caller can branch on it without
     guessing, and that a stop of a REAL dial never raises.
 
@@ -869,7 +851,7 @@ async def test_a_stop_says_what_it_caught_and_never_overclaims(engine: VoiceEngi
     """
     handle = await _place_call(engine)
     if handle is None:
-        # `cartesia` refuses every dial by name (see `_place_call`), so there is no real
+        # This adapter refuses every dial by name (see `_place_call`), so there is no real
         # execution here to stop. Skipping is the honest answer; stopping a fabricated id
         # would measure the D-187 clause above a second time instead of this one.
         pytest.skip("this adapter places no dial, so it holds nothing to stop")
@@ -914,7 +896,7 @@ async def test_get_execution_carries_the_vendors_own_document_for_the_archive(
        dumped its own `ExecutionSnapshot` would archive OUR normalization, so the day a
        mapping turns out wrong the only record of what the vendor said is a copy of what
        we thought it said — and every other property here would still hold, which is how
-       a deliberate sabotage of the Cartesia adapter walked through the first version of
+       a deliberate sabotage of a vendor adapter walked through the first version of
        this clause. The check has to be structural, because the suite may not name a
        vendor field either: a document whose every top-level key is a field of
        `ExecutionSnapshot` is our own shape wearing the archive's name.
@@ -944,12 +926,6 @@ async def test_get_execution_carries_the_vendors_own_document_for_the_archive(
     one = (await engine.get_execution(first)).raw_document
     two = (await engine.get_execution(second)).raw_document
 
-    if one is None and engine.capabilities.agent_hosting == "owned_runtime":
-        # On an engine we RUN there is no vendor document: the rows the runtime wrote are
-        # the record (D-607), and the archive stage answers `none_offered` for them
-        # (`apps/workers/pipeline.py`). The carrier's own record is its CDR, read by the
-        # workers, never through `get_execution`.
-        pytest.skip("an owned runtime has no vendor document to archive")
     assert one is not None, (
         "this adapter carries no raw document out of `get_execution`, so nothing can "
         "archive what the vendor said — `calls.engine_payload_ref` is a column with no "
@@ -1074,11 +1050,8 @@ async def test_a_listing_row_is_as_normalized_as_a_fetched_one(
     us by reconciliation was normalized by nobody. Extraction and redaction run off polled
     calls exactly as they run off webhook calls.
 
-    AND IT IS THE ONLY ROUTE `pipecat` HAS. That adapter places no dial — the carrier's
-    REST surface is unread and it refuses by name — so `_place_call` returns None and the
-    entire fetch half of this suite returns early on it. Before this clause, the newest
-    adapter in the tree, written against a vendor nobody here has called, made no
-    checkable statement about a normalized snapshot at all.
+    AND IT IS THE ONLY ROUTE an adapter that refuses every dial has: `_place_call` returns
+    None for it and the entire fetch half of this suite returns early.
 
     `saturated_engine` is the subject because it is the fixture that GUARANTEES rows: the
     clause above already asserts its listing is non-empty for every adapter in the roster,
@@ -1854,12 +1827,10 @@ async def test_a_byok_leg_that_can_be_read_back_holds_what_we_sent(
 async def test_every_voice_tier_round_trips_or_is_refused_by_its_own_name(
     engine: VoiceEngine,
 ) -> None:
-    """**TWO VOICE VENDORS, ONE CATALOGUE — AND THE THIRD OUTCOME IS THE ONE THAT BITES.**
+    """**EVERY VOICE TIER, ONE CATALOGUE — AND THE THIRD OUTCOME IS THE ONE THAT BITES.**
 
-    `agents/voices.py` offers Cartesia Sonic and Gnani Timbre personas from one list
-    (D-547, as amended 18 Sep 2026 when the Sarvam TEXT-TO-SPEECH leg was withdrawn — Sarvam
-    still transcribes every call and `stt_provider` is untouched), and for each of them an
-    adapter has exactly three honest answers:
+    `agents/voices.py` offers its personas from one list (D-547), and for each tier in
+    `_VOICE_TIERS` an adapter has exactly three honest answers:
 
     1. **Publish it and hold it.** The provider survives the round trip and `holds_speech`
        reports the triple that was sent.
@@ -2027,8 +1998,8 @@ async def test_the_llm_leg_round_trips_its_provider_and_endpoint(engine: VoiceEn
             engine,
             name=f"LLM leg {leg.provider}",
             # Distinct per leg AND distinct from every other clause's agent: the fake keys
-            # refs on (tenant_id, agent_id) and the Cartesia stub on the agent NAME, so both
-            # a distinct id and a distinct name are needed for the three agents to coexist —
+            # refs on (tenant_id, agent_id) and a vendor stub may key on the agent NAME, so
+            # both a distinct id and a distinct name are needed for the agents to coexist —
             # and the `11e6` marker keeps them clear of the default id other clauses use.
             agent_id=f"0199a0b0-0000-7000-8000-11e6{index:08d}",
         ).model_copy(update={"models": models})
@@ -2111,15 +2082,10 @@ async def test_the_llm_credential_seam_matches_the_declaration_either_way(
     and "is the LLM ours" are one question, and inventing a second flag would let the two
     answers drift apart.
 
-    ⚠ **AND THAT GATE STOPPED BEING THE WHOLE ANSWER WHEN AN ENGINE WE RUN ARRIVED**
-    (D-592, `docs/evidence/voice-engine-contract-2026-09-13.md` §9.1, which named this
-    method as the one whose *"existing gate gives the WRONG answer"*). On
-    `agent_hosting="owned_runtime"` the LLM leg is ours in the fullest sense — we choose the
-    model and we hold the key — and there is STILL nothing to install into, because the
-    method's purpose is *"pushing OUR key into THE ENGINE'S credential store"* and the
-    runtime reads its keys from our secrets manager at process start. So `is_ours("llm")`
-    is True and the honest answer is a refusal, which the two-branch shape above could not
-    express.
+    That gate is not the whole answer: an engine on which the LLM leg is ours may still have
+    no credential store of its own to push a key into (the method's purpose is *"pushing OUR
+    key into THE ENGINE'S credential store"*), and then `is_ours("llm")` is True and the
+    honest answer is a refusal.
 
     THE THIRD ARM IS THEREFORE A REFUSAL FROM A BYOK ENGINE, and it is admitted on one
     condition: it must be NAMED — a machine code and a sentence an operator can act on —
@@ -2355,10 +2321,10 @@ CONFORMANCE_CALLER_ID = "+911160000001"
 #: engine_number_ref` stores whatever the vendor issued and hands it straight back, and
 #: OPERATIONS §2 gate 25 is open on what that string even looks like.
 LINKED_NUMBER = ProvisionedNumber(
-    e164="+911160000001", provider="plivo", engine_number_ref="num_known_to_engine", series="160"
+    e164="+911160000001", provider="thinnest", engine_number_ref="num_known_to_engine", series="160"
 )
 UNLINKED_NUMBER = ProvisionedNumber(
-    e164="+911160000002", provider="plivo", engine_number_ref=None, series="160"
+    e164="+911160000002", provider="thinnest", engine_number_ref=None, series="160"
 )
 
 

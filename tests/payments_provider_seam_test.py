@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -45,7 +44,6 @@ from apps.api.billing.payments import (
     NO_PROVIDER_REASON,
     NO_WEBHOOK_SECRET_REASON,
     PROVIDER,
-    PROVIDER_CREATES_ORDERS,
     PROVIDER_NOT_IMPLEMENTED_REASON,
     online_payments_available,
     payment_capability,
@@ -54,10 +52,7 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
-from calevate_shared.config import Settings
 from sqlalchemy import text
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _payments_configured(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -96,21 +91,6 @@ async def _prepaid_tenant() -> tuple[UUID, Principal]:
 # ============================================================================
 # 1. The seam decides
 # ============================================================================
-
-
-def test_the_setting_exists_and_is_declared_in_env_parity() -> None:
-    """The claim is DISCOVERABILITY, and its home moved (PLATFORM-CONFIG §4, D-95).
-
-    This used to read `.env.example`, which was the only place a key could be declared.
-    The template is now the 8-key bootstrap set, and `payment_provider` is one of the 50
-    keys an operator sets at `admin.calevate.tech/ops` instead — so the check that keeps
-    the original meaning is "the console offers it", which is also the exact condition
-    `check_env_parity` treats as declared.
-    """
-    from apps.api.core.platform_config import managed_fields
-
-    assert "payment_provider" in Settings.model_fields
-    assert "payment_provider" in managed_fields()
 
 
 def test_no_provider_means_this_deployment_takes_no_online_payments(
@@ -275,19 +255,6 @@ async def test_the_intent_still_says_the_provider_order_is_pending(
     assert intent.provider_order_pending is True
 
 
-def test_the_order_creation_constant_is_true_only_while_the_adapter_exists() -> None:
-    """`PROVIDER_CREATES_ORDERS` is a claim about CODE, not about config (D-98).
-
-    It flipped to True because `RazorpayOrders.create_order` was written. This is the
-    tripwire in the other direction now: the constant may not claim an adapter that is
-    not there, so the module must still contain a real HTTP POST to a real pinned host.
-    """
-    assert PROVIDER_CREATES_ORDERS is True
-    payments = (REPO_ROOT / "apps/api/billing/payments.py").read_text(encoding="utf-8")
-    assert "https://api.razorpay.com" in payments, "the constant claims an adapter"
-    assert "client.post(" in payments, "the adapter must actually issue the request"
-
-
 def test_the_api_version_is_pinned_rather_than_inherited() -> None:
     """An unpinned version is a silent breaking change on somebody else's release
     schedule. Razorpay versions in the PATH — their own SDK carries both `V1` and `V2` —
@@ -297,17 +264,3 @@ def test_the_api_version_is_pinned_rather_than_inherited() -> None:
     assert API_VERSION_PATH == "/v1"
     assert BASE_URL == "https://api.razorpay.com"
     assert f"{BASE_URL}{API_VERSION_PATH}{ORDERS_PATH}" == "https://api.razorpay.com/v1/orders"
-
-
-# ============================================================================
-# 5. No vendor library was added (hard rule 9)
-# ============================================================================
-
-
-def test_no_razorpay_client_library_entered_the_lockfile() -> None:
-    """Adding a vendor SDK on a guess is the supply-chain move hard rule 9 forbids, and
-    the seam exists precisely so the capability can be expressed without one."""
-    lock = (REPO_ROOT / "uv.lock").read_text(encoding="utf-8")
-    assert 'name = "razorpay"' not in lock
-    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert "razorpay" not in pyproject

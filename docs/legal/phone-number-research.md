@@ -5,6 +5,9 @@
 > record *why* it is rejected, not as a live option. Confidence labels (CONFIRMED / REPORTED /
 > UNRESOLVED) are the researcher's; treat REPORTED/UNRESOLVED items as questions for a telecom
 > lawyer, never as settled law (root `CLAUDE.md` hard rule 11).
+>
+> Plivo, cited below as a market example, is the telephony provider behind ThinnestAI's
+> numbers (`docs/vendor/thinnest-replies-2026-10-12.md`); it is not a carrier we contract.
 
 ## Framing
 
@@ -40,7 +43,7 @@ This report settles, to the extent primary sources allow, which entity may lawfu
 
 **3.1–3.2 Concurrency is an account/channel property, not a number property.** Plivo's own documentation is unambiguous: "A single virtual number can host several thousand sessions and interactions… hosting several sessions on a virtual number does not impact the quality of the phone calls, as the phone number is only an identifier. The actual call media flows through dedicated calling channels for each parallel interaction". The purchasable unit for concurrency is therefore **calling channels/trunk capacity at the account level**, not the number itself; Plivo even publishes a formula for virtual-number pool sizing (2× concurrent sessions − 1) purely to avoid caller-ID collision across simultaneous sessions using the same first-party number, confirming numbers are an addressing/identifier resource while concurrency is sold as account-level channel capacity. This is CONFIRMED directly from Plivo's documentation and is a reasonable general inference for Exotel's architecture as well, though Exotel's specific channel-pricing terms were not independently verified in this pass.[^16]
 
-**3.3 BYO-trunk/SIP-connect support.** This report did not independently verify Bolna's specific "connect" documentation for Exotel/Plivo/Vobiz within this research pass; the brief's own description that Bolna publishes connect guides for these three providers is plausible given standard SIP-trunk integration patterns in the industry but should be confirmed directly against Bolna's current docs before being relied upon, and is marked UNRESOLVED here pending that direct verification.
+**3.3 BYO-trunk/SIP-connect support.** This report did not independently verify Bolna's specific "connect" documentation for Indian carriers within this research pass; the brief's own description that Bolna publishes connect guides for these providers is plausible given standard SIP-trunk integration patterns in the industry but should be confirmed directly against Bolna's current docs before being relied upon, and is marked UNRESOLVED here pending that direct verification.
 
 ## Part 4 — 140 vs 160 series and AI-specific restrictions
 
@@ -75,7 +78,7 @@ This report settles, to the extent primary sources allow, which entity may lawfu
 
 **6.4 Stop-list.** Do not resell numbers under a "transactional/service-only" label while allowing or enabling any client to run promotional/cold outbound on them. Do not treat Model B as fully liability-transferring — retain DND scrubbing, consent-record expiry tracking, and audit logging as the platform's own operational discipline regardless of who is PE. Do not reassign a previously-KYC'd number to a new client without a fresh KYC filing. Do not build WhatsApp on a WABA the client cannot independently verify or reclaim ownership of.[^7][^9][^18][^11]
 
-**6.5 Unresolved items requiring a telecom lawyer.** Whether a SaaS platform can lawfully resell business connections without holding its own UL-VNO licence, by operating strictly as an authorised downstream reseller/agent of a licensed VNO, is not settled by any primary source found and is the single most consequential open question for Model A. The exact quantum and mechanics of "quarantine" periods before number reassignment are not documented in a primary DoT/TRAI source. Bolna's specific BYO-trunk/SIP-connect technical requirements for Exotel/Plivo/Vobiz were not independently verified against current documentation. Whether Telecommunications Act 2023 s.3(7) has any enforcement history or specific DoT guidance addressing SaaS resellers (as opposed to end-user fraud) was not found and should be raised directly with counsel.
+**6.5 Unresolved items requiring a telecom lawyer.** Whether a SaaS platform can lawfully resell business connections without holding its own UL-VNO licence, by operating strictly as an authorised downstream reseller/agent of a licensed VNO, is not settled by any primary source found and is the single most consequential open question for Model A. The exact quantum and mechanics of "quarantine" periods before number reassignment are not documented in a primary DoT/TRAI source. Bolna's specific BYO-trunk/SIP-connect technical requirements for Indian carriers were not independently verified against current documentation. Whether Telecommunications Act 2023 s.3(7) has any enforcement history or specific DoT guidance addressing SaaS resellers (as opposed to end-user fraud) was not found and should be raised directly with counsel.
 
 ## Questions for a telecom lawyer
 

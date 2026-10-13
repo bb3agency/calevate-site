@@ -122,8 +122,7 @@ TWO-STEP DEPRECATION (hard rule 8)
 Rule 8 forbids dropping in the same release that stops WRITING a column. Both halves are
 in this one change because there is no writer and no reader to stage: the wiring guard's
 baseline is the standing evidence that no code in `apps/` or `packages/` touches the name
-at all, and `tests/call_latency_column_test.py` re-establishes that from the tree rather
-than from the registry. The registry entry goes with the column — the baseline may only
+at all. The registry entry goes with the column — the baseline may only
 shrink.
 """
 

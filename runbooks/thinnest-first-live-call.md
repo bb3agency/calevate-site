@@ -58,7 +58,7 @@ metered minutes, wallet debit).
       (`api-reference/authentication.md`). A Build key cannot place calls. It is shown once.
 - [ ] Put it in the VPS `.env` as `THINNEST_API_KEY`. It is env-only, never a console field.
 - [ ] `ENGINE_INTAKE_KEK` is set in the VPS `.env`, the same value for api, workers and
-      voice-runtime (`docs/DEPLOYMENT.md` §12.7), and backed up with `PLATFORM_KEK`.
+      voice-runtime (`docs/DEPLOYMENT.md` §12), and backed up with `PLATFORM_KEK`.
 - [ ] Restart: `scripts/vps-deploy.sh api workers voice-runtime`.
 
 ## 2. Our console settings (ops console → Platform configuration → Voice engine, and Calling limits and pacing for `thinnest_max_concurrent_calls`)
@@ -148,7 +148,7 @@ you add here AND enable, and can play a preview of each. Paths are under
 
 ## 4. Number (client console → Numbers, as the test client)
 
-This engine uses ThinnestAI's own numbers only (D-678; Vobiz stays with Pipecat). Since
+This engine uses ThinnestAI's own numbers only (D-678). Since
 D-693 the number is bought from Calevate, in the client's own workspace and the client's
 own business name; nothing is rented in their console. Paths are under
 `2026-10-08/pages/api-reference/phone-numbers/`.
@@ -312,8 +312,10 @@ client every one of these must be TRUE, not merely recorded:
   reported while it was live (`engine_call_voice_failed`, `engine_call_model_unanswered`).
   If several clients report problems at once, the healer reads ThinnestAI's own status
   (`engine_platform_status_degraded`, `engine_platform_outage`).
-- **Roll back.** Set `engine` back to `pipecat` and republish. Pipecat is untouched by
-  this engine.
+- **Roll back.** There is no second engine to switch to (D-763). A bad release is rolled
+  back by redeploying the previous good commit (DEPLOYMENT §3b, `runbooks/deploy-failed.md`).
+  To stop one agent, switch it off in the console; to stop all outbound, throw the big red
+  switch.
 
 ## 10. What stays open after this sitting
 

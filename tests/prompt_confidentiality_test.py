@@ -1,9 +1,5 @@
 """D-674, the prompt layer: the confidentiality rule is composed into every agent, cannot be
 withdrawn by a client script, and its absence refuses a publish and shows as drift.
-
-The enforcement layer (the output guard in the voice worker) is
-`tests/voice_worker_output_guard_test.py`; the behaviour over a whole call is
-`tests/scenario_confidentiality_test.py`.
 """
 
 from __future__ import annotations

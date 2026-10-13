@@ -438,7 +438,7 @@ def test_a_posture_name_the_guard_does_not_know_is_a_hard_failure() -> None:
 def test_a_record_that_contradicts_its_own_declared_name_is_caught() -> None:
     """The declaration is a NAME, a RECORD and a TUPLE OF LEGS, and the record is what the
     runtime obeys. A name that said one thing beside a record that carried other legs would
-    leave `engine.bind_model` and `agents.service.in_call_llm` acting on one posture while
+    leave `engine.bind_model` acting on one posture while
     every static check enforced another."""
     coherent = {"name": guard.DECLARATION_CONSTANT, "legs": guard.LEGS_CONSTANT}
     assert guard.declaration_failures("multi-provider-byok", coherent) == []
@@ -979,7 +979,7 @@ def test_a_declaration_with_no_record_or_no_leg_record_is_caught() -> None:
 
     Three shapes of half-declaration, each of which reads as a smaller edit than it is. A
     name with no `ResidencyPosture(...)` beside it is a declaration nothing obeys — the
-    record is what `bind_model` and `in_call_llm` read. A `DECLARED_LEGS` entry with no
+    record is what `bind_model` reads. A `DECLARED_LEGS` entry with no
     `PostureLeg(...)` behind it is a leg the guard cannot compare a single scalar of, which
     is precisely the state an inline record would put EVERY leg in permanently.
     """

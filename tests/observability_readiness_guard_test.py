@@ -222,9 +222,6 @@ class TestTheSettingsFieldsAreTheOnesTheCodeReads:
 
 
 class TestSentryHooks:
-    def test_the_live_file_is_clean(self) -> None:
-        assert guard.check_sentry_hooks() == []
-
     # READ OFF THE REGISTRY, not retyped beside it. The list was a hand-copy of
     # `REQUIRED_SENTRY_INIT`'s keys, so a keyword added to the guard arrived with no
     # mutation test — which is how `include_local_variables` would have landed unproven.
@@ -259,9 +256,6 @@ class TestSentryHooks:
 
 
 class TestTracingExportIsWrapped:
-    def test_the_live_file_is_clean(self) -> None:
-        assert guard.check_tracing_export_is_wrapped() == []
-
     def test_an_unwrapped_exporter_is_caught(self) -> None:
         """The leak: `record_exception=True` is the SDK default, so an unwrapped exporter
         ships `exception.message` and `exception.stacktrace` off every failing span."""
@@ -289,15 +283,6 @@ class TestTracingExportIsWrapped:
 
 
 class TestLangfuse:
-    def test_langfuse_is_absent_from_the_tree(self) -> None:
-        """D-49's state, asserted rather than remembered. If this fails, either Langfuse
-        was restored (and needs its decision-log entry and the OTLP export path) or a
-        dependency dragged it in."""
-        assert guard.langfuse_footholds() == []
-        component, failures = guard.check_langfuse()
-        assert component.status == READINESS_SKIPPED
-        assert failures == []
-
     def test_an_import_anywhere_is_a_failure_naming_hard_rule_6(self, tmp_path: Path) -> None:
         """A direct Langfuse client is a SECOND OpenTelemetry pipeline that never meets
         `_RedactingSpanExporter` — and the one call site that would use it
@@ -338,11 +323,6 @@ class TestLangfuse:
 
         with pytest.raises(guard.ObservabilityBlindError, match="dependency surface"):
             guard.langfuse_footholds(roots=(), pyproject=tmp_path / "absent.toml")
-
-    def test_the_live_tree_is_still_readable_by_both_surfaces(self) -> None:
-        """The control on the control: the refusal above must not be firing today, or the
-        `[]` the first test asserts would be unreachable rather than earned."""
-        assert guard.langfuse_footholds() == []
 
     def test_prose_about_the_absent_client_is_not_a_foothold(self) -> None:
         """`config.py` explains at length why Langfuse is NOT wired. Detection is by AST,

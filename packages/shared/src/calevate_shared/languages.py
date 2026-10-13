@@ -59,28 +59,11 @@ this tree on **14 Sep 2026**:
   `"unknown"` is Sarvam's auto-detect placeholder, not a language, and is excluded.
 * TTS — same wheel, `types/text_to_speech_language.py:5-7`: a `Literal` of exactly 11.
 
-CORROBORATED INDEPENDENTLY, which is why the STT number is 23 and not 17. `pipecat-ai==
-1.10.0` carries FOUR Sarvam language tables and they do not agree with each other:
-`services/sarvam/stt.py:801-825` (`SUPPORTED_LANGUAGES`) lists the same 23 as the vendor
-SDK; `stt.py:738-757` (`_map_language_code_to_enum`) carries only 17 of them;
-`stt.py:76-88` carries 12; `stt.py:864-882` (realtime) carries 15. Two independent
-sources — the vendor's own API definition and the framework's validation set — agree on
-the SET of 23, so that is what is declared here. The framework's shorter tables are a
-FRAMEWORK limitation, recorded at `STT_LANGUAGES_PIPECAT_CANNOT_LABEL` below, not a
-vendor one: a language outside them is still transcribed, it just arrives with
-`TranscriptionFrame.language` unset. None of those twelve is conversational anyway, so
-the gap costs a label and never a reply.
-
 **THE ODIA TRAP, CONFIRMED.** Sarvam spells Odia **`od-IN`**, which is NOT its BCP-47
 code — ISO 639-1 for Odia is `or`, and `or-IN` is what every standards-driven layer will
 produce. Both of the vendor's own literals say `od-IN` (`speech_to_text_language.py:13`,
-`text_to_speech_language.py:6`), so the vendor is at least self-consistent. **Pipecat is
-not.** It emits `od-IN` from `stt.py:86` and `tts.py:234-235`, accepts `od-IN` at
-`stt.py:748`, and emits `or-IN` from `stt.py:877` while validating against a
-`SUPPORTED_LANGUAGES` that contains `or-IN` and NOT `od-IN` (`stt.py:809`). So on the
-realtime STT path the two spellings are exactly inverted: passing the vendor's own code
-is rejected by the framework, and the code the framework sends is absent from the
-vendor's literal. Whoever wires Odia meets this on the first call and has no reason to
+`text_to_speech_language.py:6`), so the vendor is at least self-consistent. Whoever wires
+Odia against a standards-driven layer meets this on the first call and has no reason to
 suspect a one-letter difference.
 
 The response is that **`bcp47` and the vendor wire code are separate fields** and nothing
@@ -99,16 +82,9 @@ different facts with the same shape, and only the first is safe to render as a �
 client's screen.
 
 * **CARTESIA (TTS, D-547's premium tier): UNVERIFIED here.** Cartesia's own SDK is not
-  installed in this tree, and nobody has read its docs host. `pipecat-ai`
-  carries a 44-entry Cartesia map (`services/cartesia/tts.py:91-134`) — but that is
-  PIPECAT's claim about Cartesia, one evidence class down from the vendor's own
-  definition, and the whole point of the class system is that we do not launder the
-  second into the first. `agents/voices.py` separately records a founder reading of
-  Cartesia's per-snapshot list; that is a repo-internal claim about a page nobody here
-  opened (hard rule 11), so it is not restated as verification either.
-* **GNANI (STT/TTS): UNVERIFIED.** No Gnani SDK, no docs, no mirror in this tree. Nothing
-  at all is known about its language coverage, and Sarvam's list must not be assumed to
-  apply to it.
+  installed in this tree, and nobody has read its docs host. `agents/voices.py` separately
+  records a founder reading of Cartesia's per-snapshot list; that is a repo-internal claim
+  about a page nobody here opened (hard rule 11), so it is not restated as verification.
 
 Because `unverified` never counts as support, an unread vendor can only ever SHRINK what
 we offer, never silently widen it. Adding Cartesia is then a two-line change and no
@@ -133,8 +109,8 @@ without it is not merely ugly, it is unreadable.
 
 HARD RULE 2. This module imports nothing but the standard library. The vendor tables
 above were READ as evidence and transcribed; they are not imported, and `calevate_shared`
-must never import `pipecat`, `sarvamai` or any other vendor SDK — those live only in
-`apps/api/engine/`, its voice-runtime twin, and `apps/voice-worker/`.
+must never import `sarvamai` or any other vendor SDK — those live only in
+`apps/api/engine/` and its voice-runtime twin.
 """
 
 from __future__ import annotations
@@ -147,7 +123,6 @@ __all__ = [
     "KNOWN_WIRE_CODE_ANOMALIES",
     "LANGUAGES",
     "OFFERED_LANGUAGE_IDS",
-    "STT_LANGUAGES_PIPECAT_CANNOT_LABEL",
     "UNVERIFIED_VENDOR_LEGS",
     "VERIFIED_VENDOR_LEGS",
     "Language",
@@ -202,7 +177,7 @@ SpeechLeg = Literal["stt", "tts"]
 
 #: Speech vendors this product has named. Membership here is NOT a claim that we know
 #: what a vendor supports — see `VERIFIED_VENDOR_LEGS`.
-SpeechVendor = Literal["sarvam", "cartesia", "gnani"]
+SpeechVendor = Literal["sarvam", "cartesia"]
 
 #: Three-valued on purpose. `unverified` is not a softer `unsupported`: it says nobody
 #: read the vendor's list, and it is the only one of the three that a human can close.
@@ -253,15 +228,12 @@ VERIFIED_VENDOR_LEGS: Final[frozenset[tuple[SpeechVendor, SpeechLeg]]] = frozens
 
 #: Named so the gap has a name and an owner, rather than being an absence. Each of these
 #: is a leg this product either runs or plans to, whose language coverage NOBODY HAS READ
-#: from the vendor. Closing one means reading that vendor's own list — not pipecat's map
-#: of it, and not a figure already in this repository (hard rule 11).
+#: from the vendor. Closing one means reading that vendor's own list, not a figure
+#: already in this repository (hard rule 11).
 UNVERIFIED_VENDOR_LEGS: Final[frozenset[tuple[SpeechVendor, SpeechLeg]]] = frozenset(
     {
         # D-547's premium TTS rung. Cartesia's SDK is not installed in this tree.
         ("cartesia", "tts"),
-        # Gnani: no SDK, no docs, no mirror here. Nothing is known either way.
-        ("gnani", "stt"),
-        ("gnani", "tts"),
     }
 )
 
@@ -436,9 +408,9 @@ _ROWS: Final[tuple[Language, ...]] = (
         sarvam_tts="mr-IN",
     ),
     # THE ODIA ROW IS THE TRAP. `bcp47` is `or-IN` (ISO 639-1 `or`); Sarvam's own two
-    # literals both say `od-IN`; pipecat's realtime STT path says `or-IN` and its
-    # validation set rejects `od-IN`. Both spellings are real and neither is wrong — they
-    # belong to different layers. See `KNOWN_WIRE_CODE_ANOMALIES`.
+    # literals both say `od-IN`, while standards-driven layers produce `or-IN`. Both
+    # spellings are real and neither is wrong — they belong to different layers.
+    # See `KNOWN_WIRE_CODE_ANOMALIES`.
     _language(
         "odia",
         "or-IN",
@@ -586,17 +558,6 @@ KNOWN_WIRE_CODE_ANOMALIES: Final[Mapping[tuple[SpeechVendor, SpeechLeg, Language
     ("sarvam", "tts", "odia"): "od-IN",
 }
 
-#: A FRAMEWORK gap, not a vendor one, and recorded here so nobody re-derives it from a
-#: short pipecat table and concludes Sarvam cannot hear these. `pipecat-ai==1.10.0`'s
-#: `services/sarvam/stt.py:738-757` maps only 17 of Sarvam's 23 codes back to its own
-#: `Language` enum; a transcript in one of these twelve still arrives, with
-#: `TranscriptionFrame.language` left unset rather than guessed (the framework says so in
-#: that function's own docstring). None is conversational, so the cost is a missing label
-#: and never a missing reply. Read 14 Sep 2026.
-STT_LANGUAGES_PIPECAT_CANNOT_LABEL: Final[frozenset[LanguageId]] = frozenset(
-    {"bodo", "dogri", "kashmiri", "nepali", "sanskrit", "santali"}
-)
-
 
 def conversational_languages() -> tuple[Language, ...]:
     """The languages an agent can actually hold a call in, in product order.
@@ -663,8 +624,8 @@ def find_language(code: str) -> Language | None:
     that takes a string off a wire or out of a column.
 
     It accepts vendor spellings on purpose: `od-IN` arriving from Sarvam and `or-IN`
-    arriving from pipecat are the same language, and a caller that had to know which
-    layer produced the string would be re-deriving the trap this module exists to hold.
+    arriving from a standards-driven layer are the same language, and a caller that had to
+    know which layer produced the string would be re-deriving the trap this module holds.
     """
     for row in _ROWS:
         if code in (row.id, row.bcp47) or code in row.codes.values():

@@ -97,10 +97,10 @@ async def test_an_operator_refresh_syncs_and_leaves_an_audit_row() -> None:
     """The route's own three facts: it runs, it answers with the counts, and it RECORDS
     who ran it.
 
-    The engine here is whatever `get_engine()` resolves to under test — the fake, which
-    lists a catalogue by design. What is asserted is therefore the ROUTE's behaviour
-    (200, a coherent body, an audit row naming this actor), never the fake's voice list,
-    which `engine_conformance` owns.
+    The engine here is whatever `get_engine()` resolves to under test — the fake, which runs
+    our own voices and so has no hosted catalogue to re-read. What is asserted is therefore
+    the ROUTE's behaviour (200, a sentence for the operator, an audit row naming this
+    actor); the hosted sync itself is `hosted_voice_routes_test`'s.
     """
     token, admin_id = await _make_admin()
     async with untenanted_session() as session:
@@ -112,11 +112,6 @@ async def test_an_operator_refresh_syncs_and_leaves_an_audit_row() -> None:
 
         assert response.status_code == 200, response.text
         body = response.json()
-        assert body["in_force"] > 0, (
-            "the refresh reported no voices in force; the picker would fall back to the "
-            "seed with nothing saying why"
-        )
-        assert body["written"] == body["in_force"]
         assert body["note"], "an operator pressing this gets no sentence back"
 
         async with untenanted_session() as session:

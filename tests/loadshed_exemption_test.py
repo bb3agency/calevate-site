@@ -74,10 +74,10 @@ EXEMPT_PREFIX_REASONS: dict[str, tuple[str, str]] = {
     ),
     "/v1/worker": (
         "callback",
-        "the Pipecat voice worker calling back into this API (D-592): the session a ringing "
-        "call loads, the in-call opt-out, the settlement that bills a finished call. It is "
-        "the engine's live-call path, bearer-token gated, and shedding it breaks calls "
-        "already in progress rather than reducing load",
+        "the voice engine's in-call actions and caller lookups: the caller lookup before an "
+        "agent answers, the in-call opt-out and call-back. It is the engine's live-call path, "
+        "gated per agent, and shedding it breaks calls already in progress rather than "
+        "reducing load",
     ),
     "/v1/ops": (
         "operator",
@@ -387,18 +387,16 @@ def test_normal_mode_sheds_nothing_at_all() -> None:
 
 @pytest.mark.parametrize("mode", ["reduced", "emergency", "maintenance"])
 def test_a_live_call_keeps_its_worker_path_in_every_shed_mode(mode: LoadShedMode) -> None:
-    """The Pipecat worker's calls into this API are the live-call path (D-592), not
-    customer traffic. Shedding them broke calls that were already ringing: in `reduced`
-    an in-call opt-out was refused (a caller's "do not call me" lost), and in
-    `maintenance` the session GET was refused, so the maintenance script the window
-    publishes could never be loaded and spoken. Paths are the live route table's."""
+    """The voice engine's in-call actions and caller lookups are the live-call path, not
+    customer traffic. Shedding them breaks calls that are already ringing: in `reduced` an
+    in-call opt-out would be refused (a caller's "do not call me" lost), and the caller
+    lookup an agent answers with would fail. Paths are the live route table's."""
     live = _live_paths()
     status = PlatformStatus(mode=mode, outbound_halted=True)
     for path, method in (
-        ("/v1/worker/session/{engine_agent_ref}", "GET"),
-        ("/v1/worker/calls/{engine_call_id}/tools/opt-out", "POST"),
-        ("/v1/worker/calls/{engine_call_id}/settlement", "POST"),
-        ("/v1/worker/calls/{engine_call_id}/speaking", "POST"),
+        ("/v1/worker/engine-actions/{engine}/{tool}", "POST"),
+        ("/v1/worker/engine-actions/{engine}/client/{name}", "POST"),
+        ("/v1/worker/engine-lookups/{engine}", "POST"),
     ):
         assert path in live, f"{path} is no longer a route; update this census"
         assert not is_shed(status, path=path, method=method), f"{method} {path} shed in {mode!r}"

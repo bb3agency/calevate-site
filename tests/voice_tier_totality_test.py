@@ -46,7 +46,7 @@ from apps.api.ops.config_routes import _volume_cost
 #: they were the rung names until 19 Sep 2026, so they are exactly what a stale caller, an
 #: old row or a half-migrated client sends — and `cartesia` is additionally a live PROVIDER
 #: name, which is how the two vocabularies got confused in the first place.
-_NOT_TIERS = ("sarvam", "cartesia", "gnani", "premium", "", "CLEAR")
+_NOT_TIERS = ("sarvam", "cartesia", "premium", "", "CLEAR")
 
 
 def _open_lot(clear: str, studio: str) -> OpenLot:
@@ -157,6 +157,6 @@ def test_an_unknown_voice_id_still_falls_to_the_cheaper_rung_and_that_is_deliber
     difference is which way being wrong hurts.
     """
     assert voice_tier(None) == VALUE_VOICE_TIER
-    assert voice_tier("bulbul:v3") == VALUE_VOICE_TIER
+    assert voice_tier("retired-model:speaker") == VALUE_VOICE_TIER
     assert voice_tier("a-voice-nobody-has-heard-of") == VALUE_VOICE_TIER
     assert voice_tier("sonic-3.5:anything") == PREMIUM_VOICE_TIER

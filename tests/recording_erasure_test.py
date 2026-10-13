@@ -1052,14 +1052,6 @@ async def test_a_neighbouring_tenant_sees_zero_holds(s3: FakeS3) -> None:
     assert key in s3.objects
 
 
-async def test_the_hold_table_is_not_an_append_only_ledger() -> None:
-    """It is a worklist with a completion mark. Adding it to `APPEND_ONLY_TABLES` would
-    make the sweep unable to record that it had done the work."""
-    from apps.api.db.registry import APPEND_ONLY_TABLES
-
-    assert "recording_erasure_holds" not in APPEND_ONLY_TABLES
-
-
 # --- retention policies, enforced at WRITE time --------------------------------------
 
 

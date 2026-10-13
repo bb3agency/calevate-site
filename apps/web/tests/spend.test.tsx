@@ -986,7 +986,7 @@ describe("the operator's half", () => {
             slug: "kukatpally-motors",
             plan_tier: "prepaid",
             reason:
-              "2026-09's wallet debits carry call splits spelled 'bulbul', which this " +
+              "2026-09's wallet debits carry call splits spelled 'unknown_rung', which this " +
               "build cannot place on a rung.",
           },
         ],

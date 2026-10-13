@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Any, Literal, get_args
 from uuid import UUID
 
-from calevate_shared.carrier import CARRIERS
+from calevate_shared.carrier import NumberProvider
 from calevate_shared.config import SELECTABLE_ENGINES
 from calevate_shared.engine import LLM_MODEL_NAMES
 from sqlalchemy import (
@@ -270,14 +270,8 @@ class Agent(PKMixin, TimestampMixin, Base):
         # and it is not the product's policy surface. Which models may actually be CHOSEN
         # depends on a live credential and a live price attestation, facts a CHECK cannot
         # see; `agents/llm_models.offerable_models()` is where that is decided, and
-        # `validate_llm_model` and `in_call_llm` each refuse again.
-        #
-        # THE COLUMN HAD A READER AND NO CONSTRAINT FOR ITS WHOLE LIFE, which is what this
-        # closes: `agents/service.py::in_call_llm` reads it, and on a leg that is not
-        # Azure it goes to the engine verbatim — so a value outside the allow-list is a
-        # 404 from a third party mid-sentence on a client's live phone call, the failure
-        # class `SARVAM_RETIRED_LLMS` already exists for. NULL is admitted explicitly: it
-        # is the "inherit the account default" sentinel.
+        # `validate_llm_model` refuses again. NULL is admitted explicitly: it is the
+        # "inherit the account default" sentinel.
         CheckConstraint(
             f"llm_model IS NULL OR llm_model IN {tuple(sorted(LLM_MODEL_NAMES))!r}",
             name="llm_model_allowed",
@@ -304,11 +298,8 @@ class Agent(PKMixin, TimestampMixin, Base):
             "length(btrim(caller_memory_notice_line)) > 0",
             name="ck_agents_caller_memory_notice_nonempty",
         ),
-        # The in-call knowledge pack's id, or NULL (migration b5d3a91e7c64). Hex and
-        # lower-case for `agent_config_versions.prompt_sha256`'s reason: the value is
-        # COMPARED — the worker's fetch is this digest spliced into an object key — so a
-        # truncated or upper-cased one is an agent that retrieves nothing and nothing that
-        # reports it. NULL is admitted explicitly: it is the "nothing published" state.
+        # The former in-call knowledge pack's id, or NULL (migration b5d3a91e7c64): a
+        # lower-case sha256 hexdigest. No longer written; kept until the column is dropped.
         CheckConstraint(
             "knowledge_pack_sha256 IS NULL OR knowledge_pack_sha256 ~ '^[0-9a-f]{64}$'",
             name="knowledge_pack_sha256_hex",
@@ -370,8 +361,8 @@ class Agent(PKMixin, TimestampMixin, Base):
     script_draft_saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # THE SENT VOICE: what `publish_agent` last handed the engine, as opposed to
     # `tts_voice`, which is what an operator CONFIGURED (migration c8b3f14e7a29). The
-    # two are allowed to differ — `voice_routes.set_agent_voice` writes the row and
-    # deliberately does not touch the engine — so one column could not hold both
+    # two are allowed to differ — a voice written to the row reaches the engine only at the
+    # next publish — so one column could not hold both
     # answers, exactly as `system_prompt_id`/`live_prompt_id` above. The divergence IS
     # `live_tts_voice IS DISTINCT FROM tts_voice`: derived, so it cannot drift the way
     # a `voice_dirty` flag would. NULL = nothing recorded as sent (never published, or
@@ -383,34 +374,10 @@ class Agent(PKMixin, TimestampMixin, Base):
     # half of it can lie about the other half.
     live_tts_voice: Mapped[str | None] = mapped_column(Text)
     live_tts_provider: Mapped[str | None] = mapped_column(Text)
-    # WHICH FROZEN KNOWLEDGE THE CALL PATH LOADS (D-599, migration b5d3a91e7c64): the
-    # `content_sha256` of the pack `kb/pack.publish_pack` last stored for this agent, which
-    # with `tenant_id` and `agent_id` is the whole object key (`pack_object_key`). A digest
-    # and not a URL, because the pack is immutable and content-addressed: a key cannot mean
-    # two things, so this column names exactly the words a call could have quoted.
-    #
-    # It is written by the KB PUBLISH path (`kb/service.publish_source`/`withdraw_source`
-    # through `kb/pack.refresh_published_pack`) and not by `publish_agent`, because the
-    # pack's content is a function of `kb_chunks` alone — an agent republished for a voice
-    # change has the same knowledge it had a second earlier.
-    #
-    # NULL = no pack has ever been stored for this agent (the ordinary day-one state, and
-    # what `SessionConfig.knowledge_pack_sha256 = None` reports). It is deliberately NOT
-    # cleared when a client withdraws their last source: that publishes an EMPTY pack and
-    # points this at it, so "the corpus is empty" and "there is no corpus" stay two
-    # different answers to a caller (`knowledge_pack.RetrievalOutcome`).
+    # The former owned runtime's in-call knowledge pack (D-599, migrations b5d3a91e7c64 and
+    # f4b18c7d2e59): the pack's content digest and when the pointer last moved. No longer
+    # written or read; kept until the columns are dropped (hard rule 8).
     knowledge_pack_sha256: Mapped[str | None] = mapped_column(Text)
-    # WHEN THAT POINTER LAST MOVED (migration f4b18c7d2e59). Stamped by the SAME
-    # `UPDATE` that moves `knowledge_pack_sha256` (`kb/pack._RECORD_PACK_SQL`), so the
-    # pair cannot disagree, and NOT stamped when a republish of an unchanged corpus
-    # writes no row -- it means "when the pack this agent answers out of became the pack
-    # it answers out of", never "when somebody last pressed publish".
-    #
-    # It DECIDES nothing: `kb/delivery.py` derives whether the agent is current from the
-    # digest comparison `kb/pack.agents_with_stale_packs` uses, and renders this only as
-    # the date beside that verdict. `updated_at` cannot stand in (it moves for a voice or
-    # call-cap change) and `KnowledgePack.built_at` cannot either (it is outside the
-    # content hash, so it dates the corpus's FIRST freeze, not this agent's adoption).
     knowledge_pack_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # WHAT A READ-BACK CONFIRMED, as opposed to what we sent (migration c1f6a94d2b07).
     # `live_prompt_id` and `live_tts_voice` above record the config `publish_agent`
@@ -588,31 +555,10 @@ class PromptVersion(PKMixin, TimestampMixin, Base):
 
 
 class AgentConfigVersion(PKMixin, Base):
-    """ONE IMMUTABLE, CONTENT-ADDRESSED SNAPSHOT OF WHAT AN AGENT IS SUPPOSED TO RUN.
-
-    D-592, `docs/PIPECAT-MIGRATION.md` §1.1, migration `d4e1c7a09b35`. The row IS its two
-    digests: the composed prompt and the resolved `ModelConfig`, each as a sha256
-    hexdigest. `apps/api/agents/config_versions.py` is the only writer and states exactly
-    what goes into each hash and what is deliberately left out.
-
-    **WHY IT IS NOT `prompt_versions`, WHICH ALREADY EXISTS AND ALSO VERSIONS A PROMPT.**
-    That table holds the CLIENT'S AUTHORED SCRIPT — the text a person typed, the
-    structured form it was compiled from, an operator's note about why, a rollback target.
-    This holds the ENGINE-FACING COMPOSITION of it: platform rules, voice style, the
-    composed opening line, that script, and `TRUTHFUL_ANSWER_DIRECTIVE`, hashed. One is
-    what somebody wrote; the other is what the model is handed. They change at different
-    moments — a disclosure toggle or a voice change moves this and not that — and only
-    this one has to be comparable, byte for byte, against what a running process reports.
-    Folding them together would mean either putting a build artefact in an authoring table
-    or making the client's editor re-render every time the platform preamble changed.
-
-    Append-only (`db/registry.APPEND_ONLY_TABLES`) with the blanket
-    `calevate_forbid_mutation`: a version somebody could edit would let today's
-    configuration rewrite what a worker attested to last week, which is the one fact these
-    rows exist to fix in place.
-
-    The constraints below mirror migration `d4e1c7a09b35` — the CHECKs and the unique key
-    are the source of truth and this class must not drift from them (DATA-MODEL §10).
+    """A content-addressed snapshot of an agent's composed prompt and model config, minted
+    by the former owned-runtime engine (migration `d4e1c7a09b35`). No longer written; kept
+    with its rows until the table is dropped (hard rule 8). Append-only
+    (`db/registry.APPEND_ONLY_TABLES`).
     """
 
     __tablename__ = "agent_config_versions"
@@ -648,20 +594,12 @@ class AgentConfigVersion(PKMixin, Base):
     prompt_sha256: Mapped[str] = mapped_column(Text, nullable=False)
     #: sha256 of the resolved `ModelConfig` as canonical JSON (sorted keys, no whitespace).
     model_config_sha256: Mapped[str] = mapped_column(Text, nullable=False)
-    # THE CONTENT THOSE TWO DIGESTS ARE TAKEN OVER (migration `e2f5a91c8d47`), so the row
-    # can be LOADED and not only compared — `docs/PIPECAT-MIGRATION.md` §2 has the worker
-    # load a config VERSION, and a row of hashes is a row nothing can load.
-    #
-    # Every one of the three is a function of the conflict key's inputs, which is what
-    # makes `ON CONFLICT DO NOTHING` still correct: the row that is kept describes the same
-    # content as the row that was refused. A column that was NOT — `handoff`, resolved from
-    # the roster and a clock — belongs on `pipecat_agents` instead, and is there.
+    # The content those two digests are taken over (migration `e2f5a91c8d47`).
     #: Exactly the bytes `prompt_sha256` digests.
     composed_prompt: Mapped[str] = mapped_column(Text, nullable=False)
     #: The greeting, which the composer prepends and `AgentSnapshot.greeting` reports.
     #: Inside `composed_prompt` already; stored apart because the snapshot has its own
-    #: field for it and recovering it by string surgery on a prompt is how `bulbul:v3`
-    #: once became the model `bulbul`.
+    #: field for it, and recovering it by string surgery on a prompt is fragile.
     opening_line: Mapped[str] = mapped_column(Text, nullable=False)
     #: Exactly the object `model_config_sha256` digests, as the same canonical JSON.
     model_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
@@ -669,31 +607,9 @@ class AgentConfigVersion(PKMixin, Base):
 
 
 class AgentConfigAttestation(PKMixin, Base):
-    """WHAT A RUNNING WORKER REPORTS IT ACTUALLY LOADED — the witness that replaces a
-    vendor read-back (D-592, `docs/PIPECAT-MIGRATION.md` §1.1, migration `d4e1c7a09b35`).
-
-    Under a rented engine the vendor is an INDEPENDENT AUTHORITY: we ask it what it is
-    running and it may disagree with us. On `agent_hosting="owned_runtime"` there is no
-    vendor, so a `get_agent` that read `agent_config_versions` would be the control plane
-    agreeing with itself by construction — the exact defect `VoiceEngine.get_agent`'s
-    docstring forbids. This table is the second party: our own process, reporting on its
-    own memory.
-
-    **`prompt_sha256` HERE IS RECOMPUTED BY THE WORKER, NEVER COPIED FROM THE VERSION
-    ROW.** A copy would make every comparison pass and measure nothing, which is the whole
-    failure mode being designed out. The comparison — this digest against the referenced
-    version's — is a FINDING when it differs, not an error to smooth over: a worker on a
-    stale deploy, a version published after the session started, a prompt truncated on the
-    way into the process. `config_versions.record_attestation` returns that verdict rather
-    than raising, because the row is evidence either way and must be written either way.
-
-    Append-only for `AgentConfigVersion`'s reason, pointed at evidence: an UPDATE would let
-    a later belief rewrite what a process reported at an instant that has passed.
-
-    NOTHING HERE IS A DATA PRINCIPAL'S DATA. No number, no transcript, no `subject_ref`,
-    no link to a call or a lead — an attestation is about an AGENT. That is what makes an
-    append-only row lawful to keep indefinitely, and it is why
-    `scripts/check_erasure_coverage.py` has nothing to reach.
+    """What the former owned-runtime worker reported it loaded (migration `d4e1c7a09b35`).
+    No longer written; kept with its rows until the table is dropped (hard rule 8).
+    Append-only (`db/registry.APPEND_ONLY_TABLES`). Holds no data principal's data.
     """
 
     __tablename__ = "agent_config_attestations"
@@ -1017,7 +933,9 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
         CheckConstraint(f"series IN {NUMBER_SERIES!r}", name="series_enum"),
         CheckConstraint(f"dlt_status IN {DLT_STATUSES!r}", name="dlt_status_enum"),
         CheckConstraint(f"direction IN {NUMBER_DIRECTIONS!r}", name="direction_enum"),
-        CheckConstraint(f"provider IS NULL OR provider IN {CARRIERS!r}", name="provider_carrier"),
+        CheckConstraint(
+            f"provider IS NULL OR provider IN {get_args(NumberProvider)!r}", name="provider_carrier"
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -1026,14 +944,12 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
     agent_id: Mapped[UUID | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
     e164: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     series: Mapped[str] = mapped_column(String, nullable=False, server_default="standard")
-    #: The carrier this number is held on (`calevate_shared.carrier.CarrierName`), or NULL
-    #: when it is on none this platform dials through (migration c8f5d1b74a30). The dial
-    #: gate presents a number only on the carrier it names.
+    #: Who holds this number (`calevate_shared.carrier.NumberProvider`), or NULL when it is
+    #: held by none this platform dials through (migrations c8f5d1b74a30, a3d9e6f1c204).
     provider: Mapped[str | None] = mapped_column(Text)
     engine_number_ref: Mapped[str | None] = mapped_column(Text)
-    # The carrier's id for what this number is attached to — on Vobiz, the Application
-    # whose answer URL routes it to an agent. Written by `engine/pipecat.bind_inbound_number`;
-    # NULL until the first bind, and left as the last attachment after an unbind.
+    #: A carrier's id for what this number was attached to on our former carrier leg. No
+    #: longer written; kept until the column is dropped (hard rule 8).
     carrier_binding_id: Mapped[str | None] = mapped_column(Text)
     dlt_status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
     purpose: Mapped[str | None] = mapped_column(Text)
@@ -1239,7 +1155,7 @@ class PlatformVoiceCatalogEntry(Base):
     `platform_model_prices`, `platform_tts_prices` and `platform_engine_health`, and the
     written reason `check_rls_coverage` reads lives in `db/registry
     .RLS_EXEMPT_TENANT_COLUMNS`. Every client-facing read of it is mediated by
-    `agents/voice_offer.offered_catalogue`, which answers the same catalogue to every
+    `agents/hosted_voices.offered_hosted_voices`, which answers the same catalogue to every
     tenant on purpose.
 
     **DELIBERATELY NOT IN `APPEND_ONLY_TABLES`** (hard rule 4). Nothing here is a ledger
@@ -1254,10 +1170,9 @@ class PlatformVoiceCatalogEntry(Base):
     #: primary key because it is the value written into `agents.tts_voice`, so a duplicate
     #: here would be two rows claiming one stored id.
     voice_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    #: The identifier the ENGINE wants in the synthesizer block — a Sarvam persona name, or
-    #: a clone's generated id. Stored beside the composed id rather than derived from it
-    #: for `speech_for_voice_id`'s reason: string surgery on an id is how `bulbul:v3`
-    #: becomes the model `bulbul`.
+    #: The identifier the ENGINE wants in the synthesizer block — a vendor voice id, or a
+    #: clone's generated id. Stored beside the composed id rather than derived from it for
+    #: `speech_for_voice_id`'s reason: string surgery on an id splits it in the wrong place.
     engine_voice_id: Mapped[str] = mapped_column(Text, nullable=False)
     #: The engine's own NAME for the voice. A WIRE value as well as a human one (their
     #: synthesizer block requires `voice` beside `voice_id`), and NOT derivable from the id
@@ -1293,7 +1208,7 @@ class PlatformVoiceCatalogEntry(Base):
     #: NEVER writes it — `sync_voice_catalogue`'s upsert lists every other column by name —
     #: so re-reading the vendor's list can neither enable nor disable anything.
     #:
-    #: It is read by `agents/voice_offer.py` as the FOURTH offerability ground and by
+    #: It is read by `agents/hosted_voices.py` as ground zero of the client offer and by
     #: nothing on the publish path: `voices.catalogue()` still resolves a disabled voice's
     #: id, because a live agent must keep publishing the voice it is already speaking
     #: however this column has been clicked since.
@@ -1334,7 +1249,7 @@ class PlatformVoiceCatalogEntry(Base):
     #: `sync_voice_catalogue`'s upsert: a re-read of the vendor's list reports what the
     #: platform has and can neither create nor revoke an operator's attestation.
     origin: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'synced'"))
-    #: ENGINE-HOSTED ROWS ONLY (D-687, `agents/hosted_voices.py`); NULL on every Pipecat row.
+    #: ENGINE-HOSTED ROWS ONLY (D-687, `agents/hosted_voices.py`); NULL on cached catalogue rows.
     #: The accent and description the engine's listing gives the voice.
     accent: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: Where the sealed recording behind one of OUR clones is kept (D-693), so the clone can
@@ -1352,7 +1267,7 @@ class PlatformVoiceCatalogEntry(Base):
     preview_content_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     preview_source: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: The engine's own price band for one of its voices (`engine/catalogue.HostedVoiceBand`:
-    #: `standard`, `premium`, `studio`), NULL on Pipecat rows and own-key (`byok:`) rows. Every
+    #: `standard`, `premium`, `studio`), NULL on cached catalogue and own-key (`byok:`) rows. Every
     #: band is cached so an operator sees what the platform lists; only
     #: `catalogue.SOLD_HOSTED_BAND` can be added and offered (`hosted_voices.band_is_sold`).
     vendor_band: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -1385,32 +1300,8 @@ class PlatformVoiceCatalogEntry(Base):
 
 
 class PipecatAgent(PKMixin, TimestampMixin, Base):
-    """THE ENGINE'S OWN AGENT RECORD on `agent_hosting="owned_runtime"` (D-592, migration
-    `e2f5a91c8d47`) — what a rented vendor would hold for us, held by us.
-
-    **WHY IT IS A TABLE AND NOT A COLUMN ON `agents`.** `agents` is OUR record of what a
-    client configured; this is one ENGINE's record of what it was handed, and the two are
-    the pair `get_agent` exists to be able to disagree about. Folding it into `agents` would
-    make `delete_agent` — a compensation that removes the engine's copy and must leave ours
-    standing — impossible to express, and would put a second engine's state in the same row
-    the day one exists.
-
-    **WHY IT LIVES IN `apps/api/agents/` RATHER THAN BESIDE ITS WRITER.** `apps/api/engine/`
-    holds no ORM models by construction: `db/registry.py` imports the model modules to build
-    metadata, and importing an adapter package from there would run the hard-rule-2 boundary
-    backwards. `engine_agent_routes` is the same shape for the same reason and lives in
-    `apps/api/reliability/models.py`; this is agent state, so it lives here.
-
-    Tenant-scoped with the plain FORCEd `tenant_isolation` policy and NO exemption: every
-    read is per-agent and therefore per-tenant, and `resolved_config` holds a client's whole
-    script. The account-wide question — which knowledge objects nobody claims — belongs to
-    `pipecat_kb_objects`, which carries the exemption precisely because it carries none of
-    this content.
-
-    **DELIBERATELY NOT IN `APPEND_ONLY_TABLES`** (hard rule 4). `update_agent` is a full
-    replacement by contract, so this row is state rather than a ledger entry. The ledger is
-    `agent_config_versions`, which IS append-only and is where "what was this agent running
-    in March" is answered.
+    """The former owned-runtime engine's own agent record (migration `e2f5a91c8d47`). No
+    longer written; kept with its rows until the table is dropped (hard rule 8).
     """
 
     __tablename__ = "pipecat_agents"
@@ -1444,14 +1335,12 @@ class PipecatAgent(PKMixin, TimestampMixin, Base):
         PgUUID(as_uuid=True),
         ForeignKey("prompt_experiment_variants.id", ondelete="RESTRICT"),
     )
-    #: `pipecat:<tenant>:<agent>`, minted by `engine/pipecat.engine_agent_ref_for`. The join
-    #: key every read comes in on, and the value `agents.engine_agent_ref` stores.
+    #: `pipecat:<tenant>:<agent>`, the value `agents.engine_agent_ref` stored.
     engine_agent_ref: Mapped[str] = mapped_column(Text, nullable=False)
     #: What the console calls this agent — read back as `AgentSnapshot.name`, which has no
     #: `_readable` tri-state because it carries no compliance claim.
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    #: What the control plane last PUBLISHED. Never the read-back: the worker attests a
-    #: version of its own choosing and the two disagreeing is the whole point of D-592.
+    #: The config version last published.
     agent_config_version_id: Mapped[UUID] = mapped_column(
         PgUUID(as_uuid=True),
         ForeignKey("agent_config_versions.id", ondelete="RESTRICT"),

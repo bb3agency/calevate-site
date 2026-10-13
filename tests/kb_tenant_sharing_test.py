@@ -3,8 +3,8 @@
 The founder's decision of 8 Oct 2026: uploaded documents and web pages belong to the CLIENT.
 On an engine whose knowledge is per vendor agent (ThinnestAI) that means one copy per agent,
 fanned out at publish, kept in step on every new version and withdrawal, caught up for an
-agent published later and taken away with an archived one. On Pipecat it means every
-agent's T0 block and in-call pack carry the tenant's sources.
+agent published later and taken away with an archived one. Every agent's T0 block carries
+the tenant's sources too.
 
 The thinnest-shaped engine here is the fake with ThinnestAI's capabilities, driven through
 the real publish paths (`agents.service.publish_agent`, `kb.service.publish_source`).
@@ -31,7 +31,6 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.fake import FakeEngine
 from apps.api.kb import orphans
 from apps.api.kb import service as kb_service
-from apps.api.kb.pack import build_pack, read_entries
 from calevate_shared.engine import (
     AccountKBListing,
     AccountKBObject,
@@ -681,10 +680,10 @@ async def test_published_knowledge_reaches_thinnest_once_not_twice() -> None:
     assert [s.title for s in holding] == ["Prices"], "the source reached the engine twice"
 
 
-# --- Pipecat: every agent's pack and T0 carry the tenant's sources -----------------------
+# --- every agent's T0 carries the tenant's sources ----------------------------------------
 
 
-async def test_every_pipecat_agent_packs_and_compiles_the_tenants_knowledge() -> None:
+async def test_every_agent_compiles_the_tenants_knowledge() -> None:
     tenant_id, first = await _tenant_with_published_agent()
     (second,) = await _more_agents(tenant_id, 1)
     async with tenant_session(tenant_id) as session:
@@ -696,11 +695,7 @@ async def test_every_pipecat_agent_packs_and_compiles_the_tenants_knowledge() ->
         )
 
     async with tenant_session(tenant_id) as session:
-        entries = await read_entries(session, tenant_id=tenant_id)
-        assert [e.text for e in entries] == [PRICES]
         for agent_id in (first, second):
-            pack = await build_pack(session, tenant_id=tenant_id, agent_id=agent_id)
-            assert [e.text for e in pack.entries] == [PRICES]
             compiled = (
                 await session.execute(
                     text(
@@ -715,7 +710,7 @@ async def test_every_pipecat_agent_packs_and_compiles_the_tenants_knowledge() ->
     assert [k.name for k in knowledge] == ["Prices"]
 
 
-async def test_the_sweep_compiles_and_packs_for_an_agent_created_after_the_publish(
+async def test_the_sweep_compiles_for_an_agent_created_after_the_publish(
     s3: FakeS3,
 ) -> None:
     tenant_id, _ = await _tenant_with_published_agent()
@@ -735,14 +730,13 @@ async def test_the_sweep_compiles_and_packs_for_an_agent_created_after_the_publi
         row = (
             await session.execute(
                 text(
-                    "SELECT pv.compiled_t0_context, a.knowledge_pack_sha256 FROM agents a "
+                    "SELECT pv.compiled_t0_context FROM agents a "
                     "JOIN prompt_versions pv ON pv.id = a.system_prompt_id WHERE a.id = :a"
                 ),
                 {"a": late},
             )
         ).one()
     assert "- Prices: " in str(row[0])
-    assert row[1] is not None, "the late agent was given no in-call pack"
 
 
 async def test_the_catch_up_steps_over_a_tenant_mid_publish() -> None:
@@ -781,7 +775,6 @@ async def test_another_tenant_sees_zero_rows_of_the_shared_knowledge() -> None:
         assert await kb_service.list_sources(session) == []
         # Naming tenant A's id on B's session reaches nothing: RLS, not the argument.
         assert await kb_service.active_knowledge(session, tenant_id=tenant_a) == []
-        assert await read_entries(session, tenant_id=tenant_a) == ()
         assert await kb_service._routes_of_source(session, source_id) == []
         for agent_id, _ in agents:
             assert await kb_service.recorded_handles_of_agent(session, agent_id) == set()

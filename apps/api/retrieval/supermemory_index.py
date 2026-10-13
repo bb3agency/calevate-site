@@ -1,7 +1,7 @@
 """The WRITE half of box 3: what reaches Supermemory, what leaves it, and what proves it.
 
 The adapter beside this one could SEARCH a store nothing filled. This is the other half of
-`docs/PIPECAT-MIGRATION.md` §6 step 15 — ingestion at publish, withdrawal at withdraw, a
+TRD §6.3: ingestion at publish, withdrawal at withdraw, a
 tenant purge at erasure, and a difference-driven sweep that makes the vendor's content agree
 with `kb_chunks` again after any of the three failed.
 
@@ -15,8 +15,8 @@ gives:
 1. **A difference instead of a worklist.** "What should box 3 hold?" is `kb_chunks`; "what
    does it hold?" is this ledger; the sweep sends the difference. A publish that failed on
    the vendor leaves the difference standing, so the next tick selects exactly the same
-   rows — the property `kb/service.refresh_projection_keys` and
-   `kb/pack.agents_with_stale_packs` are both built on, and the reason neither goes quiet
+   rows — the property `kb/service.refresh_projection_keys` is built on, and the reason it
+   does not go quiet
    when its work fails. A worklist would have consumed the event and moved on.
 2. **Orphan collection.** The ledger row carries `document_id` as a plain column with NO
    foreign key, deliberately: `kb_chunks` rows CASCADE away when retention deletes a
@@ -24,7 +24,7 @@ gives:
    them would take with it the only record that box 3 still holds the document. A ledger row
    whose chunk is gone IS the instruction to withdraw it.
 3. **An erasure that enumerates rather than trusts.** `deletion_proof` is False for this
-   provider (§8.4: we cannot check their delete), so the purge sends the tenant tag AND
+   provider (TRD §6.3: we cannot check their delete), so the purge sends the tenant tag AND
    empties the rows that say what we sent. The tag rests on an ASSUMED reading of their
    delete surface; the ledger rests on what we recorded sending.
 
@@ -35,14 +35,14 @@ fourth assumed endpoint, it costs a paged vendor scan per tenant per tick, and a
 single-tenant local build it would answer with every tenant's documents at once.
 
 --------------------------------------------------------------------------------
-FAILURE POSTURE: THE PACK'S, UNCHANGED, AND FOR THE PACK'S REASON
+FAILURE POSTURE: A DERIVED ARTEFACT NEVER VETOES THE AUTHORED RECORD
 --------------------------------------------------------------------------------
-`kb/pack.refresh_published_pack` keeps the old pointer, alarms, and returns None when
+A derived artefact keeps its old state, alarms, and returns None when
 storage refuses — because a derived artefact must not veto the authored record it derives
 from. Box 3 is derived twice over (`kb_chunks` is the projection; this is a projection of
 the projection), so `refresh_indexed_source` takes exactly that posture: a client's publish
 COMMITS, the ledger is not advanced, `supermemory_index_sync_failed` fires, and the sweep
-converges. The two alternatives are the same two that were rejected there — raising means a
+converges. The two alternatives are rejected — raising means a
 box on somebody else's clock can fail a client's publish, and swallowing means a withdrawn
 price list stays searchable with nothing anywhere saying so.
 
@@ -55,7 +55,7 @@ unrecoverable, and DPDP §8/§12 do not have a degraded mode.
 --------------------------------------------------------------------------------
 HARD RULE 7
 --------------------------------------------------------------------------------
-Ingestion costs money twice over: the embedding box 3 buys on our account (§8.3, it must not
+Ingestion costs money twice over: the embedding box 3 buys on our account (TRD §6.3, it must not
 be local) and the vendor's own LLM extraction per document (§10.4). So it is metered per
 `usage_event` like the search side, through the SAME pre-flight —
 `supermemory.search_is_billable()`, which reads the one model an operator named and asks
@@ -417,15 +417,16 @@ async def refresh_indexed_source(
     """Push one source's published chunks into box 3 and withdraw what it superseded.
 
     **THE PUBLISH PATH'S ENTRY POINT, AND IT CANNOT FAIL A PUBLISH** —
-    `kb/pack.refresh_published_pack`'s posture, reused rather than re-argued, because the
+    the module docstring's failure posture, because the
     artefact is derived in exactly the same sense. A vendor outage keeps the ledger where it
     was (so the difference stands and the sweep re-selects the same documents), fires
     `supermemory_index_sync_failed`, and returns None. The client's knowledge is live on
     every surface that matters: `kb_chunks` answers dashboard search through the Postgres
-    fallback, the pack answers the phone, and box 3 catches up.
+    fallback, the voice platform's own knowledge base answers the phone, and box 3
+    catches up.
 
-    **A DATABASE FAILURE IS RE-RAISED AND IS NOT PART OF THAT POSTURE**, for the pack's
-    reason: by the time SQLAlchemy raises, the caller's transaction is already aborted, so
+    **A DATABASE FAILURE IS RE-RAISED AND IS NOT PART OF THAT POSTURE**:
+    by the time SQLAlchemy raises, the caller's transaction is already aborted, so
     catching it here would turn a clean rollback into an incomprehensible error at COMMIT.
     Only the vendor half is survivable, so only the vendor half is survived.
     """
@@ -460,7 +461,7 @@ async def purge_tenant_index(session: AsyncSession, *, tenant_id: UUID) -> int:
     """Remove everything of this tenant's from box 3. **RAISES rather than degrading.**
 
     The erasure arm, called from `workers/retention.execute_tenant_erasure` and reachable by
-    `scripts/check_erasure_coverage.py`, which walks the SQL of the modules it lists. §8.4
+    `scripts/check_erasure_coverage.py`, which walks the SQL of the modules it lists. TRD §6.3
     kept `kb_documents` ours precisely so a DPDP erasure is provable in our own Postgres;
     this is the second copy that decision created, and the obligation follows the copy.
 

@@ -89,9 +89,6 @@ async function renderKnowledge(
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [] },
     "/v1/kb/uploads": uploads,
-    // Routed empty: this file is about the DOCUMENT ladder, and an unrouted endpoint
-    // would leave a permanent `role="alert"` from `KnowledgeDelivery` on every screen here.
-    "/v1/kb/delivery": { items: [], not_delivered_count: 0 },
     // A row still moving is watched on its own path. By default it answers that it has
     // not moved yet; a test about the move overrides it.
     ...(Array.isArray(uploads)

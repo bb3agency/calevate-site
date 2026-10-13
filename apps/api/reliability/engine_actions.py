@@ -1,8 +1,7 @@
 """Per-agent in-call actions: registered at publish, kept in shape, removed at unpublish.
 
-On `ENGINE=thinnest` three of the in-call tools the Pipecat worker reaches over `/v1/worker/
-calls/{ref}/tools/*` (opt-out, call-back, call-back cancel) are ThinnestAI custom actions
-instead: HTTPS calls from their platform to `worker/engine_actions.py`, carrying a
+On `ENGINE=thinnest` the in-call tools (opt-out, call-back, call-back cancel) are ThinnestAI
+custom actions: HTTPS calls from their platform to `worker/engine_actions.py`, carrying a
 header whose value is ours (`engine/thinnest_actions.py` cites the vendor shapes). One
 function answers "make this agent's actions exist, be ours and be switched on", and the
 publish path and the drift sweep both use it, as `engine_webhooks.ensure_agent_webhook`

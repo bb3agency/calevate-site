@@ -172,9 +172,7 @@ def test_the_measured_floor_moves_by_exactly_the_tts_leg_and_nothing_else() -> N
     )
     floor = clear_cost_floor_at(measured)
     assert floor.refusal_inr_per_min == SELF_SERVE_COST_FLOOR_INR_PER_MIN
-    # ₹3.7011 until D-592 put the engine leg on Pipecat's $0.01 active minute at ₹95/$; the
-    # measured floor fell by exactly the ₹0.81 the engine leg fell by, which the delta
-    # assertion below is what actually guards. The literal moves with the card; the
+    # The delta assertion below is what actually guards this. The literal moves with the card; the
     # RELATIONSHIP — measured floor differs from the assumed one only by the TTS leg — does
     # not, and is the reason this test exists.
     assert floor.inr_per_min == Decimal("2.7711")

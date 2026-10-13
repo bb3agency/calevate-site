@@ -124,9 +124,8 @@ class _StoredCall(TypedDict):
     transfer_warm: NotRequired[bool]
 
 
-#: Raw status → ours, the same shape the vendor adapter uses (`cartesia._STATUS_MAP`) so
-#: both normalize by one mechanism rather than two. The
-#: fake IS its own vendor, so the map is the IDENTITY — and it is DERIVED from the
+#: Raw status → ours. The fake IS its own vendor, so the map is the IDENTITY — and it is DERIVED
+#: from the
 #: Literal rather than retyped, which is the point: the hand-written `set[str]` it
 #: replaces was an eighth copy of `CallStatus` that a new member would have silently
 #: left out, normalizing a status we had just invented to `failed`. Deriving also
@@ -195,8 +194,7 @@ _COST_PER_MIN = {
 #
 # It is shaped like a HOSTED-AGENT engine: the rented engine D-31 chose, which D-639
 # removed. It was built to stand in for that engine (DEV-SETUP §3); it now keeps the
-# hosted-agent half of the port executable offline, since `cartesia` needs an account and
-# `pipecat` declares most of these capabilities False. Where it differed from the rented
+# hosted-agent half of the port executable offline. Where it differed from the rented
 # engine it differed HONESTLY rather than aspirationally: `campaigns=False` because our
 # dispatch is ours (see the field's docstring), and `transfer=False` because the fake once
 # answered it with a cheerful success while the real adapter raised — two adapters
@@ -293,8 +291,8 @@ DICTATED_SPEECH_CAPABILITIES = EngineCapabilities(
     # `in_call_handoff`'s reason rather than as a second axis: the externally-deployed
     # shape refuses one step earlier on `agent_hosting`, so a suite carrying only that
     # profile would report the actions clause green having never run it. An engine that
-    # hosts our agent and cannot call our tools is exactly the state `cartesia` and
-    # `pipecat` are in, and it is the one a client's console must not show as live.
+    # hosts our agent and cannot call our tools is one a client's console must not show as
+    # live.
     action_tools=False,
     # **THE PROFILE THAT MAKES THE REFUSAL REACHABLE** (D-544), and it is here rather than
     # on the external-deployment shape for the reason `in_call_handoff` is: on that shape
@@ -367,57 +365,6 @@ EXTERNAL_DEPLOYMENT_CAPABILITIES = EngineCapabilities(
     webhook_auth="none",
 )
 
-# THE FOURTH SHAPE, and the one that keeps the THIRD hosting member executable offline
-# (D-592, `docs/PIPECAT-MIGRATION.md` §1.1).
-#
-# `AgentHosting` gained `owned_runtime` — we hold the agent record AND run the program —
-# and `EngineCapabilities.hosts_agents()` answers True for it. Without a fixture declaring
-# it, `test_every_agent_hosting_shape_is_exercised_by_the_roster` fails by design and every
-# clause that branches on hosting runs for only two of the three members. `engine_name_
-# drift_test` says a third unselectable fixture has to be ARGUED for rather than appear;
-# this is the argument.
-#
-# **WHAT IS HONEST ABOUT IT, AND WHAT A REAL ADAPTER STILL OWES.** `FakeEngine.get_agent`
-# answers from its own in-process store, which on this shape is not the `control_plane`
-# echo it would be for a vendor-backed adapter: the fake IS the running process, so its
-# dict is the nearest thing a fixture has to "the runtime reporting on its own memory".
-# What it CANNOT stand in for is the real witness — a production `owned_runtime` adapter
-# answers `get_agent` from `agent_config_attestations` (migration `d4e1c7a09b35`), written
-# by a worker that recomputed the prompt digest itself, because only then can the answer
-# DISAGREE with the control plane. This fixture has no database and no second process, so
-# it exercises the CAPABILITY branches and not the attestation contract; the conformance
-# clause for that lands with `apps/api/engine/pipecat.py`, which is what will read the
-# table.
-#
-# Every other answer matches the default deliberately, `EXTERNAL_DEPLOYMENT_CAPABILITIES`'
-# rule: the axis under test is where the agent comes from, and a fixture differing on five
-# axes could not tell a reader which one a failure was about. The three speech legs stay
-# `ours` — unlike the externally-deployed profile, where `engine` is FORCED because an
-# engine with no agent record can have no BYOK leg. Here there is an agent record and every
-# leg really is ours, which is the whole point of running the pipeline.
-OWNED_RUNTIME_CAPABILITIES = EngineCapabilities(
-    # The owned runtime is the variant that does NOT record: it stands in for Pipecat, and
-    # a fake that recorded would let the truthful-answer clause regress with a green suite.
-    records_audio=False,
-    stt="ours",
-    tts="ours",
-    llm="ours",
-    agent_hosting="owned_runtime",
-    campaigns=False,
-    knowledge_base=True,
-    number_series=frozenset({"standard"}),
-    caller_id=True,
-    inbound_binding=True,
-    transfer=False,
-    in_call_handoff=True,
-    script_override=True,
-    # MATCHES THE DEFAULT, the one-axis rule (D-615): the axis under test here is
-    # where the agent comes from, and this fixture must not pick up a second
-    # difference. The refusal branch lives on `DICTATED_SPEECH_CAPABILITIES`.
-    action_tools=True,
-    webhook_auth="none",
-)
-
 
 # The header and key the SIGNING fake instance uses. Both are ours and both are inert:
 # the header is `X-Calevate-`-prefixed so it can never read as a captured vendor
@@ -437,19 +384,14 @@ FAKE_WEBHOOK_SECRET = "fake-engine-webhook-secret"
 #: label has no derivable relationship to its id, so a consumer that capitalises the id to
 #: get a label passes on an id that happens to be a word and fails here.
 #:
-#: ⚠ **EVERY ROW WAS `bulbul:v3` UNTIL 18 Sep 2026** and moved to `sonic-3.5` when the
-#: Sarvam TTS leg was withdrawn. The SPEAKER NAMES are deliberately unchanged: they are
-#: fixture identity — dozens of assertions across the suite name `ashutosh` — and a fake
-#: engine's voice ids are not a claim about any vendor's catalogue. What matters is that
-#: the model string is one `TtsModel` still carries, because `voice_sync` drops a row whose
-#: model this build does not offer and the fixture would otherwise enumerate nothing.
+#: The SPEAKER NAMES are fixture identity — dozens of assertions across the suite name
+#: `ashutosh` — and a fake engine's voice ids are not a claim about any vendor's catalogue.
+#: What matters is that the model string is one `TtsModel` carries, because `voice_sync`
+#: drops a row whose model this build does not offer and the fixture would otherwise
+#: enumerate nothing.
 #:
-#: Both providers we run appear so the two-provider path is exercised end to end — the
-#: engine, not our source, is what says a voice exists, and the fixture has to be able to
-#: say it. ⚠ **GNANI IS DELIBERATELY ABSENT**: this fake stands in for a RENTED engine, and
-#: the one this repository adapted did not carry Gnani at all (VERIFIED-VENDOR-DOCS, the
-#: pinned `bolna-findings/` mirror's provider pages). A Gnani row here would be a fixture
-#: asserting a vendor relationship nobody has.
+#: The engine, not our source, is what says a voice exists, and the fixture has to be able
+#: to say it.
 FAKE_ENGINE_VOICES: Final[tuple[EngineVoice, ...]] = (
     EngineVoice(
         voice_id="ashutosh",
@@ -694,8 +636,8 @@ class FakeEngine:
 
         **AND IT REFUSES BY NAME on an instance whose agents are deployed elsewhere**
         (D-280): there is no agent record to read, so the prompt read-back is not a lookup
-        that failed — it is a question this platform does not answer. `CartesiaEngine.
-        get_agent` carries the argument for why that is not the same as `readable=False`.
+        that failed — it is a question this platform does not answer, which is not the same as
+        `readable=False`.
         """
         self._assert_this_engine_hosts_agents()
         cfg = self._agents.get(ref)
@@ -854,11 +796,8 @@ class FakeEngine:
     async def end_call(self, call_id: str) -> RecallOutcome:
         call = self._calls.get(call_id)
         if call is None:
-            # RAISES, mirroring both real adapters' 404 (D-187). This used to return
-            # quietly, which is the `get_execution` and `transfer` divergence a third
-            # time: `CartesiaEngine` POSTs `/agents/calls/{id}/end` and surfaces the
-            # vendor's refusal —
-            # so the offline pipeline reported a hang-up nobody performed. `end_call`
+            # RAISES, mirroring the real adapter's 404 (D-187): returning quietly made the
+            # offline pipeline report a hang-up nobody performed. `end_call`
             # has ONE observable failure (claiming to have stopped a call it did not),
             # and an adapter that shrugs has removed it.
             raise ProblemError(
@@ -1409,9 +1348,7 @@ class FakeEngine:
         # carrying no status at all as a success. `status` is what decides whether a call
         # is settled, metered and extracted, so that is the one wrong answer with a cost.
         #
-        # `or ""` is the shape `cartesia.py` already uses (it maps the empty string
-        # through its table and lands on `failed`), so this is the
-        # existing answer applied rather than a second one invented. The empty `raw_status`
+        # `or ""` maps the empty string through the table to `failed`. The empty `raw_status`
         # that results is honest: the sender said nothing, and the forensic row records
         # that rather than a word we supplied on its behalf.
         status = str(payload.get("status") or "")

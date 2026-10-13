@@ -26,7 +26,7 @@ There is no `/v1/agents/experiment-metrics`. The metric list, the minimum sample
 peeking caveat ride on the results read instead, which the screen loads anyway. That is
 one fewer round trip, but the reason is narrower: a literal segment under `/v1/agents` is
 only reachable if its router is mounted BEFORE `agents.routes`' `/v1/agents/{agent_id}`
-(the hazard `voice_routes.py` and `publishing_routes.py` both carry a warning about), and
+(the hazard `publishing_routes.py` carries a warning about), and
 a route whose correctness depends on a mount ORDER in a file this slice does not own is a
 route that breaks the day somebody reorders `_mount_routers`.
 

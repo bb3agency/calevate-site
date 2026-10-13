@@ -81,15 +81,13 @@ TENANT_TABLES = [
     "campaign_contacts",
     "dlt_templates",
     "prompt_versions",
-    # WHAT AN AGENT IS SUPPOSED TO RUN, AND WHAT A WORKER SAYS IT LOADED (D-592,
-    # migration d4e1c7a09b35). Two tenant tables because both name one client's agent and
-    # carry the digest of that client's own script: the version is minted by the control
-    # plane, the attestation is written by the running worker, and `get_agent` on an
-    # `owned_runtime` engine answers from the second — which only means anything while the
-    # two are written by different things. Both append-only (see APPEND_ONLY_TABLES).
+    # What the former owned runtime's agent was supposed to run, and what its worker said it
+    # loaded (D-592, migration d4e1c7a09b35). No longer written. Tenant tables because both
+    # name one client's agent and carry the digest of that client's own script. Both
+    # append-only (see APPEND_ONLY_TABLES).
     "agent_config_versions",
     "agent_config_attestations",
-    # THE ENGINE'S OWN AGENT RECORD under `agent_hosting="owned_runtime"` (D-592, migration
+    # THE FORMER OWNED RUNTIME'S OWN AGENT RECORD, no longer written (D-592, migration
     # `e2f5a91c8d47`): what a rented vendor would hold for us — the handle, the config
     # version last published to it and the resolved `AgentConfig` it was published from.
     # Tenant-scoped with the plain FORCEd policy and NO exemption: every read of it is
@@ -146,7 +144,7 @@ TENANT_TABLES = [
     # Tenant data in the sense that matters: it names one client's call and the reason its
     # spend is not on their ledger, and it is read beside `calls_unmetered` on the ops
     # board. Append-only (see APPEND_ONLY_TABLES). No PII by construction — ids, a machine
-    # code and prose `voice_worker/meter.py` authored.
+    # code and prose our former owned-runtime metering authored. No longer written.
     "call_metering_refusals",
     "plans",
     "credit_ledger",
@@ -332,12 +330,12 @@ TENANT_TABLES = [
     # no natural key to get wrong: without the policy, forgetting the tenant predicate
     # returns a NEIGHBOUR'S nearest chunk and looks like a working search.
     "kb_chunks",
-    # WHAT THE EXTERNAL SEARCH INDEX HOLDS (migration `b5e83f21c4d7`, `docs/PIPECAT-
-    # MIGRATION.md` §8): one row per chunk box 3 accepted, with the digest of what was sent.
+    # WHAT THE EXTERNAL SEARCH INDEX HOLDS (migration `b5e83f21c4d7`, TRD §6.3): one row per
+    # chunk box 3 accepted, with the digest of what was sent.
     # It holds no content — but RLS is load-bearing here for a reason the projection above
     # does not have: this table is what decides which documents a DELETE sent to the vendor
     # is allowed to name, and the vendor's own build is single-tenant with one API key
-    # (§8.4), so a cross-tenant read here would become a cross-tenant erasure there.
+    # (TRD §6.3), so a cross-tenant read here would become a cross-tenant erasure there.
     "kb_index_documents",
     # THE CALLER-DATA PROJECTION AND ITS SOURCE (D-503, migration c6b1f0d47e83).
     # `kb_chunks` one line up is the same shape over a client's own uploaded knowledge;
@@ -538,7 +536,7 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "on detach, which is the same lifecycle the JSONB key it replaces had."
     ),
     "pipecat_kb_objects": (
-        'the ENGINE ACCOUNT\'s knowledge objects under `agent_hosting="owned_runtime"` '
+        "No longer written (D-763). The former owned runtime's knowledge objects "
         "(D-592, migration `e2f5a91c8d47`), and THE EXEMPTION IS FOR READS ONLY on "
         "`engine_kb_routes`' exact pattern — `pipecat_kb_objects_global_read` "
         "(FOR SELECT USING (<guc> IS NULL), narrowed from `USING (true)` by migration "
@@ -643,14 +641,14 @@ RLS_EXEMPT_TENANT_COLUMNS = {
     ),
     "platform_voice_catalog": (
         "platform-scoped (D-585). The voice catalogue READ FROM THE ENGINE ACCOUNT and "
-        "cached — which TTS voices our one Bolna account will actually accept, including "
+        "cached — which TTS voices our engine account will actually accept, including "
         "voices the founder has cloned on it. One account serves every tenant and its "
         "voice list is the same list for all of them, so there is no tenant whose row any "
         "of these could be and it carries no tenant_id. Written by the voice-catalogue sync "
-        "(`agents/voice_sync.py`, an ARQ cron plus an ops refresh) and — since D-588 — by "
-        "the operator CURATION write (`agents/voice_curation.set_curation_state`, behind "
-        "`PATCH /v1/ops/voices` on `ops:manage`, audited in the same transaction). Read "
-        "through `agents/voice_offer.offered_catalogue`, which deliberately answers the "
+        "(`agents/voice_sync.py`, an ARQ cron plus an ops refresh) and by the operator "
+        "CURATION write (`agents/hosted_voices.set_hosted_curation`, behind "
+        "`PATCH /v1/ops/voices/hosted` on `ops:manage`, audited in the same transaction). "
+        "Read through `agents/hosted_voices.offered_hosted_voices`, which answers the "
         "same catalogue to every tenant. Mostly a cache, NOT a ledger: refreshed whole and "
         "not in APPEND_ONLY_TABLES. "
         "⚠ ONE COLUMN IS NOT RE-DERIVABLE and that changes what a DELETE here means: "

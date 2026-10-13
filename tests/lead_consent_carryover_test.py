@@ -19,7 +19,7 @@ So the two tests below are opposite in kind and that is deliberate:
   file's own fixture, so the gap test below cannot be read as "consent is not enforced
   anywhere".
 * `test_the_manual_dial_button_does_not_know_the_lead_was_consent_blocked` asserts the
-  CURRENT behaviour with an equality, exactly like `reliability_known_gaps_test`: it is
+  CURRENT behaviour with an equality: it is
   a registry entry that fails the day somebody closes the gap, so the gap cannot be
   closed and left undocumented, and it cannot rot into a claim nobody checks.
 

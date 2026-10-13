@@ -30,7 +30,6 @@ from apps.workers.call_language import LanguagePass
 from apps.workers.extraction import OfflineExtractor, extract_call
 from apps.workers.pipeline import _settle_summaries, after_call_status
 from calevate_shared.extraction import (
-    ExtractionOutput,
     ExtractionSchemaSpec,
     clip_headline,
 )
@@ -390,7 +389,7 @@ async def test_the_english_turns_and_the_call_language_summary_are_written_after
 async def test_a_trial_account_books_no_call_back_and_the_agent_is_told_what_to_say(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from apps.api.worker import tools
+    from apps.api.worker import in_call_tools as tools
     from calevate_shared.worker_api import CallbackBookIn
 
     async def _restricted(session: Any, *, tenant_id: UUID) -> object:
@@ -444,11 +443,3 @@ async def test_a_trial_blocked_call_back_ends_at_once_with_a_clear_sentence(
     assert row is not None
     assert row["status"] == "refused"
     assert row["last_refusal_reason"] == TRIAL_CALLBACK_REASON
-
-
-# --- 7. the extraction output still carries the reading --------------------------------
-
-
-def test_the_reading_fields_are_part_of_the_extraction_output() -> None:
-    out = ExtractionOutput(headline="x", next_step="y", outcome_tag="needs_you")
-    assert out.outcome_tag == "needs_you" and ExtractionOutput().outcome_tag is None

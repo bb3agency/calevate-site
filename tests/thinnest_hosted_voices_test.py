@@ -17,7 +17,7 @@ from typing import Any
 import httpx
 import pytest
 from apps.api.core.errors import ProblemError
-from apps.api.engine.catalogue import HostsVoices, VoiceCloneSample
+from apps.api.engine.catalogue import VoiceCloneSample
 from apps.api.engine.thinnest import (
     BASE_URL,
     BYOK_PREVIEW_TEXT_MAX_CHARS,
@@ -69,10 +69,6 @@ class _Vendor:
 
 def _ok(payload: Any, status: int = 200) -> httpx.Response:
     return httpx.Response(status, json=payload)
-
-
-def test_the_adapter_hosts_voices() -> None:
-    assert isinstance(_engine(_Vendor({})), HostsVoices)
 
 
 # --- voices -------------------------------------------------------------------------

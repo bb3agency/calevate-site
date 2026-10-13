@@ -76,7 +76,7 @@ class KnowledgeRetriever:
         """`t3` NAMES THE COLD-LOOKUP STORE, and defaults to the one in our own Postgres.
 
         A parameter rather than a second composite class, because what changes between
-        `pgvector` and `supermemory` (`docs/PIPECAT-MIGRATION.md` §8) is exactly one member
+        `pgvector` and `supermemory` (TRD §6.3) is exactly one member
         and nothing else: T0 still answers out of the block the agent speaks from, the
         dispatch is still per-tier, the union is still computed from the members. A second
         class would have duplicated all three to vary none of them.

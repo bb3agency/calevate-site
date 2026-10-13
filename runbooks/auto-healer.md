@@ -56,7 +56,7 @@ has a proposal to restore the previous version (`heal_proposals`); read it with 
 
 Several clients' lines broke together, or the voice platform failed twice its spike
 threshold of requests in ten minutes. There is no second voice platform to move calls to
-(no engine failover until Vobiz consents in writing, OPERATIONS gate V-10). The playbook
+(ThinnestAI is the only engine, D-763). The playbook
 `engine_outage` posts "Calls are not connecting for some customers" on the status page,
 holds every client's answering line, pauses every running campaign and pages. Every five
 minutes it retries the holds the platform refused and checks for fifteen quiet minutes;

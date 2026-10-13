@@ -13,9 +13,9 @@ our plan may pick, and that are not recorded as paid (D-750), are listed, each w
 an operator recorded (`agents/engine_model_bands.py`) and availability from
 `agents/engine_catalogue_offer.py`.
 Sentences are in the reader's own audience
-(`voice_routes._reason_audience` argues the realm rule).
+(an operator reads the ground they can fix; a client reads the one action they have).
 
-Mounted BEFORE `agents.routes.router`, for `voice_routes.py`'s reason: `/v1/agents/
+Mounted BEFORE `agents.routes.router`: `/v1/agents/
 {agent_id}` would otherwise swallow the literal segment.
 """
 

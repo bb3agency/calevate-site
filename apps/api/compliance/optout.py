@@ -73,9 +73,10 @@ DETECTION: WHICH LAYER, AND WHY BOTH
 
 Two honest places, and they are not equivalent:
 
-1. **An in-call tool** the agent invokes the moment the caller asks (the voice worker's
-   `record_do_not_call` → `POST /v1/worker/calls/{ref}/tools/opt-out` →
-   `worker/tools.record_opt_out` → `record_call_optout`, inside the request). Immediate,
+1. **An in-call tool** the agent invokes the moment the caller asks (the engine's opt-out
+   action → `POST /v1/worker/engine-actions/{engine}/{tool}` →
+   `worker/in_call_tools.record_opt_out_for` → `record_call_optout`, inside the request).
+   Immediate,
    and it is what SEC-COMP §2.3 specifies. What it does NOT cover: it depends on the model
    choosing to call the function and on the round trip completing inside the tool budget.
    A layer that can be silently absent is not a layer you may rely on alone.

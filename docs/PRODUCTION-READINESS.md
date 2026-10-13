@@ -49,7 +49,7 @@ still blocked, not still open.
 |---|---|---|
 | 1 H | Webhook trust: source allowlist, dedupe, whether a signature header exists | TRD §5's "unsigned engine" premise is unconfirmed. The receiver's IP-allowlist + execution-id design is built for it. |
 | 2 H | API-only provisioning, and `delete_agent`'s repeat-delete status | `agents/service.py::_reclaim_orphan` assumes a repeat delete answers 404. If it is 400, a compensation DLQs. |
-| 3 H | Telugu STT/TTS quality on our keys; is Bulbul **v3** selectable | The whole Telugu-first positioning is unmeasured. |
+| 3 H | Telugu STT/TTS quality on our keys; is Sarvam TTS **v3** selectable | The whole Telugu-first positioning is unmeasured. |
 | 4 H | Real-call latency p50/p95, and whether `latency_data` agrees with a stopwatch | `calls.latency` was dropped rather than filled with numbers that are not the caller's experience; this gate chooses the storage shape. |
 | 5 H | Telugu turn-taking, barge-in, endpointing | An orchestration property BYOK models do not fix. |
 | 6 H | Webhook loss + **listing pagination** | `bolna._LISTING_PAGE_SIZES` currently GUESSES the page size from round numbers. |
@@ -63,8 +63,7 @@ still blocked, not still open.
 | 31 H *(new, D-425)* | `GET /user/me`: the `wallet` balance and the real `concurrency.max` | `balance-low` is a documented TERMINAL execution status, so an emptied wallet fails every dial as an anonymous `failed` with no cause and no halt. `PLATFORM_LINES_TOTAL = 10` is our typed-in belief about a number the vendor says scales with usage. |
 | 30 S · 32 S · 33 S · 34 S *(new)* | Does `GET /v2/agent/all` paginate · the `status` strings the LISTING endpoint really sends · `Retry-After` on a 429 and the webhook redelivery count · what `agent_status: "seeding"` means | Each sharpens something already working rather than blocking it; all four are answered by the same session that runs the H gates above. |
 
-**Also needed and separately external:** Sarvam BYOK keys (gate 3), and an Exotel/Vobiz
-SIP trunk (gate 13).
+**Also needed and separately external:** an Indian carrier SIP trunk (gate 13).
 
 ### A2. The model account — and the dated item here is GONE
 
@@ -111,7 +110,7 @@ credential path this migration exists to leave.
 
 | Item | Where | Note |
 |---|---|---|
-| Phone numbers | `campaigns/provisioning.py`, `PROVISIONING_IMPLEMENTED = False` | **Not a hole — a decided non-feature (D-474).** Model B: the client buys the connection on their own Exotel/Plivo/Vobiz account and stays the subscriber of record; `POST /v1/numbers/purchase` refuses every request and its remediation names the carriers and asks for the number plus revocable credentials. An operator records the number with `POST /v1/admin/tenants/{tenant_id}/numbers`. |
+| Phone numbers | `campaigns/provisioning.py`, `PROVISIONING_IMPLEMENTED = False` | **Not a hole — a decided non-feature (D-474).** Model B: the client buys the connection on their own licensed carrier account and stays the subscriber of record; `POST /v1/numbers/purchase` refuses every request and its remediation names the carriers and asks for the number plus revocable credentials. An operator records the number with `POST /v1/admin/tenants/{tenant_id}/numbers`. |
 | Engine never names the synthesizer | `billing/rates.py`, `ENGINE_TTS_MODEL_GENERATION_VERIFIED = False` | **This row's old note was wrong twice and §P1.7 corrects it — read that before acting on this one.** There is no engine-model-name-to-rung mapping to confirm, because no engine model name enters this system: `ExecutionSnapshot` and `CostBreakdown` carry no synthesizer field (`tests/tts_tier_metering_test.py`), and the margin panel's split is by the PLAN's overage rung — the constant `BASE_OVERAGE_RUNG`, stamped on every call by `apps/workers/pipeline.py::_meter` — not by anything the engine says. No bill and no margin figure reads this flag. What it still records is narrower and true: the engine never confirms that a call SPOKE the model we configured for it. Closed only by a live capture (OPERATIONS §2 gate 7, D-358) — EXTERNAL, nothing in this repository can close it. |
 | HMAC path in the receiver | `voice-runtime/engine_intake.py` — `reason="signature verification not implemented"` | Only reachable for an engine that SIGNS. Bolna does not (gate 1), so this is unreached today and would be needed the moment a signing engine is added. |
 
@@ -195,7 +194,7 @@ to everything voice.
 
 **Step 3 — run the pilot.** ⚠ WITHDRAWN BY D-639 (26 Sep 2026): the Bolna adapter and its
 pilot harness are deleted, so this step no longer exists; the first real call is now
-BLOCKER-1 on the Pipecat leg (`docs/PIPECAT-MIGRATION.md` §6 step 6). The text below is the
+the ThinnestAI first live call (`runbooks/thinnest-first-live-call.md`). The text below is the
 plan as it stood. The harness ran gates 1, 2 and 6. Gates 3, 4, 5 need real PSTN calls in Telugu.
 Gate 12 is a negotiation, not a test, and should open on the ₹1.50 number with the
 ₹5,200/month and ₹15,600/month figures in hand.
@@ -819,8 +818,8 @@ compliance field that is structurally always null is worse than an absent one.
 
 For a DNC row that EXISTS, propagation is ≤1 tick — the gate's read is live SQL with no cache.
 ⚠ SUPERSEDED: the path this finding describes (voice-runtime's tool route queuing
-`record_in_call_optout`) was deleted with the rented engine. On `owned_runtime` the in-call
-opt-out writes the suppression inside the request (`apps/api/worker/tools.record_opt_out`).
+`record_in_call_optout`) was deleted with the rented engine. The in-call
+opt-out writes the suppression inside the request (`apps/api/worker/in_call_tools.record_opt_out_for`).
 The finding as written: detection→row was unbounded: the route only enqueued, and the job
 then made a vendor `get_execution` round trip before any write, with a 30s/120s retry ladder.
 SEC-COMP §2.3 states this correctly ("target ≤ minutes"); CLAUDE.md hard rule 5 does not.
@@ -988,10 +987,10 @@ DNC bullet. The six drift columns are the ones the RLS exemption spends fourteen
 justifying.
 
 Two compounding effects. `check_wiring.py:298` reads its column universe from `models.py`, so
-all seven are **outside the wiring guard entirely**. And this repo has recognised the
-autogenerate round-trip hazard three times — `call_latency_column_test.py`,
-`prefix_index_audit_test.py`, `credit_ledger_index_prune_test.py` — each time only in the
-REMOVAL direction. The opposite direction has no guard and seven instances.
+all seven are **outside the wiring guard entirely**. And this repo has met the
+autogenerate round-trip hazard three times (`calls.latency`, the redundant prefix indexes, a
+credit-ledger index), each time in the REMOVAL direction. The opposite direction has no guard
+and seven instances.
 
 **FIX:** declare the seven. Then one general check that `Base.metadata` and the migrated schema
 agree in BOTH directions (alembic's `compare_metadata` against a migrated DB, in the family of

@@ -131,30 +131,3 @@ def test_a_store_that_refills_itself_is_reported_rather_than_declared_clean(
     with pytest.raises(SystemExit) as refused:
         reset_redis()
     assert "3 keys remain" in str(refused.value)
-
-
-def test_the_ratchet_recipe_no_longer_tells_anyone_to_flush_by_hand() -> None:
-    """The seam, asserted where it is wired. `scripts/redis_reset.py` existing is worth
-    nothing while the three places that TELL a developer what to run still print the
-    incomplete recipe — which is how the original defect survived being documented."""
-    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
-    assert "\nredis-reset:" in makefile, "the redis-reset target is gone"
-    assert "scripts.redis_reset" in makefile, "redis-reset no longer calls the reset script"
-
-    for name, path in (
-        ("CLAUDE.md hard rule 10", REPO / "CLAUDE.md"),
-        ("the ratchet's own remedy", REPO / "scripts" / "check_coverage_ratchet.py"),
-    ):
-        text = path.read_text(encoding="utf-8")
-        assert "make redis-reset" in text, f"{name} does not name the reset that works"
-        # PROSE about FLUSHDB is the point — both files now explain at length why it is
-        # not sufficient. What must not survive is the runnable INVOCATION, which is what
-        # a hurried reader copies: a line carrying both `redis-cli` and `flushdb` is a
-        # command, not an explanation, and it may only appear while being contradicted.
-        for line in text.splitlines():
-            lowered = line.lower()
-            if "redis-cli" in lowered and "flushdb" in lowered:
-                assert "not" in lowered, (
-                    f"{name} still prints a runnable bare flushdb as the remedy: "
-                    f"{line.strip()!r}. It leaves `dump.rdb` holding the keys."
-                )

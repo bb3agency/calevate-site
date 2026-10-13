@@ -25,6 +25,7 @@ from __future__ import annotations
 import inspect
 from uuid import uuid4
 
+from apps.api.agents.service import outbound_number_provider
 from apps.api.campaigns.models import CAMPAIGN_CLASSIFICATIONS
 from apps.api.campaigns.service import (
     CLASSIFICATION_REFUSALS,
@@ -35,7 +36,6 @@ from apps.api.campaigns.service import (
     dispatch_blockers,
     launch_blockers,
 )
-from apps.api.core.settings import get_settings
 
 _AGENT_ID = uuid4()
 
@@ -53,8 +53,8 @@ def _facts(classification: str, **overrides: object) -> _CampaignFacts:
         "number_id": uuid4(),
         "number_dlt_status": "registered",
         "number_agent_id": _AGENT_ID,
-        # Held on the configured carrier for both legs, so the carrier rule is satisfied.
-        "number_provider": get_settings().carrier,
+        # Held where the engine places calls, for both legs, so the carrier rule is satisfied.
+        "number_provider": outbound_number_provider(),
         "number_direction": "both",
         "agent_id": _AGENT_ID,
         "agent_status": "published",

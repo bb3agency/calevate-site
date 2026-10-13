@@ -184,8 +184,8 @@ ERASURE_SOURCES: tuple[Path, ...] = (
     REPO_ROOT / "apps" / "api" / "compliance" / "deletion.py",
     REPO_ROOT / "apps" / "api" / "retrieval" / "caller_erasure.py",
     # The arm that reaches the copy which is NOT in this database. `purge_tenant_index`
-    # empties `kb_index_documents` — the ledger of what the external search index was sent
-    # (`docs/PIPECAT-MIGRATION.md` §8.4) — so the walk below can see that table reached from
+    # empties `kb_index_documents` — the ledger of what the external search index was sent —
+    # so the walk below can see that table reached from
     # `execute_tenant_erasure` rather than taking it on trust from a docstring.
     REPO_ROOT / "apps" / "api" / "retrieval" / "supermemory_index.py",
     REPO_ROOT / "apps" / "api" / "insights" / "service.py",
@@ -247,7 +247,7 @@ ERASURE_EXEMPT: dict[str, str] = {
         "Append-only record that ONE leg of ONE call could not be honestly priced, written "
         "instead of a zero that would meter real spend as free (hard rule 7). It carries no "
         "personal data of its own and no column one could be put in: every field is an id, a "
-        "machine code, or prose this repository authored in `voice_worker/meter.py`. Deleting "
+        "machine code, or prose this repository authored. Deleting "
         "a row would erase the evidence that an invoice was short, not anything about the "
         "caller. Same shape and same grounds as `usage_events` beneath it. Published: "
         "ERASURE_LIMITATIONS 'billing records'."

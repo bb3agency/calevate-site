@@ -1,4 +1,4 @@
-# ThinnestAI replies, 11-12 Oct 2026
+# ThinnestAI replies, 11-13 Oct 2026
 
 Three emails from Ashutosh (ThinnestAI founder), relayed by the founder on 12 Oct 2026. Every
 statement here is **VENDOR-STATED** (email) unless marked otherwise; where it disagrees with a
@@ -142,7 +142,7 @@ So the Gemini set-up costs us about **₹0.08-0.11 a minute more** than Studio t
 
 Founder action, no build: a test call on **Prana [Voice]**, as ThinnestAI recommends.
 
-## 5. Still unanswered
+## 5. Still unanswered (as of 12 Oct; most answered 13 Oct, §11)
 
 From the 9 Oct email: the signed DPA and sub-processor list ("being prepared"), and training off in
 writing for every workspace.
@@ -306,3 +306,102 @@ on the notice describe the position before D-762. The open questions in this sec
 3. Whether each of our clients' numbers is mapped at Plivo to that client's business and
    compliance ID, and how we can read that mapping per workspace.
 4. Who records the DLT declaration under the Third Amendment, per client.
+
+## 11. Ashutosh's full answer to the consolidated email, received 13 Oct 2026 11:34
+
+Answers §7's "still to come" and corrects three of his 12 Oct answers. **VENDOR-STATED**
+(email, relayed by the founder 13 Oct 2026). He says the new API fields are in their docs
+(Bring your own keys and the agent pages); our mirror's latest snapshot is `2026-10-08`, so
+**none of the new fields below is VERIFIED-VENDOR-DOCS yet** (hard rule 11): a fresh snapshot
+comes before any wire value is built.
+
+### 11.1 Corrections to the 12 Oct answers
+
+| Item | 12 Oct said | 13 Oct says |
+|---|---|---|
+| 1.4 Our model key refused or rate-limited mid-call | The caller hears silence | The caller hears "Sorry, I am having trouble just now. Could you say that again?" on that turn. `call.problem` with `kind: byok_failed` fires once per call, and a critical `byok.failed` notification names the reason. **No backup model on our own keys.** Silence only if the failure comes mid-sentence or the voice key fails. |
+| 1.3 Thinking level | "none" where the model has it, else "minimal" | On our key nothing was sent before; now the lowest level the model accepts, thought text never requested. Gemini 3 Flash-Lite and other Gemini 3: `minimal` (Google: may still reason a little). Gemini 3 Pro: `low`. Gemini 2.5 Flash and Flash-Lite: thinking off. Gemini 2.5 Pro: smallest budget. |
+| 8.1 Prana | Reasoning controllable | Prana reasons and runs at "low" on calls. Prana [Voice] sends no reasoning setting. |
+
+### 11.2 Answers
+
+| Our question | Their answer | What it means for us |
+|---|---|---|
+| 1.1 Gemini on our key, their speech recognition, their voice | **Built.** `PUT /api/v1/byok/credentials/llm` (provider `google`, with a model), then `PATCH /api/v1/byok` `{ "scope": "llm", "enabled": true }`. A workspace setting like scope `voice`: a customer workspace uses our key unless it brings its own. | Same inheritance as scope `voice` (D-717/D-727): switching it on in the developer workspace would put every client without its own key on our Google key. Whether an agent can opt out (as `byok: "off"` does for voice) is **not stated**. |
+| 1.2, 1.7 Price | Scope `llm`: the normal per-minute plan of the voice the agent speaks (Standard, Premium or Studio, plan discount applies); nothing extra for the model. ₹1/min flat only when **all three** keys are ours; voice-only ₹1.50. Top-ups 2.36%. Chat replies on this scope ₹0.02. | **Clear with our Gemini costs the same ₹2.50 as Clear today, plus our Google bill**: no saving, only a model choice. The 11 Oct offer (our Gemini, our voice, their recogniser at ₹1) is now unpriced: the voice and llm scopes together are neither "voice-only" nor "all three". Must ask. |
+| 1.5, 1.6 Models | Any model our key offers; per agent with `PUT /agents/{id}/byok-model`, including `gemini-2.5-flash-lite` (thinking off). Temperature applies on calls (Answer Style). | `maxReplyTokens` still not answered. His 12 Oct "2.5 deprecated 15 Oct 2026" still conflicts with Google's page ("No shutdown date announced", 9 Oct); recheck before choosing 2.5. |
+| 2 Our Cartesia voice | Per agent: speed 0.6-1.5, volume 0.5-2.0, emotion (English only), Sonic model incl. `sonic-3.6`, pronunciation dictionary id. Console "How it sounds", `PUT /agents/{id}/byok-voice`, or MCP. `POST /byok/voices/preview` plays a setting before saving. Sent on every speech request; a PATCH that omits them keeps them. Speed not on Professional Voice Clones; speed, volume and emotion refused on Sonic 2. | Today `_apply_own_key_voice` sends only `{"voice": …}` (`engine/thinnest.py`). **They could not hear `sonic-3.6` on our account: founder to check it once** (preview in their console). |
+| 3 Time to first word | The greeting is a fixed line before the model runs. Cut from about 1.0-1.1 s (answer webhook to first audio) to about 0.4-0.5 s, plus carrier and phone time. A shorter greeting and voicemail detection off help. | Re-measure on the next outbound test call. Voicemail detection is already off. |
+| 4 Turn-taking | `voice.turnDetection`: `smart`, `timer` or `ear`. Platform default **Timer**. In Timer, `turnSilenceSeconds` is the silence that ends a turn (default 0.25 s); in Smart it is a ceiling (default 0.6 s). Ear needs a recogniser that supports it. Telugu uses Sarvam; they have no Telugu accuracy figures; recogniser per agent only with all three own keys. | We send `turnSilenceSeconds` from Call handling and never state the mode, so a change of their default would change what our number means. |
+| 5 Text that is not speech | "[cut off before finishing]" was theirs; "[awaiting response]", "(Waiting for user response)", "[hang_up]", "[call hang_up]" were the model's. Now stripped before speech and before saving: bracketed stage directions, visible thinking, link addresses, written tool names. "(Monday to Friday)" and "[1]" stay. | Nothing to build. Transcripts saved before the fix keep the old text. |
+| 6 Interruptions | The thrice-glued question was their bug (a backup-model retry appended with no space); fixed, and the retry is told what the caller heard. A cut-off turn is trimmed to what was heard and the model sees it was cut off; the stored transcript is corrected where possible; rarely the summary may still show the full reply. Text goes to the voice sentence by sentence, so a cut-off sentence may already be synthesised on our Cartesia account. | Studio's Cartesia cost (571 characters a minute in §3) does not count synthesised-but-unheard sentences: an UNKNOWN uplift to the Studio cost floor. |
+| 7 Ending calls and do-not-call | The model ends a call with the `hang_up` tool; "[hang_up]" in a transcript was the model's text. `callInstructions` replaces **only their 16 speaking rules** (short replies, no brackets, one question per turn …); the hang-up rule, the interruption rule, the clock line and the do-not-call tool stay. The false do-not-call was theirs (the tool description did not exclude "that's all, you can cut the call"); now excluded, and it asks first when unsure. `contact.opted_out` now carries the caller's words as `reason`. `voice.recordDoNotCall` turns the tool off per agent. Goodbyes in Telugu, Tamil, Kannada, Malayalam, Bengali and Marathi end calls; "let's talk later about the price" does not. Their fixed fallback lines (apology, closing) are written in Hindi and Telugu; a native speaker is reviewing them and they invite corrections. | The clock line cannot be turned off. The 16 rules' text is still not given. Founder: review their Telugu fallback lines. |
+| 8 Models they host | With voice-only BYOK, an agent set to a model that is not allowed runs on GPT-OSS 120B. | `agents/engine_choice` already refuses a non-`voiceOnlyByok` model for a Studio agent. |
+| 9 Test chat | `tools[].output.result` is our response body as a raw string (not parsed JSON), cut at 4,000 characters. With "Match the customer", chat follows the script of the latest message (Telugu script → Telugu); Telugu in English letters is the model's judgement. | Our parser (`engine/thinnest._test_chat_tool`) reads `output` itself, not `output.result`; check against the docs snapshot. |
+| 10 TRAI notice | The Plivo statement stands; he will write when Plivo answers. | §10 and D-762 unchanged. |
+
+### 11.3 What it touches in Calevate
+
+| # | Area | Today | Change | Waits on |
+|---|---|---|---|---|
+| A | Docs snapshot | Latest mirror `2026-10-08` | Fresh snapshot of Bring your own keys, Set agent BYOK voice and model, Preview BYOK voice, Update agent (`turnDetection`, `recordDoNotCall`), Webhooks (`contact.opted_out` `reason`, `byok.failed`), Test chat. Every item below cites it. | nothing |
+| B | Own-key failure alarm (`workers/engine_signals.py`) | `own_key_failed` alarms "could not get an answer, even from its backup model" | Correct the text: no backup on our own keys, the caller heard the apology. Subscribe to `byok.failed` if it is a webhook event (UNKNOWN until A). | A |
+| C | Studio voice tuning | `PUT /agents/{id}/byok-voice` sends `voice` only | Per-agent speed, volume, emotion, Sonic model and pronunciation dictionary id: stored on the agent (migration, `pg_dump` first), sent on every publish, read back by the drift sweep, previewed with `POST /byok/voices/preview` before saving. Refuse speed on a Professional Voice Clone and all three on Sonic 2, as they do. | A; founder: admin only, or clients too |
+| D | Turn detection | Mode never sent; `turnSilenceSeconds` sent | Send `voice.turnDetection` explicitly (`timer`, today's behaviour) on every create and update, add it to the drift map, and say in the Call handling copy that the silence ends a turn. | A |
+| E | Do-not-call reason (`workers/engine_signals.py` opt-out path, `compliance/optout.py`) | `contact.opted_out` files the number; no reason kept | Keep `reason` as the opt-out evidence (the `matched` span the consent ledger already stores), capped and redacted like transcript text, shown to the client as why the number was added. Never logged (hard rule 6). | A |
+| F | Their do-not-call tool (`voice.recordDoNotCall`) | On by their default, beside our own opt-out action | Keep it on (a missed opt-out is the costlier error), send it explicitly and drift-check it so a change of their default cannot switch it off. | founder (recommend: on) |
+| G | Test chat tool output | Reads `output`, parses a string | Read `output.result` if that is the shape; tolerate the 4,000 cut (an unreadable status shows as unknown, not as failed). | A |
+| H | Gemini on our key (scope `llm`) | Not built (W-Gemini parked) | Per-workspace Google key install and `scope: llm` switch with read-back (the `ensure_studio_workspace` pattern), `PUT /agents/{id}/byok-model`, model choice in `engine_choice`, a rate key, metering of our Google cost. | ThinnestAI: questions 1-3 in §11.5. Founder: adopt or not. |
+| I | Studio cost floor | Cartesia at 571 characters a minute | Mark the unheard-sentence uplift UNKNOWN on the cost model; measure from Cartesia usage against our minutes once Studio carries traffic. | traffic |
+| J | `callInstructions` | Not used | Still not adopted: the 16 rules' text is not given, and their non-replaceable rules already cover ending, interruptions, time and do-not-call. | their 16 rules' text |
+| K | Docs | — | THINNEST-INTEGRATION (turn detection, thinking levels, own-key failure, text stripping, interruptions), OPERATIONS (first-word latency re-test), this file's §5. | nothing |
+
+### 11.4 Build plan, in order
+
+1. **A** docs snapshot, then a one-pass check of every field in §11.2 against it. Anything the
+   docs do not show stays out of the build and goes into the next email.
+2. **B, D, G, K** together: small, no migration, no decision. One commit.
+3. **E** opt-out reason: no migration if it fits the existing evidence column, otherwise one
+   reversible migration. One commit.
+4. **F** after the founder's answer (one line in the publish body and the drift map).
+5. **C** Studio voice tuning: migration (`pg_dump` before deploy), adapter, drift, preview,
+   admin UI, tests for the new behaviour only. About a day.
+6. **H** only after ThinnestAI answers §11.5 questions 1-3 and the founder decides.
+
+### 11.5 For the next email
+
+1. Our Gemini key with our own Cartesia voice and your recogniser (scopes `voice` and `llm`
+   together): what is the per-minute price? The 11 Oct offer said ₹1; the 13 Oct answer gives
+   ₹1 only when all three keys are ours.
+2. With scope `llm` on in our developer workspace, every customer workspace without its own key
+   uses ours. Can a single agent stay on your models (like `byok: "off"` for the voice), or does
+   it apply to every agent of the workspace?
+3. On our own Google key, does any webhook or usage record give the tokens per call, so we can
+   cost each call?
+4. Is `byok.failed` a webhook event we can subscribe to, and what does its payload carry?
+5. The text of the 16 speaking rules that `callInstructions` replaces.
+6. Is `maxReplyTokens` applied on calls?
+
+### 11.6 What we want, and what their console offers (founder, 13 Oct 2026)
+
+**Founder's target set-ups:**
+- **Clear:** their speech recognition and their voice, **our model** (Gemini on our key).
+- **Studio:** their speech recognition, **our voice (Cartesia) and our model**.
+
+Their console's "Which keys are yours" (screenshot relayed by the founder, 13 Oct 2026) offers
+three choices, one per workspace:
+- **All three of my keys** at ₹1/min all-in.
+- **Only my voice** at ₹1.50/min (their speech-to-text, model and telephony).
+- **Only my language model**, billed on the normal voice plan (Standard, Premium or Studio).
+
+So Clear maps to "Only my language model". **Studio as the founder wants it (our voice and our
+model, their speech recognition) is not one of the choices.** It was the 11 Oct ₹1 offer
+(§1). Because the choice is per workspace, a client with both Clear and Studio agents also
+needs it per agent. Today's code runs both rungs on their model: Clear has no own key and
+Studio uses "Only my voice".
+
+**Ask them:**
+1. A fourth choice, "my voice and my language model, your speech-to-text", at the ₹1 offered on
+   11 Oct.
+2. The choice set per agent, not only per workspace.
+3. Questions 3, 4 and 6 of §11.5.

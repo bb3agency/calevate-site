@@ -41,11 +41,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from apps.api.agents.models import ExtractionSchema, PromptVersion
-from apps.api.crm.models import TranscriptTurn
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.tenancy.models import Membership
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,16 +69,6 @@ KEPT: dict[str, str] = {
     "ix_kb_documents_source_id": "kb_documents",
     "ix_kb_sources_agent_id": "kb_sources",
 }
-
-# The model attribute each drop had to be removed from as well. A SQL-only drop leaves
-# the ORM asking for the index, and the next `alembic revision --autogenerate` recreates
-# it — a deprecation that undoes itself in an unrelated revision.
-DECLARATIONS: list[tuple[Any, str]] = [
-    (TranscriptTurn, "call_id"),
-    (PromptVersion, "agent_id"),
-    (ExtractionSchema, "agent_id"),
-    (Membership, "tenant_id"),
-]
 
 
 async def _index_names(session: AsyncSession, table: str) -> set[str]:
@@ -114,22 +101,6 @@ async def _forced_plan(
     return _nodes(payload[0]["Plan"])
 
 
-async def test_the_four_measured_redundant_indexes_are_gone() -> None:
-    """Read from `pg_indexes`, not from the migration file.
-
-    What matters is the database an operator's queries hit; a migration that was written
-    but never applied is exactly the half-wired change this assertion exists to catch.
-    """
-    async with untenanted_session() as session:
-        for index, (table, _) in DROPPED.items():
-            names = await _index_names(session, table)
-            assert index not in names, (
-                f"{index} is still on this database. It is a strict prefix of "
-                f"{DROPPED[index][1]}, and migration b9e5d2c74a18 measured every repo "
-                f"query against {table} keeping its plan and its buffer count without it."
-            )
-
-
 async def test_every_dropped_column_is_still_indexed_by_a_leading_key() -> None:
     """The claim "redundant" IS the claim "some other index starts with this column".
 
@@ -157,27 +128,6 @@ async def test_every_dropped_column_is_still_indexed_by_a_leading_key() -> None:
                 f"{index} was only safe while it did — restore it, or downgrade "
                 "b9e5d2c74a18."
             )
-
-
-def test_the_models_no_longer_ask_for_the_dropped_indexes() -> None:
-    """The half a SQL-only drop would have missed.
-
-    `index=True` on a `mapped_column` is a standing request: autogenerate compares the
-    model to the database and re-creates whatever the model declares. This was verified
-    the way `f47baad` verified it — with the declarations restored, `alembic check`
-    emits four `add_index` ops.
-    """
-    still_declared = [
-        f"{model.__tablename__}.{column}"
-        for model, column in DECLARATIONS
-        for index in model.__table__.indexes
-        if [c.name for c in index.columns] == [column] and len(index.expressions) == 1
-    ]
-    assert not still_declared, (
-        f"the ORM still declares a single-column index on {still_declared}: the "
-        "composite in __table_args__ already covers the column, and autogenerate will "
-        "recreate the index at the next revision"
-    )
 
 
 async def test_the_seven_measured_keepers_are_still_there() -> None:

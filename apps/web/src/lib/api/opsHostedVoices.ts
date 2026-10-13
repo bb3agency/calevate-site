@@ -5,7 +5,7 @@
  * `ops:manage`.
  *
  *   GET    /v1/ops/voices/hosted?scope=added|all   the hosted voices; `available:false` on
- *                                                   an engine whose voices are our catalogue
+ *                                                   an engine that hosts no voices
  *   POST   /v1/ops/voices/hosted                   add one synced voice (arrives disabled)
  *   PATCH  /v1/ops/voices/hosted                   enable | disable | archive one
  *   GET    /v1/ops/voices/hosted/agents            the agents set to one voice
@@ -20,9 +20,9 @@
  *   GET    /v1/ops/voices/studio-voices           Studio readiness and its client workspaces
  *   POST   /v1/ops/voices/studio-voices/enable    Studio ready: switch our key on (step-up, D-727)
  *
- * The Voices page reads the hosted list FIRST and branches on `available`: the Pipecat
- * catalogue (`opsVoices.ts`) is what an engine that does not host voices is curated with,
- * and the server, not this bundle, says which engine this is.
+ * The Voices page reads the hosted list and branches on `available`: an engine that hosts no
+ * voices of its own (the fake engine in tests) answers `available: false`, and the server, not
+ * this bundle, says which engine this is.
  *
  * Every write invalidates the client-realm engine catalogue too: enabling a voice here
  * changes what every client's picker offers.

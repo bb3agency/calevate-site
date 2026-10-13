@@ -103,7 +103,7 @@ def test_the_limits_are_the_documented_field_ceilings() -> None:
 
 
 def test_no_other_engine_has_limits_or_console_steps() -> None:
-    for name in ("pipecat", "fake", "cartesia"):
+    for name in ("fake", "other"):
         engine = FakeEngine(name=name)
         assert hosted_agent_limits(engine) is NO_HOSTED_LIMITS
         assert engine_number_console(engine) is None

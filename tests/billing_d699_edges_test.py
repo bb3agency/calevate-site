@@ -59,7 +59,7 @@ async def test_only_attested_rate_keys_may_be_sold(monkeypatch: pytest.MonkeyPat
     with pytest.raises(ProblemError) as unknown:
         await engine_minutes.attested_rate_keys(
             None,  # type: ignore[arg-type]
-            engine="pipecat",
+            engine="fake",
             at=datetime.now(UTC),
         )
     assert unknown.value.code == "engine_minute_price_unknown_engine"

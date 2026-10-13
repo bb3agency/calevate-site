@@ -29,7 +29,7 @@ the most likely way this ends badly.
 
 | | **Core config** | **Secrets** |
 |---|---|---|
-| Examples | engine selection, calling windows, retry ladders, vertical templates, rate limits, the big red switch, **operator-attested model prices** (§5) | Sarvam key, Bolna key, `AZURE_OPENAI_API_KEY` (D-410), `OPENAI_API_KEY` + `GEMINI_API_KEY` (D-456's two other declared LLM legs, installable so the founder can switch a leg on once its price is attested), Cartesia key, Google Sheets service account (D-23), Razorpay webhook secret, Meta page access tokens, R2 credentials. **No authentication credential appears here at all** — D-177 removed the vendor whose secret keys this cell used to name, and there is nothing in its place to configure |
+| Examples | engine selection, calling windows, retry ladders, vertical templates, rate limits, the big red switch, **operator-attested model prices** (§5) | Sarvam key, `AZURE_OPENAI_API_KEY` (D-410), Cartesia key (the Studio rung), Google Sheets service account (D-23), Razorpay webhook secret, Meta page access tokens, R2 credentials. **No authentication credential appears here at all** — D-177 removed the vendor whose secret keys this cell used to name, and there is nothing in its place to configure |
 | Storage | plaintext rows | ciphertext + wrapped DEK |
 | Readable back in the UI | **yes** — you must be able to see what the value is | **never** — last-4, who, when |
 | Blast radius if leaked | embarrassing | catastrophic |
@@ -155,22 +155,15 @@ core-config + 18 credentials, counted from `managed_fields()` rather than rememb
 
 **Env-only by decision, beside the bootstrap set.** Some keys could technically live in the
 store and are kept out of it on purpose: `apps/api/core/settings.ENV_ONLY_REASONS` names
-each with its reason, the console shows them read-only and REFUSES to store them, and
-`ENV_ONLY_FOREIGN_ENV` marks the ones held by another environment (the Pipecat Cloud secret
-set) so their absence here does not read as a fault. Today that is `RESEND_API_KEY`, the
-carrier credentials (`VOBIZ_AUTH_ID`/`VOBIZ_AUTH_TOKEN`, `PLIVO_AUTH_ID`/`PLIVO_AUTH_TOKEN`),
-`CARRIER_CLAIM_SECRET`, `VOBIZ_CALLBACK_SECRET` and its `_RETIRED` twin (D-673),
-`PIPECAT_WORKER_API_BASE_URL`, `GNANI_API_KEY`, and the ThinnestAI pair `THINNEST_API_KEY` /
+each with its reason, the console shows them read-only and REFUSES to store them.
+Today that includes `RESEND_API_KEY`, the engine intake key
+`ENGINE_INTAKE_KEK` and its `_RETIRED` twin, and the ThinnestAI pair `THINNEST_API_KEY` /
 `THINNEST_API_BASE_URL` (D-678: the adapter captures the key at start-up, and the base URL
 decides which host the key is sent to) — read the dict, not this sentence, for
-the current list. The carrier SWITCHES are console-managed: `carrier`,
-`carrier_concurrency`, `carrier_cps`, `inbound_reserved_lines`, `inbound_reserve_ratio`,
-`carrier_recording_enabled`
-(applies to live agents), `carrier_transfer_enabled`, `vobiz_signature_required` and
-`vobiz_callback_ips`; DEPLOYMENT's carrier table gives each one's default and effect.
-ThinnestAI's own call ceiling, `thinnest_max_concurrent_calls` (default 5, applies live), is
-console-managed the same way and plays `carrier_concurrency`'s part on `ENGINE=thinnest`.
-Its other console-managed settings are `thinnest_byok_enabled` (applies to live agents, with the typed
+the current list. The line SWITCHES are console-managed: ThinnestAI's call ceiling
+`thinnest_max_concurrent_calls` (default 5, applies live), `inbound_reserved_lines` and
+`inbound_reserve_ratio`; DEPLOYMENT §12 (`THINNEST_MAX_CONCURRENT_CALLS`) gives their effect.
+ThinnestAI's other console-managed settings are `thinnest_byok_enabled` (applies to live agents, with the typed
 step-up confirmation; the operator's statement that the developer workspace runs on all three
 of its own keys, which moves every minute to the ₹1 BYOK rate and locks per-agent voice and
 model choices; not Studio),
@@ -447,7 +440,7 @@ convenience and being a new outage source.
 > republished and read back at once, a call already in progress finishes on the previous
 > value, and the console shows "Applied to N of M live agents" with any that failed
 > (`GET /v1/ops/live-apply`). A setting no republish can deliver is `operator_step`, and its
-> caveat names the step (`engine`, `carrier`, and the three in-call LLM keys). So `applies`
+> caveat names the step (`engine`, for one). So `applies`
 > has six values: `live`, `on_restart`, `live_agents`, `operator_step`, `env_only`,
 > `unclassified`.
 
@@ -468,7 +461,7 @@ this surface is the exception).
 The panels — beside the incident ones on `/ops`, which keep outbox replay, DLQ depth,
 spend-cap recompute and audit-chain verify:
 
-1. **Engine** — which adapter is live (`bolna` / `cartesia` / `fake`), its capability
+1. **Engine** — which adapter is live (`thinnest` / `fake`), its capability
    descriptor rendered from the API rather than hard-coded, and its credential status.
    This is the panel that makes the D-94 orchestrator switch a screen action.
 2. **Core config** — grouped, each row showing value, source, who, when. A value coming

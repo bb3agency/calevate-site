@@ -60,7 +60,6 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.conftest import accept_agreements
-from tests.voice_fixture import TEST_VOICE_ID
 
 #: The path prefixes this census owns. `/v1/ops/tenants/…` is included because it is the
 #: same act — an operator naming one client in a URL — under the platform router.
@@ -116,10 +115,6 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "POST /v1/admin/tenants/{tenant_id}/business-type/suggest": None,
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": {"body": PROMPT_BODY},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/rollback": {"version": 1},
-    # THE CATALOGUE'S OWN DEFAULT, not a literal. A voice id is `<tts_model>:<speaker>`
-    # since D-358, and this route validates membership before it looks the tenant up — so a
-    # stale literal here would 422 and this census would stop measuring the 404 it is about.
-    "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice": {"voice_id": TEST_VOICE_ID},
     # An EMPTY variable list is a valid body (a schema may capture nothing extra), so the
     # route validates and reaches the tenant lookup — which 404s for a tenant that names
     # nothing. A non-empty body would work too; empty is the minimal one that gets past
@@ -127,11 +122,6 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "PUT /v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": {"fields": []},
     # D-538. The edit demands at least one field, so an empty body would 422 and this
     # census would stop measuring the 404 it is about.
-    "GET /v1/admin/tenants/{tenant_id}/carrier-application": None,
-    # The carrier decision demands a status and, for an acceptance, the carrier's own
-    # reference — an empty body would 422 and this census would stop measuring the 404 it
-    # is about. `documents_required` is the decision with the fewest required companions.
-    "POST /v1/admin/tenants/{tenant_id}/carrier-application": {"status": "documents_required"},
     "PATCH /v1/admin/tenants/{tenant_id}": {"name": "Census Clinic"},
     # D-538. The close demands a reason, so an empty body would 422 and this census would
     # stop measuring the 404 it is about. The undo and the read take no body at all.
@@ -252,7 +242,7 @@ BODIES: dict[str, dict[str, Any] | None] = {
         "e164": f"+9198{uuid.uuid4().int % 100000000:08d}",
         "series": "160",
         # Required since D-663: the dial gate presents a number only on its own carrier.
-        "provider": "vobiz",
+        "provider": "plivo",
     },
     "POST /v1/admin/tenants/{tenant_id}/numbers/{number_id}/dlt-status": {
         "dlt_status": "registered"

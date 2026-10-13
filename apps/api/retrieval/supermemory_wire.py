@@ -2,8 +2,8 @@
 
 WHY THIS IS A SEPARATE MODULE FROM THE ADAPTER. Every fact in here is a claim about a
 vendor's HTTP surface, and **this repository has read no page of Supermemory's API
-documentation.** `supermemory.ai` is egress-blocked from this container (`docs/PIPECAT-
-MIGRATION.md` §8.5 records the same measurement, 14 Sep 2026) and the product is not
+documentation.** `supermemory.ai` is egress-blocked from this container (TRD §6.3
+records the same measurement, 14 Sep 2026) and the product is not
 installed. Hard rule 11 forbids writing a path, a request key or a response key as if it
 were known — so instead of scattering plausible strings through an adapter where the next
 reader would mistake them for findings, every one of them is a field of ONE frozen object
@@ -13,13 +13,13 @@ vendor's docs is editing that object and nothing else.
 WHAT MAKES THAT SAFE RATHER THAN MERELY TIDY. The parser is STRICT against the contract and
 a mismatch is not an exception a user sees: `parse_search` raises
 `SupermemoryWireMismatchError`, `supermemory.py` treats it exactly like an unreachable host,
-and the dashboard falls back to the Postgres retriever (§8.5's "only dashboard search
+and the dashboard falls back to the Postgres retriever (TRD §6.3's "only dashboard search
 degrades"). So a wrong guess here costs a log line naming the keys that DID come back —
 keys, never values, hard rule 6 — and an operator has the correction in front of them. A
 tolerant parser that sniffed several plausible key names would have been the opposite: more
 guesses, each of them silent.
 
-THE TENANT SCOPE IS NOT A VENDOR FACT AND IS NOT ASSUMED. §8.4: Supermemory's local build
+THE TENANT SCOPE IS NOT A VENDOR FACT AND IS NOT ASSUMED. TRD §6.3: Supermemory's local build
 is single-tenant with one auto-generated API key, and scoped per-tenant keys are an
 Enterprise feature [VERIFIED-VENDOR-DOCS: /docs/self-hosting/local-vs-enterprise, read by
 the founder 14 Sep 2026]. A container tag is therefore **a filter we send, not a wall the
@@ -193,7 +193,7 @@ class TenantScope:
         **THIS IS NOT A LOOSENING OF `for_request`'s RULE, AND THE DISTINCTION IS WORTH
         STATING** because a second constructor on a scope type is exactly where such a rule
         usually dies. What the type defends is that no body reaching this vendor can be
-        BUILT without naming a tenant — §8.4 leaves the wall on our side, so an unscoped
+        BUILT without naming a tenant — TRD §6.3 leaves the wall on our side, so an unscoped
         write is a document filed under nobody, retrievable by the next tenant who asks a
         similar question. A publish has no `RetrievalRequest` to take, so the choice was a
         constructor whose argument is a required UUID or a `str` tag threaded through the
@@ -229,7 +229,7 @@ def search_payload(
 ) -> dict[str, Any]:
     """THE ONLY request body this package builds, and it cannot be built unscoped.
 
-    The final assertion is not decoration. Tenancy here is ours to enforce (§8.4) and the
+    The final assertion is not decoration. Tenancy here is ours to enforce (TRD §6.3) and the
     failure it guards is silent — an unscoped query returns a neighbour's knowledge with a
     200 — so the body is checked against the scope it was built from before it can be
     handed to a transport. If a future edit renames `container_tags_key` and forgets the
@@ -332,7 +332,7 @@ def parse_search(
 
     **THE SECOND TENANCY CHECK, AND IT IS THE ONE THAT MATTERS.** The first is the filter we
     send; this is whether the server honoured it. Against a single-tenant local build with
-    one API key (§8.4) those are genuinely different questions — a tag the server ignores,
+    one API key (TRD §6.3) those are genuinely different questions — a tag the server ignores,
     a contract key we guessed wrong, an index rebuilt without tags, all produce a 200 full
     of somebody else's rows. Records that do not carry this scope's tenant tag are DROPPED
     and COUNTED, so the adapter can log that it happened without logging what was in them.

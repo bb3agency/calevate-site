@@ -52,25 +52,11 @@ limit_req_zone $binary_remote_addr zone=client_api:10m rate=120r/m;
 # per source IP and the engine has one, so this is a ceiling on ONE sender.
 limit_req_zone $binary_remote_addr zone=webhooks:10m rate=600r/m;
 
-# The carrier's HTTP leg (`/carrier/v1/` on hooks.): answer documents a ringing call is
-# waiting on, its status/hangup callbacks, transfer documents. Its OWN zone so a flood on
-# the engine webhook path cannot spend the budget an answer document needs. Keyed per
-# source IP, and the carrier calls from a handful of published addresses, so this is a
-# ceiling per carrier egress host. Size it from the account's concurrency: each call costs
-# roughly one answer request plus a callback per event (ring, answer, hangup), so 600r/m
-# with a burst of 100 covers ~100 concurrent calls starting together — far above the 3
-# concurrent / 1 CPS a trial account is REPORTED to have
-# (`docs/evidence/carrier-pricing-concurrency-2026-09-17.md:49`).
-limit_req_zone $binary_remote_addr zone=carrier:10m rate=600r/m;
-
-# The voice worker's own door (`/v1/worker/` on api.): spoken-turn batches, call status,
-# the settlement and the live speaking state, from containers on Pipecat Cloud. Under
-# `client_api` (120r/m per IP) it was the tightest limiter on the call path, and every
-# worker shares the platform's egress addresses, so one IP here is the whole fleet. The
-# app sizes this traffic as two 600/min buckets per caller (`apps/api/core/ratelimit.py`,
-# `worker_api` and `worker_live`); the edge rate is their sum so nginx is never the
-# tighter of the two. A refused settlement loses the call's post-call work, which is why
-# the edge must not be the one that refuses it.
+# The voice engine's door (`/v1/worker/` on api.): its in-call actions and caller lookups.
+# Under `client_api` (120r/m per IP) it would be the tightest limiter on the call path, and
+# the engine calls from a handful of shared egress addresses, so one IP here is the whole
+# fleet. The edge must never be tighter than the app's own limits
+# (`apps/api/core/ratelimit.py`): a refused action is a caller told the wrong thing.
 limit_req_zone $binary_remote_addr zone=worker:10m rate=1200r/m;
 
 # Health endpoints. Generous enough for an uptime monitor at any sane interval, bounded

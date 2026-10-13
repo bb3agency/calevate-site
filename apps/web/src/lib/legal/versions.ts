@@ -314,6 +314,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:fe0b85ce047cbfd5847ec6b8c2d5e0459427dfe0dadb5cdc2b7e34045b48df22",
       },
+      // D-763: sections 3, 6, 8, 9, 10.1 and 12.4 drop our own call program, its carrier,
+      // its hosting platform and the second voice-synthesis company, none of which the
+      // live deployment used; callbacks are the voice platform's signed ones. NOT MATERIAL:
+      // fewer recipients, and nothing anybody receives changes.
+      {
+        revision: "22",
+        material: false,
+        contentHash:
+          "sha256:12ffac75d7a30ee35ef052bb455e50a5c96ee2c52c487fd34c04e1486b4e9f8c",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -429,6 +439,15 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:e317d730b43e1be8b1c114ac1d387c9a62e46eba786a804fdc9911e741f5ad31",
+      },
+      // D-763: the "Engine" definition names only the hosted voice platform, and the
+      // erasure exceptions name its copies instead of a telephone carrier's. NOT
+      // MATERIAL: our own call program, which the definition also named, is removed.
+      {
+        revision: "16",
+        material: false,
+        contentHash:
+          "sha256:e5e16c9bfab38133cef4da4457a34253eb5d6a87b1c5c62d543fb43113f77984",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -592,6 +611,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:57bfecf301319d618516161a2b05138a6291985513c2a6e6d1fab67ae14642c4",
+      },
+      // D-763: clauses 2, 5, 6 and 9 drop our own call program, its carrier, its hosting
+      // platform and the second voice-synthesis company (not used on the live deployment), and the
+      // callback bullet describes the voice platform's signed callbacks. NOT MATERIAL:
+      // fewer sub-processors, and no warranty narrows.
+      {
+        revision: "14",
+        material: false,
+        contentHash:
+          "sha256:57ed15672a01edf16c110670810792de08e3be96d17f649ab7094446d858d4a4",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -805,6 +834,17 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:3dbec85e06c9a9097567a832884171a7661de4834f8c7717a8265ac99d814635",
+      },
+      // D-763: removes the speech-to-text category, the carrier on our own account and
+      // its fallback, the container hosting platform, the contingency voice platform and
+      // the second voice-synthesis company; section 3.7 covers only the hosted voice
+      // platform. NOT MATERIAL: none was used on the live deployment, and nobody who stays
+      // receives more.
+      {
+        revision: "21",
+        material: false,
+        contentHash:
+          "sha256:b39d1f7093279d33024a67e753264b85b4ed531ad2decee91a55d2f111c4a4b2",
       },
     ],
     effectiveDate: "2026-09-02",

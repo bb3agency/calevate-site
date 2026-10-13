@@ -43,7 +43,7 @@ def _logged(variable: str, value: str) -> str:
         "/auth/google/callback?code=SECRET&state=SECRET&scope=email",
         "/v1/ingest/meta/0190-abc?hub.mode=subscribe&hub.verify_token=SECRET&hub.challenge=1",
         "/auth/reset-password?token=SECRET",
-        "/carrier/v1/vobiz/answer/x?callback_key=SECRET",
+        "/hooks/v1/engine/x?callback_key=SECRET",
     ],
 )
 def test_a_credential_in_the_query_is_not_logged(uri: str) -> None:

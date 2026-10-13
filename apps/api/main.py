@@ -120,7 +120,6 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.routes import router as agents_router
     from apps.api.agents.script_routes import router as script_router
     from apps.api.agents.trial_call_routes import router as trial_calls_router
-    from apps.api.agents.voice_routes import router as voice_router
     from apps.api.authn.routes import (
         admin_auth_router,
         client_auth_router,
@@ -157,12 +156,6 @@ def _mount_routers(application: FastAPI) -> None:
         router as sender_attestation_router,
     )
     from apps.api.compliance.caller_notice_routes import router as caller_notice_router
-    from apps.api.compliance.carrier_application_routes import (
-        admin_router as carrier_application_admin_router,
-    )
-    from apps.api.compliance.carrier_application_routes import (
-        router as carrier_application_router,
-    )
     from apps.api.compliance.consent_routes import call_router as call_consent_router
     from apps.api.compliance.consent_routes import router as messaging_consent_router
     from apps.api.compliance.deletion_routes import router as deletion_router
@@ -223,11 +216,9 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.model_price_routes import router as ops_model_prices_router
     from apps.api.ops.model_price_routes import tts_router as ops_tts_prices_router
     from apps.api.ops.routes import router as ops_router
-    from apps.api.ops.secret_routes import carrier_router as ops_carrier_router
     from apps.api.ops.secret_routes import router as ops_secrets_router
     from apps.api.ops.spoken_style_routes import router as ops_spoken_style_router
     from apps.api.ops.trial_number import router as ops_trial_number_router
-    from apps.api.ops.voice_curation_routes import router as ops_voice_curation_router
     from apps.api.quality.routes import router as quality_router
     from apps.api.quality.sampling_routes import router as qa_sampling_router
     from apps.api.security.routes import router as csp_report_router
@@ -239,7 +230,6 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.tenancy.signup_routes import router as signup_router
     from apps.api.worker.engine_actions import router as engine_actions_router
     from apps.api.worker.engine_lookups import router as engine_lookups_router
-    from apps.api.worker.routes import router as worker_router
 
     application.include_router(tenancy_router)
     # D-170's first-party authentication. Mounted unconditionally and gated per request by
@@ -265,7 +255,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(admin_router)
     # The ops hold queue. Its own `/v1/admin/compliance/...` prefix rather than a path
     # under `admin_router`: `/v1/admin/tenants/{tenant_id}` would swallow any literal
-    # segment added beside it (the hazard `voice_router` above calls out), and this is a
+    # segment added beside it (the hazard `engine_catalogue_router` above calls out), and this is a
     # cross-tenant list, not a tenant's record.
     application.include_router(hold_queue_router)
     # Who may use the console at all — the superadmin tier's own surface. Its own
@@ -297,10 +287,8 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(prompt_admin_router)
     application.include_router(experiment_router)
     # BEFORE `agents_router`: FastAPI matches in declaration order, and
-    # `/v1/agents/{agent_id}` would otherwise swallow `/v1/agents/voices` and reject it
-    # as a malformed UUID. Same hazard `campaigns/routes.py` calls out for `/numbers`.
-    application.include_router(voice_router)
-    # Before `agents_router`, for `voice_router`'s reason: `/v1/agents/engine-catalogue`.
+    # `/v1/agents/{agent_id}` would otherwise swallow `/v1/agents/engine-catalogue` and
+    # reject it as a malformed UUID. Same hazard `campaigns/routes.py` calls out for `/numbers`.
     application.include_router(engine_catalogue_router)
     # Before `agents_router`: `/v1/agents/lanes` is a literal path and
     # `/v1/agents/{agent_id}` would swallow it if the parameterised router won.
@@ -319,7 +307,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(agents_router)
     # The ACCOUNT-level model default (D-454). Its own paths (`/v1/organization/...`,
     # `/v1/admin/organizations/...`) collide with nothing above, so mount order is not
-    # load-bearing here — unlike `voice_router`, whose literal segment lives under
+    # load-bearing here — unlike `engine_catalogue_router`, whose literal segment lives under
     # `/v1/agents/`.
     application.include_router(llm_defaults_router)
     application.include_router(llm_defaults_admin_router)
@@ -353,24 +341,17 @@ def _mount_routers(application: FastAPI) -> None:
     # The call-backs an agent promised on a call (D-514). Its own literal `/v1/callbacks`
     # prefix, which collides with nothing above, so mount order is not load-bearing here.
     # There is no route on it that CREATES one: a call-back exists because a caller asked
-    # for it mid-call, through the in-call tool in `apps/voice-runtime`.
+    # for it mid-call, through the engine's in-call action (`worker/engine_actions.py`).
     application.include_router(callbacks_router)
-    # The voice worker's own server half (D-621). Its own literal `/v1/worker` prefix,
-    # declared in `core.rbac.PUBLIC_PREFIXES` and row by row in
-    # `scripts/check_public_routes.UNAUTHENTICATED_ROUTES` — the worker holds no Calevate
-    # session and authenticates with a Bearer token this deployment issued it. It is here
-    # and not in voice-runtime because it writes the ledger under a tenant's RLS and runs
-    # the redactor, which hard rule 3 forbids that service by name. None of its routes is
-    # in the OpenAPI schema: no browser client consumes them.
-    application.include_router(worker_router)
-    # The same in-call tools reached as a control-plane engine's custom actions (D-678
-    # phase 2), authenticated per vendor agent rather than by the worker's token.
+    # The engine's in-call actions and caller lookups (D-678), under the literal
+    # `/v1/worker` prefix declared in `core.rbac.PUBLIC_PREFIXES`: the engine holds no
+    # Calevate session and each request is authenticated per vendor agent.
     application.include_router(engine_actions_router)
     # The caller lookup the same engine asks before its agent answers (D-716).
     application.include_router(engine_lookups_router)
     # The in-app AI copilot (`apps/api/copilot/`). Its own literal `/v1/copilot` prefix,
     # which collides with nothing above, so mount order is not load-bearing here — unlike
-    # `voice_router`, whose literal segment lives under `/v1/agents/`.
+    # `engine_catalogue_router`, whose literal segment lives under `/v1/agents/`.
     #
     # ⚠ **THIS USED TO SAY "CLIENT REALM ONLY", AND THE ADMIN TWIN NOW EXISTS (D-499).**
     # The reason there was none was that the admin realm had no PAYER, not that nobody had
@@ -409,7 +390,7 @@ def _mount_routers(application: FastAPI) -> None:
     # `{param}` at that position, so declaration order is not load-bearing between them
     # today — but messaging-consent goes first so that a future
     # `/v1/compliance/{something}` router added below cannot swallow it. FastAPI matches
-    # in declaration order (see `voice_router` above).
+    # in declaration order (see `engine_catalogue_router` above).
     application.include_router(messaging_consent_router)
     application.include_router(call_consent_router)
     application.include_router(deletion_router)
@@ -442,13 +423,6 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(kyc_router)
     application.include_router(kyc_admin_router)
     application.include_router(outbound_pledge_router)
-    # The RESELLER stage: our carrier approves each client business separately before a
-    # number can be rented for it (evidence doc 2026-09-13 §5.2). Mounted beside the KYC
-    # pair because it is the same kind of thing — a gating record with a client-facing
-    # read and an ops-facing write — and a client blocked on one is very often looking at
-    # the other.
-    application.include_router(carrier_application_router)
-    application.include_router(carrier_application_admin_router)
     # R-11's first-campaign hold: the client's view of it, and ops's release. The admin
     # half carries its own `/v1/admin/tenants/{tenant_id}/...` prefix — it lives in the
     # compliance package because that package owns the table, exactly as the agents
@@ -478,7 +452,7 @@ def _mount_routers(application: FastAPI) -> None:
     # Both are literal paths under `/v1/billing` and neither carries a `{param}` at
     # that position, so declaration order is not load-bearing between them — but caps
     # goes first so that a future `/v1/billing/{something}` router added below cannot
-    # swallow it. FastAPI matches in declaration order (see `voice_router` above).
+    # swallow it. FastAPI matches in declaration order (see `engine_catalogue_router` above).
     application.include_router(caps_router)
     application.include_router(topups_router)
     # D-707: the monthly platform fee — the client's card and Pay, and the operator's waiver
@@ -551,7 +525,6 @@ def _mount_routers(application: FastAPI) -> None:
     # Credentials — its OWN permission (`platform:secrets`), held by fewer people than
     # anything else on this list. No route on it returns plaintext (§7).
     application.include_router(ops_secrets_router)
-    application.include_router(ops_carrier_router)
     # Operator-attested model prices — `platform:config` like the config panel (a price is
     # configuration, not a credential), effective-dated and append-only. What lets a model
     # whose catalogue price is unverified become offerable.
@@ -574,14 +547,6 @@ def _mount_routers(application: FastAPI) -> None:
     # one more of its own: an encoder identifier contains a slash, so its path parameter is
     # a `:path` and cannot share a prefix with `POST /v1/ops/model-prices/{model}`.
     application.include_router(ops_embedding_prices_router)
-    # WHICH SYNCED VOICES THIS PLATFORM OFFERS (D-588) — the curation layer over the
-    # catalogue sync, on `ops:manage` beside the refresh that fills it. Mounted AFTER
-    # `ops_router`? No: `ops_router` carries the literal `POST /v1/ops/voices/refresh`
-    # under its own `/v1/ops` prefix, and this router's paths are `/v1/ops/voices` exactly
-    # — no path parameter on either, so neither can shadow the other and the order here is
-    # not load-bearing (unlike `voice_router` vs `agents.routes`, where `{agent_id}` eats a
-    # literal segment).
-    application.include_router(ops_voice_curation_router)
     # The same panel on an engine that HOSTS its voices (D-687): literal sub-paths only.
     application.include_router(ops_hosted_voice_router)
     # Which LLM legs the in-app assistant may run on, and the operator attestation behind it

@@ -69,17 +69,13 @@ WORKDIR /app
 # which is what makes a code-only deploy a sub-minute build instead of a full resolve.
 #
 # THE SYNC TARGET IS THE WORKSPACE ROOT, WHOSE `dependencies` ARE EXACTLY THE THREE
-# MEMBERS THIS IMAGE RUNS (D-667). Not `--all-packages`: that also installs
-# `calevate-pipecat-worker`, whose pipecat-ai/onnxruntime/numpy/sympy/sarvamai tree (41
-# distributions, 111 against 70) nothing here imports, on the hosts that hold
-# PLATFORM_KEK. Not a repeated `--package`: uv only accepts that on sync from 0.9.8, and
-# the binary above is 0.8.17. Root `pyproject.toml` carries the full argument.
+# MEMBERS THIS IMAGE RUNS (D-667). Not a repeated `--package`: uv only accepts that on sync
+# from 0.9.8, and the binary above is 0.8.17. Root `pyproject.toml` carries the argument.
 #
 # D-188 is the failure this line must never return to: the root once declared no
 # dependencies, a bare `uv sync` installed nothing and exited 0, and the image shipped an
 # empty venv. `tests/server_image_dependency_set_test.py` reads `uv.lock` and fails if
-# the root stops reaching api, voice-runtime and workers, or starts reaching the voice
-# worker's tree.
+# the root stops reaching api, voice-runtime and workers.
 #
 # `--group errors` installs `sentry-sdk` IN THE IMAGE, because §2 puts no Python on the
 # host and the venv lives in a layer owned by a non-root user, so there is no host-side

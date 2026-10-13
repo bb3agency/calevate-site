@@ -43,7 +43,7 @@ class _NumbersEngine(FakeEngine):
             ProvisionedNumber(e164="+918012345679", provider="ThinnestAI", engine_owned=True),
             ProvisionedNumber(
                 e164="+918012345670",
-                provider="vobiz",
+                provider="telnyx",
                 engine_owned=False,
                 answering_agent_ref="ag_someone_else",
             ),

@@ -736,8 +736,8 @@ export interface EventStreamOptions {
 
 /**
  * A request answered as `text/event-stream`, delivered one event at a time — THE one SSE
- * transport in this console (D-656). The copilot's `POST /v1/copilot/ask` and the call
- * screen's `GET /v1/calls/{id}/speaking` both come through here.
+ * transport in this console (D-656). The copilot's `POST /v1/copilot/ask` comes through
+ * here.
  *
  * It goes through THIS module for the reason every other request does: the same identity
  * headers, the same `credentials: "include"`, the same `problemFrom` on a refusal and the

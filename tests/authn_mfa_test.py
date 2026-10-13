@@ -489,23 +489,3 @@ def test_the_challenge_lifetime_and_budgets_are_the_documented_ones() -> None:
     assert OTP_MAX_ATTEMPTS == 5
     assert OTP_BUDGET.threshold == 5
     assert OTP_DIGITS == 6
-
-
-def test_no_totp_or_recovery_code_surface_survives() -> None:
-    """TOTP and recovery codes were built and then REMOVED (D-170). This fails if either
-    comes back as an unmounted module, an orphan table or a stray route — the half-wired
-    shape CLAUDE.md names, and the exact thing a reader would waste an hour looking for."""
-    import pathlib
-
-    from apps.api.main import app
-
-    package = pathlib.Path(__file__).resolve().parent.parent / "apps" / "api" / "authn"
-    names = {path.name for path in package.glob("*.py")}
-    assert "totp.py" not in names
-    assert "mfa.py" not in names
-
-    for path in app.openapi()["paths"]:
-        lowered = path.lower()
-        assert "totp" not in lowered
-        assert "recovery" not in lowered
-        assert "enrol" not in lowered

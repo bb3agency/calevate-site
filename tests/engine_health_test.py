@@ -2,7 +2,7 @@
 
 WHAT THESE TESTS WOULD HAVE CAUGHT. Before `apps/api/engine/health.py` existed, a voice
 platform failing every request produced `engine_error` at WARNING and no page at all. The
-first test here drives the real condition through the real adapter and asserts the alarm;
+first test here drives the real condition through the real counter and asserts the alarm;
 without the wiring it fails.
 
 THE SECOND TEST IS THE ONE THAT MATTERS MORE. A threshold that fires below the retry
@@ -30,7 +30,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import untenanted_session
 from apps.api.engine import health
-from apps.api.engine.cartesia import CartesiaEngine
+from apps.api.engine.vendor_http import vendor_request
 from sqlalchemy import text
 
 
@@ -73,18 +73,17 @@ async def _counts(engine_name: str) -> tuple[int, int]:
     return int(row[0]), int(row[1])
 
 
-def _vendor(handler: Any) -> CartesiaEngine:
-    """A real adapter over a mock transport, so the shared ladder's own branches are
-    exercised — the throttle ladder, the 4xx/5xx split and the `absent_is_success` case all
-    live in `vendor_http` and a stubbed adapter would test none of them."""
-    return CartesiaEngine(
-        api_key="test-key",
-        from_number_id="num_test",
-        client=httpx.AsyncClient(
-            base_url="https://api.example.invalid",
-            transport=httpx.MockTransport(handler),
-        ),
-    )
+#: The engine name the wiring tests count under, so they never touch a real engine's rows.
+WIRED = "health-wiring"
+
+
+async def _get(handler: Any) -> None:
+    """One read through the shared vendor ladder every adapter uses, over a mock transport,
+    so the 4xx/5xx split and the transport-failure branch in `vendor_http` are exercised."""
+    async with httpx.AsyncClient(
+        base_url="https://api.example.invalid", transport=httpx.MockTransport(handler)
+    ) as client:
+        await vendor_request(client, "GET", "/calls/call-1", engine=WIRED, route="/calls/{id}")
 
 
 async def test_a_run_of_5xx_raises_the_spike_alarm(alerts: _Alerts) -> None:
@@ -127,39 +126,36 @@ async def test_an_engine_that_answers_nothing_still_trips_the_alarm(alerts: _Ale
 
 
 async def test_the_adapter_counts_a_5xx_and_not_a_4xx(alerts: _Alerts) -> None:
-    """The wiring, through the real `_request`. A 4xx is OUR request being wrong and would
+    """The wiring, through the shared vendor ladder. A 4xx is OUR request being wrong and would
     drown the signal; only the 5xx may be counted."""
-    await _clear("cartesia")
+    await _clear(WIRED)
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, json={"detail": "no"})
 
-    engine = _vendor(handler)
     with pytest.raises(ProblemError):
-        await engine.get_execution("call-1")
-    assert await _counts("cartesia") == (0, 0)
+        await _get(handler)
+    assert await _counts(WIRED) == (0, 0)
 
     def failing(request: httpx.Request) -> httpx.Response:
         return httpx.Response(502, text="bad gateway")
 
-    engine = _vendor(failing)
     with pytest.raises(ProblemError):
-        await engine.get_execution("call-1")
-    assert await _counts("cartesia") == (1, 0)
-    await _clear("cartesia")
+        await _get(failing)
+    assert await _counts(WIRED) == (1, 0)
+    await _clear(WIRED)
 
 
 async def test_a_transport_failure_is_counted_as_unreachable() -> None:
-    await _clear("cartesia")
+    await _clear(WIRED)
 
     def refused(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
 
-    engine = _vendor(refused)
     with pytest.raises(ProblemError):
-        await engine.get_execution("call-1")
-    assert await _counts("cartesia") == (0, 1)
-    await _clear("cartesia")
+        await _get(refused)
+    assert await _counts(WIRED) == (0, 1)
+    await _clear(WIRED)
 
 
 async def test_a_broken_database_costs_the_signal_and_never_the_caller(

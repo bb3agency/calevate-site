@@ -6,6 +6,7 @@ import { ADMIN_FORWARDING, CODES, READY_TO_FORWARD, SETTLED_TEST, WITH_LINE } fr
 
 import type { AiQuota } from "@/lib/api/aiQuota";
 import type { Margin } from "@/lib/api/admin";
+import type { HostedVoice } from "@/lib/api/opsHostedVoices";
 import type { CallDetail } from "@/lib/api/client";
 import AdminLayout from "@/app/admin/layout";
 import AcceptInvitationPage from "@/app/(auth)/auth/accept-invitation/page";
@@ -135,12 +136,10 @@ import { adminBusinessProfileFixture, businessProfileFixture } from "./businessP
 import { RATE_CARD_ROUTES } from "./fixtures/rateCard";
 import { LEAD_CALLING_ROUTES } from "./fixtures/leadCalling";
 import {
-  KB_ALL_DELIVERED,
   LANES,
   NO_MAINTENANCE,
   activeTrialBlock,
   prepaidWallet,
-  voiceCatalogue,
   LIVE_CALLS_PATH,
   OWN_NUMBERS_OFF,
   OWN_NUMBERS_STATUS_PATH,
@@ -581,7 +580,7 @@ const TTS_SPEAKING_RATE = {
   // on `TtsSpeakingRateOut` since D-547.
   by_provider: [
     {
-      provider: "gnani",
+      provider: "thinnest",
       tier_label: "Clear",
       price_attested: true,
       inr_per_1k_chars: "2.7000",
@@ -1414,10 +1413,8 @@ const OPS_CONFIG = {
   // THE ENV-ONLY SECTION, AND ITS ABSENCE WAS A REAL HOLE (D-614). This fixture is
   // untyped, so a missing key is invisible to `tsc` — and `bootstrap` was missing while
   // the screen happened not to read it. The day the panel did, the render threw inside
-  // the a11y sweep. TWO rows, because the section has two shapes and a one-row fixture
-  // would leave half its markup unscanned: a key this deployment holds and has not set
-  // (a real fault, rendered as a warning) and one held by another environment entirely
-  // (no verdict, just where it lives).
+  // the a11y sweep. TWO rows, because the section has two shapes: a key that is set and one that is
+  // not (a real fault, rendered as a warning).
   bootstrap: [
     {
       key: "app_env",
@@ -1425,15 +1422,13 @@ const OPS_CONFIG = {
       env_var: "APP_ENV",
       reason: "it decides whether dev tokens are accepted.",
       configured: true,
-      held_by: null,
     },
     {
-      key: "plivo_auth_id",
-      label: "Plivo auth ID",
-      env_var: "PLIVO_AUTH_ID",
-      reason: "the voice worker reads it from its own container's environment.",
+      key: "resend_api_key",
+      label: "Resend API key",
+      env_var: "RESEND_API_KEY",
+      reason: "the alert relay on the database host can only read this from the environment.",
       configured: false,
-      held_by: "the Pipecat Cloud secret set `calevate-pipecat-worker-secrets`",
     },
   ],
 };
@@ -1485,11 +1480,10 @@ const OPS_MODEL_PRICES = {
   // this file.
   tts_prices: [
     {
-      provider: "gnani",
+      provider: "thinnest",
       tier_label: "Clear",
-      tts_model: "timbre-v2.5",
+      tts_model: "thinnest-premium",
       credential_installed: true,
-      credential_held_elsewhere: false,
       price_attested: true,
       price_billable: true,
       offerable: true,
@@ -1499,14 +1493,13 @@ const OPS_MODEL_PRICES = {
       effective_from: "2026-09-20T00:00:00Z",
       attested_at: "2026-09-20T05:30:00Z",
       attested_by: "ops@calevate.tech",
-      source_note: "Gnani console pricing page, 19 Sep 2026",
+      source_note: "ThinnestAI pricing page, 8 Oct 2026",
     },
     {
       provider: "cartesia",
       tier_label: "Studio",
       tts_model: "sonic-3.5",
       credential_installed: true,
-      credential_held_elsewhere: false,
       price_attested: false,
       price_billable: false,
       offerable: false,
@@ -1526,10 +1519,10 @@ const OPS_MODEL_PRICES = {
   // the whole point of this file.
   embedding_prices: [
     {
-      model: "models/gemini-embedding-2",
-      provider: "google",
-      used_for: "the knowledge pack's dense arm",
-      dimensions: 3072,
+      model: "test-embedding-unpriced",
+      provider: "azure_openai",
+      used_for: "a second, test-only encoder still waiting for a price",
+      dimensions: 1536,
       credential_installed: true,
       price_attested: false,
       usable: false,
@@ -1538,7 +1531,7 @@ const OPS_MODEL_PRICES = {
       attested_at: null,
       attested_by: null,
       source_note: null,
-      reference_input_usd_per_mtok: "0.20",
+      reference_input_usd_per_mtok: "0.02",
       reference_verified: false,
     },
     {
@@ -1764,7 +1757,6 @@ const TENANT_ROUTES: Routes = {
     },
     choices: [{ value: "retail", label: "Shop, food or produce" }],
   },
-  "/v1/kb/delivery": KB_ALL_DELIVERED,
   // The KYC screen reads this through `viewAsSession(tenant.slug)`, so the request only
   // goes out AFTER the tenant read lands. Absent from this table the screen rendered its
   // generic failure notice instead of the record — and did so late enough that the scan
@@ -1772,27 +1764,6 @@ const TENANT_ROUTES: Routes = {
   // refuse. It surfaced as an order-dependent failure the moment this file grew screens
   // ahead of it; the hole was always there.
   "/v1/compliance/kyc": KYC_RECORD,
-  // The CARRIER half of the same screen (19 Sep 2026). Admin-realm and audited on every
-  // read, so it is a different request from the KYC one above — and without it here the
-  // sweep scanned the panel's `ProblemNotice` branch rather than the panel: the decision
-  // form, its select, its conditional fields and its badge were never seen by axe, which
-  // is precisely the vacuous pass this table exists to prevent. `submitted` is the state
-  // that renders the MOST markup (a form with a required reference field and a live
-  // status badge), so it is the one swept.
-  "/v1/admin/tenants/t1/carrier-application": {
-    recorded: true,
-    carrier: "Plivo",
-    status: "submitted",
-    carrier_application_id: null,
-    document_kind: "gst_certificate",
-    document_filename: "gst-certificate.pdf",
-    signed_application_on_file: true,
-    rejection_reason: null,
-    submitted_at: "2026-09-10T06:30:00Z",
-    decided_at: null,
-    is_accepted: false,
-    required: true,
-  },
   "/v1/admin/tenants/t1": TENANT_SUMMARY,
   "/v1/admin/tenants/t1/margin": {
     month: "2026-08",
@@ -2403,7 +2374,6 @@ const CLIENT_SCREENS: Screen[] = [
     routes: {
       "/v1/business-profile": businessProfileFixture(),
       "/v1/organization/llm-defaults": clientLlmTiers(),
-      "/v1/agents/voices": voiceCatalogue("client"),
       "/v1/agents/lanes": LANES,
       // The header's "₹X this month" line, with this agent charged, so its markup is swept.
       [AGENT_SPEND_PATH]: SPEND,
@@ -2613,15 +2583,15 @@ const CLIENT_SCREENS: Screen[] = [
             catalog: null,
           },
           live: {
-            voice_id: "timbre-v2.5:Suhana",
-            provider: "gnani",
-            voice_tier: "clear",
+            voice_id: "sonic-3.5:priya",
+            provider: "cartesia",
+            voice_tier: "studio",
             catalog: null,
           },
           republish_required: true,
           unnamed_note: null,
           headline:
-            "Callers still hear Suhana; Ananya reaches them at the next publish.",
+            "Callers still hear Priya; Ananya reaches them at the next publish.",
         },
         engine_verification: {
           state: "unreachable",
@@ -3230,7 +3200,6 @@ const CLIENT_SCREENS: Screen[] = [
       // Documents and web pages (D-534). One row per state family, so the sweep covers
       // the populated list rather than its empty state: a live PDF, and a photograph
       // waiting for the client to confirm what was read off it.
-      "/v1/kb/delivery": { items: [], not_delivered_count: 0 },
       "/v1/kb/uploads": [
         {
           id: "0192f0aa-7777-7000-8000-000000000001",
@@ -3628,6 +3597,43 @@ const MAINTENANCE_WINDOW = {
   cancelled_at: null,
   announced: true,
 };
+
+/** One voice on the hosted voices list (`HostedVoiceOut`), offered and with a preview. */
+function hostedVoice(over: Partial<HostedVoice> = {}): HostedVoice {
+  return {
+    voice_id: "engine:anjali",
+    vendor_id: "anjali",
+    label: "Anjali",
+    vendor_label: "Anjali",
+    display_label: null,
+    source: "engine",
+    rung: "clear",
+    band: "premium",
+    sold: true,
+    not_sold_reason: null,
+    is_custom: false,
+    accent: "te",
+    accent_label: "Telugu",
+    gender: null,
+    languages: ["te-IN", "hi-IN", "en-IN"],
+    description: "Warm and calm",
+    language_note: "Speaks the agent's language, with an accent: Telugu.",
+    state: "enabled",
+    added: true,
+    offered: true,
+    synced_at: "2026-10-08T04:30:00Z",
+    curated_at: "2026-10-08T05:00:00Z",
+    withdrawn_at: null,
+    preview_available: true,
+    preview_source: "upload",
+    deletable_clone: false,
+    live_agents: 0,
+    person_clone: false,
+    clone_consent: null,
+    clone_blocker: null,
+    ...over,
+  };
+}
 
 const ADMIN_SCREENS: Screen[] = [
   {
@@ -4273,7 +4279,7 @@ const ADMIN_SCREENS: Screen[] = [
         complete: false,
         groups: [
           {
-            engine: "pipecat",
+            engine: "thinnest",
             region: "us",
             calls: 12,
             turns: 240,
@@ -4331,7 +4337,7 @@ const ADMIN_SCREENS: Screen[] = [
             ],
           },
           {
-            engine: "pipecat",
+            engine: "thinnest",
             region: null,
             calls: 1,
             turns: 3,
@@ -4391,127 +4397,78 @@ const ADMIN_SCREENS: Screen[] = [
     },
   },
   {
-    // EVERY ROW SHAPE THIS TABLE HAS, because each one renders different markup and the
-    // ones that matter are the unhappy ones: an enabled stock voice with live agents on it
-    // (the reassurance sentence), a DISABLED clone that nobody has reviewed (the origin
-    // cell, the "never reviewed" line), and one the voice platform has WITHDRAWN (the amber
-    // caveat paragraph). The `offered: 0` fixture also renders the warning banner above the
-    // table, which is a different element from the empty state and would otherwise go
-    // unscanned on a screen that is never empty in that state.
+    // The hosted voices screen (D-687) with the row shapes that render different markup: an
+    // offered stock voice with a preview, a disabled custom clone with live agents on it,
+    // and a Studio voice with no preview clip.
     file: "admin/ops/voices/page.tsx",
     realm: "admin",
     element: () => <VoicesPage />,
     routes: {
-      // `ops:manage`, for `admin/ops/engine-latency`'s reason: this screen withholds its
-      // whole table from a session the server has refused, so the shared fixture would
-      // sweep one sentence and none of the markup this entry exists for.
+      // `ops:manage`: without it the screen withholds itself and the sweep would scan one
+      // refusal sentence.
       "/v1/admin/me": {
         ...ADMIN_ME,
         permissions: [...ADMIN_ME.permissions, "ops:manage"],
       },
-      // KEYED WITH THE QUERY, because the stub matches the whole path: the page asks for
-      // `?scope=decided` (`opsVoices.ts::useOpsVoices`) and a bare `/v1/ops/voices` entry
-      // never matched it. The query then errored, the screen rendered its failure state,
-      // and axe swept THAT — so this entry's own promise to sweep the table, the warning
-      // banner and the Add form was unkept while the gate reported green.
-      // The hosted list is read first (D-687); this entry sweeps the Pipecat catalogue.
       "/v1/ops/voices/hosted?scope=added": {
-        available: false,
+        available: true,
         scope: "added",
-        voices: [],
-        cached: 0,
-        offered: 0,
-        studio_ready: false,
-        clear_band: null,
-        note: "Voices on this platform come from Calevate's own catalogue.",
-        bands: {},
-        plan_note: null,
-      },
-      "/v1/ops/voices?scope=decided": {
-        source: "engine",
-        scope: "decided",
-        cached: true,
-        offered: 0,
-        note: "The catalogue has been read, but no voice is enabled for this platform.",
-        form: {
-          providers: [
-            {
-              provider: "cartesia",
-              tier_label: "Studio",
-              models: ["sonic-3.5"],
-              selectable: true,
-              unavailable_reason: null,
-            },
-            // UNSELECTABLE, deliberately: a provider whose price is unattested is sent
-            // disabled WITH a reason, and that amber sentence is markup axe must sweep.
-            {
-              provider: "gnani",
-              tier_label: "Clear",
-              models: ["timbre-v2.5"],
-              selectable: false,
-              unavailable_reason:
-                "No price has been attested for this provider, so a minute spoken on it cannot be billed.",
-            },
-          ],
-          languages: ["te-IN", "hi-IN", "en-IN"],
-        },
         voices: [
-          {
-            voice_id: "sonic-3.5:akshita",
-            label: "Akshita",
-            provider: "cartesia",
-            tier_label: "Studio",
-            tts_model: "sonic-3.5",
-            engine_voice_id: "akshita",
-            languages: ["te-IN", "hi-IN", "en-IN"],
-            source: "platform",
-            origin: "operator",
-            state: "enabled",
-            offered: true,
-            synced_at: "2026-09-11T04:30:00Z",
-            curated_at: "2026-09-11T05:00:00Z",
-            withdrawn_at: null,
-            withdrawn_note: null,
-            live_agents: 3,
-          },
-          {
-            voice_id: "sonic-3.5:cloned-one",
-            label: "Cloned Anita",
-            provider: "cartesia",
-            tier_label: "Studio",
-            tts_model: "sonic-3.5",
-            engine_voice_id: "cloned-one",
-            languages: ["te-IN"],
-            source: "custom",
-            origin: "operator",
+          hostedVoice(),
+          hostedVoice({
+            voice_id: "engine:clone-ravi",
+            vendor_id: "clone-ravi",
+            label: "Ravi",
+            vendor_label: "Ravi",
+            is_custom: true,
             state: "disabled",
             offered: false,
-            synced_at: "2026-09-11T04:30:00Z",
-            curated_at: null,
-            withdrawn_at: null,
-            withdrawn_note: null,
-            live_agents: 0,
-          },
-          {
-            voice_id: "timbre-v2.5:withdrawn",
-            label: "Withdrawn One",
-            provider: "gnani",
-            tier_label: "Clear",
-            tts_model: "timbre-v2.5",
-            engine_voice_id: "withdrawn",
-            languages: ["hi-IN"],
-            source: "platform",
-            origin: "synced",
-            state: "archived",
-            offered: false,
-            synced_at: "2026-09-10T04:30:00Z",
-            curated_at: "2026-09-10T06:00:00Z",
-            withdrawn_at: "2026-09-11T04:30:00Z",
-            withdrawn_note:
-              "This voice carries a withdrawal stamp. Add it again on this page, with the same id and name, to restore it.",
-            live_agents: 0,
-          },
+            preview_available: false,
+            preview_source: null,
+            deletable_clone: true,
+            live_agents: 2,
+          }),
+          hostedVoice({
+            voice_id: "byok:meera",
+            vendor_id: "meera",
+            label: "Meera",
+            vendor_label: "Meera",
+            source: "byok",
+            rung: "studio",
+            band: null,
+            preview_available: false,
+            preview_source: null,
+          }),
         ],
+        cached: 37,
+        offered: 2,
+        studio_ready: false,
+        clear_band: "premium",
+        note: "2 voices are offered to clients.",
+        bands: { standard: 3, premium: 1, studio: 2 },
+        plan_note: null,
+      },
+      "/v1/ops/voices/studio-voices": {
+        ready: false,
+        cartesia_key_configured: true,
+        developer_holds_key: false,
+        developer_switch_on: false,
+        minute_attested: true,
+        synthesis_priced: true,
+        voices_listed: false,
+        missing: ["Run Studio ready to switch our key on in the developer workspace."],
+        workspaces: [],
+        live_studio_agents: 0,
+        explanation: "Studio voices are our voice key, switched on for the voice only.",
+        note: "Not ready: Run Studio ready to switch our key on in the developer workspace.",
+        key: {
+          enabled: false,
+          scope: null,
+          complete: false,
+          using: "none",
+          voice_provider: null,
+          speaks_on_own_voice: false,
+        },
       },
     },
   },
@@ -4653,7 +4610,7 @@ const ADMIN_SCREENS: Screen[] = [
           e164: "+918041234567",
           series: "standard",
           dlt_status: "pending",
-          provider: "plivo",
+          provider: "thinnest",
           engine_owned: true,
           engine_linked: true,
           monthly_rental_usd: "5.0000",
@@ -5034,10 +4991,6 @@ const ADMIN_SCREENS: Screen[] = [
           active: false,
         },
       ],
-      // The voice catalogue, read through the tenant's impersonation session like the
-      // other two client-realm GETs on this screen: a Studio voice on offer and the Clear
-      // rung refused on its unattested price, which is this deployment's state.
-      "/v1/agents/voices": voiceCatalogue("admin"),
       "/v1/agents/agent-1/call-handling": AGENT_CALL_HANDLING,
       "/v1/agents/agent-1/pending": {
         agent_id: "agent-1",
@@ -5060,15 +5013,15 @@ const ADMIN_SCREENS: Screen[] = [
             catalog: null,
           },
           live: {
-            voice_id: "timbre-v2.5:Suhana",
-            provider: "gnani",
-            voice_tier: "clear",
+            voice_id: "sonic-3.5:priya",
+            provider: "cartesia",
+            voice_tier: "studio",
             catalog: null,
           },
           republish_required: true,
           unnamed_note: null,
           headline:
-            "Callers still hear Suhana; Ananya reaches them at the next publish.",
+            "Callers still hear Priya; Ananya reaches them at the next publish.",
         },
         // Unconfirmed for the same reason the voice is diverged: the sweep should walk
         // the branch that renders MORE, not the reassuring one.
@@ -5231,7 +5184,19 @@ const AGENT_SECTION_SCREENS: Screen[] = [
   "captured",
   "knowledge",
   "advanced",
-].map((id) => ({ ...AGENT_WORKSPACE, search: `section=${id}` }));
+].map((id) => ({
+  ...AGENT_WORKSPACE,
+  search: `section=${id}`,
+  // The Voice section lists the voice platform's voices. A client is sent no models (D-679).
+  ...(id === "voice"
+    ? {
+        routes: {
+          ...AGENT_WORKSPACE.routes,
+          "/v1/agents/engine-catalogue": operatorEngineCatalogue({ models: [] }),
+        },
+      }
+    : {}),
+}));
 
 /**
  * The platform-configuration screen's other sections (D-661). Calling is swept by the
@@ -5261,8 +5226,9 @@ const ADMIN_AGENT_SECTION_SCREENS: Screen[] = ["script", "voice", "model", "limi
   (id) => ({
     ...ADMIN_AGENT_PAGE,
     search: `section=${id}`,
-    // The Model section lists the voice platform's real models, with their makers' marks.
-    ...(id === "model"
+    // The Voice and Model sections list the voice platform's voices and its real models,
+    // with their makers' marks.
+    ...(id === "model" || id === "voice"
       ? { routes: { ...ADMIN_AGENT_PAGE.routes, "/v1/agents/engine-catalogue": operatorEngineCatalogue() } }
       : {}),
   }),

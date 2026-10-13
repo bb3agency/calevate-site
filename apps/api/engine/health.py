@@ -166,7 +166,7 @@ async def record_engine_failure(engine: str, *, kind: FailureKind) -> None:
             f"({server_errors} answered 5xx, {unreachable} got no answer); "
             f"threshold is {SPIKE_THRESHOLD}"
         ),
-        # The engine NAME, which is ours (`cartesia`, `pipecat`), never a route, a payload
+        # The engine NAME, which is ours (`thinnest`, `fake`), never a route, a payload
         # or a vendor error string — hard rule 6, and the same reason `_request` refuses
         # to echo a vendor body to a client.
         engine=engine,

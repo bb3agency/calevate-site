@@ -205,8 +205,8 @@ ON_RESTART = "on_restart"
 #: progress finishes on the old value. Nobody republishes anything by hand.
 LIVE_AGENTS = "live_agents"
 #: Saving it is not enough and no republish helps: an operator must do the step the caveat
-#: names (re-install a credential in the engine's own store, rebind numbers at the other
-#: carrier, move the fleet to another engine). The caveat is the instruction.
+#: names (re-install a credential in the engine's own store, move the fleet to another
+#: engine). The caveat is the instruction.
 OPERATOR_STEP = "operator_step"
 #: The store can NEVER deliver this value, restart or not — the consumer reads the
 #: environment directly, or reads it before the store is reachable. Distinct from
@@ -286,12 +286,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # either at boot.
     "usd_inr_rate": AppliesRule(LIVE),
     "usd_inr_rate_override": AppliesRule(LIVE),
-    # The Cartesia adapter captures this at construction and `get_engine()` caches the
-    # adapter for the life of the process.
-    "cartesia_from_number_id": AppliesRule(
-        ON_RESTART,
-        "read once at startup and held by each server process.",
-    ),
     # ---- live_agents: carried by each live agent, so saving it updates them all ----
     "webhook_base_url": AppliesRule(
         LIVE_AGENTS,
@@ -452,20 +446,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         LIVE_AGENTS,
         f"it is the deployment id each agent calls, so saving it moves every live agent{_NOW}",
     ),
-    # The deployments serving the models a CLIENT may select (D-454). Same answer as the
-    # field above and for the same reason — it resolves to `ModelConfig.llm_model` at
-    # publish time — with one addition an operator has to know: ADDING an entry here is
-    # what makes that model selectable at all, and it becomes selectable IMMEDIATELY
-    # (`GET /v1/organization/llm-defaults` reads it per request). REMOVING one is the
-    # dangerous direction: accounts that already chose that model keep running the
-    # deployment their agents were published against, and the screen starts reporting the
-    # choice as unavailable.
-    "azure_openai_deployments": AppliesRule(
-        LIVE_AGENTS,
-        "it decides which deployment each agent calls; adding an entry makes a model "
-        "selectable at once, and saving it moves every live agent onto the deployments it "
-        f"names{_NOW}",
-    ),
     # LIVE, and it is the ONE of the four that genuinely is: nothing sends this value to
     # anybody. It records which model the deployment was made from, `billing/` reads it
     # per usage event to price the leg, and changing it changes an invoice line within one
@@ -477,11 +457,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # legs. LIVE and genuinely so on the surfaces a person watches: the settings screen
     # resolves it per request, so "the model we run by default" moves within one poll. ⚠ A
     # LIVE AGENT MOVES ON ITS NEXT PUBLISH, not on the poll — `_to_config` resolves this rung
-    # at publish time — which is the same shape `azure_openai_deployments` carries and is why
-    # that one is LIVE_AGENTS. It is classified LIVE anyway because the two are not the
-    # same promise: an entry in that map decides WHICH DEPLOYMENT an agent is addressed by
-    # and can leave a published agent calling a different model than the console reports,
-    # while this one only decides what an account inherits — no agent that has ever been
+    # at publish time. It is classified LIVE because it only decides what an account inherits — no
+    # agent that has ever been
     # published is silently mismatched by it, and the account-default writer re-publishes the
     # agents it moves.
     "platform_llm_model": AppliesRule(LIVE),
@@ -512,8 +489,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # compiled block, with no deploy and nothing to unwind. It does not touch the call path
     # under any value.
     "retrieval_provider": AppliesRule(LIVE),
-    # WHERE A SELF-HOSTED SUPERMEMORY ANSWERS, and which model it embeds with (§8 of
-    # `docs/PIPECAT-MIGRATION.md`). LIVE for `retrieval_provider`'s own reason and with the
+    # WHERE A SELF-HOSTED SUPERMEMORY ANSWERS, and which model it embeds with (TRD §6.3). LIVE for
+    # `retrieval_provider`'s own reason and with the
     # same consequence: `get_retriever` is called per request, constructs the adapter fresh
     # and holds no connection, so a corrected URL or a newly attested model is in force on
     # the next question with nothing to restart and nothing to re-publish. Neither touches
@@ -529,7 +506,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # tenant's documents, so rotating it is a whole-store event and an operator should see
     # that said beside the box they are typing into.
     "supermemory_api_key": AppliesRule(LIVE),
-    # THE SHADOW READ (§8.6 of `docs/PIPECAT-MIGRATION.md`): which store is asked the same
+    # THE SHADOW READ (TRD §6.3): which store is asked the same
     # question in the dark, and whose questions may be asked. LIVE for `retrieval_provider`'s
     # own mechanical reason — `get_retriever` runs per request and holds no state — and LIVE
     # for a second reason that matters more here: this is the control an operator reaches for
@@ -621,12 +598,9 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # They are classified here, in the SAME table, because there is one question and it
     # should not have two answers in two places.
     #
-    # Captured at construction by the Cartesia adapter, which `get_engine()` caches for the
-    # life of the process.
-    "cartesia_api_key": AppliesRule(
-        ON_RESTART,
-        "the Cartesia engine adapter captures this key at startup.",
-    ),
+    # Read per use by the Studio key installer (`agents/studio_voices`,
+    # `workers/studio_voice_key`), which pushes a rotation to the voice platform.
+    "cartesia_api_key": AppliesRule(LIVE),
     # `sentry_sdk.init` runs once at boot (from `init_observability`) with this DSN;
     # nothing reconfigures it afterwards.
     "sentry_dsn": AppliesRule(
@@ -634,51 +608,9 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "error reporting is configured with this DSN at startup.",
     ),
     # Read at the point of use, per call or per request.
-    # The voice worker's own credential (D-621). Read per request inside the handler, from
-    # the settings snapshot (`worker/service.authorized`) — nothing captures it at boot, so
-    # a rotation is in force on the next batch the worker posts. ⚠ THE OTHER HALF OF THE
-    # ROTATION IS NOT LIVE AND IS NOT OURS: the same value lives in the Pipecat Cloud secret
-    # set, and a worker still presenting the old one is 401 from the moment this is saved
-    # until that secret set is updated and the container redeployed (DEPLOYMENT §12.2 — a
-    # human puts the value in both places, and nothing fetches one from the other).
-    "pipecat_worker_api_token": AppliesRule(LIVE),
-    # Read per request inside the handler, from the settings snapshot
-    # (`apps/voice-runtime/carrier_routes._stream_base_url`) — nothing captures it at boot,
-    # so an operator who points a redeployed worker somewhere new is in force on the next
-    # call the carrier fetches an answer document for, with no restart of the
-    # latency-critical service.
-    "pipecat_stream_base_url": AppliesRule(LIVE),
-    # The carrier switch (D-662). The engine adapter resolves the carrier per operation, so
-    # a new dial goes out on the new carrier at once; a call already placed is hung up and
-    # its call record read on the carrier stamped on its row (`calls.carrier`, D-663). A
-    # number already bound at the other carrier keeps answering there until it is rebound.
-    "carrier": AppliesRule(
-        OPERATOR_STEP,
-        "new calls are dialled on the new carrier at once and calls already under way "
-        "finish on the carrier they started on, but every number already bound to the "
-        "other carrier keeps answering there until it is bound again from the number's "
-        "screen",
-    ),
-    # The next six are read per request or per dial through `get_settings()`.
-    "vobiz_api_base_url": AppliesRule(LIVE),
-    "vobiz_signature_required": AppliesRule(LIVE),
-    "vobiz_callback_ips": AppliesRule(LIVE),
-    "carrier_cps": AppliesRule(LIVE),
     # Read inside every dial's intent transaction (`agents/service.dispatch_call`) and
-    # once per dispatch tick for the outbound pool.
+    # once per dispatch tick for the outbound pool, on an engine with no ceiling of its own.
     "carrier_concurrency": AppliesRule(LIVE),
-    "carrier_transfer_enabled": AppliesRule(LIVE),
-    # Read per request by the answer route (`carrier_routes._records`) and per publish by
-    # `engine/pipecat.capabilities_for_carrier`. Not LIVE in both directions, which is why
-    # it is not classified LIVE: the route records only an agent whose published answer
-    # URL says its disclosure announces a recording, so the ON half waits for a republish
-    # by construction (hard rule 5: never record a caller the agent told otherwise).
-    "carrier_recording_enabled": AppliesRule(
-        LIVE_AGENTS,
-        "turning it off stops recording on the very next call; either way every live agent's "
-        "opening and answers about recording are republished to match, because an agent only "
-        f"records once its opening and its answers say so{_NOW}",
-    ),
     "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
     # ⚠ THIS COMMENT SAID "nothing sends it anywhere" AND THAT HAS BEEN FALSE SINCE D-456.
     # It described the state D-127/D-410 left — the AI Studio Developer API disqualified,
@@ -763,10 +695,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "idempotency_scope_secret": AppliesRule(LIVE),
     "impersonation_grant_secret": AppliesRule(LIVE),  # core/impersonation, per mint
     "smtp_password": AppliesRule(LIVE),  # core/transport.get_transport(), per send
-    # D-91's Meta token, and `live` here against `on_restart` for `cartesia_api_key` above
-    # is the distinction this table exists to make. That one is `on_restart`
-    # because `get_engine()` CACHES the adapter for the life of the process, so the key is
-    # captured at construction. Nothing caches a WhatsApp transport:
+    # D-91's Meta token, `live` because nothing caches a WhatsApp transport:
     # `get_whatsapp_transport()` is called inline at both send sites and builds a fresh
     # `CloudApiWhatsAppTransport` per message, and that object holds no token cache of its
     # own — Cloud API issues a long-lived system-user token, so there is no refresh flow
@@ -1032,7 +961,7 @@ def validate_value(field: str, raw: Any) -> Any:
     the `Decimal` exactly.
 
     Raises `ValidationError` — the caller turns it into problem+json with the field's own
-    message, because "engine must be one of fake, cartesia, pipecat" is a sentence an
+    message, because "engine must be one of fake, thinnest" is a sentence an
     operator can act on and "invalid value" is not.
     """
     adapter = _adapter(field)

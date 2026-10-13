@@ -16,10 +16,7 @@
 .github
 # Agent and editor working state. NEVER a build input, and on a machine where it exists it
 # is the largest thing in the tree: `.claude/worktrees/` holds a full checkout per agent,
-# which measured 78,540 files / 2.3GB here. Docker streams a context to a local daemon and
-# mostly survives that; Pipecat Cloud builds the tarball IN MEMORY before uploading
-# (`pipecatcloud/_utils/build_utils.py::create_deterministic_tarball`), so the same
-# oversight is an OOM rather than a slow build.
+# which measured 78,540 files / 2.3GB here, so sending it makes every build slow.
 #
 # ⚠ THE GENERAL DEFECT, WHICH IS WHY `tests/build_context_test.py` EXISTS: .gitignore and
 # this file had silently drifted apart. Anything git-ignored in a working directory is by
@@ -73,7 +70,6 @@ infra
 # Vendor documentation mirrors (evidence for docs/evidence/, ~8 MB each); nothing reads
 # them at runtime.
 bolna-findings
-vobiz-findings
 thinnest-findings
 
 # `runbooks/` IS SHIPPED, and it is the one documentation tree that is (D-499). The admin

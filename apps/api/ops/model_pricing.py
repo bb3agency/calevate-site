@@ -696,12 +696,10 @@ def reference_price(model: str) -> tuple[Decimal, Decimal, bool]:
 # vector, so there is no output leg to charge — which is a smaller difference than the voice
 # one, and it shares the same TABLE as well as the same panel.
 #
-# WHAT IT GATES. Nothing a client picks: an encoder is a property of the deployment, and
-# changing it invalidates every published pack by construction
-# (`calevate_shared.knowledge_pack.KnowledgePack.digest` hashes the declaration). What it
-# gates is whether a knowledge upload may be EMBEDDED AT ALL — hard rule 7 refuses to spend
-# a credential this repository cannot put a price on, so until an operator attests, both
-# encoder legs are no-ops that log their ground and every pack is built lexical-only.
+# WHAT IT GATES. Nothing a client picks: an encoder is a property of the deployment. What
+# it gates is whether a knowledge upload may be EMBEDDED AT ALL — hard rule 7 refuses to
+# spend a credential this repository cannot put a price on, so until an operator attests,
+# both encoder legs are no-ops that log their ground.
 
 
 @dataclass(frozen=True, slots=True)
@@ -730,9 +728,8 @@ class EmbeddingOfferability:
     credential_installed: bool
     price_attested: bool
     #: The catalogue figure is a first-hand vendor reading (`EmbeddingPrice.evidence
-    #: .verified`). False for BOTH entries today — Google's page is egress-blocked from this
-    #: container and OpenAI's was never read — which is exactly why an attestation is the
-    #: only door.
+    #: .verified`). False today — OpenAI's price page was never read from this container —
+    #: which is exactly why an attestation is the only door.
     reference_verified: bool
 
     @property
@@ -743,9 +740,8 @@ class EmbeddingOfferability:
     def usable(self) -> bool:
         """Will an upload on this leg actually be embedded right now?
 
-        THE SAME TWO GROUNDS `pack_vectors.embed_entries` checks before it addresses a
-        provider, in the same order, so the panel cannot say "ready" about a leg that will
-        then log `knowledge_pack_embedding_no_provider` on the next publish.
+        The two grounds an embedding call checks before it addresses a provider, in the same
+        order, so the panel cannot say "ready" about a leg that will then refuse.
         """
         return self.credential_installed and self.price_billable
 
@@ -791,8 +787,9 @@ def _require_known_embedding_model(model: str) -> None:
             detail=f"{model!r} isn't an embedding model in Calevate's catalogue.",
             remediation=(
                 "The model-prices list shows every encoder this deployment can buy vectors "
-                "from. Adding one is a code change — an encoder decides how every published "
-                "pack is built, so it is not something that can be introduced as a price."
+                "from. Adding one is a code change — an encoder decides how every stored "
+                "knowledge vector is built, so it is not something that can be introduced as "
+                "a price."
             ),
         )
 
@@ -933,7 +930,7 @@ def reference_embedding_price(model: str) -> tuple[Decimal, bool]:
 #: had a row here. Both remaining entries are BYOK legs the vendor bills on a plan this
 #: process cannot read, so BOTH now need an attestation before a minute on them may be
 #: metered — which is why nothing in this file is exempt any more.
-TTS_PROVIDERS: Final[tuple[str, ...]] = ("cartesia", "gnani")
+TTS_PROVIDERS: Final[tuple[str, ...]] = ("cartesia",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1063,72 +1060,17 @@ def reference_tts_price(provider: str) -> Decimal | None:
     typing a price from a paper invoice is helped by seeing what this platform currently
     believes and is not helped by having it entered for them.
 
-    ⚠ **THE PARAGRAPH BELOW ASSERTED THAT GNANI PUBLISH NOTHING, AND THAT IS FALSE
-    (corrected 19 Sep 2026, D-631).** In as many words it said "Gnani publish no figure of
-    any kind: no per-character rate, no per-second rate, no currency, no free tier". That
-    was a NOT-FINDING WRITTEN DOWN AS A VENDOR FACT — a session did not locate the page and
-    recorded the absence as knowledge, which is the failure hard rule 11 exists for. Gnani's
-    own console publishes **₹27.00 per 10,000 characters for Text to Speech**
-    (`app.gnani.ai/voice/pricing`, read by the founder on 19 Sep 2026 and relayed with a
-    screenshot; the host is unreachable from this container, so this is a founder-relayed
-    reading of a primary source — **EVIDENCE CLASS: VENDOR-PUBLISHED**). It is in this tree
-    as `rates.TTS_INR_PER_10K_CHARS`, which is struck at that number and prices the Clear
-    rung's cost floor. The provenance half of the old paragraph survives and is still
-    right: the ₹27 this tree had been REFUSING came from a reseller's page for their own
-    platform, refusing it was correct, and a figure that turns out to match is still not a
-    source.
-
-    ⚠ **SO WHY DOES THIS STILL ANSWER `None` FOR GNANI? BECAUSE ONE CALLER READS `is not
-    None` AS A DIFFERENT QUESTION, AND IT LIVES OUTSIDE THIS MODULE.**
-    `scripts/check_model_lifecycle.tts_choosable` uses "does this provider publish a
-    per-character figure" as its static stand-in for hard rule 7's "could a client ever be
-    charged for a minute on this model", and that stand-in was only ever right while the
-    answer for Gnani was no. A published catalogue price is NOT an invoice: every Gnani
-    voice is still refused by `agents/voice_offer.tts_price_is_billable` because nobody has
-    attested a figure, so nobody can be put on `timbre-v2.5` today. Returning the number
-    here would arm that gate and fail CI with a sentence that is untrue ("a voice model a
-    client can be put on"), on a lifecycle page nobody can read (OPERATIONS §2 gate 56,
-    `docs.gnani.ai` egress-blocked). **THE FIX IS A PAIR AND ITS OTHER HALF IS IN
-    `scripts/`**: re-aim `tts_choosable` at offerability rather than at this function, then
-    return `rates.TTS_INR_PER_10K_CHARS / 10` from the `gnani` arm below. Until then the
-    `None` means "no pre-fill is rendered yet", NOT "this vendor publishes nothing" — and
-    saying which is the whole point of this note.
-
-    NEITHER FIGURE IS A PRICE SOMEBODY READ OFF AN INVOICE, which is why there is no
-    `verified` flag to return. ⚠ **THE SARVAM ARM IS GONE (18 Sep 2026)**: it pre-filled
-    `rates.TTS_INR_PER_10K_CHARS`, then the published Bulbul v3 list rate, and that leg is
-    withdrawn — pre-filling ANOTHER vendor's number beside a Gnani form would be exactly the
-    laundering the paragraph below refuses. ⚠ **THIS SENTENCE THEN SAID "the constant
-    survives ONLY as the value rung's frozen cost-model scalar", WHICH STOPPED BEING TRUE
-    ON 19 SEP 2026 (D-631)**: `TTS_INR_PER_10K_CHARS` is no longer a frozen placeholder, it
-    is the Clear rung's OWN vendor's published rate (₹27.00/10,000, see the correction at
-    the head of this docstring) — so it is no longer somebody else's number, and the only
-    thing still holding it back from this form is the `tts_choosable` coupling above.
-    Cartesia's is the
-    vendor's OVERAGE rate on the dearest plan we can be on, ₹57.20/10,000 characters
-    (`rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`, VENDOR-PUBLISHED — Tinmaz
-    correspondence, 9 Sep 2026). ⚠ **IT USED TO BE THE STARTUP FEE DIVIDED BY THE
-    CHARACTERS IT BUYS** (₹34.496/10,000), which is true only when the whole allotment is
-    spoken and was silent about the overage rate, then UNKNOWN. A per-character AVERAGE is
-    true at exactly one volume; a MARGINAL rate is true at every volume past the allotment,
-    and it is the one an operator can sanity-check a line on an invoice against. That is
-    still not a price anybody read off ours, which is why hard rule 7 keeps both out of
-    `unit_cost_paid` and why the attestation exists.
-
-    ⚠ **`None` IS A REAL ANSWER AND IT ARRIVED WITH D-618.** This used to be a two-branch
-    expression — Sarvam's figure, else Cartesia's — which a third provider silently turned
-    into "Gnani is priced at the Cartesia rate" on the very form an operator types a real
-    price into. That much is unchanged and is why the arm below is explicit: a pre-fill
-    another vendor supplied is the laundering hard rule 11 forbids, on the one screen that
-    reaches money. What HAS changed is the reason Gnani has no pre-fill — see the D-631
-    correction at the top of this docstring. It is no longer "they publish nothing".
+    Cartesia's is the vendor's OVERAGE rate on the dearest plan we can be on,
+    ₹57.20/10,000 characters (`rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`,
+    VENDOR-PUBLISHED — Tinmaz correspondence, 9 Sep 2026): a MARGINAL rate is true at every
+    volume past the allotment, and it is the one an operator can sanity-check a line on an
+    invoice against. It is still not a price anybody read off ours, which is why hard rule 7
+    keeps it out of `unit_cost_paid` and why the attestation exists.
 
     Raises for an unknown provider, like every other reader here.
     """
     _require_tts_provider(provider)
-    if provider == "cartesia":
-        return rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS / Decimal("10")
-    return None
+    return rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS / Decimal("10")
 
 
 async def attest_tts_price(

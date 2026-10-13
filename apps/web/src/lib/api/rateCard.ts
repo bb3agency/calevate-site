@@ -163,9 +163,8 @@ export function cardFromRate(card: PublicRateCard, voice: VoiceTier): string {
  * DOES THIS VOICE'S LADDER ACTUALLY FALL? — the guard every sentence that narrates the
  * ladder has to pass before it promises a discount.
  *
- * A CARD IS NOT REQUIRED TO FALL ON BOTH VOICES, AND THE NEXT ONE DOES NOT: the next card
- * prices the cheaper voice FLAT at ₹4.00 on every rung while the dearer one still falls
- * ₹7.00 → ₹5.50 (`docs/PIPECAT-MIGRATION.md` §12). `credit_packs.py::card_refusals`
+ * A CARD IS NOT REQUIRED TO FALL ON BOTH VOICES: one voice may be priced FLAT on every
+ * rung while the other still falls. `credit_packs.py::card_refusals`
  * invariant 6 refuses only a bigger pack that buys a DEARER minute, so equal rungs are a
  * legal card. The server cannot be relied on to keep the ladder sloping, and every surface
  * that says "down to X on the largest pack" has to ask first.

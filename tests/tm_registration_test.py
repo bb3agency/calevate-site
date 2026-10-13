@@ -45,7 +45,7 @@ from typing import Any
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.campaigns import service
-from apps.api.core.rbac import PUBLIC_PREFIXES, iter_api_routes
+from apps.api.core.rbac import iter_api_routes
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
@@ -739,25 +739,3 @@ async def test_the_admin_registration_route_is_refused_while_impersonating() -> 
         "`admin:tenants` is withheld from a view-as session (D-587) because acting on a "
         f"client's record is a platform act; the refusal must say so: {response.text}"
     )
-
-
-async def test_both_new_routes_sit_where_the_house_pattern_puts_them() -> None:
-    """The structural half, so the shape is pinned and not just the behaviour: the
-    client-scoped mutation names its tenant in the path under `/v1/admin/tenants/`, and
-    the platform-scoped one names no tenant at all because its subject is Calevate."""
-    paths = {route.path for route in iter_api_routes(app)}
-    assert "/v1/admin/tenants/{tenant_id}/dlt-registration" in paths
-    assert "/v1/ops/platform/tm-registration" in paths
-    # Neither is reachable without a token: both live behind an authenticated prefix.
-    assert not any(
-        path.startswith(prefix)
-        for prefix in PUBLIC_PREFIXES
-        for path in ("/v1/admin/tenants/{tenant_id}/dlt-registration", "/v1/ops/platform")
-    )
-
-    registration = next(
-        route
-        for route in iter_api_routes(app)
-        if route.path == "/v1/admin/tenants/{tenant_id}/dlt-registration"
-    )
-    assert "tenant_id" in {param.name for param in registration.dependant.path_params}

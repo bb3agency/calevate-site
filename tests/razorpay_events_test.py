@@ -523,19 +523,6 @@ def test_extract_refund_reads_the_documented_shape() -> None:
     assert event.amount_inr == Decimal("999.00")
 
 
-@pytest.mark.parametrize(
-    "envelope",
-    [
-        {"event": "refund.processed", "payload": {}},
-        {"event": "refund.processed", "payload": {"refund": {"entity": {"id": "r"}}}},
-    ],
-)
-def test_extract_refund_refuses_a_shape_it_cannot_read(envelope: dict[str, Any]) -> None:
-    with pytest.raises(ProblemError) as raised:
-        payments.extract_refund(envelope)
-    assert raised.value.code in {"refund_payload_unrecognized", "payment_currency_unsupported"}
-
-
 def test_a_float_refund_amount_is_refused_rather_than_rounded() -> None:
     with pytest.raises(ProblemError) as raised:
         payments.extract_refund(
@@ -950,9 +937,14 @@ async def test_a_non_json_200_refund_answer_is_unreadable() -> None:
         (None, "refund_payload_unrecognized"),
         # dict envelope, non-dict payload: 1139->1143
         ({"event": "refund.processed"}, "refund_payload_unrecognized"),
+        ({"event": "refund.processed", "payload": {}}, "refund_payload_unrecognized"),
         # entity present but no id: 1152
         (
             {"payload": {"refund": {"entity": {"payment_id": "p", "currency": "INR"}}}},
+            "refund_payload_unrecognized",
+        ),
+        (
+            {"event": "refund.processed", "payload": {"refund": {"entity": {"id": "r"}}}},
             "refund_payload_unrecognized",
         ),
         # entity with id + payment_id but a non-INR currency: 1168
@@ -961,7 +953,14 @@ async def test_a_non_json_200_refund_answer_is_unreadable() -> None:
             "payment_currency_unsupported",
         ),
     ],
-    ids=["non-dict-envelope", "non-dict-payload", "no-refund-id", "wrong-currency"],
+    ids=[
+        "non-dict-envelope",
+        "non-dict-payload",
+        "empty-payload",
+        "no-refund-id",
+        "no-payment-id",
+        "wrong-currency",
+    ],
 )
 def test_extract_refund_names_each_refusal_precisely(envelope: Any, code: str) -> None:
     with pytest.raises(ProblemError) as raised:

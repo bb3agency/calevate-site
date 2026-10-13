@@ -378,7 +378,7 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by=(
             "the hosted rows of `platform_voice_catalog` (D-687): one per voice our ONE "
             "vendor account lists in the band we sell, its clones (10 on Pro, 20 on Scale) "
-            "and our Cartesia key's voices. `GET /v1/ops/voices`'s argument applies: it is "
+            "and our Cartesia key's voices. It takes no `limit` deliberately: it is "
             "the operator's curation table, and a page of it would be a subset passing for "
             "the whole. `scope` is a lens, not a page."
         )
@@ -395,20 +395,6 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "frozenset in this repo, for the one month the request names."
         )
     ),
-    "GET /v1/worker/session/{engine_agent_ref}": BoundedByConstruction(
-        by=(
-            "its only list, `languages_extra`, is capped at 8 by the wire model "
-            "`calevate_shared.worker_api.WorkerSessionOut`, and the publish path keeps only "
-            "offered language tags (`agents/languages.published_extra_languages`)."
-        )
-    ),
-    "POST /v1/worker/agents/{engine_agent_ref}/caller-memory": BoundedByConstruction(
-        by=(
-            "`compliance/caller_memory.RECALL_LIMIT` (5) facts per answer, read with that "
-            "LIMIT, and the wire model `calevate_shared.worker_api.CallerMemoryOut` refuses "
-            "more than `MAX_RECALLED_FACTS`."
-        )
-    ),
     "GET /v1/ops/kb-orphans": BoundedByConstruction(
         by=(
             "`kb/orphans.MAX_ORPHAN_ROWS` (200), applied inside `reconcile_account_kb` "
@@ -419,47 +405,9 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "and `truncated` says when one happened, so a reader is never shown a subset "
             "that could pass for the whole. A page size here would let an operator decide "
             "what to do about a client's document having seen part of the account, which "
-            "is the one thing a list you are RECONCILING may never do — the same argument "
-            "the voices entry above makes for the curation table. The upstream bound is "
+            "is the one thing a list you are RECONCILING may never do. The upstream bound is "
             "the vendor's own paging cap, and `listing_complete` carries the adapter's "
             "verdict on it unchanged rather than letting a truncated walk read as clean."
-        )
-    ),
-    "GET /v1/ops/voices": BoundedByConstruction(
-        by=(
-            "the VOICE PLATFORM ACCOUNT's own voice list, cached whole in "
-            "`platform_voice_catalog`. It is not anybody's rows: it holds one entry per "
-            "voice our ONE vendor account offers, in the three languages this product "
-            "sells, filtered to the two TTS models we run — tens of rows, moving only when "
-            "the vendor adds a voice or the founder clones one. It takes no `limit` "
-            "DELIBERATELY, and the reason is the screen's whole job: this is the operator's "
-            "CURATION table, and the question it answers is 'which of these are we "
-            "offering'. A page size would let the answer be computed over a subset, which "
-            "is the one thing a list you are auditing may never do. The upstream bound is "
-            "the vendor's, and `agents/voice_sync.sync_voice_catalogue` refuses to apply a "
-            "listing it could not read completely rather than silently shortening this. "
-            "⚠ SINCE D-590 THE DEFAULT `scope` IS NARROWER STILL — the voices somebody "
-            "DECIDED about, which is a handful — and `scope=all` is the same cached table "
-            "this paragraph already bounds. `scope` is a lens, not a page: neither value "
-            "returns part of an answer."
-        )
-    ),
-    "POST /v1/ops/voices": BoundedByConstruction(
-        by=(
-            "`voice.languages` on the ONE voice this call added — `agents/languages.Language`, "
-            "three codes — exactly as the PATCH below. There is no collection of anybody's "
-            "rows in the response at all: an add answers with the row it wrote, two counts "
-            "and two sentences, and a `limit` on it would mean returning fewer languages "
-            "than the voice speaks, which is a wrong answer rather than a shorter one."
-        )
-    ),
-    "PATCH /v1/ops/voices": BoundedByConstruction(
-        by=(
-            "`voice.languages` is the product's own language list — `agents/voices."
-            "Language`, three codes — on the ONE voice this call moved. There is no "
-            "collection of anybody's rows in the response at all, and nothing to page "
-            "through: a `limit` on it would mean returning fewer languages than the voice "
-            "speaks, which is a wrong answer rather than a shorter one."
         )
     ),
     "GET /v1/me": BoundedByConstruction(
@@ -491,9 +439,6 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "be told about fewer changes than were made, which is the one thing an audit "
             "response must never do."
         )
-    ),
-    "GET /v1/agents/voices": BoundedByConstruction(
-        by="the voice catalogue, a constant in `agents/voices.py` — not a table."
     ),
     "GET /v1/agents/{agent_id}/handoff": BoundedByConstruction(
         by=(
@@ -891,15 +836,6 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/kb/sources/{source_id}/preview": BoundedByConstruction(
         by="`SubmitIn.body` is capped at 200,000 characters and `kb.service.MAX_CHUNK_CHARS` "
         "is 700, so one source is at most ~286 chunks."
-    ),
-    "GET /v1/kb/delivery": BoundedByConstruction(
-        by="`kb.delivery.MAX_DELIVERY_AGENTS` (100), a ceiling on the AGENT ROSTER rather "
-        "than on anybody's content: one row per live agent, and an account mints agents by "
-        "hand. It takes no `limit` deliberately, for the reason the ops voice table does — "
-        "this is the answer to 'is any of my knowledge missing from the phone', and a page "
-        "size would let that be answered over a subset, which is the one thing a list you "
-        "are auditing may never do. `not_delivered_count` is the server's own tally over "
-        "the same bound, so the badge cannot disagree with the rows."
     ),
     "GET /v1/calls/{call_id}": BoundedByConstruction(
         by="the turns of ONE call, and `agents.models.CALL_CAP_MAX_S` (3600) bounds how "

@@ -18,8 +18,7 @@ Consumers, kept apart on purpose:
 * `register_guidance` is PLATFORM text, composed into every agent's prompt by
   `engine.compose_engine_prompt`. It stays short (the prompt has an 8,000-character
   ceiling), so it carries the register line, only the swaps named in `prompt_swaps` and the
-  tags and fillers, and quotes no full sentence: platform text is what the owned runtime's
-  output guard treats as instructions not to recite (`voice_worker/output_guard.py`).
+  tags and fillers, and quotes no full sentence: platform text is instructions, not lines to recite.
 * `writer_guidance` is the long form for the models that WRITE spoken lines (the script
   assistant, the test-caller writer): every swap, the number and punctuation rules and two
   or three example exchanges, because a writer copies examples far better than it follows

@@ -288,10 +288,10 @@ function modelPrices(): ModelPrices {
     // the panel's job is to say what is switched off rather than render a blank.
     embedding_prices: [
       {
-        model: "models/gemini-embedding-2",
-        provider: "google",
-        used_for: "the knowledge pack's dense arm",
-        dimensions: 3072,
+        model: "text-embedding-3-small",
+        provider: "azure_openai",
+        used_for: "semantic search over a client's own knowledge, their past calls and their leads",
+        dimensions: 1536,
         credential_installed: false,
         price_attested: false,
         usable: false,
@@ -300,7 +300,7 @@ function modelPrices(): ModelPrices {
         attested_at: null,
         attested_by: null,
         source_note: null,
-        reference_input_usd_per_mtok: "0.20",
+        reference_input_usd_per_mtok: "0.02",
         reference_verified: false,
       },
     ],
@@ -312,7 +312,6 @@ function modelPrices(): ModelPrices {
         tier_label: "Studio",
         tts_model: "sonic-3.5",
         credential_installed: false,
-        credential_held_elsewhere: false,
         price_attested: false,
         price_billable: false,
         offerable: false,
@@ -2728,13 +2727,11 @@ describe("the platform configuration panel", () => {
             configField({
               key: "engine",
               env_var: "ENGINE",
-              value: "pipecat",
+              value: "fake",
               default: "fake",
               kind: "enum",
               options: [
                 labelled("thinnest", "ThinnestAI"),
-                labelled("pipecat", "Our own runtime"),
-                labelled("cartesia", "Cartesia"),
                 labelled("fake", "Test engine"),
               ],
               control: control("select", { risk: "high", risk_reason: "Every call moves." }),

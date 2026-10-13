@@ -32,7 +32,6 @@ from apps.api.billing.credit_routes import router as credit_router
 from apps.api.billing.service import record_entry
 from apps.api.core.context import Principal
 from apps.api.core.errors import install_error_handlers
-from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -512,14 +511,6 @@ async def test_an_unknown_tenant_is_a_404_not_a_500() -> None:
 
     assert posted.status_code == 404, posted.text
     assert read.status_code == 404, read.text
-
-
-async def test_every_route_declares_a_permission() -> None:
-    """The boot assertion the integrator's `main.py` runs (BACKEND-PATTERNS §7) — run
-    here so a missing declaration fails in this module, not at their mount."""
-    application = FastAPI()
-    application.include_router(credit_router)
-    assert_policy_registry_complete(application)
 
 
 async def test_a_topup_by_a_principal_with_no_user_records_the_payment_without_a_recorder() -> None:

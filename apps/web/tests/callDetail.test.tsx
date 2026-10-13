@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import CallDetailPage from "@/app/c/[slug]/calls/[callId]/page";
@@ -581,46 +581,21 @@ describe("the follow-up action when the eligibility read did not answer", () => 
 });
 
 /**
- * A CALL THAT IS STILL GOING. The screen shows it is live and who is speaking, from the
- * server-sent speaking stream (D-656), which it opens only for an in-progress call.
+ * A CALL THAT IS STILL GOING. The screen marks it live, and only while its status is
+ * `in_progress`.
  */
 describe("a call in progress", () => {
-  function speakingStream(frames: Array<string | null>): Response {
-    const encoder = new TextEncoder();
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (const speaker of frames) {
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ speaker, live: true, since: null })}
-
-`),
-          );
-        }
-        // Left open: the call is still live.
-      },
-    });
-    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
-  }
-
-  it("shows the live panel and marks the side the stream says is speaking", async () => {
-    const { calls } = await renderClientPage(
+  it("shows the live panel for a call that is still going", async () => {
+    await renderClientPage(
       page,
-      routes(
-        detail({ status: "in_progress", summary: null, outcome_tag: null, transcript: [] }),
-        { "/v1/calls/c1/speaking": () => speakingStream(["caller"]) },
-      ),
+      routes(detail({ status: "in_progress", summary: null, outcome_tag: null, transcript: [] })),
     );
-    expect(await screen.findByRole("heading", { name: "Live call" })).toBeTruthy();
-    await waitFor(() => {
-      expect(screen.getByText("Caller").closest("div")?.textContent).toContain("Speaking");
-    });
-    expect(calls.some((c) => c.path === "/v1/calls/c1/speaking")).toBe(true);
+    expect(await screen.findByRole("heading", { name: /^Live call/ })).toBeTruthy();
   });
 
-  it("opens no speaking stream for a call that has ended", async () => {
-    const { calls } = await renderClientPage(page, routes(detail()));
+  it("shows no live panel for a call that has ended", async () => {
+    await renderClientPage(page, routes(detail()));
     await screen.findByText("My number is [redacted].");
-    expect(screen.queryByRole("heading", { name: "Live call" })).toBeNull();
-    expect(calls.some((c) => c.path.endsWith("/speaking"))).toBe(false);
+    expect(screen.queryByRole("heading", { name: /^Live call/ })).toBeNull();
   });
 });

@@ -373,18 +373,6 @@ async def test_the_recompile_logs_ids_and_counts_only(caplog: pytest.LogCaptureF
 # --- the block format has exactly ONE implementation ---------------------------------
 
 
-def test_the_block_format_has_a_single_owner() -> None:
-    """`agents/t0.py` owns the [T0 FACTS] header and the splice. The business profile
-    supplies lines and never splices a prompt itself: two implementations agreeing today
-    is the state drift starts from."""
-    from apps.api.tenancy import business_profile, profile_service
-
-    for module in (business_profile, profile_service):
-        assert not hasattr(module, "splice_t0_block")
-        assert not hasattr(module, "T0_HEADER")
-        assert not hasattr(module, "_INSERT_BEFORE")
-
-
 @pytest.mark.parametrize(
     "body",
     [

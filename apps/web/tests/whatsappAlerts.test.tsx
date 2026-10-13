@@ -17,7 +17,6 @@ import {
   stillLoading,
   type Routes,
 } from "./harness";
-import { KB_ALL_DELIVERED } from "./fixtures/sharedReads";
 
 /**
  * WhatsApp hot-lead alerts — the client's own opt-in, and the operator's record of one.
@@ -300,7 +299,6 @@ function tenantRoutes(state: unknown, over: Routes = {}): Routes {
     "/v1/campaigns/numbers": [],
     "/v1/campaigns/templates": [],
     "/v1/billing/caps": problem(404, { title: "none" }),
-    "/v1/kb/delivery": KB_ALL_DELIVERED,
     [TENANT_ALERTS]: state,
     // The People page's other two lists (D-661).
     "/v1/admin/tenants/t1/members": [],

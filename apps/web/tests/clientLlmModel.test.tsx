@@ -16,7 +16,6 @@ import {
   agentScript,
   clientLlmTiers,
   spendThisMonth,
-  voiceCatalogue,
   agentCallHandling,
 } from "./fixtures/sharedReads";
 import { ENGINE_CATALOGUE_PATH } from "@/lib/api/engineCatalogue";
@@ -394,7 +393,7 @@ function agent(over: Partial<AgentWithLlm> = {}): AgentWithLlm {
     direction: "inbound",
     status: "live",
     published: true,
-    engine: "pipecat",
+    engine: "thinnest",
     language_primary: "te-IN",
     disclosure_line: "Namaste, this is an AI assistant calling on behalf of Sri Clinic.",
     ai_disclosure_line: "Namaste, this is an AI assistant calling on behalf of Sri Clinic.",
@@ -440,11 +439,11 @@ const pending: PendingState = {
   worst_case_call_cost_inr: "65.00",
   precedence_rule: "Script decides content, rules decide conduct, voice only changes delivery.",
   voice: {
-    configured: { voice_id: "timbre-v2.5", provider: "gnani", voice_tier: "clear", catalog: null },
-    live: { voice_id: "timbre-v2.5", provider: "gnani", voice_tier: "clear", catalog: null },
+    configured: { voice_id: "engine:anika", provider: null, voice_tier: "clear", catalog: null },
+    live: { voice_id: "engine:anika", provider: null, voice_tier: "clear", catalog: null },
     republish_required: false,
     unnamed_note: null,
-    headline: "Callers hear Timbre v2.5.",
+    headline: "Callers hear Anika.",
   },
   voice_tier_rates: [],
   engine_verification: {
@@ -494,7 +493,6 @@ function agentRoutes(over: Record<string, unknown> = {}) {
       remediation: "Handing calls to a person is switched off for this agent.",
       published: true,
     },
-    "/v1/agents/voices": voiceCatalogue("client"),
     "/v1/agents/lanes": LANES,
     // The header's "spent this month" line (owners hold billing:read).
     [AGENT_SPEND_PATH]: spendThisMonth(),
@@ -672,13 +670,6 @@ describe("a client's screens never name a model", () => {
   const NAMES = LIVE_ENGINE_MODELS.map((model) => model.name);
   const leaking = (text: string) => NAMES.filter((name) => text.includes(name));
 
-  const voiceOnEngine = {
-    ...voiceCatalogue("client"),
-    selectable: false,
-    voices: [],
-    note: "Voices on this account are the voice platform's own.",
-  };
-
   for (const section of ["overview", "voice", "model", "calls", "advanced"]) {
     it(`renders none on the agent's ${section} section`, async () => {
       nav.section = section;
@@ -686,7 +677,6 @@ describe("a client's screens never name a model", () => {
         agentPage,
         agentRoutes({
           [ENGINE_CATALOGUE_PATH]: operatorEngineCatalogue(),
-          "/v1/agents/voices": voiceOnEngine,
           "/v1/agents/agent-1": agent({ engine_model_id: "engine-model:gpt-5-mini" }),
           // What Overview and Call handling read besides the model and the voice.
           "/v1/business-profile": businessProfileFixture(),

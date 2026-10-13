@@ -737,22 +737,6 @@ components_since_last_deploy() {
   fi
 }
 
-# `apps/voice-worker` runs on Pipecat Cloud and is deployed by
-# `scripts/deploy/pipecat-worker-setup.sh deploy`, never by this script (DEPLOYMENT §12).
-# These are the inputs its image is built from (apps/voice-worker/Dockerfile's COPY lines).
-# Without this, a commit touching only the worker ended in "nothing to deploy — HEAD is
-# already live" while the worker in production was still the old one.
-voice_worker_changed_since() {
-  local last=$1 path
-  while IFS= read -r path; do
-    case "$path" in
-      apps/voice-worker/*|packages/shared/*|uv.lock|pyproject.toml|apps/*/pyproject.toml)
-        return 0 ;;
-    esac
-  done < <(git -C "$ROOT" diff --name-only "$last" HEAD)
-  return 1
-}
-
 resolve_plan() {
   step "resolve plan"
   case "$MODE" in
@@ -766,11 +750,6 @@ resolve_plan() {
         log "no usable last-deployed SHA — deploying every component"
       else
         log "changed since ${last:0:12}: ${PLAN[*]:-nothing}"
-        if voice_worker_changed_since "$last"; then
-          warn "this range also changes the Pipecat voice worker, which this script does NOT
-     deploy. After this deploy, as the deploy account:
-       $ROOT/scripts/deploy/pipecat-worker-setup.sh deploy"
-        fi
       fi
       ;;
   esac

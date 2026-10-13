@@ -198,7 +198,7 @@ class PlatformEngineHealth(Base):
 
     __tablename__ = "platform_engine_health"
 
-    #: Our engine name (`cartesia`, `pipecat`, `fake`), never the vendor's.
+    #: Our engine name (`thinnest`, `fake`), never the vendor's.
     engine: Mapped[str] = mapped_column(Text, primary_key=True)
     #: The minute this row counts, truncated with `date_trunc('minute', now())`.
     bucket_start: Mapped[datetime] = mapped_column(primary_key=True)

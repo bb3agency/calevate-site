@@ -1,15 +1,14 @@
 """A margin that cannot see the legs it could not price reads better than it is.
 
-`margin_for_tenant` sums `unit_cost_paid` over the `usage_events` rows that EXIST. On the
-owned runtime a call's cost is five independently metered legs, and a leg nobody can
-honestly price writes a `call_metering_refusals` row INSTEAD of a usage row — deliberately,
-because a fabricated ₹0 on an append-only ledger is worse than a visible gap.
+`margin_for_tenant` sums `unit_cost_paid` over the `usage_events` rows that EXIST. A leg
+nobody could honestly price was recorded as a `call_metering_refusals` row INSTEAD of a
+usage row — deliberately, because a fabricated ₹0 on an append-only ledger is worse than a
+visible gap. The engine that wrote them is gone (D-763); the rows it wrote stay, and the
+months they fall in are still reported.
 
-Nothing read that table. So a month with refused legs produced a `cost_inr` and a
-`margin_pct` that were arithmetically correct over the rows present and MISSING MONEY, in
-the flattering direction, on the number D-12 says G2 gates on. The live instance is the
-RUNTIME leg: what a Pipecat Cloud active minute bills is UNKNOWN (OPERATIONS §2 gate 57),
-so every Pipecat call refuses it until an operator attests an invoice.
+A month with refused legs would otherwise produce a `cost_inr` and a `margin_pct` that are
+arithmetically correct over the rows present and MISSING MONEY, in the flattering
+direction, on the number D-12 says G2 gates on.
 
 A COUNT, NEVER A RUPEE ESTIMATE. The reason those legs have no row is that nobody can price
 them; totalling them would be the fabrication the refusal exists instead of. Non-zero means
@@ -29,9 +28,8 @@ from tests.spend_attribution_test import _metered_call, _tenant
 
 
 async def _refuse_a_leg(tenant_id: uuid.UUID, *, leg: str = "runtime") -> None:
-    """One refusal against this tenant's most recent call, shaped as `settle_call` writes
-    it. Written by hand because the producer lives in the worker API and this test is
-    about the READER."""
+    """One refusal against this tenant's most recent call, shaped as the retired settlement
+    wrote it. Written by hand because this test is about the READER."""
     async with tenant_session(tenant_id) as session:
         call_id = (
             await session.execute(

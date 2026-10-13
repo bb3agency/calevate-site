@@ -5,7 +5,7 @@ WHY THIS ROUTER HAS NO PREFIX
 It carries paths in two spaces — the client realm's `/v1/organization/llm-defaults` and
 the admin realm's `/v1/admin/organizations/{org_id}/llm-defaults` — so a shared prefix
 could only describe one of them. Same resolution, and the same reason, as `agents/
-routes.py` and `agents/voice_routes.py`, which both say so.
+routes.py`, which says so.
 
 THE TWO REALMS SPEAK DIFFERENT VOCABULARIES OVER ONE WRITER (D-680)
 -------------------------------------------------------------------

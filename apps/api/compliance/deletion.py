@@ -284,8 +284,8 @@ CALLER_MEMORY_KEY: Final = "caller_memories_erased"
 
 # HOW MANY OF THIS ACCOUNT'S CALL RECORDS NO ERASURE CAN EVER REACH, because the party
 # we would match a request against was never learned. `calls.from_e164` is nullable and
-# its index is PARTIAL on `IS NOT NULL`, so a call whose caller the carrier withheld or
-# whose calling party our client did not parse (`voice_worker/carrier.CallerIdentity`)
+# its index is PARTIAL on `IS NOT NULL`, so a call whose caller the network withheld or
+# whose calling party was not passed to us
 # carries the transcript and the recording of a real person under no number at all — and
 # `execute_deletion_request`'s three predicates are all numbers.
 #
@@ -312,27 +312,12 @@ UNIDENTIFIED_COUNT_KEY: Final = "calls_without_an_identifiable_party"
 #: request can locate at all.
 UNIDENTIFIED_OUTCOME: Final = "unidentified_caller_not_matchable"
 
-#: THE PLATFORM THAT HOSTS THE CALL PROGRAM. Since D-592 the conversation is our own
-#: program (`apps/voice-worker`) and D-639 deleted the rented Bolna engine this entry was
-#: written about, so its old content — an agent-wide `DELETE` that "deletes ALL agent data"
-#: — described a vendor the product no longer uses. What is true now:
-#:
-#: * the program's record of the call (call row, turns, outcome) is in our database and the
-#:   erasure reaches it;
-#: * it records no audio itself — nothing in `apps/voice-worker` captures any; on Vobiz the
-#:   CARRIER records the call (D-668), and that copy is the telephone carrier entry's;
-#: * it runs in a container on Pipecat Cloud, which the audio and the transcript pass
-#:   through, and what that platform retains is UNKNOWN — its documentation hosts are
-#:   egress-blocked here and no processing term is signed (`subprocessors.ts`, the Pipecat
-#:   Cloud row). The entry says so rather than borrowing Bolna's answer.
-#:
-#: A deployment set to a third-party engine (`ENGINE=cartesia`) still has a vendor-held
-#: execution record; `retention.execute_deletion_request` opens a `voice_engine` task naming
-#: those ids. ThinnestAI is the exception (founder decision, 8 Oct 2026, revised; D-691): it
-#: has no per-call delete (`snapshots/2026-10-08/pages/api-reference/calls/cancel-call.md:7`)
-#: and `DELETE /contacts/{id}` is workspace-wide, so it is asked only in the client's own
-#: workspace, and otherwise the proof says `VOICE_PLATFORM_RETAINED`
-#: (`compliance/processor_erasure.py`) for that tenant's calls.
+#: THE VOICE PLATFORM THAT RUNS THE CALL. Our record of the call (call row, turns, outcome)
+#: is in our database and the erasure reaches it. ThinnestAI has no per-call delete
+#: (`snapshots/2026-10-08/pages/api-reference/calls/cancel-call.md:7`) and
+#: `DELETE /contacts/{id}` is workspace-wide (founder decision, 8 Oct 2026, revised; D-691),
+#: so it is asked only in the client's own workspace, and otherwise the proof says
+#: `VOICE_PLATFORM_RETAINED` (`compliance/processor_erasure.py`) for that tenant's calls.
 #:
 #: The PROOF's `engine_deletion: "unconfirmed_pending_vendor_api"` is a separate, durable
 #: wire token and is not renamed (hard rule 4 forbids back-filling proofs already issued).
@@ -356,25 +341,10 @@ PROCESSOR_OUTCOME: Final = "not_reached_no_api"
 #: needs to tell "we hold this deliberately" from "this expires shortly".
 BACKUP_OUTCOME: Final = "expires_with_backup"
 
-#: THE TELEPHONE CARRIER: Vobiz (D-662), on Calevate's own account. The carrier is where
-#: the call's audio terminates — `voice_worker/carrier.py` reads 8 kHz mu-law media frames
-#: off the carrier socket in both directions — so it holds the caller's number, the number
-#: dialled, its own call detail record and the sound of the call.
-#:
-#: Its own word rather than `PROCESSOR_OUTCOME`, which is the speech and language vendors'
-#: single entry; the carrier is a separate vendor with its own documented surface. Its API
-#: reference documents reading, searching and exporting call records and no route that
-#: deletes one (VERIFIED-VENDOR-DOCS: `vobiz-findings/mirror/pages/cdr/*.md`), so removing
-#: those is a written request. Since D-668 the carrier also RECORDS the call, and its
-#: recordings DO have a documented delete (`DELETE /Account/{auth_id}/Recording/{id}/`,
-#: `vobiz-findings/mirror/root-site/openapi.json:8459-8484`,
-#: `pages/recording/recording-object.md:152,155`): an erasure asks for it through that route
-#: (`workers/carrier_recordings.delete_carrier_recordings`) and quotes the recording ids in
-#: the same telephony task, so a delete that fails is still covered by the written request.
-#: Vobiz keeps a recording 30 days by its Recordings page and 3 by that page's screenshot
-#: (`pages/platform/voice/recordings.md:18,21`, UNRESOLVED); we delete it one day after our
-#: copy lands either way (D-670, `workers/carrier_recordings.expire_carrier_recording`).
-#: The word stays "not reached" because the call records still are not.
+#: THE TELEPHONE CARRIER, where the call's audio terminates: ThinnestAI's, or the client's
+#: own phone company for a number the client brought. We hold no account with it, so no
+#: route of ours deletes what it keeps. Its own word rather than `PROCESSOR_OUTCOME`, which
+#: is the speech and language vendors' single entry.
 TELEPHONY_OUTCOME: Final = "not_reached_no_carrier_api"
 
 
@@ -483,21 +453,15 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "on their own schedule whether or not an erasure is requested.",
     "Call rows survive with their personal fields cleared rather than being deleted, so "
     "the minutes that were billed stay countable.",
-    "The program that holds the conversation is Calevate's own, and its record of each "
-    "call — the call itself, the transcript and the outcome — is in Calevate's database "
-    "and is erased by this request. That call program does not record the audio. It runs "
-    "in a container on a hosting platform, and the live audio and the transcript pass "
-    "through that platform for the length of the call. What the hosting platform keeps of "
-    "what passed through it has not been established: no retention period and no way of "
-    "deleting from it can be stated, and none is assumed. If it holds anything, removing "
-    "it is a written request to that platform. Where a call instead ran on a third-party "
-    "voice platform, that platform keeps its own record of the call. Where the platform "
-    "holds this business's calls in a workspace of the business's own, the person's "
-    "record there is erased too, recordings included, and the certificate says the erasure "
-    "was requested and where its outcome is recorded. Where it does not, the record is not "
-    "deleted there — the platform's only deletion would remove the person's history for "
-    "every business sharing the account — and the certificate says the copy expires with "
-    "the platform plan's retention period.",
+    "The conversation itself runs on a third-party voice platform. Calevate's own record "
+    "of each call — the call itself, the transcript and the outcome — is in Calevate's "
+    "database and is erased by this request. The voice platform keeps its own record of "
+    "the call. Where the platform holds this business's calls in a workspace of the "
+    "business's own, the person's record there is erased too, recordings included, and the "
+    "certificate says the erasure was requested and where its outcome is recorded. Where "
+    "it does not, the record is not deleted there — the platform's only deletion would "
+    "remove the person's history for every business sharing the account — and the "
+    "certificate says the copy expires with the platform plan's retention period.",
     "Two further processors handle what is said on a call and are not reached by this "
     "request either: the speech service that turns the call audio into text, and the "
     "language model that produces the agent's replies. Neither publishes a way for us "
@@ -506,19 +470,12 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "could not reach that omits a processor holding the conversation would be "
     "misleading by omission.",
     "The telephone carrier that connects the call is a fourth processor this request "
-    "does not reach, and it holds more of the call than any of the three above: the "
-    "caller's number, the number dialled, the carrier's own call records, and the live "
-    "sound of the call in both directions, which passes through the carrier for the whole "
-    "conversation. Where the carrier recorded a call, Calevate asks the carrier to delete "
-    "that recording one day after Calevate has stored its own copy, through the deletion "
-    "the carrier publishes for recordings; the carrier states it otherwise keeps a "
-    "recording for up to 30 days. When this erasure runs, Calevate also asks the carrier "
-    "to delete any recording of these calls it still holds. The carrier's published "
-    "interface offers no way to delete its call records, and nothing it publishes that "
-    "we have read says how long it keeps them. Removing those records, and any recording "
-    "the deletion did not reach, is a written request to the carrier naming the calls and "
-    "recordings by the carrier's own identifiers, "
-    "and this certificate does not record that request as made: until the carrier "
+    "does not reach: it handles the caller's number, the number dialled, its own record "
+    "of the call, and the sound of the call in both directions for its whole length. "
+    "Calevate holds no account with that carrier — it is the voice platform's, or the "
+    "business's own phone company for a number the business brought — so Calevate has no "
+    "way to delete what it keeps. Removing it is a written request to whoever holds that "
+    "account, and this certificate does not record one as made: until the carrier "
     "confirms a deletion in writing, a copy exists.",
     "This request record holds the number only until the erasure runs — the queued "
     "worker has to be able to find the subject — and it is cleared in the same write "
@@ -541,12 +498,11 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "kept for ever — every version this client has replaced or had rejected is deleted "
     "once it passes their knowledge-base retention period — but the version currently "
     "live is kept for as long as it is live. One copy outlives even that, and it is "
-    "named here rather than left to be discovered: each time this client publishes, the "
-    "approved text is frozen into a sealed knowledge pack that the agent answers out of "
-    "during a call. A pack is never edited, and no erasure and no retention period "
-    "deletes one — so a pack published before a manual removal still contains the "
-    "sentence it was removed from, and a request to erase it is a request Calevate has "
-    "to carry out by hand.",
+    "named here rather than left to be discovered: until 13 October 2026 each publish "
+    "also froze the approved text into a sealed knowledge pack. A pack is never edited, "
+    "and no erasure and no retention period deletes one — so a pack frozen before a "
+    "manual removal still contains the sentence it was removed from, and a request to "
+    "erase it is a request Calevate has to carry out by hand.",
     "Backups: this erasure runs against the live systems, and a backup taken BEFORE it "
     f"still contains the erased records until that backup ages out — up to "
     f"{BACKUP_WINDOW_DAYS} days. Backups are never searched or edited to remove one "
@@ -676,10 +632,8 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "retention period like every other call and are destroyed outright when the "
             "account closes."
         ),
-        # `voice_worker/carrier.CallerIdentity`'s four states are the distinction that
-        # would let this be narrowed — a number the carrier WITHHELD is a different legal
-        # position from one our own client failed to parse — and nothing persists that
-        # state API-side today. `tests/erasure_subjectless_call_test.py` holds the gap.
+        # Whether the number was withheld or merely not passed is not recorded, so this
+        # cannot be narrowed. `tests/erasure_subjectless_call_test.py` holds the gap.
         authority=(
             "Calevate's erasure identifies a data principal by the telephone number the "
             "request is made for, and a call that carries no number carries nothing for "
@@ -733,37 +687,31 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
         ),
     ),
     ErasureLimitation(
-        what="Anything kept by the platform that hosts the program running these calls.",
-        keyword="hosting platform",
+        what="Anything kept by the voice platform that runs these calls.",
+        keyword="voice platform",
         outcome=ENGINE_OUTCOME,
         why=(
-            "The program that holds the conversation is Calevate's own, and its record of "
-            "each call — the call itself, the transcript and the outcome — is in "
-            "Calevate's database and was erased by this request. It does not record the "
-            "audio. It runs in a container on a hosting platform, and the live audio and "
-            "the transcript pass through that platform for the length of the call. What "
-            "that platform keeps of what passed through it has not been established, so "
-            "no retention period and no deletion route is stated for it here and none is "
-            "assumed; if it holds anything, removing it is a written request to that "
-            "platform. Where a call instead ran on a third-party voice platform, that "
-            "platform keeps its own record of the call. In a workspace of the business's own "
-            "on that platform the person's record is erased too, recordings included; in a "
-            "shared one it is not deleted, because the only deletion it offers removes the "
+            "The conversation itself runs on a third-party voice platform. Calevate's own "
+            "record of each call — the call itself, the transcript and the outcome — is in "
+            "Calevate's database and was erased by this request. The voice platform keeps "
+            "its own record of the call. In a workspace of the business's own on that "
+            "platform the person's record is erased too, recordings included; in a shared "
+            "one it is not deleted, because the only deletion it offers removes the "
             "person's history for every business sharing it, and it expires with the plan's "
             "retention. The certificate of each erasure says which, and a written request "
             "covers any copy the platform reports as still queued. Do not tell the data "
             "principal that copy is gone until the certificate or the task says so."
         ),
-        # The hosting platform is Pipecat Cloud; its row in
         # `apps/web/src/lib/legal/subprocessors.ts` is the client-facing copy this entry
-        # must agree with. OPERATIONS §2 gate 36 is the contractual fix.
+        # must agree with. The voice platform has no per-call delete
+        # (thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/calls/
+        # cancel-call.md:7) and its contact delete is workspace-wide (D-691).
         authority=(
-            "DPDP §8(7) storage limitation and §12(3) erasure, read against what has "
-            "actually been established about the hosting platform: nothing yet. Its "
-            "published documentation could not be retrieved from the environment this "
-            "system runs in, and no data-processing term with it has been signed. The "
-            "durable fix is a deletion term in our contract with that platform — a "
-            "signed commercial agreement, not something this system can supply."
+            "DPDP §8(7) storage limitation and §12(3) erasure, read against the voice "
+            "platform's published API documentation: it offers no deletion of a single "
+            "call, and its deletion of a person applies to a whole workspace. The durable "
+            "fix is a deletion term in our contract with that platform — a signed "
+            "commercial agreement, not something this system can supply."
         ),
     ),
     ErasureLimitation(
@@ -801,38 +749,20 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
         keyword="telephone carrier",
         outcome=TELEPHONY_OUTCOME,
         why=(
-            "A telephone call reaches Calevate over a carrier, and the carrier is not a "
-            "wire: the call's audio terminates there and is streamed to and from the "
-            "program that holds the conversation, so the carrier handles the caller's "
-            "number, the number dialled, its own record of the call, and the sound of "
-            "the call in both directions for its whole length. Where the carrier "
-            "recorded a call, Calevate asks the carrier to delete that recording one day "
-            "after Calevate has stored its own copy, through the deletion the carrier "
-            "publishes for recordings; the carrier states it otherwise keeps a recording "
-            "for up to 30 days. When this erasure runs, Calevate also asks the carrier to "
-            "delete any recording of these calls it still holds; this certificate is "
-            "issued before the carrier answers, so it does not say the deletion "
-            "succeeded. The carrier's published interface lets us read and export its "
-            "call records and offers no way to delete one, and nothing it publishes that "
-            "we have read says how long it keeps them. Removing those records, and any "
-            "recording the deletion did not reach, takes a written request to the "
-            "carrier, and this certificate does not record one as made: until the "
-            "carrier confirms a deletion in writing, the honest statement is that this "
-            "copy exists."
+            "A telephone call reaches the voice platform over a carrier, and the carrier "
+            "is not a wire: it handles the caller's number, the number dialled, its own "
+            "record of the call, and the sound of the call in both directions for its "
+            "whole length. Calevate holds no account with that carrier — it is the voice "
+            "platform's, or the business's own phone company for a number the business "
+            "brought — so Calevate has no way to delete what it keeps. Removing it takes "
+            "a written request to whoever holds that account, and this certificate does "
+            "not record one as made: until the carrier confirms a deletion in writing, "
+            "the honest statement is that this copy exists."
         ),
-        # The carrier is Vobiz (D-662). It is not named in this client-facing text
-        # (D-679); the public Telephony category and the internal register
-        # (`docs/legal/SUBPROCESSOR-REGISTER.md`) are what this entry must agree with, and
-        # the vendor citations are in the comment above `TELEPHONY_OUTCOME`.
         authority=(
-            "DPDP §8(7) storage limitation and §12(3) erasure, read against the "
-            "carrier's published API documentation: its call-record interface only lists, reads "
-            "and exports, so no route there deletes one person's call records, while its "
-            "recording interface documents a deletion of a single recording, which this "
-            "erasure uses. The durable fix for the call records is a deletion term in our "
-            "contract with the carrier, which is a signed commercial term rather than "
-            "something "
-            "this system can supply."
+            "DPDP §8(7) storage limitation and §12(3) erasure: the carrier is contracted "
+            "by the voice platform or by the business, not by Calevate, so the deletion "
+            "has to be asked of whoever holds that contract."
         ),
     ),
     ErasureLimitation(
@@ -885,11 +815,11 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "rejected are no longer kept indefinitely: they are deleted once they pass "
             "this account's knowledge-base retention period. The live version is kept "
             "while it is live. A THIRD COPY IS NAMED BECAUSE THAT CLOCK DOES NOT REACH "
-            "IT: publishing freezes the approved text into a sealed, content-addressed "
-            "knowledge pack, which is the copy an agent actually answers out of on a "
-            "call. Packs are never rewritten and nothing deletes a superseded one, so a "
-            "pack published before a removal still holds the sentence, and taking it out "
-            "of the packs is a separate manual act on Calevate's side."
+            "IT: until 13 October 2026 publishing also froze the approved text into a "
+            "sealed, content-addressed knowledge pack. Packs are never rewritten and "
+            "nothing deletes one, so a pack frozen before a removal still holds the "
+            "sentence, and taking it out of the packs is a separate manual act on "
+            "Calevate's side."
         ),
         # SECURITY-COMPLIANCE §4 is the scope; D-179 closed our two halves;
         # DATA-MODEL §9 carries the `kb` retention category.

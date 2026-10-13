@@ -40,8 +40,8 @@ import { MockStage } from "./mockups/stage";
  *     into the agent's own prompt at publish time (`apps/api/agents/t0.py`), and
  *     THAT IS NO LONGER THE WHOLE OF IT. Re-read 15 Sep 2026: `POST /v1/kb/sources` is
  *     still text-only (`kb/service.py:77`), but `POST /v1/kb/uploads` takes a document or
- *     a link (D-534), and `PIPECAT_CAPABILITIES.knowledge_base` is `True` with an
- *     in-process pack search registered as a call tool (`docs/PIPECAT-MIGRATION.md` §8.1).
+ *     a link (D-534), and `THINNEST_CAPABILITIES.knowledge_base` is `True`: the knowledge
+ *     also reaches the voice platform as agent-scoped documents (`apps/api/engine/thinnest.py`).
  *     `docs/TRD.md:802` still says
  *     "in-call retrieval is T0 and nothing else"; `docs/` is authoritative, so the conflict
  *     is FLAGGED rather than resolved here. The card's copy is UNDERSTATED as a result

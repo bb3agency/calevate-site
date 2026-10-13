@@ -127,35 +127,27 @@ const SOLUTIONS: readonly Solution[] = [
       "It holds the call in Telugu, Hindi or English. Telugu is where a new agent starts.",
       // apps/api/crm/service.py:27 count_after_hours_calls -> after_hours_captured_7d.
       "Your dashboard counts how many enquiries arrived outside your own opening hours.",
-      // WHAT A CALLER ASKING FOR A PERSON ACTUALLY GETS, which is not a live transfer and
-      // is not the roster either. `PIPECAT_CAPABILITIES.in_call_handoff` and `transfer`
-      // are both False, so `transfer_blocked_reason` answers `platform_cannot_transfer`,
-      // `agents/handoff.spec_for` sends no destination and nobody on the list is chosen:
-      // the tool answers `not_available` and the agent offers the call-back, which
-      // `callbacks/service.book` rings the CALLER back on. Neither a sentence promising
-      // "puts a caller through" nor one promising the enquiry reaches the on-duty member
-      // is true of this engine, and both have stood here.
-      "When a caller asks for a person, it says so plainly and offers a call-back instead — what they wanted is written down and lands on your call-backs list.",
+      // `THINNEST_CAPABILITIES.in_call_handoff` is True (apps/api/engine/thinnest.py): the
+      // agent puts the caller through to the on-duty person from the handover list, the one
+      // phone `built_in_tools_body` fixes at publish. With nobody on duty the hand-over tool
+      // answers `not_available` (`worker/in_call_tools.request_handoff_unplaced`) and the
+      // agent offers the call-back, which `callbacks/service.book` rings the caller back on.
+      "When a caller asks for a person, it puts them through to the person on duty on your handover list, during their hours. If nobody is, it says so plainly and offers a call-back, and what they wanted lands on your call-backs list.",
     ],
     yours: [
       "Your opening hours, so the after-hours count means something.",
       "The sentence it opens with, and whether it volunteers the AI line at the start.",
       "The list of things it has to find out from a caller.",
-      // The roster is SAVED AND NOT IN USE while the platform cannot transfer — which is
-      // the sentence the client's own handover screen gives them
-      // (`agents/handoff._UNAVAILABLE_REASONS[PLATFORM_CANNOT_TRANSFER]`). Listing it as
-      // something they control without that half would promise an escalation path.
-      "Your handover list — who should take an escalation, in what order, and the hours each is available. We hold it; putting a caller through mid-call is not something this platform does yet, and your handover screen says so.",
+      "Your handover list — who should take an escalation, in what order, and the hours each is available.",
     ],
     never: [
-      // A BAN ON THE WORD "look up" WOULD BE A BAN ON THE TRUTH: the agent DOES search
-      // the approved knowledge pack during a call (`PIPECAT_CAPABILITIES.knowledge_base`
-      // is True, `apps/api/engine/pipecat.py:241`, and the worker registers the search as
-      // a call tool). The constraint that actually holds is about WHAT it may draw on, and
-      // that is what this line says. A sentence claiming it looks nothing up mid-call
-      // stood here and was false on both runnable engines.
+      // The agent DOES draw on the business's knowledge during a call
+      // (`THINNEST_CAPABILITIES.knowledge_base` is True, apps/api/engine/thinnest.py), so the
+      // constraint that holds is about WHAT it may draw on, and that is what this line says.
       "It does not answer from anything but the material your business added. It is not a search engine and it does not learn from your documents.",
-      "It does not put a caller through to a person while they are on the line. Asking for somebody gets a call-back offered instead, and the caller is told that rather than being left holding.",
+      // The hand-over phone is the one we publish; `built_in_tools_body` clears any number
+      // typed elsewhere, so a caller cannot be put through to anybody off the list.
+      "It does not put a caller through to anyone who is not on your handover list.",
     ],
   },
   {

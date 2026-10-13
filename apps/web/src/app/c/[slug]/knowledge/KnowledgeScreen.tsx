@@ -10,7 +10,6 @@ import { useClientSession } from "@/lib/api/session";
 import { useKbSources } from "@/lib/api/kb";
 
 import { AddDocument } from "./AddDocument";
-import { KnowledgeDelivery } from "./KnowledgeDelivery";
 import { SourcesList } from "./SourcesList";
 import { TeachBox } from "./TeachBox";
 import { WhatItKnows } from "./WhatItKnows";
@@ -63,9 +62,6 @@ export function KnowledgeScreen() {
       {sources.error && <ProblemNotice error={sources.error} onRetry={() => sources.refetch()} />}
 
       <TeachBox allowed={write.allowed} reason={write.reason} answering={answering} />
-
-      {/* Whether what was added has reached the phone (`apps/api/kb/delivery.py`). */}
-      <KnowledgeDelivery />
 
       {/* Three peer views of one knowledge base (D-655). */}
       <Tabs

@@ -147,7 +147,6 @@ async def _campaign(
     *,
     phones: tuple[str, ...],
     slider: int = 3,
-    dlt_status: str = "registered",
 ) -> uuid.UUID:
     """A launch-ready promotional campaign: 140 number, approved matching template.
 
@@ -167,11 +166,13 @@ async def _campaign(
                 "SELECT id FROM phone_numbers WHERE agent_id = :aid AND dlt_status = :dlt "
                 "ORDER BY created_at, id LIMIT 1"
             ),
-            {"aid": agent_id, "dlt": dlt_status},
+            {"aid": agent_id, "dlt": "registered"},
         )
     ).scalar()
     if number_id is None:
-        number_id = await bind_number_for_tests(session, tenant_id, agent_id, dlt_status=dlt_status)
+        number_id = await bind_number_for_tests(
+            session, tenant_id, agent_id, dlt_status="registered"
+        )
     template_id = uuid7()
     await session.execute(
         text(
@@ -518,29 +519,6 @@ async def test_a_campaign_whose_every_contact_opted_out_cannot_launch() -> None:
     assert [b.rule for b in blockers] == ["all_contacts_dnc"], [b.rule for b in blockers]
     assert excinfo.value.code == "campaign_launch_blocked"
     assert status == "draft", "a campaign with nothing lawful to dial never starts"
-
-
-async def test_a_number_whose_dlt_registration_is_not_done_no_longer_blocks_launch() -> None:
-    """`phone_numbers.dlt_status` is the number-side twin of the template check, and
-    `set_number_dlt_status` exists as a deliberate, audited admin step for exactly the
-    reason `set_template_status` does. Dialling from a `pending` or `blocked` number is
-    the misclassification failure SEC-COMP §1 calls the most common one — the network
-    treats it as spam and the complaints land on the client's PE registration."""
-    for dlt_status in ("pending", "blocked"):
-        tenant_id, agent_id = await _tenant()
-        async with tenant_session(tenant_id) as session:
-            campaign_id = await _campaign(
-                session,
-                tenant_id,
-                agent_id,
-                phones=("9876570001",),
-                dlt_status=dlt_status,
-            )
-            blockers = await campaigns.launch_blockers(
-                session, tenant_id=tenant_id, campaign_id=campaign_id
-            )
-        # D-692 retired the number's DLT registration from the launch gate.
-        assert "number_not_registered" not in [b.rule for b in blockers], (dlt_status, blockers)
 
 
 async def test_a_partly_scrubbed_list_still_launches() -> None:

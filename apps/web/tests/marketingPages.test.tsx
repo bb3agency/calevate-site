@@ -360,7 +360,7 @@ describe("the pricing page", () => {
     expect(text).not.toMatch(/\bClear\b|\bStudio\b/);
     // And no vendor's name anywhere on the page — the failure this rule exists for is a
     // tier called "Sarvam" or "Cartesia" in copy somebody wrote from the field names.
-    expect(text).not.toMatch(/clear|studio|bulbul|sonic/i);
+    expect(text).not.toMatch(/clear|studio|sonic/i);
   });
 
   it("shows no price at all when the rate card cannot be loaded", async () => {
@@ -428,7 +428,7 @@ describe("the pricing page", () => {
     // first purchase is actually at, and the floor the largest pack reaches.
     //
     // The STUDIO ladder, because the headline has to be a price somebody can be put on: no
-    // agent can be set to a Clear voice until a Gnani price is attested, so a headline
+    // agent can be set to a Clear voice until its price is attested, so a headline
     // quoting it would be an under-quote on a public page. The Clear band stays in the
     // lede, with the sentence saying why it cannot be chosen.
     const dearestStudio = formatRateForTest(

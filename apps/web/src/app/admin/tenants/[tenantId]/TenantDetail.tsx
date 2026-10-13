@@ -12,7 +12,6 @@ import { BusinessTypeBanner } from "./BusinessTypeBanner";
 import { HoldsBanner } from "./HoldsBanner";
 import { NoOwnerBanner } from "./NoOwnerBanner";
 import { accountFacts, useAccountReads } from "./accountFacts";
-import { KnowledgeDeliveryPanel } from "./KnowledgeDeliveryPanel";
 import { KnowledgeQueue, unpublishedSources } from "./KnowledgeQueue";
 import { HealthSummary } from "./HealthSummary";
 import { MarginPanel } from "./MarginPanel";
@@ -23,7 +22,7 @@ import { UsagePanel, useUsageFacts } from "./UsagePanel";
  *
  * Primary job: *tell the operator where to go next.* Stops first (account state, then the
  * gates holding it), then this week's activity and this month's margin, then the knowledge
- * an operator still has to decide or publish and whether it reached the phone. Everything
+ * an operator still has to decide or publish. Everything
  * else is a section of the client layout (D-661) and is reached from its menu.
  *
  * The queue is READ through impersonation and DECIDED through the admin surface. That
@@ -206,13 +205,6 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       <MarginPanel tenantId={tenantId} />
 
       <KnowledgeQueue tenantId={tenantId} slug={slug} />
-
-      {/* Directly under the queue, because it is the other end of the same job: the queue
-          ends at Publish, and a publish whose pack failed to store leaves every screen
-          showing the new words while the phone quotes the old ones
-          (`kb/pack.refresh_published_pack` survives that failure by design). */}
-      <KnowledgeDeliveryPanel slug={slug} />
-
     </div>
   );
 }

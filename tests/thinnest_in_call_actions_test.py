@@ -1,5 +1,5 @@
 """In-call tools on ThinnestAI: custom actions registered at publish, verified per agent, and
-ending in the same writes the Pipecat worker's tools make (D-678 phase 2).
+ending in the same writes as every other opt-out and call-back path (D-678 phase 2).
 
 The vendor is an `httpx.MockTransport` built from the documented shapes in
 `thinnest-findings/mirror/snapshots/2026-10-07/pages/api-reference/`: an action is created
@@ -55,7 +55,7 @@ from apps.api.worker.engine_actions import (
     UNAVAILABLE_SAY,
     is_test_chat,
 )
-from apps.api.worker.tools import OPTOUT_DONE_SAY
+from apps.api.worker.in_call_tools import OPTOUT_DONE_SAY
 from sqlalchemy import text
 from tests.smoke_pipeline_test import _seed_tenant
 
@@ -383,12 +383,11 @@ async def test_publish_refuses_without_a_public_actions_address(
 async def test_other_engines_are_untouched(vendor: FakeThinnest) -> None:
     tenant_id, _agent, ref = await _route()
     async with tenant_session(tenant_id) as session:
-        result = await ensure_agent_actions(session, engine="pipecat", engine_agent_ref=ref)
+        result = await ensure_agent_actions(session, engine="fake", engine_agent_ref=ref)
     assert result.outcome == "not_applicable"
-    assert await retire_agent_actions(engine="pipecat", engine_agent_ref=ref) == 0
+    assert await retire_agent_actions(engine="fake", engine_agent_ref=ref) == 0
     assert (
-        await check_agent_actions(tenant_id=tenant_id, engine="pipecat", engine_agent_ref=ref)
-        is None
+        await check_agent_actions(tenant_id=tenant_id, engine="fake", engine_agent_ref=ref) is None
     )
     assert vendor.requests == []
 
@@ -472,7 +471,7 @@ async def test_a_deployment_on_another_engine_refuses_after_the_credential(
     vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _t, _a, ref, secret = await _published(vendor)
-    monkeypatch.setattr(get_settings(), "engine", "pipecat")
+    monkeypatch.setattr(get_settings(), "engine", "fake")
     assert (await _post("handoff", ref, secret, {})).status_code == 409
 
 

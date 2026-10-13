@@ -298,8 +298,7 @@ MAX_SAMPLE_PHRASES: Final = 20
 MAX_PRONUNCIATIONS: Final = 50
 MAX_EXAMPLE_TURNS: Final = 20
 
-#: The section headers v2 compiles to. The owned runtime's output guard treats the spoken
-#: ones as words the agent is meant to say (`voice_worker/output_guard._SPOKEN_SECTIONS`).
+#: The section headers v2 compiles to.
 BUSINESS_HEADER: Final = "[BUSINESS]"
 STYLE_HEADER: Final = "[SPEAKING STYLE]"
 EXAMPLE_HEADER: Final = "[EXAMPLE CALL]"

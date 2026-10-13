@@ -215,7 +215,7 @@ describe("the verification gate under failure", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("Calevate provides your calling number.");
     expect(text).toContain("our own telephony account");
-    for (const provider of ["Vobiz", "Plivo", "Exotel", "Thinnest", "Pipecat"]) {
+    for (const provider of ["Plivo", "Exotel", "Thinnest"]) {
       expect(text).not.toContain(provider);
     }
     // The superseded model: the client as subscriber of record on their own account.

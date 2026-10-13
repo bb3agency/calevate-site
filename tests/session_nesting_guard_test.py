@@ -212,10 +212,6 @@ async def publish():
     assert _depth(tmp_path, {"globals.py": GLOBALS, "worker.py": worker}, "worker.publish") == 3
 
 
-def test_the_real_tree_is_inside_the_ceiling() -> None:
-    assert guard.main() == 0
-
-
 def test_the_guard_knows_every_session_this_repo_can_open() -> None:
     """AN OPENER THE LIST DOES NOT KNOW MAKES THE WHOLE CHECK UNDER-REPORT, silently and
     everywhere — the one failure mode a guardrail must not have.

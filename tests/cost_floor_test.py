@@ -3,7 +3,7 @@
 `billing/rates.py` used to hold ONE floor — `Decimal("3.70")`, a blended figure typed as a
 constant with the legs named only in a comment. Two things were wrong with it and both are
 money: it carried a TELEPHONY leg the client pays (D-474, Model B — the client is the
-subscriber of record on their own Exotel/Plivo/Vobiz account), and being typed rather than
+subscriber of record on their own carrier account), and being typed rather than
 summed it could not re-score itself when a leg moved. It is now a SUM of named legs, and
 there are two of them because the second voice tier's TTS cost is a monthly plan rather
 than a per-character price.
@@ -82,14 +82,6 @@ TELEPHONY_ESTIMATE_LOW = Decimal("0.35")
 def test_the_clear_floor_is_the_sum_of_its_four_named_legs() -> None:
     """₹0.95 engine + ₹0.50 STT + ₹0.2411 LLM + ₹1.4580 TTS = ₹3.1491/min.
 
-    ⚠ **THE TTS LEG AND THE TOTAL MOVED ON 19 Sep 2026 AND THE OTHER THREE DID NOT.** The
-    Clear rung's per-character rate was a FROZEN ₹30 / 10,000 — a withdrawn vendor's card,
-    held in place because Gnani were believed to publish nothing. They publish ₹27.00
-    (`app.gnani.ai/voice/pricing`, D-631), so the rung's floor is struck at its own vendor's
-    number: ₹1.62 → ₹1.4580 on the TTS leg, ₹3.3111 → ₹3.1491 on the total. The floor FELL,
-    so every pack that cleared it still clears it — this is not a repricing of anything
-    sold, and nothing is sold.
-
     Recomputed from the same functions the cost model exposes rather than from a literal, so
     a vendor price move in any leg fails here with the leg named — which is exactly what the
     old typed ₹3.70 could not do.
@@ -108,13 +100,10 @@ def test_the_clear_floor_is_the_sum_of_its_four_named_legs() -> None:
 
 
 def test_the_engine_leg_is_the_vendors_published_active_minute() -> None:
-    """₹0.95 = $0.01 x 95, and the $0.01 is Pipecat Cloud's published active-minute rate
-    (`docs.pipecat.ai/pipecat-cloud/pricing`, cited at `docs/evidence/
-    engine-replacement-comet-2026-09-06.md:93,103,122`). Asserted as the PRODUCT so a
-    conversion change and a rate change are distinguishable — the property this assertion
-    was written for, and the one that earned itself here: D-592 moved BOTH halves at once
-    (Bolna $0.02 → Pipecat $0.01, ₹88 → ₹95) and a test on the rupee figure alone could not
-    have told which had moved.
+    """₹0.95 = $0.01 x 95, and the $0.01 is a published active-minute rate (cited at
+    `docs/evidence/engine-replacement-comet-2026-09-06.md:93,103,122`). Asserted as the
+    PRODUCT so a conversion change and a rate change are distinguishable: a test on the
+    rupee figure alone could not tell which had moved.
 
     ⚠ **RESERVED CAPACITY IS NOT IN THIS LEG.** A warm instance bills $0.0005/min with no
     call on it — a fixed cost of standing the platform up, not a cost of the marginal
@@ -558,9 +547,8 @@ def test_the_approved_card_clears_both_floors_and_thin_cells_are_warned_not_refu
     """THE MARGIN THE APPROVED CARD ACTUALLY DELIVERS, all twelve cells written out.
 
     ⚠ **EIGHT OF THE TWELVE ARE UNDER `MIN_GROSS_MARGIN` AND NONE IS UNDER COST, AND THAT
-    IS THE DECISION, NOT THE DEFECT.** The founder's card of 14 Sep 2026
-    (`docs/PIPECAT-MIGRATION.md` §12) cut Clear to a flat ₹4.00 — 17.2% on every rung — and
-    Studio to 7.00 → 5.50, which leaves `pro` at 18.8% and `max` at 14.4%. It is a
+    IS THE DECISION, NOT THE DEFECT.** The founder's card of 14 Sep 2026 cut Clear to a flat
+    ₹4.00 and Studio to 7.00 → 5.50, which leaves `pro` at 18.8% and `max` at 14.4%. It is a
     deliberate opening price to win the first clients. **Do not repair a thin cell by
     moving a rate**: holding 20% everywhere needs Clear ₹4.15 and a Studio floor of ₹5.90,
     which is a pricing decision and not a test fix.
@@ -571,18 +559,9 @@ def test_the_approved_card_clears_both_floors_and_thin_cells_are_warned_not_refu
     §12 publishes, so a floor that moves under our feet fails here with the cell named; it
     is not the thing that encodes the rule.
 
-    ⚠ **THE SIX CLEAR CELLS MOVED FROM 17.22% TO 21.27% ON 19 Sep 2026 AND NO RATE
-    CHANGED.** Gnani's published ₹27.00 / 10,000 characters replaced a withdrawn vendor's
-    frozen ₹30 behind the Clear floor (D-631), pulling it from ₹3.3111 to ₹3.1491 — so the
-    same ₹4.00 rate earns more. Every Clear rung now clears `MIN_GROSS_MARGIN`; the four
-    thin cells that remain are all Studio, where the floor did not move.
-
-    ⚠ This test used to be named `..._and_every_rung_clears_target` and asserted exactly
-    that. It was true only between D-592 (which halved the engine leg and pulled the floors
-    to ₹3.3111 / ₹4.7099) and the 14 Sep card. A literal expectation that sits on the wrong
-    side of a line the founder can move is the failure mode this rewrite is guarding
-    against — which is why the posture is asserted structurally and the numbers are only
-    read back.
+    A literal expectation that sits on the wrong side of a line the founder can move is the
+    failure mode this guards against, which is why the posture is asserted structurally and
+    the numbers are only read back.
     """
     expected = {
         ("starter", "clear"): Decimal("0.3002"),
@@ -811,35 +790,6 @@ def test_the_modelled_cartesia_curve_rounds_exactly_once_like_the_measured_one()
 # --- THE FLOORS OF THE ENGINE THE DEPLOYMENT RUNS (D-681) ----------------------------
 
 
-def test_pipecat_floors_carry_the_carrier_leg_we_now_own() -> None:
-    """D-474's Model B is retired for the owned runtime: the Vobiz minute (₹0.44) and the
-    recording add-on (₹0.10, D-668) are ours and join both floors.
-
-        Clear   3.1491 + 0.44 + 0.10 = 3.6891
-        Studio  4.7099 + 0.44 + 0.10 = 5.2499
-    """
-    from apps.api.billing.rates import (
-        OWNED_CARRIER_INR_PER_MIN,
-        VOBIZ_OUR_CALL_USAGE,
-        VOBIZ_RECORDING_USAGE,
-        vobiz_rate_inr_per_min,
-    )
-
-    assert (
-        vobiz_rate_inr_per_min(VOBIZ_OUR_CALL_USAGE) + vobiz_rate_inr_per_min(VOBIZ_RECORDING_USAGE)
-        == OWNED_CARRIER_INR_PER_MIN
-    )
-    assert Decimal("0.5400") == OWNED_CARRIER_INR_PER_MIN
-    assert cost_floor_inr_per_min("clear", engine="pipecat") == (
-        SELF_SERVE_COST_FLOOR_INR_PER_MIN + OWNED_CARRIER_INR_PER_MIN
-    )
-    assert cost_floor_inr_per_min("clear", engine="pipecat") == Decimal("3.6891")
-    assert cost_floor_inr_per_min("studio", engine="pipecat") == (
-        CARTESIA_COST_FLOOR_INR_PER_MIN + OWNED_CARRIER_INR_PER_MIN
-    )
-    assert cost_floor_inr_per_min("studio", engine="pipecat") == Decimal("5.2499")
-
-
 def test_the_thinnest_floors_are_the_vendor_minutes_plus_the_top_up_fee() -> None:
     """D-687, D-688. Clear follows the band it is sold on: ₹2.50 Premium x 1.0236 = ₹2.5590, or
     ₹3.00 Studio x 1.0236 = ₹3.0708, the 2.36% top-up fee on every plan (ThinnestAI email of
@@ -891,7 +841,7 @@ def test_an_engine_without_floors_of_its_own_is_judged_at_the_base_pair() -> Non
         assert cost_floor_inr_per_min("clear", engine=engine) == SELF_SERVE_COST_FLOOR_INR_PER_MIN
         assert cost_floor_inr_per_min("studio", engine=engine) == CARTESIA_COST_FLOOR_INR_PER_MIN
     with pytest.raises(ValueError):
-        cost_floor_inr_per_min("elevenlabs", engine="pipecat")  # type: ignore[arg-type]
+        cost_floor_inr_per_min("elevenlabs", engine="fake")  # type: ignore[arg-type]
 
 
 def test_the_card_is_judged_at_the_deployments_engine() -> None:
@@ -907,10 +857,5 @@ def test_the_card_is_judged_at_the_deployments_engine() -> None:
     assert not thinnest[("max", "clear")].below_cost
     assert not thinnest[("max", "studio")].below_cost
 
-    pipecat = {(p, v): m for p, v, m in card_margins(PACK_CATALOGUE, engine="pipecat")}
-    assert pipecat[("starter", "clear")].cost == Decimal("3.6891")
-    assert pipecat[("max", "studio")].cost == Decimal("5.2499")
-    assert pipecat[("max", "studio")].below_target and not pipecat[("max", "studio")].below_cost
-
-    for engine in ("thinnest", "pipecat", "fake"):
+    for engine in ("thinnest", "fake"):
         assert card_refusals(PACK_CATALOGUE, engine=engine) == [], engine

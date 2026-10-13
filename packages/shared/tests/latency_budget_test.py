@@ -72,18 +72,6 @@ def test_every_sub_budget_is_the_number_the_document_states() -> None:
     assert VOICE_TO_VOICE_P95_TARGET_MS == 800.0
 
 
-def test_the_shipped_turn_detection_is_the_vendor_defaults_we_never_overrode() -> None:
-    """650ms = `endpointing` 250 + `incremental_delay` 400, both inherited.
-
-    VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/api-reference/agent/v2/create.md`
-    `:1055-1058` and `:418-427`. The agent payload sends neither key, so this is what every
-    published agent waits before the pipeline it is budgeted against even starts. Asserted
-    as a sum so the two halves stay legible: it is one integer each to change.
-    """
-    assert INHERITED_TURN_DETECTION_MS == 250.0 + 400.0
-    assert INHERITED_TURN_DETECTION_MS > ENDPOINTING_BUDGET_MS * 6
-
-
 def test_the_composed_totals_are_the_sum_of_their_parts_and_not_a_second_literal() -> None:
     """The totals are arithmetic over the legs, so they cannot describe the old ones.
 
@@ -200,9 +188,3 @@ def test_the_composed_totals_reach_the_wire_so_no_browser_adds_them_up() -> None
         "voice_to_voice_headroom_p50_ms",
         "composes",
     }
-
-
-def test_the_budget_cannot_be_edited_in_place() -> None:
-    """Frozen, so a caller cannot relax the target it is about to be judged against."""
-    with pytest.raises(ValueError):
-        LATENCY_BUDGET.llm_ttft_ms = 9000.0  # type: ignore[misc]

@@ -11,7 +11,7 @@ change how the code should behave):
   / US TCPA / EU workstream. Andhra Pradesh + Telangana at launch, Telugu-first.
 - **Sole proprietor** (the founder). Calevate is a product/trade name, not a company.
 - **Model B only** for phone numbers: the *client* owns and KYCs the connection on their own
-  Exotel/Plivo/Vobiz account; Calevate is the **Telemarketer (TM)**, the client is the
+  licensed carrier account; Calevate is the **Telemarketer (TM)**, the client is the
   **Principal Entity (PE)**. Never resell numbers from a pool in Calevate's name (Model A).
 - **No GST at launch** (below the ₹20 lakh services threshold; inter-state supply does not
   force it). Proforma / bill of supply, never a GST tax invoice, until a GSTIN exists.

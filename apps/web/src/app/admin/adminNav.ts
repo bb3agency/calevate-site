@@ -206,7 +206,7 @@ export const ADMIN_NAV: NavGroup[] = [
         // of inheriting "Operations".
         //
         // `ops:manage` is the permission every route the screen calls carries
-        // (`apps/api/ops/voice_curation_routes.py`, and the refresh in `ops/routes.py`).
+        // (`apps/api/ops/hosted_voice_routes.py`, and the refresh in `ops/routes.py`).
         href: "/admin/ops/voices",
         label: "Voices",
         icon: AudioLines,

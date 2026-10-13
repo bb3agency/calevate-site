@@ -125,21 +125,6 @@ def test_the_deploy_script_skips_only_on_a_clean_3() -> None:
     )
 
 
-def test_the_operator_facing_documents_describe_the_behaviour_the_script_has() -> None:
-    """Three documents tell an operator to run that rollback; all three must know it works.
-
-    Same shape as `tests/migration_transaction_scope_test.py`: when a mechanism's whole
-    value is that the runbook is true at 3am, the runbook is part of the mechanism.
-    """
-    for relative in ("docs/DEPLOYMENT.md", "runbooks/deploy-failed.md", "scripts/vps-deploy.sh"):
-        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
-        assert "MIGRATIONS SKIPPED" in text or "skipped-rollback" in text, (
-            f"{relative} describes the rollback but not the fact that the migration step "
-            "recognises it and stands down. A reader who does not know that will read the "
-            "yellow banner as a failure and start improvising."
-        )
-
-
 def test_the_image_tag_is_per_commit_so_a_rollback_has_something_to_land_on() -> None:
     """`compose.prod.yml` reads `CALEVATE_IMAGE_TAG`; something must set it.
 

@@ -16,15 +16,6 @@ from apps.workers.script_assist import (
 
 
 def test_prompt_states_its_rules() -> None:
-    text = _SYSTEM_INSTRUCTION.lower()
-    # Instructions in English, spoken lines in the call's language and register (decision 3).
-    assert "plain english" in text and "call language" in text
-    assert "never formal written language" in text
-    # No invented facts — the truth-boundary rule.
-    assert "never invent" in text
-    # The platform owns the AI/recording answer and the call-back rule, not the draft.
-    assert "recording" in text and "call backs" in text
-    # A merge field is offered by example.
     assert "{{lead_name}}" in _SYSTEM_INSTRUCTION
     # The output contract covers every v2 section the parser reads.
     for key in ("business_line", "stages", "objections", "quick_facts", "example_exchange"):

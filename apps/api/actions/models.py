@@ -194,7 +194,7 @@ class ActionTool(PKMixin, TimestampMixin, Base):
     params: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
 
 
-#: Where an invocation came from: a call (ThinnestAI or Pipecat), the background job that
+#: Where an invocation came from: a call, the background job that
 #: finished a slow in-call write, the post-call pipeline, or the client's Test button.
 INVOCATION_SOURCES = ("in_call", "background", "after_call", "test")
 

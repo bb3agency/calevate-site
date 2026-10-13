@@ -24,7 +24,6 @@ import pytest
 from calevate_shared.languages import (
     KNOWN_WIRE_CODE_ANOMALIES,
     LANGUAGES,
-    STT_LANGUAGES_PIPECAT_CANNOT_LABEL,
     UNVERIFIED_VENDOR_LEGS,
     VERIFIED_VENDOR_LEGS,
     Language,
@@ -191,14 +190,6 @@ def test_an_unverified_leg_cannot_widen_what_we_offer() -> None:
             if row.support(vendor, leg) == "supported"
         }
         assert legs_counted <= VERIFIED_VENDOR_LEGS
-
-
-def test_the_pipecat_labelling_gap_never_costs_a_reply() -> None:
-    """Every language the framework cannot label back to its own enum is one we could not
-    answer anyway. If a CONVERSATIONAL language ever lands in that set, the gap stops
-    being cosmetic and this fails."""
-    comprehension = {row.id for row in comprehension_only_languages()}
-    assert comprehension >= STT_LANGUAGES_PIPECAT_CANNOT_LABEL
 
 
 def test_lookup_accepts_every_code_that_identifies_a_language() -> None:

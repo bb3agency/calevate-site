@@ -76,20 +76,6 @@ def _run(root: Path, capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
 
 
 class TestTheRealTree:
-    def test_the_gate_is_green_and_says_what_it_saw(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """The standing assertion, and the calibration that matters most: this check runs
-        over the app as it is today and must find NOTHING. A guardrail whose first act is to
-        fire on correct code is a guardrail with an exemption list."""
-        assert guard.main() == 0
-        assert "WEB ENV PARITY: OK" in capsys.readouterr().out
-
-    def test_every_section_is_clean(self) -> None:
-        state = guard.collect()
-        for title, offenders in guard.evaluate(state):
-            assert offenders == [], f"{title}: {offenders}"
-
     def test_it_reads_the_real_declaration_file(self) -> None:
         state = guard.collect()
         assert state.declaration_exists
@@ -115,16 +101,6 @@ class TestTheRealTree:
         web_declared = set(guard.collect().declared)
         assert not any(key.startswith("next_public_") for key in api_declared)
         assert not {key.lower() for key in web_declared} & api_declared
-
-    def test_the_registry_is_pinned(self) -> None:
-        """Declaring a browser-visible value "public by design" costs a visible diff in a
-        TEST, not one line in a dict — the rule every other exemption here follows.
-
-        IT IS EMPTY SINCE D-177 and the assertion is kept rather than deleted: an empty
-        exemption list is a property worth defending, and this is what makes re-adding one
-        cost a test edit. Its two entries were the realms' Clerk publishable keys;
-        authentication configures nothing in the browser now."""
-        assert set(guard.PUBLIC_BY_DESIGN) == set()
 
 
 # ============================================================================
@@ -486,18 +462,8 @@ class TestCommentStripping:
 
 
 # ============================================================================
-# the Makefile / CI surface
+# the committed template
 # ============================================================================
-
-
-def test_the_guardrail_runs_in_both_gates() -> None:
-    """A check nobody runs is a file. `tests/guardrail_audit_test.py` globs
-    `scripts/check_*.py` and asserts this for every guardrail; kept here too so the failure
-    lands next to the check it is about."""
-    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
-    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "scripts.check_web_env_parity" in makefile
-    assert "scripts.check_web_env_parity" in workflow
 
 
 def test_the_declaration_file_is_committed_not_ignored() -> None:

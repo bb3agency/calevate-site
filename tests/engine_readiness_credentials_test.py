@@ -3,12 +3,12 @@
 THE DEFECT. `runtime_config_missing_keys` carried one line about one vendor: if the
 engine was the rented one (removed by D-639) and its API key was blank, name that key.
 
-D-93/D-94 made `cartesia` a value `ENGINE=` accepts and wired the adapter behind it. That
-line did not grow a second clause, so a deployment running `ENGINE=cartesia` with no
-`CARTESIA_API_KEY` reported itself READY: a box that cannot place a single call, green on
-the probe an orchestrator uses to decide whether to send it traffic. Nothing was lying
+A second engine became a value `ENGINE=` accepts (D-93/D-94) and that line did not grow
+a second clause, so a deployment running it with no API key reported itself READY: a box
+that cannot place a single call, green on the probe an orchestrator uses to decide whether
+to send it traffic. Nothing was lying
 anywhere else — `engine_availability()` has always answered
-`no_engine_credentials:cartesia` — which is what makes this the interesting kind of bug:
+`no_engine_credentials:<engine>` — which is what makes this the interesting kind of bug:
 the correct answer already existed and readiness asked a different question of a different
 authority.
 
@@ -92,25 +92,37 @@ def _settings(**overrides: Any) -> Settings:
     return Settings(_env_file=None, **base)  # type: ignore[arg-type]
 
 
-def test_a_credential_less_cartesia_deployment_is_not_ready() -> None:
+def _thinnest(**overrides: Any) -> Settings:
+    """`_settings` on ThinnestAI with its non-credential requirements met (public callback
+    origins and the engine intake key), so only the API key clause can report anything."""
+    return _settings(
+        engine="thinnest",
+        webhook_base_url="https://hooks.example.com",
+        engine_actions_base_url="https://api.example.com",
+        engine_intake_kek=base64.b64encode(b"e" * 32).decode(),
+        **overrides,
+    )
+
+
+def test_a_credential_less_thinnest_deployment_is_not_ready() -> None:
     """THE BUG, stated as the assertion that was missing.
 
     Before D-104 this returned `[]` and `/healthz/ready` was 200 — the deployment declared
     itself fit to receive traffic while every outbound call it could be asked to place
     would refuse at the vendor boundary.
     """
-    missing = runtime_config_missing_keys(_settings(engine="cartesia"))
-    assert "CARTESIA_API_KEY" in missing, (
+    missing = runtime_config_missing_keys(_thinnest())
+    assert "THINNEST_API_KEY" in missing, (
         "a deployment that cannot reach its voice platform reported itself ready — "
         "the exact condition /healthz/ready exists to catch"
     )
 
 
-def test_a_credentialled_cartesia_deployment_is_ready() -> None:
+def test_a_credentialled_thinnest_deployment_is_ready() -> None:
     """The other half, and it is not symmetric decoration: a readiness probe that is red
     when it should be green is an outage of its own, and the cheapest way to get the test
     above passing is a check that never goes green."""
-    assert runtime_config_missing_keys(_settings(engine="cartesia", cartesia_api_key="k")) == []
+    assert runtime_config_missing_keys(_thinnest(thinnest_api_key="k")) == []
 
 
 def test_the_fake_engine_never_holds_readiness_down() -> None:
@@ -155,26 +167,9 @@ def test_readiness_reads_the_settings_it_was_handed_not_a_cached_adapter() -> No
 
     reset_engine_cache()
     try:
-        get_engine(_settings(engine="cartesia", cartesia_api_key="warm-the-cache"))
-        assert runtime_config_missing_keys(_settings(engine="cartesia")) == ["CARTESIA_API_KEY"], (
+        get_engine(_thinnest(thinnest_api_key="warm-the-cache"))
+        assert runtime_config_missing_keys(_thinnest()) == ["THINNEST_API_KEY"], (
             "readiness answered from a cached adapter built from different settings"
         )
     finally:
         reset_engine_cache()
-
-
-def test_the_engine_clause_is_gone_from_core_settings() -> None:
-    """Hard rule 2 as a grep, because the fix is only durable if the old shape cannot
-    quietly come back. A per-vendor credential name in `core/settings.py` is exactly the
-    line this decision removed, and re-adding one is easier than noticing it."""
-    from pathlib import Path
-
-    source = (Path(__file__).resolve().parents[1] / "apps/api/core/settings.py").read_text(
-        encoding="utf-8"
-    )
-    for vendor_key in ("CARTESIA_API_KEY",):
-        assert f'"{vendor_key}"' not in source, (
-            f"{vendor_key} is named in core/settings.py again — vendor credential names "
-            "belong to the adapter that reads them (apps/api/engine/), not to a core "
-            "module that has to grow a clause per vendor"
-        )

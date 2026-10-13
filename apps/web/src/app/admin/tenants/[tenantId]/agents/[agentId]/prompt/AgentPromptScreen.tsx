@@ -206,8 +206,6 @@ export function AgentPromptScreen({ tenantId, agentId }: { tenantId: string; age
             case "voice":
               return (
                 <VoicePanel
-                  tenantId={tenantId}
-                  agentId={agentId}
                   slug={slug}
                   agent={agent}
                   pending={pending.data}

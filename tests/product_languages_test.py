@@ -207,12 +207,6 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
         "language, not a list of languages; a missing key is caught above"
     ),
     "apps/api/agents/handoff.py": "the spoken handover line per language, for the same reason",
-    "apps/api/agents/handoff_execution.py": (
-        "the WHISPER the person taking a handed-over call hears before they accept, and "
-        "the two phrases it falls back on, per language. Content per language on the same "
-        "terms as the spoken line above — the caller's half is in `handoff.py` and this is "
-        "the called party's half"
-    ),
     "apps/api/agents/specimen_scenarios.py": (
         "the standing test callers' LINES per language (D-749): what a caller says in "
         "Telugu, Hindi and English, keyed by tag. Content per language on the same terms "
@@ -222,15 +216,6 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
         "the fake engine's stand-in for a VENDOR's voice listing. Those strings belong to "
         "the simulated vendor payload (hard rule 2), not to our offer — a fake that read "
         "our declaration could not model a vendor whose list disagrees with it"
-    ),
-    "apps/api/agents/gnani_voices.py": (
-        "a VENDOR's per-voice fact — which single locale Gnani tunes each `timbre-v2.5` "
-        "voice for — read off their own SDK and their own listing page (D-618). Like "
-        "`engine/fake.py` above it is the vendor's vocabulary rather than our offer, and "
-        "it cannot be derived from either end: our declaration cannot say which voice "
-        "Gnani tuned for Telugu, and the tag is the VALUE per voice rather than a list of "
-        "languages. That our three are a subset of what we sell IS asserted, from the "
-        "declaration, in `tests/gnani_voices_test.py`"
     ),
     "apps/workers/call_language.py": (
         "Unicode SCRIPT BLOCKS mapped to the language a caller writing in that script most "
@@ -523,34 +508,3 @@ async def test_the_constraint_in_the_database_is_validated_not_merely_declared()
         ).first()
     assert row is not None, "migration c7a41e8b52d9 has not been applied to this database"
     assert row[0] is True, "the constraint is NOT VALID: it enforces nothing on existing rows"
-
-
-def test_the_migration_undoes_exactly_what_it_did() -> None:
-    """Reversibility, read off the revision itself (hard rule 8).
-
-    `tests/migration_reversibility_test.py` proves every revision's `downgrade()` is
-    non-empty and symmetric in general; this one names the constraint, because a downgrade
-    that dropped a DIFFERENT constraint would satisfy the generic guard and leave the
-    schema holding something no revision claims.
-    """
-    source = (
-        REPO_ROOT
-        / "alembic"
-        / "versions"
-        / "c7a41e8b52d9_the_language_column_can_refuse_a_value.py"
-    ).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    bodies = {
-        node.name: ast.get_source_segment(source, node) or ""
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef)
-    }
-    assert "ADD CONSTRAINT" in bodies["upgrade"] and "VALIDATE CONSTRAINT" in bodies["upgrade"]
-    assert "DROP CONSTRAINT IF EXISTS" in bodies["downgrade"]
-    assert "CK_LANGUAGE" in bodies["upgrade"] and "CK_LANGUAGE" in bodies["downgrade"], (
-        "both directions must name the constraint through the same constant"
-    )
-    assert "language_primary IN ('te-IN', 'hi-IN', 'en-IN')" in source, (
-        "the revision spells its own predicate: a migration is a snapshot of the schema "
-        "on the day it ran, and importing today's constant would rewrite its meaning"
-    )

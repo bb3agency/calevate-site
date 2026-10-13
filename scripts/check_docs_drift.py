@@ -33,12 +33,12 @@ answer, each against a LIVE artefact rather than against a list of what we remem
    See DEFERRED_MIRRORS below: the config half of this claim has never been in the repo,
    the deferral says so, and the deferral FAILS the day the file lands. Note what this
    one is NOT about: `limit_req_zone` is REQUESTS per second, not rupees.
-4b. **The MONEY rate card mirrors what the biller bills.** TRD §10.1 prices the two TTS
-   rungs and `billing/rates.py::TTS_INR_PER_10K_CHARS` charges them, and until this
+4b. **The MONEY rate card mirrors what the biller bills.** TRD §10.1 prices the Studio
+   TTS rung and `billing/rates.py` holds its rate, and until this
    section existed a vendor price move could land in one and not the other with nothing
    in the tree able to see it — the same class as 5 below, on the axis where it costs
-   money rather than credibility. §10.1 states each rate TWICE (per 10,000 chars in the
-   Sarvam card, per 1,000 in the per-minute table), so the doc is also checked against
+   money rather than credibility. §10.1 states the rate TWICE (per 10,000 chars in the
+   vendor card, per 1,000 in the per-minute table), so the doc is also checked against
    itself: a document that disagrees with its own other table is the cheapest version of
    this failure and the likeliest to survive review.
 5. **Prose that STATES a capability constant's value states the value the tree has.**
@@ -1295,46 +1295,25 @@ def stale_deferrals(root: Path | None = None, deferrals: dict[str, str] | None =
 # zone`, requests per second. Nothing in this file, and nothing anywhere in the tree,
 # checked a MONEY rate against the doc that states it, which is where the drift class
 # D-102/D-103/D-105 found is most expensive: TRD §10.1 is the cost model the margin is
-# reasoned from, `billing/rates.py::TTS_INR_PER_10K_CHARS` is what a client is actually
-# billed against, and until now a vendor price move could land in one and not the other
-# with nothing able to notice. D-105 is the precedent that makes it concrete — a Sarvam
-# identifier moved under us and the cost model went on pricing the model we had stopped
-# calling.
+# reasoned from, `billing/rates.py` holds the rate the cost model uses, and until now a
+# vendor price move could land in one and not the other with nothing able to notice.
+# D-105 is the precedent that makes it concrete — a Sarvam identifier moved under us and
+# the cost model went on pricing the model we had stopped calling.
 #
-# THE DOC STATES THE SAME RATE TWICE, and both spellings are checked. §10.1's Sarvam card
-# quotes the vendor's own unit ("₹30 / 10,000 chars"); the per-call-minute table below it
-# re-expresses the same rate per 1,000 ("₹3.00 / 1,000 chars"). A doc that disagrees with
+# THE DOC STATES THE SAME RATE TWICE, and both spellings are checked. §10.1's vendor card
+# quotes the vendor's own unit ("₹57.20 / 10,000 chars"); the per-call-minute table below it
+# re-expresses the same rate per 1,000 ("₹5.7200 / 1,000 chars"). A doc that disagrees with
 # ITSELF about a price is the cheapest possible version of this failure and the one most
 # likely to survive review, because each table reads fine alone.
-#
-# EVIDENCE LADDER (billing/payments.py's three rungs). The rates themselves are REPORTED,
-# NOT READ: `sarvam.ai` and `docs.sarvam.ai` are refused by this environment's egress
-# proxy, so the ₹30 / ₹15 figures are TRD §10.1's record of a live read on 11 Aug 2026
-# (D-35), corroborated Aug 2026 by two independent search summaries of the same pricing
-# page ("₹15-30 per 10,000 characters"; "₹30 per 10,000 characters"). What this check
-# proves is narrower and still worth having: that the doc and the code say ONE thing, so
-# the next correction has one place to land.
 
-#: Which doc carries the money rate card, and the heading its Sarvam table sits under.
+#: Which doc carries the money rate card, and the heading its TTS rows sit under.
 TRD = REPO_ROOT / "docs" / "TRD.md"
 TTS_RATE_HEADING = "### 10.1 Stack cost, computed from published rates"
 
-#: The product name a §10.1 TTS row is a claim about, however the row bolds it. THREE
-#: NAMES, ONE PRICED RUNG since D-629 (18 Sep 2026) — the list is deliberately wider than
-#: the card, because every name here that the code does NOT price becomes a tripwire
-#: rather than a blind spot:
-#:
-#:   * `Sonic 3.5` — the one rung the biller holds a rate for.
-#:   * `Timbre v2.5` — Gnani, the Clear rung. Gnani publish NO price, so `billing/rates.py`
-#:     has no such rung, and §4b therefore FAILS the day §10.1 states a rate for it. That
-#:     is the point: hard rule 7 keeps a Gnani figure off every surface, and the only
-#:     figure in this tree is a reseller's for their own platform.
-#:   * `Bulbul v3` — Sarvam, which left the synthesis leg entirely at D-629. Its code rate
-#:     went with the card row, so a Bulbul row reappearing in §10.1 fails the same way.
-#:     (`Bulbul v2`, withdrawn earlier, has never matched here at all.)
-_TTS_PRODUCT = r"(?:Bulbul\s*\*{0,2}v3|Sonic\s*\*{0,2}3\.5|Timbre\s*\*{0,2}v2\.5)"
-#: `| Text-to-Speech **Bulbul v3** | ₹30 / 10,000 chars |` — the vendor's own unit. The
-#: rate may sit in ANY later cell of the row, not only the next one: the Cartesia card
+#: The product name a §10.1 TTS row is a claim about, however the row bolds it.
+_TTS_PRODUCT = r"Sonic\s*\*{0,2}3\.5"
+#: `| Text-to-Speech **Sonic 3.5** | ... | ₹57.20 / 10,000 chars |` — the vendor's own unit.
+#: The rate may sit in ANY later cell of the row, not only the next one: the Cartesia card
 #: carries the plan terms in between (`$49 / month, 1,250,000 credits`), and a pattern that
 #: demanded the adjacent cell would have silently read that row as stating no rate — the
 #: exact blindness `blind_spots()` exists to catch, arriving one column over.
@@ -1342,7 +1321,7 @@ _DOC_TTS_10K = re.compile(
     rf"\|[^|\n]*({_TTS_PRODUCT})\*{{0,2}}[^|\n]*\|[^\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*10,?000\s*chars",
     re.IGNORECASE,
 )
-#: `| TTS — Bulbul **v3** | ₹3.00 / 1,000 chars | ... |` — the same rate, per 1,000.
+#: `| TTS — Cartesia **Sonic 3.5** | ₹5.7200 / 1,000 chars | ... |` — the same rate, per 1,000.
 _DOC_TTS_1K = re.compile(
     rf"\|[^|\n]*({_TTS_PRODUCT})\*{{0,2}}[^|\n]*\|[^\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*1,?000\s*chars",
     re.IGNORECASE,
@@ -1350,19 +1329,15 @@ _DOC_TTS_1K = re.compile(
 
 #: Which code key each doc row is a claim about, keyed by the row's product name with its
 #: markdown bold and whitespace normalised away (`_tts_row_key`). The doc names the
-#: VENDOR's product and the code holds one constant per vendor, so the mapping between
-#: them is stated once here rather than assumed by either side. Two of the three entries
-#: map to a rung `billing/rates.py` does NOT hold — see `_TTS_PRODUCT` for why that is the
-#: design and not a leftover.
+#: VENDOR's product and the code names the model, so the mapping between them is stated
+#: once here rather than assumed by either side.
 TTS_DOC_ROW_TO_TIER: dict[str, str] = {
-    "bulbulv3": "bulbul-v3",
     "sonic3.5": "sonic-3.5",
-    "timbrev2.5": "timbre-v2.5",
 }
 
 
 def _tts_row_key(product: str) -> str:
-    """`**Bulbul** v3` / `Bulbul **v3**` / `Sonic 3.5` → the `TTS_DOC_ROW_TO_TIER` key.
+    """`**Sonic** 3.5` / `Sonic **3.5**` / `Sonic 3.5` → the `TTS_DOC_ROW_TO_TIER` key.
 
     Bold markers and whitespace are stripped rather than matched, because §10.1 bolds the
     version in one table and the whole name in another, and a regex that encoded which is
@@ -1426,36 +1401,15 @@ def code_tts_rates() -> dict[str, Decimal]:
     `CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS` is the vendor's OVERAGE rate on the dearest
     plan we can be on, so this check is what makes TRD §10.1 restate the rate the code
     holds and not a rate somebody rounded — if the overage rate or the conversion moves in
-    code, the doc row fails here. ⚠ It was the Startup fee over its allotment (₹34.496)
-    until 9 Sep 2026, an AVERAGE true at one volume only; the vendor's own overage rate
-    closed that UNKNOWN and `billing/rates.py`'s Cartesia block records the change.
+    code, the doc row fails here.
 
-    ⚠ **TWO ENTRIES AGAIN SINCE 19 Sep 2026, AND THE HISTORY MATTERS BECAUSE IT IS WHY THIS
-    CHECK WENT QUIET FOR A DAY.** The `bulbul-v3` entry left on 18 Sep 2026 when the founder
-    withdrew the Sarvam TTS leg, and nothing replaced it: the Clear rung's vendor was Gnani,
-    Gnani were believed to publish no price, and a rung with no rate has no row to diff. That
-    left §4b guarding one rung while the product sold two.
-
-    The belief was wrong. Gnani's own console states ₹27.00 / 10,000 characters
-    (`app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and relayed), so the Clear
-    rung has a published rate again and `TTS_INR_PER_10K_CHARS` holds it. Both rungs are
-    listed here, and §4b is back to diffing the whole card.
-
-    **WHAT THIS FUNCTION IS NOT.** Its subject is in its own name: the rates the COST MODEL
-    holds, one row per rung of the published card. Neither entry is a rate any minute is
-    BILLED at — Cartesia's is a plan overage and Gnani's is a catalogue price, and hard rule
-    7 admits only an operator's attested invoice figure to `unit_cost_paid`. A row here means
+    It is a rate the COST MODEL holds, not one any minute is billed at: hard rule 7 admits
+    only an operator's attested invoice figure to `unit_cost_paid`. A row here means
     "TRD §10.1 must state this number", not "somebody is charged it".
     """
-    from apps.api.billing.rates import (
-        CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS,
-        TTS_INR_PER_10K_CHARS,
-    )
+    from apps.api.billing.rates import CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS
 
-    return {
-        "sonic-3.5": CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS,
-        "timbre-v2.5": TTS_INR_PER_10K_CHARS,
-    }
+    return {"sonic-3.5": CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS}
 
 
 def tts_rate_card_drift(text: str | None = None) -> list[str]:
@@ -1512,10 +1466,10 @@ def tts_rate_card_drift(text: str | None = None) -> list[str]:
 #     ₹3.50, and only figures with TWO OR MORE decimal places count — a rupee figure in
 #     this document always has them, a version number never does. Both guards are belt and
 #     braces on purpose: either alone would let one spelling through.
-#   * **It compares SETS of band endpoints, not a rendered string.** "1.08-1.62 on the
-#     Sarvam voice or 2.06-3.09 on the Cartesia voice" and any rewrite of it that quotes
-#     the same four figures both pass. What fails is a figure the card does not contain
-#     (a stale price) or a card figure the summary omits (a rung quietly dropped).
+#   * **It compares SETS of band endpoints, not a rendered string.** "2.06-3.09 on the
+#     Studio voice" and any rewrite of it that quotes the same two figures both pass.
+#     What fails is a figure the card does not contain (a stale price) or a card figure
+#     the summary omits (a rung quietly dropped).
 #
 # So the failure mode it catches is exactly "somebody corrected the card and not the
 # paragraph above it", and the false-positive mode is "somebody quoted a price the card
@@ -1765,7 +1719,7 @@ def tts_speaking_rate_band_drift(text: str | None = None) -> list[str]:
 #
 # WHY THIS EXISTS SEPARATELY FROM 4b. Same defect, second leg, different UNIT — and the
 # unit is the whole reason it was missed. TTS is billed per CHARACTER and had a code home
-# (`TTS_INR_PER_10K_CHARS`) and a check the day the rate card was written; STT is billed
+# and a check the day the rate card was written; STT is billed
 # per unit of AUDIO TIME and had NEITHER until now. The ₹30/hour figure lived in §10.1
 # prose and, blended with four other legs, inside `SELF_SERVE_COST_FLOOR_INR_PER_MIN` —
 # a money figure with no code home and nothing able to notice a vendor move, which is

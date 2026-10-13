@@ -5,8 +5,8 @@ suite. `kb_index_documents` holds no content — a digest, three ids and a times
 usual argument ("a leak here exposes a client's words") does not apply. What it holds is
 worse: **the list of documents a DELETE sent to the vendor is allowed to name.**
 `retrieval/supermemory_index._withdraw_orphans` reads this table and hands the ids it finds
-to box 3, whose local build is single-tenant with ONE API key (`docs/PIPECAT-MIGRATION.md`
-§8.4) and which therefore enforces no tenancy of its own. A cross-tenant READ here becomes a
+to box 3, whose local build is single-tenant with ONE API key (ROADMAP D-613)
+and which therefore enforces no tenancy of its own. A cross-tenant READ here becomes a
 cross-tenant ERASURE there — one client's withdrawal silently destroying another client's
 published knowledge in the store their dashboard search reads.
 

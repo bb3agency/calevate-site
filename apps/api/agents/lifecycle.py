@@ -78,7 +78,6 @@ from apps.api.agents.service import (
     INBOUND_SILENCE_TRUTHFUL_ANSWER,
     publish_agent,
     refuse_call_cap_out_of_range,
-    retire_agent_carrier_bindings,
     retire_in_call_actions,
     route_inbound_numbers,
 )
@@ -781,9 +780,7 @@ async def archive_agent(
     )
     released = await _release_inbound_numbers(session, agent_id=agent_id) if moved else 0
     if moved:
-        # After the release: the carrier refuses to delete a binding a number still uses.
         ref = await _engine_agent_ref(session, agent_id)
-        await retire_agent_carrier_bindings(agent_id=agent_id, ref=ref)
         await retire_in_call_actions(agent_id=agent_id, ref=ref)
         # Its copies of the client's knowledge go with it (D-689): the vendor agent object
         # stays standing (see above), so its documents would otherwise stay billed and
@@ -1022,8 +1019,7 @@ async def _release_inbound_numbers(session: AsyncSession, *, agent_id: UUID) -> 
 # phone being answered, and that is a carrier fact: so the close DETACHES every number from
 # its agent and the reopen re-attaches the ones a live answering agent held. Detach, not
 # release: whether a client's number is released or ported is theirs to say (FLOWS §9), and
-# a released number cannot be taken back. `worker/service.load_session` refuses a closed
-# account's calls whatever the carrier does, which covers a carrier that cannot detach.
+# a released number cannot be taken back.
 
 #: Every agent of this account that has numbers attached and was ever published. Paused and
 #: archived agents are included: their numbers should already be detached, and detaching a

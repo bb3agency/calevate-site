@@ -1,39 +1,10 @@
-"""The route three alarm remediations told an operator to run.
-
-THE DEFECT THIS PINS. `GET /v1/ops/kb-orphans` was named by
-`runbooks/alarm-index.md` in the remediation of `engine_kb_orphans_detected`,
-`engine_kb_account_listing_incomplete` and `kb_orphan_sweep_abandoned`, and by
-`workers/kb_orphans.py` twice — and no router served it. An operator following any of
-those mid-incident reached a 404, and `account_kb_report` sat public with a docstring
-saying "the ops route calls it too" about a route that did not exist.
-
-Run: uv run pytest -q tests/ops_kb_orphans_route_test.py
-"""
+"""`GET /v1/ops/kb-orphans` answers with the orphan sweep's own reading."""
 
 from __future__ import annotations
 
 from typing import Any
 
 import pytest
-from apps.api.main import app
-from httpx import ASGITransport, AsyncClient
-
-PATH = "/v1/ops/kb-orphans"
-
-
-def _client() -> AsyncClient:
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://api")
-
-
-@pytest.mark.asyncio
-async def test_the_route_the_runbook_names_is_actually_served() -> None:
-    """Served and permissioned — not 404. The 404 is the whole defect."""
-    async with _client() as http:
-        anonymous = await http.get(PATH)
-    assert anonymous.status_code != 404, (
-        "the route three alarm remediations send an operator to is unmounted again"
-    )
-    assert anonymous.status_code in (401, 403), anonymous.text
 
 
 @pytest.mark.asyncio

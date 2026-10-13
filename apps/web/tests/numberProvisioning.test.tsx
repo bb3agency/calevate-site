@@ -152,7 +152,7 @@ describe("a deployment that may not supply a number says so", () => {
     await screen.findByText(REFUSAL);
     expect(container.textContent).not.toMatch(/account holder|withdraw our access|connection you already hold/i);
     expect(screen.getByText(/arrange your number with you/i).textContent).not.toMatch(
-      /Vobiz|Plivo|Thinnest|Pipecat/i,
+      /Plivo|Thinnest/i,
     );
   });
 

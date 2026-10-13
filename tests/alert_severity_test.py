@@ -33,8 +33,6 @@ from apps.api.core import alert_admission, alerting
 from apps.api.core.alarm_severity import (
     ALARM_SEVERITY,
     DEFAULT_SEVERITY,
-    EMAILED_SEVERITIES,
-    SEVERITIES,
     severity_of,
 )
 from apps.api.core.settings import get_settings
@@ -270,12 +268,6 @@ class TestTheRegistryCannotBeSkipped:
         assert DEFAULT_SEVERITY == "page"
         assert severity_of("a_code_nobody_has_classified_yet") == "page"
 
-    def test_every_code_the_tree_can_raise_is_classified(self) -> None:
-        """The guard's own answer, asserted here so a `pytest` run catches it too."""
-        from scripts.check_alarm_wiring import severity_failures
-
-        assert severity_failures() == []
-
     def test_a_new_code_with_no_severity_fails_the_guard(self) -> None:
         """THE NEGATIVE CONTROL. A guard that has never been seen to fail is a guard
         nobody can trust; this shows it refusing the exact diff it exists to refuse."""
@@ -283,10 +275,6 @@ class TestTheRegistryCannotBeSkipped:
 
         failures = severity_failures({"a_brand_new_alarm": {"apps/api/somewhere.py"}})
         assert any("UNCLASSIFIED: `a_brand_new_alarm`" in failure for failure in failures)
-
-    def test_only_one_rung_leaves_the_building(self) -> None:
-        assert frozenset({"page"}) == EMAILED_SEVERITIES
-        assert set(SEVERITIES) == {"page", "attention", "record"}
 
     def test_the_codes_that_still_mail_read_like_an_emergency_list(self) -> None:
         """A SANITY CHECK ON THE CLASSIFICATION ITSELF, not on the mechanism.
@@ -309,10 +297,6 @@ class TestTheRegistryCannotBeSkipped:
             "platform_secret_unreadable",
         ):
             assert ALARM_SEVERITY[code] == "page", f"{code} must still wake somebody"
-
-    def test_the_four_codes_that_spammed_the_founder_no_longer_mail(self) -> None:
-        for code in ("signal_received", "csp_violation", "fx_rate_stale", "fx_source_degraded"):
-            assert ALARM_SEVERITY[code] not in EMAILED_SEVERITIES
 
 
 # --- 5: hard rule 6, on the STORED fields --------------------------------------

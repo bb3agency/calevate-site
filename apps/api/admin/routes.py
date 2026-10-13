@@ -29,7 +29,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any, Final, Literal, get_args
 from uuid import UUID
 
-from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER, NumberProvider
+from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER, RecordableNumberProvider
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import text
@@ -1925,11 +1925,7 @@ class MarginOut(BaseModel):
     #:
     #: A COUNT and never a rupee estimate: the reason those legs have no `usage_events`
     #: row is that nobody can honestly price them, and totalling them would be exactly the
-    #: fabrication the refusal exists instead of. The live instance is the RUNTIME leg —
-    #: what a Pipecat Cloud active minute bills is UNKNOWN (OPERATIONS §2 gate 57), so
-    #: until an operator attests it from an invoice every Pipecat call refuses that leg.
-    #: Until this field existed the board answered as though the cost were complete, in
-    #: the flattering direction, on the number D-12 says G2 gates on.
+    #: fabrication the refusal exists instead of.
     legs_unpriced: int
     tiers: TierSplitOut
     #: The trial split the Spend page publishes (`billing/attribution.paid_margin`): our cost
@@ -2014,7 +2010,7 @@ async def tenant_margin(
 #
 # Numbers and DLT templates are what the campaign launch gate checks (SEC-COMP §3), and
 # neither is a thing we obtain. **We do not buy the number** — Model B: the client takes
-# the connection on their own Exotel / Plivo / Vobiz account, passes that operator's KYC,
+# the connection on their own carrier account, passes that operator's KYC,
 # stays the subscriber of record and issues us revocable credentials (`docs/legal/
 # LEGAL-OPS-PLAYBOOK.md` §9; published Terms clause 3). What `provision_number` below does
 # is RECORD the number they bought, so the launch gate can match its series. **And we
@@ -2035,12 +2031,12 @@ class ProvisionNumberIn(BaseModel):
     # The series decides what the number may lawfully dial (DATA-MODEL §6).
     series: Literal["140", "160", "standard"]
     agent_id: UUID | None = None
-    # The carrier account that holds this number. Required, and only a carrier this
-    # platform dials through: the dial gate presents a number only on the carrier it is
-    # recorded on (`agents.service.agent_outbound_number_blocker`, `number_not_on_carrier`).
-    # `thinnest` is a number rented in ThinnestAI's console, accepted only on that engine
-    # (`provision_number` below).
-    provider: NumberProvider
+    # Who holds this number. Required. `thinnest` is a number rented in ThinnestAI's
+    # console, accepted only on that engine (`provision_number` below); `plivo` is a
+    # client's own connection, which the dial gate does not present on an engine that dials
+    # only its own numbers (`agents.service.agent_outbound_number_blocker`,
+    # `number_not_on_carrier`).
+    provider: RecordableNumberProvider
     # Which legs the number was bought for. `inbound` (the column's own default) cannot
     # place outbound calls; the dial gate refuses it by name (`number_inbound_only`).
     direction: NumberDirection = "inbound"
@@ -2246,8 +2242,8 @@ class DltRegistrationOut(BaseModel):
     openapi_extra=permission_meta("admin:tenants"),
     summary="Record a calling number for the client — the series is the compliance-bearing field",
     description=(
-        "Records a telephone number Calevate provides for this client on its own carrier "
-        "account (Vobiz), so the campaign launch gate can match its series against a "
+        "Records a telephone number held for this client, "
+        "so the campaign launch gate can match its series against a "
         "campaign's classification. The client opens no operator account and issues no "
         "credentials. `dlt_status` starts `pending` and is a separate, deliberate step. A "
         "number held on the voice platform (`provider: thinnest`) must be on the platform's "
@@ -2283,8 +2279,8 @@ async def provision_number(
     exactly as `set_tenant_status` and `record_commercial_terms` ask it.
 
     An engine-held provider (`thinnest`) is accepted only while that engine is the one
-    running: a ThinnestAI number recorded on a Pipecat deployment is one no call there can
-    present (founder decision: ThinnestAI numbers on ThinnestAI only, Vobiz on Pipecat).
+    running: a number rented on one voice platform is one no call on another can
+    present (founder decision: ThinnestAI numbers on ThinnestAI only).
     """
     step_up.require(x_confirm_action, provision_number_confirmation(tenant_id))
     engine_held = set(ENGINE_NUMBER_PROVIDER.values())

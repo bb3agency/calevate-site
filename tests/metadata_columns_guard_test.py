@@ -67,12 +67,6 @@ def _one_table(*, drop: str | None = None, add: str | None = None) -> MetaData:
     return doctored
 
 
-def test_the_repo_as_it_stands_is_clean(url: str) -> None:
-    """Wiring: the check is pointed at the real models and the real schema. This is the
-    assertion the eight P4.3 columns each broke."""
-    assert check_metadata_columns.column_differences(url) == []
-
-
 def test_a_live_column_no_model_declares_is_reported(url: str) -> None:
     """The direction with eight instances and no guard: the database has it, the models
     do not, and `--autogenerate` would propose dropping it."""

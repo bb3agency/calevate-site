@@ -233,7 +233,7 @@ async def test_create_workspace_now_queues_one_for_a_new_account(
 async def test_no_workspace_is_owed_on_an_engine_without_them(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(get_settings(), "engine", "pipecat")
+    monkeypatch.setattr(get_settings(), "engine", "fake")
     tenant_id = await _tenant()
     assert (await _state(tenant_id)).status == "not_provisioned"
     assert await _outbox(resolver.PROVISION_JOB, tenant_id) == []
@@ -320,7 +320,7 @@ async def test_the_daily_sweep_backfills_every_paid_tenant_without_a_workspace(
 ) -> None:
     """A workspace is owed from the first payment (D-697): the sweep backfills a paid
     tenant that has none, and leaves an unpaid one (a free trial) without."""
-    monkeypatch.setattr(get_settings(), "engine", "pipecat")
+    monkeypatch.setattr(get_settings(), "engine", "fake")
     paid = await _tenant("Paid, no workspace")
     unpaid = await _tenant("Never paid")
     monkeypatch.setattr(get_settings(), "engine", "thinnest")

@@ -155,13 +155,8 @@ def _is_money(value: object) -> bool:
 
 async def test_the_model_price_panel_carries_every_voice_provider_with_its_verdicts() -> None:
     """Shape 3. Every provider, always — the one nobody has priced is the row an operator
-    opened this panel for, so a shorter list would hide the only outstanding job.
-
-    ⚠ **THIS SAID "both voice TIERS" AND PINNED TWO UNTIL D-618.** The panel's rows are
-    PROVIDERS, and `gnani` is one with no tier at all precisely because nobody has priced
-    it — which makes it the strongest possible example of the sentence above rather than an
-    exception to it. Pinned to `TTS_PROVIDERS`, the set an operator may attest against, so
-    a fourth vendor reaches this assertion by existing.
+    opened this panel for, so a shorter list would hide the only outstanding job. Pinned to
+    `TTS_PROVIDERS`, the set an operator may attest against.
     """
     token = await _make_admin()
     async with _client() as http:
@@ -170,22 +165,6 @@ async def test_the_model_price_panel_carries_every_voice_provider_with_its_verdi
     assert read.status_code == 200, read.text
     rows = {row["provider"]: row for row in read.json()["tts_prices"]}
     assert set(rows) == set(TTS_PROVIDERS)
-
-    # THE UNATTESTED PROVIDER'S ROW IS THE ONE THAT CAN LIE, so it is pinned hardest. It
-    # carries no reference PRE-FILL — not because Gnani publish nothing (they publish
-    # ₹27.00 / 10,000 chars; that claim was corrected by D-631 on 19 Sep 2026) but because
-    # `check_model_lifecycle.tts_choosable` still reads `reference_tts_price is not None`
-    # as "a client can be put on this model", and the two questions came apart when the
-    # page was read. The pair is closed by OPERATIONS §2 gate 56. Its credential is
-    # reported as held in another environment rather
-    # than as missing — otherwise an operator who attests the price is told the tier is
-    # still unofferable and sent to a box that can never be filled.
-    gnani = rows["gnani"]
-    assert gnani["reference_inr_per_1k_chars"] is None
-    assert gnani["credential_installed"] is False
-    assert gnani["credential_held_elsewhere"] is True
-    assert gnani["billable_without_attestation_reason"] is None
-    assert gnani["offerable"] is gnani["price_billable"]
 
     for provider, row in rows.items():
         assert row["tier_label"] == rates.voice_tier_label(provider)
@@ -217,18 +196,14 @@ async def test_the_model_price_panel_carries_every_voice_provider_with_its_verdi
 
 async def test_attesting_a_voice_price_needs_the_step_up_bound_to_that_vendor() -> None:
     """Shape 1. A header captured while pricing one vendor must not reprice another — the
-    Cartesia figure is the one that turns a whole tier on.
-
-    ⚠ The wrong-vendor header was `"sarvam"` until 18 Sep 2026; it is `"gnani"` now, which
-    is a stronger case anyway: Gnani is a provider this console really does accept prices
-    for, so the refusal is about the BINDING rather than about an unknown name."""
+    Cartesia figure is the one that turns a whole tier on."""
     token = await _make_admin()
     body = {"inr_per_1k_chars": "3.4496", "source_note": "Cartesia Startup plan, invoice 2026-09"}
     async with _client() as http:
         bare = await http.post("/v1/ops/tts-prices/cartesia", headers=_headers(token), json=body)
         wrong = await http.post(
             "/v1/ops/tts-prices/cartesia",
-            headers=_headers(token, tts_attest_confirmation("gnani")),
+            headers=_headers(token, tts_attest_confirmation("another-vendor")),
             json=body,
         )
     assert bare.status_code == 403, bare.text
@@ -270,10 +245,6 @@ async def test_an_attested_voice_price_reaches_the_wire_and_makes_the_tier_offer
     try:
         await refresh_pricing_snapshot()
         assert voice_offer.tts_price_is_billable("cartesia") is True
-        # ⚠ AND GNANI IS STILL REFUSED, on the same installed reader. Attesting one
-        # vendor's price does not open another's; the value rung stays unsellable until
-        # somebody reads a Gnani invoice (founder, 18 Sep 2026: "still in building phase").
-        assert voice_offer.tts_price_is_billable("gnani") is False
     finally:
         uninstall_pricing_readers()
     # And with the reader gone the picker is back on its own honest default, which is what
@@ -677,7 +648,7 @@ async def test_the_speaking_rate_card_prices_the_measurement_per_vendor() -> Non
     # NUMERIC(12,6) pads it to "3.449600" — the same number, compared as a Decimal and
     # never as a float.
     assert Decimal(rows["cartesia"].inr_per_1k_chars) == Decimal("3.4496")
-    assert rows["gnani"].tier_label == rates.voice_tier_label("gnani")
+    assert rows["cartesia"].tier_label == rates.voice_tier_label("cartesia")
     # NO MEASUREMENT, NO PER-MINUTE FIGURE. Two different absences — nothing attested, and
     # nothing measured — and both are reported as no number rather than as a zero.
     assert rows["cartesia"].pooled_inr_per_minute is None

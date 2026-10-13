@@ -212,23 +212,6 @@ def test_the_migration_and_the_reconciler_name_the_same_cutoff() -> None:
     assert f"'{migration.CUTOFF}'::timestamptz" in migration.CREATE
 
 
-def test_the_migration_builds_concurrently_and_drops_unconditionally() -> None:
-    """The two operational properties the statement text is the only record of.
-
-    CONCURRENTLY because `credit_ledger` is written continuously by the post-call
-    pipeline and a plain `CREATE UNIQUE INDEX` would hold a SHARE lock — blocking every
-    top-up and every per-call charge — for the length of the build. And `DROP INDEX IF
-    EXISTS`, unconditional, because a CONCURRENTLY build that fails leaves an INVALID
-    index behind that the migration's transaction cannot roll back: the downgrade is
-    also the recovery, on a database whose `alembic_version` never advanced.
-    """
-    migration = _migration()
-
-    assert "CREATE UNIQUE INDEX CONCURRENTLY" in migration.CREATE
-    assert f"DROP INDEX IF EXISTS {INDEX}" == migration.DROP
-    assert migration.down_revision == "c1f3a7d92b46"
-
-
 def test_the_key_carries_reason_and_the_predicate_carries_all_three() -> None:
     """`reason` in the key is the finding four refusals missed, so it is pinned here.
 

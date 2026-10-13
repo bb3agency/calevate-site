@@ -1678,32 +1678,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Set an agent's voice from the catalog (admin realm — onboarding)
-         * @description The operator's door onto the same write, for the onboarding wizard and for support acting as themselves: the tenant is named in the path because an admin principal has no tenant of its own, which also makes the audit row self-documenting. A client edits their own agent's voice on `PATCH /v1/agents/{agent_id}/voice` instead.
-         *
-         *     Applies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a voice the platform is not speaking. If that push fails nothing is saved. Callers hear it from the NEXT call — a call already in progress is not disturbed.
-         *
-         *     A draft or paused agent is not published by this: there is nothing live to update, and the next publish carries the voice. `engine_synced` says which happened.
-         *
-         *     An id outside the catalog is refused with `unknown_voice`. A catalogue voice this deployment cannot put a client on — no vendor key, no attested price, the platform-wide cap reached — is refused with `voice_not_available`, and the detail names the actual ground.
-         */
-        patch: operations["set_agent_voice_v1_admin_tenants__tenant_id__agents__agent_id__voice_patch"];
-        trace?: never;
-    };
     "/v1/admin/tenants/{tenant_id}/business-profile": {
         parameters: {
             query?: never;
@@ -1796,30 +1770,6 @@ export interface paths {
          * @description The national half of SEC-COMP §3's DNC bullet. An access provider's DLT platform scrubs a submitted list against the customer preference register and returns a reference, a report and a verdict valid until 23:59:59 IST that day; this records the run and marks the numbers it blocked as `dnc_blocked` on the campaign. Until a current run exists, `launch_blockers` and `dispatch_blockers` refuse promotional campaigns with `national_dnd_scrub_missing` or `national_dnd_scrub_expired`.
          */
         post: operations["record_preference_scrub_v1_admin_tenants__tenant_id__campaigns__campaign_id__preference_scrub_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/tenants/{tenant_id}/carrier-application": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * One client's carrier compliance application
-         * @description What this client has sent the carrier and where it stands. Read-only; the decision is recorded by POST to the same path.
-         */
-        get: operations["read_for_tenant_v1_admin_tenants__tenant_id__carrier_application_get"];
-        put?: never;
-        /**
-         * Record what the carrier decided about this client's compliance application
-         * @description Records the carrier's own decision. `accepted` is the only state that lets a number be rented for this client, and it requires the carrier's `compliance_application_id` — the reference a number purchase has to quote. `rejected` requires the carrier's reason, which the client is shown. `documents_required` sends the client back for more paperwork, and `expired` records an approval that has lapsed or been suspended. There is deliberately no client-facing twin: a business that could accept its own application would be opening the number gate on a decision nobody made.
-         */
-        post: operations["record_decision_v1_admin_tenants__tenant_id__carrier_application_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2563,7 +2513,7 @@ export interface paths {
         put?: never;
         /**
          * Record a calling number for the client — the series is the compliance-bearing field
-         * @description Records a telephone number Calevate provides for this client on its own carrier account (Vobiz), so the campaign launch gate can match its series against a campaign's classification. The client opens no operator account and issues no credentials. `dlt_status` starts `pending` and is a separate, deliberate step. A number held on the voice platform (`provider: thinnest`) must be on the platform's own list (`engine_number_not_held`), may not be another client's line (`engine_number_answered_by_other_client`), and a rented one is priced from the attested monthly rate with its first month collected.
+         * @description Records a telephone number held for this client, so the campaign launch gate can match its series against a campaign's classification. The client opens no operator account and issues no credentials. `dlt_status` starts `pending` and is a separate, deliberate step. A number held on the voice platform (`provider: thinnest`) must be on the platform's own list (`engine_number_not_held`), may not be another client's line (`engine_number_answered_by_other_client`), and a rented one is priced from the attested monthly rate with its first month collected.
          */
         post: operations["provision_number_v1_admin_tenants__tenant_id__numbers_post"];
         delete?: never;
@@ -3034,50 +2984,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/agents/voices": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The voices an agent may speak in, each with its availability (client-readable)
-         * @description The catalogue, plus one capability read and — only when it could decide anything —
-         *     one platform-wide count.
-         *
-         *     Client-realm readable on purpose — a client is legally the Principal Entity and
-         *     should be able to see what their own agent sounds like, exactly as they can read
-         *     its disclosure line (`AgentOut.disclosure_line`). `requires()` defaults to
-         *     `realm="any"`, so an admin (including one impersonating, since this is a read) gets
-         *     the same answer — one catalog, no realm-specific truth.
-         *
-         *     ⚠ **"NO DB, NO NETWORK" USED TO BE THE FIRST LINE OF THIS DOCSTRING AND IS NOW WRONG
-         *     TWICE OVER, WHICH IS WHY IT SAYS SO.** The Cartesia agent cap (D-547 §0 Q10) is a count
-         *     of live Cartesia agents across every tenant, measured only when the two cheap grounds
-         *     have already passed and the catalogue actually holds a Cartesia voice. And since D-588
-         *     every render also reads the CURATION rows — one SELECT over a platform-scoped table of
-         *     tens of rows — because only the voices an operator has enabled may be offered, and that
-         *     is a decision somebody may have made ten seconds ago on the screen they are still
-         *     looking at. Neither read is on a call path.
-         *
-         *     **AN EMPTY `voices` LIST IS A REAL AND CORRECT ANSWER.** A deployment nobody has synced,
-         *     or one where nobody has enabled anything, offers nothing — `note` says which of the two
-         *     it is and what to do. Do not render it as a failure.
-         *
-         *     The capability read is the SAME selector `set_agent_voice` uses, and that is the whole
-         *     point: this endpoint is what the picker is built from, so if the two could disagree
-         *     the console would offer precisely the choice the write refuses.
-         */
-        get: operations["list_voices_v1_agents_voices_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/agents/{agent_id}": {
         parameters: {
             query?: never;
@@ -3517,7 +3423,7 @@ export interface paths {
          * What is staged but not live, what one capped call costs, and which voice is live
          * @description Backs the unsaved-changes banner and the voice picker. `agents:read`, not `agents:write`: this is the view that explains why an edit has not taken effect, so it must be readable by someone who may only look (D-22).
          *
-         *     `voice.configured` is what `PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice` wrote; `voice.live` is what the engine was last sent. They differ until a publish, which is what `voice.republish_required` reports. A null `voice.live` on a published agent means we have no record of what it is holding — read it with `published`, and never as 'in sync'.
+         *     `voice.configured` is the voice on our agent row; `voice.live` is what the engine was last sent. They differ until a publish, which is what `voice.republish_required` reports. A null `voice.live` on a published agent means we have no record of what it is holding — read it with `published`, and never as 'in sync'.
          */
         get: operations["pending_v1_agents__agent_id__pending_get"];
         put?: never;
@@ -3885,32 +3791,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/voice": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Choose the voice this agent speaks in (D-586)
-         * @description Sets the voice on one of your own agents. Hear the options first with `GET /v1/agents/voices`; a voice returned there with `offerable: false` is refused here, with the same sentence that read said.
-         *
-         *     Applies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a voice the platform is not speaking. If that push fails nothing is saved. Callers hear it from the NEXT call — a call already in progress is not disturbed.
-         *
-         *     A draft or paused agent is not published by this: there is nothing live to update, and the next publish carries the voice. `engine_synced` says which happened.
-         *
-         *     An id outside the catalog is refused with `unknown_voice`. A catalogue voice this deployment cannot put a client on — no vendor key, no attested price, the platform-wide cap reached — is refused with `voice_not_available`, and the detail names the actual ground.
-         */
-        patch: operations["set_my_agent_voice_v1_agents__agent_id__voice_patch"];
         trace?: never;
     };
     "/v1/attention": {
@@ -5369,28 +5249,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/calls/{call_id}/speaking": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Who is speaking on a live call — streamed as text/event-stream (D-656)
-         * @description Each frame is `{speaker, live, since}`: one at once, one per change, and a last one
-         *     with `live: false` when the call ends. See `crm/live_speaking.py` for the transport
-         *     choice and the store behind it.
-         */
-        get: operations["stream_call_speaking_v1_calls__call_id__speaking_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/calls/{call_id}/test-case": {
         parameters: {
             query?: never;
@@ -5802,30 +5660,6 @@ export interface paths {
         get: operations["read_caller_notice_v1_compliance_caller_notice_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/compliance/carrier-application": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * This account's carrier compliance application — absence is data, not a 404
-         * @description Our telephony carrier approves each client business separately before a number can be rented for it. This is where that application stands: what was sent, what the carrier said, and what is needed next. A business with nothing on file yet gets `recorded: false` and a 200.
-         */
-        get: operations["read_application_v1_compliance_carrier_application_get"];
-        put?: never;
-        /**
-         * Send this business's registration documents to the carrier
-         * @description Upload ONE proof of business registration — a GST certificate, a Certificate of Incorporation, or a Udyam Registration certificate — as a PDF, JPEG or PNG. A PAN card on its own is not accepted. The first application must also carry the signed, sealed application form. Calevate forwards it to the carrier; the decision appears on this same endpoint.
-         */
-        post: operations["submit_v1_compliance_carrier_application_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7342,26 +7176,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/kb/delivery": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Whether each agent's published knowledge has reached the phone
-         * @description For every agent on the roster: whether the knowledge this account published is the knowledge the agent is actually answering callers out of, and when it last changed. `preparing` heals itself within the hour; `not_delivered` does not and means the agent is still answering out of its previous knowledge.
-         */
-        get: operations["list_delivery_v1_kb_delivery_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/kb/facts": {
         parameters: {
             query?: never;
@@ -8825,26 +8639,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/ops/carrier/probe": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ask the carrier whether the credential pair this deployment holds works
-         * @description Sends ONE read-only authenticated request to the selected carrier with the pair this process was started with, and reports whether it authenticated. Takes no candidate: the pair is env-only, so there is nothing to paste. Changes nothing.
-         */
-        post: operations["probe_carrier_v1_ops_carrier_probe_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/ops/config": {
         parameters: {
             query?: never;
@@ -9007,7 +8801,7 @@ export interface paths {
         put?: never;
         /**
          * Attest one embedding model's vendor price (step-up confirmed, audited)
-         * @description Records what an ENCODER costs this account, read off your own vendor console or invoice, as a NEW effective-dated row — a correction is a later attestation, never an edit. Requires `X-Confirm-Action: attest_embedding_price:<model>`. The figure is USD per million **INPUT** tokens as a decimal string, and there is NO OUTPUT PRICE TO ENTER: an embedding request returns a vector, so the vendor bills no output leg and the column is stored NULL. Until this exists, a client's uploaded knowledge is indexed by word-matching only — nothing is embedded, nothing is charged, and the panel says so with its ground. The model identifier is sent VERBATIM and may contain a slash (`models/gemini-embedding-2`).
+         * @description Records what an ENCODER costs this account, read off your own vendor console or invoice, as a NEW effective-dated row — a correction is a later attestation, never an edit. Requires `X-Confirm-Action: attest_embedding_price:<model>`. The figure is USD per million **INPUT** tokens as a decimal string, and there is NO OUTPUT PRICE TO ENTER: an embedding request returns a vector, so the vendor bills no output leg and the column is stored NULL. Until this exists, a client's uploaded knowledge is indexed by word-matching only — nothing is embedded, nothing is charged, and the panel says so with its ground. The model identifier is sent VERBATIM and may contain one interior slash (a vendor-prefixed `models/<name>`).
          */
         post: operations["attest_embedding_model_price_v1_ops_embedding_prices__model__post"];
         delete?: never;
@@ -9933,48 +9727,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/ops/voices": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The voices this platform has added (admin realm)
-         * @description By default, the voices somebody has decided about: every voice added here, plus any voice a sync cached that an operator moved off the arrival state. Voices the platform has since stopped listing are shown last and marked.
-         *
-         *     Only `enabled` voices can be chosen for an agent, by a client or by an admin. `cached` says how many voices are in the cache altogether; `?scope=all` returns them, which is a reference list rather than a to-do list — a voice does not have to be cached before it can be added.
-         */
-        get: operations["list_voices_v1_ops_voices_get"];
-        put?: never;
-        /**
-         * Add one voice by its facts, attested by an operator (audited)
-         * @description Adds ONE voice — normally one cloned at the provider — by the facts its synthesizer block needs: the provider, the model, the voice id that provider knows it by, the name it shows there, and which of this product's languages it serves.
-         *
-         *     **Every fact is checked against the models this product runs.** Where the engine keeps a catalogue of its own, each fact is checked against that list too, and an id it does not list is refused by name — publishing on such an id would fail at create time on a client's phone line rather than on this screen; if that list cannot be read the add is REFUSED and retryable. On an engine whose catalogue IS this table there is no second list to read, and the operator's attestation is the authority.
-         *
-         *     An added voice arrives ENABLED — typing its facts is the decision to offer it. It can still be unofferable for a separate reason (an unattested price, a missing vendor key, the Cartesia agent cap), and the response says which.
-         *
-         *     Idempotent: adding a voice already in the cache adopts it — the row becomes an operator-attested, enabled one, and any withdrawal stamp is cleared.
-         */
-        post: operations["add_voice_v1_ops_voices_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Enable, disable or archive one voice for the whole platform (audited)
-         * @description Decides whether ANY agent, in any client account, may be put on this voice. Only `enabled` voices are offered.
-         *
-         *     **It changes no agent and no call.** An agent already speaking this voice keeps speaking it — on the call in progress, on the next call, and on its next publish. Disabling or archiving removes it from the picker; moving an agent off it is a separate, deliberate act on that agent. `live_agents` on the response says how many are affected.
-         *
-         *     A voice the platform has stopped listing can still be curated — the state is kept against the day it returns — but it cannot be offered whatever state it is in.
-         *
-         *     Idempotent: setting the state a voice is already in is a success, not a conflict.
-         */
-        patch: operations["set_voice_curation_v1_ops_voices_patch"];
-        trace?: never;
-    };
     "/v1/ops/voices/clones": {
         parameters: {
             query?: never;
@@ -10628,60 +10380,6 @@ export interface components {
             malformed: number;
         };
         /**
-         * AddVoiceFormOut
-         * @description EVERYTHING THE ADD FORM NEEDS, from the server.
-         *
-         *     The browser composes none of it. Which providers exist, which models run on them, which
-         *     languages this product sells and why a provider cannot be picked are all facts with a
-         *     single source in `agents/languages.py`, `agents/voices.py` and
-         *     `agents/voice_admission.py`, and a second copy in TypeScript is the copy that goes stale
-         *     the day a model changes.
-         */
-        AddVoiceFormOut: {
-            /** Languages */
-            languages: ("te-IN" | "hi-IN" | "en-IN")[];
-            /** Providers */
-            providers: components["schemas"]["VoiceProviderOptionOut"][];
-        };
-        /**
-         * AddVoiceIn
-         * @description THE FACTS FOR ONE CLONED VOICE, as an operator types them.
-         *
-         *     Every field is BOUNDED here and VERIFIED in `agents/voice_admission.py`: this layer stops
-         *     a megabyte of junk reaching a vendor call, and that layer decides whether the voice
-         *     platform agrees. `provider` and `tts_model` are bare strings rather than Literals on
-         *     purpose — a Literal would make a wrong provider a 422 from the framework with a schema
-         *     dump for a body, and the whole point is that it is refused with a SENTENCE naming what
-         *     this product does run.
-         */
-        AddVoiceIn: {
-            /** Engine Voice Id */
-            engine_voice_id: string;
-            /** Label */
-            label: string;
-            /** Languages */
-            languages: ("te-IN" | "hi-IN" | "en-IN")[];
-            /** Provider */
-            provider: string;
-            /** Tts Model */
-            tts_model: string;
-        };
-        /**
-         * AddVoiceOut
-         * @description The voice as it now stands, and whether anybody can actually be put on it yet.
-         */
-        AddVoiceOut: {
-            /** Next Step */
-            next_step: string;
-            /** Offerable */
-            offerable: boolean;
-            /** Offered */
-            offered: number;
-            /** Unofferable Reason */
-            unofferable_reason: string | null;
-            voice: components["schemas"]["CuratedVoiceOut"];
-        };
-        /**
          * AdjustmentIn
          * @description A compensating entry, described by what it corrects rather than by what it moves.
          *
@@ -11274,36 +10972,6 @@ export interface components {
             agent_name: string | null;
             /** Calls Inr */
             calls_inr: string;
-        };
-        /**
-         * AgentDeliveryOut
-         * @description One agent, and whether its knowledge is live on the phone.
-         *
-         *     Nothing here is caller-derived (hard rule 6): counts of the CLIENT's own approved
-         *     chunks, the digest of their own text, and one timestamp. `kb/delivery.py` states the
-         *     full argument, including why no call row is joined.
-         */
-        AgentDeliveryOut: {
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
-            /** Agent Name */
-            agent_name: string;
-            /** Awaiting Translation */
-            awaiting_translation: number;
-            /** Last Reached At */
-            last_reached_at: string | null;
-            /** Live Chunks */
-            live_chunks: number;
-            /** Pack Id */
-            pack_id: string | null;
-            /**
-             * State
-             * @enum {string}
-             */
-            state: "no_knowledge" | "live" | "preparing" | "not_delivered";
         };
         /**
          * AgentLifecycleOut
@@ -12014,18 +11682,6 @@ export interface components {
             /** Voice Id */
             voice_id: string;
         };
-        /** Body_submit_v1_compliance_carrier_application_post */
-        Body_submit_v1_compliance_carrier_application_post: {
-            /** Document */
-            document: string;
-            /**
-             * Document Kind
-             * @enum {string}
-             */
-            document_kind: "gst_certificate" | "certificate_of_incorporation" | "udyam_registration";
-            /** Signed Application */
-            signed_application?: string | null;
-        };
         /** Body_teach_upload_v1_kb_teach_upload_post */
         Body_teach_upload_v1_kb_teach_upload_post: {
             /** File */
@@ -12095,8 +11751,6 @@ export interface components {
             configured: boolean;
             /** Env Var */
             env_var: string;
-            /** Held By */
-            held_by?: string | null;
             /** Key */
             key: string;
             /** Label */
@@ -13192,70 +12846,6 @@ export interface components {
             /** Fields */
             fields: components["schemas"]["CapturedFieldOut"][];
         };
-        /**
-         * CarrierApplicationOut
-         * @description This account's carrier compliance application, as we last knew it.
-         *
-         *     Every field except `recorded` and `is_accepted` is nullable, because all of them are
-         *     genuinely absent before anything is filed. `is_accepted` is computed server-side for
-         *     the reason `KycRecordOut.is_verified` is: "is `submitted` good enough" is a question
-         *     the console must not answer for itself, and this response and the dial gate must never
-         *     disagree.
-         */
-        CarrierApplicationOut: {
-            /** Carrier */
-            carrier: string | null;
-            /** Carrier Application Id */
-            carrier_application_id: string | null;
-            /** Decided At */
-            decided_at: string | null;
-            /** Document Filename */
-            document_filename: string | null;
-            /** Document Kind */
-            document_kind: string | null;
-            /** Is Accepted */
-            is_accepted: boolean;
-            /** Recorded */
-            recorded: boolean;
-            /** Rejection Reason */
-            rejection_reason: string | null;
-            /** Required */
-            required: boolean;
-            /** Signed Application On File */
-            signed_application_on_file: boolean;
-            /** Status */
-            status: ("not_started" | "documents_required" | "submitted" | "accepted" | "rejected" | "expired") | null;
-            /** Submitted At */
-            submitted_at: string | null;
-        };
-        /** CarrierDecisionIn */
-        CarrierDecisionIn: {
-            /** Carrier Application Id */
-            carrier_application_id?: string | null;
-            /** Carrier Status */
-            carrier_status?: string | null;
-            /** Rejection Reason */
-            rejection_reason?: string | null;
-            /** Status */
-            status?: ("documents_required" | "accepted" | "rejected" | "expired") | null;
-        };
-        /** CarrierDecisionOut */
-        CarrierDecisionOut: {
-            /** Carrier Application Id */
-            carrier_application_id: string | null;
-            /** Changed */
-            changed: boolean;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "documents_required" | "accepted" | "rejected" | "expired";
-            /**
-             * Tenant Id
-             * Format: uuid
-             */
-            tenant_id: string;
-        };
         /** CarrierGuideOut */
         CarrierGuideOut: {
             /** App Path */
@@ -13273,26 +12863,6 @@ export interface components {
             note: string | null;
             /** Unconfirmed */
             unconfirmed: components["schemas"]["CodeSetOut"][];
-        };
-        /**
-         * CarrierProbeOut
-         * @description The configured carrier pair's verdict, in the same vocabulary as `SecretTestOut`.
-         */
-        CarrierProbeOut: {
-            /**
-             * Carrier
-             * @enum {string}
-             */
-            carrier: "vobiz" | "plivo";
-            /** Detail */
-            detail: string;
-            /**
-             * Outcome
-             * @enum {string}
-             */
-            outcome: "accepted" | "rejected" | "unreachable" | "no_probe";
-            /** Verified */
-            verified: boolean;
         };
         /**
          * CartesiaLadderPointOut
@@ -15223,84 +14793,6 @@ export interface components {
              */
             tenant_id: string;
         };
-        /**
-         * CuratedVoiceOut
-         * @description One row of the Voices table.
-         *
-         *     A SUPERSET of the catalogue `Voice` rather than an envelope around it, for
-         *     `OfferedVoiceOut`'s reason in `agents/voice_routes.py`: the operator's table and the
-         *     client's picker describe one voice, and nesting it would give the console two shapes to
-         *     render the same thing in.
-         */
-        CuratedVoiceOut: {
-            /** Curated At */
-            curated_at: string | null;
-            /** Engine Voice Id */
-            engine_voice_id: string;
-            /** Label */
-            label: string;
-            /** Languages */
-            languages: string[];
-            /** Live Agents */
-            live_agents: number;
-            /** Offered */
-            offered: boolean;
-            /**
-             * Origin
-             * @enum {string}
-             */
-            origin: "synced" | "operator";
-            /** Provider */
-            provider: string;
-            /** Source */
-            source: string;
-            /**
-             * State
-             * @enum {string}
-             */
-            state: "enabled" | "disabled" | "archived";
-            /**
-             * Synced At
-             * Format: date-time
-             */
-            synced_at: string;
-            /** Tier Label */
-            tier_label: string;
-            /** Tts Model */
-            tts_model: string;
-            /** Voice Id */
-            voice_id: string;
-            /** Withdrawn At */
-            withdrawn_at: string | null;
-            /** Withdrawn Note */
-            withdrawn_note: string | null;
-        };
-        /**
-         * CuratedVoicesOut
-         * @description The whole cached catalogue AND what an operator needs to read it.
-         *
-         *     NO FIELD HAS A DEFAULT, for `VoiceCatalogueOut`'s reason: a Pydantic default makes the
-         *     field optional in the generated TypeScript, and every one of these is a fact the console
-         *     must be able to trust rather than treat as falsy when absent.
-         */
-        CuratedVoicesOut: {
-            /** Cached */
-            cached: number;
-            form: components["schemas"]["AddVoiceFormOut"];
-            /** Note */
-            note: string;
-            /** Offered */
-            offered: number;
-            /**
-             * Scope
-             * @enum {string}
-             */
-            scope: "decided" | "all";
-            /** Source */
-            source: string;
-            /** Voices */
-            voices: components["schemas"]["CuratedVoiceOut"][];
-        };
         /** DashboardDataUseAttestIn */
         DashboardDataUseAttestIn: {
             /** No Training Opt In Confirmed */
@@ -15623,18 +15115,6 @@ export interface components {
             status: "pending" | "completed";
             /** Subject Ref */
             subject_ref: string;
-        };
-        /**
-         * DeliveryListOut
-         * @description A declared model rather than a bare list, for `StaffCurationOut`'s reason and one
-         *     more: `not_delivered_count` is the server's own tally, so the dashboard badge is never
-         *     computed from a page the ceiling truncated.
-         */
-        DeliveryListOut: {
-            /** Items */
-            items: components["schemas"]["AgentDeliveryOut"][];
-            /** Not Delivered Count */
-            not_delivered_count: number;
         };
         /** DeliveryOut */
         DeliveryOut: {
@@ -20929,66 +20409,6 @@ export interface components {
             /** Series */
             series: string;
         };
-        /**
-         * OfferedVoiceOut
-         * @description A catalogue voice AND whether it may be chosen on this deployment right now (D-547).
-         *
-         *     THE CATALOGUE AND THE VERDICT ARE TWO FACTS AND THEY TRAVEL TOGETHER, for
-         *     `VoiceCatalogueOut`'s own reason one level up: a caller needs the rows and the verdict
-         *     about them, and inferring the verdict from which rows arrived is the bug. `selectable`
-         *     on the envelope answers "may a voice be chosen here AT ALL" (the engine's business,
-         *     D-93); this answers "may THIS one" (the platform's — a key, a price, a cap), and the two
-         *     are independent.
-         *
-         *     **A SHORTER LIST WOULD BE THE WRONG ANSWER, AND FILTERING IS EXACTLY WHAT THIS SHAPE
-         *     PREVENTS.** A Cartesia voice that is missing from the response is indistinguishable from
-         *     a Cartesia tier this product does not sell — so the operator who pasted the key an hour
-         *     ago has no way to see that the PRICE is what is still missing, and the client who asks
-         *     for the premium voice is told nothing at all. Every voice is returned; `reason` says why
-         *     an unavailable one is unavailable, in a sentence naming the one action that fixes it.
-         *
-         *     A SUPERSET OF `Voice` rather than an envelope around it: the picker renders the same
-         *     fields it always did, and the two new ones are additive on the wire.
-         */
-        OfferedVoiceOut: {
-            /** Gender */
-            gender?: ("female" | "male" | "neutral") | null;
-            /** Id */
-            id: string;
-            /** Label */
-            label: string;
-            /** Languages */
-            languages: ("te-IN" | "hi-IN" | "en-IN")[];
-            /** Not On Offer */
-            not_on_offer: boolean;
-            /** Note */
-            note: string;
-            /** Offerable */
-            offerable: boolean;
-            /**
-             * Provider
-             * @enum {string}
-             */
-            provider: "cartesia" | "gnani";
-            /** Speaker */
-            speaker: string;
-            /** Tier Label */
-            tier_label: string;
-            /**
-             * Tts Model
-             * @enum {string}
-             */
-            tts_model: "sonic-3.5" | "timbre-v2.5";
-            /** Unavailable Reason */
-            unavailable_reason: string | null;
-            /**
-             * Verified
-             * @default false
-             */
-            verified: boolean;
-            /** Voice Tier */
-            voice_tier: string;
-        };
         /** OperatorCreateIn */
         OperatorCreateIn: {
             /**
@@ -22091,7 +21511,7 @@ export interface components {
              * Provider
              * @enum {string}
              */
-            provider: "vobiz" | "plivo" | "thinnest";
+            provider: "plivo" | "thinnest";
             /** Purpose */
             purpose?: string | null;
             /**
@@ -23773,34 +23193,6 @@ export interface components {
             /** Max Call Duration S */
             max_call_duration_s?: number | null;
         };
-        /**
-         * SetCurationIn
-         * @description One voice, one destination state.
-         *
-         *     `extra="forbid"` so a caller cannot smuggle a second field into a request whose whole
-         *     point is one decision — and so a console still sending an older spelling is told,
-         *     instead of having it dropped while the row moves anyway.
-         */
-        SetCurationIn: {
-            /**
-             * State
-             * @enum {string}
-             */
-            state: "enabled" | "disabled" | "archived";
-            /** Voice Id */
-            voice_id: string;
-        };
-        /**
-         * SetCurationOut
-         * @description The row as it now stands, plus what changed in this process because of it.
-         */
-        SetCurationOut: {
-            /** Next Step */
-            next_step: string;
-            /** Offered */
-            offered: number;
-            voice: components["schemas"]["CuratedVoiceOut"];
-        };
         /** SetDisplayLabelIn */
         SetDisplayLabelIn: {
             /** Display Label */
@@ -23824,42 +23216,6 @@ export interface components {
             person_clone: boolean;
             /** Voice Id */
             voice_id: string;
-        };
-        /**
-         * SetVoiceIn
-         * @description One field, because the tenant and the agent are both in the path now.
-         *
-         *     `extra="forbid"` so a caller cannot smuggle a second config string (an llm_model, a
-         *     tts_provider) into a request whose whole point is one curated choice — and so a
-         *     caller still sending the old `tenant_id` body field is told, rather than having it
-         *     silently dropped while the path decides the tenant.
-         */
-        SetVoiceIn: {
-            /** Voice Id */
-            voice_id: string;
-        };
-        /** SetVoiceOut */
-        SetVoiceOut: {
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
-            /** Agent Status */
-            agent_status: string;
-            /** Changed */
-            changed: boolean;
-            /** Engine Synced */
-            engine_synced: boolean;
-            /** Live Voice Id */
-            live_voice_id: string | null;
-            /** Next Step */
-            next_step: string;
-            /** Published */
-            published: boolean;
-            /** Republish Required */
-            republish_required: boolean;
-            voice: components["schemas"]["Voice"];
         };
         /** SheetEndpointOut */
         SheetEndpointOut: {
@@ -26554,11 +25910,6 @@ export interface components {
             attested_by: string | null;
             /** Billable Without Attestation Reason */
             billable_without_attestation_reason: string | null;
-            /**
-             * Credential Held Elsewhere
-             * @default false
-             */
-            credential_held_elsewhere: boolean;
             /** Credential Installed */
             credential_installed: boolean;
             /** Effective From */
@@ -27011,56 +26362,21 @@ export interface components {
             note: string;
             /**
              * Provider
-             * @enum {string}
+             * @constant
              */
-            provider: "cartesia" | "gnani";
+            provider: "cartesia";
             /** Speaker */
             speaker: string;
             /**
              * Tts Model
-             * @enum {string}
+             * @constant
              */
-            tts_model: "sonic-3.5" | "timbre-v2.5";
+            tts_model: "sonic-3.5";
             /**
              * Verified
              * @default false
              */
             verified: boolean;
-        };
-        /**
-         * VoiceCatalogueOut
-         * @description The catalog AND whether it may be chosen from (D-93).
-         *
-         *     IT USED TO BE A BARE `list[Voice]`, and that shape cannot express the one answer this
-         *     endpoint now has to be able to give. On an engine that supplies its own voices the
-         *     honest response is "no selection here, and that is normal" — and a bare list has
-         *     exactly one way to say it, `[]`, which the console reads as "this agent has no voices
-         *     available" and renders as a claim about the product. (The console's own comment in
-         *     `VoicePanel` says exactly that, which is how the shape was found to be wrong.) An
-         *     empty list and a closed choice are different facts, and the envelope keeps them
-         *     different.
-         *
-         *     The same argument `ExecutionListing` makes: the caller needs the rows AND the verdict
-         *     about them, and inferring the verdict from the length of the rows is the bug.
-         *
-         *     NO FIELD HERE HAS A DEFAULT. A Pydantic field with a default is OPTIONAL in the
-         *     generated TypeScript, and every one of these is a field the console must trust: a
-         *     `selectable` that can arrive undefined would be read as falsy and hide the picker on
-         *     a perfectly capable engine.
-         */
-        VoiceCatalogueOut: {
-            /** Control */
-            control: string;
-            /** Note */
-            note: string;
-            /** Selectable */
-            selectable: boolean;
-            /** Source */
-            source: string;
-            /** Tiers */
-            tiers: components["schemas"]["VoiceTierAvailabilityOut"][];
-            /** Voices */
-            voices: components["schemas"]["OfferedVoiceOut"][];
         };
         /**
          * VoiceCatalogueRefreshOut
@@ -27090,34 +26406,11 @@ export interface components {
             written: number;
         };
         /**
-         * VoiceProviderOptionOut
-         * @description ONE PROVIDER THE ADD FORM OFFERS — including one it offers only to REFUSE.
-         *
-         *     Every entry is a provider this product RUNS (`OUR_PROVIDERS`, derived from the model
-         *     registry). One can still be unselectable: a provider whose minute nobody has priced must
-         *     not have a voice admitted against it, because an admitted voice arrives ENABLED and hard
-         *     rule 7 has nothing to charge it against. It is shown with its reason rather than omitted,
-         *     so an operator holding a finished clone learns what is missing instead of concluding the
-         *     console is broken.
-         */
-        VoiceProviderOptionOut: {
-            /** Models */
-            models: ("sonic-3.5" | "timbre-v2.5")[];
-            /** Provider */
-            provider: string;
-            /** Selectable */
-            selectable: boolean;
-            /** Tier Label */
-            tier_label: string;
-            /** Unavailable Reason */
-            unavailable_reason: string | null;
-        };
-        /**
          * VoiceStateOut
          * @description The voice CONFIGURED on the agent and the voice the engine was last SENT.
          *
-         *     Two fields because they are two facts. `PATCH .../agents/{aid}/voice` writes our row
-         *     and stops there, so a live agent keeps its old voice until the next publish — one
+         *     Two fields because they are two facts. A voice written to our row
+         *     reaches the engine only at a publish, so a paused agent keeps its old voice — one
          *     value labelled "the voice" would be a claim about a client's phone line that nobody
          *     checked.
          *
@@ -27136,39 +26429,6 @@ export interface components {
             republish_required: boolean;
             /** Unnamed Note */
             unnamed_note: string | null;
-        };
-        /**
-         * VoiceTierAvailabilityOut
-         * @description ONE VOICE TIER, AND WHETHER THIS DEPLOYMENT HAS ANYTHING IN IT (D-617).
-         *
-         *     **A TIER THAT IS ABSENT HAS TO SAY SO, AND UNTIL THIS FIELD EXISTED IT DID NOT.** The
-         *     catalogue is the engine account's own list (D-585), so a tier with no rows in it simply
-         *     did not appear — and a picker grouped by tier then rendered a shorter list with nothing
-         *     anywhere saying a whole quality was missing. A founder looking at an agent configured on
-         *     a Studio voice saw a picker with only a Clear section and no statement of any kind, which
-         *     is "we do not know" rendered as "nothing happened".
-         *
-         *     `OfferedVoiceOut` answers "may THIS voice be chosen"; the per-voice refusal cannot
-         *     answer this one, because the question is about rows that are NOT THERE. A count is not a
-         *     verdict either, which is why `note` is composed server-side and printed verbatim — the
-         *     same argument `VoiceCatalogueOut.note` makes one level up.
-         *
-         *     THE LIST IS EVERY TIER THIS PRODUCT SELLS, derived from the model registry
-         *     (`voice_admission.OUR_PROVIDERS`), never from the rows that happened to arrive. Deriving
-         *     it from the catalogue is precisely the bug: a tier with no rows would be absent from its
-         *     own availability report.
-         */
-        VoiceTierAvailabilityOut: {
-            /** In Catalogue */
-            in_catalogue: number;
-            /** Label */
-            label: string;
-            /** Note */
-            note: string | null;
-            /** Offerable */
-            offerable: number;
-            /** Provider */
-            provider: string;
         };
         /**
          * VoiceTierRateOut
@@ -27191,11 +26451,6 @@ export interface components {
          *     what a ledger row and a `meta.lots` split are reconciled on. The label comes from
          *     `billing/rates.voice_tier_label`, never a literal here and never a second copy in the
          *     browser — one definition, sent down, for the reason the money figures are.
-         *
-         *     ⚠ **THIS FIELD WAS CALLED `provider` AND THIS DOCSTRING CALLED IT "THE VENDOR"
-         *     (until 19 Sep 2026).** It never carried a vendor. It carried the rung, which happened
-         *     to be spelled with a vendor's name — and on the Clear rung that name had been wrong
-         *     since 18 Sep 2026, when Sarvam stopped speaking on this product at all.
          */
         VoiceTierRateOut: {
             /** Further Open Lots */
@@ -30483,42 +29738,6 @@ export interface operations {
             };
         };
     };
-    set_agent_voice_v1_admin_tenants__tenant_id__agents__agent_id__voice_patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetVoiceIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SetVoiceOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     admin_get_business_profile_v1_admin_tenants__tenant_id__business_profile_get: {
         parameters: {
             query?: never;
@@ -30672,72 +29891,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreferenceScrubOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    read_for_tenant_v1_admin_tenants__tenant_id__carrier_application_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CarrierApplicationOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    record_decision_v1_admin_tenants__tenant_id__carrier_application_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CarrierDecisionIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CarrierDecisionOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -32993,35 +32146,6 @@ export interface operations {
             };
         };
     };
-    list_voices_v1_agents_voices_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VoiceCatalogueOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     get_agent_v1_agents__agent_id__get: {
         parameters: {
             query?: never;
@@ -34573,41 +33697,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TryChatOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    set_my_agent_voice_v1_agents__agent_id__voice_patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetVoiceIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SetVoiceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -36992,37 +36081,6 @@ export interface operations {
             };
         };
     };
-    stream_call_speaking_v1_calls__call_id__speaking_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                call_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/event-stream": unknown;
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     make_call_a_test_v1_calls__call_id__test_case_post: {
         parameters: {
             query?: never;
@@ -37704,68 +36762,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallerNoticeOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    read_application_v1_compliance_carrier_application_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CarrierApplicationOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    submit_v1_compliance_carrier_application_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_submit_v1_compliance_carrier_application_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CarrierApplicationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -40389,35 +39385,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResentInvitationOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    list_delivery_v1_kb_delivery_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeliveryListOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -43121,35 +42088,6 @@ export interface operations {
             };
         };
     };
-    probe_carrier_v1_ops_carrier_probe_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CarrierProbeOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     read_config_v1_ops_config_get: {
         parameters: {
             query?: never;
@@ -45014,104 +43952,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TtsPlanFeeWriteOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    list_voices_v1_ops_voices_get: {
-        parameters: {
-            query?: {
-                /** @description `decided` (default) or `all` — see the response's `scope`. */
-                scope?: "decided" | "all";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CuratedVoicesOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    add_voice_v1_ops_voices_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AddVoiceIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AddVoiceOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    set_voice_curation_v1_ops_voices_patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetCurationIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SetCurationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

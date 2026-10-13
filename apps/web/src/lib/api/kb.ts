@@ -90,35 +90,6 @@ export function useSetStaffCuration(session: Session) {
  * `@/lib/api/agents`, which owns the key registry.
  */
 
-// --- Did it reach the phone -------------------------------------------------------
-//
-// Everything above is about what a client SUBMITTED and whether a human approved it. This
-// is the half that was invisible: whether the approved words are what the agent is
-// actually answering callers out of. `apps/api/kb/delivery.py` carries the argument for
-// the four states; the console's job is one sentence and one action per state.
-
-export type AgentDelivery = Schemas["AgentDeliveryOut"];
-export type DeliveryList = Schemas["DeliveryListOut"];
-export type DeliveryState = AgentDelivery["state"];
-
-/**
- * Whether the business's published knowledge has reached each of its agents.
- *
- * POLLED ON THE SAME CLOCK AS THE SOURCES LIST ABOVE, and for a related reason rather than
- * by copying the number. `preparing` resolves when `workers/kb_gloss.py` next sweeps — it
- * runs at :12 and :42, so the wait a client is being asked to sit through is measured in
- * tens of minutes, and a faster poll would be a request per client per tick that cannot
- * answer differently. Two minutes is well inside that and keeps a screen somebody left
- * open honest about an agent that has just gone live.
- */
-export function useKbDelivery(session: Session): UseQueryResult<DeliveryList> {
-  return useQuery({
-    queryKey: ["kb-delivery", session.orgSlug],
-    queryFn: () => apiRequest<DeliveryList>(session, "/v1/kb/delivery"),
-    refetchInterval: 120_000,
-  });
-}
-
 // --- Documents, photographs and links -------------------------------------------
 //
 // The half of this screen that did not exist: a client with a price list in a Word file
@@ -200,11 +171,6 @@ export function useKbUpload(session: Session, upload: KbUpload): UseQueryResult<
 function invalidateKnowledge(client: ReturnType<typeof useQueryClient>, session: Session): void {
   void client.invalidateQueries({ queryKey: ["kb-uploads", session.orgSlug] });
   void client.invalidateQueries({ queryKey: ["kb", session.orgSlug] });
-  // A confirm publishes, and a publish moves the pack pointer — so the "is it on the
-  // phone" answer is stale the instant this resolves. Without this the owner who just
-  // approved their own document watches the delivery card go on saying "nothing taught
-  // yet" for two minutes, which reads as the approval having failed.
-  void client.invalidateQueries({ queryKey: ["kb-delivery", session.orgSlug] });
 }
 
 export function useUploadDocument(session: Session) {

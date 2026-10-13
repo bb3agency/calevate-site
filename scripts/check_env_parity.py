@@ -85,15 +85,6 @@ INFRA_ENV_KEYS: frozenset[str] = frozenset(
 # drill script uses — which is the opposite of what the fail-fast doctrine is for. They
 # are listed rather than pattern-matched so that adding one is a visible diff.
 DRILL_ENV_KEYS: dict[str, str] = {
-    "GOOGLE_API_KEY": (
-        "scripts/gemini_embedding_harness.py — the key a MEASUREMENT is run under, by an "
-        "operator, on a machine of their choosing. It is not application config and must "
-        "not become one: no deployable reads it, it reaches no request path, and the "
-        "in-call and dashboard Gemini legs take their credential from the ops console "
-        "rather than from a process environment. Registered here rather than pattern-"
-        "matched so that the day something in `apps/` reads it, this list is where the "
-        "argument has to be had."
-    ),
     "DRILL_S3_ACCESS_KEY": (
         "scripts/restore_drill.py — the scratch bucket's access key, for the same reason "
         "and with the same scope as DRILL_S3_ENDPOINT below. A drill credential is not a "
@@ -112,69 +103,6 @@ DRILL_ENV_KEYS: dict[str, str] = {
         "scratch database and a scratch bucket, by an operator, outside every deployable; "
         "`Settings.object_store_endpoint` is the application's and is deliberately not "
         "reused, because a drill must be able to point somewhere the app cannot."
-    ),
-}
-
-# Variables that belong to a deployable which does not run on the VPS and has no `.env`.
-#
-# `apps/voice-worker` runs as a container on Pipecat Cloud `ap-south` (D-592,
-# docs/PIPECAT-MIGRATION.md §8 box 1). It is configured by the vendor's secret set, not by
-# `/var/www/calevate/.env`, and it does not construct `Settings` at all — that type demands
-# `APP_ENV`, `REDIS_URL` and the rest of `BOOTSTRAP_REQUIRED`, none of which exist in that
-# container (`voice_worker/boot.py` carries the full argument). So the two directions this
-# file usually enforces both point the wrong way for the two below: a `Settings` field
-# would be one no process reads and no operator could act on, and a line in `.env.example`
-# would tell an operator to put a value somewhere it is never looked for. (A CREDENTIAL is
-# the case where that reasoning stops — see the carrier note below the next paragraph.)
-#
-# WHAT REPLACES THE FAIL-FAST PROPERTY, because it genuinely still applies:
-# `voice_worker.boot.load_worker_config` refuses to start the container and names every
-# missing variable at once — which is strictly earlier than `Settings` would fail, since it
-# runs before any call is admitted. The keys the worker ALSO reads that ARE `Settings`
-# fields (`PIPECAT_WORKER_API_BASE_URL` / `_TOKEN`, `OBJECT_STORE_*`, `SARVAM_API_KEY`,
-# `CARTESIA_API_KEY`, `GNANI_API_KEY`, the three LLM credentials, `CARRIER_CLAIM_SECRET`,
-# `CARRIER` and the Plivo pair) are deliberately spelled the same in both places and so
-# need no entry here: one value, one name, two homes. The worker has held no database
-# connection since D-621, so `DATABASE_URL` is not among them.
-# ⚠ `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` USED TO BE THE FIRST TWO ENTRIES HERE AND ARE
-# NOW `Settings` FIELDS (D-614). Nothing about their READER changed — Pipecat's own
-# serializer still reads them out of that container's process environment, and no VPS
-# process reads them at all — but "not a Settings field" was answering a question nobody
-# asked. What made them undiscoverable was that they were in no REGISTER: `Settings` is
-# what `env_var_for`, `env_declares`, `ENV_ONLY_DISPLAY` and `GET /v1/ops/config`'s
-# env-only panel are all derived from, so a credential outside it has no row anywhere an
-# operator looks. They are declared there now, classified `ENV_ONLY` with their own reason
-# (`core/settings.ENV_ONLY_REASONS`) so the console shows them and refuses to store them,
-# and tagged in `ENV_ONLY_FOREIGN_ENV` so their absence from THIS host renders as the
-# correct state rather than as a fault. The other two entries below stay: neither is a
-# credential and neither has a second home.
-CONTAINER_ENV_KEYS: dict[str, str] = {
-    "PIPECAT_WORKER_DRAIN_GRACE_SECONDS": (
-        "apps/voice-worker/voice_worker/boot.py — how long a container being replaced may "
-        "spend settling the call it is carrying. A variable rather than a constant because "
-        "the number it wants to be is the platform's SIGTERM-to-SIGKILL window, which is "
-        "UNKNOWN here (docs.pipecat.ai is egress-blocked), so the operator who learns it "
-        "must be able to set it without a rebuild."
-    ),
-    "PIPECAT_WORKER_TURN_BATCH_SIZE": (
-        "apps/voice-worker/voice_worker/boot.py \u2014 how many spoken turns may wait in memory "
-        "before they are written as one batch. A variable rather than a constant because the "
-        "right number depends on what the API host can absorb once turns post over HTTP "
-        "instead of over a pooled connection (DEPLOYMENT \u00a712.5 gate 6), which nobody has "
-        "measured. Set it to 1 for a write per turn."
-    ),
-    "PIPECAT_WORKER_TURN_FLUSH_SECONDS": (
-        "apps/voice-worker/voice_worker/boot.py \u2014 how long the oldest buffered turn may wait. "
-        "THIS IS THE BOUND ON WHAT A CRASH COSTS: a size-only rule never flushes a "
-        "conversation that has gone quiet, which is exactly when a container is replaced and "
-        "those turns are lost. A variable for the same reason as the drain grace \u2014 the number "
-        "it wants to be is the platform's SIGTERM-to-SIGKILL window, which is UNKNOWN here."
-    ),
-    "PIPECAT_WORKER_READY_FILE": (
-        "apps/voice-worker/voice_worker/lifecycle.py — where to write the readiness "
-        "marker, or unset for none. Optional by design: this container has no HTTP surface "
-        "and Pipecat Cloud's probe shape is UNKNOWN, so the marker is published in the one "
-        "form that needs no contract (a file an exec probe can `test -f`)."
     ),
 }
 
@@ -377,7 +305,6 @@ def preflight_contract_failures(settings_fields: set[str]) -> list[str]:
     from scripts.check_deploy_env import (
         HMAC_SECRET_KEYS,
         OBJECT_STORE_CREDENTIALS,
-        OWNED_RUNTIME_ENV_KEYS,
         RETIRED_PAIRS,
         config_keys,
     )
@@ -386,7 +313,6 @@ def preflight_contract_failures(settings_fields: set[str]) -> list[str]:
         config_keys()
         | set(HMAC_SECRET_KEYS)
         | {key for pair in RETIRED_PAIRS for key in pair}
-        | set(OWNED_RUNTIME_ENV_KEYS)
         | OBJECT_STORE_CREDENTIALS
     )
     unknown = sorted(
@@ -458,7 +384,6 @@ def evaluate(
             key in INFRA_ENV_KEYS
             or key in DRILL_ENV_KEYS
             or key in SDK_ENV_KEYS
-            or key in CONTAINER_ENV_KEYS
             or key.lower() in settings_fields
         ):
             continue

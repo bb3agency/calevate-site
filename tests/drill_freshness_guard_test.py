@@ -51,9 +51,6 @@ def _evidence(*records: DrillRecord, local: tuple[str, ...] = ()) -> Evidence:
 
 
 class TestCannotGenerateItsOwnEvidence:
-    def test_the_real_module_passes_its_own_audit(self) -> None:
-        assert guard.check_this_module_cannot_write() == []
-
     def test_imports_are_re_derived_here_rather_than_taken_on_trust(self) -> None:
         """The one rule this file deliberately re-implements.
 

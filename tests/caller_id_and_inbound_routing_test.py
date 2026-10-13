@@ -442,7 +442,7 @@ async def test_assigning_a_number_to_a_published_agent_reaches_the_engine_at_onc
             e164=_header(),
             series="160",
             agent_id=agent_id,
-            provider="plivo",
+            provider="thinnest",
             purpose="reception",
         )
         # The engine's own handle for the number, which the telephony onboarding supplies.
@@ -456,7 +456,7 @@ async def test_assigning_a_number_to_a_published_agent_reaches_the_engine_at_onc
             e164=_header(),
             series="160",
             agent_id=agent_id,
-            provider="plivo",
+            provider="thinnest",
             purpose="reception",
         )
 

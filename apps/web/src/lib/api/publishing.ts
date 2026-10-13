@@ -83,6 +83,26 @@ export type PendingState = Schemas["PendingOut"];
 export type PendingChange = Schemas["PendingChangeOut"];
 
 /**
+ * One voice tier as THIS account currently gets it. `label` ("Clear", "Studio") is the only
+ * string here a human may see; a vendor is never a tier a person reads. `inr_per_min` is the
+ * rate frozen on the account's oldest OPEN credit lot, as the server's exact decimal digits
+ * (hard rule 7), and `null` means "we cannot say", which renders as nothing at all: a rate
+ * belongs to a credit lot, so there is no constant to fall back to.
+ */
+export type VoiceTierRate = Schemas["VoiceTierRateOut"];
+
+export type VoiceTierRates = readonly VoiceTierRate[];
+
+/** The tier row for a voice's tier (`clear`/`studio`), or `undefined`. */
+export function voiceTierRate(
+  rates: VoiceTierRates | undefined,
+  voiceTier: string | null | undefined,
+): VoiceTierRate | undefined {
+  if (!rates || !voiceTier) return undefined;
+  return rates.find((rate) => rate.voice_tier === voiceTier);
+}
+
+/**
  * What a READ-BACK confirmed, as opposed to what we sent.
  *
  * `AgentVoiceState` above splits CONFIGURED from SENT. This splits SENT from CONFIRMED,

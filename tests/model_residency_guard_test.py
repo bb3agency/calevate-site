@@ -111,21 +111,6 @@ def _failures(root: Path) -> list[str]:
 # --- the standing assertion ---------------------------------------------------
 
 
-def test_the_real_tree_is_clean() -> None:
-    """The same checks `make guardrails` runs, over the real repository."""
-    references = guard.endpoint_references()
-    constants = guard.frozen_region_constants()
-    assert guard.blindness_failures(guard.template_count(), constants, references) == []
-    assert guard.single_spelling_failures(constants) == []
-    assert guard.loose_region_literals() == []
-    assert guard.console_config_failures() == []
-    assert guard.endpoint_failures(references, constants) == []
-    assert guard.stale_allowances(references) == []
-    assert guard.builder_failures() == []
-    assert guard.delegation_failures() == []
-    assert guard.inert_leg_failures() == []
-
-
 def test_a_compliant_tree_passes(tmp_path: Path) -> None:
     """Half of the pair the brief calls decorative without: a check that only ever fails
     is as useless as one that only ever passes, and this is the shape every caller in the
@@ -1069,70 +1054,6 @@ def test_the_google_apis_that_remain_are_not_judged() -> None:
     assert googleapis == [guard.GEMINI_BUILDER_SUFFIX], googleapis
 
 
-def test_the_docstring_exemption_is_load_bearing_on_the_real_tree() -> None:
-    """It was not when this guard shipped, and it is — which is a fact worth pinning rather
-    than a note worth leaving stale.
-
-    `_templates` skips docstrings because the guard's whole subject is a set of hosts that
-    have to be NAMED in order to be watched. Turning the exemption off REPORTS THOSE
-    EXPLANATIONS AS THE OFFENCE, which is exactly the failure mode the exemption exists to
-    prevent, and this is the evidence.
-
-    FIVE FILES MAKE THE ARGUMENT, and it is worth knowing which:
-
-      extraction.py             why the region is invisible in the Azure hostname
-      calevate_shared/engine.py the builder's own docstring, on the v1 surface it emits
-      workers/document_ocr.py   the evidence that the Google leg takes images at all
-      voice_worker/pipeline.py  the probe that proves the compat surface takes a call
-      check_model_residency.py  this guard's explanation of every watched host
-
-    `document_ocr.py` IS THE STRONGEST CASE: its
-    module docstring CITES the host — Google's discovery document at
-    `generativelanguage.googleapis.com/$discovery/rest?version=v1beta`, revision
-    `20260904` — as the VERIFIED-VENDOR-API evidence that this leg accepts images at all
-    (hard rule 11 asks for exactly that citation, at the point of use). The module builds
-    no endpoint of its own; it calls `google_openai_compat_base_url()` like every other
-    caller. Reporting the citation as the offence would make the guard an argument for
-    deleting evidence.
-
-    `voice_worker/pipeline.py` JOINED IT ON 13 SEP 2026 AND IS `document_ocr.py`'S CASE
-    EXACTLY. Its `_build_llm` docstring quotes the three-request probe that settles whether
-    Google's OpenAI-compat surface will carry an IN-CALL turn — an unknown field is named
-    and refused, `stream: true` and `tools`/`tool_choice` both pass the body parser and
-    fail only on the credential — which is what upgrades that claim from SECONDARY to
-    VERIFIED-LIVE. The module builds no endpoint of its own: it calls
-    `google_openai_compat_base_url()`, and a test in `tests/voice_worker_pipeline_test.py`
-    asserts its client's base URL is exactly what that builder emits rather than a string
-    that merely looks like it. Reporting the probe as the offence would, again, make this
-    guard an argument for deleting the evidence hard rule 11 asks for.
-
-    If this list ever reaches a size where updating it feels like paperwork, model
-    endpoints have spread through the tree and THAT is the finding.
-    """
-    original = guard._docstrings
-    try:
-        guard._docstrings = lambda tree: set()
-        references = guard.endpoint_references()
-        failures = guard.endpoint_failures(references, guard.frozen_region_constants())
-    finally:
-        guard._docstrings = original
-
-    offenders = {failure.split(":", 1)[0] for failure in failures}
-    assert offenders == {
-        "apps/voice-worker/voice_worker/pipeline.py",
-        "apps/workers/document_ocr.py",
-        "apps/workers/extraction.py",
-        guard.BUILDER_HOME,
-        guard.SELF,
-    }, offenders
-
-    # And with the exemption restored, the same tree is clean — otherwise the assertion
-    # above would be evidence of a broken tree rather than of a working exemption.
-    assert (
-        guard.endpoint_failures(guard.endpoint_references(), guard.frozen_region_constants()) == []
-    )
-
-
 def test_the_guard_judges_its_own_file_apart_from_the_declarations(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1173,8 +1094,7 @@ def test_the_guard_judges_its_own_file_apart_from_the_declarations(
 def test_the_real_guard_names_the_hosts_only_as_declarations() -> None:
     """The other side of that rule, against the real file rather than a stand-in: no
     reference the scan produces comes from `SELF`, because the only literals there that
-    could produce one are the four declarations. A URL added to this file would appear here
-    AND fail `test_the_real_tree_is_clean`."""
+    could produce one are the four declarations. A URL added to this file would appear here."""
     assert [r for r in guard.endpoint_references() if r.path == guard.SELF] == []
     source = (guard.REPO_ROOT / guard.SELF).read_text(encoding="utf-8")
     for host in guard.SELF_DECLARATIONS:

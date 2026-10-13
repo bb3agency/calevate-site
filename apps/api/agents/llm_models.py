@@ -68,12 +68,10 @@ accepted would surface that raise on a metering path AFTER the call was placed �
 delivered, a vendor billed, and nothing our ledger can charge for. Refusing the selection
 is the only place the failure is free.
 
-WHERE THE DEPLOYMENTS COME FROM, and why it is two fields rather than one:
-`Settings.azure_openai_deployment` is the deployment for `Settings.azure_openai_model` —
-the pair `config.py` already required to move together, and the value pushed to the
-engine's own credential store — and `Settings.azure_openai_deployments` carries the
-others as `model=deployment` pairs. `deployment_for()` below is the only reader of
-either, so "which deployment serves this model" has one answer and one place.
+WHICH AZURE MODEL IS ADDRESSABLE: `Settings.azure_openai_deployment` is the deployment for
+`Settings.azure_openai_model`, the pair `config.py` requires to move together, and the
+dashboard leg calls that one deployment. `_azure_deployment_serves()` below is the only
+reader of the pair for this question.
 
 ON A DEPLOYMENT WITH NO AZURE CREDENTIALS AT ALL — local, CI, any staging without a
 resource — THE AZURE LEG IS NOT CONFIGURED, AND NO AZURE MODEL IS OFFERED. ⚠ **THIS
@@ -95,12 +93,7 @@ Azure deployment. Two things are wrong with that, and only the second is about t
   per-minute rate (same page, :12), while the row quoted our Azure catalogue's per-token
   figures. Hard rule 7 is that a price describes what actually happened.
 
-`in_call_llm`'s passthrough arm is UNCHANGED and is still what every local run, CI run and
-conformance fixture exercises: an account that has chosen nothing inherits the platform's
-model and the engine serves it from that bundled tier. What no longer happens is a client
-CHOOSING an Azure model on a deployment that has no Azure. The other two legs never had
-such an arm — their credential lives in the engine's own store — so all three legs now
-answer the same question the same way: is a credential installed?
+All three legs answer the same question the same way: is a credential installed?
 
 WHAT THIS MODULE STILL DOES NOT DO, on purpose: it holds no key, stores no attestation and
 reads no database. The ops console owns both (`apps/api/ops/`), and reaches this module
@@ -202,11 +195,11 @@ class SelectableModel:
 
     AN UNRUNNABLE MODEL IS PRESENT AND MARKED, NOT OMITTED, and that is a deliberate
     departure from "just filter the list". A missing row tells an operator nothing; a row
-    that says *why* tells them the one thing they can act on — that this model needs an
-    Azure deployment and an entry in `Settings.azure_openai_deployments`. It cannot be
-    SELECTED either way (`validate_llm_model` refuses it), so the client-facing behaviour
-    is the same and the operator-facing behaviour is the difference between a bug report
-    and a five-minute fix.
+    that says *why* tells them the one thing they can act on — that this model needs the
+    platform's Azure deployment (`Settings.azure_openai_model` and
+    `azure_openai_deployment`). It cannot be SELECTED either way (`validate_llm_model`
+    refuses it), so the client-facing behaviour is the same and the operator-facing
+    behaviour is the difference between a bug report and a five-minute fix.
     """
 
     model: str
@@ -260,67 +253,16 @@ def platform_default_model() -> str:
     return get_settings().platform_llm_model
 
 
-def _configured_deployments() -> dict[str, str]:
-    """`Settings.azure_openai_deployments` parsed: `{model: deployment_id}`.
-
-    NO FAILURE BRANCH, and that is a property of the field rather than optimism: its
-    `pattern` admits only empty or `model=deployment` pairs joined by commas, and pydantic
-    enforces it at the console write path, at the boot-time load and on every snapshot
-    rebuild. So by the time a value reaches this function it has the shape, and a `try`
-    here would be a branch nothing can reach — the kind that shows up as an uncovered
-    suppression rather than as safety.
-
-    A later duplicate key wins, which is what `dict` does and what an operator correcting
-    a line by appending would expect.
-    """
-    raw = get_settings().azure_openai_deployments.strip()
-    if not raw:
-        return {}
-    deployments: dict[str, str] = {}
-    for entry in raw.split(","):
-        # `partition` rather than `split("=", 1)`: it always yields three strings, so the
-        # unpacking is total and mypy needs no help believing it — where `split` returns a
-        # list whose length only the field's `pattern` guarantees.
-        model, _, deployment = entry.partition("=")
-        deployments[model] = deployment
-    return deployments
-
-
-def deployment_for(model: str) -> str | None:
-    """The Azure deployment id serving `model`, or `None` if this platform has none.
-
-    THE ONE READER OF BOTH DEPLOYMENT FIELDS. `Settings.azure_openai_deployment` answers
-    for `Settings.azure_openai_model` and `Settings.azure_openai_deployments` answers for
-    everything else, so no model is named in two places and the two can never disagree
-    about one model.
-
-    ⚠ **THE SINGULAR FIELD IS KEYED ON `azure_openai_model`, NOT ON `platform_default_
-    model()`.** They were the same string while the platform default WAS the Azure model,
-    and reading the platform default here would break the pairing the moment the two diverge
-    — which they now do: a Google platform default would leave `azure_openai_deployment`
-    answering for nothing while the map was asked for the Azure model the credential store is
-    actually populated with. The pairing this field belongs to is stated in `config.py`:
-    `azure_openai_model` and `azure_openai_deployment` move together.
-
-    The order matters and is the whole rule: the singular field is the deployment the
-    platform's own Azure configuration names, so if a stray entry in the map ever named that
-    same model, letting the map win would point published agents at one deployment and the
-    platform's configuration at another. It is ignored instead.
-
-    ⚠ **ASK IT ONLY ABOUT AN AZURE MODEL.** Deployments are an Azure artefact; on the other
-    two legs the API addresses the model's own published name and a deployment id has
-    nowhere to go (`calevate_shared.engine.bind_model` raises on one). A Gemini identifier
-    reaching here would find nothing and read as "not deployed", which is a true sentence
-    about a question that does not apply — `_leg_is_addressable` is what keeps the question
-    where it belongs.
-
-    Blank-stripping both sides rather than trusting them: `azure_openai_deployment` is
-    `str | None` and an operator clearing it in the console leaves `""`, which is not a
-    deployment and must not be returned as one.
-    """
-    if model == get_settings().azure_openai_model:
-        return (get_settings().azure_openai_deployment or "").strip() or None
-    return (_configured_deployments().get(model) or "").strip() or None
+def _azure_deployment_serves(model: str) -> bool:
+    """Is `model` the one the Azure deployment was made from (`Settings.azure_openai_model`),
+    and is that deployment named? Azure addresses a DEPLOYMENT ID an operator chose, and the
+    dashboard leg calls exactly one (`workers/extraction.azure_credentials`), so no other
+    Azure model can answer a call here. Blank-stripped: an operator clearing the field in the
+    console leaves `""`, which is not a deployment."""
+    settings = get_settings()
+    return model == settings.azure_openai_model and bool(
+        (settings.azure_openai_deployment or "").strip()
+    )
 
 
 # --- WHICH LEGS THIS PLATFORM HOLDS A CREDENTIAL FOR ---------------------------------
@@ -371,7 +313,7 @@ def installed_llm_providers() -> frozenset[LlmProvider]:
 
     `azure_credentials()` is the reader because it is the ONE definition of "the Azure leg
     is configured" in this tree — all three fields or none, with a blank or whitespace value
-    counting as absent — and it is what `agents/service.in_call_llm` and the copilot already
+    counting as absent — and it is what the copilot already
     branch on. A second notion of "installed" here is how the picker and the wire come to
     disagree.
     """
@@ -408,7 +350,7 @@ def _leg_is_addressable(model: str) -> bool:
         return False
     if not leg.addresses_a_deployment:
         return True
-    return deployment_for(model) is not None
+    return _azure_deployment_serves(model)
 
 
 #: Why a permitted model cannot be offered here — ONE sentence per ground, keyed by the
@@ -421,9 +363,9 @@ def _leg_is_addressable(model: str) -> bool:
 #: console; "no attested price" is a figure read off an invoice. A screen that could not tell
 #: them apart would send all three to support.
 NO_DEPLOYMENT_REASON: Final = (
-    "no Azure deployment is configured for this model on this platform, so it cannot be "
-    "addressed — create a deployment for it and add a `model=deployment` entry to "
-    "azure_openai_deployments"
+    "this platform's Azure deployment was not made from this model, so it cannot be "
+    "addressed — deploy it in the Azure portal and set azure_openai_model and "
+    "azure_openai_deployment to it in the ops console"
 )
 NO_CREDENTIAL_REASON: Final = (
     "this platform holds no API key for the provider that serves this model, so a call on it "
@@ -779,7 +721,7 @@ def tenant_dashboard_leg(*, model: str, source: LlmModelSource = "organization")
     """`model` as the assist selector's tenant half — WITHOUT a database and WITHOUT a cycle.
 
     A pure function over the identifier the caller already resolved
-    (`agents/service.resolved_llm_model`), so this module keeps its "reads no database"
+    (`resolve_llm_model`), so this module keeps its "reads no database"
     property and `workers/extraction` keeps its "pure function of its arguments" one. The
     dataclass is defined in `workers/extraction` and constructed here, which is the direction
     that already works: `llm_models` imports that module, never the reverse.
@@ -1022,7 +964,6 @@ __all__ = [
     "dashboard_data_use_attested",
     "dashboard_leg_providers",
     "dashboard_leg_reason",
-    "deployment_for",
     "every_selectable_model_is_priced",
     "install_dashboard_data_use_reader",
     "install_llm_credential_reader",

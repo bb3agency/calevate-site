@@ -1,23 +1,20 @@
 """The big red switch reaches the dials the carrier is already holding.
 
 WHY THIS JOB EXISTS (D-432, closing the halt half of D-428). `outbound_halted` stops this
-platform PLACING dials; it does nothing about a dial the carrier has already accepted. On
-Vobiz an accepted dial is "accepted and queued, not answered"
-(`vobiz-findings/mirror/pages/call/make-call.md:122-124`) and then rings for up to
-the ring timeout (`engine/carrier.RING_TIMEOUT_S`). An operator throwing the switch
+platform PLACING dials; it does nothing about a dial the engine has already accepted and is
+still ringing. An operator throwing the switch
 at 20:55 IST must not leave those phones ringing past 21:00, so this job asks the engine to
 end every outbound dial that is still `queued` or `ringing` (migration b7e4c0a63f29 widened
-the scan to `ringing`, which is where the carrier's `Ring` callback moves the row).
+the scan to `ringing`).
 
 WHAT IT DOES NOT DO. A call somebody has answered (`in_progress`) is a conversation, and the
 halt does not hang up on a person who is talking: it stops new dials and recalls unanswered
 ones. A dial answered between the scan and the stop runs to its end.
 
 IT READS THE ENGINE'S VERDICT (D-509). `end_call` returns a `RecallOutcome`, and only
-`PREVENTED` is counted as stopped. The owned runtime answers `UNKNOWN` for every hang-up,
-because Vobiz's hang-up answers 204 whether the call was queued or ringing
-(`call/hangup-call.md:60`), so it can never prove the phone did not ring. Those dials are
-reported as "ended, not proven unrung", which is the direction to be wrong in mid-incident.
+`PREVENTED` is counted as stopped. An engine that cannot prove the phone did not ring
+answers `UNKNOWN`, and those dials are reported as "ended, not proven unrung", which is the
+direction to be wrong in mid-incident.
 Nothing here retries and nothing fails the halt because a stop failed: the halt is
 best-effort by decision (D-428). `dnc_recall` reads the same verdict.
 
@@ -28,9 +25,9 @@ cron would be a fleet-wide scan every N minutes for a thing that is almost never
 halt before it stops anything, because an operator who halted and released inside the
 job's queue latency must not have their campaign torn down behind them.
 
-WHAT IT DOES NOT WRITE. Not the call's `status`. The carrier's hangup callback
-(`workers/carrier_events`) moves the row terminal with the carrier's own cause, and a
-`failed` written here first would be a second answer to a question the carrier owns. The
+WHAT IT DOES NOT WRITE. Not the call's `status`. The engine's own report of the call
+moves the row terminal with its own cause, and a `failed` written here first would be a
+second answer to a question the engine owns. The
 one thing this job stamps is `calls.recall_requested_at` — see migration d5c81f30ab47 for
 why that column is what keeps a second halt from re-stopping every dial it already
 stopped and then alarming about it.
@@ -67,7 +64,7 @@ log = get_logger(__name__)
 #: `WorkerSettings.job_timeout` (300s) with room for the scan and the alert.
 #:
 #: It is also far above any real backlog: unanswered dials are bounded by the outbound line
-#: pool (`engine/carrier_pacing.outbound_line_pool`), so a fleet that reaches this cap is one
+#: pool (`engine/dial_lines.outbound_line_pool`), so a fleet that reaches this cap is one
 #: whose numbers nobody here has seen. Hitting it is therefore reported as a FLOOR and
 #: alarmed, never silently truncated.
 RECALL_SCAN_LIMIT = 500

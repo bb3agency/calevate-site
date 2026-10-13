@@ -14,15 +14,11 @@ and load-shedding does not touch `apps/voice-runtime` at all, which is the servi
 engine calls on an inbound ring. So *"nobody is answering our number"* is an engine or
 telephony problem and belongs in the engine-outage procedure (OPERATIONS §7), not here.
 *"our campaign has stopped"* or *"the call-back button does nothing"* is this runbook.
-For an inbound silence on the owned runtime, check these first, cheapest first:
-voice-runtime's `/healthz/ready` (it names an unset or unusable `PIPECAT_STREAM_BASE_URL`
-or `VOBIZ_CALLBACK_SECRET`, either of which refuses every call); the alarm index for
-`carrier_stream_base_not_configured` and `inbound_call_on_closed_account` (a closed or
-erased account's agents answer nothing, D-671); and the number's Vobiz Application, whose
-answer URL must end `?callback_key=…` (an Application bound before the secret was set is
-refused, `runbooks/vobiz-first-live-call.md` §11).
+For an inbound silence, ThinnestAI answers on its own numbers (D-678), so check first
+whether the healer is holding the line (`runbooks/auto-healer.md`) and whether the account is
+closed or erased (its agents answer nothing, D-671).
 On the outbound side, one cause sits outside the gate: a dial refused before it left
-because the carrier account's lines are full (`carrier_lines_busy`, D-663) — that is
+because every outbound line in the pool is in use (`carrier_lines_busy`, D-663) — that is
 `runbooks/campaign-stall.md` §3.
 
 **Campaign, or every outbound path?** The call-this-lead button, the instant-lead

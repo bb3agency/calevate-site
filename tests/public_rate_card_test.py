@@ -157,7 +157,7 @@ async def test_the_card_names_each_voice_tier_without_naming_its_vendor() -> Non
         label = body[f"{voice}_tier_label"]
         assert label == voice_tier_label(voice)
         assert label.strip(), voice
-        for vendor in ("sarvam", "cartesia", "bulbul", "sonic"):
+        for vendor in ("sarvam", "cartesia", "sonic"):
             assert vendor not in label.lower(), (voice, label)
     assert body["clear_tier_label"] != body["studio_tier_label"]
 

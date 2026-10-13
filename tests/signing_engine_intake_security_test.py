@@ -1,10 +1,10 @@
 """A signing engine the receiver cannot verify must be refused, and the refusal must be
 visible. Suffix `_security_test` per BACKEND-PATTERNS §9.
 
-D-93 made `cartesia` selectable as `ENGINE=` and D-103 made the voice-runtime receiver
-stop keeping its own copy of the engine set, so `cartesia` is now a name the receiver
-answers for. Answering for a name and admitting its payloads are different things, and the
-gap between them is the whole subject of this file.
+D-103 made the voice-runtime receiver stop keeping its own copy of the engine set, so every
+engine in `WEBHOOK_AUTH_BY_ENGINE` is a name the receiver answers for. Answering for a
+name and admitting its payloads are different things, and the gap between them is the
+whole subject of this file.
 
 WHY IT IS ITS OWN FILE. `voice_runtime_security_test.py` §12 already asserts that the
 `hmac` branch refuses. What it cannot assert is the property D-103 introduced a way to
@@ -94,7 +94,7 @@ def test_a_signing_engine_is_refused_even_on_the_deployment_that_runs_it(
     — correct there, because an engine that declares no authenticity control has nothing
     to check and the fake engine is how the pipeline runs offline. Applied one branch
     earlier it would be a catastrophe with a plausible sentence attached: "we are running
-    Cartesia, so a Cartesia webhook is expected, so admit it". Expected is not
+    this engine, so its webhook is expected, so admit it". Expected is not
     authenticated. The engine being ours makes a forged delivery MORE useful to an
     attacker, not less — it is the configuration in which our workers will act on it.
 
@@ -113,7 +113,7 @@ def test_a_signing_engine_is_refused_even_on_the_deployment_that_runs_it(
     assert verdict.method == "hmac"
 
 
-async def test_a_cartesia_delivery_is_refused_over_http_and_files_nothing() -> None:
+async def test_an_unverifiable_signed_delivery_is_refused_over_http_and_files_nothing() -> None:
     """The unit verdict honoured by the whole stack, and the forensic table left empty.
 
     A unit-level refusal the route does not honour is not a refusal, and the assertion
@@ -127,7 +127,7 @@ async def test_a_cartesia_delivery_is_refused_over_http_and_files_nothing() -> N
     execution_id, status, body = _event()
     async with _client(EDGE_PROXY_IP) as http:
         response = await http.post(
-            "/hooks/v1/engine/cartesia",
+            "/hooks/v1/engine/fake-restricted",
             json=body,
             headers={"CF-Connecting-IP": ENGINE_EGRESS_IP},
         )
@@ -138,7 +138,7 @@ async def test_a_cartesia_delivery_is_refused_over_http_and_files_nothing() -> N
             await session.execute(
                 text(
                     "SELECT count(*) FROM webhook_inbox_events "
-                    "WHERE provider = 'cartesia' AND event_key = :k"
+                    "WHERE provider = 'fake-restricted' AND event_key = :k"
                 ),
                 {"k": f"{execution_id}:{status}"},
             )
@@ -147,7 +147,7 @@ async def test_a_cartesia_delivery_is_refused_over_http_and_files_nothing() -> N
             await session.execute(
                 text(
                     "SELECT count(*) FROM webhook_deliveries "
-                    "WHERE source = 'cartesia' AND event_type = :e AND direction = 'in'"
+                    "WHERE source = 'fake-restricted' AND event_type = :e AND direction = 'in'"
                 ),
                 {"e": status},
             )
@@ -201,13 +201,11 @@ def test_an_engine_that_verifies_nothing_is_refused_outside_local(
 
     The `none` branch used to admit a delivery on the sole ground that the named engine was
     this deployment's engine. That licence was written for `fake`, whose claim on it is that
-    it is a DEV INSTRUMENT (DEV-SETUP §3), and it was inherited by `pipecat`, whose `none`
-    means the opposite: nothing external calls it at all (`PIPECAT-MIGRATION.md` §3D). So a
-    production box running `ENGINE=pipecat` published an unauthenticated write endpoint —
-    an inbox claim, a forensic row and an ARQ job for anyone who found the URL — on behalf
-    of an engine that has no deliverer.
+    it is a DEV INSTRUMENT (DEV-SETUP §3); inherited by a production engine whose `none`
+    means something else, it published an unauthenticated write endpoint — an inbox claim,
+    a forensic row and an ARQ job for anyone who found the URL.
 
-    Parametrised over the TABLE rather than over `("fake", "pipecat")`: the failure this
+    Parametrised over the TABLE rather than over a list of names: the failure this
     guards is a new adapter inheriting a licence nobody re-examined, which is exactly how
     the first one happened.
     """
@@ -250,15 +248,15 @@ def test_the_offline_pipeline_still_runs_on_a_developers_machine(
 # --- 2. the refusal is attributable, which is the half that was broken ---------
 
 
-def test_a_refused_cartesia_delivery_is_labelled_cartesia_and_not_unknown() -> None:
+def test_a_refused_delivery_is_labelled_with_its_engine_and_not_unknown() -> None:
     """The observability defect the drift actually caused (D-103).
 
     `_refuse` bounds the URL's `{engine}` segment to `KNOWN_ENGINES` before it becomes a
     metric label, because on the refusal path that segment is a stranger's string and an
     unbounded label blinds our own monitoring. While `KNOWN_ENGINES` was the receiver's own
-    stale copy, `cartesia` fell outside it — so on a deployment running `ENGINE=cartesia`
-    every single delivery would 401 and every one of those 401s would be attributed to
-    `unknown`, i.e. to a prober rather than to our own unimplemented verifier.
+    stale copy, an engine we ran could fall outside it — and every one of its refused
+    deliveries would be attributed to `unknown`, i.e. to a prober rather than to our own
+    verifier.
 
     That is the exact failure `_refuse` was written to prevent: its docstring argues that
     unmeasured refusals make `webhook_ack_ms` go SILENT rather than spike, and a silent
@@ -277,10 +275,10 @@ def test_a_refused_cartesia_delivery_is_labelled_cartesia_and_not_unknown() -> N
         webhook_routes.WEBHOOK_ACK,
         record=lambda elapsed, *, provider: labels.append(provider),
     )
-    for engine in ("cartesia", "fake", "twilio"):
+    for engine in ("thinnest", "fake", "twilio"):
         webhook_routes._refuse(time.perf_counter(), engine, meter=spy)
 
-    assert labels == ["cartesia", "fake", "unknown"]
+    assert labels == ["thinnest", "fake", "unknown"]
 
 
 def test_the_set_the_receiver_labels_is_the_set_it_authenticates() -> None:

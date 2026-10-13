@@ -100,7 +100,7 @@ DROP_HEADERS = frozenset(
 )
 #: And any header whose NAME says it carries a credential: `X-Ingest-Secret` (lead-source
 #: intake), `X-Agent-Secret` (engine actions), and every webhook signature header
-#: (`x-thinnest-signature-v2`, `X-Razorpay-Signature`, `X-Hub-Signature-256`, Vobiz's). A
+#: (`x-thinnest-signature-v2`, `X-Razorpay-Signature`, `X-Hub-Signature-256`). A
 #: list of exact names is the shape that missed those; a new vendor header fails closed.
 DROP_HEADER_FRAGMENTS: tuple[str, ...] = ("secret", "signature", "token", "api-key", "auth")
 

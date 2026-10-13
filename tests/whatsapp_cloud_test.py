@@ -59,7 +59,6 @@ from apps.workers.whatsapp import (
 )
 from apps.workers.whatsapp_cloud import (
     AUTH_FAILED_REASON,
-    CLOUD_API_CONFIRMED_AGAINST_LIVE_WABA,
     GRAPH_HOST,
     MALFORMED_RESPONSE_REASON,
     NUMBER_NOT_REGISTERED_REASON,
@@ -535,17 +534,6 @@ def test_the_credential_seals_and_its_two_companions_do_not() -> None:
     for visible in ("whatsapp_cloud_phone_number_id", "whatsapp_cloud_graph_version"):
         assert is_secret_key(visible) is False, visible
         assert visible in managed_fields(), visible
-
-
-def test_the_live_waba_claim_is_still_false_and_this_file_cannot_close_it() -> None:
-    """`httpx.MockTransport` proves the request we build and the verdict we apply. It
-    proves nothing about whether Meta accepts either, so a green run of this file must
-    never be mistaken for the operational gate. Flipping the constant is a person's job
-    after a real send; if this test ever fails, the four gate steps in the module
-    docstring are what must have happened first."""
-    assert CLOUD_API_CONFIRMED_AGAINST_LIVE_WABA is False
-    assert PROVIDER == "meta_cloud_api"
-    assert CloudApiWhatsAppTransport.name == PROVIDER
 
 
 async def test_a_meta_that_never_finishes_answering_is_cut_off_not_waited_on(

@@ -57,7 +57,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
-from apps.api.engine.fake import OWNED_RUNTIME_CAPABILITIES, FakeEngine
+from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES, FakeEngine
 from calevate_shared.engine import (
     TRUTHFUL_ANSWER_DIRECTIVE,
     TRUTHFUL_ANSWER_MARKER,
@@ -75,6 +75,10 @@ from sqlalchemy import create_engine as create_sync_engine
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from tests.conftest import accept_agreements
+
+#: The fake engine with no recorder: every remaining adapter records audio, so the
+#: "not recorded" answer (hard rule 5) is driven through this profile.
+NON_RECORDING_CAPABILITIES = DEFAULT_FAKE_CAPABILITIES.model_copy(update={"records_audio": False})
 
 SCRIPT = "You are the receptionist for Sunrise Clinic. Book appointments and take names."
 
@@ -482,7 +486,7 @@ async def test_a_new_agent_on_an_engine_that_records_nothing_answers_not_recorde
     not the switches, so it says the audio is not recorded."""
     tenant_id, agent_id = await _tenant(notices_on=False)
     await _with_script(tenant_id, agent_id)
-    engine = FakeEngine(capabilities=OWNED_RUNTIME_CAPABILITIES)
+    engine = FakeEngine(capabilities=NON_RECORDING_CAPABILITIES)
     async with tenant_session(tenant_id) as session:
         agent = await _load_agent(session, tenant_id, agent_id)
         config = _to_config(tenant_id, agent, engine=engine)
@@ -1029,12 +1033,8 @@ async def test_the_publish_config_is_built_from_the_posture_not_the_legacy_colum
 # `TRUTHFUL_ANSWER_DIRECTIVE`'s comment named this precondition in advance — "nothing in
 # this repository can turn a call's recording off … If one is ever added, this sentence
 # stops being true for some agents and must be composed from that switch rather than frozen
-# here" — and then D-592 added one and nothing failed. The owned-runtime leg captures no
-# audio, so every caller on it who asked "is this recorded?" was told yes, under the one
-# clause the product says nothing can withdraw.
-#
-# These clauses are what would have caught it. The last one is the important one: it asks
-# the question of EVERY adapter, so a fifth engine cannot arrive without answering it.
+# here". An engine that captures no audio must not have its agents tell a caller who asks
+# "is this recorded?" yes, under the one clause the product says nothing can withdraw.
 # ---------------------------------------------------------------------------------------
 
 
@@ -1084,30 +1084,13 @@ def test_neither_wording_can_lose_the_marker_or_the_other_two_clauses() -> None:
         assert "Nothing can withdraw" in prompt
 
 
-def test_every_adapter_answers_the_recording_question_and_pipecat_answers_no() -> None:
-    """**THE CLAUSE THAT MAKES THIS STRUCTURAL.** `records_audio` is required on
-    `EngineCapabilities`, so a new adapter cannot be written without answering — but a
-    careless author could answer `True` to make it compile. This pins the one answer that is
-    a fact about code in this tree: nothing in `apps/voice-worker` captures audio, so the
-    owned-runtime leg declares False until something does.
-    """
-    from apps.api.engine.cartesia import CARTESIA_CAPABILITIES
-    from apps.api.engine.pipecat import PIPECAT_CAPABILITIES
-
-    assert PIPECAT_CAPABILITIES.records_audio is False, (
-        "the Pipecat leg stores no audio; declaring otherwise makes every agent on it tell "
-        "callers their call is recorded when it is not"
-    )
-    assert CARTESIA_CAPABILITIES.records_audio is True
-
-
 # ---------------------------------------------------------------------------------------
 # THE OPENING FOLLOWS THE SAME FACT AS THE FLOOR
 #
-# The floor answered "not recorded" on the owned runtime while the opening, composed from
-# the recording toggle alone, still announced "This call is being recorded" on every call.
-# These clauses hold the two to one fact: an engine that captures no audio never has its
-# agents volunteer a recording, whatever the stored switch says.
+# The floor answers "not recorded" on an engine that records nothing, so the opening must
+# not announce a recording there either. These clauses hold the two to one fact: an engine
+# that captures no audio never has its agents volunteer a recording, whatever the stored
+# switch says.
 # ---------------------------------------------------------------------------------------
 
 _AI = "Idi AI assistant."
@@ -1159,7 +1142,7 @@ async def test_the_engine_config_on_a_non_recording_engine_neither_announces_nor
     floor's not-recorded clause rather than the recorded one."""
     tenant_id, agent_id = await _tenant()
     await _with_script(tenant_id, agent_id)
-    engine = FakeEngine(capabilities=OWNED_RUNTIME_CAPABILITIES)
+    engine = FakeEngine(capabilities=NON_RECORDING_CAPABILITIES)
     async with tenant_session(tenant_id) as session:
         agent = await _load_agent(session, tenant_id, agent_id)
         config = _to_config(tenant_id, agent, engine=engine)
@@ -1207,12 +1190,12 @@ async def test_the_disclosure_route_serves_the_not_recorded_promise_on_such_an_e
     opening it reports must not contain one."""
     from apps.api.agents import routes as agent_routes
 
-    def owned_runtime(engine: object = None) -> EngineCapabilities:
-        return OWNED_RUNTIME_CAPABILITIES
+    def non_recording(engine: object = None) -> EngineCapabilities:
+        return NON_RECORDING_CAPABILITIES
 
     _, agent_id, token = await _member()
-    monkeypatch.setattr(agent_routes, "engine_capabilities", owned_runtime)
-    monkeypatch.setattr(publishing, "engine_capabilities", owned_runtime)
+    monkeypatch.setattr(agent_routes, "engine_capabilities", non_recording)
+    monkeypatch.setattr(publishing, "engine_capabilities", non_recording)
     async with _client() as http:
         response = await http.patch(
             f"/v1/agents/{agent_id}/disclosure",

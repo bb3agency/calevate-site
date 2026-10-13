@@ -79,12 +79,12 @@ docker compose -p calevate -f compose.prod.yml stop api workers voice-runtime
 pm2 stop calevate-web
 ```
 
-With api, workers and voice-runtime stopped, Vobiz cannot fetch an answer document, the
-voice worker cannot read its session or post its settlement, and nothing records a call: an
-inbound caller fails and a call that ends now is not recorded. Carrier callbacks to
-`hooks.calevate.tech` are retried by Vobiz up to 3 times (`docs/evidence/vobiz-api-contract.md`
-§6) and then lost. **Throw the big red switch before running the stop above** (it is an api
-call), so no campaign dials into a system
+With api, workers and voice-runtime stopped, ThinnestAI still runs calls but its webhooks to
+`hooks.calevate.tech` and its in-call actions to the api reach nothing: a caller asking to
+opt out or book a call-back gets a failed action, and a call that ends now is recorded only
+after the restore, from ThinnestAI's retried delivery or the reconciliation re-drive of
+`GET /calls/{id}` (alarm index, `engine_webhook_reenabled`). **Throw the big red switch
+before running the stop above** (it is an api call), so no campaign dials into a system
 that cannot record the outcome (`runbooks/calls-stopped.md` §1).
 
 ## 2. Pick the recovery target, and write it in a format PostgreSQL accepts

@@ -196,7 +196,7 @@ def test_window_start_floors_to_the_quarter_hour() -> None:
 #: response (`tests/internal_references_guard_test.py`).
 _BANNED = re.compile(
     r"hard rule|\bD-\d{2,4}\b|§|\btenants?\b|\bRLS\b|\bschemas?\b|\bthe API\b(?! key)|"
-    r"\bendpoints?\b|\bpayloads?\b|\bwebhooks?\b|sarvam|cartesia|gnani|vobiz|plivo|pipecat|"
+    r"\bendpoints?\b|\bpayloads?\b|\bwebhooks?\b|sarvam|cartesia|plivo|"
     r"thinnest|bolna|exotel|playbook|incident",
     re.IGNORECASE,
 )

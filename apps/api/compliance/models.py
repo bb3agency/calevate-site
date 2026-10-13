@@ -111,25 +111,14 @@ KYC_DOCUMENT_KINDS = ("cin", "llpin", "gstin", "udyam", "shop_establishment", "t
 # own evidence, so a row that cannot say which it is can never be `verified`.
 KYC_VERIFICATION_SOURCES = ("operator", "aggregator")
 # WHICH licensed aggregator attested an identity. Stored rather than assumed because a
-# reference is meaningless without knowing whose it is (`CARRIER_APPLICATION_CARRIERS`
-# makes the same argument). `fake` is the in-house adapter, present for the same reason
+# reference is meaningless without knowing whose it is. `fake` is the in-house adapter,
+# present for the same reason
 # `engine/fake.py` is a shipped adapter: no vendor's DigiLocker contract is readable from
 # this environment, so it is the only thing that can exercise the seam end to end, and a
 # result it produces has to be storable or the test proves nothing about the write.
 KYC_PROVIDERS = ("setu", "digio", "cashfree", "sandbox", "fake")
-# The per-tenant CARRIER compliance application (migration c7a4f9e15b03). OUR state
-# machine for a stage the carrier owns: we are a RESELLER, so the carrier requires a
-# separate approved application for every customer before that customer's number can be
-# rented or assigned (`docs/evidence/orchestrator-commercial-and-carrier-2026-09-13.md`
-# §5.2). The carrier's own status strings are MAPPED onto these in
-# `apps/api/compliance/carrier_application.py` and never stored as our truth — the six
-# names below describe what WE know, which is the only thing a gate of ours may read.
-#   not_started        nothing filed (this row exists but nothing has been sent)
-#   documents_required the carrier, or we, came back asking for more
-#   submitted          sent, awaiting their decision
-#   accepted           the one state that opens a number
-#   rejected           refused, with the reason a client can act on
-#   expired            was accepted and no longer is (lapse, or a UCC suspension)
+# The vocabularies of `carrier_compliance_applications` (migrations c7a4f9e15b03,
+# d4a7b2c91e30), kept for the ORM's CHECKs while the table is kept (hard rule 8).
 CARRIER_APPLICATION_STATUSES = (
     "not_started",
     "documents_required",
@@ -138,18 +127,8 @@ CARRIER_APPLICATION_STATUSES = (
     "rejected",
     "expired",
 )
-# The one state that satisfies the gate. Named so the gate, the routes and the CHECK
-# cannot drift into three spellings of one idea (`KYC_VERIFIED` does the same job).
-CARRIER_APPLICATION_ACCEPTED = "accepted"
-# WHICH carrier this application is with: the members of `Settings.carrier` (D-662). Stored
-# rather than assumed because a carrier's application identifier is meaningless without
-# knowing whose it is. Spelled out here, matching migration `d4a7b2c91e30`'s CHECK.
+# Historical values; dropped with the D-763 drop migration.
 CARRIER_APPLICATION_CARRIERS = ("plivo", "vobiz")
-# WHICH proof of registration was supplied. REPORTED (12 Sep 2026, §5.2): any ONE of a
-# GST certificate with an active GSTIN, a Certificate of Incorporation with a CIN, or a
-# Udyam Registration Certificate. PAN alone is refused, which is why no PAN member
-# exists here — and no member of this tuple identifies a natural person, the same
-# property that keeps `KYC_DOCUMENT_KINDS` out of hard rule 6's reach.
 CARRIER_APPLICATION_DOCUMENT_KINDS = (
     "gst_certificate",
     "certificate_of_incorporation",
@@ -951,42 +930,10 @@ class KycVerificationRequest(PKMixin, TimestampMixin, Base):
 
 
 class CarrierComplianceApplication(PKMixin, TimestampMixin, Base):
-    """This tenant's own compliance application with the telephony carrier.
-
-    **The stage the tenant lifecycle did not have.** The carrier distinguishes a Direct
-    Brand (one application, for the brand's own calls) from a Reseller (*a separate
-    approved compliance application for each customer*). Calevate resells numbers to
-    client businesses, so every tenant needs its own application, ACCEPTED, before a
-    number can be rented for them or assigned to them, and a number purchase then carries
-    the carrier's `compliance_application_id`.
-    (`docs/evidence/orchestrator-commercial-and-carrier-2026-09-13.md` §5.2.)
-
-    **Not the same fact as `KycRecord`, and deliberately not overlapping it.** `KycRecord`
-    is what CALEVATE verified about a business before a connection is provisioned (the DoT
-    business-connection regime, Telecommunications Act 2023 s.3(7)). This is what the
-    CARRIER decided about that same business on its own paperwork. The two ask for
-    overlapping documents and are held by different parties for different purposes;
-    neither satisfies the other, and the registry identifier itself lives in exactly one
-    of them (`kyc_records.document_ref`).
-
-    **Everything we believe about the carrier's requirements is REPORTED** — research-agent
-    reading, founder-relayed, 12 Sep 2026, with `www.plivo.com` egress-blocked from this
-    container. So this models OUR status vocabulary and merely STORES theirs
-    (`carrier_application_id`); the mapping from their strings to ours, and every vendor
-    constraint we enforce at the door, live in `apps/api/compliance/carrier_application.py`
-    where each carries its evidence class and date.
-
-    One row per tenant per carrier, MUTABLE, absent from `APPEND_ONLY_TABLES` — the same
-    reasoning as `KycRecord`: an application is submitted, decided, and later expires or is
-    suspended after unresolved UCC complaints, while the gate reads the CURRENT state on
-    every dial and every purchase. The history is `audit_log`'s (hard rule 4).
-
-    **No document bytes.** `document_object_ref` / `signed_application_ref` are
-    object-store keys minted by `workers/storage.carrier_document_key`; hard rule 2's
-    discipline applied to a client's own paperwork.
-
-    The CHECK constraints mirror migration c7a4f9e15b03 and the migration is the source of
-    truth (DATA-MODEL §10).
+    """A tenant's compliance application with our former telephony carrier (migration
+    c7a4f9e15b03). No longer written or read by any gate; kept with its rows, and the
+    document objects they name, until the table is dropped (hard rule 8). The CHECKs mirror
+    the migration, which is the source of truth (DATA-MODEL §10).
     """
 
     __tablename__ = "carrier_compliance_applications"

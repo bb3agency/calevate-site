@@ -108,7 +108,6 @@ from apps.workers.alerts import sweep_alert_clears
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import FEE_SWEEP_MINUTE, issue_platform_fees
 from apps.workers.business_type import apply_business_type
-from apps.workers.call_finalise import finalise_unsettled_call
 from apps.workers.call_translation import (
     BACKFILL_MINUTE as TRANSLATION_BACKFILL_MINUTE,
 )
@@ -121,19 +120,6 @@ from apps.workers.caller_memory_distil import (
     distil_caller_memories,
 )
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
-from apps.workers.carrier_events import (
-    CDR_SWEEP_MINUTES,
-    ingest_carrier_event,
-    read_carrier_cdr,
-    reconcile_carrier_cdrs,
-)
-from apps.workers.carrier_recordings import (
-    RECORDING_SWEEP_MINUTES,
-    copy_carrier_recording,
-    delete_carrier_recordings,
-    expire_carrier_recording,
-    reconcile_carrier_recordings,
-)
 from apps.workers.client_actions import run_after_call_actions, run_client_action
 from apps.workers.copilot_jobs import run_copilot_job
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
@@ -229,7 +215,6 @@ from apps.workers.onboarding_completion import (
 )
 from apps.workers.onboarding_completion import complete_finished_onboardings
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
-from apps.workers.pack_gc import PACK_GC_HOUR, PACK_GC_MINUTE, sweep_knowledge_packs
 from apps.workers.pinned_facts import recompile_pinned_facts
 from apps.workers.pipeline import (
     ingest_engine_event,
@@ -249,13 +234,6 @@ from apps.workers.razorpay_jobs import (
     reconcile_razorpay,
     send_payment_notice,
     sweep_auto_recharge,
-)
-from apps.workers.remetering import (
-    SWEEP_MINUTE as REMETER_SWEEP_MINUTE,
-)
-from apps.workers.remetering import (
-    remeter_refused_leg,
-    remeter_refused_legs,
 )
 from apps.workers.retention import (
     apply_retention,
@@ -355,20 +333,6 @@ FUNCTIONS: list[Any] = [
         # (`crm/translation.request_translation`) or the backfill below.
         translate_call_job,
         run_post_call_pipeline,
-        # The carrier's status/hangup callbacks (enqueued by voice-runtime under
-        # `calevate_shared.carrier.CARRIER_EVENT_JOB`) and the CDR read a hangup queues.
-        ingest_carrier_event,
-        read_carrier_cdr,
-        # The carrier's recording of a call (D-668): copied into `recordings/` on its
-        # `RecordStop`, deleted at the carrier a day after ours is stored (D-670) and when an
-        # erasure names it.
-        copy_carrier_recording,
-        expire_carrier_recording,
-        delete_carrier_recordings,
-        # The settlement backstop a hangup defers for an answered call. Unregistered, a
-        # worker killed mid-call would leave its call with no lead and no billed minute
-        # while the deferred job sat in Redis under a name nothing runs.
-        finalise_unsettled_call,
         notify_hot_lead,
         # D-23: the client's CRM hears about leads and calls through the same outbox as
         # every other side effect, so a delivery cannot outlive a rolled-back write.
@@ -486,12 +450,6 @@ FUNCTIONS: list[Any] = [
         # first a client heard of a planned outage would be their dashboard refusing to
         # load. The whole point of a PLANNED window is that nobody is surprised by it.
         notify_maintenance,
-        # ONE LEG OF ONE CALL WHOSE PRICE ARRIVED AFTER IT DID. Enqueued through the OUTBOX
-        # in the settlement's own transaction, so an unregistered name here is exactly
-        # `check_job_wiring` shape 3 on the money path: the demand row would read
-        # `published`, arq would drop the job with a warning nothing reads, and the leg
-        # would stay unbillable while every screen said the settlement was complete.
-        remeter_refused_leg,
     )
 ]
 
@@ -756,26 +714,6 @@ CRON_JOBS = [
         traced_job(reconcile_outstanding_calls),
         walk=fleet_wide("one tenant_session per callable tenant, plus vendor reads"),
         minute={15, 45},
-        max_tries=WORKER_MAX_TRIES,
-    ),
-    # The carrier's CDR for every metered call that still has no carrier cost: the hangup
-    # callback enqueues the read, and this is what recovers a callback that never arrived or
-    # a read that ran out of retries. Minutes no other fleet-wide walk uses.
-    _cron(
-        traced_job(reconcile_carrier_cdrs),
-        walk=fleet_wide("one tenant_session per callable tenant, then keyed enqueues"),
-        minute=set(CDR_SWEEP_MINUTES),
-        max_tries=WORKER_MAX_TRIES,
-    ),
-    # The carrier's recordings (D-668): re-queue every copy not yet ours, look up a
-    # recording whose callback never came, and page one still not ours past six hours —
-    # the carrier's retention may be three days (`carrier_recordings` docstring). It also
-    # queues the deletion of the carrier's copy a day after ours landed (D-670). Every
-    # twenty minutes, on minutes no other walk uses.
-    _cron(
-        traced_job(reconcile_carrier_recordings),
-        walk=fleet_wide("one tenant_session per callable tenant, keyed enqueues, vendor reads"),
-        minute=set(RECORDING_SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
     # Forwarded lines (D-746): a line that normally brings calls and has been silent three
@@ -1276,38 +1214,6 @@ CRON_JOBS = [
         minute=set(ORPHAN_SWEEP_MINUTE),
         max_tries=WORKER_MAX_TRIES,
     ),
-    # THE REFERENCE-AWARE KNOWLEDGE-PACK COLLECTOR (D-611), and it is the one thing the
-    # `knowledge-packs/` lifecycle rule structurally cannot be. That rule expires from an
-    # object's CREATION, and a pack is rebuilt only when knowledge changes — so the live
-    # pack of the client whose price list has been correct longest is the oldest object
-    # under the prefix and would be the first one a short expiry deleted. The predicate
-    # has to be "does `agents.knowledge_pack_sha256` name it", which is a database
-    # question, which is why it is a cron and not a bucket rule.
-    #
-    # DAILY, and 10:07 comes FROM the module for its neighbours' reason. Daily is not a
-    # compromise here: the thing it reclaims is space, superseded packs are created one per
-    # publish per agent, and every eligible object has already sat out a seven-day grace —
-    # a tick eight hours sooner reclaims nothing that a tick eight hours later does not.
-    #
-    # AN UNREGISTERED CRON HERE IS THE DEFECT THIS WHOLE LANE CLOSED, so it is worth saying
-    # what that would look like: nothing breaks, no screen changes, and the prefix grows by
-    # one small object per publish for ever while three files in the tree claim it is
-    # bounded by a mechanism that never runs.
-    #
-    # `max_tries` EXPLICIT for its neighbours' reason — `cron()` defaults it to 1 and
-    # `WorkerSettings.max_tries` does not reach a function carrying its own. The ladder
-    # matters more than usual because the sweep aborts before its FIRST delete on any
-    # failure (a partial reference set is a licence to delete a live pack), so every
-    # transient error costs a whole day's reclamation rather than part of one.
-    _cron(
-        traced_job(sweep_knowledge_packs),
-        walk=fleet_wide(
-            "one store listing, then one tenant_session per organization to read pointers"
-        ),
-        hour=set(PACK_GC_HOUR),
-        minute=set(PACK_GC_MINUTE),
-        max_tries=WORKER_MAX_TRIES,
-    ),
     # OWNER-ID FILES PAST THEIR 30-DAY HOLD (D-692). A person's ID image held after its
     # stated life is a broken promise, so `max_tries` is explicit for its neighbours'
     # reason and the job alerts on give-up.
@@ -1343,7 +1249,7 @@ CRON_JOBS = [
         minute=set(GLOSS_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
-    # THE EXTERNAL SEARCH INDEX SWEEP (box 3, `docs/PIPECAT-MIGRATION.md` §8). The backstop
+    # THE EXTERNAL SEARCH INDEX SWEEP (box 3, TRD §6.3). The backstop
     # for a publish path that deliberately CANNOT fail a publish: when box 3 refuses, the
     # client's knowledge is live everywhere and their dashboard search is one store behind —
     # or, on a withdrawal, one store ahead. Unregistered, that divergence is permanent for
@@ -1500,12 +1406,6 @@ CRON_JOBS = [
         traced_job(backfill_call_translations),
         walk=fleet_wide("one tenant_session per live organization, then at most twenty enqueues"),
         minute={TRANSLATION_BACKFILL_MINUTE},
-        max_tries=WORKER_MAX_TRIES,
-    ),
-    _cron(
-        traced_job(remeter_refused_legs),
-        walk=bounded("one untenanted read of parked demands, then one session per tenant in it"),
-        minute={REMETER_SWEEP_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
 ]

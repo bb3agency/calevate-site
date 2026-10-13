@@ -1,7 +1,7 @@
 """Where an ENGINE's recording is fetched from, and the rules that fetch must obey.
 
-The carrier path has `engine/carrier.CarrierRecordingSource`. An engine that keeps the
-recording itself (ThinnestAI) describes its own here, because the vendor's host, its
+An engine that keeps the recording itself (ThinnestAI) describes its own here, because the vendor's
+host, its
 "not ready yet" and "deleted" answers and its audio type are vendor facts (hard rule 2), and
 `workers/storage.copy_recording` enforces them without knowing whose they are.
 """

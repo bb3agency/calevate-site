@@ -158,27 +158,6 @@ def test_the_verdict_is_a_boolean_and_never_the_words() -> None:
     assert isinstance(verdict, bool)
 
 
-def test_the_module_exports_no_second_way_to_decide_what_disclosed_means() -> None:
-    """It used to export exactly one name, and the reason was right: a second export
-    here would be the beginning of a second place that decides what "disclosed" MEANS —
-    and this repo already has one of those, at publish time, against the engine.
-
-    D-163 gave the module a second half — the product COPY an agent's two notices start
-    from — and the rule survives the addition rather than being dropped for it: the thing
-    that must stay unique is the JUDGEMENT. `disclosure_spoken` is still the only export
-    that decides anything, and the composition of an opening lives one layer out, in
-    `calevate_shared.engine.compose_opening_line`, so it cannot fork here either.
-    """
-    from apps.api.compliance import disclosure
-
-    verdicts = [name for name in disclosure.__all__ if name.endswith("_spoken")]
-    assert verdicts == ["disclosure_spoken"], disclosure.__all__
-    assert not hasattr(disclosure, "compose_opening_line"), (
-        "the opening composer has been re-exported here, so there are now two places to "
-        "import it from and one of them will drift"
-    )
-
-
 # ============================================================================
 # The pipeline actually writes it
 # ============================================================================

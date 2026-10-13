@@ -290,7 +290,6 @@ describe("the teach box with too little in it", () => {
       "/v1/kb/sources": [],
       "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
       "/v1/kb/knows": { facts: [], facts_state: "none", items: [] },
-      "/v1/kb/delivery": { items: [], not_delivered_count: 0 },
       "/v1/kb/uploads": [],
     });
   }

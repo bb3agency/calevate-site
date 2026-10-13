@@ -1396,7 +1396,7 @@ def _speaking_rate_out(
         # `rates.TTS_INR_PER_10K_CHARS`, which the Sarvam TTS leg's withdrawal (18 Sep 2026)
         # left as exactly that. It is what every rupee on this board was divided by, so the
         # board must keep publishing it; what it must not be read as is a price anybody
-        # bills at (`rates.tts_rate_inr_per_char` refuses).
+        # bills at.
         tts_inr_per_10k_chars=str(rates.TTS_INR_PER_10K_CHARS),
         by_provider=_by_provider_out(rate, attested=attested),
         fleet=_fleet_speaking_rate_out(fleet),

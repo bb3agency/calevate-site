@@ -23,8 +23,8 @@ rule stops being visible. So both policy shapes — the open one measured above 
 narrowed one that replaced it — are constructed here by hand from the stored expressions
 Postgres actually prints, and the rule is asserted to fire on the first and stay silent
 on the second. `rls_sweep_test` carries the behavioural twin against real sessions;
-`guardrail_audit_test`'s `test_live_schema_is_clean` is what asserts the live database
-agrees.
+`scripts/check_rls_coverage`, run in CI against the migrated database, is what asserts
+the live database agrees.
 """
 
 from __future__ import annotations

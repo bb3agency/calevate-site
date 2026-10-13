@@ -1,6 +1,6 @@
 """An in-call opt-out reaches `dnc_list`, and the next dispatch tick refuses the dial.
 
-The gap this suite closes is the one `eval_known_gaps_test.py` pinned as Gap 5: a
+The gap this suite closes: a
 caller could say "remove my number", the agent could confirm it politely, and nothing in
 `apps/workers` or `apps/voice-runtime` ever wrote a suppression. `dnc.SOURCES` carried
 `call_optout` from the beginning and only TESTS wrote it.
@@ -631,9 +631,8 @@ async def test_a_typed_entry_can_never_weaken_a_callers_optout() -> None:
 
 # --- 3. the in-call tool's evidence ---------------------------------------------------
 #
-# The in-call tool path itself (`apps/api/worker/tools.record_opt_out`, over
-# `POST /v1/worker/calls/{ref}/tools/opt-out`) is driven end to end by
-# `tests/owned_runtime_tools_test.py`. What it shares with this module is the evidence row.
+# The in-call tool path itself (`apps/api/worker/in_call_tools.record_opt_out_for`) has its
+# own suite. What it shares with this module is the evidence row.
 
 
 def test_the_in_call_evidence_never_stores_a_number_the_model_quoted() -> None:

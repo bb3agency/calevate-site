@@ -6,11 +6,12 @@ property of that snapshot and a second fetch would be a second vendor round trip
 already in hand.
 
 **WHAT THIS DOES INSTEAD OF A WHISPER, SAID PLAINLY.** The founder asked for the agent to
-brief the human before bridging. That is a telephony feature (Plivo's `<Dial
-confirmSound=…>`) and it needs control of the caller's leg, which this deployment does not
-have. `docs/evidence/handoff-warm-transfer.md` records what would have to change. On the
-owned runtime the voice worker's handoff tool reaches `apps/api/worker/tools.request_handoff`,
-which answers truthfully that this engine cannot transfer.
+brief the human before bridging. That is a telephony feature (a carrier's
+dial-with-confirm-sound verb) and it needs control of the caller's leg, which this
+deployment does not have. `docs/evidence/handoff-warm-transfer.md` records what would have
+to change. The engine's hand-over action reaches
+`apps/api/worker/in_call_tools.request_handoff_unplaced`, which answers truthfully that no
+person can be put through.
 """
 
 from __future__ import annotations

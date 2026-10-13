@@ -42,7 +42,6 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.voice_fixture import TEST_VOICE_ID
 
 pytestmark = [pytest.mark.rls]
 
@@ -476,11 +475,6 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
 #: below. `headers` is the same argument one step earlier: the two routes that require an
 #: `Idempotency-Key` refuse a request without one BEFORE they look at the id, so a sweep
 #: that sent none would be asserting 400 on them and proving nothing about tenancy.
-#: A voice id the catalogue really offers, read from the catalogue rather than typed, so
-#: the two delivery rows below are refused by the TENANT SCOPE and not by a 422 on an
-#: unknown voice — which would make this sweep pass without proving anything.
-_SWEEP_VOICE_ID: str = TEST_VOICE_ID
-
 _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # A NUMBER is the strongest handle in the client realm: it is the identity calls go
     # out under. Reading a neighbour's attestation leaks who they told the regulator they
@@ -526,12 +520,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # D-586. The two DELIVERY writes that became client-realm when a live agent's voice and
     # call cap stopped needing an operator. Both matter more here than a read would: each
     # RE-PUBLISHES the named agent to the voice platform in the same transaction, so
-    # reaching a neighbour's agent would not leak their configuration — it would change
-    # what their callers hear on the next call, and raise or lower the ceiling on what one
-    # of their calls can cost them. The voice id is a real seeded catalogue id rather than
-    # a fabricated string, so a refusal here is the tenant scope and never a 422 that would
-    # mask it.
-    ("PATCH", "/v1/agents/{agent_id}/voice", {"voice_id": _SWEEP_VOICE_ID}, {}),
+    # reaching a neighbour's agent would not leak their configuration — it would raise or
+    # lower the ceiling on what one of their calls can cost them.
     ("PATCH", "/v1/agents/{agent_id}/call-cap", {"max_call_duration_s": 120}, {}),
     # D-751. Reaching a neighbour's agent would change how long it waits before replying and
     # whether its finished calls stay connected, and billed, until the caller hangs up.
@@ -548,9 +538,6 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/calls/{call_id}/recording/download", {}, {}),
     # Retranslating spends the owner's AI allowance; the state read is under RLS.
     ("POST", "/v1/calls/{call_id}/translation", {}, {}),
-    # D-656. An SSE stream, so the 404 must come from the dependency that resolves the call
-    # under RLS before the headers are sent; inside the generator it would be a 200.
-    ("GET", "/v1/calls/{call_id}/speaking", {}, {}),
     ("GET", "/v1/calls/{call_id}/transcript/raw", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}", {}, {}),
     (

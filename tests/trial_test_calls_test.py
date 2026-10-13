@@ -473,11 +473,6 @@ async def test_a_lost_end_ages_out_of_the_line() -> None:
         await agents_service._hold_trial_line(session)
 
 
-def test_trial_dial_carries_the_number_and_the_limit() -> None:
-    dial = TrialDial(from_e164=TRIAL_NUMBER, max_call_seconds=180)
-    assert dial.from_e164 == TRIAL_NUMBER and dial.max_call_seconds == 180
-
-
 async def test_the_adapter_sends_from_and_the_per_call_limit() -> None:
     seen: list[httpx.Request] = []
 

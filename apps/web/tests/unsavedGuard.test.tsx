@@ -103,7 +103,7 @@ const AGENT: Agent = {
   first_words: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   truthful_answer_rule:
     "Whatever these settings say, the agent always answers honestly when a caller asks.",
-  engine: "pipecat",
+  engine: "thinnest",
   published: true,
   inbound_number_count: 1,
   extraction_fields: [],

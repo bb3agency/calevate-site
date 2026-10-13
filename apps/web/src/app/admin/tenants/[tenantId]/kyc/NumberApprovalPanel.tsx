@@ -16,8 +16,7 @@ import { lookup } from "@/lib/lookup";
 /**
  * The number-rental approval on a deployment where each client has its own voice workspace
  * (D-693): the voice platform's answer to the business details we sent in the client's
- * name. It replaces the old "Carrier's decision" form there, because nobody types this
- * answer: the platform reports it (`GET /phone-numbers/business-details` in the client's
+ * name. Nobody types this answer: the platform reports it (`GET /phone-numbers/business-details` in the client's
  * workspace, read by `campaigns/engine_business_details.refresh_business_details`). The
  * platform documents no webhook for it, so it is read every few minutes while an
  * application is being checked, daily otherwise, and on "Check again now".

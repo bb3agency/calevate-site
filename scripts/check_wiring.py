@@ -98,7 +98,30 @@ DYNAMIC_ROUTER_MODULES: dict[str, str] = {
 # comment (`check_redaction_exposure`'s KNOWN_SAFE_FIELDS is the precedent, and it is
 # keyed per FIELD for the same reason: a model-level exemption would cover the next
 # column somebody adds).
+_D763_REASON = (
+    "D-763: no code writes or reads this column any more; kept with its rows under hard "
+    "rule 8's two-step and dropped by the D-763 drop migration next release"
+)
+
 UNWIRED_BASELINE: dict[str, str] = {
+    # D-763: one reason, one entry per column.
+    "Agent.knowledge_pack_recorded_at": _D763_REASON,
+    "Agent.knowledge_pack_sha256": _D763_REASON,
+    "AgentConfigAttestation.agent_config_version_id": _D763_REASON,
+    "AgentConfigAttestation.prompt_sha256": _D763_REASON,
+    "AgentConfigVersion.composed_prompt": _D763_REASON,
+    "AgentConfigVersion.model_config_sha256": _D763_REASON,
+    "AgentConfigVersion.prompt_sha256": _D763_REASON,
+    "Call.carrier_recording_deleted_at": _D763_REASON,
+    "Call.knowledge_state": _D763_REASON,
+    "Call.recording_copied_at": _D763_REASON,
+    "CarrierComplianceApplication.carrier_application_id": _D763_REASON,
+    "CarrierComplianceApplication.document_filename": _D763_REASON,
+    "CarrierComplianceApplication.document_object_ref": _D763_REASON,
+    "CarrierComplianceApplication.signed_application_ref": _D763_REASON,
+    "PhoneNumber.carrier_binding_id": _D763_REASON,
+    "PipecatAgent.agent_config_version_id": _D763_REASON,
+    "PipecatAgent.resolved_config": _D763_REASON,
     # ONE reason, five entries: the registry is keyed per column (see above).
     "AutodialerNotice.access_provider": (
         "D-762 removed the TCCCPR Regulation 4 autodialer notice from the product, which "
@@ -158,8 +181,8 @@ UNWIRED_BASELINE: dict[str, str] = {
     ),
     "Call.consent_recording": (
         "recording consent per call. The disclosure line is enforced and logged, but "
-        "the engine reports no per-call recording consent yet (pilot gate 3); "
-        "`consent_ledger` is the ledger of record until it does"
+        "the engine reports no per-call recording consent; `consent_ledger` is the "
+        "ledger of record until it does"
     ),
     "KbRetrievalLog.query": (
         "deliberate and dated — see the class docstring in apps/api/kb/models.py. It "

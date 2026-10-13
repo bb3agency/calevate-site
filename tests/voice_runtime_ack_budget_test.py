@@ -76,7 +76,7 @@ ATTACKER_IP = "203.0.113.9"
 EDGE_PROXY_IP = "127.0.0.1"
 HOOK = "/hooks/v1/engine/fake"
 #: A signing engine's hook: refused until a verifier exists, so it is the refusal path.
-SIGNED_HOOK = "/hooks/v1/engine/cartesia"
+SIGNED_HOOK = "/hooks/v1/engine/fake-restricted"
 HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
 
 
@@ -1117,7 +1117,7 @@ async def test_every_non_ack_exit_reports_and_records_its_ack(
         "every response is one sample in the ack series, refusals and crashes included; "
         f"saw {len(samples)}"
     )
-    assert {str(record.provider) for record in samples} == {"cartesia", "fake"}
+    assert {str(record.provider) for record in samples} == {"fake-restricted", "fake"}
 
 
 # --- 4. the third unbounded wait: the fast path itself ------------------------

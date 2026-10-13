@@ -521,10 +521,6 @@ _OPS_WRITES_WITHOUT_STEP_UP = {
     ("apps/api/ops/secret_routes.py", "test_secret"): (
         "probes a candidate credential against the vendor and stores nothing"
     ),
-    ("apps/api/ops/secret_routes.py", "probe_carrier"): (
-        "asks the carrier whether the env-only pair this process already holds "
-        "authenticates; it takes no input and stores nothing"
-    ),
     ("apps/api/ops/routes.py", "refresh_voice_catalogue_route"): (
         "re-reads the engine account's own voice list into a cache (D-585). It sends "
         "nothing, changes no agent row and cannot move an agent off the voice it is "
@@ -536,26 +532,12 @@ _OPS_WRITES_WITHOUT_STEP_UP = {
         "on a harmless lever, which is what makes them worthless on `outbox/replay`, "
         "where the blast radius is other people's customer data arriving twice."
     ),
-    ("apps/api/ops/voice_curation_routes.py", "add_voice"): (
-        "adds ONE voice to the platform's catalogue from facts an operator typed, after "
-        "verifying every one of them against the voice platform's own list (D-590). It "
-        "cannot reach a call: it writes no agent row, moves no agent, and its only vendor "
-        "call is a READ of that list. Its widening direction cannot bypass money either — "
-        "an added voice clears offerability ground zero and leaves the credential, "
-        "attested-price and Cartesia-cap grounds exactly where they were (hard rule 7), so "
-        "an unpriced Cartesia minute is still refused by `voice_offer.py` and the add "
-        "response says so in the same breath. It is reversible in one click (archive), and "
-        "it is the PRIMARY action of the screen: gating the thing an operator came to the "
-        "page to do teaches them to type confirmations, which is what makes the gate "
-        "worthless on `outbox/replay`, where the blast radius is other people's customer "
-        "data arriving twice."
-    ),
     ("apps/api/ops/hosted_voice_routes.py", "add_hosted"): (
         "marks ONE voice the sync already read as added (D-687). It arrives DISABLED, so it "
         "reaches no picker and no agent; it calls no vendor and is reversible by archiving."
     ),
     ("apps/api/ops/hosted_voice_routes.py", "set_hosted_state"): (
-        "`set_voice_curation`'s write on an engine-hosted voice (D-687), for its reason: it "
+        "moves ONE engine-hosted voice between enabled, disabled and archived (D-687). It "
         "moves no agent off the voice it speaks, calls no vendor, and cannot bypass a price "
         "(an unattested minute is still refused by the offer seam)."
     ),
@@ -577,19 +559,6 @@ _OPS_WRITES_WITHOUT_STEP_UP = {
         "It reaches no agent and no call: only the step-up-gated publish does. It is the "
         "screen's primary action, repeated entry by entry through a review of a hundred-odd "
         "words, and it is audited and undone by the next change."
-    ),
-    ("apps/api/ops/voice_curation_routes.py", "set_voice_curation"): (
-        "moves ONE voice between enabled/disabled/archived for the platform (D-588), and "
-        "it cannot reach a call. It writes no agent row, calls no vendor, and cannot move "
-        "an agent off the voice it is speaking: a published agent holds its voice on the "
-        "ENGINE, and `voices.catalogue()` deliberately keeps resolving a disabled id on "
-        "the publish path, so the picker narrows and the phone line does not. Its "
-        "widening direction cannot bypass money either — enabling a voice clears "
-        "offerability ground zero and leaves the credential, attested-price and Cartesia-"
-        "cap grounds exactly where they were (hard rule 7). It is reversible in one click, "
-        "and it is a CURATION screen: an operator reviewing a freshly synced catalogue "
-        "toggles rows in one sitting, which is the exact surface where a typed "
-        "confirmation becomes a reflex and stops meaning anything on `outbox/replay`."
     ),
 }
 

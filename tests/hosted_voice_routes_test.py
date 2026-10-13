@@ -3,7 +3,7 @@
 Admin-only (`ops:manage`), audited; cloning, deleting a clone and switching Studio voices on
 or off are step-up confirmed (D-688). The sync reads every band the engine lists and, while our
 Cartesia key is on in the workspace, our own-key voices — never `list_voices`, which refuses on
-this engine — and the Pipecat path is untouched: a Pipecat refresh reads no hosted list.
+this engine — and an engine that runs our voices reads no hosted list on a refresh.
 """
 
 from __future__ import annotations
@@ -277,17 +277,18 @@ async def test_a_409_on_our_voices_is_a_stated_skip_and_an_outage_is_not(
                 await sync_voice_catalogue(session, engine)
 
 
-async def test_a_pipecat_refresh_reads_no_hosted_list(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_an_engine_running_our_voices_reads_no_hosted_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The other side: an engine that runs OUR voices never reaches the hosted sync."""
 
     async def _never(*a: Any, **k: Any) -> Any:
         raise AssertionError("the hosted sync ran on an engine that runs our voices")
 
     monkeypatch.setattr("apps.api.agents.voice_sync.sync_hosted_voices", _never)
-    from apps.api.engine.pipecat import PipecatEngine
 
     async with admin_session() as session:
-        result = await sync_voice_catalogue(session, PipecatEngine())
+        result = await sync_voice_catalogue(session, FakeEngine())
     assert result.skipped_reason is not None
 
 
@@ -298,7 +299,7 @@ def test_the_rung_comes_from_the_billing_map_and_an_unsold_source_raises() -> No
     assert rung_of_source("thinnest", "engine") == "clear"
     assert rung_of_source("thinnest", "byok") == "studio"
     with pytest.raises(ValueError):
-        rung_of_source("pipecat", "engine")
+        rung_of_source("fake", "engine")
     assert hosted_voices.source_rate_key("engine") == "premium"
     assert hosted_voices.source_rate_key("byok") == "byok_voice"
 
@@ -317,12 +318,12 @@ def test_the_band_sold_as_clear_follows_the_setting(clear_on_studio: None) -> No
 def test_the_rate_card_holds_studio_back_until_our_voice_key_is_on() -> None:
     assert rungs_awaiting_setup("thinnest", studio_ready=False) == frozenset({"studio"})
     assert rungs_awaiting_setup("thinnest", studio_ready=True) == frozenset()
-    assert rungs_awaiting_setup("pipecat", studio_ready=False) == frozenset()
+    assert rungs_awaiting_setup("fake", studio_ready=False) == frozenset()
     held = voice_tier_not_offered("thinnest", studio_ready=False)
     assert held is not None and held[0] == "studio"
     assert voice_tier_not_offered("thinnest", studio_ready=True) is None
-    pipecat = voice_tier_not_offered("pipecat", studio_ready=False)
-    assert pipecat is not None and pipecat[0] == "clear"
+    ours = voice_tier_not_offered("fake", studio_ready=False)
+    assert ours is not None and ours[0] == "clear"
 
 
 async def test_studio_is_on_sale_only_with_its_voices_listed_and_its_minute_attested(
@@ -340,7 +341,7 @@ async def test_studio_is_on_sale_only_with_its_voices_listed_and_its_minute_atte
 
     monkeypatch.setattr(payment_routes, "attested_rate_keys", _attested)
     async with admin_session() as session:
-        assert not await payment_routes._studio_on_sale(session, engine="pipecat", at=now)
+        assert not await payment_routes._studio_on_sale(session, engine="fake", at=now)
         assert not await payment_routes._studio_on_sale(session, engine="thinnest", at=now)
         attested.add("byok_voice")
         await hosted_rows.add("byok")
@@ -1289,8 +1290,8 @@ async def test_a_thinnest_refresh_of_an_empty_listing_does_not_blame_the_credent
     assert body["bands"] == {}
 
 
-def test_the_pipecat_refresh_sentences_are_unchanged() -> None:
-    """The other side: the Pipecat note is word for word what it was before the bands."""
+def test_the_refresh_sentences_on_an_engine_running_our_voices() -> None:
+    """The other side: an engine with no hosted bands gets the plain catalogue note."""
     from apps.api.agents.voice_sync import VoiceSyncResult
     from apps.api.ops.routes import _voice_refresh_note
 
@@ -1312,7 +1313,7 @@ def test_the_pipecat_refresh_sentences_are_unchanged() -> None:
 async def test_a_refresh_on_an_engine_that_runs_our_voices_reports_no_bands(
     admin: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An engine that does not host voices gets the Pipecat-shaped answer, with no bands."""
+    """An engine that does not host voices gets the plain catalogue note, with no bands."""
     from apps.api.agents.voice_sync import VoiceSyncResult
 
     async def _sync(session: Any, engine: Any, **kw: Any) -> VoiceSyncResult:

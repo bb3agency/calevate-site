@@ -21,7 +21,6 @@ from apps.api.agents.call_handling import (
     resolve_turn_silence,
 )
 from apps.api.agents.call_handling_routes import admin_router, router
-from apps.api.agents.engine_settings import AGENT_SETTING_LABELS
 from apps.api.agents.service import _load_agent, _to_config
 from apps.api.core.errors import install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
@@ -91,10 +90,6 @@ def test_a_hang_up_switched_in_the_vendor_console_is_drift() -> None:
     body = ThinnestEngine(api_key="ta_live_test")._agent_body(_cfg(end_call_on_finish=False))
     live = {**body, "voice": {**body["voice"], "endCallOnFinish": True}}
     assert thinnest._settings_drift(body, live) == ["end_call_on_finish"]
-
-
-def test_both_labels_are_ours() -> None:
-    assert {"turn_silence", "end_call_on_finish"} <= AGENT_SETTING_LABELS
 
 
 async def test_a_repair_rewrites_only_the_drifted_voice_fields() -> None:

@@ -58,8 +58,8 @@ docs/evidence/raghava-deploy-teardown.md §2):
     refusing on it would refuse every real host. That question belongs to
     `runtime_config_missing_keys` at `/healthz/ready`, which already owns it. The
     exception is a credential that is ENV-ONLY (`ENV_ONLY_REASONS`): the environment is
-    its only home, so its absence is a fault this gate can see — `owned_runtime` refuses
-    the carrier pair and the claim key on that ground.
+    its only home, so its absence is a fault this gate can see — `thinnest` refuses a
+    missing engine API key and intake key on that ground.
 
 Run:
     uv run python -m scripts.check_deploy_env                  # the process environment
@@ -92,13 +92,11 @@ from apps.api.core.settings import (
     MIN_HMAC_KEY_BYTES,
     BootstrapError,
     effective_env,
-    is_deployable_stream_base,
     is_public_callback_base,
     validate_bootstrap_env,
 )
 from apps.api.ops.secret_service import manageable_secret_keys
 from apps.api.reliability.engine_intake_keys import build_intake_ring
-from calevate_shared.carrier import MIN_CALLBACK_SECRET_CHARS, usable_callback_secret
 from calevate_shared.config import (
     RETIRED_ENV_KEY_ERROR,
     SDK_OWNED_ENV_KEYS,
@@ -106,7 +104,6 @@ from calevate_shared.config import (
     retired_env_key_message,
     retired_env_keys_in,
 )
-from calevate_shared.worker_api import MIN_CALLER_CLAIM_KEY_BYTES, usable_caller_claim_key
 from dotenv import dotenv_values
 from pydantic import ValidationError
 
@@ -158,25 +155,7 @@ HMAC_SECRET_KEYS: tuple[str, ...] = (
 RETIRED_PAIRS: tuple[tuple[str, str], ...] = (
     ("PLATFORM_KEK", "PLATFORM_KEK_RETIRED"),
     ("AUDIT_CHAIN_SECRET", "AUDIT_CHAIN_SECRET_RETIRED"),
-    ("VOBIZ_CALLBACK_SECRET", "VOBIZ_CALLBACK_SECRET_RETIRED"),
     ("ENGINE_INTAKE_KEK", "ENGINE_INTAKE_KEK_RETIRED"),
-)
-
-#: What the owned runtime's carrier leg reads from this host's environment (`owned_runtime`).
-#: The first four are env-only, so the environment is their only home; the last two are
-#: console-managed and are checked only when the environment declares them, because a
-#: declared value is the one that wins.
-CARRIER_CLAIM_KEY = "CARRIER_CLAIM_SECRET"
-CARRIER_CREDENTIAL_KEYS: tuple[str, ...] = ("VOBIZ_AUTH_ID", "VOBIZ_AUTH_TOKEN")
-VOBIZ_CALLBACK_SECRET_KEY = "VOBIZ_CALLBACK_SECRET"
-STREAM_BASE_KEY = "PIPECAT_STREAM_BASE_URL"
-CALLBACK_BASE_KEY = "WEBHOOK_BASE_URL"
-OWNED_RUNTIME_ENV_KEYS: tuple[str, ...] = (
-    CARRIER_CLAIM_KEY,
-    *CARRIER_CREDENTIAL_KEYS,
-    VOBIZ_CALLBACK_SECRET_KEY,
-    STREAM_BASE_KEY,
-    CALLBACK_BASE_KEY,
 )
 
 #: Set per SERVICE in `compose.prod.yml`, on purpose: DEPLOYMENT §2a's connection budget is
@@ -259,11 +238,6 @@ REFUSAL_CODES: frozenset[str] = frozenset(
         "example_value_verbatim",
         "placeholder_value",
         "retired_env_key",
-        "carrier_claim_secret_unusable",
-        "carrier_credentials_missing",
-        "vobiz_callback_secret_unusable",
-        "pipecat_stream_base_url_blank",
-        "pipecat_stream_base_url_unusable",
         "webhook_base_url_not_public",
         "thinnest_api_key_missing",
         "thinnest_api_key_unusable",
@@ -720,131 +694,8 @@ def retired_keys(env: Mapping[str, str]) -> list[Finding]:
     ]
 
 
-def _vobiz_callback_secret_misused(env: Mapping[str, str]) -> list[Finding]:
-    """A callback secret that is set and unusable, in every environment `local` included:
-    set but short reads as configured while every reader drops it, and one equal to the
-    claim key or the auth token publishes that key in Vobiz's console and call records."""
-    secret = _present(env, VOBIZ_CALLBACK_SECRET_KEY)
-    if not secret:
-        return []
-    if usable_callback_secret(secret) is None:
-        problem = (
-            f"is shorter than {MIN_CALLBACK_SECRET_CHARS} characters, so voice-runtime "
-            "treats it as absent and refuses every Vobiz request outside local."
-        )
-    elif secret in (_present(env, CARRIER_CLAIM_KEY), _present(env, "VOBIZ_AUTH_TOKEN")):
-        problem = (
-            "equals CARRIER_CLAIM_SECRET or VOBIZ_AUTH_TOKEN. It travels in every URL Vobiz "
-            "stores and shows, so a key it doubles as is published with it."
-        )
-    else:
-        return []
-    return [Finding("vobiz_callback_secret_unusable", (VOBIZ_CALLBACK_SECRET_KEY,), problem)]
-
-
-def owned_runtime(env: Mapping[str, str]) -> list[Finding]:
-    """The carrier leg's preconditions that live in this host's environment.
-
-    The same states `/healthz/ready` reports under `ENGINE=pipecat`
-    (`core/settings.owned_runtime_missing_keys`, `webhook_receiver_missing_keys`), refused
-    before the swap instead of discovered after it. This gate cannot read the console, so
-    it cannot see which engine is selected there: the leg is assumed live unless the
-    environment itself declares another `ENGINE`, because the owned runtime is what this
-    product runs and a host that is not running it can say so in one line.
-
-    A claim key under the floor is refused everywhere, `local` included: it is set, so it
-    looks configured, and the answer leg silently treats it as absent.
-    """
-    findings: list[Finding] = []
-    claim = _present(env, CARRIER_CLAIM_KEY)
-    if claim and usable_caller_claim_key(claim) is None:
-        findings.append(
-            Finding(
-                "carrier_claim_secret_unusable",
-                (CARRIER_CLAIM_KEY,),
-                f"is shorter than {MIN_CALLER_CLAIM_KEY_BYTES} bytes. voice-runtime and the "
-                "worker both treat it as absent, so no caller is identified and an outbound "
-                "call is taken for an inbound one.",
-            )
-        )
-    findings.extend(_vobiz_callback_secret_misused(env))
-    declared_engine = _present(env, "ENGINE")
-    if _stated_env(env) == "local" or (declared_engine and declared_engine != "pipecat"):
-        return findings
-
-    declared_carrier = _present(env, "CARRIER")
-    if not _present(env, VOBIZ_CALLBACK_SECRET_KEY) and declared_carrier in ("", "vobiz"):
-        findings.append(
-            Finding(
-                "vobiz_callback_secret_unusable",
-                (VOBIZ_CALLBACK_SECRET_KEY,),
-                "is not set. voice-runtime refuses every Vobiz request without it, so no "
-                "call is answered and no hangup is recorded; it is what stops another Vobiz "
-                "customer pointing their number at our agents. Generate one with "
-                "`openssl rand -hex 32` (DEPLOYMENT §12.6).",
-            )
-        )
-
-    if not claim:
-        findings.append(
-            Finding(
-                "carrier_claim_secret_unusable",
-                (CARRIER_CLAIM_KEY,),
-                "is not set. It is env-only (voice-runtime never opens the credential "
-                "store) and signs the caller and call claims on every stream URL; without "
-                "it no caller is identified and an outbound call is taken for an inbound "
-                "one. Generate "
-                "at least 32 random bytes and put the SAME value in the Pipecat worker's "
-                "secret set (DEPLOYMENT §12.2).",
-            )
-        )
-    if not all(_present(env, key) for key in CARRIER_CREDENTIAL_KEYS):
-        findings.append(
-            Finding(
-                "carrier_credentials_missing",
-                CARRIER_CREDENTIAL_KEYS,
-                "are not both set. They are env-only and are the carrier's only "
-                "credential on this host: without them no call is placed, no number is "
-                "bound and no call record is read (DEPLOYMENT §12.6).",
-            )
-        )
-    if STREAM_BASE_KEY in env and not _present(env, STREAM_BASE_KEY):
-        findings.append(
-            Finding(
-                "pipecat_stream_base_url_blank",
-                (STREAM_BASE_KEY,),
-                "is declared EMPTY. The environment wins over the console, so the answer "
-                "route reads an empty worker address and refuses every call. Remove the "
-                "line and set it in the ops console, or set the worker's wss:// base here.",
-            )
-        )
-    elif STREAM_BASE_KEY in env and not is_deployable_stream_base(env[STREAM_BASE_KEY]):
-        findings.append(
-            Finding(
-                "pipecat_stream_base_url_unusable",
-                (STREAM_BASE_KEY,),
-                "is not a wss:// URL on Pipecat Cloud's regional host. The region-less "
-                "api.pipecat.daily.co routes every stream to us-west, where the worker is "
-                "not deployed. Use wss://ap-south.api.pipecat.daily.co/ws/plivo?serviceHost="
-                "<agent>.<org> (runbooks/first-deploy.md §9a step 4), or remove the line "
-                "and set it in the ops console.",
-            )
-        )
-    callback = _present(env, CALLBACK_BASE_KEY)
-    if callback and not is_public_callback_base(callback):
-        findings.append(
-            Finding(
-                "webhook_base_url_not_public",
-                (CALLBACK_BASE_KEY,),
-                "is not an https:// URL on a host the carrier can reach. Every answer, "
-                "hangup and status URL the carrier is given is built on it, so a call "
-                "would ring and nothing would answer. Set it to the public hooks origin.",
-            )
-        )
-    return findings
-
-
 THINNEST_KEY = "THINNEST_API_KEY"
+CALLBACK_BASE_KEY = "WEBHOOK_BASE_URL"
 THINNEST_BASE_KEY = "THINNEST_API_BASE_URL"
 INTAKE_KEK_KEY = "ENGINE_INTAKE_KEK"
 INTAKE_KEK_RETIRED_KEY = "ENGINE_INTAKE_KEK_RETIRED"
@@ -853,9 +704,9 @@ INTAKE_KEK_RETIRED_KEY = "ENGINE_INTAKE_KEK_RETIRED"
 def thinnest(env: Mapping[str, str]) -> list[Finding]:
     """The ThinnestAI engine's environment (D-678): both keys are env-only.
 
-    The engine is console-managed, so like `owned_runtime` this can only act on an `ENGINE`
-    the environment itself declares. A widget key in the API key's place is refused in
-    every environment: it is the documented confusion between the two
+    The engine is console-managed and this gate cannot read the console, so it can only act
+    on an `ENGINE` the environment itself declares. A widget key in the API key's place is
+    refused in every environment: it is the documented confusion between the two
     (`thinnest-findings/mirror/pages/api-reference/authentication.md:17-24`), and it would
     fail every request.
     """
@@ -983,7 +834,6 @@ def evaluate(env: Mapping[str, str], example: Mapping[str, str] | None) -> list[
     findings.extend(placeholders(env, example))
     findings.extend(console_managed_in_env(env, example))
     findings.extend(retired_keys(env))
-    findings.extend(owned_runtime(env))
     findings.extend(thinnest(env))
     if example is None:
         findings.append(

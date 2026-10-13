@@ -38,7 +38,6 @@ import re
 import time
 import uuid
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -85,14 +84,6 @@ from calevate_shared.engine import AZURE_OPENAI_DEFAULT_MODEL, AZURE_OPENAI_MODE
 from fastapi import Request
 from pydantic import ValidationError
 from sqlalchemy import text
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = (
-    REPO_ROOT
-    / "alembic"
-    / "versions"
-    / "e1a7c93d5b02_a_dashboard_assist_is_metered_by_its_own_key.py"
-)
 
 # A barrier this file waits on is either released by the other party (the race happened)
 # or times out (the lock stopped the other party getting that far). Both are information;
@@ -299,22 +290,6 @@ async def test_the_two_indexes_cover_disjoint_row_sets() -> None:
     assert "call_id IS NOT NULL" in call_key
     assert "call_id IS NULL" in ref_key
     assert "ref IS NOT NULL" in ref_key
-
-
-def test_the_writer_repeats_the_migrations_index_predicate_verbatim() -> None:
-    """Postgres infers a PARTIAL unique index only from an `ON CONFLICT` whose predicate
-    implies the index's. A predicate that ALMOST matches does not degrade — it raises,
-    on a button a client just pressed — so the two copies are held equal here.
-
-    The migration is read as TEXT rather than imported: `alembic/versions` is not a
-    package, and the point is that the file on disk says this.
-    """
-    source = MIGRATION.read_text(encoding="utf-8")
-    migration_predicate = re.search(r'INDEX_PREDICATE = "(?P<p>[^"]+)"', source)
-    assert migration_predicate is not None, "migration no longer declares INDEX_PREDICATE"
-    assert migration_predicate.group("p") == ai_quota.INDEX_PREDICATE, (
-        "the writer's ON CONFLICT predicate has drifted from the index it must infer"
-    )
 
 
 async def test_the_live_index_carries_the_writers_predicate() -> None:

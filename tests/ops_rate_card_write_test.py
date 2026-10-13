@@ -108,10 +108,8 @@ async def test_a_card_that_sells_below_cost_is_refused_and_writes_nothing() -> N
     problem+json naming the pack and the append-only history is untouched — which matters
     more than the refusal itself, because a card recorded in error cannot be edited out.
 
-    ⚠ **THE FLOOR FELL FROM ₹3.3111 TO ₹3.1491 ON 19 Sep 2026** (D-631: Gnani's published
-    ₹27.00/10k replaced a withdrawn vendor's frozen ₹30 behind the Clear leg). ₹3.00 is
-    still under it, which is why this rate rather than a nearer one — a fixture chosen to
-    sit just below a moving line is a test that breaks every time the cost model improves.
+    ₹3.00 rather than a nearer rate: a fixture chosen to sit just below a moving line is a
+    test that breaks every time the cost model improves.
     """
     admin = await _admin()
     await _store_rate(admin, pack_id="starter", voice="clear", rate="3.00")
@@ -145,16 +143,7 @@ async def test_the_approved_card_is_written_and_every_margin_is_previewed(
     """The happy path, and the preview that goes with it: twelve log lines, one per cell,
     each carrying the rate, the floor it was judged against and whether it is thin.
 
-    ⚠ **THE SET OF THIN ROWS HAS MOVED THREE TIMES AND IS NOT THE PROPERTY.** It was the
-    Sarvam column alone; then D-556 replaced the flattering ₹4.3639 Cartesia floor (the $49
-    Startup plan fee spread over the volume at which its allotment is exactly consumed —
-    the plan's BEST possible minute) with the worst MARGINAL cost and four Studio rungs
-    joined it; then D-592 halved the engine leg, the floors fell to ₹3.3111 / ₹4.7099 and
-    nothing was thin at all; then the founder's 14 Sep card put eight of the twelve back
-    under target; then D-631 (19 Sep 2026) re-struck the Clear floor at Gnani's own
-    published rate, ₹3.3111 → ₹3.1491, and all six Clear rungs cleared target again —
-    leaving TWO thin cells, both Studio, where the floor did not move. Only the 14 Sep move
-    was a repricing; every other one was the yardstick.
+    THE SET OF THIN ROWS IS NOT THE PROPERTY: it moves whenever a cost leg or the card does.
 
     So what is asserted is the RULE the console follows: a cell is logged at WARNING
     exactly when the margin guard calls it thin, and thinness never blocks the write. The

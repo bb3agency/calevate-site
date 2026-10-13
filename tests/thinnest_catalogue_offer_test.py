@@ -5,8 +5,7 @@ an operator ADDED and ENABLED, that the engine still lists, is returned, and it 
 only while its minute is attested; a Studio voice is listed only while our Cartesia key is on
 in the workspace (D-688). The models are the engine's live list, to operators only (a client is
 sent none), refused by name where the engine says they are too slow or not on the plan. On
-any engine that does not host voices the route answers "no such catalogue", so the Pipecat
-path reads nothing new.
+any engine that does not host voices the route answers "no such catalogue".
 """
 
 from __future__ import annotations
@@ -152,7 +151,7 @@ def test_a_priced_voice_is_offerable_on_either_rung() -> None:
         )
 
 
-def test_hosted_ids_cannot_collide_with_pipecat_ids() -> None:
+def test_hosted_ids_cannot_collide_with_catalogue_ids() -> None:
     from typing import get_args
 
     from apps.api.agents.voices import TtsModel

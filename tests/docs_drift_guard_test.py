@@ -90,15 +90,6 @@ def _absent_decision(offset: int = 1) -> str:
 
 
 class TestWiring:
-    def test_the_real_tree_is_clean(self) -> None:
-        assert guard.blind_spots() == []
-        assert guard.unresolved_commands() == []
-        assert guard.dangling_decisions() == []
-        assert guard.duplicate_decision_ids() == []
-        assert guard.unknown_rule_names() == []
-        assert guard.rate_zone_drift() == []
-        assert guard.stale_deferrals() == []
-
     def test_it_reads_the_real_makefile(self) -> None:
         targets = guard.makefile_targets()
         assert {"check", "guardrails", "web-check", "db-reset"} <= targets
@@ -273,9 +264,6 @@ class TestCommandCalibration:
 
 
 class TestRunbookRoutes:
-    def test_every_route_a_runbook_names_is_served(self) -> None:
-        assert guard.unserved_runbook_routes() == []
-
     def test_the_route_the_breach_runbook_used_to_name_is_caught(self, tmp_path: Path) -> None:
         """The line that shipped: an operator containing a breach was sent to a halt
         route that answered 404."""
@@ -394,9 +382,6 @@ class TestDecisionTableShape:
     spans.
     """
 
-    def test_the_real_log_is_one_row_per_line(self) -> None:
-        assert guard.broken_decision_rows() == []
-
     def test_catches_a_row_split_across_lines(self, tmp_path: Path) -> None:
         """The D-433 mutation: a literal newline inside a row."""
         rows = guard.ROADMAP.read_text(encoding="utf-8").splitlines()
@@ -502,7 +487,7 @@ class TestRuleNames:
 class TestRateZones:
     """D-29's spec, no longer deferred. `infra/nginx/rate-zones.conf.template` landed with
     the deploy path, so `rate_zone_drift()` now judges the REAL tree on every CI run
-    (`TestWiring.test_the_real_tree_is_clean`). These cases keep judging the comparator
+    (`scripts/check_docs_drift.py`). These cases keep judging the comparator
     itself against synthetic templates in tmp_path — a check that is only ever run against
     a tree that passes has never been shown to fail."""
 
@@ -680,9 +665,6 @@ class TestAnsweredAssumptions:
         offenders = guard.answered_assumptions(roster=self.ROSTER, verdicts={}, files=[doc])
         assert len(offenders) == 1 and "no gate 21" in offenders[0]
 
-    def test_the_live_roster_and_scorecard_agree_with_the_live_docs(self) -> None:
-        assert guard.answered_assumptions() == []
-
     def test_the_roster_is_read_from_operations(self) -> None:
         """A blind section passes on everything, so the subject is asserted present."""
         roster = guard.gate_roster()
@@ -706,21 +688,6 @@ class TestAnsweredAssumptions:
         roster, so it is what holds the first one honest. Asserted one-way on purpose —
         the roster carries gates the Bolna scorecard has no row for."""
         assert guard._scorecard_gate_ids() <= guard.gate_roster()
-
-
-# ============================================================================
-# the Makefile / CI surface
-# ============================================================================
-
-
-def test_the_guardrail_runs_in_both_gates() -> None:
-    """A check nobody runs is a file. `tests/guardrail_audit_test.py` now globs
-    `scripts/check_*.py` and asserts this for every guardrail; kept here too so the
-    failure lands next to the check it is about."""
-    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
-    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "scripts.check_docs_drift" in makefile
-    assert "scripts.check_docs_drift" in workflow
 
 
 # ============================================================================

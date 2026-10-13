@@ -601,22 +601,24 @@ class _VoiceCurationArgs(BaseModel):
 async def _plan_voice_curation(
     session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
 ) -> Plan:
-    from apps.api.agents.voice_curation import list_curated_voices
+    from apps.api.agents.hosted_voices import read_hosted_voice
+    from apps.api.agents.voice_curation import count_live_agents_by_engine_voice
 
     del actor
     parsed = parse_args(_VoiceCurationArgs, args)
-    voices = {row.voice.id: row for row in await list_curated_voices(session, scope="all")}
-    row = voices.get(parsed.voice_id)
-    if row is None:
+    try:
+        row = await read_hosted_voice(session, parsed.voice_id)
+    except ProblemError:
         raise WriteRefusedError(
             "no voice in the catalogue has that id; look it up with `admin_voices`"
-        )
-    label = strip_invisible(row.voice.label)
+        ) from None
+    live = (await count_live_agents_by_engine_voice()).get(parsed.voice_id, 0)
+    label = strip_invisible(row.label)
     return Plan(
         object_id=parsed.voice_id,
         title="Change whether clients may choose this voice",
         summary=(
-            f"Set “{label}” to {parsed.state} for every client. {row.live_agents} agent(s) "
+            f"Set “{label}” to {parsed.state} for every client. {live} agent(s) "
             "speak it now and keep speaking it; only the picker changes."
         ),
         current=row.state,
@@ -630,19 +632,21 @@ async def _plan_voice_curation(
 async def _execute_voice_curation(
     session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`voice_curation.set_curation_state` — `PATCH /v1/ops/voices`'s call."""
-    from apps.api.agents.voice_curation import set_curation_state
+    """`hosted_voices.set_hosted_curation` — `PATCH /v1/ops/voices/hosted`'s call."""
+    from apps.api.agents.hosted_voices import set_hosted_curation
+    from apps.api.agents.voice_curation import count_live_agents_by_engine_voice
 
     del actor
     parsed = parse_args(_VoiceCurationArgs, args)
-    row = await set_curation_state(session, voice_id=parsed.voice_id, state=parsed.state)
+    row = await set_hosted_curation(session, voice_id=parsed.voice_id, state=parsed.state)
+    live = (await count_live_agents_by_engine_voice()).get(parsed.voice_id, 0)
     return Executed(
         applied=True,
         detail=f"The voice is now {row.state}.",
         audit_summary={
             "voice_id": parsed.voice_id,
             "state": parsed.state,
-            "live_agents": row.live_agents,
+            "live_agents": live,
         },
     )
 
@@ -652,7 +656,7 @@ ADMIN_VOICE_SET: Final = AdminActionTool(
     tier="confirm",
     permission="ops:manage",
     object_type="platform_voice_catalog",
-    audit_action="ops.voice_curation_set",
+    audit_action="ops.hosted_voice_curation_set",
     where="on the Voices screen",
     schema=action_schema(
         "admin_voice_set",

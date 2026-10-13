@@ -510,27 +510,11 @@ def test_every_log_message_in_the_tree_is_a_static_token() -> None:
 def test_only_one_database_engine_exists_and_it_hides_its_parameters() -> None:
     """`hide_parameters=True` is a hard-rule-6 control and EVERY engine must carry it.
 
-    ⚠ **THIS GUARD USED TO REQUIRE EXACTLY ONE ENGINE, AND THAT PREMISE DIED WITH D-592.**
-    It was written when one deployable served everything, so "one engine object" and "every
-    engine hides its parameters" were the same sentence. `apps/voice-worker` is a second
-    deployable that hard rule 2 forbids from importing the monolith, so it cannot share
-    `apps/api/db/session.py`'s engine and must build its own. Demanding one builder would
-    now be demanding an import that the import-linter contract refuses.
-
-    So the count is pinned per DEPLOYABLE rather than globally, and the property — no bound
-    parameter reaches a log line — is asserted on EVERY engine found, which is the half that
-    was always doing the work. A second builder inside a deployable still fails here: that is
-    exactly what it caught when `voice_worker/boot.py` and `voice_worker/db.py` were written
-    in parallel and only one of them passed `hide_parameters=True`, leaving the container's
-    actual engine rendering phone numbers and transcript text into every DBAPI error string.
-
-    ⚠ **THE VOICE WORKER NO LONGER BUILDS ONE AT ALL (D-621), AND THE SET SHRANK RATHER THAN
-    THE RULE WEAKENING.** It cannot reach our Postgres from Pipecat Cloud (`docs/DEPLOYMENT.md`
-    §12.5 gate 6), so `voice_worker/db.py` is deleted and that container speaks HTTP to
-    `apps/api` instead. The hard-rule-6 control it carried moved with the write: the client
-    that replaced it (`voice_worker/api_client.py`) puts no response body and no URL into any
-    exception, for the same reason `hide_parameters=True` exists — a message about a failed
-    request would quote the conversation.
+    The count is pinned per DEPLOYABLE, by name, and the property — no bound parameter
+    reaches a log line — is asserted on EVERY engine found. A second builder inside a
+    deployable fails here: two builders written in parallel is how one of them ships without
+    `hide_parameters=True`, rendering phone numbers and transcript text into every DBAPI
+    error string.
 
     Scoped to `apps/` on purpose. `alembic/env.py` builds its own engine deliberately
     (migration review keeps its parameter echo) and `scripts/check_*.py` read catalogs

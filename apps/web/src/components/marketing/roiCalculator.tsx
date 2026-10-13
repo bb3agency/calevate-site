@@ -390,9 +390,8 @@ function voiceOptions(
 ): readonly { id: VoiceTier; label: string; caption: string }[] {
   return VOICE_TIERS.map((voice) => {
     // The pack sentence is CONDITIONAL: a card may price a voice flat (`card_refusals`
-    // permits equal rungs, and the next card prices the cheaper voice that way —
-    // `docs/PIPECAT-MIGRATION.md` §12), and unguarded this renders "₹4.00/min … Down to
-    // ₹4.00/min on the deepest pack" — one figure quoted as a saving on itself.
+    // permits equal rungs), and unguarded this renders "₹X/min … Down to ₹X/min on the
+    // deepest pack" — one figure quoted as a saving on itself.
     // `ladderFalls` is the same guard `/pricing`'s `bandSentence` applies.
     const pack = ladderFalls(card, voice)
       ? ` Down to ${formatRateINR(cardFromRate(card, voice))}/min on the deepest pack.`

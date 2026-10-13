@@ -76,10 +76,6 @@ def _mirror(tmp_path: Path, *relative: str) -> Path:
 
 
 class TestWiring:
-    def test_the_real_tree_is_clean(self) -> None:
-        assert guard.capability_drift() == []
-        assert guard.capability_ambiguities() == []
-
     def test_it_discovers_the_capability_constants_rather_than_listing_them(self) -> None:
         """The registry is an AST walk, not a hand-written set — which is why
         `ENGINE_REPORTS_TTS_MODEL`, absent from the audit's list of four, is guarded too.

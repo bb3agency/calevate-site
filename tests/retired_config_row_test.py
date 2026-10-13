@@ -42,11 +42,6 @@ def _keys(conn: Connection) -> set[str]:
     return {str(row[0]) for row in rows}
 
 
-def test_the_retired_key_is_not_a_setting_any_more() -> None:
-    assert RETIRED not in Settings.model_fields
-    assert KEPT in Settings.model_fields
-
-
 async def test_the_migration_removes_the_retired_row_keeps_the_rest_and_can_run_twice() -> None:
     owner_url = Settings().alembic_database_url
     assert owner_url, "ALEMBIC_DATABASE_URL required: the migration runs as the owner"

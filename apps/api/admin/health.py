@@ -65,9 +65,7 @@ CANDIDATES REJECTED, WITH THE REASON (so nobody re-proposes them)
   latency honestly. D-52 dropped the per-call latency column (migration f1a7c39d5be2)
   precisely because every span this repo opens is on OUR side of the call, and D-49
   removed the trace config rather than pretend a pipeline exists — so a latency tile here
-  would be a fabricated number on the screen operators trust most. (Written without
-  naming the dead column: `tests/call_latency_column_test.py` forbids prose in `apps/`
-  that points at it, which is the rule working.) Answer rate IS derivable
+  would be a fabricated number on the screen operators trust most. Answer rate IS derivable
   (`crm/performance.py::CONNECTED_SQL`) but it moves for reasons an operator cannot act
   on in a week — list quality, time of day — and `calls_stopped` already catches the
   collapse that matters.

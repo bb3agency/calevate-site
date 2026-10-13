@@ -61,7 +61,7 @@ from tests.conftest import accept_agreements
 
 SCRIPT = "Sunrise Clinic receptionist. Greet in Telugu, then take the appointment."
 NEXT_SCRIPT = "Sunrise Clinic receptionist. Greet in Telugu, then quote the new price list."
-VOICE = "bulbul:v3:anushka"
+VOICE = "legacy-voice:anushka"
 #: An arm's own AI-disclosure sentence. Non-empty because the column is NOT NULL and
 #: non-blank (hard rule 5): an arm without one cannot be written, let alone published.
 ARM_DISCLOSURE = "Namaskaram, idi Sunrise Clinic AI assistant."
@@ -171,7 +171,7 @@ class VoiceDroppingEngine(MutatingEngine):
 
     def mutate(self, cfg: AgentConfig) -> AgentConfig:
         return cfg.model_copy(
-            update={"models": cfg.models.model_copy(update={"tts_voice": "bulbul:v2:vidya"})}
+            update={"models": cfg.models.model_copy(update={"tts_voice": "legacy-voice:vidya"})}
         )
 
 
@@ -299,7 +299,7 @@ async def _publishable_agent() -> tuple[uuid.UUID, uuid.UUID]:
             created_by=None,
         )
         await session.execute(
-            text("UPDATE agents SET tts_voice = :v, tts_provider = 'sarvam' WHERE id = :a"),
+            text("UPDATE agents SET tts_voice = :v, tts_provider = 'cartesia' WHERE id = :a"),
             {"v": VOICE, "a": agent_id},
         )
     return tenant_id, agent_id
@@ -1374,9 +1374,8 @@ def test_an_unreadable_prompt_is_still_not_convicted_by_an_alternate() -> None:
 
 # --- 8. THE READ-BACK NOW DIFFS THE WHOLE TTS LEG (D-547) --------------------
 #
-# `holds_speech("tts")` used to answer with the SPEAKER alone, on the ground that the
-# provider was implied by the model string. That held while one vendor spoke every voice.
-# With Sarvam and Cartesia in one catalogue it does not: an engine holding the right
+# `holds_speech("tts")` answers with the provider and model beside the SPEAKER, because
+# with more than one vendor in one catalogue an engine holding the right
 # speaker under the wrong provider is a caller hearing a different person, on a dearer
 # tier, with every check green.
 
@@ -1399,15 +1398,17 @@ def _cartesia_cfg() -> AgentConfig:
 
 def test_an_engine_holding_our_speaker_under_the_wrong_provider_is_a_mismatch() -> None:
     """THE DEFECT D-547 ADDS AND THIS CLOSES. The publish succeeds, the speaker string
-    round-trips, and the synthesizer is Sarvam's — so the client is billed the Cartesia
-    rate for a Sarvam voice and no screen we own can see it."""
+    round-trips, and the synthesizer is another vendor's — so the client is billed the
+    Studio rate for a voice that is not one and no screen we own can see it."""
     cfg = _cartesia_cfg()
-    held_as_sarvam = _snapshot(
+    held_elsewhere = _snapshot(
         cfg,
-        models=cfg.models.model_copy(update={"tts_provider": "sarvam", "tts_model": "bulbul:v3"}),
+        models=cfg.models.model_copy(
+            update={"tts_provider": "another_vendor", "tts_model": "another-model"}
+        ),
     )
 
-    verdict = judge(FakeEngine(), cfg, held_as_sarvam)
+    verdict = judge(FakeEngine(), cfg, held_elsewhere)
 
     assert verdict.voice_applied is False
     assert verdict.state == "not_applied"

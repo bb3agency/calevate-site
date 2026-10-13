@@ -28,10 +28,9 @@ or when the drain deadline passes, whichever comes first.
 realms' sign-in routes are in `core/loadshed`'s exemption lists and are not shed in any
 mode. If you cannot reach the console during a window, the window is not the cause.
 
-**Calls are never cut off by the shed either.** The Pipecat worker's callbacks into the
-api (`/v1/worker/**`: the session a ringing call loads, the in-call opt-out, the settlement
-that bills the call) are exempt for the same reason `/hooks` is. That exemption is also
-what lets an inbound agent load and speak the maintenance message during `active`.
+**Calls are never cut off by the shed either.** ThinnestAI's in-call actions and caller
+lookups into the api (`/v1/worker/**`: the in-call opt-out, call-back and hand-over, and the
+pre-answer caller lookup) are exempt for the same reason `/hooks` is.
 
 ## 2. Scheduling one
 

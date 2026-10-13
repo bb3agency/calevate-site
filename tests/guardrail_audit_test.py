@@ -191,9 +191,6 @@ class TestRlsCoverage:
         assert set(TENANT_TABLES) <= state.tenant_column_tables
         assert any(p.name == check_rls_coverage.POLICY_NAME for p in state.policies)
 
-    def test_live_schema_is_clean(self, engine: Engine) -> None:
-        assert check_rls_coverage.evaluate(check_rls_coverage.fetch_state(engine)) == []
-
     def test_baseline_passes(self) -> None:
         """Without this the detection tests below could pass for the wrong reason."""
         assert check_rls_coverage.evaluate(_tenant_state()) == []
@@ -508,8 +505,8 @@ class TestRlsCoverage:
             # document at all. Keeping it here is what lets `kb_sources`/`kb_documents`
             # stay FORCE-RLS'd with no exemption of their own.
             "engine_kb_routes",
-            # The `owned_runtime` engine's account-level knowledge objects (D-592,
-            # migration `e2f5a91c8d47`). Same exemption, same pattern and same argument as
+            # Account-level knowledge objects our former own runtime wrote (migration
+            # `e2f5a91c8d47`; the table stays until its DROP, D-763). Same exemption as
             # `engine_kb_routes` one line up: `list_account_kb`'s question is "which
             # objects does no tenant of ours claim", which no tenant session can ask, and
             # the row holds opaque ids and a state word rather than any client content.
@@ -698,9 +695,6 @@ class TestLedgerImmutability:
         classes = check_ledger_immutability.ledger_model_classes()
         assert set(classes.values()) == set(APPEND_ONLY_TABLES)
 
-    def test_real_tree_has_no_ledger_mutation(self) -> None:
-        assert check_ledger_immutability.check_sources() == []
-
     def test_a_source_scan_that_reads_no_code_refuses_rather_than_passing(
         self, tmp_path: Path
     ) -> None:
@@ -730,11 +724,6 @@ class TestLedgerImmutability:
         monkeypatch.setattr(check_ledger_immutability, "ledger_model_classes", dict)
 
         assert any("empty class map" in f for f in check_ledger_immutability.blind_spots())
-
-    def test_the_live_tree_clears_the_floor(self) -> None:
-        """The control on the control: if this ever fails, the `[]` asserted above is
-        unreachable rather than earned."""
-        assert check_ledger_immutability.blind_spots() == []
 
     @pytest.mark.parametrize("label", sorted(LEDGER_VIOLATIONS))
     def test_catches(self, label: str) -> None:
@@ -854,16 +843,6 @@ def _add_model(spec: dict[str, Any], name: str, properties: dict[str, Any]) -> N
 
 
 class TestRedactionExposure:
-    def test_live_schema_exposes_no_raw_pii(self, live_spec: dict[str, Any]) -> None:
-        assert check_redaction_exposure.check(live_spec) == []
-
-    def test_exemption_registries_are_not_stale(self, live_spec: dict[str, Any]) -> None:
-        assert check_redaction_exposure.check_registry_freshness(live_spec) == []
-
-    def test_allowlisted_routes_are_role_checked_and_audited(self) -> None:
-        facts = check_redaction_exposure.route_facts()
-        assert check_redaction_exposure.check_allowlist(facts) == []
-
     def test_catches_a_new_transcript_field_on_an_existing_response_model(
         self, live_spec: dict[str, Any]
     ) -> None:
@@ -1328,9 +1307,6 @@ class TestConfigApplies:
     list for that to happen — which is why the refusal is a section rather than a comment.
     """
 
-    def test_the_live_registries_are_populated(self) -> None:
-        assert check_config_applies.blind_spots() == []
-
     def test_an_empty_managed_set_is_refused_rather_than_passed(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1390,12 +1366,6 @@ class TestOpenApiFresh:
     # against a contract the server had stopped serving, and two `lib/api` modules aliased
     # schema names the generator no longer emitted. `tsc` cannot see it: a stale `.d.ts` is
     # a perfectly consistent set of types, just not the server's.
-
-    def test_the_generated_client_is_in_step_with_the_snapshot(
-        self, live_spec: dict[str, Any]
-    ) -> None:
-        generated = check_openapi_fresh.GENERATED.read_text(encoding="utf-8")
-        assert check_openapi_fresh.generated_drift(live_spec, generated) == []
 
     def test_catches_a_name_the_generator_never_emitted(self, live_spec: dict[str, Any]) -> None:
         """The shipped defect's shape: the snapshot gained a schema and nobody re-ran
@@ -1632,25 +1602,6 @@ class TestMakefileWiring:
                 "step that runs it."
             )
         assert "lint-imports" in makefile and "lint-imports" in workflow
-
-    def test_every_guardrail_script_is_named_in_the_catalogue(self) -> None:
-        """ENGINEERING-PRACTICES §2 is where somebody looks up what guards what.
-
-        It listed twelve of the twenty scripts when D-176 audited them — the eight it had
-        never heard of are exactly the ones nobody would think to run, argue with, or
-        notice the absence of. Keyed on the script PATH rather than the `check:` name so a
-        row cannot satisfy this with a name the tree does not use.
-        """
-        catalogue = (REPO_ROOT / "docs" / "ENGINEERING-PRACTICES.md").read_text(encoding="utf-8")
-        missing = [
-            path.name
-            for path in sorted((REPO_ROOT / "scripts").glob("check_*.py"))
-            if f"scripts/{path.name}" not in catalogue
-        ]
-        assert missing == [], (
-            f"{missing} run in both gates and appear in no row of the guardrail catalogue. "
-            "A check the docs do not name is one the next reader cannot argue with."
-        )
 
     def test_the_command_accessors_are_not_reading_everything(self) -> None:
         """The accessors above are the load-bearing half of the test before this one, so

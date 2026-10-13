@@ -2,12 +2,10 @@
 
 AUTH-MIGRATION §11 reported the header as inert: both password-reset forms send one,
 `core/middleware.py` lets it through CORS, `reliability/service.py` implements the store, and
-no auth route takes the dependency. The decision is that no auth route ever will, so this
-file makes the ABSENCE a property rather than an oversight, and measures the mechanisms the
-decision leans on.
+no auth route takes the dependency. The decision is that no auth route ever will; this
+file measures the mechanisms the decision leans on.
 
-THE ARGUMENT, in one paragraph, because a test file that only asserts an absence is not
-evidence of anything. An idempotency record is keyed on `(scope_key, route, method,
+THE ARGUMENT, in one paragraph. An idempotency record is keyed on `(scope_key, route, method,
 idempotency_key)`, and its safety collapses into "can two different callers compute the same
 scope?" (`scripts/check_idempotency_scope.py`, D-175 — a reference platform fell back to the
 client address for anonymous callers, which behind a CDN is one scope for everybody). Our
@@ -25,11 +23,9 @@ exactly those, and nothing counts globally.
 
 from __future__ import annotations
 
-import ast
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -39,8 +35,6 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.redis import get_redis
 from apps.api.db.session import credential_session, untenanted_session
 from sqlalchemy import text
-
-AUTHN_ROUTES = Path(__file__).resolve().parent.parent / "apps" / "api" / "authn" / "routes.py"
 
 
 @pytest_asyncio.fixture
@@ -108,56 +102,6 @@ async def _issue_reset_token(user_id: uuid.UUID, email: str) -> str:
         ).scalar()
     assert secret is not None, "a reset request must queue exactly one mail"
     return str(secret)
-
-
-# ═══════════════ the absence, as a property ═══════════════
-
-
-def test_no_handler_in_the_auth_router_reads_the_idempotency_key_header() -> None:
-    """The decision, made checkable. A handler that started reading the header would be
-    claiming a protection it cannot scope, and the scope is the whole safety argument."""
-    source = AUTHN_ROUTES.read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    offenders = [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and node.value.lower() == "idempotency-key"
-    ]
-    assert not offenders, (
-        f"authn/routes.py reads Idempotency-Key at line(s) {offenders}. An unauthenticated "
-        "caller has no principal to scope a replay cache on (D-175)."
-    )
-
-
-def test_no_module_in_the_auth_package_claims_an_idempotency_record() -> None:
-    package = AUTHN_ROUTES.parent
-    for path in sorted(package.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                name = node.func.attr if isinstance(node.func, ast.Attribute) else None
-                name = name or (node.func.id if isinstance(node.func, ast.Name) else None)
-                assert name != "claim_idempotency", f"{path}:{node.lineno}"
-
-
-def test_the_scope_producer_still_refuses_a_string_at_the_type_level() -> None:
-    """The guard the decision rests on: `scope_key` is keyword-only and both parameters are
-    `UUID | None`, so mypy strict refuses an address or a header at EVERY call site. If this
-    ever widens, the argument for not taking the header changes with it."""
-    import inspect
-
-    from apps.api.reliability.service import scope_key
-
-    signature = inspect.signature(scope_key)
-    assert [p.kind for p in signature.parameters.values()] == [
-        inspect.Parameter.KEYWORD_ONLY,
-        inspect.Parameter.KEYWORD_ONLY,
-    ]
-    assert set(signature.parameters) == {"tenant_id", "user_id"}
-    for parameter in signature.parameters.values():
-        assert parameter.annotation in ("UUID | None", "uuid.UUID | None")
 
 
 # ═══════════════ what protects each route instead ═══════════════

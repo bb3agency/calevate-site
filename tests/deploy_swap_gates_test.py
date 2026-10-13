@@ -9,11 +9,9 @@ lifted out of the script, against a stubbed `docker`/`compose`/`git`. What each 
 2. `deployed-sha` only advances when every component that changed since it is running
    HEAD. A named-component deploy used to advance it anyway, so the next `--changed` run
    diffed from a commit whose api change had never shipped and reported nothing to do.
-3. A range touching the Pipecat voice worker says so, including when it is the only
-   change and the deploy would otherwise print "HEAD is already live".
-4. A non-revision line from `alembic current` is refused. The revision checker answers
+3. A non-revision line from `alembic current` is refused. The revision checker answers
    "absent" for any unresolvable string, and "absent" skips migrations.
-5. The web build runs at the lowest CPU and I/O priority with a V8 heap ceiling, so it
+4. The web build runs at the lowest CPU and I/O priority with a V8 heap ceiling, so it
    cannot starve the live api on a one-vCPU host.
 """
 
@@ -164,44 +162,6 @@ def test_a_named_deploy_covering_every_change_advances_the_pointer() -> None:
 def test_a_changed_or_all_deploy_advances_the_pointer() -> None:
     assert _pointer_after("changed", "api voice-runtime workers") == "new"
     assert _pointer_after("all", "api voice-runtime workers web nginx") == "new"
-
-
-def test_a_voice_worker_only_range_warns_instead_of_reporting_everything_live() -> None:
-    result = _run(
-        _functions(
-            "components_for_paths",
-            "last_deployed_sha",
-            "components_since_last_deploy",
-            "voice_worker_changed_since",
-            "resolve_plan",
-        )
-        + r"""
-git() {
-  case "$*" in
-    *cat-file*) return 0 ;;
-    *diff*) printf 'apps/voice-worker/voice_worker/pipeline.py\n' ;;
-  esac
-}
-STATE_DIR=$(mktemp -d)
-printf 'old\n' > "$STATE_DIR/deployed-sha"
-MODE=changed
-resolve_plan
-"""
-    )
-    assert result.returncode == 0, result.stderr
-    assert "nothing to deploy" in result.stdout
-    assert "pipecat-worker-setup.sh deploy" in result.stderr
-
-
-def test_an_unrelated_range_does_not_mention_the_voice_worker() -> None:
-    result = _run(
-        _functions("voice_worker_changed_since")
-        + r"""
-git() { printf 'apps/web/src/app/page.tsx\ndocs/DEPLOYMENT.md\n'; }
-voice_worker_changed_since old && echo CHANGED || echo UNCHANGED
-"""
-    )
-    assert result.stdout.strip() == "UNCHANGED"
 
 
 @pytest.mark.parametrize(

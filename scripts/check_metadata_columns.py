@@ -56,11 +56,10 @@ because the honest report is "this database cannot answer the question": the fix
 migrate it, not to declare a column. It stays out of `column_differences`, whose callers
 — `tests/metadata_columns_guard_test.py` — legitimately hand in one-table metadata.
 
-BOTH DIRECTIONS, and the second one is the one nothing else covers. This repo has caught
-the autogenerate round-trip hazard three times — `call_latency_column_test`,
-`prefix_index_audit_test`, `credit_ledger_index_prune_test` — and every one of them checks
-that a REMOVED thing stays removed. The opposite direction, a live column the models never
-learned about, had no guard at all and eight instances.
+BOTH DIRECTIONS, and the second one is the one nothing else covers. This repo has met
+the autogenerate round-trip hazard three times (`calls.latency`, the redundant prefix
+indexes, a credit-ledger index), each time for a REMOVED thing. The opposite direction, a
+live column the models never learned about, had no guard at all and eight instances.
 
 Run: uv run python -m scripts.check_metadata_columns   (needs a migrated DB; owner URL)
 """

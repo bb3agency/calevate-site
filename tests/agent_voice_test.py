@@ -1,79 +1,31 @@
-"""The voice catalog: the allowlist, the two write doors, and the read that shows both.
+"""The voice an agent is set to: the catalogue's lookup layer and the read that shows it.
 
-Three things are under test and they are not the same thing.
+1. **The catalogue is data we can stand behind.** Every entry must validate against its
+   own lookup — an entry the validator would refuse is a voice the UI offers and the API
+   rejects.
 
-1. **The catalog is data we can stand behind.** The single-tier voice decision locks ONE
-   voice quality (Sarvam Bulbul v3) — no premium/value ladder — while keeping the persona
-   dimension for future speakers. Every entry must validate against its own lookup — an
-   entry the validator would refuse is a voice the UI offers and the API rejects.
-
-2. **An unknown string never reaches an agent row.** That is the entire point:
-   `agents.tts_voice` is free text whose next reader is a vendor API, so "typo stored,
-   discovered at call time on a client's line" is the failure mode being closed.
-
-3. **CONFIGURED IS NOT LIVE, and the read says both.** ⚠ **D-586 CHANGED WHEN THE TWO
-   CONVERGE AND THIS PARAGRAPH USED TO SAY THE OPPOSITE.** The write now re-publishes a
-   LIVE agent in the same transaction, so on a live agent they converge on the write
-   itself; they remain two facts on a draft agent (nothing is on the engine), on a PAUSED
-   one (an engine object still holds the old voice, and a voice write deliberately does
-   not republish it — `publish_agent` writes `status = 'live'`) and on one published
-   before the mirror existed. Answering with `tts_voice` alone would still be the "one
-   number called the voice" defect that `live_prompt_id` was added to fix for the script.
-   `agents.live_tts_voice` (migration c8b3f14e7a29) is the second answer, written by
-   `publish_agent` from the config it actually sent, and
-   `GET /v1/agents/{agent_id}/pending` carries both.
-
-   The CLIENT-REALM half of this — the owner and their staff writing their own agent's
-   voice and cap, and the engine push and its failure path — lives in
-   `tests/agent_settings_live_edit_test.py`. What stays here is the catalogue, the
-   allowlist and the admin door.
-
-The router is deliberately NOT mounted in `main.py`, so the HTTP tests mount it here —
-and mount it AHEAD of `agents.routes.router`, which is the order the real app must use
-(`/v1/agents/{agent_id}` otherwise eats the literal `voices`). Running the boot
-assertion over the assembled app keeps that contract honest: if either route ever loses
-its `permission_meta`, mounting it anywhere starts failing.
-
-THE ADMIN WRITE lives at `PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice`,
-with the tenant in the path instead of the body — it was the one admin-realm route left
-in the client path space, which cost it the `/v1/admin` rate-limit profile and an audit
-trail readable from the URL. Since D-586 there is ALSO a client door at
-`PATCH /v1/agents/{agent_id}/voice`, which is a different route rather than the old one
-restored: client realm, no tenant in it at all. `tests/route_shape_test.py` asserts the
-rule the move established — no ADMIN-realm route in the client path space — over the
-whole route table; the cases below are the behaviour.
+2. **CONFIGURED IS NOT LIVE, and the read says both.** `agents.tts_voice` is the voice on
+   the row; `agents.live_tts_voice` (migration c8b3f14e7a29) is the voice `publish_agent`
+   actually sent, and `GET /v1/agents/{agent_id}/pending` carries both. They differ on an
+   agent published before the mirror existed or one that drifted, and the read says so
+   rather than answering with one value.
 """
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager
-from dataclasses import replace
 from typing import get_args
 from uuid import UUID
 
-import pytest
 from apps.api.admin import service as admin_service
-from apps.api.agents import prompts, publishing, voice_routes
+from apps.api.agents import prompts, publishing
 from apps.api.agents.publishing_routes import router as publishing_router
 from apps.api.agents.routes import router as agents_router
 from apps.api.agents.service import publish_agent
-from apps.api.agents.voice_admission import OUR_PROVIDERS
-from apps.api.agents.voice_offer import (
-    NOT_CURATED_REASON,
-    client_unofferable_reason,
-    no_attested_price_reason,
-    offered_catalogue,
-)
-from apps.api.agents.voice_routes import router as voice_router
 from apps.api.agents.voice_sync import load_voice_catalogue
 from apps.api.agents.voices import (
-    CARTESIA_TTS_MODEL,
-    GNANI_TTS_MODEL,
     Voice,
     VoiceProvider,
-    VoiceSelectionCapability,
     catalogue,
     catalogue_note,
     get_voice,
@@ -82,35 +34,23 @@ from apps.api.agents.voices import (
     voice_id_for,
     voice_ids,
 )
-from apps.api.billing.rates import voice_tier_label
-from apps.api.core.context import Principal
-from apps.api.core.errors import ProblemError, install_error_handlers
+from apps.api.core.errors import install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
-from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
+from apps.api.engine.fake import FakeEngine
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.conftest import accept_agreements
-from tests.voice_fixture import TEST_SPEAKER, TEST_VOICE_ID
+from tests.voice_fixture import STUDIO_TTS_MODEL, TEST_SPEAKER, TEST_VOICE_ID
 
-# The catalogue id every test in this file writes. Named rather than typed 20 times: it is
-# `<tts_model>:<speaker>` now (D-358's second half), and the whole point of the split is
-# that the id, the model and the speaker are three different strings.
 VOICE_ID = TEST_VOICE_ID
 
 
 async def _curated(voice: Voice, state: str = "enabled") -> None:
-    """Give an injected catalogue voice a curation row, so a clause about the PRICED grounds
-    is driving the ground it means to.
-
-    Offerability ground zero is read from `platform_voice_catalog` (D-588) and fails CLOSED
-    on a voice with no row — correctly: that is what a voice the platform has stopped
-    listing looks like. A test that injects a voice into the capability seam alone would
-    therefore get "the platform no longer lists this" for every case, including the ones
-    about a missing key or an unattested price.
-    """
+    """Give a voice a `platform_voice_catalog` row, which is what the catalogue snapshot
+    `load_voice_catalogue` reads."""
     async with untenanted_session() as session:
         await session.execute(
             text(
@@ -146,17 +86,16 @@ async def _uncurated(voice: Voice) -> None:
 def _cartesia_voice(speaker: str = "test-record-not-a-real-voice-id") -> Voice:
     """ONE Cartesia catalogue entry, as the ENGINE SYNC would build one.
 
-    Built here rather than loaded, because D-588 deleted the hand-loaded Cartesia list these
-    clauses used to drive: the only route into the catalogue is the engine's own voice-config
-    API, and what these clauses are about is the ROUTE's behaviour on an unofferable voice.
-    The id is deliberately not a plausible Cartesia id — nothing in this tree has read one,
-    and a fixture that looked real is how an invented id ends up quoted as fact.
+    Built here rather than loaded: the only route into the catalogue is the engine's own
+    voice-config API. The id is deliberately not a plausible Cartesia id — nothing in this
+    tree has read one, and a fixture that looked real is how an invented id ends up quoted
+    as fact.
     """
     return Voice(
-        id=voice_id_for(CARTESIA_TTS_MODEL, speaker),
+        id=voice_id_for(STUDIO_TTS_MODEL, speaker),
         label="Test Persona",
         provider="cartesia",
-        tts_model=CARTESIA_TTS_MODEL,
+        tts_model=STUDIO_TTS_MODEL,
         speaker=speaker,
         languages=("te-IN",),
         gender=None,
@@ -165,37 +104,11 @@ def _cartesia_voice(speaker: str = "test-record-not-a-real-voice-id") -> Voice:
     )
 
 
-def _unofferable_voice(speaker: str = "Suhana") -> Voice:
-    """ONE catalogue entry this deployment may NOT offer, for the clauses about a refusal.
-
-    ⚠ **IT USED TO BE `_cartesia_voice()`, AND THAT STOPPED BEING UNOFFERABLE ON
-    18 Sep 2026.** The founder withdrew the Sarvam TTS leg, so the suite's platform has to
-    do what a real operator does — install the Cartesia key and attest its price
-    (`tests/voice_fixture.platform_can_speak`) — or nothing is offerable at all and every
-    other clause in this file fails. Gnani is the provider that genuinely still refuses:
-    nobody has attested what a Gnani minute costs, and the founder's decision is that the
-    value rung stays unsellable until somebody does.
-    """
-    return Voice(
-        id=voice_id_for(GNANI_TTS_MODEL, speaker),
-        label=speaker,
-        provider="gnani",
-        tts_model=GNANI_TTS_MODEL,
-        speaker=speaker,
-        languages=("te-IN",),
-        gender=None,
-        verified=False,
-        note=catalogue_note("gnani"),
-    )
-
-
 def _app() -> FastAPI:
     application = FastAPI()
     install_error_handlers(application)
-    # ORDER IS THE CONTRACT: the literal `/v1/agents/voices` and `/v1/agents/{id}/pending`
-    # must be declared before `/v1/agents/{agent_id}`, or FastAPI matches the
-    # parameterised route first and answers 422 about a UUID nobody sent.
-    application.include_router(voice_router)
+    # ORDER IS THE CONTRACT: the literal `/v1/agents/{id}/pending` must be declared before
+    # `/v1/agents/{agent_id}`, or FastAPI matches the parameterised route first.
     application.include_router(publishing_router)
     application.include_router(agents_router)
     assert_policy_registry_complete(application)
@@ -269,30 +182,15 @@ async def _tenant(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, str, str]:
     return tenant_id, agent_id, str(slug), f"dev:client:{user_id}"
 
 
-async def _stored_voice(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> tuple[str | None, str | None]:
+async def _set_voice(tenant_id: uuid.UUID, agent_id: uuid.UUID, voice_id: str) -> None:
+    """Put a catalogue voice on the agent's row, as configuring it does."""
+    voice = get_voice(voice_id)
+    assert voice is not None, voice_id
     async with tenant_session(tenant_id) as session:
-        row = (
-            await session.execute(
-                text("SELECT tts_voice, tts_provider FROM agents WHERE id = :aid"),
-                {"aid": agent_id},
-            )
-        ).first()
-    assert row is not None
-    return row[0], row[1]
-
-
-async def _set_voice(tenant_id: uuid.UUID, agent_id: uuid.UUID, voice_id: str) -> dict[str, object]:
-    """The admin write, over HTTP — the only supported way a voice reaches a row."""
-    admin_token = await _admin_token()
-    async with _client(_app()) as http:
-        response = await http.patch(
-            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
-            json={"voice_id": voice_id},
-            headers={"Authorization": f"Bearer {admin_token}"},
+        await session.execute(
+            text("UPDATE agents SET tts_voice = :v, tts_provider = :p WHERE id = :aid"),
+            {"v": voice_id, "p": voice.provider, "aid": agent_id},
         )
-    assert response.status_code == 200, response.text
-    body: dict[str, object] = response.json()
-    return body
 
 
 async def _publish(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> FakeEngine:
@@ -311,31 +209,6 @@ async def _publish(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> FakeEngine:
     return engine
 
 
-@contextmanager
-def _dictating_engine() -> Iterator[FakeEngine]:
-    """Run the block against an engine that SUPPLIES ITS OWN VOICES.
-
-    The same `FakeEngine` class with a different capability descriptor — no speculative
-    adapter and no imagined vendor API, because every difference that matters here is an
-    ANSWER rather than an endpoint (`fake.DICTATED_SPEECH_CAPABILITIES`).
-
-    It reaches into `apps.api.engine`'s instance cache because that is what the route
-    resolves through, and it restores the cache afterwards so the next test gets the
-    ordinary BYOK engine back — a leaked descriptor would make an unrelated suite fail
-    somewhere far from here.
-    """
-    import apps.api.engine as engine_module
-
-    engine = FakeEngine(capabilities=DICTATED_SPEECH_CAPABILITIES)
-    previous = dict(engine_module._instances)
-    engine_module._instances["fake"] = engine
-    try:
-        yield engine
-    finally:
-        engine_module._instances.clear()
-        engine_module._instances.update(previous)
-
-
 # --- The catalog itself -------------------------------------------------------
 
 
@@ -351,28 +224,6 @@ def test_the_catalog_is_not_empty_and_every_entry_validates() -> None:
         assert voice.label.strip(), "a voice with no label cannot be picked by a human"
         assert "te-IN" in voice.languages, "Telugu-first: a voice without Telugu is not ours"
         assert voice.languages[0] == "te-IN", "Telugu leads the list a picker renders"
-
-
-def test_the_catalog_carries_no_tier_field_and_no_sarvam_ladder() -> None:
-    """**"ONE VOICE QUALITY" WAS THIS TEST'S CLAIM AND D-547 RETIRED IT** — the tier
-    dimension came back as a second PROVIDER (Cartesia `sonic-3.5`), chosen per agent and
-    priced per credit lot. What did NOT come back is the old premium/value LADDER inside
-    Sarvam: Bulbul v2 stays withdrawn, and there is still no `tier` FIELD, because the tier
-    is `provider` and a second spelling is where the two would come to disagree.
-
-    The Sarvam half of the catalogue is still exactly one model. Whether a Cartesia voice
-    is in it at all is now the ENGINE ACCOUNT's business rather than ours (D-585/D-588) —
-    `tests/voice_tier_test.py` is the file about that half.
-    """
-    assert {v.tts_model for v in catalogue() if v.provider == "cartesia"} == {"sonic-3.5"}
-    for voice in catalogue():
-        assert not hasattr(voice, "tier"), "the tier dimension is never a field"
-        assert not hasattr(voice, "is_default"), (
-            "a compiled default persona is back; D-588 deleted the last hardcoded voice"
-        )
-    # v2 is no longer a voice we offer.
-    assert get_voice("sonic-2:anushka") is None
-    assert not is_supported_voice("sonic-2:anushka")
 
 
 def test_an_unknown_voice_id_is_not_supported() -> None:
@@ -401,476 +252,15 @@ def test_every_entry_was_listed_by_the_engine_and_none_claims_a_gender() -> None
     assert all(voice.gender is None for voice in catalogue()), "no speaker genders in the docs"
 
 
-# --- The endpoints ------------------------------------------------------------
-
-
-async def test_a_client_can_read_the_catalog() -> None:
-    """A client is the Principal Entity; they get to hear what their agent sounds like.
-    Also pins the mount order — a 422 here means the router was mounted too late.
-
-    The response is an ENVELOPE, not a bare list (D-93). On an engine that supplies its
-    own voices the honest answer is "no selection here, and that is normal", and a bare
-    list can only say that with `[]` — which the console renders as "this agent has no
-    voices available", a claim about the product rather than about the engine. So the
-    verdict travels beside the rows: `selectable` and `control` say whether choosing is
-    possible at all, and `note` is the sentence a surface prints either way.
-    """
-    _tenant_id, _agent_id, slug, token = await _tenant()
-    async with _client(_app()) as http:
-        response = await http.get(
-            "/v1/agents/voices",
-            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
-        )
-    assert response.status_code == 200, response.text
-    body = response.json()
-    # `ENGINE=fake` in tests, and the fake adapter is BYOK on every leg, so the full
-    # catalog is offerable here — which is also Bolna's answer (`BOLNA_CAPABILITIES`).
-    assert body["control"] == "ours"
-    assert body["selectable"] is True
-    assert body["note"]
-    assert len(body["voices"]) == len(catalogue())
-    assert {entry["id"] for entry in body["voices"]} == set(voice_ids())
-    assert {entry["tts_model"] for entry in body["voices"]} == {"sonic-3.5"}
-    assert "tier" not in body["voices"][0], "the tier field was removed from the catalog"
-    # EVERY VOICE CARRIES ITS OWN VERDICT (D-547 §4.C.2), never a filtered list: a voice
-    # missing from the answer is indistinguishable from a tier this product does not sell,
-    # so the picker could not tell an operator which of key / price / cap is still missing.
-    assert all(entry["offerable"] is True for entry in body["voices"])
-    assert all(entry["unavailable_reason"] is None for entry in body["voices"]), (
-        "every Sarvam voice is offerable: its key is the engine account's own, its cost is "
-        "on the rate card, and the Cartesia agent cap does not apply to it"
-    )
-
-
-async def test_an_unavailable_voice_is_returned_with_its_reason_never_dropped(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """**THE PICKER IS NEVER HANDED A SHORTER LIST (D-547 §4.C.2).**
-
-    A Cartesia voice missing from this response is indistinguishable from a Cartesia tier
-    this product does not sell — so the operator who pasted the key an hour ago has no way
-    to see that the PRICE is what is still missing, and the client who asks for the premium
-    voice is told nothing at all. Every voice comes back; `unavailable_reason` says why an
-    unavailable one is unavailable, in a sentence naming the ONE action that fixes it.
-
-    The catalogue's own Cartesia half is empty today (no voice id in this tree has been read
-    from the vendor), so the case is driven through the capability seam the route already
-    reads — which is also the only place a surface could have filtered.
-    """
-    _tenant_id, _agent_id, slug, token = await _tenant()
-    cartesia = _unofferable_voice()
-    await _curated(cartesia)
-    real = voice_routes.voice_selection_capability
-
-    def with_cartesia(engine: object | None = None) -> VoiceSelectionCapability:
-        capability = real()
-        return replace(capability, voices=(*capability.voices, cartesia))
-
-    monkeypatch.setattr(voice_routes, "voice_selection_capability", with_cartesia)
-
-    try:
-        async with _client(_app()) as http:
-            response = await http.get(
-                "/v1/agents/voices",
-                headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
-            )
-    finally:
-        await _uncurated(cartesia)
-
-    assert response.status_code == 200, response.text
-    rows = {entry["id"]: entry for entry in response.json()["voices"]}
-    assert cartesia.id in rows, "the unavailable voice was dropped instead of explained"
-    assert rows[cartesia.id]["offerable"] is False
-    assert rows[TEST_VOICE_ID]["offerable"] is True
-    # THE SENTENCE IS THE CLIENT'S, because the caller is one — the operator ground names
-    # the vendor and the setting that fixes it, and this route is readable in both realms.
-    # `test_the_refusal_a_client_reads_names_neither_the_vendor_nor_our_settings` below is
-    # the case about that; here it is enough that the operator ground did not travel.
-    assert rows[cartesia.id]["unavailable_reason"] == client_unofferable_reason(cartesia)
-    assert rows[cartesia.id]["unavailable_reason"] != no_attested_price_reason("gnani")
-
-
-async def test_the_refusal_a_client_reads_names_neither_the_vendor_nor_our_settings(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """**THE LEAK, ON THE WIRE.** Every one of `voice_offer`'s three grounds names Cartesia
-    and two name a field only we can edit (`cartesia_api_key`, `cartesia_agent_cap`) — and
-    this endpoint is `agents:read`, which a CLIENT holds. So the sentence forks by realm
-    (`voice_routes._reason_audience`), the way `agents/llm_routes.py` already forks a
-    blocked model's reason: the operator keeps the ground they can fix, the client is told
-    the one action they have, in the tier's own client-facing name.
-
-    The CLIENT half is asserted over HTTP because that is where the leak would happen; the
-    operator half is `test_the_reason_audience_is_the_realm` below, which drives the fork
-    directly — an admin principal reaches this path only by impersonation
-    (`core/auth.current_any`), and minting a view-as grant here would test the grant flow
-    rather than the fork.
-    """
-    _tenant_id, _agent_id, slug, token = await _tenant()
-    cartesia = _unofferable_voice()
-    await _curated(cartesia)
-    real = voice_routes.voice_selection_capability
-
-    def with_cartesia(engine: object | None = None) -> VoiceSelectionCapability:
-        capability = real()
-        return replace(capability, voices=(*capability.voices, cartesia))
-
-    monkeypatch.setattr(voice_routes, "voice_selection_capability", with_cartesia)
-
-    try:
-        async with _client(_app()) as http:
-            response = await http.get(
-                "/v1/agents/voices",
-                headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
-            )
-    finally:
-        await _uncurated(cartesia)
-
-    assert response.status_code == 200, response.text
-    row = {entry["id"]: entry for entry in response.json()["voices"]}[cartesia.id]
-    reason = row["unavailable_reason"]
-
-    assert reason == client_unofferable_reason(cartesia)
-    assert voice_tier_label(cartesia.provider) in reason
-    for ours in ("cartesia", "gnani", "sarvam", "cartesia_api_key", "attest", "ops console"):
-        assert ours not in reason.lower(), f"{ours!r} crossed the wire to a client"
-    # OFFERABILITY ITSELF DID NOT FORK — only the sentence did. A client sees the same row,
-    # refused, with the same tier name; what changed is whose language the refusal is in.
-    assert row["offerable"] is False
-    assert row["tier_label"] == voice_tier_label(cartesia.provider)
-
-
-def test_the_reason_audience_is_the_realm_and_impersonation_does_not_change_it() -> None:
-    """WHO gets the operator ground, decided from the realm and nothing else.
-
-    An impersonating admin (D-22, read-only) is an OPERATOR here, which is the opposite of
-    the call `llm_routes` makes — and deliberately: that endpoint has one route per realm,
-    while this one is shared, and `current_any` lets an admin principal through only WITH
-    the impersonation header. So the admin console's own voice picker arrives impersonating,
-    and reading that as a client would delete the actionable ground from the only screen an
-    operator installs a Cartesia key from.
-    """
-    admin = Principal(realm="admin", user_id=uuid.uuid4(), tenant_id=None, role="superadmin")
-    viewing = replace(admin, tenant_id=uuid.uuid4(), impersonating=True)
-    client = Principal(realm="client", user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), role="owner")
-
-    assert voice_routes._reason_audience(admin) == "operator"
-    assert voice_routes._reason_audience(viewing) == "operator"
-    assert voice_routes._reason_audience(client) == "client"
-
-
-async def test_the_catalog_is_closed_and_the_write_refused_when_the_engine_dictates_tts() -> None:
-    """The TTS answer for an engine that supplies its own voices (D-93).
-
-    Both halves are asserted together because the failure this prevents is precisely the
-    two halves disagreeing: a picker built from a catalog the write endpoint will refuse.
-    `selectable: false` with an EMPTY `voices` and a `note` is the whole contract — a
-    surface that renders the note says something true and calm, and one that renders the
-    (empty) list has nothing to offer, which is now the correct outcome rather than an
-    accident that reads as a broken product.
-
-    The refusal names the capability rather than the voice: on such an engine there is no
-    voice id that would have worked, so `unknown_voice` would send an operator hunting
-    for the right string forever.
-    """
-    tenant_id, agent_id, slug, token = await _tenant()
-    admin_token = await _admin_token()
-    before = await _stored_voice(tenant_id, agent_id)
-
-    with _dictating_engine():
-        async with _client(_app()) as http:
-            catalogue = await http.get(
-                "/v1/agents/voices",
-                headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
-            )
-            write = await http.patch(
-                f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
-                json={"voice_id": VOICE_ID},
-                headers={"Authorization": f"Bearer {admin_token}"},
-            )
-
-    assert catalogue.status_code == 200, catalogue.text
-    listing = catalogue.json()
-    assert listing["selectable"] is False
-    assert listing["control"] == "engine"
-    assert listing["voices"] == [], "a voice this engine cannot speak is not an option"
-    assert "has its own voices" in listing["note"]
-
-    assert write.status_code >= 400, write.text
-    problem = write.json()
-    assert problem["type"].rsplit("/", 1)[-1] == "engine_capability_absent"
-    assert problem["remediation"], "an operator must be told what to do instead"
-    # Nothing was written. A refusal that still stored the voice would leave the row
-    # claiming a voice no caller will ever hear — the exact state this refuses to create.
-    assert await _stored_voice(tenant_id, agent_id) == before
-
-
-async def test_a_client_token_is_refused_on_the_admin_door_and_accepted_on_its_own() -> None:
-    """The realms do not share session logic (TRD §11), so a client token is not an admin
-    token even for an owner — and that survived D-586 opening a client door beside it.
-
-    ⚠ **THIS TEST USED TO BE `test_a_client_realm_principal_cannot_set_the_voice` AND
-    ASSERTED THE FEATURE THAT NOW EXISTS.** D-21's "clients read, admins change
-    engine-facing config" was the ground, and the founder withdrew it for this class of
-    setting: a voice is delivery on the client's own phone line. What is still true — and
-    is the half worth a test — is that the ADMIN path is admin-only. Two positive controls
-    sit beside the refusal so it cannot be a broken credential: the same token reads the
-    catalogue AND writes the voice on the client route.
-
-    `in (401, 403)` USED TO BE THE ASSERTION and it accepted two different worlds: 401 is
-    "wrong realm" and 403 is "right realm, missing permission". It is the exact answer.
-
-    **WHAT THIS TEST CANNOT SEE, MEASURED RATHER THAN ASSUMED.** Changing
-    `AdminVoiceSetter` to `realm="client"` and re-running this case leaves it GREEN,
-    because the handler also takes `session: AdminSession`, and `core.deps.admin_db`
-    depends on `current_admin` — so the client token meets a second, identical 401 from
-    the session dependency. So the DECLARATION is pinned where it can be read directly:
-    `route_shape_test::test_no_route_in_the_admin_path_space_admits_a_client_realm_principal`
-    walks the live route table and fails on exactly that downgrade.
-    """
-    tenant_id, agent_id, slug, token = await _tenant()
-    before = await _stored_voice(tenant_id, agent_id)
-    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
-
-    async with _client(_app()) as http:
-        response = await http.patch(
-            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
-            json={"voice_id": VOICE_ID},
-            headers=headers,
-        )
-        control = await http.get("/v1/agents/voices", headers=headers)
-
-    assert control.status_code == 200, (
-        f"the control failed: this client token is not usable at all ({control.text}), "
-        "so the refusal below proves nothing about realms"
-    )
-    assert response.status_code == 401, response.text
-    body = response.json()
-    assert body["kind"] == "auth", body
-    assert "realm" in body["detail"].lower(), body
-    assert await _stored_voice(tenant_id, agent_id) == before, "a refused write wrote nothing"
-
-    # THE POSITIVE CONTROL THAT MAKES THE REFUSAL MEAN SOMETHING NARROW: the same owner,
-    # the same token, their own agent, on their own route. If this ever fails the refusal
-    # above has stopped being about the PATH and started being about the client realm.
-    async with _client(_app()) as http:
-        allowed = await http.patch(
-            f"/v1/agents/{agent_id}/voice", json={"voice_id": VOICE_ID}, headers=headers
-        )
-    assert allowed.status_code == 200, allowed.text
-    assert await _stored_voice(tenant_id, agent_id) == (VOICE_ID, "cartesia")
-
-
-async def test_an_admin_can_set_the_voice_and_it_is_persisted_and_audited() -> None:
-    """The happy path, and the two things that make it trustworthy: the row changed,
-    and there is an append-only record of who changed it (hard rules 4 and 5)."""
-    tenant_id, agent_id, _slug, _client_token = await _tenant()
-    admin_token = await _admin_token()
-    assert await _stored_voice(tenant_id, agent_id) == (None, None), "wizard sets no voice"
-
-    async with _client(_app()) as http:
-        response = await http.patch(
-            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
-            json={"voice_id": VOICE_ID},
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["voice"]["id"] == VOICE_ID
-    assert body["voice"]["tts_model"] == "sonic-3.5"
-    # A DRAFT agent has no `engine_agent_ref`, so there is nothing on the platform to
-    # update and nothing to republish. `engine_synced` is a measurement now (D-586), not
-    # the hard-coded False it used to be — `test_a_live_agent_is_re_voiced_on_the_spot`
-    # is the other arm.
-    assert body["engine_synced"] is False
-    assert body["published"] is False
-    assert body["republish_required"] is False
-    assert body["changed"] is True
-
-    # The provider rides along: the adapter sends provider + voice as one object, and
-    # a voice with a NULL provider is a half-configured synthesizer.
-    assert await _stored_voice(tenant_id, agent_id) == (VOICE_ID, "cartesia")
-
-    async with untenanted_session() as session:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT actor_type, object_type, object_id FROM audit_log "
-                    "WHERE action = 'agent.voice_set' AND tenant_id = :tid"
-                ),
-                {"tid": tenant_id},
-            )
-        ).first()
-    assert row is not None, "an unaudited config change to a client's agent is a rule-5 gap"
-    assert row[0] == "admin"
-    assert row[1] == "agent"
-    assert str(row[2]) == str(agent_id)
-
-
-async def test_a_live_agent_is_re_voiced_on_the_spot() -> None:
-    """⚠ **THIS TEST USED TO BE `test_a_published_agent_is_told_the_change_needs_a_republish`
-    AND ASSERTED THE OPPOSITE.** `set_agent_voice` re-published nothing, so the engine
-    only learned about a voice on the next publish and the response said so. D-586 made
-    the write reach the engine in the same transaction; the sentence that justified the
-    old behaviour — "saying otherwise on the admin screen would be a lie the client hears
-    on their phone line" — is now the argument FOR this one, because the row is what would
-    have been lying.
-    """
-    tenant_id, agent_id, _slug, _client_token = await _tenant()
-    admin_token = await _admin_token()
-    reset_engine_cache()
-    engine = get_engine()
-    assert isinstance(engine, FakeEngine)
-    ref = f"fakeagent_vox_{uuid.uuid4().hex[:8]}"
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET engine_agent_ref = :r, status = 'live' WHERE id = :a"),
-            {"r": ref, "a": agent_id},
-        )
-
-    async with _client(_app()) as http:
-        response = await http.patch(
-            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
-            json={"voice_id": VOICE_ID},
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["agent_status"] == "live"
-    assert body["published"] is True
-    assert body["engine_synced"] is True, "a live agent's voice must reach the platform"
-    assert body["republish_required"] is False, "nothing is left to publish"
-    assert "next call" in body["next_step"].lower()
-    assert await _stored_voice(tenant_id, agent_id) == (VOICE_ID, "cartesia")
-    # THE ENGINE ITSELF, not our mirror of it: the mirror is written by the same function
-    # that made the call, so asserting only on the column would pass against a publish
-    # that never happened.
-    assert engine._agents[ref].models.tts_voice == TEST_SPEAKER
-
-
-async def test_an_engine_refusal_leaves_the_row_and_the_engine_agreeing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The failure path, which is the whole reason the push is INSIDE the transaction.
-
-    Six live refusals in one day is the observed rate this is written against. If the
-    platform 400s, the column write must roll back with it — otherwise the row says one
-    voice, the phone line speaks another, and no screen in the product can tell.
-    """
-    tenant_id, agent_id, _slug, _client_token = await _tenant()
-    admin_token = await _admin_token()
-    reset_engine_cache()
-    engine = get_engine()
-    assert isinstance(engine, FakeEngine)
-    ref = f"fakeagent_vox_{uuid.uuid4().hex[:8]}"
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET engine_agent_ref = :r, status = 'live' WHERE id = :a"),
-            {"r": ref, "a": agent_id},
-        )
-    before = await _stored_voice(tenant_id, agent_id)
-
-    async def _refuse(*_args: object, **_kwargs: object) -> None:
-        raise ProblemError(
-            kind="dependency",
-            code="engine_rejected",
-            title="The voice platform refused the change",
-            detail="The voice platform would not take this agent.",
-        )
-
-    monkeypatch.setattr(engine, "update_agent", _refuse)
-    async with _client(_app()) as http:
-        response = await http.patch(
-            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
-            json={"voice_id": VOICE_ID},
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-
-    assert response.status_code >= 400, response.text
-    assert response.json()["kind"] == "dependency", response.text
-    assert await _stored_voice(tenant_id, agent_id) == before, (
-        "a refused engine push must roll the column back with it"
-    )
-    async with untenanted_session() as session:
-        audited = (
-            await session.execute(
-                text(
-                    "SELECT count(*) FROM audit_log WHERE action = 'agent.voice_set' "
-                    "AND tenant_id = :tid"
-                ),
-                {"tid": tenant_id},
-            )
-        ).scalar_one()
-    assert audited == 0, "nothing happened, so the ledger must not say something did"
-
-
-async def test_an_unknown_voice_id_is_refused_with_a_named_problem() -> None:
-    """The reason the catalog exists: the refusal happens BEFORE the row is written, so
-    a typo can never become a broken call. RFC-9457, and the code is switchable."""
-    tenant_id, agent_id, _slug, _client_token = await _tenant()
-    admin_token = await _admin_token()
-
-    async with _client(_app()) as http:
-        response = await http.patch(
-            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
-            json={"voice_id": "elevenlabs:rachel"},
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-
-    assert response.status_code == 422, response.text
-    assert response.headers["content-type"].startswith("application/problem+json")
-    problem = response.json()
-    assert problem["type"].endswith("/unknown_voice")
-    assert problem["kind"] == "business_rule"
-    assert problem["retryable"] is False
-    assert problem["fields"][0]["field"] == "voice_id"
-    # THE REMEDIATION POINTS AT THE READ, AND NO LONGER ENUMERATES THE CATALOGUE (D-588).
-    # It used to list every id in `voice_ids()`. Two things made that wrong: the lookup
-    # layer now includes voices an operator has switched OFF, so the list named ids the very
-    # next check refuses; and on a deployment nobody has synced the catalogue is empty and
-    # the sentence degenerated to "Pick one of the available voices: ." The read it names
-    # answers per audience, per deployment and per moment, and carries its own empty-state
-    # sentence.
-    assert "GET /v1/agents/voices" in problem["remediation"]
-    assert "offerable" in problem["remediation"]
-    assert not any(vid in problem["remediation"] for vid in voice_ids()), (
-        "the remediation enumerates the catalogue again — it will name disabled voices"
-    )
-
-    assert await _stored_voice(tenant_id, agent_id) == (None, None), "nothing was written"
-
-
-async def test_setting_the_voice_of_another_tenants_agent_is_a_404() -> None:
-    """The write runs inside the named tenant's RLS scope, so an agent belonging to
-    somebody else matches zero rows. Under RLS "not found" and "not yours" are the same
-    answer, deliberately (hard rule 1)."""
-    tenant_a, agent_a, _slug_a, _token_a = await _tenant()
-    tenant_b, _agent_b, _slug_b, _token_b = await _tenant()
-    admin_token = await _admin_token()
-
-    async with _client(_app()) as http:
-        response = await http.patch(
-            f"/v1/admin/tenants/{tenant_b}/agents/{agent_a}/voice",
-            json={"voice_id": VOICE_ID},
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-
-    assert response.status_code == 404, response.text
-    assert await _stored_voice(tenant_a, agent_a) == (None, None), "tenant A is untouched"
-
-
 # --- CONFIGURED vs LIVE (migration c8b3f14e7a29) ------------------------------
 #
-# The gap this closes: the write existed and no read did, so the picker that set a
-# voice could not display one. What makes it more than a getter is that there are TWO
+# What makes the read more than a getter is that there are TWO
 # answers — the voice on the row and the voice the engine is holding — and they are
 # allowed to differ. Every test below pins one of the states they can be in.
 
 
-async def test_the_read_returns_the_voice_the_write_just_set() -> None:
-    """The plain closing of the gap: set it, read it back, get the same voice.
+async def test_the_read_returns_the_configured_voice() -> None:
+    """Set it, read it back, get the same voice.
 
     On an unpublished agent `live` is null and `republish_required` is False — there is
     no engine object and therefore no caller to mislead. That is a different null from
@@ -916,29 +306,17 @@ async def test_publishing_records_the_voice_the_engine_was_actually_sent() -> No
     assert "Callers hear" in state.voice.headline
 
 
-async def test_a_stale_live_voice_is_closed_by_the_next_write_not_left_for_a_publish() -> None:
-    """THE TEST THIS SLICE EXISTS FOR, re-aimed by D-586: the read reports the CONFIGURED
-    voice AND what the caller is still hearing, and the WRITE now closes the gap.
+async def test_a_stale_live_voice_is_reported_beside_the_configured_one() -> None:
+    """The read reports the CONFIGURED voice AND what the caller is still hearing.
 
-    There is one voice quality now (the single-tier voice decision), so an operator can no
-    longer change to a DIFFERENT catalog voice — but the configured-vs-live machinery still
-    has to work when the two diverge for any reason (a legacy publish, drift). Divergence is
-    simulated here by writing a stale `live_tts_voice` directly, which is exactly the shape
-    a pre-mirror or drifted agent has.
-
-    ⚠ **THIS USED TO ASSERT THAT THE WRITE REPORTED `republish_required: True` AND LEFT THE
-    DIVERGENCE STANDING.** It is now the case that proves the re-assertion arm is real:
-    `changed` is False (the row already held this voice) and the engine is pushed ANYWAY,
-    because `changed` alone would have skipped exactly the agent a second click is trying
-    to fix. Answering with one value would still be the defect.
+    Divergence is simulated by writing a stale `live_tts_voice` directly, which is exactly
+    the shape a pre-mirror or drifted agent has. Answering with one value would be the
+    defect.
     """
     tenant_id, agent_id, _slug, _token = await _tenant()
     await _set_voice(tenant_id, agent_id, VOICE_ID)
-    engine = await _publish(tenant_id, agent_id)
-    ref = next(iter(engine._agents))
+    await _publish(tenant_id, agent_id)
 
-    # Simulate the engine holding a stale voice (a legacy/drifted live value), so
-    # configured (the split id) and live diverge.
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agents SET live_tts_voice = 'sonic:legacy' WHERE id = :a"),
@@ -952,54 +330,13 @@ async def test_a_stale_live_voice_is_closed_by_the_next_write_not_left_for_a_pub
     assert [change.field for change in state.pending] == []
     assert state.has_pending is False
 
-    written = await _set_voice(tenant_id, agent_id, VOICE_ID)
-    assert written["published"] is True
-    assert written["changed"] is False, "the row already held this voice"
-    assert written["engine_synced"] is True, "the ENGINE did not, which is what matters"
-    assert written["live_voice_id"] == VOICE_ID
-    assert written["republish_required"] is False
 
-    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
-    assert state.voice.configured is not None and state.voice.configured.voice_id == VOICE_ID
-    assert state.voice.live is not None and state.voice.live.voice_id == VOICE_ID
-    assert state.voice.republish_required is False
-    assert engine._agents[ref].models.tts_voice == TEST_SPEAKER
-
-
-async def test_re_selecting_the_voice_the_engine_already_holds_asks_for_no_republish() -> None:
-    """`republish_required` used to be `== published`, so an operator who re-picked the
-    running voice was told to publish for nothing. With the mirror the answer is a
-    measurement: same voice, same engine, no work. A screen that cries wolf about a
-    divergence is a screen nobody reads when there is one."""
-    tenant_id, agent_id, _slug, _token = await _tenant()
-    await _set_voice(tenant_id, agent_id, VOICE_ID)
-    await _publish(tenant_id, agent_id)
-
-    written = await _set_voice(tenant_id, agent_id, VOICE_ID)
-
-    assert written["published"] is True
-    assert written["live_voice_id"] == VOICE_ID
-    assert written["republish_required"] is False
-    assert written["changed"] is False
-    assert written["engine_synced"] is False, "the engine already holds it; nothing to send"
-    assert "nothing to send" in str(written["next_step"])
-
-    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
-    assert state.voice.republish_required is False
-
-
-async def test_a_paused_agent_is_written_but_not_re_published() -> None:
-    """The legacy row AND the paused guard, which are the same row under D-586.
-
-    `live_tts_voice` is NULL — published before the mirror existed, so we cannot PROVE what
-    the engine holds — and the agent is PAUSED. Neither fact may be rounded up: the write
-    must not republish, because `publish_agent` writes `status = 'live'` and a delivery
-    change must never put a switched-off phone line back into service; and the unknown live
-    voice must resolve towards "publish again", never towards a claim of sync, which is the
-    only direction of error a statement about a live phone line may have.
-
-    ⚠ **THIS USED TO USE `status = 'live'`**, which under D-586 would republish and so
-    would no longer be able to observe either property.
+async def test_a_legacy_publish_with_no_live_voice_reads_as_publish_again() -> None:
+    """`live_tts_voice` is NULL — published before the mirror existed, so we cannot PROVE
+    what the engine holds. The unknown live voice must resolve towards "publish again",
+    never towards a claim of sync, which is the only direction of error a statement about a
+    live phone line may have. PAUSED, because a paused agent still has an engine object
+    holding a voice.
     """
     tenant_id, agent_id, _slug, _token = await _tenant()
     async with tenant_session(tenant_id) as session:
@@ -1007,19 +344,7 @@ async def test_a_paused_agent_is_written_but_not_re_published() -> None:
             text("UPDATE agents SET engine_agent_ref = :r, status = 'paused' WHERE id = :a"),
             {"r": f"fakeagent_legacy_{uuid.uuid4().hex[:8]}", "a": agent_id},
         )
-
-    written = await _set_voice(tenant_id, agent_id, VOICE_ID)
-    assert written["agent_status"] == "paused"
-    assert written["engine_synced"] is False, "a paused agent must not be republished"
-    assert written["live_voice_id"] is None
-    assert written["republish_required"] is True
-    assert "not on the frontline" in str(written["next_step"])
-
-    async with tenant_session(tenant_id) as session:
-        status = (
-            await session.execute(text("SELECT status FROM agents WHERE id = :a"), {"a": agent_id})
-        ).scalar_one()
-    assert status == "paused", "a voice change must not put a paused agent back on the frontline"
+    await _set_voice(tenant_id, agent_id, VOICE_ID)
 
     state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
     assert state.published is True
@@ -1038,7 +363,8 @@ async def test_a_voice_outside_the_catalog_reads_back_as_itself() -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE agents SET tts_voice = 'bulbul:v1', tts_provider = 'cartesia' WHERE id = :a"
+                "UPDATE agents SET tts_voice = 'retired-model:v1', tts_provider = 'cartesia' "
+                "WHERE id = :a"
             ),
             {"a": agent_id},
         )
@@ -1046,19 +372,18 @@ async def test_a_voice_outside_the_catalog_reads_back_as_itself() -> None:
     state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
 
     assert state.voice.configured is not None
-    assert state.voice.configured.voice_id == "bulbul:v1"
+    assert state.voice.configured.voice_id == "retired-model:v1"
     assert state.voice.configured.catalog is None, "we do not offer it, so we cannot describe it"
-    assert "bulbul:v1" in state.voice.headline, "named by its id rather than silently dropped"
+    assert "retired-model:v1" in state.voice.headline, (
+        "named by its id rather than silently dropped"
+    )
 
 
 async def test_a_client_can_read_which_voice_their_own_agent_speaks_in() -> None:
     """Client-realm `agents:read`, and that is the deliberate answer to "is this client
     information?".
 
-    A client is legally the Principal Entity and already reads the catalogue for the
-    reason `list_voices` states — they get to hear what their agent sounds like. What stays
-    admin-only is the WRITE (D-21), which `test_a_client_realm_principal_cannot_set_the_voice`
-    pins.
+    A client is legally the Principal Entity and gets to hear what their agent sounds like.
     """
     tenant_id, agent_id, slug, token = await _tenant()
     await _set_voice(tenant_id, agent_id, VOICE_ID)
@@ -1098,7 +423,8 @@ async def test_a_second_tenant_cannot_read_or_write_the_live_voice_columns() -> 
 
         written = await session.execute(
             text(
-                "UPDATE agents SET live_tts_voice = 'bulbul:v2', live_tts_provider = 'nobody' "
+                "UPDATE agents SET live_tts_voice = 'retired-model:v2', "
+                "live_tts_provider = 'nobody' "
                 "WHERE id = :aid"
             ),
             {"aid": agent_a},
@@ -1124,7 +450,7 @@ async def test_the_pending_read_of_a_foreign_agent_carries_no_voice_at_all() -> 
         )
 
     assert response.status_code == 404, response.text
-    assert "bulbul" not in response.text
+    assert VOICE_ID not in response.text
 
 
 # --- D-617: a voice the PLATFORM withdrew, and the panel that could not name it ---------
@@ -1153,9 +479,8 @@ async def test_a_withdrawn_voice_an_agent_is_set_to_is_still_nameable() -> None:
     not there), and the next publish would have sent our own composed catalogue id in the
     vendor's speaker slot with no model beside it.
 
-    Three properties, in the order they failed: the catalogue can still NAME it, the read
-    reports it by its label, and it is still NOT offerable — the withdrawal is an OFFER
-    decision and this fix does not weaken it by one voice.
+    Two properties, in the order they failed: the catalogue can still NAME it, and the read
+    reports it by its label.
     """
     voice = _cartesia_voice("b6dafaa0-3a87-40b2-823c-1e4cf3c07314")
     await _curated(voice)
@@ -1163,10 +488,6 @@ async def test_a_withdrawn_voice_an_agent_is_set_to_is_still_nameable() -> None:
         tenant_id, agent_id, _slug, _token = await _tenant()
         async with untenanted_session() as session:
             assert await load_voice_catalogue(session) > 0
-        # Written directly rather than through the write door: this clause is about the
-        # READ, and the door would (correctly) refuse a Cartesia voice on a deployment with
-        # no Cartesia key — which is a different ground and not the one under test. The
-        # founder's agent reached this state when the voice WAS offerable.
         async with tenant_session(tenant_id) as session:
             await session.execute(
                 text("UPDATE agents SET tts_voice = :v, tts_provider = :p WHERE id = :aid"),
@@ -1192,11 +513,6 @@ async def test_a_withdrawn_voice_an_agent_is_set_to_is_still_nameable() -> None:
         assert state.voice.configured.catalog is not None
         assert voice.label in state.voice.headline
         assert state.voice.unnamed_note is None
-
-        # 3. AND IT IS STILL NOT ON OFFER, with the vendor's own withdrawal as the reason —
-        #    `read_curation` excludes withdrawn rows, so ground zero sees no state at all.
-        offered = await offered_catalogue(voices=(voice,))
-        assert [(row.reason, row.not_on_offer) for row in offered] == [(NOT_CURATED_REASON, True)]
     finally:
         await _uncurated(voice)
 
@@ -1225,221 +541,3 @@ async def test_a_voice_nothing_can_name_is_printed_with_a_sentence_saying_so() -
     # no setting of ours (hard rule: the client realm reads this endpoint).
     note = state.voice.unnamed_note.lower()
     assert "cartesia" not in note and "sarvam" not in note and "bolna" not in note
-
-
-async def test_a_tier_with_nothing_in_it_says_so_rather_than_simply_not_appearing() -> None:
-    """A PICKER GROUPED BY TIER RENDERS NO HEADING FOR AN EMPTY TIER (D-617).
-
-    Which made "this platform has no Studio voices" and "this product sells one quality"
-    the same screen. `tiers` is derived from the MODEL REGISTRY and not from the rows, so
-    the tier that is missing still gets a line — deriving it from the catalogue is exactly
-    the bug, because the missing tier would be missing from its own report.
-    """
-    _tenant_id, _agent_id, slug, token = await _tenant()
-    async with _client(_app()) as http:
-        response = await http.get(
-            "/v1/agents/voices",
-            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
-        )
-    assert response.status_code == 200, response.text
-    tiers = {row["provider"]: row for row in response.json()["tiers"]}
-
-    # DERIVED FROM THE REGISTRY, NOT LISTED HERE. ⚠ This read
-    # `== {"sarvam", "cartesia"}` and went red the moment D-618 added a third provider —
-    # a set in prose, which is the defect class hard rule 4 names, in the test guarding a
-    # bug that was ITSELF a list built from the wrong source. Comparing against
-    # `OUR_PROVIDERS` is not tautological: the bug under guard is deriving the report from
-    # the catalogue ROWS, which yields a strict SUBSET of the registry and still fails.
-    assert set(tiers) == set(OUR_PROVIDERS), "a tier the product sells has no line"
-
-    # The suite's platform offers nine Sarvam voices and nothing on any other provider, so
-    # this is the founder's exact state: a tier with nothing in it, which now states its
-    # own absence. Asserted over EVERY empty provider rather than a named one, so a fourth
-    # provider cannot arrive without a line.
-    assert tiers["cartesia"]["note"] is None, "a tier with choices in it invented a refusal"
-    assert tiers["cartesia"]["label"] == voice_tier_label("cartesia")
-    empty = [p for p in OUR_PROVIDERS if p != "cartesia"]
-    assert empty, "the fixture stopped having an empty tier, so this proves nothing"
-    for provider in empty:
-        row = tiers[provider]
-        assert row["offerable"] == 0 and row["in_catalogue"] == 0
-        assert row["note"], f"the empty {provider} tier said nothing"
-        assert voice_tier_label(provider) in row["note"]
-        assert row["label"] == voice_tier_label(provider)
-
-
-async def test_an_engine_that_dictates_its_voices_reports_no_tiers_at_all() -> None:
-    """A tier report on a deployment where NO voice of ours is choosable would be two more
-    answers to a question nobody asked. `note` on the envelope already says the one true
-    thing, and `voices` is empty for the same reason."""
-    _tenant_id, _agent_id, slug, token = await _tenant()
-    with _dictating_engine():
-        async with _client(_app()) as http:
-            response = await http.get(
-                "/v1/agents/voices",
-                headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
-            )
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["selectable"] is False
-    assert body["voices"] == [] and body["tiers"] == []
-
-
-# --- D-617: what a failed republish does to the write, and to the row ------------------
-
-
-class _RaisingEngine:
-    """The deployment's engine with ONE method replaced by a failure.
-
-    A wrapper rather than a `FakeEngine` subclass so the rest of the adapter — capabilities,
-    `get_agent`, the agent store the read-back uses — is the real one: what is under test is
-    the WRITE PATH's behaviour when the vendor leg fails, not a second fake.
-    """
-
-    def __init__(self, inner: object, error: BaseException) -> None:
-        self._inner = inner
-        self._error = error
-
-    def __getattr__(self, name: str) -> object:
-        return getattr(self._inner, name)
-
-    async def update_agent(self, ref: str, config: object) -> None:
-        raise self._error
-
-
-@contextmanager
-def _engine_that_fails_to_republish(error: BaseException) -> Iterator[None]:
-    """Run the block against an engine whose `update_agent` raises `error`."""
-    import apps.api.engine as engine_module
-
-    reset_engine_cache()
-    inner = get_engine()
-    previous = dict(engine_module._instances)
-    engine_module._instances["fake"] = _RaisingEngine(inner, error)
-    try:
-        yield
-    finally:
-        engine_module._instances.clear()
-        engine_module._instances.update(previous)
-
-
-def _client_raw(app: FastAPI) -> AsyncClient:
-    """A client that lets the APP's error handlers answer instead of re-raising.
-
-    `ASGITransport` re-raises an unhandled exception by default, which is right for every
-    other clause here and hides the one thing this pair is about: what a caller actually
-    RECEIVES. In production Starlette's error middleware is between the two.
-    """
-    return AsyncClient(
-        transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://api"
-    )
-
-
-async def _live_agent_on(voice_id: str) -> tuple[uuid.UUID, uuid.UUID, str, str]:
-    """A published, live agent already speaking `voice_id`."""
-    tenant_id, agent_id, slug, bearer = await _tenant()
-    await _publish(tenant_id, agent_id)
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "UPDATE agents SET tts_voice = :v, tts_provider = 'cartesia', status = 'live' "
-                "WHERE id = :aid"
-            ),
-            {"v": voice_id, "aid": agent_id},
-        )
-    return tenant_id, agent_id, slug, bearer
-
-
-async def test_an_engine_that_refuses_the_republish_says_so_and_saves_nothing() -> None:
-    """The panel promises "if the calling system refuses the change nothing is saved", and
-    this is the clause that makes the promise true rather than hoped for.
-
-    A vendor refusal reaches this path as a `ProblemError` — `engine/vendor_http.py` is the
-    one ladder both adapters answer on, and it turns a transport failure into
-    `engine_unreachable` and a rejected request into `engine_rejected`. So the caller reads
-    a problem+json with the engine's own sentence in it, and `set_agent_voice`'s
-    in-transaction republish rolls the column back with it.
-    """
-    tenant_id, agent_id, _slug, _bearer = await _live_agent_on(VOICE_ID)
-    other = voice_id_for("sonic-3.5", "priya")
-    refusal = ProblemError(
-        kind="dependency",
-        code="engine_rejected",
-        title="Voice engine rejected the request",
-        detail="The voice platform refused the change.",
-    )
-    admin_token = await _admin_token()
-
-    with _engine_that_fails_to_republish(refusal):
-        async with _client_raw(_app()) as http:
-            response = await http.patch(
-                f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
-                json={"voice_id": other},
-                headers={"Authorization": f"Bearer {admin_token}"},
-            )
-
-    assert response.status_code == 503, response.text
-    body = response.json()
-    assert body["type"].endswith("/engine_rejected")
-    assert body["detail"], "a refusal with no sentence in it"
-    stored, _provider = await _stored_voice(tenant_id, agent_id)
-    assert stored == VOICE_ID, "the row moved while the phone line did not"
-
-
-async def test_an_exception_escaping_the_adapter_is_a_500_and_still_saves_nothing() -> None:
-    """THE FOUNDER'S 500, REPRODUCED (D-617) — and the half of it that is CORRECT.
-
-    `PATCH .../voice` answered `500 internal_error` with a support reference on a voice the
-    picker had offered. Every named failure on this path is a `ProblemError` (the clause
-    above), so a 500 means an exception that is in no `except` clause between the route and
-    the vendor — `apps/api/agents/publishing.py` has none at all, and neither does
-    `service.publish_agent`. That is `tests/adapter_escaping_exception_test.py`'s defect
-    class: an adapter is the only place a vendor's misbehaviour can become our vocabulary,
-    so an exception escaping it is a bug in the adapter and the generic card is the RIGHT
-    answer for it — a blanket `except Exception` here would turn the next such bug into a
-    polite message nobody investigates.
-
-    ⚠ **WHICH exception production actually raised is UNKNOWN**: the server log behind trace
-    `275b9b0f77f34f9689c019c255c27d7f` has not been read, and no exception on this path was
-    reproducible from the code. What this clause pins is the property that matters either
-    way — the write is atomic, so a bug in the vendor leg cannot leave the row claiming a
-    voice the engine is not speaking.
-    """
-    tenant_id, agent_id, _slug, _bearer = await _live_agent_on(VOICE_ID)
-    other = voice_id_for("sonic-3.5", "priya")
-    admin_token = await _admin_token()
-
-    with _engine_that_fails_to_republish(RuntimeError("the vendor client blew up")):
-        async with _client_raw(_app()) as http:
-            response = await http.patch(
-                f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
-                json={"voice_id": other},
-                headers={"Authorization": f"Bearer {admin_token}"},
-            )
-
-    assert response.status_code == 500, response.text
-    assert response.json()["type"].endswith("/internal_error")
-    stored, _provider = await _stored_voice(tenant_id, agent_id)
-    assert stored == VOICE_ID, "a crashed republish left the row claiming the new voice"
-
-
-async def test_the_client_door_fails_the_same_way_as_the_admin_one() -> None:
-    """BOTH DOORS SHARE ONE WRITER, so a failure on one is a failure on the other — the
-    founder only happened to be in the admin console. Asserted rather than assumed: the
-    doors differ in who is admitted and whose account is named, which is a `Depends` and a
-    path parameter, and a divergence here would be a divergence in the promise the client's
-    own screen prints."""
-    tenant_id, agent_id, slug, bearer = await _live_agent_on(VOICE_ID)
-    other = voice_id_for("sonic-3.5", "priya")
-
-    with _engine_that_fails_to_republish(RuntimeError("the vendor client blew up")):
-        async with _client_raw(_app()) as http:
-            response = await http.patch(
-                f"/v1/agents/{agent_id}/voice",
-                json={"voice_id": other},
-                headers={"Authorization": f"Bearer {bearer}", "X-Org-Slug": slug},
-            )
-
-    assert response.status_code == 500, response.text
-    stored, _provider = await _stored_voice(tenant_id, agent_id)
-    assert stored == VOICE_ID

@@ -386,22 +386,3 @@ def test_the_reader_reads_the_key_the_meter_writes() -> None:
     from apps.api.billing import service as billing
 
     assert billing._ROW_TIER_SQL == "COALESCE(meta->>'tts_tier', '')"
-
-
-def test_the_meter_stamps_the_frozen_key_and_the_base_rung() -> None:
-    """The WRITE side, read off the pipeline's source.
-
-    `tests/tts_tier_metering_test.py` already meters a real call and reads the row back;
-    this asserts the narrower thing that test cannot — that the two names the pipeline
-    writes with are the module constants and not a pair of literals somebody could edit
-    independently of the reader.
-    """
-    from pathlib import Path
-
-    source = (Path(__file__).resolve().parents[1] / "apps/workers/pipeline.py").read_text(
-        encoding="utf-8"
-    )
-    assert "LEDGER_RUNG_KEY: BASE_OVERAGE_RUNG," in source, (
-        "the post-call meter no longer stamps the rung through the two constants — a "
-        "literal here can drift from `_ROW_TIER_SQL` with nothing to notice"
-    )

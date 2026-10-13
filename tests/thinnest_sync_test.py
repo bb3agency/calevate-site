@@ -184,10 +184,6 @@ async def test_the_sentence_is_logged_from_error_and_never_carried(
     assert "9876543210" not in str(logged.vendor_message)
 
 
-def test_the_key_probe_is_gone() -> None:
-    assert not hasattr(ThinnestEngine, "_key_places_calls_probe")
-
-
 # --- (2), (17) built-in tools and live transfer ------------------------------------------
 
 
@@ -335,18 +331,6 @@ async def test_a_cleared_voice_and_model_are_sent_as_null() -> None:
         _cfg(engine_own_voice_key=False, engine_voice_id="priya", engine_model_id="gpt-4.1")
     )
     assert (chosen["voice"]["voice"], chosen["model"]) == ("priya", "gpt-4.1")
-
-
-def test_the_reset_refusal_is_retired() -> None:
-    from apps.api.agents import lifecycle
-
-    assert not hasattr(lifecycle, "ENGINE_CHOICE_RESET_UNSUPPORTED")
-
-
-def test_our_distillation_does_not_run_on_this_engine() -> None:
-    from apps.workers.caller_memory_distil import ENGINES_THAT_REMEMBER
-
-    assert "thinnest" in ENGINES_THAT_REMEMBER and "pipecat" not in ENGINES_THAT_REMEMBER
 
 
 async def test_the_distillation_tick_stops_on_an_engine_that_remembers(

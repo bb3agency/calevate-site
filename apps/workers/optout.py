@@ -1,6 +1,6 @@
 """The evidence an in-call opt-out tool call records — the BELT half of `compliance/optout.py`.
 
-The voice worker's `record_do_not_call` tool reaches `apps/api/worker/tools.record_opt_out`,
+The engine's opt-out action reaches `apps/api/worker/in_call_tools.record_opt_out_for`,
 which writes the suppression inside the request through `record_call_optout`. This module
 holds the one thing that path and the post-call transcript pass must agree on: how a tool
 call is described in `consent_ledger.evidence`.

@@ -138,8 +138,8 @@ class EngineCapabilityAbsentError(ProblemError):
     NOT raised for a capability that merely has not been VERIFIED yet. "Bolna probably
     supports transfer but nobody has run the pilot gate" is a different fact from "this
     engine has no transfer", and conflating them would let a pilot result quietly change
-    a client-facing refusal. Unverified stays `engine_capability_unverified` in the
-    adapter that is waiting on the evidence.
+    a client-facing refusal. An adapter waiting on the evidence keeps the
+    capability False until it arrives.
     """
 
     def __init__(self, capability: EngineCapabilityName, *, engine: str) -> None:
@@ -186,7 +186,7 @@ def engine_not_configured(reason: str | None) -> ProblemError:
 
     RFC-9457: the machine code is the LAST SEGMENT of `type` and there is no `code` key.
     The authored `reason` is logged for an operator and never returned — a client cannot
-    act on `no_engine_credentials:cartesia`, and naming our vendor to them leaks an
+    act on `no_engine_credentials:thinnest`, and naming our vendor to them leaks an
     internal detail they have no use for.
     """
     log.warning("engine_not_configured", extra={"reason": reason or "unknown"})
@@ -240,7 +240,7 @@ def require_speech_leg(leg: SpeechLeg, *, engine: VoiceEngine, value: str | None
 
     This is the guard that makes `SpeechControl` mean something. Dropping the value
     instead (the tempting, quieter option) produces the exact failure this slice exists
-    to remove: an operator picks Bulbul v3, the row saves, the publish succeeds, and the
+    to remove: an operator picks a voice, the row saves, the publish succeeds, and the
     caller hears the engine's own voice. Nothing in that sequence reports a problem, so
     the screen keeps offering the choice forever.
 
@@ -256,12 +256,10 @@ def require_speech_leg(leg: SpeechLeg, *, engine: VoiceEngine, value: str | None
 
 #: The refusal for a dial whose per-call prompt does not carry hard rule 5's floor.
 #:
-#: ITS OWN CODE, NOT `engine_capability_absent`, and the distinction is the one
-#: `engine_caller_id_not_configured` already makes against `engine_not_configured`: an
-#: absent capability is a platform fact an operator can only accept, while this is a
-#: request that arrived without the one thing that makes it legal to place. Different
-#: cause, different fix, different person — and a client reading a problem `type` cannot
-#: tell them apart if they share a code.
+#: ITS OWN CODE, NOT `engine_capability_absent`: an absent capability is a platform fact
+#: an operator can only accept, while this is a request that arrived without the one thing
+#: that makes it legal to place. Different cause, different fix, different person — and a client
+#: reading a problem `type` cannot tell them apart if they share a code.
 #:
 #: It is in `DIAL_NOT_PLACED_CODES` (`agents/service.py`) because it is raised BEFORE any
 #: HTTP request leaves this process: no line was seized, so the contact keeps its place on
@@ -277,12 +275,7 @@ def require_call_compliance_floor(*, engine: VoiceEngine, prompt_on_the_wire: st
     and `verification.judge` PROVED the engine holds, so a dial carries no prompt and this
     is a no-op. On an `external_deployment` engine there is no agent record and no
     read-back, so the prompt riding the call is the only vehicle left — and a call placed
-    without it is an agent that can be scripted into claiming it is human. An
-    `owned_runtime` engine is a no-op here too, for `control_plane`'s exact reason and not
-    as an oversight: the agent record is OURS, the worker loads the composed prompt out of
-    the `agent_config_versions` row a publish minted, and the worker's attestation is what
-    says whether it is holding it (D-592, `docs/PIPECAT-MIGRATION.md` §1.1). Both shapes
-    answer `hosts_agents()` True, so the guard above already covers it.
+    without it is an agent that can be scripted into claiming it is human.
 
     **`prompt_on_the_wire` IS WHAT THE ADAPTER IS ABOUT TO SEND, NOT WHAT IT WAS HANDED**,
     and the difference is the whole reason the argument is not `ctx`. An adapter that

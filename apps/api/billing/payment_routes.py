@@ -346,11 +346,11 @@ class CreditPackOut(Strict):
     total_credits: Decimal
     #: DEPRECATED (D-547, removed next release): always "0". See `bonus_credits`.
     bonus_pct: Decimal
-    #: ₹/min on the Sarvam (Bulbul v3) voice, at rate precision (4dp, NUMERIC(12,4)) — a
+    #: ₹/min on the Clear voice, at rate precision (4dp, NUMERIC(12,4)) — a
     #: RATE, not a rupee amount, so it is not rounded to paise (the distinction
     #: `billing.service.rate_to_display` makes).
     clear_inr_per_min: Decimal
-    #: ₹/min on the Cartesia (Sonic 3.5) voice. Never below `clear_inr_per_min`.
+    #: ₹/min on the Studio voice. Never below `clear_inr_per_min`.
     studio_inr_per_min: Decimal
     #: Whole minutes the credits buy on the Sarvam voice, floored (you do not get a partial
     #: minute, and rounding UP would advertise talk time the credits do not cover). A
@@ -580,8 +580,8 @@ async def read_credit_packs(session: RateCardSession, _principal: TopUpRead) -> 
     return await rate_card_out(session)
 
 
-#: The cheaper rung's vendor (Gnani since D-629) has no attested invoice figure, so hard rule
-#: 7 keeps every voice in it off the picker on the engine that speaks our own voices.
+#: On an engine that does not sell its own voices by band the cheaper rung has no attested
+#: invoice figure, so hard rule 7 keeps every voice in it off the picker.
 _UNPRICED_VOICE_NOTICE: Final = (
     "Not available to choose yet: the vendor that speaks this voice changed and we have not "
     "established what one minute of it costs, so we will not put an agent on it. Its rate is "

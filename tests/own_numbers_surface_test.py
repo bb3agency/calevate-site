@@ -2,7 +2,7 @@
 
 * `GET /v1/campaigns/numbers` says `releasable` exactly when the client release route would
   accept the number, and says `answerable` for a voice-platform number from the agent our
-  record has it answer, since nothing there writes `carrier_binding_id` (Pipecat unchanged).
+  record has it answer.
 * A replayed purchase reports `first_period = "replayed"`.
 * The generic admin release refuses a voice-platform number; the workspace route owns it.
 * An operator's business-details send is audited once it happened, or as a failure.
@@ -22,7 +22,6 @@ from apps.api.campaigns import number_supply
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import VIEW_AS_WITHHELD_ACTS
-from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.main import app
@@ -121,26 +120,6 @@ async def test_an_agent_in_another_workspace_does_not_answer_the_number(
     await _bind(tenant_id, number, platform_agent)
 
     assert (await _listed(tenant_id))[str(number)]["answerable"] is False
-
-
-async def test_pipecat_still_needs_the_carrier_binding(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The Pipecat reading is untouched: an answering agent alone is not enough there."""
-    from tests.campaign_route_wrappers_test import _headers, _tenant
-    from tests.numbers_answerable_test import _number
-
-    monkeypatch.setattr(get_settings(), "engine", "pipecat")
-    tenant_id, agent_id, slug = await _tenant()
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET direction = 'inbound' WHERE id = :a"), {"a": agent_id}
-        )
-    unbound = await _number(tenant_id, agent_id=agent_id, engine_ref="vz-1", binding_id=None)
-    bound = await _number(tenant_id, agent_id=agent_id, engine_ref="vz-2", binding_id="app-1")
-    async with _http() as http:
-        response = await http.get(NUMBERS, headers=await _headers(tenant_id, slug))
-    rows = {row["id"]: row for row in response.json()}
-    assert (rows[unbound]["answerable"], rows[bound]["answerable"]) == (False, True)
-    assert not rows[bound]["releasable"]
 
 
 # --- purchase replay -------------------------------------------------------------------------

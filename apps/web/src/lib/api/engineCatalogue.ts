@@ -3,9 +3,9 @@
  *
  *   GET /v1/agents/engine-catalogue    `agents:read`, realm ANY
  *
- * Only an engine that speaks its own voices publishes one (ThinnestAI, D-678); on every other
- * engine the answer is `available: false` and the picker at `/v1/agents/voices` is the one
- * that matters. The refusal sentences arrive in the reader's audience — an operator's on the
+ * Only an engine that speaks its own voices publishes one (ThinnestAI, D-678); on any other
+ * engine (the fake one in tests) the answer is `available: false`. The refusal sentences
+ * arrive in the reader's audience — an operator's on the
  * console's view-as session, a client's on their own — so this module composes none.
  */
 

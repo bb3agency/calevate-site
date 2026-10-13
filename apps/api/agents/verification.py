@@ -116,8 +116,8 @@ class PublishVerification:
     #: Recorded because an adapter may deliberately send it in both places (belt and
     #: braces), so an engine holding one and not the
     #: other is a fact worth being able to see rather than one to average away. Only an
-    #: engine that HOLDS an agent record reaches this at all — `control_plane`, and
-    #: `owned_runtime` where the record is ours and the worker's attestation is the
+    #: engine that HOLDS an agent record reaches this at all — `control_plane` — and its
+    #: read-back is the
     #: snapshot: an externally-deployed one has no agent record to hold either copy, which
     #: is why `verify_publish` refuses it outright.
     #: `None` when the agent volunteers no opening at all — there is no second copy of

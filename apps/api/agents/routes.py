@@ -9,9 +9,7 @@ WHY THIS ROUTER HAS NO PREFIX
 -----------------------------
 It carries paths in two spaces — the client realm's `/v1/agents` reads and ONE admin
 mutation under `/v1/admin/tenants/{tenant_id}/...` — so a shared prefix could only
-describe one of them. Same resolution as `voice_routes.py`, which says so for the same
-reason. Mount order is unchanged (`main.py` still includes `voice_router` first so
-`/v1/agents/voices` is matched before `/v1/agents/{agent_id}`), and the new admin path
+describe one of them. The new admin path
 does not collide with anything on `admin/routes.py`: its `/tenants/{tenant_id}/...`
 routes all take a different literal third segment (`kb`, `numbers`, `margin`, ...).
 

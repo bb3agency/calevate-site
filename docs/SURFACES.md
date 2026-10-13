@@ -159,11 +159,8 @@ the first-campaign hold, which really are about a stranger signing up, still app
     founder decision, not a derivation.
 - **Business KYC**: gated; calling stays disabled until verification clears. **We do not
   supply numbers** — Model B (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9): the client takes the
-  connection on their own Exotel/Plivo/Vobiz account, passes that operator's KYC, stays
-  the subscriber of record and issues us revocable credentials. For the testing phase only
-  (D-662), the founder's own Vobiz account holds the test numbers and pays Vobiz; no client
-  traffic runs on it until OPERATIONS §2 gate V-10 passes, and nothing client-facing here
-  changes.
+  connection on their own licensed carrier account, passes that operator's KYC, stays
+  the subscriber of record and issues us revocable credentials.
   **SHIPPED** (migration `a3f6b1e02d95`, `kyc_records`). Two gates, and they answer the
   plan-tier question differently on purpose — the argument is in
   `apps/api/compliance/kyc.py`, with the DoT/TRAI sources it rests on. **Dialling** is
@@ -187,10 +184,8 @@ the first-campaign hold, which really are about a stranger signing up, still app
   `campaigns.provisioning.PROVISIONING_IMPLEMENTED = False` is the greppable constant and
   flipping it is adopting Model A, not writing an adapter. An operator RECORDS the number
   the client bought with `POST /v1/admin/tenants/{tenant_id}/numbers`. Binding a recorded
-  number to an agent happens at the carrier chosen by `Settings.carrier` (D-662): on Vobiz
-  it creates an Application whose answer URL is the agent's `/carrier/v1/vobiz/answer/…`
-  route and attaches the number to it, and the Application id is stored on the
-  `phone_numbers` row. **No identity
+  number to an agent happens on ThinnestAI, in the client's own workspace (D-693,
+  `THINNEST-INTEGRATION.md` §3a). **No identity
   document is stored anywhere**: `kyc_records` keeps a public business-registry
   identifier and a reference to where the pack is filed, and a CHECK constraint refuses
   a value shaped like an Aadhaar.
@@ -339,11 +334,11 @@ Client realm (`/c/<slug>/…`)
   the recording, for endpoints opted into `include_recording_url` (D-670, WEBHOOKS §1).
 
 Admin realm (`/admin/…`)
-- **Carrier-era operations** (D-662..D-672): recording a number takes its carrier, direction
+- **Number and account operations** (D-671, D-672): recording a number takes its provider, direction
   (`provider` required, `direction` default `inbound`, platform reference optional; `POST
   /v1/admin/tenants/{tenant_id}/numbers`; an inbound-only
-  number is refused as an outbound caller ID); closing an account detaches its numbers at
-  the carrier and the undo re-attaches them (D-671); a credit refund's answer carries
+  number is refused as an outbound caller ID); closing an account detaches its numbers and
+  the undo re-attaches them (D-671); a credit refund's answer carries
   `bonus_clawed_back_inr`, which the refund panel names (D-672).
 - **Begin a view-as session** (`POST /v1/admin/impersonation-grants`,
   `admin:impersonate`, admin realm) — takes a tenant SLUG and returns the short-lived
@@ -684,13 +679,12 @@ referrers and browser history (hard rule 6).
 
 ## 3. Integration Layer (our site ⇄ engine [Bolna, D-31]) — DECIDED doctrine
 
-> Bolna was deleted by D-639; the engine is our own Pipecat loop (D-592), which reaches the
-> api over `/v1/worker/**` with a Bearer token rather than by webhook, and the carrier's
-> callbacks (Vobiz, D-662) are the events that arrive from outside. The doctrine below —
-> verify, inbox, ack fast, process idempotently, reconcile — is what those callbacks follow
-> (`apps/voice-runtime/carrier_routes.py`, `apps/workers/carrier_events.py`); the Bolna
-> specifics are the record of the engine it was written for. Carrier-callback
-> authentication is SECURITY-COMPLIANCE §5.
+> Bolna was deleted by D-639; the engine is ThinnestAI (D-678), whose signed webhooks
+> arrive at voice-runtime's `/engine/{engine}` route and whose in-call actions reach the api
+> at `/v1/worker/engine-actions/thinnest/<tool>`. The doctrine below — verify, inbox, ack
+> fast, process idempotently, reconcile — is what those deliveries follow; the Bolna
+> specifics are the record of the engine it was written for. Webhook authentication is
+> SECURITY-COMPLIANCE §5.
 
 The verified vendor surface lives in TRD §5 (events, HMAC, rate limits, Get Call).
 This section fixes HOW we consume it. No compromises means: no lost events, no
@@ -708,19 +702,11 @@ Queue-first, idempotent, replayable — the industry-standard shape, mapped to o
    is declined, not pending (SECURITY-COMPLIANCE §5); payloads are
    hints — truth comes from the authenticated Get Execution fetch. Unexpected
    source ⇒ 401 + alert (treat as attack until proven config drift — runbook).
-   **The carrier (D-662)** calls voice-runtime's `/carrier/v1/{carrier}/answer/…` and
-   `/carrier/v1/{carrier}/events/…` routes. A Vobiz request is checked against Vobiz's
-   published callback addresses (overridable live by `vobiz_callback_ips`) and against
-   `X-Vobiz-Signature-V3`, recomputed over the public URL rebuilt from `webhook_base_url`
-   (never nginx's view of the URL). The signature covers the path and a nonce, never the
-   body, so anything we must trust travels in the path we minted (the agent ref and, on an
-   outbound dial, our call id); `From` and every other form field stay claims. A signature
-   that fails to verify is always refused; a missing one only when
-   `vobiz_signature_required` is on, which waits on OPERATIONS §2 gate 55. Events then follow steps 2–4 below: the inbox row, which also
-   absorbs Vobiz's own retries (up to 3 on a non-200), an ack well inside Vobiz's
-   3-second window, and the `ingest_carrier_event` job. The carrier's CDR, read after the call ends, supplies the
-   carrier's charge for the call, and a sweep re-reads any call the hangup event missed
-   (step 6's role).
+   **ThinnestAI (D-690)** signs every delivery: HMAC-SHA256 of the raw body under the
+   agent's own endpoint secret (`x-thinnest-signature`), verified in voice-runtime, with the
+   signed `sentAt` bounding replay to 5 minutes. Events then follow steps 2–4 below, deduped
+   on the signed event id, and the reconciliation sweep (`pipeline.reconcile_executions`,
+   step 6's role) re-reads any call a webhook missed.
 2. **Dedupe**: replay-cache on the event key (Redis SETNX, 24h TTL; for Bolna:
    execution_id + status) AND idempotency keys on processing — dedupe at the door and
    at every side effect. **Bolna's delivery guarantee is UNSETTLED, not "at-most-once"**
@@ -808,13 +794,6 @@ that a truncated copy says so.
   server→client, it's plain HTTP (no proxy/infra changes), and it's materially
   cheaper per connection than WebSockets. WebSockets are explicitly NOT planned — we
   have no client→server streaming need; revisit only via a decision-log entry.
-- **Live speaking indicator (D-656): the first live stream, and it carries STATE, not a
-  hint.** `GET /v1/calls/{call_id}/speaking` (`calls:read`, `text/event-stream`) sends
-  `{speaker, live, since}` once, on every change, and with `live: false` when the call
-  ends; `lib/api/callSpeaking.ts::useCallSpeaking` reads it. The worker posts the state to
-  `POST /v1/worker/calls/{ref}/speaking` and the API keeps it in Redis with a 30 s TTL —
-  no table. A hint would have cost a second, identically-authorised read inside a
-  one-second budget. Everything else above is unchanged: lists still poll.
 
 ### 3.3 Engine API usage rules (adapter-internal)
 

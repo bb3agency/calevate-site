@@ -402,18 +402,21 @@ async def _admin_alerts(
 async def _admin_voices(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
 ) -> str:
-    """`voice_curation.list_curated_voices` — the Voices screen's read."""
+    """`hosted_voices.list_hosted_voices` — the Voices screen's read of the voices an
+    operator added, with the live count `voice_curation` keeps beside them."""
     del context, args
-    from apps.api.agents.voice_curation import list_curated_voices
+    from apps.api.agents.hosted_voices import list_hosted_voices
+    from apps.api.agents.voice_curation import count_live_agents_by_engine_voice
 
-    rows = await list_curated_voices(session, scope="all")
+    rows = await list_hosted_voices(session, scope="added")
+    live = await count_live_agents_by_engine_voice()
     lines = [
-        _clean(f"{row.voice.label} · {row.state} · {row.live_agents} live agent(s)")
-        + f" [voice_id {row.voice.id}]"
+        _clean(f"{row.label} · {row.state} · {live.get(row.voice_id, 0)} live agent(s)")
+        + f" [voice_id {row.voice_id}]"
         for row in rows[:MAX_ROWS]
     ]
     return _listing(
-        lines, total=len(rows), shown_of="voices", nothing="The voice catalogue is empty."
+        lines, total=len(rows), shown_of="voices", nothing="No voice has been added yet."
     )
 
 
@@ -554,7 +557,7 @@ ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="admin_voices",
         description=(
-            "Every voice in the catalogue, whether clients may choose it, and how many "
+            "Every voice an operator added, whether clients may choose it, and how many "
             "live agents use it."
         ),
         parameters=_NO_ARGS,

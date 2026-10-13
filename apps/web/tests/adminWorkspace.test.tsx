@@ -318,7 +318,7 @@ describe("one release path for a number the voice platform holds", () => {
     e164: "+918012345672",
     series: "standard",
     dlt_status: "pending",
-    provider: on_engine ? "thinnest" : "plivo",
+    provider: on_engine ? "thinnest" : null,
     engine_owned: true,
     engine_linked: true,
     agent_id: null,

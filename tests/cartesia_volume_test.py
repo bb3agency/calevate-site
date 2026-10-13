@@ -150,13 +150,6 @@ def test_the_two_readers_of_a_kchars_row_agree_about_the_quantum() -> None:
     assert CHARS_PER_KCHAR == _CHARS_PER_KCHAR == Decimal("1000")
 
 
-def test_the_counter_tracks_the_voice_the_rate_card_prices() -> None:
-    """One vendor, named once. A `usage_events` row carries no vendor, so a second
-    plan-billed voice is a migration and not an edit to a constant — the same bound
-    `ops/model_pricing.PLAN_BILLED_TTS_PROVIDERS` is pinned at."""
-    assert PLAN_BILLED_VOICE == "cartesia"
-
-
 def test_the_wire_carries_the_volume_the_fx_and_a_breakeven_for_every_studio_rung() -> None:
     """**THE CAVEAT IS ON THE WIRE, NOT IN A COMMENT.** If a later edit drops the volume
     block, the FX provenance or the per-rung break-even, this fails — which is the whole

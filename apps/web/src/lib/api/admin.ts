@@ -42,12 +42,7 @@ import {
 import { HOLDS_PATH, HOLDS_QUERY_KEY, type HeldTenant } from "./holds";
 import {
   KYC_PATH,
-  toCarrierDecisionBody,
   toRecordBody,
-  type CarrierApplication,
-  type CarrierDecision,
-  type CarrierDecisionIn,
-  type CarrierDecisionOut,
   type KycRecord,
   type KycRecordIn,
 } from "./kyc";
@@ -66,9 +61,6 @@ export type ResendInviteOut = Schemas["ResendInviteOut"];
 export type PlatformState = Schemas["PlatformStateOut"];
 export type KbSource = Schemas["SourceOut"];
 export type KbChunk = Schemas["ChunkOut"];
-/** Whether each agent's published knowledge reached the phone — `apps/api/kb/delivery.py`. */
-export type DeliveryList = Schemas["DeliveryListOut"];
-export type AgentDelivery = Schemas["AgentDeliveryOut"];
 
 /**
  * The admin realm's session — the `__Host-calevate_admin_session` cookie, or
@@ -1274,30 +1266,6 @@ export function useTenantKbQueue(slug: string, status = "pending_approval") {
   });
 }
 
-/**
- * WHAT THE PHONE IS ACTUALLY ANSWERING FROM, for the client an operator is looking at.
- *
- * The same client-realm read the client's own screen uses (`/v1/kb/delivery`), through
- * the same impersonated session the queue above uses, and deliberately NOT a second
- * admin-realm endpoint computing the same thing. An operator answering "my agent doesn't
- * know that" needs to be looking at the client's own answer — a parallel operator view
- * with its own query is how the two come to disagree during exactly the conversation
- * where that matters most. It is a READ, so D-22 admits it: `agents:read` is not in
- * `MUTATING_PERMISSIONS`.
- *
- * This is the other half of the publish queue beside it. Approving does not publish and
- * publishing does not guarantee the pack reached the agent (`apps/api/kb/pack.py`
- * survives a storage failure by design, leaving the pointer where it was), so an operator
- * who worked the queue to empty still has no idea whether the phone caught up.
- */
-export function useTenantKbDelivery(slug: string) {
-  return useQuery({
-    queryKey: ["admin", "kb-delivery", slug],
-    queryFn: () => apiRequest<DeliveryList>(viewAsSession(slug), "/v1/kb/delivery"),
-    enabled: Boolean(slug),
-  });
-}
-
 export function useKbPreview(slug: string, sourceId: string | null) {
   return useQuery({
     queryKey: ["admin", "kb-preview", slug, sourceId],
@@ -1361,9 +1329,9 @@ export function useTenantTemplates(slug: string) {
 }
 
 /**
- * RECORDS a number already held on a carrier account — it buys nothing (buying is
- * `useBuyNumber`). The name follows the route's own `provision_number`, which means "make
- * it usable in the platform", not "obtain it".
+ * RECORDS a number already held on the voice platform — it buys nothing. The name
+ * follows the route's own `provision_number`, which means "make it usable in the platform",
+ * not "obtain it".
  *
  * `provider` is required by the route, and `direction` decides whether the dial gate will
  * present the number on an outbound call (`number_inbound_only` otherwise), so both are
@@ -1480,82 +1448,5 @@ export function useTenantAgents(slug: string) {
     queryFn: () =>
       apiRequest<components["schemas"]["AgentOut"][]>(viewAsSession(slug), "/v1/agents"),
     enabled: Boolean(slug),
-  });
-}
-
-/* --- The carrier compliance application (ops half) ---------------------------------
- *
- * `GET|POST /v1/admin/tenants/{id}/carrier-application` shipped with the client's own
- * two surfaces and had NO caller in this console, so the state its own module docstring
- * calls out was the live one: "a decision ops cannot record is a client stuck behind a
- * carrier that has already said yes." A client could upload their registration documents
- * and sit at `submitted` for ever, because the only people who can record the carrier's
- * answer had nowhere to record it.
- *
- * Unlike KYC, this pair does NOT read through impersonation: there IS an admin-realm
- * read here, and it is the one to use. It enters the tenant's own RLS session server-side
- * and writes an `admin.tenant_read` audit row (SEC-COMP §5, D-482 L-1) — reading a
- * business's registration paperwork from the console is a thing that has to leave a
- * trail, and going in through a view-as grant would record the wrong act.
- *
- * Because every read is audited, nothing here polls and nothing refetches on focus.
- */
-
-export function carrierApplicationPath(tenantId: string): string {
-  return `/v1/admin/tenants/${encodeURIComponent(tenantId)}/carrier-application`;
-}
-
-export function carrierApplicationKey(tenantId: string): readonly unknown[] {
-  return ["admin", "carrier-application", tenantId];
-}
-
-export function useTenantCarrierApplication(
-  tenantId: string,
-): UseQueryResult<CarrierApplication> {
-  return useQuery({
-    queryKey: carrierApplicationKey(tenantId),
-    queryFn: () =>
-      apiRequest<CarrierApplication>(adminSession(), carrierApplicationPath(tenantId)),
-    enabled: Boolean(tenantId),
-    // Every read of this route writes an audit row. A `refetchInterval` here would fill
-    // the audit log with reads nobody performed, and the answer changes when a human at
-    // the carrier does something — minutes to days, not seconds.
-    refetchOnWindowFocus: false,
-  });
-}
-
-/**
- * Record what the carrier decided.
- *
- * NO STEP-UP AND NO TYPED CONFIRMATION, and that is the API's own line:
- * `record_decision` accepts no `X-Confirm-Action`, and a header the API ignores is a
- * confirmation of nothing (`credits.ts` states the same rule). Nothing here is destroyed
- * either — the write is a CAS over an audited state machine, every state has a way back,
- * and an acceptance recorded in error is corrected by recording `expired`. Ceremony on a
- * reversible act is how operators learn to type past ceremony.
- *
- * What it invalidates, and why each:
- *   * this application — the panel re-reads what is now STORED, because the response is
- *     what was SENT (`carrier_application_id` echoes the request, not the row);
- *   * the numbers screen's reads — an acceptance is what opens number provisioning;
- *   * the directory and the holds queue, which compose their rows from the gates.
- */
-export function useRecordCarrierDecision(tenantId: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ decision, body }: { decision: CarrierDecision; body: CarrierDecisionIn }) =>
-      apiRequest<CarrierDecisionOut>(adminSession(), carrierApplicationPath(tenantId), {
-        method: "POST",
-        body: toCarrierDecisionBody(decision, body),
-      }),
-    onSuccess: () =>
-      void Promise.all([
-        client.invalidateQueries({ queryKey: carrierApplicationKey(tenantId) }),
-        client.invalidateQueries({ queryKey: ["admin", "numbers"] }),
-        client.invalidateQueries({ queryKey: ["admin", "number-costs", tenantId] }),
-        client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] }),
-        client.invalidateQueries({ queryKey: ["admin", "tenants"] }),
-        client.invalidateQueries({ queryKey: HOLDS_QUERY_KEY }),
-      ]),
   });
 }

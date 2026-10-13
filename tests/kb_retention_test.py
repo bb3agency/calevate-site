@@ -50,7 +50,6 @@ from apps.api.compliance.deletion import (
 from apps.api.compliance.deletion_proof import certificate
 from apps.api.compliance.deletion_routes import ErasureProofOut
 from apps.api.compliance.export import subject_ref
-from apps.api.compliance.models import DATA_CATEGORIES
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.workers import retention
@@ -58,7 +57,6 @@ from apps.workers.retention import apply_retention, execute_deletion_request, sw
 from scripts.seed import DEFAULT_RETENTION_POLICIES
 from sqlalchemy import text
 
-DATA_MODEL = Path(__file__).resolve().parents[1] / "docs" / "DATA-MODEL.md"
 SEC_COMP = Path(__file__).resolve().parents[1] / "docs" / "SECURITY-COMPLIANCE.md"
 
 # What a real clinic uploads. Every one of these strings is personal data about a
@@ -269,34 +267,6 @@ def _kb_entry(document: dict[str, Any]) -> dict[str, Any]:
 
 
 # ===================================================== 1. THE CATEGORY EXISTS AND IS SET
-
-
-def test_the_retention_categories_are_the_ones_the_data_model_enumerates() -> None:
-    """The tuple and the authoritative doc, pinned to each other rather than to
-    themselves. DATA-MODEL §9 writes the list out in full; a category appearing in one
-    and not the other is the drift this catches."""
-    assert DATA_CATEGORIES == (
-        "recording",
-        "transcript",
-        "lead",
-        "consent_log",
-        "engine_payload",
-        "kb",
-        # The in-app copilot's memory (migration d4a9c17e6b02) — a CATEGORY on the existing
-        # mechanism, exactly as `kb` and `engine_payload` were, rather than a second clock.
-        "copilot_memory",
-        # What an AGENT remembers about a CALLER between calls (D-507, migration
-        # e1a4d70c9b52). Added the same way and for the same kind of reason: the question
-        # "how long may we remember this person between calls" has a different answer from
-        # "how long may we keep what they said on one call", so it is a category rather
-        # than a share of the transcript's.
-        "caller_memory",
-    )
-    documented = DATA_MODEL.read_text(encoding="utf-8")
-    assert (
-        "data_category ENUM[recording,transcript,lead,consent_log,engine_payload,kb,"
-        "copilot_memory,\n                     caller_memory]" in documented
-    ), "DATA-MODEL §9 no longer enumerates the same categories the code enforces"
 
 
 async def test_onboarding_installs_a_knowledge_base_retention_period() -> None:
@@ -708,15 +678,13 @@ def test_the_knowledge_base_entry_names_the_frozen_pack_the_agent_answers_out_of
     """The register's "superseded versions expire" is true of our DATABASE and of nothing
     else, and until this test it read as the whole story.
 
-    D-599 froze each agent's published knowledge into a content-addressed PACK under
-    `knowledge-packs/` (`kb/pack.publish_pack`, `calevate_shared.knowledge_pack.
-    pack_object_key`), and that pack is what a voice container actually fetches and answers
-    out of. `kb/pack.py` states the consequence outright, measured rather than assumed: "no
-    path in `apps/workers/` or `apps/api/compliance/` deletes anything under this prefix".
-    The only thing that reaches it is `infra/object-lifecycle/policy.json`'s
-    `knowledge-packs-growth-ceiling-not-retention` — 2555 days, bucket-wide, measured from
-    the object's own creation, and its own comment argues it is a growth ceiling and NOT a
-    retention period.
+    From D-599 until D-763 each agent's published knowledge was also frozen into a
+    content-addressed PACK under `knowledge-packs/`. No path in `apps/workers/` or
+    `apps/api/compliance/` deletes anything under that prefix, so the packs already written
+    still hold what they froze. The only thing that reaches them is
+    `infra/object-lifecycle/policy.json`'s `knowledge-packs-growth-ceiling-not-retention` —
+    2555 days, bucket-wide, measured from the object's own creation, and its own comment
+    argues it is a growth ceiling and NOT a retention period.
 
     So a data principal whose number was in an approved line reads today that superseded
     versions are deleted once they pass the account's knowledge-base retention period —

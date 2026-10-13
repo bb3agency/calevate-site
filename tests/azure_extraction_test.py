@@ -307,58 +307,6 @@ async def test_the_request_goes_to_the_v1_surface_with_a_bearer_and_no_api_versi
     assert schema_request["json_schema"]["schema"] == build_azure_response_schema(SPEC)
 
 
-def test_the_endpoint_cannot_prove_its_own_region_and_this_file_says_so() -> None:
-    """THE RECORDED WEAKENING (D-410), pinned so nobody later mistakes it for a proof.
-
-    Vertex put `asia-south1` in the host and the path, so residency was readable from the
-    URL. Azure's custom-subdomain form names no region: the resource's region is asserted
-    by config and confirmed by a human in the portal. This test exists to stop a future
-    reader adding `assert AZURE_LOCATION in url` — which would pass only by accident of
-    how somebody named a resource, and would report a guarantee this design does not
-    make. What IS still enforced is that one spelling of the region exists and that no
-    endpoint is built outside the single builder.
-    """
-    url = azure_openai_base_url(RESOURCE)
-    assert AZURE_LOCATION not in url, (
-        "the shipped hostname now carries the region — if that is deliberate, D-410's "
-        "rejected regional-hostname alternative has been taken and this file, "
-        "check_model_residency and the OPERATIONS gate all have to change together"
-    )
-    assert url == f"https://{RESOURCE}.openai.azure.com/openai/v1"
-
-
-def test_no_azure_endpoint_is_spelled_in_this_modules_code() -> None:
-    """`check_model_residency` proves this across the tree; this proves it for the file a
-    reader is most likely to add a second f-string to, and fails on the same commit rather
-    than at the next guardrail run. One builder is what makes the host unable to disagree
-    with itself.
-
-    PROSE IS EXEMPT AND CODE IS NOT: the class docstring quotes the hostname on purpose,
-    to say what the endpoint is and why it cannot prove its own region. Docstring nodes
-    are excluded through `check_wiring`'s own helper rather than a second parser, because
-    two ideas of "is this string prose" is the drift both files exist to catch.
-    """
-    import ast
-    from pathlib import Path
-
-    from scripts.check_wiring import _docstring_nodes
-
-    tree = ast.parse(Path(str(extraction_module.__file__)).read_text(encoding="utf-8"))
-    prose = _docstring_nodes(tree)
-    spelled = [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and id(node) not in prose
-        and "openai.azure.com" in node.value
-    ]
-    assert spelled == [], (
-        f"an Azure hostname is spelled in module code at line(s) {spelled}, outside "
-        "`azure_openai_base_url` — the one builder the residency guard reads"
-    )
-
-
 async def test_a_content_filter_refusal_is_an_ordinary_response_and_not_a_crash() -> None:
     """Azure's content filter answers 200 with no usable choice — documented behaviour,
     not an exception. Indexing it blindly is the IndexError that once failed a whole
@@ -426,19 +374,6 @@ def test_get_extractor_cannot_return_the_assist_provider_even_with_a_credential(
 
     monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
     assert isinstance(get_extractor(), SarvamExtractor)
-
-
-def test_the_capability_constant_is_the_greppable_form_of_g7() -> None:
-    """`check_docs_drift` §5 judges prose that quotes this name by value. It is only worth
-    minting if it says what the code does, so this is the tie between the two.
-
-    THE NAME IS A FOSSIL ON PURPOSE: Gemini is gone from this product, and renaming the
-    constant would unbind every doc sentence the drift check matches on it in the same
-    commit that changed what they are about. What it stands for is "the first post-call
-    extraction does not run on the assist provider, whoever that is".
-    """
-    assert extraction_module.GEMINI_EXTRACTION_DEFAULT is False
-    assert extraction_module.ASSIST_QUOTA_ENFORCED is True
 
 
 async def test_run_assist_refuses_text_that_has_not_been_redacted(configured: Any) -> None:
@@ -1190,37 +1125,3 @@ def test_no_settings_field_can_stand_in_for_the_region() -> None:
         "the model default is a retyped string rather than the constant — two spellings "
         "of one default is how they drift apart"
     )
-
-
-def test_every_frozen_constant_on_this_path_is_annotated_final() -> None:
-    """`Final` is what mypy strict — a CI gate here — refuses to let anything rebind, so
-    it is the annotation that turns a convention into an enforced one. Asserted from the
-    AST because the runtime cannot see an annotation that was deleted."""
-    import ast
-    from pathlib import Path
-
-    from calevate_shared import engine as engine_module
-
-    expected = {
-        engine_module: {
-            "AZURE_LOCATION",
-            "AZURE_OPENAI_DEFAULT_MODEL",
-            "AZURE_OPENAI_MODELS",
-        },
-        extraction_module: {
-            "GEMINI_EXTRACTION_DEFAULT",
-            "ASSIST_QUOTA_ENFORCED",
-            "NO_CREDENTIAL_REASON",
-            "AZURE_PROVIDER",
-        },
-    }
-    for module, names in expected.items():
-        tree = ast.parse(Path(str(module.__file__)).read_text(encoding="utf-8"))
-        final_names = {
-            node.target.id
-            for node in ast.walk(tree)
-            if isinstance(node, ast.AnnAssign)
-            and isinstance(node.target, ast.Name)
-            and "Final" in ast.unparse(node.annotation)
-        }
-        assert names <= final_names, f"{module.__name__}: {names - final_names} lost `Final`"

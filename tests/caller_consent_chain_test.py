@@ -148,7 +148,7 @@ async def test_a_real_160_number_cannot_be_filed_as_standard() -> None:
                 e164=_number("160"),
                 series="standard",
                 agent_id=None,
-                provider="plivo",
+                provider="thinnest",
                 purpose="campaigns",
             )
     assert excinfo.value.code == "number_series_mismatch"
@@ -165,7 +165,7 @@ async def test_a_matching_number_and_series_still_provisions() -> None:
             e164=e164,
             series="160",
             agent_id=None,
-            provider="plivo",
+            provider="thinnest",
             purpose="reception",
         )
     assert isinstance(number_id, UUID)

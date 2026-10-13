@@ -2,11 +2,10 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
-import { VOICES_PATH } from "@/lib/api/voices";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, stillLoading, type Routes } from "./harness";
-import { agentCallHandling, agentRow, voiceCatalogue } from "./fixtures/sharedReads";
+import { agentCallHandling, agentRow } from "./fixtures/sharedReads";
 /*
  * The agent page is a settings layout (D-661): Live opens first and holds the publish
  * controls this file is about; the call-cap cases open Call length.
@@ -146,7 +145,6 @@ function render(over: Partial<Routes> = {}) {
         },
         experiment: null,
       },
-      [VOICES_PATH]: voiceCatalogue("admin"),
       ...over,
     },
   );
@@ -160,14 +158,14 @@ describe("putting an agent on the voice platform for the first time", () => {
     const { calls } = await render({
       [`POST ${PUBLISH_PATH}`]: {
         agent_id: AGENT,
-        engine_agent_ref: "pipecat_agent_7f21",
+        engine_agent_ref: "ag_7f21",
         status: "live",
       },
     });
 
     fireEvent.click(await publishButton());
 
-    await screen.findByText(/pipecat_agent_7f21/);
+    await screen.findByText(/ag_7f21/);
     const posted = calls.filter(
       (call) => call.path === PUBLISH_PATH && call.method === "POST",
     );

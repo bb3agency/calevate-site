@@ -65,7 +65,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
-from apps.api.engine.carrier_pacing import LINES_BUSY_RULE, PACING_RULE
+from apps.api.engine.dial_lines import LINES_BUSY_RULE
 from apps.api.engine.vendor_http import NUMBER_DAILY_LIMIT_CODE
 from apps.api.ingest.lead_policy import (
     LEAD_INGEST_PREFIX,
@@ -83,7 +83,7 @@ log = get_logger(__name__)
 #: The dial refusals that say the calling account or number had no line, slot or daily
 #: allowance free, not that this lead may not be called: the call is booked as a call-back
 #: instead of being lost.
-LINE_REFUSALS: frozenset[str] = frozenset({LINES_BUSY_RULE, PACING_RULE, NUMBER_DAILY_LIMIT_CODE})
+LINE_REFUSALS: frozenset[str] = frozenset({LINES_BUSY_RULE, NUMBER_DAILY_LIMIT_CODE})
 
 #: Gate refusals about the CLOCK or the whole PLATFORM, never about this person: outside
 #: 09:00-21:00 IST, a maintenance drain, the platform halt. The call is booked as a

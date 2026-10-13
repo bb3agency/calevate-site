@@ -8,14 +8,10 @@ A client's agent speaks with one of two voices, and the tier is a property of th
 DERIVED from the chosen voice's `provider` and stored nowhere (plan §3.3: a second column
 could disagree with the voice, so there is not one; invariant 7 is Phase C's test):
 
-* **`clear`** — the VALUE rung, served by Gnani `timbre-v2.5` since 18 Sep 2026 (D-629),
-  when the Sarvam TTS leg was withdrawn; Sarvam remains this product's STT vendor and has
-  nothing to do with this rung. ⚠ **THE TOKEN WAS `sarvam` UNTIL 19 SEP 2026** — a vendor's
-  name on a money column, for a vendor that had stopped serving the rung; `VoiceTier` below
-  carries the rename and the migration that did it. Its floor is struck at a PER-CHARACTER
-  scalar (`TTS_INR_PER_10K_CHARS`), whose worst-case per-call-minute cost is the top of
-  TRD §10.1's assumed speaking band, and it is one of the four legs summed into
-  `SELF_SERVE_COST_FLOOR_INR_PER_MIN`.
+* **`clear`** — the VALUE rung. On ThinnestAI it is the platform's own voice band
+  (D-688). Its base floor is struck at a PER-CHARACTER scalar (`TTS_INR_PER_10K_CHARS`),
+  whose worst-case per-call-minute cost is the top of TRD §10.1's assumed speaking band,
+  and it is one of the four legs summed into `SELF_SERVE_COST_FLOOR_INR_PER_MIN`.
 * **`studio`** — Sonic 3.5, a MONTHLY SUBSCRIPTION with an included allotment and an
   OVERAGE past it, with no pay-as-you-go option (Tinmaz correspondence, 9 Sep 2026, in
   `docs/evidence/cartesia-tts-verification-2026-09-06.md` ADDENDUM 3). A subscription has
@@ -33,16 +29,14 @@ bundle (D-469). **A voice tier is never a bill**: what a Cartesia call actually 
 per character is Phase D's `TtsPriceAttestation`; everything here is the margin MODEL.
 
 **THE CARD IS JUDGED AGAINST THE FLOORS OF THE ENGINE THE DEPLOYMENT RUNS (D-681).** At a
-flat ₹4.00 the Clear column earns 31.3% on ThinnestAI (₹2.75 floor) and 7.8% on the owned
-Pipecat runtime (₹3.6891, carrier included); the deepest Studio rung (₹5.50) earns 14.4%
-against the base ₹4.7099 and 4.5% against Pipecat's ₹5.2499. Every figure here is DERIVED;
+flat ₹4.00 the Clear column is judged against ThinnestAI's band floor, and a Studio rung
+against ThinnestAI's own-voice floor; any other engine is judged at the base pair. Every
+figure here is DERIVED;
 the guard REFUSES below cost and only REPORTS below target, so do not "fix" a below-target
 row by moving the floor.
 
-The previous two-rung ladder (Bulbul v3 "premium" beside a Bulbul v2 "value" rung, with
-`billable_tier` billing the cheaper rung when a premium voice could not be proven) was
-withdrawn before this change and its machinery deleted; the second tier that exists now is
-a different VENDOR at a different price, chosen per agent, never a fallback.
+The two tiers are chosen per agent, each at its own price, and one is never a fallback for
+the other.
 
 `SURFACES §2b`'s "never silently upgrade a degraded call" rule survives only where it still
 has meaning: the PLAN's two overage-rate slots (`plans.overage_rate` /
@@ -95,62 +89,20 @@ from calevate_shared.model_lifecycle import TtsProvider
 
 from apps.api.billing.models import MONEY
 
-# THE CLEAR RUNG'S PER-CHARACTER RATE. Per 10,000 characters, INR. NUMERIC, never a float.
+# THE BASE CLEAR FLOOR'S PER-CHARACTER RATE. Per 10,000 characters, INR. NUMERIC.
 #
-# ⚠ **THIS BLOCK SPENT 18 SEP 2026 ASSERTING THAT GNANI PUBLISH NO PRICE, AND THAT WAS
-# FALSE.** In as many words it said "Gnani publish no figure of any kind", "the single
-# figure in the wild is a RESELLER's", and "the day a Gnani price is attested, the floor
-# must be re-struck from it and this constant retired". The founder opened Gnani's own
-# console on 19 Sep 2026 and read the price off it. What had actually happened is the
-# failure hard rule 11 is written for: a previous session did not find the page and wrote
-# the not-finding down as a vendor fact, and every surface downstream repeated it.
+# ₹27.00 per 10,000 characters: a published Text to Speech list rate (VENDOR-PUBLISHED,
+# read by the founder on 19 Sep 2026 and relayed; D-629). It prices the base cost model only —
+# `tts_inr_per_call_minute`, `clear_cost_floor_inr_per_min_at`,
+# `SELF_SERVE_COST_FLOOR_INR_PER_MIN`, TRD §10.1's per-call-minute cell and
+# `scripts/check_docs_drift.py` §4b. It is NOT `unit_cost_paid` (hard rule 7):
+# no minute is billed at it.
 #
-# **THE RATE, AND WHERE IT COMES FROM.** ₹27.00 per 10,000 characters for Text to Speech,
-# on Gnani's own pricing page, `app.gnani.ai/voice/pricing` — read by the founder on
-# 19 Sep 2026 and relayed with a screenshot (the host is not reachable from this
-# container, so this is a founder-relayed reading of a primary source and not a fetch).
-# **EVIDENCE CLASS: VENDOR-PUBLISHED.** The same page states a **60 requests/minute** rate
-# limit, which is a CONCURRENCY ceiling rather than a price and is recorded at
-# `agents/gnani_voices.py` where the pipeline that meets it lives.
-#
-# ⚠ **THE FIGURE IS THE SAME ₹27 THIS TREE HAS BEEN REFUSING TO USE, AND REFUSING IT WAS
-# STILL RIGHT.** `docs/PIPECAT-MIGRATION.md` §7 carried ₹27/10,000 as a RESELLER's price
-# for their own platform, and hard rule 7 kept it off every surface. It turns out to match
-# Gnani's own list price. That does not retroactively make the reseller's page evidence of
-# Gnani's rate — a figure that happens to be right is not a source — and the rule that
-# refused it is what made this reading necessary rather than optional.
-#
-# **WHAT THE CONSTANT NOW IS.** The Clear rung's per-character rate, as its vendor
-# publishes it: the same job the Sarvam Bulbul v3 rate did before the TTS leg moved, on the
-# same rung, from the same class of source. It prices `tts_inr_per_call_minute`,
-# `clear_cost_floor_inr_per_min_at`, `SELF_SERVE_COST_FLOOR_INR_PER_MIN`, the pack guard's
-# refusal, TRD §10.1's per-call-minute cell and `scripts/check_docs_drift.py` §4b.
-#
-# ⚠ **IT IS STILL NOT `unit_cost_paid`, AND HARD RULE 7 IS NOT WEAKENED BY THIS COMMIT.**
-# A catalogue price is what a vendor ADVERTISES; what we are BILLED is an invoice. The
-# billable door stays `tts_rate_inr_per_char()`, which still raises
-# `UnattestedTtsRateError` until an operator attests a real figure — exactly as it does for
-# Cartesia, whose overage rate sits three constants below and is likewise a published rate
-# that no minute is billed at. What changed is that the Clear rung's cost MODEL is now
-# struck at its own vendor's number instead of a withdrawn vendor's, and that the rung has
-# a rate to be OFFERED against (`agents/voice_offer.py`).
-#
-# **A scalar and deliberately not a mapping.** The Studio rung (Cartesia Sonic 3.5, D-547)
-# is NOT a second entry here, because it is not a per-character list price: it is a monthly
-# SUBSCRIPTION whose marginal per-character figure
-# (`CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`, below the LLM section) is the vendor's
-# OVERAGE rate past the included allotment, and inside the allotment there is no
-# per-character price at all — only a fee divided by a volume. Putting the two side by side
-# in one mapping would let a reader price a Cartesia character as if it were metered, which
-# is the misreading the Cartesia evidence file exists to correct.
-#
-# THIS IS THE HOME OF THE RATE, and TRD §10.1 is the doc that states it.
-# `scripts/check_docs_drift.py` §4b diffs the two in both directions — on BOTH rungs now,
-# the Gnani one here and the Cartesia one below — and also checks §10.1's two spellings of
-# each rate (₹/10,000 in the vendor card, ₹/1,000 in the per-call-minute table) against
-# each other. Before that check existed, a vendor price move could land in the doc and not
-# here — the shape D-102/D-103/D-105 each paid for, on the axis where it moves money.
-TTS_INR_PER_10K_CHARS: Final[Decimal] = Decimal("27.0000")  # Gnani Timbre v2.5, published
+# A scalar and not a mapping: the Studio rung (Cartesia Sonic 3.5) is a monthly
+# SUBSCRIPTION whose marginal per-character figure (`CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`)
+# is the overage past the allotment, and a mapping would let a reader price a Cartesia
+# character as if it were metered.
+TTS_INR_PER_10K_CHARS: Final[Decimal] = Decimal("27.0000")
 
 # TRD §10.1's ASSUMED speaking rate — the band the whole TTS line is priced from, and the
 # one figure in the cost model that no vendor rate card can supply. §10.1 says it in its
@@ -177,7 +129,7 @@ TTS_ASSUMED_CHARS_PER_CALL_MINUTE: Final[tuple[Decimal, Decimal]] = (
 # hand-listed registry. It guards no bill: from Phase B a client's minute is priced at the
 # lot's rate for the AGENT's own voice tier (D-547, plan §2.3.7), which is a fact about our
 # `agents` row and not about what the engine reports — so an engine that silently fell back
-# from Cartesia to Sarvam would cost us LESS than the client paid for, never more, and the
+# to a cheaper voice would cost us LESS than the client paid for, never more, and the
 # publish read-back (`agents/verification.py`, Phase C.5) is what is being built to detect
 # the fallback. It stays False because it is still a true statement about the engine (see
 # the module docstring: the `usage_breakdown` block is an orphan schema our snapshot has no
@@ -185,41 +137,10 @@ TTS_ASSUMED_CHARS_PER_CALL_MINUTE: Final[tuple[Decimal, Decimal]] = (
 # OPERATIONS §2 gate 7).
 ENGINE_REPORTS_TTS_MODEL = False
 
-# THE OPEN VENDOR QUESTION ON THIS CARD, recorded here rather than left to be rediscovered.
-#
-# **THIS ENVIRONMENT STILL CANNOT READ SARVAM.** `sarvam.ai` and `docs.sarvam.ai` are
-# refused by this container's egress proxy (CONNECT → 403, re-measured 27 Aug 2026, by
-# `curl` and by the fetch tool), and no request has ever been made to them from this
-# repository. That sentence has not changed and must not be deleted; what changed is that
-# it is no longer the only way to reach the vendor.
-#
-# ⚠ **THE SEARCH-SUMMARY "BULBUL V4 HAS SHIPPED" CLAIM IS NOT BORNE OUT, AND THIS BLOCK IS
-# WHERE IT LIVED.** This paragraph used to record — explicitly marked REPORTED-NOT-READ —
-# that Aug 2026 search summaries described a shipped Bulbul v4 at the same rate. The
-# founder holds a Sarvam account and read the dashboard Model Catalogue and Pricing page
-# (`indus.sarvam.ai/model-catalogue`, `indus.sarvam.ai/pricing/buy-credits`) on 27 Aug 2026
-# and relayed the reading here: the catalogue lists **`bulbul:v3` and no v4 row at all**,
-# and no dashboard price for `bulbul:v2` either. TTS is confirmed at **₹30 / 10,000 chars
-# for `bulbul:v3`** — exactly `TTS_INR_PER_10K_CHARS`, so no money moves — and the
-# identifier `apps/api/agents/voices.py` pins is the one the vendor actually publishes.
-#
-# EVIDENCE CLASS of that correction: **VENDOR-PUBLISHED (Sarvam dashboard Model Catalogue
-# and Pricing page, read by the founder 27 Aug 2026, relayed).** It is a first-party
-# reading with a named reader and a date; it is NOT a page this container fetched.
-#
-# **THE LESSON IS RULE 11 LANDING ON THE BLOCK WRITTEN TO GUARD AGAINST IT.** A summary of
-# a summary was recorded honestly, with its class marked, and was still wrong about the
-# vendor's catalogue — which is why the correction is kept here in full rather than
-# deleted: the next reader needs to inherit that a REPORTED vendor fact survived review for
-# weeks, not just the corrected identifier.
-#
-# `ENGINE_TTS_MODEL_GENERATION_VERIFIED` STAYS FALSE, deliberately, and the flip was
-# considered. It does not mean "we know which model generation Sarvam ships" — the
-# catalogue reading answers that. It means the ENGINE tells us which model actually
-# synthesized a given call, which is still false: the engine is not the TTS vendor, its
+# Whether the ENGINE tells us which TTS model generation synthesized a given call. False:
 # `ExecutionSnapshot` carries no synthesizer field, and no dashboard reading can change
-# what a webhook payload contains. D-358 (a live capture on OPERATIONS §2 gate 7) is still
-# the only thing that flips it.
+# what a webhook payload contains. D-358 (a live capture on OPERATIONS §2 gate 7) is the
+# only thing that flips it.
 ENGINE_TTS_MODEL_GENERATION_VERIFIED = False
 
 
@@ -296,8 +217,8 @@ ROUNDING = ROUND_HALF_UP
 #   * `tts_kchars` — per THOUSAND characters, because the attested Cartesia plan rate is
 #     ₹0.0034496 a character and a per-character rate meters our own TTS cost 1.4% light
 #     (billing/models.py, D-547).
-#   * `llm_ktok_*` — per THOUSAND tokens, for the first of those reasons on the owned
-#     runtime's leg (`apps/voice-worker/voice_worker/meter.py`, D-592).
+#   * `llm_ktok_*` — per THOUSAND tokens, for the first of those reasons, on the former
+#     owned runtime's leg (D-592; no longer written).
 #   * `stt_min` — per MINUTE of audio, because the Saaras card is ₹0.008333… a second and
 #     a per-second rate meters our own STT cost 0.4% light (billing/models.py, D-638).
 #
@@ -918,10 +839,10 @@ def llm_price_is_billable(model: str) -> bool:
         return spec.price.evidence.verified
     # THE ENCODER CATALOGUE IS ASKED SECOND AND UNDER THE SAME TWO GROUNDS (D-608), never
     # under a looser one. `EMBEDDING_MODELS` carries a one-legged price whose evidence is
-    # `verified=False` on both entries today — Google's page is egress-blocked here and
-    # OpenAI's was never read — so this arm returns False for every encoder until an operator
-    # attests, which is why the pack's dense arm and the dashboard's vector arm are both off
-    # on a fresh deployment and say so in one log line rather than embedding for free.
+    # `verified=False` today — OpenAI's price page was never read here — so this arm returns
+    # False for every encoder until an operator attests, which is why the dashboard's vector
+    # arm is off on a fresh deployment and says so in one log line rather than embedding for
+    # free.
     embedding = EMBEDDING_MODELS.get(model)
     return embedding is not None and embedding.price.evidence.verified
 
@@ -1113,68 +1034,13 @@ def llm_cost_inr_per_minute(minutes: int, *, model: str) -> Decimal:
     return (total / Decimal(minutes)).quantize(MONEY_Q, rounding=ROUNDING)
 
 
-class UnattestedTtsRateError(LookupError):
-    """A caller asked what a synthesised character COSTS, and nobody has attested it.
-
-    Hard rule 7's structural form on the TTS leg, and the exact shape
-    `llm_inr_per_ktok` already has one leg over: a CATALOGUE figure has no path to
-    `unit_cost_paid`, and the only figure that does is one a human read off an invoice.
-
-    ⚠ **THIS REPLACED A RETURNED NUMBER ON 18 SEP 2026 AND THE NUMBER WAS THE DEFECT.**
-    `tts_rate_inr_per_char()` returned `TTS_INR_PER_10K_CHARS / 10_000` unconditionally —
-    Sarvam's published Bulbul v3 list rate — and the biller multiplied EVERY synthesised
-    character by it. That was already wrong for a Cartesia character (a subscription leg
-    with no per-character list price at all), and withdrawing the Sarvam TTS leg made it
-    wrong for every character this product can now speak: it would have stamped a withdrawn
-    vendor's rate on a Gnani minute, which is precisely the invented Gnani figure the
-    founder ruled out. A refusal carrying the reason is worth more than a plausible rupee.
-
-    `LookupError` and not a bare `ValueError` because that is what the metering port
-    already catches and converts to a recorded refusal
-    (`voice_worker.meter.MeterSnapshot._tts_rows` → `RateRefusedError`).
-    """
-
-
-TTS_RATE_REFUSAL: Final = (
-    "no attested per-character TTS price on this deployment: the Sarvam list rate this "
-    "used to return was withdrawn with the Sarvam TTS leg (18 Sep 2026), and neither "
-    "surviving provider gives us a per-character rate we may BILL from — Cartesia sells a "
-    "monthly subscription, and Gnani publish a catalogue rate, which is not an invoice. "
-    "Attest the provider's TTS price in the ops console "
-    "(`ops/model_pricing.attest_tts_price`); until then a synthesised character settles "
-    "as a refusal rather than at somebody else's rate."
-)
-# ⚠ THAT STRING SAID "Gnani publish no figure at all" UNTIL 19 SEP 2026 AND IT WAS FALSE
-# (D-631): their console publishes ₹27.00 / 10,000 characters for Text to Speech
-# (`app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and relayed —
-# VENDOR-PUBLISHED; the host is egress-blocked from CI). The REFUSAL is unchanged and its
-# ground is now the stronger one: hard rule 7 admits an operator's attested invoice figure
-# and nothing else, so a published catalogue price never reaches `unit_cost_paid` however
-# real it is. An operator reading a refusal that misstates a vendor fact goes looking for a
-# page they are told does not exist.
-
-
-def tts_rate_inr_per_char() -> Decimal:
-    """THE door to a BILLABLE per-character TTS rate — and it is shut. Always raises.
-
-    See `UnattestedTtsRateError` for why it stopped returning a number, and
-    `value_rung_tts_inr_per_char()` below for the figure that survives it: the COST MODEL's
-    scalar, which reaches a margin and never a bill.
-
-    It is kept as a function rather than deleted because it is the `RateCard` port's own
-    method name (`voice_worker/meter.py`), and because the day an operator attests a price
-    this is where the attested figure arrives — one door, still.
-    """
-    raise UnattestedTtsRateError(TTS_RATE_REFUSAL)
-
-
 def value_rung_tts_inr_per_char() -> Decimal:
     """The VALUE RUNG's cost-model rate per character. Exact, unquantized: ₹30/10,000 is
     ₹0.003 and dividing is where precision is lost if it is done twice. Callers multiply by
     a character count and quantize once.
 
     **IT MODELS MARGIN AND REACHES NO BILL**, which is the whole reason it may exist at all
-    while `tts_rate_inr_per_char` refuses — see `TTS_INR_PER_10K_CHARS` for what the scalar
+    while no TTS minute is billed — see `TTS_INR_PER_10K_CHARS` for what the scalar
     now means and why it was frozen rather than deleted. Its two callers are
     `tts_inr_per_call_minute` (the floor, TRD §10.1's per-call-minute cell, the measured
     speaking-rate board) and nothing else. **Do not wire it to `unit_cost_paid`.**
@@ -1195,8 +1061,7 @@ def tts_inr_per_call_minute(chars_per_call_minute: Decimal) -> Decimal:
     (`billing/tts_speaking_rate.py`) is the same function over what the transcripts say.
     One function for both so the assumed and the measured figures can never be priced by
     two arithmetics; multiply once, quantize once (`value_rung_tts_inr_per_char`'s
-    contract). **THIS IS THE COST MODEL, NOT A BILL** — `tts_rate_inr_per_char` is the
-    billable door and it refuses.
+    contract). **THIS IS THE COST MODEL, NOT A BILL.**
 
     A speaking rate is a Decimal and never a float: it is chars x 60 / seconds computed
     exactly upstream, and a float here would put the one rounding this module exists to
@@ -1214,7 +1079,8 @@ def stt_rate_inr_per_minute() -> Decimal:
     §10.1's ₹0.50/min cell, DERIVED from `STT_INR_PER_HOUR` and never restated.
 
     **PER MINUTE AND NOT PER SECOND, because this figure lands in `unit_cost_paid`**
-    (`worker/service._price_one`). ₹30/hour is ₹0.008333… a second, which NUMERIC(12,4)
+    (`billing/ai_quota`'s `ai_stt_min` rows). ₹30/hour is ₹0.008333… a second, which
+    NUMERIC(12,4)
     stores as 0.0083 — 0.4% light on every STT second of every call. Per minute it is
     ₹0.5000 exactly (`billing/models.py` at `stt_min`, D-638).
 
@@ -1225,381 +1091,8 @@ def stt_rate_inr_per_minute() -> Decimal:
     return STT_INR_PER_HOUR / _MINUTES_PER_HOUR
 
 
-def stt_cost_inr(duration_s: int) -> Decimal:
-    """What `duration_s` seconds of Saaras transcription cost us, at Sarvam's list rate.
-
-    ⚠ **A MODEL FIGURE, NEVER A BILL — and unlike the TTS half this leg HAS a real
-    counterpart on the ledger, so the distinction is sharper here than it is one function
-    up.** What reaches `usage_events.unit_cost_paid` for STT on a rented-engine call is the
-    ENGINE's own reported per-leg cost: `CostBreakdown.stt_inr`, divided by the call's
-    billable minutes in `workers/pipeline.py::_meter` to make a price per unit of `qty` (on
-    the owned runtime, which holds its own Sarvam account, the ledger rate is
-    `stt_rate_inr_per_minute`). Nothing on the engine path consults this function and
-    nothing may: the engine rents its own Sarvam account, so what IT charges us is a fact
-    about ITS invoice, while this card is a fact about Sarvam's list. Two numbers with two
-    meanings — "what we pay" and "what the vendor lists" — and they are never the same
-    variable again, which is the argument `llm_cost_inr_per_minute` makes for the LLM leg
-    arriving on the speech one.
-
-    **THE VENDOR'S BILLING GRANULARITY IS UNKNOWN, AND IS NOT IMPUTED.** The catalogue
-    prices "per hour of audio"; whether a request is billed on exact audio duration, on
-    whole seconds, or rounded up to some minimum billable unit is stated nowhere the
-    founder could find and nowhere this container can reach. So this prices the seconds it
-    is given and invents no minimum — the refusal `tts_inr_per_call_minute` makes about
-    counts, on the axis where this leg could be guessed. The consequence is stated rather
-    than hidden: if Sarvam rounds a request up, this is a **FLOOR** on our real cost, so
-    the margin model errs toward reporting a thinner margin than we have and can never
-    quietly report a fatter one. A Sarvam invoice line against a request of known duration
-    is what settles it.
-
-    Zero is zero (a call that transcribed nothing costs nothing); a negative duration is
-    refused rather than priced, because a negative cost on a usage event is a credit issued
-    by an arithmetic accident — the same argument `tts_inr_per_call_minute` makes, and the one
-    `_billable_seconds` had to make on the live money path.
-    """
-    if duration_s < 0:
-        raise ValueError("audio duration cannot be negative")
-    exact = STT_INR_PER_HOUR * Decimal(duration_s) / _SECONDS_PER_HOUR
-    return exact.quantize(MONEY_Q, rounding=ROUNDING)
-
-
-# --- THE TELEPHONY LEG: COSTABLE, AND IN NEITHER FLOOR ----------------------------------
-#
-# D-474 (Model B) left the carrier minute out of the cost model entirely, and correctly:
-# the client is the subscriber of record on their own account and is billed by their own
-# operator, so there was no rupee of ours to model. A THIRD arrangement is under
-# consideration in which the number is sold through the platform — under that one the
-# carrier minute IS ours, so the leg has to be costable before it can be priced.
-#
-# ⚠ **NOTHING HERE IS SUMMED INTO A COST FLOOR.** `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and
-# `CARTESIA_COST_FLOOR_INR_PER_MIN` are what the published pack card, `credit_packs
-# .card_margins` and TRD §10's margin model are struck against; folding a leg into them
-# would reprice a card that is on sale and re-classify every account holding one. This is
-# an ADDITIVE term a caller sums in where the arrangement applies, and
-# `cost_floor_inr_per_min` does not read it.
-#
-# ⚠ **AND IT REACHES NO BILL** (hard rule 7) — the same standing as `llm_cost_inr_per_
-# minute` and by the same construction: a catalogue figure has no path to `unit_cost_paid`.
-# The billable doors are attested (`llm_inr_per_ktok`, `tts_rate_inr_per_char`); no
-# function below is one.
-#
-# **EVIDENCE CLASS: VENDOR-PUBLISHED, FOUNDER-RELAYED** — Plivo's India voice pricing page,
-# read by the founder on 22 Sep 2026 and relayed with the figures below. NOT fetched from
-# here and not fetchable: `www.plivo.com` is egress-blocked from this container (403 on
-# CONNECT, measured 21 Sep 2026, recorded at `agents/transfer_providers/plivo.py`), so a
-# re-read is a founder's reading or nothing.
-
-#: Which carrier leg a minute runs over. `domestic` is a PSTN call to or from an Indian
-#: number; `webrtc` is the vendor's browser SDK leg, which never touches the PSTN and is
-#: therefore cheaper. Two legs rather than one rate because the vendor prices them
-#: differently, so a figure that did not say which leg it was for would be two rates.
-TelephonyLeg = Literal["domestic", "webrtc"]
-
-#: Which way the call was placed. Kept as a lookup key even though today's card prices both
-#: identically — see `TELEPHONY_INR_PER_MIN`.
-TelephonyDirection = Literal["inbound", "outbound"]
-
-#: Plivo's India voice card in ₹ per minute, per leg and per direction.
-#:
-#: **THE TWO DIRECTIONS ARE TRANSCRIBED SEPARATELY THOUGH THEY CARRY THE SAME RATE**, for
-#: the reason a single `..._INR_PER_MIN` constant could not serve: the vendor states
-#: inbound and outbound as two rows, and inbound-vs-outbound is exactly the axis a carrier
-#: card splits when it moves. One constant would make that move a rename of a public name
-#: and a re-reading of every call site; a key makes it one figure.
-#:
-#: NUMERIC INR, never float (hard rule 7).
-TELEPHONY_INR_PER_MIN: Final[Mapping[TelephonyLeg, Mapping[TelephonyDirection, Decimal]]] = (
-    MappingProxyType(
-        {
-            "domestic": MappingProxyType(
-                {"inbound": Decimal("0.3800"), "outbound": Decimal("0.3800")}
-            ),
-            "webrtc": MappingProxyType(
-                {"inbound": Decimal("0.2500"), "outbound": Decimal("0.2500")}
-            ),
-        }
-    )
-)
-
-#: What the bidirectional media stream costs on top of the minute: NOTHING — the vendor's
-#: card states "Included" for audio streaming. A named zero rather than a silent absence,
-#: because this is the row the product cannot run without: our agent needs the raw audio
-#: both ways, and a reader who found no streaming row could not tell "free" from "unread".
-TELEPHONY_AUDIO_STREAMING_INR_PER_MIN: Final[Decimal] = Decimal("0.0000")
-
-#: The vendor's billing PULSE, in seconds: a connected call is billed in whole 30-second
-#: increments, so 2m10s is charged as 2m30s.
-#:
-#: **MODELLED RATHER THAN AVERAGED AWAY**, because the distortion is largest exactly where
-#: this product lives: a 40-second qualification call is billed 60 seconds, i.e. 50% more
-#: than its duration, and a cost model that multiplied duration by the per-minute rate
-#: would under-state every short call and would do it silently. Named so the rounding has
-#: one home: a literal 30 spread across the functions below is the D-103 shape on the axis
-#: that moves money.
-TELEPHONY_PULSE_SECONDS: Final[Decimal] = Decimal("30")
-
-#: Seconds per minute, DERIVED from the two constants already here so this module holds no
-#: second spelling of an hour.
+#: Seconds in a minute, exact, for the client billing increment below.
 _SECONDS_PER_MINUTE: Final[Decimal] = _SECONDS_PER_HOUR / _MINUTES_PER_HOUR
-
-#: The vendor's ASR unit: ₹1.70 per 15 SECONDS, which is the one add-on quoted in a unit
-#: other than the minute. Kept in the vendor's own unit and converted once, below, so the
-#: published figure and the per-minute one cannot come to disagree.
-TELEPHONY_ASR_INR_PER_15_SECONDS: Final[Decimal] = Decimal("1.70")
-
-_TELEPHONY_ASR_UNIT_SECONDS: Final[Decimal] = Decimal("15")
-
-#: The add-on card, ₹ per minute, keyed by the vendor's own feature names.
-#:
-#: **WE BUY NONE OF THESE** (`TELEPHONY_ADDONS_ENABLED` is empty) — the two that would be
-#: tempting are the two that are refused on merit: the carrier's Automatic Speech
-#: Recognition at ₹6.80/min is more than twice the entire Clear cost floor for a
-#: transcript our own STT leg already produces (Sarvam Saaras, ₹0.50/call-minute,
-#: `stt_rate_inr_per_minute`), and Call Transcription at ₹0.81/min buys the same thing
-#: again at 1.6x the STT leg.
-#:
-#: The zero-rated rows are carried rather than dropped, because an absent row reads as an
-#: unread one — and this product records every call, so "recording is free" is a figure
-#: somebody will come looking for.
-TELEPHONY_ADDON_INR_PER_MIN: Final[Mapping[str, Decimal]] = MappingProxyType(
-    {
-        "noise_cancellation": Decimal("0.12"),
-        "call_recording": Decimal("0.00"),
-        "answering_machine_detection": Decimal("0.00"),
-        "conference_calls": Decimal("0.00"),
-        "multilingual_text_to_speech": Decimal("0.00"),
-        "call_transcription": Decimal("0.81"),
-        "automatic_speech_recognition": (
-            TELEPHONY_ASR_INR_PER_15_SECONDS * (_SECONDS_PER_MINUTE / _TELEPHONY_ASR_UNIT_SECONDS)
-        ),
-    }
-)
-
-#: Which add-ons this product actually buys. **EMPTY, AND THAT IS THE ASSERTION.**
-#:
-#: A set rather than a comment saying "we buy none", so that enabling one is a one-line
-#: change that the SAME function which prices a minute picks up
-#: (`telephony_addons_inr_per_min` is summed into `telephony_cost_inr`). The alternative —
-#: a rate card nothing reads — is how an add-on gets switched on in a console and
-#: discovered on an invoice.
-TELEPHONY_ADDONS_ENABLED: Final[frozenset[str]] = frozenset()
-
-#: What one voice-enabled Indian number costs to rent, per MONTH.
-#:
-#: **DELIBERATELY NOT CONVERTED TO A PER-MINUTE FIGURE HERE**, for the reason
-#: `ENGINE_RESERVED_INSTANCE_USD_PER_MIN` gives about a warm instance: it amortises over
-#: whatever minutes that number actually carries, so ₹/min is ₹200 at one call-minute a
-#: month and ₹0.20 at a thousand. `telephony_number_rental_inr_per_min` takes the volume
-#: and invents no default, because a default volume is an unmeasured assumption baked into
-#: a cost figure.
-TELEPHONY_NUMBER_RENTAL_INR_PER_MONTH: Final[Decimal] = Decimal("200.0000")
-
-
-def telephony_rate_inr_per_min(*, leg: TelephonyLeg, direction: TelephonyDirection) -> Decimal:
-    """The carrier's own per-minute rate for one leg and direction, EXACT and unquantized.
-
-    Refuses an unknown key rather than falling back to the domestic rate: a wrong leg
-    priced at the dearer row looks like a working cost model and is wrong by 52%.
-    """
-    try:
-        return TELEPHONY_INR_PER_MIN[leg][direction]
-    except KeyError:
-        raise ValueError(
-            f"no published telephony rate for leg {leg!r} direction {direction!r}; "
-            f"this card carries {sorted(TELEPHONY_INR_PER_MIN)} "
-            f"x {sorted(TELEPHONY_INR_PER_MIN['domestic'])}"
-        ) from None
-
-
-def telephony_addon_inr_per_min(addon: str) -> Decimal:
-    """The published per-minute rate of one carrier add-on. A REFERENCE, never a charge."""
-    try:
-        return TELEPHONY_ADDON_INR_PER_MIN[addon]
-    except KeyError:
-        raise ValueError(
-            f"{addon!r} is not on the telephony add-on card; it lists "
-            f"{sorted(TELEPHONY_ADDON_INR_PER_MIN)}"
-        ) from None
-
-
-def telephony_addons_inr_per_min() -> Decimal:
-    """What the add-ons this product has enabled cost per minute. ₹0 while none are.
-
-    Exact and unquantized: `telephony_cost_inr` sums the legs and quantizes once.
-    """
-    return sum(
-        (telephony_addon_inr_per_min(addon) for addon in sorted(TELEPHONY_ADDONS_ENABLED)),
-        Decimal("0"),
-    )
-
-
-def telephony_billed_seconds(duration_s: int) -> Decimal:
-    """`duration_s` rounded UP to whole pulses — what the carrier actually bills.
-
-    `ceil(duration / pulse) * pulse` in Decimal with the mode stated, never on the ambient
-    context (`ROUNDING`'s argument, one function over).
-
-    ZERO SECONDS BILLS ZERO PULSES, and the vendor's minimum for an unanswered or
-    zero-duration call is **UNKNOWN** — no read page states one, so none is imputed. The
-    consequence is stated rather than hidden: if the carrier charges a minimum for a call
-    that never connected, this is a FLOOR on the real cost and the model can only
-    under-state, never over-state, what we pay.
-    """
-    if duration_s < 0:
-        raise ValueError("call duration cannot be negative")
-    return pulsed_seconds(Decimal(duration_s), pulse=TELEPHONY_PULSE_SECONDS)
-
-
-def _telephony_cost_inr_exact(
-    duration_s: int, *, leg: TelephonyLeg, direction: TelephonyDirection
-) -> Decimal:
-    """The pulse-rounded carrier cost of one call, before any quantization.
-
-    The exact door beside a display door, the split `CartesiaPlan.exact_tts_inr_per_call_
-    minute` argues for: a per-minute view divides this figure again, and quantizing before
-    that division would be a rounding nobody asked for.
-    """
-    per_minute = (
-        telephony_rate_inr_per_min(leg=leg, direction=direction)
-        + TELEPHONY_AUDIO_STREAMING_INR_PER_MIN
-        + telephony_addons_inr_per_min()
-    )
-    # Multiply BEFORE dividing. Billed seconds are whole pulses, so `rate x seconds / 60` is
-    # `rate x pulses / 2` and terminates; `rate / 60` does not, and its 28-digit residue
-    # made a half-paisa-hundredth round down (₹0.1001/min for 30s: 0.0500, not 0.0501).
-    return per_minute * telephony_billed_seconds(duration_s) / _SECONDS_PER_MINUTE
-
-
-def telephony_cost_inr(
-    duration_s: int, *, leg: TelephonyLeg, direction: TelephonyDirection
-) -> Decimal:
-    """What one call of `duration_s` seconds costs on the carrier leg. **A MODEL FIGURE.**
-
-    THE HONEST PRIMITIVE OF THIS LEG, and the reason there is no bare per-minute constant
-    exposed beside the card: a carrier minute has no single price until a call length is
-    named, because the pulse rounds every call up to the next 30 seconds. A 10-second call
-    costs a 30-second call's money.
-
-    Seconds in, because `duration_s` is the unit a call's length exists in everywhere in
-    this tree, and a per-minute signature would push a lossy `duration_s / 60` onto every
-    caller.
-    """
-    return _telephony_cost_inr_exact(duration_s, leg=leg, direction=direction).quantize(
-        MONEY_Q, rounding=ROUNDING
-    )
-
-
-def telephony_inr_per_call_minute(
-    duration_s: int, *, leg: TelephonyLeg, direction: TelephonyDirection
-) -> Decimal:
-    """The carrier leg as ₹ per call-minute — **FOR A CALL OF THIS LENGTH AND NO OTHER.**
-
-    It takes the duration rather than assuming one because the pulse makes the per-minute
-    figure a function of call length: a 31-second domestic call is billed a full minute and
-    runs at ₹0.7355 a call-minute, where a 10-minute one runs at the card's ₹0.38. A
-    constant here would be one of those numbers wearing the name of both.
-
-    Refuses a non-positive duration rather than returning zero or the bare rate: a call
-    with no seconds has a true COST (`telephony_cost_inr` answers it) and no true cost PER
-    MINUTE, which is the asymmetry `CartesiaPlan.tts_inr_per_call_minute` refuses on.
-    """
-    if duration_s <= 0:
-        raise ValueError(
-            "a per-call-minute telephony cost needs a positive call duration; a call with "
-            "no seconds has a cost but no cost per minute"
-        )
-    exact = _telephony_cost_inr_exact(duration_s, leg=leg, direction=direction)
-    return (exact * _SECONDS_PER_MINUTE / Decimal(duration_s)).quantize(MONEY_Q, rounding=ROUNDING)
-
-
-def telephony_number_rental_inr_per_min(call_minutes_per_month: Decimal) -> Decimal:
-    """₹200/month spread over the minutes that number actually carried.
-
-    TAKES THE VOLUME AND HAS NO DEFAULT, for `cartesia_cost_inr_per_call_minute`'s reason:
-    a fixed monthly fee has no per-minute price until a volume is named, and inventing one
-    would put an unmeasured utilisation assumption inside a cost figure.
-
-    A month with no minutes RAISES. Neither alternative is sayable: infinity is not a
-    rupee, and zero reads as a free number on a screen an operator would act on.
-    """
-    if call_minutes_per_month <= 0:
-        raise ValueError(
-            "a number rental has no cost per minute in a month with no minutes; the fee "
-            "is TELEPHONY_NUMBER_RENTAL_INR_PER_MONTH and it is owed either way"
-        )
-    return (TELEPHONY_NUMBER_RENTAL_INR_PER_MONTH / call_minutes_per_month).quantize(
-        MONEY_Q, rounding=ROUNDING
-    )
-
-
-# --- VOBIZ'S INDIA CARD: THE CARRIER WE RUN (D-662), AS A CATALOGUE REFERENCE -------------
-#
-# The Plivo card above is the card of a carrier we hold no account with; Vobiz is the one
-# `Settings.carrier` dials through. Its card is kept beside Plivo's, in its own shape,
-# rather than written into `TELEPHONY_INR_PER_MIN`: Vobiz prices by HOW the call is
-# controlled (SIP trunk or Voice API with WebSocket streaming), not by PSTN-vs-browser leg,
-# and it publishes no pulse, so `telephony_cost_inr`'s 30-second rounding would be
-# Plivo's pulse imputed to Vobiz.
-#
-# Same standing as everything in this section: in neither cost floor, and no path to
-# `unit_cost_paid`. A Vobiz call's cost is the CDR's own `total_cost` per call
-# (`workers/carrier_events.py::carrier_cost_inr`), and this card is what that figure is
-# compared against, never a substitute for it.
-#
-# EVIDENCE CLASS: VENDOR-PUBLISHED, FOUNDER-RELAYED — Vobiz's "India Pricing" rate card,
-# supplied by the founder as an image on 2 Oct 2026 (`docs/evidence/vobiz-api-contract.md`
-# §16). "All charges in Indian Rupees and exclusive of applicable taxes and statutory
-# levies": every figure is BEFORE tax, and no tax rate is applied here because none has
-# been read from a primary source. The billing pulse and any minimum duration are not on
-# the card and are UNKNOWN (gate V-7).
-
-#: The card's per-minute usage rows, by what the row prices.
-VobizUsage = Literal[
-    "sip_trunk", "voice_api_streaming", "recording", "transcription", "pii_redaction"
-]
-
-#: ₹ per minute, before tax. Our calls are `voice_api_streaming` ("Calls placed or
-#: controlled via Voice APIs and WebSocket media streaming"): we dial over the REST API and
-#: the audio rides a `<Stream>` WebSocket. Of the three add-on rows we buy `recording` only
-#: (D-668: Vobiz records the call, `VOBIZ_RECORDING_USAGE`); transcription is ours, and the
-#: card makes PII redaction depend on both. Its cost reaches the ledger only through the
-#: CDR's own `total_cost`, never from this figure (hard rule 7).
-VOBIZ_INR_PER_MIN: Final[Mapping[VobizUsage, Decimal]] = MappingProxyType(
-    {
-        "sip_trunk": Decimal("0.3800"),
-        "voice_api_streaming": Decimal("0.4400"),
-        "recording": Decimal("0.1000"),
-        "transcription": Decimal("0.3000"),
-        "pii_redaction": Decimal("0.3000"),
-    }
-)
-
-#: The usage row every call this product places or answers is billed on.
-VOBIZ_OUR_CALL_USAGE: Final[VobizUsage] = "voice_api_streaming"
-
-#: The add-on row a recorded call adds on top (D-668). A REFERENCE for the margin model and
-#: for reconciling a CDR, exactly like the row above.
-VOBIZ_RECORDING_USAGE: Final[VobizUsage] = "recording"
-
-#: Whether the card's figures include tax. False is the card's own footnote, held as a value
-#: so a caller adding tax has to do so on purpose.
-VOBIZ_CARD_INCLUDES_TAX: Final[bool] = False
-
-
-def vobiz_rate_inr_per_min(usage: VobizUsage) -> Decimal:
-    """Vobiz's published per-minute rate for one usage row, before tax. A REFERENCE only.
-
-    Refuses an unknown row rather than falling back to ours: a SIP-trunk minute priced as a
-    streaming one is wrong by 16%, and quietly.
-    """
-    try:
-        return VOBIZ_INR_PER_MIN[usage]
-    except KeyError:
-        raise ValueError(
-            f"{usage!r} is not a usage row on Vobiz's India card; it lists "
-            f"{sorted(VOBIZ_INR_PER_MIN)}"
-        ) from None
-
 
 # --- THE TWO COST FLOORS, one per voice tier (D-547) ------------------------------------
 #
@@ -1610,30 +1103,17 @@ def vobiz_rate_inr_per_min(usage: VobizUsage) -> Decimal:
 # ours to carry. The sum re-scores itself when any leg constant moves, which is what a
 # margin guard is for.
 #
-# **NO TELEPHONY LEG IN THESE TWO BASE FLOORS (D-474, Model B)**, which assumed the client
-# bought the line on their own carrier account. That premise is retired for the owned
-# Pipecat runtime (D-681): the Vobiz minute and the recording add-on are ours since
-# D-662/D-668 and are added per engine by `cost_floor_inr_per_min(voice, engine=...)`, below,
-# rather than folded into these constants — the base pair is still the speech and model
-# legs, and ThinnestAI replaces the Clear one outright.
+# **NO TELEPHONY LEG IN THESE TWO BASE FLOORS (D-474, Model B).** They are the speech and
+# model legs priced as if we ran them; ThinnestAI's floors replace both outright
+# (`cost_floor_inr_per_min(voice, engine=...)`, below).
 #
 # THE LEGS, with the evidence class of each (hard rule 11):
 #
-#   engine compute       ₹0.95  VERIFIED-VENDOR-DOCS — Pipecat Cloud's published
-#                               "$0.01/min active" for the container that runs the
-#                               conversation, one session per instance
-#                               (`docs.pipecat.ai/pipecat-cloud/pricing`, recorded with
-#                               that citation at `docs/evidence/
-#                               engine-replacement-comet-2026-09-06.md:93,103,122`; the
-#                               evidence file notes the vendor's page shows NO date) at
-#                               the ₹95/$ this section uses.
-#                               ⚠ **THIS ROW REPLACED BOLNA'S $0.02/min BYOK PLATFORM
-#                               FEE (D-592), AND IT IS A DIFFERENT KIND OF CHARGE.**
-#                               Bolna rented us an engine and billed a fee on top of our
-#                               own vendor spend; Pipecat rents us the CONTAINER our own
-#                               worker runs in. The shape is the same — per active
-#                               call-minute, BYOK for speech and language — which is why
-#                               it lands on the same constant rather than a new one.
+#   engine compute       ₹0.95  VERIFIED-VENDOR-DOCS — a published "$0.01/min active" for
+#                               the container that runs one conversation, recorded with
+#                               its citation at `docs/evidence/
+#                               engine-replacement-comet-2026-09-06.md:93,103,122` (the
+#                               vendor page shows NO date), at the ₹95/$ this section uses.
 #                               ⚠ **RESERVED CAPACITY IS NOT IN THIS ROW AND MUST NOT
 #                               BE.** The same page prices a warm instance at
 #                               $0.0005/min whether or not a call is on it —
@@ -1645,10 +1125,9 @@ def vobiz_rate_inr_per_min(usage: VobizUsage) -> Decimal:
 #                               floor stops meaning anything. It is carried as
 #                               `ENGINE_RESERVED_INSTANCE_USD_PER_MIN` below, priced in
 #                               the runway rather than the per-minute floor.
-#                               ⚠ Billing GRANULARITY is **UNKNOWN** — no Pipecat page
-#                               read here states the rounding unit for an active minute,
-#                               so per-minute is what the model assumes, exactly as it
-#                               did for the fee this row replaced.
+#                               ⚠ Billing GRANULARITY is **UNKNOWN** — the page states no
+#                               rounding unit for an active minute, so per-minute is what
+#                               the model assumes.
 #   STT                  ₹0.50  VENDOR-PUBLISHED — `STT_INR_PER_HOUR` / 60, per the Sarvam
 #                               catalogue reading recorded on that constant.
 #   LLM                  ₹0.24  ESTIMATE over a VENDOR-PUBLISHED list price — the
@@ -1659,14 +1138,14 @@ def vobiz_rate_inr_per_min(usage: VobizUsage) -> Decimal:
 #                               three the doc publishes; the model is the one the plan
 #                               rate is frozen against (`BASE_RATE_LLM_MODEL` below is
 #                               this same constant — `tests/cost_floor_test.py` pins it).
-#   TTS (Gnani)          ₹1.4580 ESTIMATE over VENDOR-PUBLISHED — `TTS_INR_PER_10K_CHARS`
+#   TTS                  ₹1.4580 ESTIMATE over VENDOR-PUBLISHED — `TTS_INR_PER_10K_CHARS`
 #                               at the TOP of `TTS_ASSUMED_CHARS_PER_CALL_MINUTE` (540
 #                               chars/min, itself unmeasured — pilot gate 12).
 #   ─────────────────────────
 #   Clear floor          ₹3.1491/min  (0.95 + 0.50 + 0.2411 + 1.4580)
 #
 # ⚠ **EVIDENCE CLASS OF THE SUM: ESTIMATE**, and it is now the SPEAKING RATE rather than the
-# fee that caps it — the fee was upgraded to VERIFIED-VENDOR-DOCS above, and the weakest
+# fee that caps it — the fee is VERIFIED-VENDOR-DOCS above, and the weakest
 # input left is `TTS_ASSUMED_CHARS_PER_CALL_MINUTE`'s 360-540 band, which TRD §10.1 itself
 # calls unmeasured (pilot gate 12) and which the admin spend board's "TTS speaking rate —
 # measured" card exists to replace. The floor takes the TOP of that band, so a real count
@@ -1678,8 +1157,7 @@ def vobiz_rate_inr_per_min(usage: VobizUsage) -> Decimal:
 #: What the engine charges for one ACTIVE call-minute, in the unit the VENDOR publishes it
 #: in. $0.01/min, VERIFIED-VENDOR-DOCS — see the leg table above for the citation, for why
 #: reserved capacity is deliberately not in this number, and for the granularity question
-#: that is still open. The NAME is unchanged across the Bolna→Pipecat move (D-592) because
-#: the leg is the same leg: per active call-minute, on top of BYOK speech and language.
+#: that is still open.
 ENGINE_PLATFORM_FEE_USD_PER_MIN: Final[Decimal] = Decimal("0.01")
 
 #: What a WARM instance costs per minute whether or not a call is on it — $0.0005/min, one
@@ -1891,7 +1369,7 @@ def clear_cost_floor_at(basis: SpeakingRateBasis) -> ClearCostFloor:
 
 
 #: THE BASE CLEAR COST FLOOR: the worst-case cost of one Clear call-minute on our own
-#: speech and model legs (Gnani `timbre-v2.5` voice), no carrier, at `MONEY_Q`. DERIVED from
+#: speech and model legs, no carrier, at `MONEY_Q`. DERIVED from
 #: the legs above (see the table) — never typed. A pack's `clear_inr_per_min` is judged
 #: against it on an engine with no floors of its own (`cost_floor_inr_per_min`), and a
 #: committed bundle's rates by default (`committed_plan_margin`).
@@ -2719,22 +2197,8 @@ VOICE_TIER_LABELS: Final[Mapping[VoiceTier, str]] = {
 
 #: WHICH RUNG EACH TTS PROVIDER BILLS ON, in the money module rather than beside the
 #: catalogue — because a tier is a PRICE, and this file is where a price lives.
-#:
-#: ⚠ **IT USED TO BE A SECOND MAPPING IN `agents/voices.py` WITH `gnani -> None`, AND
-#: `UNPRICED_TIER_LABEL` ("Unreleased") EXISTED TO NAME THAT HOLE.** Both are gone
-#: (18 Sep 2026): the Sarvam TTS leg was withdrawn, Gnani took the value rung, and every
-#: provider now bills on one. `voices.VOICE_TIER_OF_PROVIDER` is THIS mapping, imported, so
-#: there is still exactly one place a provider's rung is written down — `voices.py` is the
-#: one that widened the type to `VoiceTier | None` for the provider that arrives without a
-#: rung decided, and it raises there rather than guessing.
-#:
-#: **A RUNG IS NOT A LICENCE TO SELL.** Gnani is on the value rung and no Gnani minute may
-#: be metered, because nobody has attested what one costs (hard rule 7). The gate is
-#: `agents/voice_offer.tts_price_is_billable`, one seam over, and it is not weakened by
-#: anything on this line.
 _TIER_OF_TTS_PROVIDER: Final[Mapping[TtsProvider, VoiceTier]] = {
     "cartesia": PREMIUM_VOICE_TIER,
-    "gnani": VALUE_VOICE_TIER,
 }
 
 
@@ -2762,38 +2226,23 @@ def voice_tier_label(voice: TtsProvider | VoiceTier) -> str:
 
 # --- THE FLOORS OF THE ENGINE A DEPLOYMENT RUNS (D-681) ------------------------------
 #
-# `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and `CARTESIA_COST_FLOOR_INR_PER_MIN` are the speech
-# and model legs only, with no carrier (D-474's Model B: the client brought the line). Two
-# engines now change what a minute costs us beyond those legs, so a card is judged against
-# the engine the deployment actually runs (`cost_floor_inr_per_min(voice, engine=...)`):
+# `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and `CARTESIA_COST_FLOOR_INR_PER_MIN` are the base
+# pair: speech and model legs priced as if we ran them, with no carrier. ThinnestAI sells
+# telephony, speech and model as one minute (D-687, D-688), so a card is judged against the
+# engine the deployment runs (`cost_floor_inr_per_min(voice, engine=...)`):
 #
-# * **`pipecat`** — the carrier leg is ours since D-662, so D-474's premise no longer holds
-#   for this engine and the Vobiz minute plus the recording add-on (D-668) join both floors:
+# * Clear is sold on the voice band `Settings.thinnest_clear_voice_band` names: Premium,
+#   ₹2.50 a minute, or Studio, ₹3.00 (Studio voices need Pro).
+# * Studio is our Cartesia key on their stack: ₹1.50 a minute plus Cartesia's own synthesis
+#   at its worst marginal plan rate (the TTS half of `CARTESIA_COST_FLOOR_INR_PER_MIN`).
+# * Every ThinnestAI rupee carries the 2.36% wallet top-up fee (`THINNEST_TOPUP_FEE`):
+#   ₹2.5590, ₹3.0708 and ₹1.5354 a minute.
 #
-#       Clear   3.1491 + 0.44 + 0.10 = 3.6891 /min
-#       Studio  4.7099 + 0.44 + 0.10 = 5.2499 /min
-#
-#   Vobiz's card is VENDOR-PUBLISHED, FOUNDER-RELAYED and before tax (`VOBIZ_INR_PER_MIN`);
-#   its billing pulse is UNKNOWN (gate V-7), so per-minute is assumed.
-# * **`thinnest`** — ThinnestAI sells telephony, speech and model as one minute (D-687, D-688).
-#   Clear is sold on the voice band `Settings.thinnest_clear_voice_band` names: Premium,
-#   ₹2.50 a minute, or Studio, ₹3.00 (Studio voices need Pro). Studio is our Cartesia key on
-#   their stack: ₹1.50 a minute plus Cartesia's own synthesis at its worst marginal plan rate
-#   (the TTS half of `CARTESIA_COST_FLOOR_INR_PER_MIN`). Every ThinnestAI rupee carries the
-#   2.36% wallet top-up fee (`THINNEST_TOPUP_FEE`): ₹2.5590, ₹3.0708 and ₹1.5354 a minute.
-#   The minute rates are VENDOR-STATED (ThinnestAI's email of 7 Oct 2026, evaluation §10
-#   item 7; the ₹1.50 is also published, bring-your-own-keys.md:19-24 in the 07b snapshot),
-#   not an invoice.
-#
-# Any other engine (`fake`, the retired `cartesia` engine) is judged at the base floors.
-# Hard rule 7: a floor is a margin GUARD. Nothing here reaches `unit_cost_paid`, and the
-# ThinnestAI minute is metered only at the rate an operator attests (`engine_minutes`).
-
-#: What the carrier leg costs us per minute on the owned runtime: the Vobiz streaming
-#: minute plus the recording add-on. Derived from the card, never retyped.
-OWNED_CARRIER_INR_PER_MIN: Final[Decimal] = vobiz_rate_inr_per_min(
-    VOBIZ_OUR_CALL_USAGE
-) + vobiz_rate_inr_per_min(VOBIZ_RECORDING_USAGE)
+# The minute rates are VENDOR-STATED (ThinnestAI's email of 7 Oct 2026, evaluation §10
+# item 7; the ₹1.50 is also published, bring-your-own-keys.md:19-24 in the 07b snapshot),
+# not an invoice. Any other engine (`fake`) is judged at the base floors. Hard rule 7: a
+# floor is a margin GUARD. Nothing here reaches `unit_cost_paid`, and the ThinnestAI minute
+# is metered only at the rate an operator attests (`engine_minutes`).
 
 #: ThinnestAI's Studio-band voice minute on pay-as-you-go, VENDOR-STATED (evaluation §10
 #: item 7, 7 Oct 2026). A floor input only; the billed cost is the attested `studio` rate.
@@ -2852,9 +2301,8 @@ def cost_floor_inr_per_min(
     cheaper floor. A branch per engine rather than a table: the engines differ in which legs
     they add, not only in a number.
 
-    The base Clear floor is struck at Gnani's published ₹27.00 / 10,000 characters
-    (`TTS_INR_PER_10K_CHARS`). A published catalogue price is not an invoice: no Clear minute
-    on the owned runtime may be metered until an operator attests one.
+    The base Clear floor is struck at the per-character figure `TTS_INR_PER_10K_CHARS`, a
+    cost-model input that no minute is metered at.
 
     On ThinnestAI the Clear floor follows the band Clear is sold on: `clear_band`, or when
     omitted `Settings.thinnest_clear_voice_band` (D-688).
@@ -2866,8 +2314,6 @@ def cost_floor_inr_per_min(
         if voice == VALUE_VOICE_TIER
         else CARTESIA_COST_FLOOR_INR_PER_MIN
     )
-    if engine == "pipecat":
-        return base + OWNED_CARRIER_INR_PER_MIN
     if engine == "thinnest":
         if voice != VALUE_VOICE_TIER:
             return THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN
@@ -3359,7 +2805,6 @@ __all__ = [
     "LIST_PRICE_USD_INR",
     "MIN_GROSS_MARGIN",
     "MONEY_Q",
-    "OWNED_CARRIER_INR_PER_MIN",
     "PREMIUM_VOICE_TIER",
     "PREPAID_TIERS",
     "PRICED_LLM_MODELS",
@@ -3371,13 +2816,6 @@ __all__ = [
     "SARVAM_PRICED_LLM",
     "SELF_SERVE_COST_FLOOR_INR_PER_MIN",
     "STT_INR_PER_HOUR",
-    "TELEPHONY_ADDONS_ENABLED",
-    "TELEPHONY_ADDON_INR_PER_MIN",
-    "TELEPHONY_ASR_INR_PER_15_SECONDS",
-    "TELEPHONY_AUDIO_STREAMING_INR_PER_MIN",
-    "TELEPHONY_INR_PER_MIN",
-    "TELEPHONY_NUMBER_RENTAL_INR_PER_MONTH",
-    "TELEPHONY_PULSE_SECONDS",
     "THINNEST_CLEAR_COST_FLOOR_BY_BAND",
     "THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN",
     "THINNEST_OWN_VOICE_INR_PER_MIN",
@@ -3387,12 +2825,7 @@ __all__ = [
     "THINNEST_TOPUP_FEE",
     "TTS_ASSUMED_CHARS_PER_CALL_MINUTE",
     "TTS_INR_PER_10K_CHARS",
-    "TTS_RATE_REFUSAL",
     "VALUE_VOICE_TIER",
-    "VOBIZ_CARD_INCLUDES_TAX",
-    "VOBIZ_INR_PER_MIN",
-    "VOBIZ_OUR_CALL_USAGE",
-    "VOBIZ_RECORDING_USAGE",
     "VOICE_TIERS",
     "VOICE_TIER_LABELS",
     "CartesiaPlan",
@@ -3404,10 +2837,6 @@ __all__ = [
     "LlmPriceAttestationReader",
     "RateMargin",
     "SpeakingRateBasis",
-    "TelephonyDirection",
-    "TelephonyLeg",
-    "UnattestedTtsRateError",
-    "VobizUsage",
     "VoiceTier",
     "assert_rate_is_meterable",
     "assumed_speaking_rate",
@@ -3449,20 +2878,10 @@ __all__ = [
     "rate_margin",
     "sarvam_llm_reference_inr_per_ktok",
     "stored_voice_tier",
-    "stt_cost_inr",
     "stt_rate_inr_per_minute",
     "surchargeable_models_are_dearer",
-    "telephony_addon_inr_per_min",
-    "telephony_addons_inr_per_min",
-    "telephony_billed_seconds",
-    "telephony_cost_inr",
-    "telephony_inr_per_call_minute",
-    "telephony_number_rental_inr_per_min",
-    "telephony_rate_inr_per_min",
     "tts_inr_per_call_minute",
-    "tts_rate_inr_per_char",
     "usd_mtok_to_inr_ktok_exact",
     "value_rung_tts_inr_per_char",
-    "vobiz_rate_inr_per_min",
     "voice_tier_label",
 ]

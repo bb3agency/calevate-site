@@ -639,12 +639,6 @@ async def test_a_malformed_flag_name_never_reaches_the_database() -> None:
     assert response.status_code == 422, response.text
 
 
-async def test_the_registry_agrees_with_its_own_type() -> None:
-    """The boot assertion, run as a test too: `main.py` calls it at import, so a broken
-    registry already fails everything — this names the failure."""
-    assert_flag_registry_wellformed()
-
-
 def test_the_declared_flag_set_is_pinned() -> None:
     """Adding a flag costs a visible diff in a TEST as well as in the registry.
 

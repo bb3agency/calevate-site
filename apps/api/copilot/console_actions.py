@@ -33,7 +33,7 @@ discards what was saved there (`agent_changes_apply`) rather than writing a seco
 
 ═══ SERVICES THAT OPEN THEIR OWN TRANSACTION ═══
 
-`set_agent_voice`, `set_disclosure_posture`, `apply_to_live` and `purchase_engine_number`
+`set_disclosure_posture`, `apply_to_live` and `purchase_engine_number`
 each open their own session (they push to the voice platform inside it). They are called
 BEFORE anything in the action's own transaction touches the agent row, and the inverse
 compares without `FOR UPDATE`, because a row lock held by the outer transaction would
@@ -750,8 +750,8 @@ async def _plan_callback_book(
 async def _execute_callback_book(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`callbacks.service.book` — the one writer of a call-back, which the voice worker's
-    "call me back" tool also uses. The execution id is ours, so a later move finds it."""
+    """`callbacks.service.book` — the one writer of a call-back, which the engine's
+    "call me back" action also uses. The execution id is ours, so a later move finds it."""
     from apps.api.callbacks import service as callbacks_service
 
     parsed = parse_args(_CallbackBookArgs, args)
@@ -1594,7 +1594,7 @@ class _AgentEditArgs(BaseModel):
 
 
 _AGENT_EDIT_COLUMNS: Final = (
-    "status, language_primary, tts_voice, ai_disclosure_enabled, recording_notice_enabled"
+    "status, language_primary, engine_voice_id, ai_disclosure_enabled, recording_notice_enabled"
 )
 
 
@@ -1717,15 +1717,12 @@ async def _apply_agent_settings(
     ai_disclosure_enabled: bool | None,
     recording_notice_enabled: bool | None,
 ) -> None:
-    """The three console buttons, in the order their transactions allow (module docstring):
-    `set_agent_voice` and `set_disclosure_posture` own their sessions and go first, then
-    `lifecycle.update_agent` in this one. Each re-publishes a live agent itself."""
-    from apps.api.agents.publishing import set_agent_voice, set_disclosure_posture
+    """The console buttons, in the order their transactions allow (module docstring):
+    `set_disclosure_posture` owns its session and goes first, then `lifecycle.update_agent`
+    in this one, which checks the voice against the voice platform's catalogue. Each
+    re-publishes a live agent itself."""
+    from apps.api.agents.publishing import set_disclosure_posture
 
-    if voice_id is not None:
-        await set_agent_voice(
-            tenant_id=actor.tenant_id, agent_id=agent_id, voice_id=voice_id, audience="client"
-        )
     if ai_disclosure_enabled is not None or recording_notice_enabled is not None:
         await set_disclosure_posture(
             tenant_id=actor.tenant_id,
@@ -1733,9 +1730,14 @@ async def _apply_agent_settings(
             ai_disclosure_enabled=ai_disclosure_enabled,
             recording_notice_enabled=recording_notice_enabled,
         )
-    if language_primary is not None:
+    if language_primary is not None or voice_id is not None:
         await lifecycle.update_agent(
-            session, tenant_id=actor.tenant_id, agent_id=agent_id, language_primary=language_primary
+            session,
+            tenant_id=actor.tenant_id,
+            agent_id=agent_id,
+            language_primary=language_primary,
+            engine_voice_id=voice_id,
+            set_engine_voice_id=voice_id is not None,
         )
 
 

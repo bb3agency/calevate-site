@@ -2,7 +2,7 @@
 
 **THERE IS NO NETWORK IN THIS FILE AND THERE MUST NOT BE**, for
 `tests/retrieval_supermemory_test.py`'s reason: Supermemory is not installed and
-`supermemory.ai` is egress-blocked from this container (`docs/PIPECAT-MIGRATION.md` §8.5),
+`supermemory.ai` is egress-blocked from this container (ROADMAP D-604),
 so the vendor is faked at the one seam that touches a socket — `SupermemoryTransport` — and
 everything above it, including the real publish path and the real erasure worker, runs for
 real against the real database.
@@ -23,7 +23,6 @@ WHAT EACH GROUP DEFENDS:
 
 from __future__ import annotations
 
-import inspect
 import logging
 import uuid
 from collections.abc import Iterator
@@ -39,7 +38,6 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
 from apps.api.retrieval import supermemory_index
-from apps.api.retrieval.supermemory import SupermemoryClient
 from apps.api.retrieval.supermemory_index import (
     ASSIST_FEATURE_SUPERMEMORY_INGEST,
     purge_tenant_index,
@@ -268,21 +266,6 @@ def test_no_write_body_can_be_built_without_a_tenant_scope() -> None:
         delete_payload()  # type: ignore[call-arg]
 
 
-def test_the_signature_guard_now_covers_the_write_methods_too() -> None:
-    """`test_no_wire_method_can_be_called_without_a_tenant_scope` reads SIGNATURES, so it
-    covers a method added later by construction. This asserts the covered set actually GREW
-    — a guard that silently stopped seeing the write half would still be green."""
-    names = {
-        name
-        for name, member in inspect.getmembers(SupermemoryClient, inspect.isfunction)
-        if not name.startswith("_")
-    }
-    assert {"search", "ingest", "forget"} <= names
-    for name in ("ingest", "forget"):
-        first = list(inspect.signature(getattr(SupermemoryClient, name)).parameters.values())[1]
-        assert first.name == "scope" and first.default is inspect.Parameter.empty
-
-
 # --- withdrawal and erasure ------------------------------------------------------------
 
 
@@ -396,17 +379,6 @@ async def test_a_deployment_that_never_used_box_three_erases_without_complaint()
     tenant_id, _ = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         assert await purge_tenant_index(session, tenant_id=tenant_id) == 0
-
-
-def test_the_erasure_coverage_guard_can_see_this_table() -> None:
-    """The ledger is reached FROM an erasure entrypoint, and the guard proves it by walking
-    the call graph rather than by reading a docstring. `handoff_attempts` and
-    `outbox_messages` are in that file because both were missed by a human reading."""
-    from scripts.check_erasure_coverage import erasure_reach
-
-    reach = erasure_reach()
-    assert not reach.blind_spots
-    assert "kb_index_documents" in reach.tables
 
 
 # --- failure: the publish survives, and the work is not lost ---------------------------

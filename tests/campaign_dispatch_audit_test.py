@@ -56,7 +56,6 @@ from typing import Any
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.agents import service as agents_service
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.agents.service import UNCONFIRMED_ENGINE_CALL_PREFIX
 from apps.api.campaigns import complaint_spike
@@ -296,42 +295,6 @@ async def _tick_one_campaign(
 # --------------------------- the launch-time facts that can stop being true (§3)
 
 
-async def test_a_revoked_dlt_template_no_longer_stops_the_campaign() -> None:
-    """`set_template_status` is how the registrar's verdict is recorded, and it moves
-    both ways. A template withdrawn after launch means every remaining dial speaks under
-    a registration that no longer exists — the misclassification SEC-COMP §1 calls the
-    most common registration failure."""
-    tenant_id, _, campaign_id, _, template_id = await _launched()
-
-    async with tenant_session(tenant_id) as session:
-        await campaigns.set_template_status(session, template_id=template_id, status="rejected")
-
-    result = await _tick_one_campaign(tenant_id, campaign_id)
-
-    assert result["dialled"] == 2, result
-    # D-692 retired this DLT rule from every gate: the campaign keeps dialling.
-    assert await _calls_placed(tenant_id) == 2
-    assert await _contacts(tenant_id, campaign_id) == [("dialing", 1), ("dialing", 1)]
-
-
-async def test_a_pulled_header_registration_no_longer_stops_the_campaign() -> None:
-    """`phone_numbers.dlt_status` is the number-side twin of the template check.
-    Dialling from a de-registered header gets the traffic dropped as spam and the
-    complaints filed against the CLIENT's Principal Entity."""
-    tenant_id, _, campaign_id, number_id, _ = await _launched()
-
-    async with tenant_session(tenant_id) as session:
-        await agents_service.set_number_dlt_status(
-            session, number_id=number_id, dlt_status="blocked"
-        )
-
-    await _tick_one_campaign(tenant_id, campaign_id)
-
-    # D-692 retired this DLT rule from every gate: the campaign keeps dialling.
-    assert await _calls_placed(tenant_id) == 2
-    assert await _contacts(tenant_id, campaign_id) == [("dialing", 1), ("dialing", 1)]
-
-
 async def test_a_deleted_calling_number_leaves_the_campaign_dialling_from_its_agent() -> None:
     """`campaigns.number_id` is `ON DELETE SET NULL`, so removing the number leaves a
     RUNNING campaign whose calling number is NULL — the state `number_missing` blocks at
@@ -345,59 +308,6 @@ async def test_a_deleted_calling_number_leaves_the_campaign_dialling_from_its_ag
                 text("SELECT number_id FROM campaigns WHERE id = :c"), {"c": campaign_id}
             )
         ).scalar() is None, "SET NULL fired — this is the state under test"
-
-    await _tick_one_campaign(tenant_id, campaign_id)
-
-    # D-692 retired this DLT rule from every gate: the campaign keeps dialling.
-    assert await _calls_placed(tenant_id) == 2
-    assert await _contacts(tenant_id, campaign_id) == [("dialing", 1), ("dialing", 1)]
-
-
-async def test_a_suspended_pe_registration_no_longer_stops_the_campaign() -> None:
-    """SEC-COMP §3's first bullet, client half. A PE registration is suspended by the
-    registrar, not by us, and it happens to live campaigns."""
-    tenant_id, _, campaign_id, _, _ = await _launched()
-
-    async with tenant_session(tenant_id) as session:
-        await campaigns.record_dlt_registration(
-            session,
-            tenant_id=tenant_id,
-            pe_id=f"1102{uuid.uuid4().int % 10**9:09d}",
-            entity_name="Standing Motors Pvt Ltd",
-            status="suspended",
-            tm_link_status="active",
-        )
-
-    await _tick_one_campaign(tenant_id, campaign_id)
-
-    # D-692 retired this DLT rule from every gate: the campaign keeps dialling.
-    assert await _calls_placed(tenant_id) == 2
-    assert await _contacts(tenant_id, campaign_id) == [("dialing", 1), ("dialing", 1)]
-
-
-async def test_a_lapsed_tm_link_no_longer_stops_a_resumed_campaign() -> None:
-    """RESUME is the path with no gate on it at all: `set_campaign_status` is a bare CAS
-    from `paused` back to `running`. A campaign can therefore sit paused for a week —
-    long enough for the client to withdraw Calevate's telemarketer authorisation — and
-    come back `running` with nothing having re-read the paperwork. The dial-time check is
-    what has to catch it, because the resume route never will."""
-    tenant_id, _, campaign_id, _, _ = await _launched()
-
-    async with tenant_session(tenant_id) as session:
-        await campaigns.set_campaign_status(
-            session, campaign_id=campaign_id, to_status="paused", from_statuses=("running",)
-        )
-        await campaigns.record_dlt_registration(
-            session,
-            tenant_id=tenant_id,
-            pe_id=f"1102{uuid.uuid4().int % 10**9:09d}",
-            entity_name="Standing Motors Pvt Ltd",
-            status="active",
-            tm_link_status="revoked",
-        )
-        await campaigns.set_campaign_status(
-            session, campaign_id=campaign_id, to_status="running", from_statuses=("paused",)
-        )
 
     await _tick_one_campaign(tenant_id, campaign_id)
 
@@ -550,35 +460,6 @@ async def test_the_dial_gate_catches_a_blank_the_check_constraint_let_through() 
     assert decision.rule == "disclosure_missing", decision
 
 
-async def test_a_number_series_change_no_longer_stops_the_campaign() -> None:
-    """140 ⇔ promotional, 160/standard ⇔ service & transactional. The launch gate checks
-    it once; this asserts the dispatcher re-checks it, so a number re-classified under a
-    running promotional campaign cannot keep dialling from a service header.
-
-    NOTE what this does NOT prove, because nothing in the codebase can: `campaigns.
-    number_id` is read by the two gates and by nothing else. `dispatch_call` takes no
-    calling number, and neither `VoiceEngine.start_outbound_call` nor `AgentConfig`
-    carries one — the engine dials from whatever the vendor has attached to the agent.
-    So the series rule is enforced as a REFUSAL TO LAUNCH OR DISPATCH, never as a choice
-    of outgoing header. Fixing that is an engine-contract change, not a gate change.
-    """
-    tenant_id, _, campaign_id, number_id, _ = await _launched()
-
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE phone_numbers SET series = '160' WHERE id = :n"), {"n": number_id}
-        )
-        blockers = await campaigns.dispatch_blockers(
-            session, tenant_id=tenant_id, campaign_id=campaign_id
-        )
-
-    await _tick_one_campaign(tenant_id, campaign_id)
-
-    # D-692 retired this DLT rule from every gate: the campaign keeps dialling.
-    assert [b.rule for b in blockers] == [], [b.rule for b in blockers]
-    assert await _calls_placed(tenant_id) == 2
-
-
 async def test_the_dispatch_gate_names_the_launch_gate_s_own_rules() -> None:
     """Two gates, one vocabulary. A dispatch-time refusal a client cannot look up in the
     launch-check screen is a campaign that has silently stopped, and SURFACES §2b exists
@@ -679,50 +560,9 @@ def test_the_dispatcher_offers_no_way_to_switch_a_gate_off() -> None:
     assert offenders == [], f"the dispatch path grew a gate bypass: {offenders}"
 
 
-class _RollbackError(Exception):
-    """Sentinel: leaving the transaction by raising rolls it back. The platform TM
-    registration is ONE global row shared with every other pytest process on this
-    database, so this suite may only make it un-live inside a transaction it abandons
-    (the pattern `tests/tm_registration_test.py` established)."""
-
-
-async def test_the_platform_tm_registration_is_no_longer_a_dispatch_time_blocker() -> None:
-    """SEC-COMP §3: ours is the company-level blocker, "false for every tenant at once".
-    It is read at launch. A registration suspended by a spam-complaint run — §1's 5-in-10
-    rule, which is precisely when dialling must stop — lands on campaigns that are
-    already running, and `check_dispatch` never looks at it.
-
-    Asserted against `dispatch_blockers` on the caller's session rather than through a
-    tick, because the un-registration is uncommitted: MVCC keeps every other connection
-    (and every other pytest process) seeing the committed `active` row throughout.
-    """
-    tenant_id, _, campaign_id, _, _ = await _launched()
-
-    captured: dict[str, Any] = {}
-    try:
-        async with tenant_session(tenant_id) as session:
-            await session.execute(text("SET LOCAL lock_timeout = '5s'"))
-            await session.execute(
-                text(
-                    "UPDATE platform_state SET tm_registration_status = 'suspended', "
-                    "tm_registered_at = NULL WHERE id = 1"
-                )
-            )
-            captured["blockers"] = await campaigns.dispatch_blockers(
-                session, tenant_id=tenant_id, campaign_id=campaign_id
-            )
-            raise _RollbackError
-    except _RollbackError:
-        pass
-
-    rules = [b.rule for b in captured["blockers"]]
-    # D-692 retired this DLT rule from every gate: the campaign keeps dialling.
-    assert rules == [], rules
-
-
 async def test_paperwork_that_is_still_good_dials_normally() -> None:
-    """The mirror of the six tests above: the standing check must not become a way to
-    stop a campaign that is entirely in order."""
+    """The standing check must not become a way to stop a campaign that is entirely in
+    order."""
     tenant_id, _, campaign_id, _, _ = await _launched()
 
     result = await _tick_one_campaign(tenant_id, campaign_id)

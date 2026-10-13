@@ -18,7 +18,7 @@ import pytest
 from apps.api.agents.llm_models import unofferable_reason
 from apps.api.core import platform_config as pc
 from apps.api.core.settings import ENV_ONLY_DISPLAY, get_settings
-from apps.api.engine.pipecat import PIPECAT_CAPABILITIES
+from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES
 from apps.api.engine.thinnest import THINNEST_CAPABILITIES
 from apps.api.ops import config_catalog as catalog
 from apps.api.ops.config_routes import _options, _out, _sections
@@ -151,7 +151,7 @@ def test_every_entry_points_at_a_declared_section_and_subsection() -> None:
 
 
 def test_served_sections_cover_every_field_and_skip_empty_ones() -> None:
-    engine = ("pipecat", PIPECAT_CAPABILITIES)
+    engine = ("fake", DEFAULT_FAKE_CAPABILITIES)
     fields = [_out(field, engine) for field in _fields()]
     sections = _sections(fields)
     served = {(s.id, sub.id) for s in sections for sub in s.subsections}
@@ -202,23 +202,23 @@ def test_descriptions_are_one_plain_line() -> None:
 def test_engine_scoped_settings_follow_the_engine_in_force() -> None:
     by_key = {field.key: field for field in _fields()}
     thinnest_only = by_key["thinnest_max_concurrent_calls"]
-    runtime_only = by_key["carrier_cps"]
+    runtime_only = by_key["carrier_concurrency"]
     unscoped = by_key["inbound_reserved_lines"]
 
-    on_pipecat = ("pipecat", PIPECAT_CAPABILITIES)
-    assert _out(thinnest_only, on_pipecat).used_by_current_engine is False
-    assert _out(runtime_only, on_pipecat).used_by_current_engine is True
+    on_fake = ("fake", DEFAULT_FAKE_CAPABILITIES)
+    assert _out(thinnest_only, on_fake).used_by_current_engine is False
+    assert _out(runtime_only, on_fake).used_by_current_engine is True
 
     on_thinnest = ("thinnest", THINNEST_CAPABILITIES)
     assert _out(thinnest_only, on_thinnest).used_by_current_engine is True
     assert _out(runtime_only, on_thinnest).used_by_current_engine is False
     assert _out(by_key["sarvam_stt_model"], on_thinnest).used_by_current_engine is False
 
-    for engine in (on_pipecat, on_thinnest, ("pipecat", None)):
+    for engine in (on_fake, on_thinnest, ("fake", None)):
         assert _out(unscoped, engine).used_by_current_engine is True
     # Unreadable capabilities hide nothing.
-    assert _out(thinnest_only, ("pipecat", None)).used_by_current_engine is True
-    assert _out(thinnest_only, on_pipecat).engine_scope is not None
+    assert _out(thinnest_only, ("fake", None)).used_by_current_engine is True
+    assert _out(thinnest_only, on_fake).engine_scope is not None
 
 
 def test_an_engine_that_cannot_be_built_still_renders_the_screen_that_fixes_it(

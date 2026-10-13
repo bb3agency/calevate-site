@@ -49,38 +49,17 @@ def build_engine(cfg: Settings) -> VoiceEngine:
     Split out of `get_engine` (D-104) so a caller that must not see a cached answer has
     somewhere honest to go. `get_engine` keys its cache on the engine NAME alone, which is
     right for the request path — one process serves one deployment, and an adapter that
-    copies a credential at construction (`cartesia_api_key` is `on_restart` for that reason)
-    keeps it for the life of the process. It is WRONG for a caller that hands in a
-    `Settings` it built itself: it would get back an adapter constructed from a different
+    copies a credential at construction keeps it for the life of the process. It is WRONG
+    for a caller that hands in a `Settings` it built itself: it would get back an adapter
+    constructed from a different
     one and never know. `runtime_config_missing_keys` is exactly that caller, and readiness
     answering about the wrong configuration is worse than readiness not answering.
 
-    The `EngineName` annotation is load-bearing again: it was widened to `str` while
-    `cartesia` was missing from the literal, and mypy's `warn_unreachable` now proves the
-    `else` is reachable only by `fake` — so a name added to `EngineName` without a branch
+    The `EngineName` annotation is load-bearing: mypy's `warn_unreachable` proves the
+    `else` is reachable only by `fake`, so a name added to `EngineName` without a branch
     here is a type error rather than a silently-fake engine.
     """
     name: EngineName = cfg.engine
-    if name == "cartesia":
-        from apps.api.engine.cartesia import CartesiaEngine
-
-        # Both fields default to None, and that is the part that matters: it makes the
-        # capability selector report the engine unconfigured and every surface refuse,
-        # which is the correct behaviour for an adapter with no account behind it and the
-        # same shape `payment_capability` uses.
-        return CartesiaEngine(
-            api_key=cfg.cartesia_api_key,
-            from_number_id=cfg.cartesia_from_number_id,
-        )
-    if name == "pipecat":
-        from apps.api.engine.pipecat import PipecatEngine
-
-        # NO CREDENTIAL ARGUMENTS, and that is the adapter's whole shape rather than an
-        # omission: its control plane is this deployment's own database, which the process
-        # already holds (D-592). The store defaults to `SqlControlPlane`; the only caller
-        # that passes one is the conformance suite, which substitutes the database and the
-        # worker together — see the adapter's module docstring.
-        return PipecatEngine()
     if name == "thinnest":
         from apps.api.engine.thinnest import ThinnestEngine
 
@@ -127,8 +106,8 @@ def all_credential_env_keys() -> tuple[str, ...]:
 
     DERIVED from `EngineName` and the adapters, never retyped — a fourth engine is
     covered by the function that already exists rather than by an edit somebody has to
-    remember. `credential_env_keys` is a class-level attribute with a default on all three
-    adapters, so this needs no `Settings` and no constructed engine, which is what lets
+    remember. `credential_env_keys` is a class-level attribute with a default on every
+    adapter, so this needs no `Settings` and no constructed engine, which is what lets
     `tests/conftest.py` call it before any configuration exists.
 
     Its one caller is the test harness. `_no_ambient_credentials` strips these for the
@@ -138,9 +117,7 @@ def all_credential_env_keys() -> tuple[str, ...]:
     `tests/harness_ambient_env_test.py` was written to end, arriving through a door that
     file did not cover.
     """
-    from apps.api.engine.cartesia import CartesiaEngine
     from apps.api.engine.fake import FakeEngine
-    from apps.api.engine.pipecat import PipecatEngine
     from apps.api.engine.thinnest import ThinnestEngine
 
     # KEYED OFF EACH ADAPTER'S OWN `name`, and NEVER a literal set of engine names here:
@@ -149,12 +126,7 @@ def all_credential_env_keys() -> tuple[str, ...]:
     # `ENGINE=` may take) and `WEBHOOK_AUTH_BY_ENGINE` (which names have an authenticity
     # story) — and a third spelling drifts the first time either grows. The adapters
     # already declare `name`, so the mapping is derivable and the literal bought nothing.
-    adapters: tuple[type[VoiceEngine], ...] = (
-        CartesiaEngine,
-        FakeEngine,
-        PipecatEngine,
-        ThinnestEngine,
-    )
+    adapters: tuple[type[VoiceEngine], ...] = (FakeEngine, ThinnestEngine)
     by_name = {adapter.name: adapter for adapter in adapters}
     # Exhaustiveness against the Literal rather than against the tuple above: an engine
     # added to `EngineName` without an adapter here is a failure, not a credential that

@@ -66,8 +66,7 @@ depends_on: str | Sequence[str] | None = None
 
 # The one value the column has ever held, spelled here rather than imported: a migration
 # is a historical fact and must not change meaning because a constant later did.
-# `reliability.service.OUTBOX_FLEET` is the same string, and `tests/
-# outbox_queue_deprecation_test.py` pins that the two agree for as long as both exist.
+# `reliability.service.OUTBOX_FLEET` is the same string.
 FLEET = "default"
 
 

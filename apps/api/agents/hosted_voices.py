@@ -1,7 +1,7 @@
 """Voices an ENGINE hosts, curated by an operator and offered to clients (D-687, D-688).
 
 On an engine that dictates the voice leg and hosts voices of its own (`engine/catalogue.
-HostsVoices`, ThinnestAI today) the voice catalogue is NOT Pipecat's `<model>:<speaker>`
+HostsVoices`, ThinnestAI today) the voice catalogue is NOT the cached `<model>:<speaker>`
 catalogue. Its rows live in the same table (`platform_voice_catalog`) and are told apart by
 their id, which is namespaced by where the voice comes from:
 
@@ -21,8 +21,8 @@ Every agent says whether it speaks on our own voice key (D-688): Clear agents `b
 Studio agents `byok: workspace`.
 
 Neither prefix is a member of `voices.TtsModel`, and the rows store the source in
-`tts_model`, so `voice_sync.voice_from_row` drops them: Pipecat's lookup catalogue, picker
-and curation table never see a hosted row, and nothing here changes what they do.
+`tts_model`, so `voice_sync.voice_from_row` drops them: the cached lookup catalogue
+never sees a hosted row.
 
 The rung is derived in ONE place: a row's rate key (`HostedVoiceRow.rate_key`: its band, or
 `byok_voice`) -> rung (`billing/engine_minutes.client_rungs`), the same fact publish stamps
@@ -1216,7 +1216,7 @@ def hosted_voice_unofferable_reason(
     """Why an ADDED, ENABLED voice cannot be chosen right now, or None. Grounds in order of
     whose problem they are: the minute not priced, then — for Studio — our voice provider's
     own synthesis not priced, which is a second cost on that minute (hard rule 7;
-    `voice_offer.tts_price_is_billable`, the same door Pipecat's Cartesia voices go through).
+    `voice_offer.tts_price_is_billable`).
     A Studio voice while our voice key is off is not here: the sync withdraws it then, so it
     is not on offer at all (`withdraw_own_key_voices`)."""
     if row.rate_key not in attested:

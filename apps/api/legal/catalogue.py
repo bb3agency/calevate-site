@@ -419,6 +419,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "calendar booking). MATERIAL: caller personal data now reaches a company the "
                 "previous revision said received nothing.",
             ),
+            # D-763.
+            Revision(
+                "22",
+                False,
+                "D-763: sections 3, 6, 8, 9, 10.1 and 12.4 drop our own call program, its "
+                "telephone carrier, its hosting platform and the second voice-synthesis "
+                "company, none of which the live deployment used; incoming callbacks are the "
+                "hosted voice platform's signed ones. NOT MATERIAL: fewer recipients, and "
+                "nothing anybody receives changes.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -563,6 +573,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "disclosure of how automated calls are placed, accepted with the pledge. "
                 "NOT MATERIAL: the client is asked for less, and the disclosure is accepted "
                 "through pledge version 2.",
+            ),
+            # D-763.
+            Revision(
+                "16",
+                False,
+                "D-763: the 'Engine' definition names only the hosted voice platform, and "
+                "the erasure exceptions name that platform's copies instead of a telephone "
+                "carrier's. NOT MATERIAL: our own call program, which the definition also "
+                "named, is removed.",
             ),
         ),
         effective_date="2026-09-02",
@@ -761,6 +780,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "data-processing agreement with it. Annex A says 'preferred time' instead of "
                 "'appointment preference'. MATERIAL: a sub-processor without a recorded "
                 "agreement now processes the Client's personal data.",
+            ),
+            # D-763.
+            Revision(
+                "14",
+                False,
+                "D-763: clauses 2, 5, 6 and 9 drop our own call program, its telephone "
+                "carrier, its hosting platform and the second voice-synthesis company, none "
+                "of which the live deployment used, and the callback bullet describes the "
+                "hosted voice platform's signed callbacks. NOT MATERIAL: fewer "
+                "sub-processors, and no warranty narrows.",
             ),
         ),
         effective_date="2026-09-02",
@@ -983,6 +1012,17 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "integrations row says a calendar booking rather than an appointment. "
                 "MATERIAL: caller personal data now reaches a company the previous revision "
                 "said received nothing.",
+            ),
+            # D-763.
+            Revision(
+                "21",
+                False,
+                "D-763: removes the speech-to-text category, the carrier on our own account "
+                "and its fallback, the container hosting platform, the contingency voice "
+                "platform and the second voice-synthesis company; post-call extraction "
+                "carries the extraction company's location, and section 3.7 covers only the "
+                "hosted voice platform. NOT MATERIAL: none was used on the live deployment, "
+                "and nobody who stays receives more.",
             ),
         ),
         effective_date="2026-09-02",

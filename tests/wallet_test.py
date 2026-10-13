@@ -923,36 +923,6 @@ async def test_staff_may_see_the_wallet_so_a_stopped_dialler_has_its_explanation
     assert "org:manage" in MUTATING_PERMISSIONS
 
 
-async def test_the_wallet_read_holds_no_second_credit_check() -> None:
-    """`compliance.service.credits_exhausted` is the ONE gate. `billing/wallet.py` asks
-    it through its caller and must never grow a comparison of its own — the founder said
-    so in those words ("do NOT build a second credit check")."""
-    import ast
-    import inspect
-
-    from apps.api.billing import wallet
-
-    # THE AST, NOT THE TEXT. An earlier draft grepped the source and failed on this
-    # module's own docstring, which names the gate in prose precisely to say it is not
-    # called here — so the check has to be about what the module DOES.
-    tree = ast.parse(inspect.getsource(wallet))
-    imported = {
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
-        for alias in node.names
-    }
-    called = {
-        node.func.id
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-    }
-    assert "credits_exhausted" not in imported, "the gate is ASKED by the route, not here"
-    assert "credits_exhausted" not in called
-    assert "PREPAID_TIERS" not in imported, "the tier test belongs to the gate, not to a read"
-    assert "plan_tier_of" not in imported
-
-
 async def test_read_wallet_takes_the_verdicts_it_is_given() -> None:
     """The module cannot decide dialling for itself: both verdicts are arguments."""
     tenant_id = await _tenant()

@@ -39,7 +39,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from calevate_shared.engine import NumberSearch, NumberSpec
 from sqlalchemy import text
-from tests.conftest import accept_agreements, accept_carrier_application
+from tests.conftest import accept_agreements
 
 pytestmark = [pytest.mark.rls]
 
@@ -75,10 +75,6 @@ async def _tenant() -> uuid.UUID:
     )
     tenant_id = uuid.UUID(str(created["id"]))
     await accept_agreements(tenant_id)
-    # The carrier approves each client business before a number may be rented for it
-    # (evidence doc 2026-09-13 §5.2). Supplied, never assumed away — a fixture without it
-    # reports `carrier_application_not_accepted` in place of the answer under test.
-    await accept_carrier_application(tenant_id)
     return tenant_id
 
 
@@ -240,7 +236,7 @@ async def test_one_rental_row_per_number_per_month_and_a_replay_writes_nothing()
             number_id=number_id,
             month="2026-09",
             monthly_rental_usd=Decimal("5.00"),
-            provider="plivo",
+            provider="thinnest",
         )
         second = await record_number_rental(
             session,
@@ -248,7 +244,7 @@ async def test_one_rental_row_per_number_per_month_and_a_replay_writes_nothing()
             number_id=number_id,
             month="2026-09",
             monthly_rental_usd=Decimal("5.00"),
-            provider="plivo",
+            provider="thinnest",
         )
         rows = (
             await session.execute(
@@ -299,7 +295,7 @@ async def test_a_number_cannot_be_bought_without_a_rental_price(authorized: None
                 tenant_id=tenant_id,
                 e164="+918000000099",
                 country="IN",
-                provider="plivo",
+                provider="thinnest",
                 monthly_rental_usd=None,
                 agent_id=None,
                 purpose=None,
@@ -360,7 +356,7 @@ async def test_a_dlt_series_number_is_never_bought_through_the_engine(authorized
                 tenant_id=tenant_id,
                 e164="+911600000001",
                 country="IN",
-                provider="plivo",
+                provider="thinnest",
                 monthly_rental_usd=Decimal("5.00"),
                 agent_id=None,
                 purpose=None,
@@ -726,7 +722,6 @@ async def _tenant_with_agent() -> tuple[uuid.UUID, uuid.UUID]:
     )
     tenant_id = uuid.UUID(str(created["id"]))
     await accept_agreements(tenant_id)
-    await accept_carrier_application(tenant_id)
     return tenant_id, uuid.UUID(str(created["agent_id"]))
 
 

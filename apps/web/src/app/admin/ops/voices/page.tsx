@@ -1,57 +1,33 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
-
-import { useAdminAccess } from "@/app/admin/access";
-import { InfoTip } from "@/components/console/infoTip";
+import { identityAnswerPending, useAdminAccess, useAdminMe } from "@/app/admin/access";
 import { PageHeader } from "@/components/console/pageHeader";
-import {
-  NoticeBox,
-  PRIMARY_BUTTON,
-  ProblemNotice,
-  RestrictionNote,
-  SECONDARY_BUTTON,
-  Skeleton,
-} from "@/components/ui";
-import {
-  useAddVoice,
-  useCuratedVoices,
-  useRefreshVoiceCatalogue,
-  type VoiceScope,
-} from "@/lib/api/opsVoices";
-import { useHostedVoices } from "@/lib/api/opsHostedVoices";
+import { NoticeBox, ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { useHostedVoices, type HostedVoices } from "@/lib/api/opsHostedVoices";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 
-import { AddVoiceDrawer } from "./AddVoiceDrawer";
 import { HostedVoicesScreen } from "./hosted/HostedVoicesScreen";
-import { VoiceCatalogue } from "./VoiceCatalogue";
-import { hostedVoiceFacts, voiceFacts } from "./voiceFacts";
+
+type Fact = { key: string; label: string; value: string };
 
 /**
- * The voices this platform has added (D-590): add a cloned voice, and decide which
- * voices clients may pick.
+ * The voices this platform offers (D-590, D-687): the voice platform hosts them, and this
+ * page decides which ones clients may pick.
  *
- * TWO SCREENS, AND THE SERVER PICKS (D-687). The hosted list is read first: on an engine
- * that hosts its own voices (ThinnestAI) it answers `available: true` and the hosted screen
- * is shown; anywhere else it answers `available: false` and the Pipecat catalogue below is
- * read and shown, unchanged. The engine is never named in this bundle. The server decides `offered`, the counts and every sentence;
- * this screen computes none of them.
+ * An engine that hosts no voices of its own answers `available: false` with the server's
+ * sentence, which is printed as it is. The server decides `offered`, the counts and every
+ * sentence; this screen computes none of them.
  *
  * `ops:manage` gates the READ as well as the writes, asked of `GET /v1/admin/me`; it is a
- * preview, never the enforcement. No `<h1>`: the shell prints the nav label.
+ * preview, never the enforcement. The read waits for that answer (`identityAnswerPending`),
+ * so a session without the permission sends no request it can only be refused. No `<h1>`:
+ * the shell prints the nav label.
  */
 export default function VoicesPage() {
   const access = useAdminAccess("ops:manage", "add and manage the voices this platform offers");
-  const [scope, setScope] = useState<VoiceScope>("decided");
-  const [adding, setAdding] = useState(false);
-  const hosted = useHostedVoices(!access.refused, "added");
-  const hostedData = hosted.data?.available ? hosted.data : undefined;
-  const pipecat = !access.refused && hosted.data?.available === false;
-  const voices = useCuratedVoices(pipecat, scope);
-  const add = useAddVoice();
-  const refresh = useRefreshVoiceCatalogue();
-  const data = voices.data;
+  const identityLoading = identityAnswerPending(useAdminMe());
+  const hosted = useHostedVoices(!identityLoading && !access.refused, "added");
+  const data = hosted.data;
 
   useCopilotSurface({
     route: "/admin/ops/voices",
@@ -61,99 +37,76 @@ export default function VoicesPage() {
     // Nothing here is fillable by the assistant: a guessed voice id would be refused by the
     // platform or, worse, belong to a different voice.
     apply: () => undefined,
-    facts: hostedData
-      ? hostedVoiceFacts(hostedData)
-      : voiceFacts(access.refused, data, voices.error != null || hosted.error != null),
+    facts: voiceFacts(access.refused, data, hosted.error != null),
   });
 
-  if (hostedData) return <HostedVoicesScreen added={hostedData} />;
-
-  const openAdd = () => {
-    add.reset();
-    setAdding(true);
-  };
+  if (data?.available) return <HostedVoicesScreen added={data} />;
 
   return (
     <div className="max-w-5xl space-y-10 pb-12">
-      <PageHeader
-        description="Only voices added here can be chosen for an agent — by a client for their own, or by an admin for anyone's."
-        actions={
-          !access.refused && data ? (
-            <>
-              <div className="flex items-center gap-0.5">
-                <button
-                  type="button"
-                  className={SECONDARY_BUTTON}
-                  disabled={refresh.isPending}
-                  onClick={() => void refresh.mutateAsync().catch(() => undefined)}
-                >
-                  <RefreshCw aria-hidden className="h-4 w-4" />
-                  {refresh.isPending ? "Reading the voice platform…" : "Refresh from the platform"}
-                </button>
-                <InfoTip label="Refresh">
-                  Re-reads the voice platform&rsquo;s own list. It does not add anything &mdash; it
-                  keeps the &ldquo;last seen&rdquo; column honest and marks voices that platform
-                  has stopped listing.
-                </InfoTip>
-              </div>
-              <button type="button" className={PRIMARY_BUTTON} onClick={openAdd}>
-                <Plus aria-hidden className="h-4 w-4" />
-                Add a voice
-              </button>
-            </>
-          ) : undefined
-        }
-      />
-
+      <PageHeader description="Clients choose only from the voices offered here." />
       {access.refused ? (
-        // The refusal INSTEAD of the screen: this is a permission working as designed, not
-        // an outage.
+        // The refusal INSTEAD of the screen: a permission working as designed, not an outage.
         <RestrictionNote reason={access.reason} />
+      ) : hosted.error != null ? (
+        <ProblemNotice error={hosted.error} onRetry={() => void hosted.refetch()} />
+      ) : !data ? (
+        <Skeleton rows={8} label="Loading the voices this platform offers" />
       ) : (
-        <>
-          {hosted.error != null && (
-            <ProblemNotice error={hosted.error} onRetry={() => void hosted.refetch()} />
-          )}
-          {voices.error != null && (
-            <ProblemNotice error={voices.error} onRetry={() => void voices.refetch()} />
-          )}
-          {/* A MUTATION's `data` is the operator having asked, so rendering it is correct;
-              each is the server's sentence, verbatim. */}
-          {refresh.data && (
-            <NoticeBox tone="neutral" title="The voice platform's catalogue was re-read">
-              <p className="mt-1">{refresh.data.note}</p>
-            </NoticeBox>
-          )}
-          {refresh.error != null && <ProblemNotice error={refresh.error} />}
-          {add.data && !adding && (
-            <NoticeBox tone="neutral" title="Voice added">
-              <p className="mt-1">{add.data.next_step}</p>
-            </NoticeBox>
-          )}
-
-          {/* §52: no data is in flight, failed, or paused — never "no voices". */}
-          {!data ? (
-            voices.error || hosted.error ? null : <Skeleton rows={8} label="Loading the voices this platform offers" />
-          ) : (
-            <VoiceCatalogue catalogue={data} scope={scope} onScope={setScope} />
-          )}
-
-          {adding && data && (
-            <AddVoiceDrawer
-              form={data.form}
-              busy={add.isPending}
-              error={add.error}
-              onAdd={(body) =>
-                void add
-                  .mutateAsync(body)
-                  .then(() => setAdding(false))
-                  .catch(() => undefined)
-              }
-              onClose={() => setAdding(false)}
-            />
-          )}
-        </>
+        <NoticeBox tone="neutral" title="No voices to manage here">
+          <p className="mt-1">{data.note}</p>
+        </NoticeBox>
       )}
     </div>
   );
+}
+
+/**
+ * What the screen assistant is told. Counts only: nothing on this screen is fillable by it,
+ * because every field is a fact about a voice on another company's platform that the
+ * operator has in front of them and the model does not.
+ */
+function voiceFacts(refused: boolean, data: HostedVoices | undefined, failed: boolean): Fact[] {
+  if (refused) {
+    return [
+      {
+        key: "voices",
+        label: "The voice catalogue",
+        value: "withheld — this admin account may not read it",
+      },
+    ];
+  }
+  if (!data?.available) {
+    return [
+      {
+        key: "voices",
+        label: "The voice catalogue",
+        value: failed ? "could not be read" : data ? data.note : "still loading",
+      },
+    ];
+  }
+  return [
+    { key: "offered", label: "Voices clients can currently choose", value: String(data.offered) },
+    { key: "added", label: "Voices added here", value: String(data.voices.length) },
+    { key: "cached", label: "Voices the voice platform lists", value: String(data.cached) },
+    {
+      key: "studio",
+      label: "Studio voices (our Cartesia key)",
+      value: data.studio_ready ? "on" : "off",
+    },
+    {
+      key: "no_preview",
+      label: "Added voices with no preview clients can play",
+      value: String(data.voices.filter((v) => !v.preview_available).length),
+    },
+    {
+      key: "clone_blocked",
+      label: "Cloned voices of real people that cannot be offered yet",
+      value:
+        data.voices
+          .filter((v) => v.clone_blocker)
+          .map((v) => `${v.label}: ${v.clone_blocker}`)
+          .join("; ") || "none",
+    },
+  ];
 }

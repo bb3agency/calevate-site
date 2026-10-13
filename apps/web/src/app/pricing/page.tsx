@@ -231,7 +231,7 @@ export default async function PricingPage() {
                 duplicate price.
 
                 Whether the rate falls is ASKED OF THE CARD, never typed — it is false the
-                moment either column goes flat (`docs/PIPECAT-MIGRATION.md` §12). `every`
+                moment either column goes flat (`card_refusals` permits equal rungs). `every`
                 and not `some`: this heading sits above the switch and speaks for both
                 voices, so a claim true of only one of them is not a claim it may make. */}
             {rateCard === null

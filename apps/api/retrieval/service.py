@@ -75,21 +75,21 @@ def get_retriever(session: AsyncSession) -> RetrievalProvider:
     unlike a missing credential this is a CONTRADICTION between two settings an operator set
     and only they can resolve it.
 
-    **THE THIRD BRANCH IS THE ONE THE PORT WAS BUILT FOR** (`docs/PIPECAT-MIGRATION.md` §8,
+    **THE THIRD BRANCH IS THE ONE THE PORT WAS BUILT FOR** (TRD §6.3,
     14 Sep 2026). `supermemory` swaps the T3 MEMBER of the composite and nothing else: T0
     still answers out of the compiled block, and the store it replaces becomes the thing it
     falls back TO, per request, so an unreachable box 3 costs a log line rather than a
     client's question.
 
     IT IS ASKED FIRST, AND BEFORE THE EMBEDDING PRECONDITIONS, because those are facts about
-    OUR Postgres dense arm and box 3 embeds its own questions (§8.3). A deployment with a
+    OUR Postgres dense arm and box 3 embeds its own questions (TRD §6.3). A deployment with a
     working box 3 and no Azure embedding deployment is a real and correct configuration; a
     check ordered the other way would have degraded it to T0 over a credential its live
     store does not use. A misconfigured box 3 falls through to the Postgres rules below with
     the missing precondition already named by `supermemory.supermemory_t3`.
 
     **`_with_shadow` WRAPS WHICHEVER STORE WAS CHOSEN AND CHANGES NOTHING ABOUT IT**
-    (§8.6). It is how step 15's retirement gets a number instead of a preference: the other
+    (TRD §6.3). It is how step 15's retirement gets a number instead of a preference: the other
     store is asked the same question in the dark and the difference is logged, while the
     result a client sees is the primary arm's own object. It is off by default, it is off
     for every tenant nobody enrolled, and it is never the reason a question goes unanswered.
@@ -123,7 +123,7 @@ def _shadow_arm(session: AsyncSession, arm: str) -> RetrievalProvider | None:
 
     THE ONE DIFFERENCE FROM THE SERVING CONSTRUCTORS, and it is the whole point: box 3's
     adapter is given `UnavailableArm` as its fallback instead of the Postgres retriever. On
-    the serving path that fallback is right (§8.5 — a client's question still gets answered);
+    the serving path that fallback is right (TRD §6.3 — a client's question still gets answered);
     here it would make every request box 3 failed to handle read as "box 3 agrees with
     pgvector perfectly", which is the precise opposite of what the comparison is for.
     """
@@ -144,7 +144,7 @@ def _shadow_arm(session: AsyncSession, arm: str) -> RetrievalProvider | None:
 
 
 def _with_shadow(session: AsyncSession, served: RetrievalProvider) -> RetrievalProvider:
-    """`served`, or `served` with the other store asked in the dark beside it (§8.6).
+    """`served`, or `served` with the other store asked in the dark beside it (TRD §6.3).
 
     FOUR WAYS THIS RETURNS `served` UNTOUCHED, and each is a case where a wrapper would cost
     a round trip and measure nothing: the switch is off; it names the store already serving

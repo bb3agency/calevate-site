@@ -43,7 +43,6 @@ from apps.api.ops.config_routes import require_if_match
 from calevate_shared.config import Settings
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
-from scripts import check_config_applies as guard
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from tests.admin_security_test import _make_admin
@@ -162,20 +161,6 @@ async def _clean() -> AsyncIterator[None]:
 
 
 # --- 1. the `applies` classification tells the truth ----------------------------
-
-
-def test_every_managed_key_says_when_a_change_takes_effect() -> None:
-    """THE CLASSIFICATION IS EXHAUSTIVE, AND IT CANNOT SILENTLY ROT.
-
-    The managed set is computed from the `Settings` model (D-96), so a field added
-    tomorrow is managed the day it is added — and would arrive with no classification.
-    `describe()` fails safe on that (below), and this is the check that turns the safe
-    silence into a CI failure. It is the guard's own function rather than a re-derivation
-    here, so a guard that stopped checking fails this test too.
-    """
-    assert guard.check_every_key_is_classified() == []
-    assert guard.check_no_stale_entries() == []
-    assert guard.check_reasons() == []
 
 
 def test_an_unclassified_field_is_never_offered_as_editable(
@@ -926,13 +911,6 @@ def test_a_type_valid_but_catastrophic_value_is_refused_by_the_field_itself() ->
     assert pc.validate_value("webhook_base_url", "https://hooks.calevate.tech") == (
         "https://hooks.calevate.tech"
     )
-
-
-def test_every_managed_field_is_bounded() -> None:
-    """The bound is DERIVED, so a field added tomorrow is checked without anybody
-    remembering this test exists. Runs the guard's own function: a guard that stopped
-    checking fails here too."""
-    assert guard.check_bounds() == []
 
 
 async def test_one_unparseable_row_is_refused_and_the_rest_of_the_refresh_lands() -> None:

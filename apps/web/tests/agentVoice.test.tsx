@@ -2,23 +2,15 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
-import type { AgentVoiceState } from "@/lib/api/publishing";
-import {
-  VOICES_PATH,
-  type OfferedVoice,
-  type VoiceCatalogue,
-  type VoiceTierRate,
-  type VoiceTierRates,
-} from "@/lib/api/voices";
-
 import { ENGINE_CATALOGUE_PATH, type EngineCatalogue } from "@/lib/api/engineCatalogue";
+import type { AgentVoice, AgentVoiceState } from "@/lib/api/publishing";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, type Routes } from "./harness";
 import { agentRow } from "./fixtures/sharedReads";
 /*
  * The agent page is a settings layout (D-661, D-657): one section is mounted at a time,
- * chosen by `?section=`. Each describe opens the section that owns its subject.
+ * chosen by `?section=`. Every case here opens Voice.
  */
 const nav = vi.hoisted(() => ({ params: new URLSearchParams() }));
 vi.mock("next/navigation", () => ({
@@ -33,41 +25,22 @@ vi.mock("next/navigation", () => ({
     prefetch: vi.fn(),
   }),
 }));
-function openSection(id: string) {
-  nav.params = new URLSearchParams(`section=${id}`);
-}
 
 /**
- * Voice selection on the agent screen — `GET /v1/agents/voices` finally has a consumer.
+ * The Voice section of the operator's agent screen: the voice platform's own voices, read
+ * through the tenant's view-as session, and the voice in force beside the configured one.
  *
- * The catalogue was readable over the API and selectable nowhere: the persona catalogue
- * (one voice quality, the single-tier voice decision) existed as data, the admin write
- * existed (`PATCH …/agents/{id}/voice`), and no
- * screen joined them. It lives on this screen because voice is agent CONFIGURATION and the
- * write is admin-realm `agents:write` (D-21: which voice speaks Telugu well is an ear
- * test, so it routes through us) — the same gate every other control here is behind.
+ * What is pinned:
  *
- * Four things worth pinning:
- *
- * 1. **The catalogue is read through the tenant's impersonation session.** `list_voices` is
- *    `realm="any"`, and `current_any` consults the admin realm only when the impersonation
- *    header is present — so an admin session with no header is rejected on a `/v1/agents/…`
- *    path even for static data. Getting this wrong produces a 401 on a screen that
- *    otherwise looks fine.
- * 2. **A failed catalogue read is a refusal, never an empty `<select>`** (BUILD-LOG §52).
- *    A picker with no options reads as "this agent has no voices available", which is a
- *    claim about the product made from a dead request.
- * 3. **CONFIGURED IS NOT LIVE, and both are on screen.** This is the whole reason the
- *    panel is more than a dropdown. `PATCH .../voice` writes our row and does not touch
- *    the engine, so a published agent keeps its old voice until the next publish. The
- *    select pre-selects `voice.configured` — the thing being edited — while the panel
- *    names `voice.live` beside it as what callers actually hear. The panel used to say it
- *    could not report the voice in force at all; the fix was to make the server answer,
- *    not to start guessing, and the tests below fail if either half goes missing.
- * 4. **The save does not reach the engine, and the screen prints the server's own sentence
- *    about that.** `publish_agent` re-reads the column, so a live agent keeps its old
- *    voice until the next publish — `republish_required` and `next_step` are the server's
- *    answer and are not paraphrased here.
+ * 1. **The catalogue is read through the tenant's impersonation session**, and the save goes
+ *    through the agent update route on that same session, sending only the field that moved.
+ * 2. **A failed catalogue read is a refusal, never an empty picker** — a list with no voices
+ *    reads as "this account has none", a claim built from a dead request.
+ * 3. **CONFIGURED IS NOT LIVE, and both are on screen.** The write touches our row only; the
+ *    voice platform keeps the voice it was last published with until the next publish, so
+ *    both are rendered as labelled data and the server's own sentence sits above them.
+ * 4. **An engine that hosts no voices shows no picker and no error**, and still answers what
+ *    callers hear now.
  */
 
 const TENANT = "0192f0aa-8888-7000-8000-0000000000a1";
@@ -79,161 +52,8 @@ const HISTORY_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/prompt`;
 const PENDING_PATH = `/v1/agents/${AGENT}/pending`;
 const LANES_PATH = "/v1/agents/lanes";
 const EXPERIMENT_PATH = `/v1/agents/${AGENT}/experiment`;
-const SET_VOICE_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/voice`;
 
-function voice(over: Partial<OfferedVoice> = {}): OfferedVoice {
-  return {
-    id: "timbre-v2.5:Suhana",
-    label: "Suhana",
-    provider: "gnani",
-    voice_tier: "clear",
-    tts_model: "timbre-v2.5",
-    // The SPEAKER, which the catalogue now names separately from the model (D-358). An id
-    // is `<tts_model>:<speaker>`; before the split this fixture's `id` was the model.
-    speaker: "Suhana",
-    gender: "female",
-    languages: ["te-IN", "hi-IN", "en-IN"],
-    note: "Warm, unhurried; the default for Telugu receptionists.",
-    verified: false,
-    // D-547 made the catalogue two-tier, so a row now carries its own verdict: whether a
-    // client may pick it, and — when they may not — the sentence saying why. Both rungs can
-    // arrive refused now: Studio on the Cartesia cap, Clear until a Gnani price is attested.
-    offerable: true,
-    unavailable_reason: null,
-    // WHETHER THE REFUSAL MEANS "NOT ON OFFER" rather than "offered and currently
-    // unavailable" (D-590). The picker RENDERS the second — an unattested price or the
-    // Cartesia cap is a reason worth reading, and the row stays reachable so it is
-    // announced — and OMITS the first, because since the catalogue became the engine
-    // account's own list there are four hundred and sixteen voices the operator has
-    // simply not enabled. A fixture leaving this false is a voice on offer, which is what
-    // every clause below is about except the one that sets it.
-    not_on_offer: false,
-    // The name a HUMAN reads for this quality, and the only one: `provider` names the
-    // VENDOR, keys the money and the metering, and never reaches a screen (founder,
-    // 7 Sep 2026). The server owns the label — `billing/rates.py::VOICE_TIER_LABELS` —
-    // so this fixture spells the wire, not a second table.
-    tier_label: "Clear",
-    ...over,
-  };
-}
-
-// Two PERSONAS on the one Gnani voice quality: same Timbre v2.5 model, different speakers.
-// The Cartesia tier is a SECOND quality alongside these (D-547) and this fixture does not
-// carry one — the picker's two-tier behaviour is covered where the picker is built.
-const VOICES: OfferedVoice[] = [
-  voice(),
-  voice({
-    id: "timbre-v2.5:Lehara",
-    label: "Lehara",
-    speaker: "Lehara",
-    gender: "female",
-    verified: true,
-    note: "A brisker, more formal read; still Timbre v2.5.",
-  }),
-];
-
-/** One STUDIO-tier voice, i.e. the second provider's — the tier that can arrive refused. */
-function studio(over: Partial<OfferedVoice> = {}): OfferedVoice {
-  return voice({
-    id: "sonic-3.5:ananya",
-    label: "Ananya",
-    provider: "cartesia",
-    voice_tier: "studio",
-    tts_model: "sonic-3.5",
-    speaker: "ananya",
-    tier_label: "Studio",
-    verified: true,
-    note: "A studio read; Telugu-English mixing is not documented for this one.",
-    ...over,
-  });
-}
-
-/** THE REFUSAL AS `offerable_voices()` COMPOSES IT — `voice_offer.py::
- *  NO_ATTESTED_TTS_PRICE_REASON`, read 7 Sep 2026. Copied here as a fixture is copied: the
- *  screen prints whatever sentence arrives, and this test proves it prints it whole. */
-const NO_PRICE_REASON =
-  "nobody has recorded what the Cartesia voice tier costs on this account, and an " +
-  "unpriced minute is unmetered spend rather than a free one — attest the Cartesia TTS " +
-  "price in the ops console";
-
-/** The two tiers, the second one refused: the state this deployment is actually in. */
-const TWO_TIER_CATALOGUE: VoiceCatalogue = {
-  control: "ours",
-  selectable: true,
-  // WHERE THE CATALOGUE CAME FROM (D-585): `engine` = synced from the voice platform's own
-  // voice list, `seed` = the compiled floor a deployment serves until a sync has run. The
-  // fixtures here are all `engine`, because that is the state every clause below is about;
-  // the seed state has its own clause.
-  source: "engine",
-  voices: [
-    ...VOICES,
-    studio({ offerable: false, unavailable_reason: NO_PRICE_REASON }),
-  ],
-  note: "Pick the voice this agent speaks in.",
-  // EVERY TIER THE PRODUCT SELLS, present or not (D-617). `note` is non-null exactly when
-  // a tier has nothing choosable in it, and the picker prints it — an absent heading used
-  // to be the only signal a whole quality was missing, which is no signal at all.
-  tiers: [
-    { provider: "gnani", label: "Clear", offerable: 2, in_catalogue: 2, note: null },
-    { provider: "cartesia", label: "Studio", offerable: 0, in_catalogue: 1, note: null },
-  ],
-};
-
-/**
- * The catalogue AS THE SERVER ANSWERS IT (D-93): the rows AND the verdict about them.
- *
- * It stopped being a bare `Voice[]` because a bare list cannot say "no selection here,
- * and that is normal" — its only way to express it is `[]`, which this very panel renders
- * as "this agent has no voices available", a claim about the product rather than about the
- * engine. `selectable` and `control` carry the verdict; `note` is the sentence to print.
- */
-const CATALOGUE: VoiceCatalogue = {
-  control: "ours",
-  selectable: true,
-  source: "engine",
-  voices: VOICES,
-  note: "Pick the voice this agent speaks in.",
-  // NO STUDIO ROWS AT ALL — and the tier still has a line, which is the whole point of
-  // the field: a tier that is missing must not be missing from its own report (D-617).
-  tiers: [
-    { provider: "gnani", label: "Clear", offerable: 2, in_catalogue: 2, note: null },
-    {
-      provider: "cartesia",
-      label: "Studio",
-      offerable: 0,
-      in_catalogue: 0,
-      note:
-        "The voice platform's catalogue holds no Studio voices on this account at all, " +
-        "so this tier cannot be offered to anybody.",
-    },
-  ],
-};
-
-/** The same endpoint on an engine that supplies its own voices — no rows, and a reason. */
-const DICTATED_CATALOGUE: VoiceCatalogue = {
-  control: "engine",
-  selectable: false,
-  // `engine` here names the SYNC SOURCE, not `control` — on a dictated engine there is
-  // nothing to sync and nothing to pick, and the two fields answering different questions
-  // with the same word is worth noticing rather than conflating.
-  source: "engine",
-  voices: [],
-  tiers: [],
-  note: "The calling platform in use has its own voices. Choose one of them below.",
-};
-
-/** The platform publishes no catalogue of its own — the list renders nothing. */
-const NO_ENGINE_CATALOGUE: EngineCatalogue = {
-  available: false,
-  complete: true,
-  choosable: true,
-  studio_available: false,
-  note: "Voices on this account come from Calevate's own catalogue.",
-  voices: [],
-  models: [],
-};
-
-/** A platform that speaks its own voices: one band priced, one not, one slow model. */
+/** A platform that speaks its own voices: one voice priced, one not. */
 const ENGINE_CATALOGUE: EngineCatalogue = {
   available: true,
   complete: true,
@@ -276,38 +96,50 @@ const ENGINE_CATALOGUE: EngineCatalogue = {
   ],
 };
 
-/** One stored voice as `GET /v1/agents/{id}/pending` answers it. */
-function stored(id: string): NonNullable<AgentVoiceState["configured"]> {
+/** The platform publishes no voices of its own — the list renders nothing. */
+const NO_ENGINE_CATALOGUE: EngineCatalogue = {
+  available: false,
+  complete: true,
+  choosable: true,
+  studio_available: false,
+  note: "Voices on this account come from Calevate's own catalogue.",
+  voices: [],
+  models: [],
+};
+
+/** A stored voice the server can name, as `GET /v1/agents/{id}/pending` answers it. */
+function named(speaker: string): AgentVoice {
+  const id = `sonic-3.5:${speaker.toLowerCase()}`;
   return {
     voice_id: id,
-    provider: "gnani",
-    voice_tier: "clear",
-    catalog: VOICES.find((entry) => entry.id === id) ?? null,
+    provider: "cartesia",
+    voice_tier: "studio",
+    catalog: {
+      id,
+      label: speaker,
+      provider: "cartesia",
+      tts_model: "sonic-3.5",
+      speaker: speaker.toLowerCase(),
+      gender: "female",
+      languages: ["te-IN", "hi-IN", "en-IN"],
+      note: "A studio read.",
+      verified: true,
+    },
   };
 }
 
-/**
- * The default agent for these tests: published, and the engine is holding the voice the
- * row says it is. The interesting cases override it.
- */
+/** The default agent: published, and the platform holding the voice the row says it is. */
 const VOICE_IN_SYNC: AgentVoiceState = {
-  configured: stored("timbre-v2.5:Suhana"),
-  live: stored("timbre-v2.5:Suhana"),
+  configured: named("Ananya"),
+  live: named("Ananya"),
   republish_required: false,
   unnamed_note: null,
-  headline:
-    "Callers hear Suhana — the voice platform is holding the configured voice.",
+  headline: "Callers hear Ananya — the voice platform is holding the configured voice.",
 };
 
-function pendingRoute(
-  voiceState: AgentVoiceState,
-  tierRates: VoiceTierRates = [],
-) {
+function pendingRoute(voiceState: AgentVoiceState) {
   return {
-    // `PendingOut.voice_tier_rates`, generated and REQUIRED. Empty by default: an account
-    // with no open credit lot has no next-minute rate to quote, and the picker then prices
-    // nothing — which is the state the last test in the tier describe pins.
-    voice_tier_rates: tierRates,
+    voice_tier_rates: [],
     agent_id: AGENT,
     agent_status: "live",
     published: true,
@@ -322,17 +154,14 @@ function pendingRoute(
       state: "applied",
       confirmed: true,
       verified_at: "2026-08-15T09:20:00Z",
-      headline:
-        "The voice platform was read back and is running this script and voice.",
+      headline: "The voice platform was read back and is running this script and voice.",
     },
   };
 }
 
 function render(over: Partial<Routes> = {}) {
   return renderAdminRoute(
-    <AgentPromptPage
-      params={routeParams({ tenantId: TENANT, agentId: AGENT })}
-    />,
+    <AgentPromptPage params={routeParams({ tenantId: TENANT, agentId: AGENT })} />,
     {
       [TENANT_PATH]: { id: TENANT, name: "Sunrise Clinic", slug: "sunrise" },
       "/v1/agents": [agentRow({ id: AGENT })],
@@ -354,9 +183,7 @@ function render(over: Partial<Routes> = {}) {
       [EXPERIMENT_PATH]: {
         agent_id: AGENT,
         rules: {
-          metrics: [
-            { key: "call_outcome_resolved", label: "calls the agent resolved" },
-          ],
+          metrics: [{ key: "call_outcome_resolved", label: "calls the agent resolved" }],
           default_metric: "call_outcome_resolved",
           minimum_calls_per_variant: 40,
           split_min_bp: 500,
@@ -365,344 +192,54 @@ function render(over: Partial<Routes> = {}) {
         },
         experiment: null,
       },
-      [VOICES_PATH]: CATALOGUE,
+      [ENGINE_CATALOGUE_PATH]: ENGINE_CATALOGUE,
       ...over,
     },
   );
 }
 
-/**
- * This account's per-tier rates as the pending read carries them (`voice_tier_rates`).
- *
- * `VoiceTierRateOut`, generated — so the compiler checks this fixture against the wire and
- * a field that moves on the server fails here rather than at runtime.
- */
-const TIER_RATES: VoiceTierRate[] = [
-  {
-    voice_tier: "clear",
-    label: "Clear",
-    inr_per_min: "5.0000",
-    further_open_lots: 0,
-  },
-  {
-    voice_tier: "studio",
-    label: "Studio",
-    inr_per_min: "8.0000",
-    further_open_lots: 2,
-  },
-];
-
-/** One picker row. Its accessible name is the whole row — persona, languages, note and the
- *  refusal — which is exactly what a screen reader announces, so it is what we match on. */
-function voiceRow(name: RegExp): HTMLInputElement {
-  return screen.getByRole("radio", { name }) as HTMLInputElement;
-}
+const radio = (name: RegExp) => screen.getByRole("radio", { name }) as HTMLInputElement;
 
 describe("the voice panel", () => {
-  beforeEach(() => openSection("voice"));
-  it("reads the catalogue through the tenant's impersonation session", async () => {
+  beforeEach(() => {
+    nav.params = new URLSearchParams("section=voice");
+  });
+
+  it("reads the platform's voices through the tenant's impersonation session", async () => {
     const { calls } = await render();
 
-    await screen.findByRole("radio", { name: /Suhana/ });
-    const read = calls.filter((call) => call.path === VOICES_PATH);
-    expect(read).toHaveLength(1);
-    // The header IS the mechanism: without it `current_any` falls through to the client
-    // verifier and rejects the admin token, on an endpoint that touches no tenant data.
-    expect(read[0]!.headers["X-Impersonate-Org"]).toBe("sunrise");
+    await screen.findByRole("radio", { name: /Anjali/ });
+    const read = calls.filter((call) => call.path === ENGINE_CATALOGUE_PATH);
+    expect(read.length).toBeGreaterThan(0);
+    // Without the header the client verifier rejects the admin token on a `/v1/agents/…` path.
+    expect(read.every((call) => call.headers["X-Impersonate-Org"] === "sunrise")).toBe(true);
   });
 
-  it("offers every catalogue entry and marks the unverified ones", async () => {
+  it("lists the platform's voices with the reason each cannot be used, quietly", async () => {
     const { container } = await render();
-
-    await screen.findByRole("radio", { name: /Suhana/ });
-    expect(screen.getAllByRole("radio")).toHaveLength(2);
-    expect(voiceRow(/Suhana/).value).toBe("timbre-v2.5:Suhana");
-    expect(voiceRow(/Lehara/).value).toBe("timbre-v2.5:Lehara");
-    // The catalogue carries `verified: false` until the pilot confirms the engine accepts
-    // the string (OPERATIONS §2 gate 3). Rendered, not hidden — and on the row itself, so
-    // it is part of the accessible name a screen reader announces for that option.
-    expect(container.textContent).toContain("Not yet heard on a live call");
-    expect(voiceRow(/Suhana/).labels?.[0]?.textContent).toContain(
-      "Not yet heard",
-    );
-    expect(voiceRow(/Lehara/).labels?.[0]?.textContent).not.toContain(
-      "Not yet heard",
-    );
-  });
-
-  it("pre-selects the voice the agent is configured with", async () => {
-    // The gap this slice closed. `voice.configured` is the thing the operator is
-    // editing, so it is what the select opens on — not `voice.live` (the past), not the
-    // catalogue's own order (D-588 deleted the last compiled default persona, so there is
-    // no `is_default` to fall back to), and not a blank, which invites an operator to
-    // re-pick a value that is already set.
-    const { container } = await render();
-
-    await screen.findByRole("radio", { name: /Suhana/ });
-    expect(voiceRow(/Suhana/).checked).toBe(true);
-    expect(voiceRow(/Lehara/).checked).toBe(false);
-    // The detail block follows the selection without anyone touching the control.
-    expect(container.textContent).toContain(
-      "Warm, unhurried; the default for Telugu receptionists.",
-    );
-  });
-
-  it("shows an agent with no voice set as exactly that, with nothing pre-selected", async () => {
-    // A blank select is still correct for an agent nobody has configured — but it is now
-    // a state the SERVER reported, not a state the screen could not read.
-    const { container } = await render({
-      [PENDING_PATH]: pendingRoute({
-        configured: null,
-        live: null,
-        republish_required: false,
-        unnamed_note: null,
-        headline: "No voice has been set on this agent.",
-      }),
-    });
-
-    await screen.findByRole("radio", { name: /Suhana/ });
-    expect(
-      screen
-        .getAllByRole("radio")
-        .every((radio) => !(radio as HTMLInputElement).checked),
-    ).toBe(true);
-    expect(container.textContent).toContain(
-      "No voice has been set on this agent.",
-    );
-    expect(container.textContent).toContain("None set");
-  });
-
-  it("names the LIVE voice and the CONFIGURED one separately when they differ", async () => {
-    // The distinction this panel exists for. A voice change lands in our row and stops:
-    // `publish_agent` re-reads the column, so the caller keeps hearing the old voice.
-    // Showing one value and calling it "the voice" is the defect — so both are rendered
-    // as labelled data, and the server's own sentence sits above them.
-    const { container } = await render({
-      [PENDING_PATH]: pendingRoute({
-        configured: stored("timbre-v2.5:Lehara"),
-        live: stored("timbre-v2.5:Suhana"),
-        republish_required: true,
-        unnamed_note: null,
-        headline:
-          "Callers still hear Suhana; Lehara reaches them at the next publish.",
-      }),
-    });
-
-    await screen.findByRole("radio", { name: /Lehara/ });
-    // Pre-selection follows CONFIGURED — the operator edits the configuration.
-    expect(voiceRow(/Lehara/).checked).toBe(true);
-    expect(voiceRow(/Suhana/).checked).toBe(false);
-
-    expect(container.textContent).toContain("Callers hear now");
-    expect(container.textContent).toContain("Suhana (timbre-v2.5)");
-    expect(container.textContent).toContain("Configured");
-    expect(container.textContent).toContain("Lehara (timbre-v2.5)");
-    // The server's sentence, printed rather than paraphrased.
-    expect(container.textContent).toContain(
-      "Callers still hear Suhana; Lehara reaches them at the next publish.",
-    );
-    // And WHO closes the gap. Only a publish does; nothing on this screen is it.
-    expect(container.textContent).toContain(
-      "Publishing this agent is what moves the voice callers hear.",
-    );
-  });
-
-  it("says a published agent's live voice is unrecorded rather than calling it in sync", async () => {
-    // An agent published before the server recorded what it sent. "We cannot prove it"
-    // is not "nothing is live" and is certainly not "in sync" — the server still asks
-    // for a republish, and the screen must not soften that into a green state.
-    const { container } = await render({
-      [PENDING_PATH]: pendingRoute({
-        configured: stored("timbre-v2.5:Lehara"),
-        live: null,
-        republish_required: true,
-        unnamed_note: null,
-        headline:
-          "Callers hear whatever voice was last published; we have no record of which. Lehara reaches them at the next publish.",
-      }),
-    });
-
-    await screen.findByRole("radio", { name: /Lehara/ });
-    expect(container.textContent).toContain(
-      "Not recorded — publish to be sure",
-    );
-    expect(container.textContent).toContain("we have no record of which");
-  });
-
-  it("says an unpublished agent has no live voice at all", async () => {
-    // A different null from the one above, and a different sentence: nothing is on the
-    // engine, so no caller hears anything and no republish is owed.
-    const { container } = await render({
-      [PENDING_PATH]: {
-        ...pendingRoute({
-          configured: stored("timbre-v2.5:Lehara"),
-          live: null,
-          republish_required: false,
-          unnamed_note: null,
-          headline:
-            "This agent is not on the voice platform yet; publishing it will use Lehara.",
-        }),
-        published: false,
-        agent_status: "draft",
-      },
-    });
-
-    await screen.findByRole("radio", { name: /Lehara/ });
-    expect(container.textContent).toContain(
-      "Nothing — not on the voice platform yet",
-    );
-    expect(container.textContent).not.toContain(
-      "Publishing this agent is what moves the voice callers hear.",
-    );
-  });
-
-  it("shows the chosen voice's detail before it is saved", async () => {
-    const { container } = await render();
-
-    await screen.findByRole("radio", { name: /Lehara/ });
-    fireEvent.click(voiceRow(/Lehara/));
-
-    await waitFor(() =>
-      expect(container.textContent).toContain(
-        "A brisker, more formal read; still Timbre v2.5.",
-      ),
-    );
-    expect(container.textContent).toContain("te-IN, hi-IN, en-IN");
-    // The commit block names the QUALITY, in the server's word for it — never the vendor.
-    expect(container.textContent).toContain("Clear voice");
-  });
-
-  it("names the tenant in the PATH and reports that a republish is still needed", async () => {
-    // The tenant is in the URL, not the body: an admin principal has no tenant of its
-    // own, and the one way it could get one — impersonation — is refused for every
-    // mutation by D-22. It used to ride in the body on `PATCH /v1/agents/{id}/voice`,
-    // which made this the only admin-realm route in the client path space; the write now
-    // sits beside publish, apply, undo and the call cap under
-    // `/v1/admin/tenants/{tenant_id}/agents/{agent_id}/…`.
-    const { container, calls } = await render({
-      [SET_VOICE_PATH]: {
-        agent_id: AGENT,
-        voice: voice({
-          id: "timbre-v2.5:Lehara",
-          label: "Lehara",
-          speaker: "Lehara",
-        }),
-        agent_status: "live",
-        published: true,
-        engine_synced: false,
-        live_voice_id: "timbre-v2.5:Suhana",
-        republish_required: true,
-        unnamed_note: null,
-        next_step:
-          "Publish the agent to send this voice to the engine — until then callers hear the previous voice.",
-      },
-    });
-
-    await screen.findByRole("radio", { name: /Lehara/ });
-    fireEvent.click(voiceRow(/Lehara/));
-    fireEvent.click(screen.getByRole("button", { name: "Set voice" }));
-
-    await waitFor(() =>
-      expect(calls.some((c) => c.path === SET_VOICE_PATH)).toBe(true),
-    );
-    const write = calls.find((c) => c.path === SET_VOICE_PATH)!;
-    expect(write.method).toBe("PATCH");
-    // ONE field. The tenant is in the path the call was made to (`SET_VOICE_PATH`), and
-    // sending it twice would be two places to disagree.
-    expect(JSON.parse(write.body!)).toEqual({ voice_id: "timbre-v2.5:Lehara" });
-    // The admin write is NOT impersonating — the impersonation header on a mutation is a
-    // guaranteed 403 under D-22.
-    expect(write.headers["X-Impersonate-Org"]).toBeUndefined();
-
-    // The server's own sentence, printed rather than paraphrased: a live agent keeps its
-    // old voice until someone publishes, and implying otherwise is the expensive lie.
-    await waitFor(() =>
-      expect(container.textContent).toContain(
-        "Publish the agent to send this voice to the engine",
-      ),
-    );
-    expect(container.textContent).toContain("Saved — Lehara (timbre-v2.5)");
-
-    // And the read that feeds the "in force" block is refetched, because the write moved
-    // `voice.configured` and deliberately left `voice.live` alone. Without this the panel
-    // would keep showing the previous configuration next to the sentence saying it just
-    // changed.
-    await waitFor(() =>
-      expect(
-        calls.filter((c) => c.path === PENDING_PATH).length,
-      ).toBeGreaterThan(1),
-    );
-  });
-
-  it("states the reason, not an error, when the engine supplies its own voices", async () => {
-    // D-93. THREE things must all be true at once, and each of them is a way the screen
-    // used to be able to lie:
-    //
-    //  - no picker. A dropdown listing Bulbul entries against an engine that only speaks
-    //    its own voices is a screen offering a choice the caller will never hear. Not
-    //    rendered-and-disabled either: a disabled list still says "these are your options".
-    //  - no ProblemNotice. Nothing is broken. An error card here sends an operator to a
-    //    runbook for a deployment working exactly as designed.
-    //  - the voice in force is STILL shown. "What do callers hear right now" remains a
-    //    fair question; it is only the answer that is not ours to change.
-    const { container } = await render({
-      [VOICES_PATH]: DICTATED_CATALOGUE,
-      [ENGINE_CATALOGUE_PATH]: NO_ENGINE_CATALOGUE,
-    });
-
-    await screen.findByText(/has its own voices/);
-    expect(screen.queryAllByRole("radio")).toHaveLength(0);
-    expect(screen.queryByRole("button", { name: "Set voice" })).toBeNull();
-    // The server's sentence, verbatim — the panel does not compose its own from the flags
-    // and get the tone wrong.
-    expect(container.textContent).toContain(
-      "The calling platform in use has its own voices. Choose one of them below.",
-    );
-    // Still answering the question it can answer.
-    expect(container.textContent).toContain("Callers hear now");
-  });
-
-  it("lists the platform's own voices with the reason each cannot be used, quietly", async () => {
-    // D-678. On a platform that speaks its own voices, what it offers is still worth seeing,
-    // and an unpriced band says so in the server's words rather than being hidden.
-    const { container } = await render({
-      [VOICES_PATH]: DICTATED_CATALOGUE,
-      [ENGINE_CATALOGUE_PATH]: ENGINE_CATALOGUE,
-    });
 
     await screen.findByText("Anjali");
     expect(container.textContent).toContain("1 of 2 voices can be chosen today.");
     expect(container.textContent).toContain(
       "No rupee-per-minute rate is attested for the Clear rung",
     );
-    expect(container.textContent).not.toContain("Cannot be used");
     expect(container.querySelector(".text-warn")).toBeNull();
-    // A picker now (D-678): the priced voice can be chosen, the unpriced one cannot.
-    expect((screen.getByRole("radio", { name: /Anjali/ }) as HTMLInputElement).disabled).toBe(
-      false,
-    );
-    expect((screen.getByRole("radio", { name: /Priya/ }) as HTMLInputElement).disabled).toBe(
-      true,
-    );
-    // The models are their own section now (founder, 11 Oct 2026), not part of Voice.
+    expect(radio(/Anjali/).disabled).toBe(false);
+    expect(radio(/Priya/).disabled).toBe(true);
+    // The models are their own section, not part of Voice.
     expect(screen.queryByRole("radio", { name: /GPT-4\.1/ })).toBeNull();
   });
 
-  it("saves the platform voice it picks through the agent update route, as the client", async () => {
-    // D-678. The write is `PATCH /v1/agents/{id}` on the view-as session, sending only the
-    // field that moved; the server checks it against the catalogue and the attested rates.
+  it("saves the voice it picks through the agent update route, as the client", async () => {
     const { calls } = await render({
-      [VOICES_PATH]: DICTATED_CATALOGUE,
-      [ENGINE_CATALOGUE_PATH]: ENGINE_CATALOGUE,
       [`PATCH /v1/agents/${AGENT}`]: agentRow({ id: AGENT, engine_voice_id: "engine:3b7e" }),
     });
 
-    // The roster row has no choice saved, so "Platform default" is checked, and nothing has
-    // moved, so no save is offered yet.
+    // Nothing saved yet, so "Platform default" is checked and no save is offered.
     const fallback = await screen.findByRole("radio", { name: /Platform default/ });
     await waitFor(() => expect((fallback as HTMLInputElement).checked).toBe(true));
     expect(screen.queryByRole("button", { name: "Use this voice" })).toBeNull();
-    fireEvent.click(screen.getByRole("radio", { name: /Anjali/ }));
+    fireEvent.click(radio(/Anjali/));
     fireEvent.click(await screen.findByRole("button", { name: "Use this voice" }));
 
     const path = `/v1/agents/${AGENT}`;
@@ -714,205 +251,121 @@ describe("the voice panel", () => {
     expect(write.headers["X-Impersonate-Org"]).toBe("sunrise");
   });
 
-
-  it("renders a refusal, not an empty picker, when the catalogue cannot be read", async () => {
-    // §52. A `<select>` with only "Choose a voice" in it says "there are no voices",
-    // which is a claim about the product built from a dead request.
-    const { container } = await render({
-      [VOICES_PATH]: problem(503, {
+  it("renders a refusal, not an empty picker, when the voices cannot be read", async () => {
+    await render({
+      [ENGINE_CATALOGUE_PATH]: problem(503, {
         title: "Service unavailable",
-        detail: "The voice catalogue is unavailable.",
+        detail: "The voice platform is unavailable.",
         retryable: true,
       }),
     });
 
-    await screen.findByText("The voice catalogue is unavailable.");
+    await screen.findByText("The voice platform is unavailable.");
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
-    expect(screen.queryByRole("button", { name: "Set voice" })).toBeNull();
-    expect(container.querySelectorAll("input[type=radio]")).toHaveLength(0);
   });
 
-  it("surfaces the server's refusal of an unknown voice rather than pre-empting it", async () => {
-    // Membership in the catalogue is the SERVER's check, and its refusal carries the whole
-    // list in its remediation. A second copy of that rule here is a rule that drifts.
+  it("shows no picker and no error where the platform hosts no voices, and still says what callers hear", async () => {
+    const { container } = await render({ [ENGINE_CATALOGUE_PATH]: NO_ENGINE_CATALOGUE });
+
+    await screen.findByText("Callers hear now");
+    await waitFor(() =>
+      expect(radios(container).some((input) => input.name === "engine-voice")).toBe(false),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(container.textContent).toContain("Ananya (sonic-3.5)");
+  });
+
+  it("shows an agent with no voice set as exactly that", async () => {
     const { container } = await render({
-      [SET_VOICE_PATH]: problem(422, {
-        type: "urn:calevate:business_rule/unknown_voice",
-        title: "Unknown voice",
-        detail:
-          "That voice is not in the catalog, so it cannot be set on an agent.",
-        remediation:
-          "Pick one of the available voices: timbre-v2.5:Suhana, timbre-v2.5:Lehara.",
-        kind: "business_rule",
+      [PENDING_PATH]: pendingRoute({
+        configured: null,
+        live: null,
+        republish_required: false,
+        unnamed_note: null,
+        headline: "No voice has been set on this agent.",
       }),
     });
 
-    await screen.findByRole("radio", { name: /Suhana/ });
-    fireEvent.click(voiceRow(/Suhana/));
-    fireEvent.click(screen.getByRole("button", { name: "Set voice" }));
-
-    await screen.findByText(
-      "That voice is not in the catalog, so it cannot be set on an agent.",
-    );
-    expect(container.textContent).toContain(
-      "Pick one of the available voices: timbre-v2.5:Suhana, timbre-v2.5:Lehara",
-    );
-    // Still usable: the operator can pick another entry without reloading.
-    expect(screen.getByRole("button", { name: "Set voice" })).toBeTruthy();
+    await screen.findByText("No voice has been set on this agent.");
+    expect(container.textContent).toContain("None set");
   });
 
-  it("groups the two qualities under the names the SERVER gave them, never the vendor's", async () => {
-    // The founder's rule (7 Sep 2026): no human-facing surface names a vendor as a tier.
-    // "Clear" and "Studio" are the API's words (`billing/rates.py::VOICE_TIER_LABELS`);
-    // `gnani`/`cartesia` name the VENDOR and must never reach a screen; `clear`/`studio`
-    // name the rung and key the money. This asserts both halves, and the second half is
-    // the one that regresses silently.
-    const { container } = await render({ [VOICES_PATH]: TWO_TIER_CATALOGUE });
-
-    await screen.findByRole("radio", { name: /Ananya/ });
-    // Named groups, and the name is the SERVER's label — `getByRole("group", { name })`
-    // fails outright if the heading ever says anything else, which is the assertion that
-    // matters here.
-    const clear = screen.getByRole("group", { name: "Clear voice" });
-    const studio = screen.getByRole("group", { name: "Studio voice" });
-    // Each quality holds its own voices: the personas are inside their tier's group, which
-    // is what makes this two qualities rather than one flat list of three names.
-    expect(clear.textContent).toContain("Suhana");
-    expect(clear.textContent).toContain("Lehara");
-    expect(clear.textContent).not.toContain("Ananya");
-    expect(studio.textContent).toContain("Ananya");
-    expect(studio.textContent).not.toContain("Suhana");
-    // NO VENDOR NAME ANYWHERE — with one deliberate exception, the server's refusal, which
-    // is addressed to the operator who installs the key and has to know whose key it is.
-    // Everything else on this screen names the QUALITY.
-    expect(clear.textContent).not.toMatch(/sarvam|cartesia/i);
-    expect(container.textContent!.replace(NO_PRICE_REASON, "")).not.toMatch(
-      /sarvam|cartesia/i,
-    );
-  });
-
-  it("shows a refused voice refused with the server's reason, and never a shorter list", async () => {
-    // The whole point of `offerable_voices()` returning EVERY voice. A missing Studio row
-    // is indistinguishable from a product that does not sell a Studio voice, so the
-    // operator who pasted the key an hour ago cannot see that the PRICE is what is still
-    // missing. The row is shown, refused, with the one sentence naming the one fix.
-    const { container } = await render({ [VOICES_PATH]: TWO_TIER_CATALOGUE });
-
-    await screen.findByRole("radio", { name: /Ananya/ });
-    expect(screen.getAllByRole("radio")).toHaveLength(3);
-    expect(voiceRow(/Ananya/).getAttribute("aria-disabled")).toBe("true");
-    expect(voiceRow(/Suhana/).getAttribute("aria-disabled")).toBeNull();
-    // VERBATIM. The panel does not compose its own sentence from the flags and get the
-    // audience or the remedy wrong.
-    expect(container.textContent).toContain(NO_PRICE_REASON);
-
-    // And it cannot be chosen by clicking it either — a row that still moved the selection
-    // would offer a save the server is bound to refuse.
-    fireEvent.click(voiceRow(/Ananya/));
-    expect(voiceRow(/Ananya/).checked).toBe(false);
-  });
-
-  it("leaves a refused voice REACHABLE, so its reason is announced rather than skipped", async () => {
-    // THE REFUSAL IS THE WHOLE REASON THE ROW IS RENDERED rather than filtered out — and a
-    // natively `disabled` input is removed from the tab order and skipped by a screen
-    // reader's arrow keys, so the one reader who cannot see the amber sentence beside it
-    // was the one reader who could never reach it. `aria-disabled` + the `onChange` guard
-    // keeps the row reachable and announced while still unselectable.
-    await render({ [VOICES_PATH]: TWO_TIER_CATALOGUE });
-
-    const refused = await screen.findByRole("radio", { name: /Ananya/ });
-    expect((refused as HTMLInputElement).disabled).toBe(false);
-    expect(refused.getAttribute("aria-disabled")).toBe("true");
-
-    // The sentence is not merely NEAR the control, it is attached to it: without this the
-    // row announces as "unavailable" and gives no reason at all.
-    const describedBy = refused.getAttribute("aria-describedby");
-    expect(describedBy).toBeTruthy();
-    expect(document.getElementById(describedBy!)?.textContent).toContain(
-      NO_PRICE_REASON,
-    );
-
-    // Reachable is not selectable. Arrowing onto a radio in a group dispatches the same
-    // click a mouse does, so this is the keyboard path as well as the pointer one — and
-    // React restores the whole group from props when the guard reports nothing upward, so
-    // the selection that was there stays there.
-    fireEvent.click(refused);
-    expect((refused as HTMLInputElement).checked).toBe(false);
-    expect(voiceRow(/Suhana/).checked).toBe(true);
-  });
-
-  it("prices each quality from the account's oldest open credit lot", async () => {
-    // THE RATE IS PER LOT, NOT PER PACK AND NOT PER PRODUCT (D-547): a minute costs what
-    // the lot it draws from was sold at, oldest lot first. So the figure is the server's,
-    // it is this account's, and the note says there is credit behind it at other rates —
-    // otherwise a client reads a rate that quietly changes under them.
+  it("names the LIVE voice and the CONFIGURED one separately when they differ", async () => {
     const { container } = await render({
-      [VOICES_PATH]: TWO_TIER_CATALOGUE,
-      [PENDING_PATH]: pendingRoute(VOICE_IN_SYNC, TIER_RATES),
+      [PENDING_PATH]: pendingRoute({
+        configured: named("Lehara"),
+        live: named("Ananya"),
+        republish_required: true,
+        unnamed_note: null,
+        headline: "Callers still hear Ananya; Lehara reaches them at the next publish.",
+      }),
     });
 
-    await screen.findByRole("radio", { name: /Ananya/ });
-    expect(container.textContent).toContain("₹5.0000 / min");
-    expect(container.textContent).toContain("₹8.0000 / min");
-    // The server's digits, unrounded and unparsed (hard rule 7).
-    expect(container.textContent).not.toContain("₹5.00 /");
+    await screen.findByText("Callers still hear Ananya; Lehara reaches them at the next publish.");
+    expect(container.textContent).toContain("Callers hear now");
+    expect(container.textContent).toContain("Ananya (sonic-3.5)");
+    expect(container.textContent).toContain("Configured");
+    expect(container.textContent).toContain("Lehara (sonic-3.5)");
+    // And who closes the gap: only a publish does.
     expect(container.textContent).toContain(
-      "the rate on this account's credit",
-    );
-    expect(container.textContent).toContain(
-      "the rate on this account's oldest credit — 2 later purchases behind it at their own rates",
+      "Publishing this agent is what moves the voice callers hear.",
     );
   });
 
-  it("prints no rate at all when the API does not carry one", async () => {
-    // The state this build is actually in until the lots API ships the field. A picker that
-    // filled the gap from the rate card, a constant or the last known figure would be
-    // quoting a price nobody is charged; nothing is the honest answer.
-    const { container } = await render({ [VOICES_PATH]: TWO_TIER_CATALOGUE });
-
-    await screen.findByRole("radio", { name: /Ananya/ });
-    expect(container.textContent).toContain("Studio voice");
-    expect(container.textContent).not.toContain("/ min");
-    expect(container.textContent).not.toContain("₹");
-  });
-
-  /*
-   * DELETED: "drops the whole rate set rather than half-price the picker".
-   *
-   * It fed the picker a rate of `8` — a JSON number where the wire sends an exact decimal
-   * string — and asserted that `readVoiceTierRates` refused the WHOLE set rather than
-   * pricing one tier and blanking the other. That validator is gone: `PendingOut.
-   * voice_tier_rates` is generated and every field on `VoiceTierRateOut` is required, so
-   * the payload the test was built on can no longer be constructed without an `as` onto a
-   * wire type — which is exactly what `tests/wireFixtureGuard.test.ts` exists to stop. The
-   * behaviour it protected is now the compiler's: a rate that is not a string does not
-   * type-check anywhere in this app. The test above it still pins the case that IS
-   * reachable — a tier the server sends with `inr_per_min: null` prints no price at all.
-   */
-
-  it("renders a voice with no server-sent quality name ungrouped, not under its vendor", async () => {
-    // A DELIBERATELY OFF-CONTRACT PAYLOAD, and it has to be one: `OfferedVoiceOut.
-    // tier_label` is generated and REQUIRED, so this is a server regression rather than a
-    // build we support — and `voicePicker.tierLabel` keeps its guard against exactly that,
-    // because the only other name available is the VENDOR's and that is the one name a
-    // client-facing surface may not print. Spelled as a plain literal handed to the route
-    // map (which takes `unknown`), never `as OfferedVoice` — the sanctioned spelling for an
-    // off-contract payload per `tests/wireFixtureGuard.test.ts`.
+  it("says a published agent's live voice is unrecorded rather than calling it in sync", async () => {
     const { container } = await render({
-      [VOICES_PATH]: {
-        ...CATALOGUE,
-        voices: [
-          { ...voice(), tier_label: null },
-          { ...studio(), tier_label: undefined },
-        ],
+      [PENDING_PATH]: pendingRoute({
+        configured: named("Lehara"),
+        live: null,
+        republish_required: true,
+        unnamed_note: null,
+        headline:
+          "Callers hear whatever voice was last published; we have no record of which. Lehara reaches them at the next publish.",
+      }),
+    });
+
+    await screen.findByText(/we have no record of which/);
+    expect(container.textContent).toContain("Not recorded — publish to be sure");
+  });
+
+  it("says an unpublished agent has no live voice at all", async () => {
+    const { container } = await render({
+      [PENDING_PATH]: {
+        ...pendingRoute({
+          configured: named("Lehara"),
+          live: null,
+          republish_required: false,
+          unnamed_note: null,
+          headline: "This agent is not on the voice platform yet; publishing it will use Lehara.",
+        }),
+        published: false,
+        agent_status: "draft",
       },
     });
 
-    await screen.findByRole("radio", { name: /Ananya/ });
-    expect(screen.getAllByRole("radio")).toHaveLength(2);
-    // The `<fieldset>` is itself a group; what must not exist is a tier group inside it.
-    expect(screen.queryByRole("group", { name: /voice$/ })).toBeNull();
-    expect(container.textContent).not.toMatch(/sarvam|cartesia/i);
+    await screen.findByText(/not on the voice platform yet; publishing it will use Lehara/);
+    expect(container.textContent).toContain("Nothing — not on the voice platform yet");
+    expect(container.textContent).not.toContain(
+      "Publishing this agent is what moves the voice callers hear.",
+    );
+  });
+
+  it("says a raw platform ref is a raw platform ref, instead of printing it bare", async () => {
+    const ref = "engine:b6dafaa0-3a87-40b2-823c-1e4cf3c07314";
+    const unnamed: AgentVoice = { voice_id: ref, provider: null, voice_tier: "clear", catalog: null };
+    const note = "The code shown is the voice platform's own reference for this voice.";
+    const { container } = await render({
+      [PENDING_PATH]: pendingRoute({
+        configured: unnamed,
+        live: unnamed,
+        republish_required: false,
+        unnamed_note: note,
+        headline: `Callers hear ${ref} — the voice platform is holding the configured voice.`,
+      }),
+    });
+
+    await screen.findByText(note);
+    expect(container.textContent).toContain(ref);
   });
 
   it("explains the disabled control to an operator without agents:write", async () => {
@@ -925,55 +378,14 @@ describe("the voice panel", () => {
       },
     });
 
-    await screen.findByRole("radio", { name: /Suhana/ });
-    expect(voiceRow(/Suhana/).disabled).toBe(true);
-    expect(screen.getByRole("button", { name: "Set voice" })).toHaveProperty(
-      "disabled",
-      true,
-    );
+    await screen.findByRole("radio", { name: /Anjali/ });
+    expect(radio(/Anjali/).disabled).toBe(true);
     expect(container.textContent).toContain(
       "does not have permission to change this agent's script",
     );
   });
-  it("says a raw engine ref is a raw engine ref, instead of printing it bare", async () => {
-    // THE FOUNDER'S SCREEN (D-617). A live agent configured on a voice the catalogue could
-    // not name printed `sonic-3.5:b6dafaa0-…` under BOTH labels, with no sentence anywhere
-    // saying what the string was or why no such voice appeared in the picker below. The id
-    // is still shown — an operator can search for an id, and "unknown" reads as a fault
-    // rather than as a voice the platform no longer lists — but never on its own.
-    const ref = "sonic-3.5:b6dafaa0-3a87-40b2-823c-1e4cf3c07314";
-    const unnamed = { voice_id: ref, provider: "cartesia", voice_tier: "studio", catalog: null };
-    const note =
-      "The code shown is the voice platform's own reference for this voice.";
-    const { container } = await render({
-      [PENDING_PATH]: pendingRoute({
-        configured: unnamed,
-        live: unnamed,
-        republish_required: false,
-        unnamed_note: note,
-        headline: `Callers hear ${ref} — the voice platform is holding the configured voice.`,
-      }),
-    });
-
-    await screen.findByRole("radio", { name: /Suhana/ });
-    expect(container.textContent).toContain(ref);
-    // The server's sentence, verbatim and beside it.
-    expect(container.textContent).toContain(note);
-  });
-
-  it("states that a whole quality is missing instead of rendering a shorter list", async () => {
-    // A picker grouped by tier renders NO heading for a tier with no rows, so "this
-    // platform has no Studio voices" and "this product sells one quality" were the same
-    // screen. `tiers` is the server's per-tier report and `CATALOGUE` carries an empty
-    // Studio line — the state the founder was looking at.
-    const { container } = await render();
-
-    await screen.findByRole("radio", { name: /Suhana/ });
-    expect(container.textContent).toContain("Studio voice");
-    expect(container.textContent).toContain(
-      "The voice platform's catalogue holds no Studio voices on this account at all",
-    );
-    // And it is a STATEMENT, not a choice: nothing selectable was invented for the tier.
-    expect(screen.queryByRole("radio", { name: /Studio/ })).toBeNull();
-  });
 });
+
+function radios(container: HTMLElement): HTMLInputElement[] {
+  return Array.from(container.querySelectorAll("input[type=radio]"));
+}

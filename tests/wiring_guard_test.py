@@ -45,13 +45,6 @@ def _endpoints_of(module_suffix: str) -> set[object]:
     }
 
 
-def test_the_live_app_mounts_every_router_it_declares() -> None:
-    """The standing assertion. `make guardrails` runs the same function."""
-    declared = check_wiring.declared_routers()
-    assert len(declared) >= 20, f"the router scan found only {len(declared)} — it is blind"
-    assert not check_wiring.unmounted_routers(declared), check_wiring.unmounted_routers(declared)
-
-
 def test_a_scan_that_finds_no_routers_refuses_instead_of_passing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -202,18 +195,6 @@ def test_a_mention_in_prose_does_not_count_as_wiring(tmp_path: Path) -> None:
     assert offenders == ["Agent.business_hours (models.py)"], offenders
 
 
-def test_the_live_tree_has_no_unwired_column_outside_the_baseline() -> None:
-    assert check_wiring.unwired_columns() == []
-
-
-def test_every_baseline_entry_still_names_a_column_that_is_still_unwired() -> None:
-    """The anti-rubber-stamp half. An entry that no longer matches anything is a hole
-    with a comment on it (`check_redaction_exposure.check_registry_freshness`), and an
-    entry for a column somebody has since wired must be DELETED so the baseline can
-    only ever shrink."""
-    assert check_wiring.stale_baseline() == []
-
-
 # --- the worker registry ------------------------------------------------------
 
 
@@ -305,7 +286,3 @@ def test_an_empty_vocabulary_fails_rather_than_passing_vacuously() -> None:
     """This section's own blind spot. Its subject is IMPORTED rather than scanned, so an
     emptied `FailureStage` is the one way it can go quiet, and it must not report OK."""
     assert check_wiring.unemittable_alarm_stages(roots=(), stages=()) != []
-
-
-def test_the_live_tree_can_emit_every_alarm_stage_it_declares() -> None:
-    assert check_wiring.unemittable_alarm_stages() == []

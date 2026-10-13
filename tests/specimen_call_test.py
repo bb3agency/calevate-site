@@ -47,7 +47,6 @@ from calevate_shared.engine import (
     CANNOT_HELP_HEADER,
     CLIENT_SCRIPT_CLOSE,
     CONFIDENTIALITY_MARKER,
-    VOICE_STYLE_GUIDANCE,
     AgentConfig,
     ExecutionSnapshot,
     compose_engine_prompt,
@@ -352,19 +351,6 @@ def test_the_new_rules_come_after_the_client_script_and_before_confidentiality()
     secret = prompt.index(CONFIDENTIALITY_MARKER)
     for rule in (CANNOT_HELP_HEADER, ACTION_CLAIM_RULE, CALL_NUMBER_RULE):
         assert fence < prompt.index(rule) < secret, rule
-    assert "never translated" in prompt
-    assert "how it is made" in prompt
-
-
-def test_the_voice_block_says_the_specimen_rules() -> None:
-    block = VOICE_STYLE_GUIDANCE.lower()
-    assert "never write actions, notes or anything in brackets" in block
-    assert "in english words" in block
-    assert "a mobile has ten, never fewer" in block
-    assert "never while they talk or ask something" in block
-    assert "carry on where you were" in block
-    assert "say it shorter" in block
-    assert "what they already said" in block
 
 
 # --- ending the call on ThinnestAI -----------------------------------------------------

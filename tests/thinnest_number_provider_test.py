@@ -2,7 +2,7 @@
 
 On `ENGINE=thinnest` numbers are rented and attached in ThinnestAI's console
 (`thinnest-findings/mirror/pages/api-reference/voices-and-models.md:85-87`), and the founder
-decided ThinnestAI calls go out on ThinnestAI numbers only, Vobiz on Pipecat only. So
+decided ThinnestAI calls go out on ThinnestAI numbers only. So
 `phone_numbers.provider` admits `thinnest` (migration a3d9e6f1c204), the admin record route
 accepts it only on that engine, and the dial gate presents a number on ThinnestAI only when
 it is recorded there. Every other engine's rule is untouched.
@@ -13,7 +13,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from apps.api.agents import service as agents_service
 from apps.api.agents.service import (
     NUMBER_INBOUND_ONLY_REASON,
     NUMBER_INBOUND_ONLY_RULE,
@@ -85,7 +84,7 @@ async def test_on_thinnest_a_registered_thinnest_number_is_presented(on_thinnest
 
 async def test_on_thinnest_a_number_not_recorded_there_is_refused(on_thinnest: None) -> None:
     tenant_id, agent_id = await _tenant_agent()
-    await _number(tenant_id, agent_id, provider="vobiz")
+    await _number(tenant_id, agent_id, provider="plivo")
     await _number(tenant_id, agent_id, provider=None)
     async with tenant_session(tenant_id) as session:
         blocked = await agent_outbound_number_blocker(session, agent_id=agent_id)
@@ -101,16 +100,6 @@ async def test_on_thinnest_a_number_bought_for_incoming_calls_is_refused(
     async with tenant_session(tenant_id) as session:
         blocked = await agent_outbound_number_blocker(session, agent_id=agent_id)
     assert blocked == (NUMBER_INBOUND_ONLY_RULE, NUMBER_INBOUND_ONLY_REASON)
-
-
-async def test_on_pipecat_a_thinnest_number_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The Pipecat deployment's carrier rule, unchanged: a number not on Vobiz is refused."""
-    monkeypatch.setattr(agents_service, "outbound_carrier", lambda: "vobiz")
-    tenant_id, agent_id = await _tenant_agent()
-    await _number(tenant_id, agent_id, provider="thinnest")
-    async with tenant_session(tenant_id) as session:
-        blocked = await agent_outbound_number_blocker(session, agent_id=agent_id)
-    assert blocked is not None and blocked[0] == NUMBER_NOT_ON_CARRIER_RULE
 
 
 async def test_check_dispatch_admits_an_armed_agent_on_thinnest(on_thinnest: None) -> None:

@@ -154,9 +154,8 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             {
               term: "Engine",
               detail:
-                "The platform that runs the live call: a hosted voice platform, or our own " +
-                "call program running on a hosting platform; each is listed on the " +
-                "sub-processor list.",
+                "The platform that runs the live call: a hosted voice platform, listed on " +
+                "the sub-processor list.",
             },
           ],
         },
@@ -792,7 +791,7 @@ export const TERMS_OF_SERVICE: LegalDocument = {
                 "certificate, and the certificate enumerates what it does not remove " +
                 "rather than leaving you to infer it: the append-only consent, billing and " +
                 "audit ledgers, do-not-call suppressions, your own user accounts, copies " +
-                "held by the telephone carrier or by a voice platform a call ran on, and " +
+                "held by the hosted voice platform the calls ran on, and " +
                 "knowledge content you uploaded. Those are " +
                 "listed for the reasons the Privacy Policy gives, and are retained no " +
                 "longer than the law requires.",

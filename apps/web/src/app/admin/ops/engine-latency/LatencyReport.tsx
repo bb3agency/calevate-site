@@ -178,9 +178,8 @@ function BudgetDisclosure({ budget }: { budget: LatencyBudget }) {
         <BudgetItem label={LEG_COPY.stt.label} value={budget.stt_ms} note={LEG_COPY.stt.gloss} />
         <BudgetItem label={LEG_COPY.llm_ttft.label} value={budget.llm_ttft_ms} note={LEG_COPY.llm_ttft.gloss} />
         <BudgetItem label={LEG_COPY.tts_ttfa.label} value={budget.tts_ttfa_ms} note={LEG_COPY.tts_ttfa.gloss} />
-        {/* A lookup CAN happen mid-reply (the in-process pack search, PIPECAT-MIGRATION §8.1),
-            but nothing times it: `LatencyLeg` has no `retrieval` member. Shown because the
-            sums below are cut from it. */}
+        {/* A lookup can happen mid-reply, but nothing times it: `LatencyLeg` has no
+            `retrieval` member. Shown because the sums below are cut from it. */}
         <BudgetItem
           label="Looking something up"
           value={budget.retrieval_ms}

@@ -49,7 +49,6 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.conftest import (
     accept_agreements,
-    accept_carrier_application,
     arm_agent_for_outbound,
     fund_wallet,
 )
@@ -90,12 +89,11 @@ async def _tenant(prefix: str = "d624") -> tuple[UUID, UUID]:
         await session.commit()
 
     # THE REST OF THE GATE, SUPPLIED RATHER THAN SOFTENED. `check_dispatch` asks the
-    # paperwork, money and carrier questions BEFORE it reaches consent, so a tenant missing
+    # paperwork and money questions BEFORE it reaches consent, so a tenant missing
     # any of them is refused for a reason this suite is not about — and would then pass
     # `assert rule != NO_CONSENT_RECORD_RULE` while proving nothing. These are conftest's
     # own arming helpers, each of which records the same facts production records.
     await accept_agreements(tenant_id)
-    await accept_carrier_application(tenant_id)
     await arm_agent_for_outbound(tenant_id, agent_id)
     await fund_wallet(tenant_id)
     return tenant_id, agent_id

@@ -24,7 +24,7 @@ import {
   type HostedVoices,
   type StudioVoices,
 } from "@/lib/api/opsHostedVoices";
-import { OPS_VOICES_PATH, OPS_VOICES_REFRESH_PATH } from "@/lib/api/opsVoices";
+import { OPS_VOICES_REFRESH_PATH } from "@/lib/api/opsVoices";
 import { OPS_PREVIEW_PATH, previewUrl } from "@/lib/api/voicePreview";
 
 import { expectNoA11yViolations } from "./a11y";
@@ -36,9 +36,8 @@ import { problem, renderAdminPage, type Routes } from "./harness";
  *
  * What this screen must get right, by what each failure costs:
  *
- * 1. **The server picks the screen.** `available: true` shows the hosted screen and never
- *    reads the Pipecat catalogue; `available: false` shows the Pipecat catalogue and never
- *    reads the Studio voices state.
+ * 1. **The server picks the screen.** `available: true` shows the hosted screen;
+ *    `available: false` shows the server's sentence and never reads the Studio voices state.
  * 2. **One compact row per voice**, filterable, paged; the full platform list is read only
  *    when "Add voices" opens, and only voices in a band we sell can be ticked there.
  * 3. **The switch names the state the API holds**: an archived voice is never captioned
@@ -310,32 +309,34 @@ afterEach(() => {
 });
 
 describe("the voices page picks its screen from the server's answer", () => {
-  it("shows the hosted screen and never reads the Pipecat catalogue", async () => {
-    const { calls } = renderAdminPage(<VoicesPage />, routes());
+  it("shows the hosted screen when the voice platform hosts the voices", async () => {
+    renderAdminPage(<VoicesPage />, routes());
 
     expect(await screen.findByRole("heading", { name: "Offered voices" })).toBeTruthy();
     expect(screen.getByRole("listitem", { name: "Anjali" })).toBeTruthy();
-    expect(calls.some((c) => c.path.startsWith(`${OPS_VOICES_PATH}?`))).toBe(false);
   });
 
-  it("shows the Pipecat catalogue and never reads the Studio voices when voices are not hosted", async () => {
+  it("prints the server's sentence and never reads the Studio voices when voices are not hosted", async () => {
     const { calls } = renderAdminPage(<VoicesPage />, {
       [ADMIN_ME_PATH]: SUPERADMIN,
       [HOSTED_VOICES_PROBE_PATH]: NOT_HOSTED,
-      [`${OPS_VOICES_PATH}?scope=decided`]: {
-        voices: [],
-        source: "engine",
-        offered: 0,
-        scope: "decided",
-        cached: 0,
-        note: "Nothing is offered.",
-        form: { providers: [], languages: ["te-IN"] },
-      },
     });
 
-    await screen.findByText(/No voice has been added yet/);
+    await screen.findByText("No voices to manage here");
+    expect(screen.getByText(NOT_HOSTED.note)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Offered voices" })).toBeNull();
     expect(calls.some((c) => c.path === OPS_STUDIO_VOICES_PATH)).toBe(false);
+  });
+
+  it("tells an admin without ops:manage why, and never asks for the voices", async () => {
+    const { calls } = renderAdminPage(<VoicesPage />, {
+      [ADMIN_ME_PATH]: { ...SUPERADMIN, role: "support", permissions: ["admin:tenants"] },
+      [HOSTED_VOICES_PROBE_PATH]: problem(403, { title: "Forbidden", kind: "forbidden" }),
+    });
+
+    await screen.findByText(/add and manage the voices this platform offers/);
+    expect(screen.queryByText("Forbidden")).toBeNull();
+    expect(calls.some((c) => c.path.startsWith("/v1/ops/voices/hosted"))).toBe(false);
   });
 
   it("renders a failed probe as a refusal, not as either screen", async () => {

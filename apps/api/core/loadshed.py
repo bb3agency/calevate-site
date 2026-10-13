@@ -64,13 +64,11 @@ LoadShedMode = Literal["normal", "reduced", "emergency", "maintenance"]
 # the console is generated from), the operator must stay ABLE TO ACT (`/v1/ops`,
 # `/v1/admin` — a shed you cannot turn off is an outage you caused), and a provider
 # callback must always LAND (`/hooks` — a dropped engine webhook is a call whose lead
-# never appears; `/v1/worker` — the Pipecat worker's calls back into this API, which ARE the
-# live-call path since D-592: the session a ringing call loads, the in-call opt-out, the
-# settlement that bills a finished call). Shedding `/v1/worker` does not reduce load, it
-# breaks calls already ringing: in `reduced` a caller's "do not call me" was refused, and
-# in `maintenance` the GET that loads the maintenance script itself was refused, so the
-# message the window composes could never be spoken. The worker holds no session and is
-# gated by its own bearer token (`rbac.PUBLIC_PREFIXES`), so nothing a client can reach is
+# never appears; `/v1/worker` — the voice engine's in-call actions and caller lookups, which ARE
+# the live-call path: the caller lookup before an agent answers, the in-call opt-out and
+# call-back). Shedding `/v1/worker` does not reduce load, it breaks calls already ringing:
+# in `reduced` a caller's "do not call me" would be refused. The engine holds no session
+# and is gated per agent (`rbac.PUBLIC_PREFIXES`), so nothing a client can reach is
 # exempted with it. Nothing on this list is exempt because it is important to a customer;
 # expensive customer-facing writes are exactly what shedding is for.
 ALWAYS_ALLOWED_PREFIXES: tuple[str, ...] = (

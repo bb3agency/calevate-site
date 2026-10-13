@@ -126,7 +126,7 @@ describe("where a recorded number comes from", () => {
     expect(await screen.findByRole("heading", { name: /numbers your agents call out from/i })).toBeTruthy();
     const tip = await readInfoTip("Where these numbers come from");
     expect(tip).toMatch(/our own telephony account/);
-    expect(tip).not.toMatch(/Vobiz|Plivo|Thinnest|Pipecat/i);
+    expect(tip).not.toMatch(/Plivo|Thinnest/i);
     expect(tip).not.toMatch(/your own operator|account holder/i);
   });
 });

@@ -37,6 +37,7 @@ from apps.api.compliance.processor_erasure import (
     record_request_sent,
 )
 from apps.api.db.session import tenant_session
+from calevate_shared.engine import PIPECAT_REF_PREFIX
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -92,11 +93,9 @@ def test_the_vocabulary_names_the_carrier_and_the_register_says_something_true()
     `PROCESSORS` named the voice engine, the speech vendor and the language model, and the
     published sub-processor register told clients the carrier receives *"Caller and called
     numbers, call detail records, and the live audio of the call in both directions"* —
-    more than any other vendor on the page. Since D-592 the conversation runs in a
-    container of ours and the carrier is where the audio terminates
-    (`voice_worker/carrier.py` reads mu-law media frames off the carrier socket in both
-    directions). So a §12 certificate enumerated three vendor copies and was silent about
-    the one holding both the number and the sound of the call.
+    more than any other vendor on the page, because the carrier is where the call's audio
+    terminates. So a §12 certificate enumerated three vendor copies and was silent about the
+    one holding both the number and the sound of the call.
 
     Two halves, and this pins both: the ROLE exists in the closed vocabulary, and the
     certificate says something TRUE about it in the meantime — no task can be opened until
@@ -107,12 +106,10 @@ def test_the_vocabulary_names_the_carrier_and_the_register_says_something_true()
     # Its own word, distinct from the speech-and-language entry's, so the two copies stay
     # separable on the certificate.
     assert entry.outcome != deletion.PROCESSOR_OUTCOME
-    # The carrier is chosen (Vobiz, D-662) and its API reference has been read: it names
-    # no route that deletes a call record. So the entry describes the carrier's position
-    # and says the remedy is a written request — without naming it on a certificate a
-    # client reads (D-679).
+    # Calevate holds no carrier account and so has no route that deletes a call record.
+    # The entry describes the carrier's position and says the remedy is a written request,
+    # without naming a carrier on a certificate a client reads (D-679).
     assert "the carrier" in entry.why
-    assert "Vobiz" not in entry.why
     assert "written request" in entry.why
     assert "no carrier has been chosen" not in entry.why
     assert "whichever carrier" not in entry.why
@@ -121,36 +118,18 @@ def test_the_vocabulary_names_the_carrier_and_the_register_says_something_true()
     assert "in both directions" in prose
 
 
-def test_the_register_no_longer_calls_the_vendor_api_undocumented() -> None:
-    """SABOTAGE GUARD: the stale evidence class.
-
-    "Undocumented" invites the next reader to go looking for a deletion API. The
-    documentation is complete, mirrored and hash-verified, and it documents NO
-    subject-granular deletion — an enumerated absence, not an open question. Reverting to
-    the old word would send somebody on a search that has already been done.
-    """
-    prose = " ".join(deletion.ERASURE_LIMITATIONS).lower()
-    assert "undocumented" not in prose, (
-        "the vendor's deletion surface is enumerated in "
-        "docs/evidence/subprocessor-erasure-reach.md §1, not unknown"
-    )
-
-
-def test_the_engine_entry_describes_the_runtime_we_run_and_not_the_one_d639_deleted() -> None:
+def test_the_engine_entry_describes_the_platform_we_run_and_not_the_one_d639_deleted() -> None:
     """D-639 removed Bolna, and this entry used to describe Bolna's agent-wide `DELETE`
     ("ALL agent data including all batches, all executions") to a data principal as the
-    platform that carried their calls. The call program is ours now: its record is in our
-    database and IS erased, it records no audio, and what its hosting platform keeps is
-    unestablished. The entry must say that, and must not borrow the old vendor's answer."""
+    platform that carried their calls. The entry must describe the voice platform the calls
+    run on now — our record erased, theirs held on their terms — and must not borrow the
+    old vendor's answer."""
     entry = next(e for e in deletion.ERASURE_EXCEPTIONS if e.outcome == deletion.ENGINE_OUTCOME)
     said = f"{entry.what} {entry.why} {entry.authority}"
     assert deletion.ENGINE_OUTCOME != "no_subject_granular_api"
     assert "ALL agent data" not in said
-    assert "hosting platform" in entry.why
-    assert "not been established" in entry.why
-    assert "does not record the audio" in entry.why
-    # A deployment on a third-party engine still has a vendor-held record, and the entry
-    # still names the remedy for it.
+    assert "Calevate's database and was erased" in entry.why
+    # The platform still has a record of its own, and the entry names the remedy for it.
     assert "third-party voice platform" in entry.why
     assert "written request" in entry.why
     # The REMEDY, not the gate number: `authority` reaches a data principal through the
@@ -161,39 +140,30 @@ def test_the_engine_entry_describes_the_runtime_we_run_and_not_the_one_d639_dele
     assert "can delete a whole agent" not in prose
 
 
-def test_the_carrier_prose_no_longer_says_no_carrier_is_chosen() -> None:
-    """The structured entry described the chosen carrier while the prose a client reads
-    still said "No carrier is chosen yet" — two halves of one register disagreeing about one
-    vendor. Both now describe the carrier's position without naming it (D-679)."""
-    prose = " ".join(deletion.ERASURE_LIMITATIONS)
-    assert "No carrier is chosen" not in prose
-    assert "Vobiz" not in prose
-    assert "Where the carrier recorded a call" in prose
-    assert "written request" in prose
-
-
 def test_own_runtime_refs_never_reach_a_vendor_task() -> None:
-    """THE BLOCKER: a DPDP erasure on the live engine raised and never completed.
+    """A DPDP erasure must complete over calls our former runtime ran.
 
-    `execute_deletion_request` quoted every `calls.engine_call_id` into a `voice_engine`
-    task. On Pipecat that value is `pipecat:<tenant>:<call>` — a ref WE mint, naming a row
-    in our own database — and its colons fail the id-shape rule, so
-    `assert_vendor_refs_are_id_shaped` raised inside the erasure's transaction and every
-    erasure of a caller who had ever spoken to a Pipecat agent rolled back.
+    Those rows carry `pipecat:<tenant>:<call>` in `calls.engine_call_id` — a ref WE minted,
+    naming a row in our own database — and its colons fail the id-shape rule, so quoting
+    it into a `voice_engine` task would raise inside the erasure's transaction and roll
+    back every erasure of a caller who had ever spoken to such an agent.
     """
     from apps.api.compliance.processor_erasure import (
         OWN_RUNTIME_ENGINES,
         engine_held_call_refs,
     )
-    from apps.api.worker.service import ENGINE_NAME
-    from calevate_shared.engine import pipecat_call_ref
 
-    ours = pipecat_call_ref(uuid.uuid4(), uuid.uuid4())
+    ours = _own_runtime_ref(uuid.uuid4(), uuid.uuid4())
     with pytest.raises(VendorRefRejectedError):
         assert_vendor_refs_are_id_shaped([ours])
     assert engine_held_call_refs([ours, _REAL_EXECUTION_ID]) == [_REAL_EXECUTION_ID]
-    # The route-table filter keys on the engine NAME the runtime writes there.
-    assert ENGINE_NAME in OWN_RUNTIME_ENGINES
+    # The route-table filter keys on the engine NAME that runtime wrote there.
+    assert PIPECAT_REF_PREFIX in OWN_RUNTIME_ENGINES
+
+
+def _own_runtime_ref(tenant_id: uuid.UUID, call_id: uuid.UUID) -> str:
+    """The `engine_call_id` shape our former runtime wrote."""
+    return f"{PIPECAT_REF_PREFIX}:{tenant_id}:{call_id}"
 
 
 # ---------------------------------------------------------------------------
@@ -509,9 +479,9 @@ async def test_a_real_erasure_opens_a_voice_platform_task_naming_the_executions(
 
 
 @asyncio_test
-async def test_a_pipecat_call_erases_and_opens_a_carrier_task_naming_its_call_ids() -> None:
-    """END TO END on the engine that actually runs calls: a Pipecat `engine_call_id` and a
-    Vobiz `carrier_call_id`.
+async def test_a_former_runtime_call_erases_and_opens_a_carrier_task_naming_its_call_ids() -> None:
+    """END TO END over a call our former runtime ran: its own `engine_call_id` and a
+    carrier `carrier_call_id`.
 
     Two things are pinned. The erasure COMPLETES — before the fix the `pipecat:` ref was
     quoted into a vendor task, failed the id-shape rule and rolled the erasure back. And
@@ -519,7 +489,6 @@ async def test_a_pipecat_call_erases_and_opens_a_carrier_task_naming_its_call_id
     their audio, gets a task naming ITS ids rather than only a sentence on a certificate.
     """
     from apps.workers.retention import execute_deletion_request
-    from calevate_shared.engine import pipecat_call_ref
 
     tenant_id = await _tenant()
     phone = f"+9198{uuid.uuid4().int % 100000000:08d}"
@@ -543,7 +512,7 @@ async def test_a_pipecat_call_erases_and_opens_a_carrier_task_naming_its_call_id
                 "id": call_id,
                 "t": tenant_id,
                 "a": agent_id,
-                "e": pipecat_call_ref(tenant_id, call_id),
+                "e": _own_runtime_ref(tenant_id, call_id),
                 "c": carrier_call_id,
                 "p": phone,
             },
@@ -579,7 +548,7 @@ async def test_a_pipecat_call_erases_and_opens_a_carrier_task_naming_its_call_id
             )
         ).all()
     assert completed is not None, "the erasure did not complete"
-    # No `voice_engine` task: the Pipecat ref names our own row, which the erasure reached.
+    # No `voice_engine` task: the ref names our own row, which the erasure reached.
     assert [r.processor for r in rows] == ["telephony"]
     assert rows[0].status == "open"
     assert rows[0].vendor_refs == [carrier_call_id]

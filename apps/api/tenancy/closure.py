@@ -30,9 +30,8 @@ of reusing it is that they need no edit. Enumerated rather than recalled (hard r
 * **Invitations cannot be minted or redeemed** — the same predicate at both ends.
 
 * **Inbound answering stops.** The close route detaches every number from its agent at the
-  carrier (`agents/lifecycle.release_account_numbers`) and the undo re-attaches them, and
-  `worker/service.load_session` refuses any call that still reaches a closed or erased
-  account's agent, naming it and alarming (`inbound_call_on_closed_account`). The agents
+  carrier (`agents/lifecycle.release_account_numbers`) and the undo re-attaches them. The
+  agents
   themselves stay `live`, so the undo needs no republish. `account_stopped_blocker` stays
   outbound-only: SUSPENSION must not silence a client's own customers, closure must.
 

@@ -5,8 +5,8 @@ inside the tick's own single-flight lease and out of the tick's own line budget,
 callback and a campaign contact compete for the same lines and two schedulers with two
 opinions about that is how a receptionist stops being able to answer the phone.
 
-Callbacks are BOOKED elsewhere: in a call by the voice worker's `book_callback` tool
-(`apps/api/worker/tools.book_callback`, inside the request), and after a call by the
+Callbacks are BOOKED elsewhere: in a call by the engine's call-back action
+(`apps/api/worker/in_call_tools.book_callback_for`, inside the request), and after a call by the
 post-call pipeline. Both write through `apps/api/callbacks/service.book`.
 """
 
@@ -33,7 +33,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
-from apps.api.engine.carrier_pacing import LINES_BUSY_RULE, PACING_RULE
+from apps.api.engine.dial_lines import LINES_BUSY_RULE
 from apps.api.ingest.lead_policy import (
     book_retry,
     load_plan,
@@ -63,9 +63,6 @@ UNCONFIRMED_REASON = (
 #: has a time on it, and the tick will come back inside the grace window anyway.
 DIAL_FAILED_REASON = "The phone system would not place this call."
 
-#: ...and when the carrier's calls-per-second limit left no slot for it this tick.
-PACING_DEFERRED_REASON = "The phone line was busy starting other calls; we will try again shortly."
-
 #: ...and when every line the calling account allows was in use.
 LINES_BUSY_REASON = "All our phone lines were busy; we will try again shortly."
 
@@ -74,7 +71,7 @@ OPTED_OUT_REASON = "This number is marked as not to be called, so the call-back 
 
 #: The refusals that say the LINE was not free rather than that the phone system refused,
 #: each with the sentence the client reads on the deferred call-back.
-_LINE_REFUSALS = {PACING_RULE: PACING_DEFERRED_REASON, LINES_BUSY_RULE: LINES_BUSY_REASON}
+_LINE_REFUSALS = {LINES_BUSY_RULE: LINES_BUSY_REASON}
 
 #: ...and when a new lead's retry stood down because they answered (or rang in) since.
 RETRY_NOT_NEEDED_REASON = "They answered an earlier call, so this retry was not needed."

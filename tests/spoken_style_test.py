@@ -15,7 +15,6 @@ import re
 from collections.abc import Iterator
 
 import pytest
-from calevate_shared import spoken_style
 from calevate_shared.spoken_style import (
     PublishedEntry,
     PublishedLanguage,
@@ -102,12 +101,6 @@ def test_every_business_type_has_a_telugu_example() -> None:
         assert example_exchange(TE, vertical), vertical
     # A custom business falls back to the neutral set.
     assert example_exchange(TE, "custom") == style.examples["_default"]
-
-
-def test_everything_ships_unreviewed() -> None:
-    for tag in spoken_style.languages():
-        style = style_for(tag)
-        assert style is not None and style.review == "needs_native_review", tag
 
 
 def test_the_prompt_carries_only_the_short_list() -> None:

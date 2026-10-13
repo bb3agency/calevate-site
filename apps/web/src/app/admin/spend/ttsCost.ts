@@ -61,8 +61,8 @@ export type SpeakingRateByProvider = components["schemas"]["SpeakingRateByProvid
  * The vendor, named — this is the admin console, and the invoice has a vendor on it.
  *
  * Read off the provider each usage row carries, so the name follows the data: `sarvam` and
- * `gnani` rows are `ENGINE=pipecat` minutes (and append-only history), `thinnest` rows are
- * minutes ThinnestAI hosted (D-687).
+ * `gnani` rows are append-only history from before ThinnestAI hosted the call, `thinnest`
+ * rows are minutes ThinnestAI hosted (D-687).
  */
 export function vendorName(provider: string): string {
   if (provider === "sarvam") return "Sarvam";

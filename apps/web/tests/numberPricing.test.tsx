@@ -27,7 +27,7 @@ const UNPRICED: NumberPrice = { attested: false };
 const PRICED: NumberPrice = {
   attested: true,
   inr_per_month: "499.00",
-  source: "Vobiz order form, 1 Oct 2026",
+  source: "Carrier order form, 1 Oct 2026",
   attested_at: "2026-10-01T06:30:00Z",
 };
 
@@ -53,7 +53,7 @@ describe("the phone number price panel", () => {
   it("prints the attested figure from the server's string, with its source", async () => {
     renderPanel({ [ADMIN_ME_PATH]: OPERATOR, [NUMBER_PRICING_PATH]: PRICED });
     expect(await screen.findByText("₹499.00")).toBeTruthy();
-    expect(screen.getByText("Vobiz order form, 1 Oct 2026")).toBeTruthy();
+    expect(screen.getByText("Carrier order form, 1 Oct 2026")).toBeTruthy();
   });
 
   it("sends the typed figure as a string, with the document it was read from", async () => {
@@ -67,7 +67,7 @@ describe("the phone number price panel", () => {
     fireEvent.click(open);
     fireEvent.change(screen.getByLabelText(/Rupees per number/), { target: { value: "499.00" } });
     fireEvent.change(screen.getByLabelText(/Read from/), {
-      target: { value: "Vobiz order form, 1 Oct 2026" },
+      target: { value: "Carrier order form, 1 Oct 2026" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Record the price" }));
 
@@ -75,7 +75,7 @@ describe("the phone number price panel", () => {
     const sent = calls.find((c) => c.method === "POST");
     expect(JSON.parse(sent?.body ?? "{}")).toEqual({
       inr_per_month: "499.00",
-      source: "Vobiz order form, 1 Oct 2026",
+      source: "Carrier order form, 1 Oct 2026",
     });
     // Step-up confirmed, like every price an operator attests (D-681).
     expect(sent?.headers["X-Confirm-Action"]).toBe("attest_number_price");

@@ -1,6 +1,6 @@
 """The harness that turns "retire the pgvector path" into a table. Scored offline.
 
-**WHAT THIS FILE IS DEFENDING.** `docs/PIPECAT-MIGRATION.md` §6 step 15 retires `kb_chunks`
+**WHAT THIS FILE IS DEFENDING.** ROADMAP D-604 records the plan to retire `kb_chunks`
 and its lexical arm in favour of Supermemory. That is a decision about RECALL — does the
 new store still find the client's price list when a client asks about prices — and until
 `retrieval/compare.py` existed nothing in this repository could have answered it. A harness

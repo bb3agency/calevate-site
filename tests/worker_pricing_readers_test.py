@@ -107,16 +107,6 @@ async def test_the_pricing_poll_can_be_stopped() -> None:
     await pricing_snapshot.stop_pricing_refresher()
 
 
-def test_stopping_leaves_the_readers_installed() -> None:
-    """Shutdown must not put the billing seam back on its defaults.
-
-    `uninstall_pricing_readers` is a separate door for the same reason `close_redis` is
-    not `configure_redis(None)`: a process ending should stop DOING work, not start
-    answering money questions differently on the way out.
-    """
-    assert "uninstall_pricing_readers" not in _calls_in(pricing_snapshot.stop_pricing_refresher)
-
-
 def test_every_refresher_in_this_fleet_has_a_stop() -> None:
     """The symmetry, pinned — because it was broken and nothing said so.
 

@@ -1,8 +1,7 @@
 """A call whose caller was never identified holds the same PII and no erasure can reach it.
 
-THE SEQUENCE. An inbound call arrives on a carrier that sends no calling party, or sends
-one our client cannot parse (`voice_worker/carrier.CallerIdentity`, states
-`withheld_by_carrier` / `unparsed_by_client`). `calls.from_e164` stays NULL. The call is
+THE SEQUENCE. An inbound call arrives with no calling party, or with one we cannot parse.
+`calls.from_e164` stays NULL. The call is
 recorded and transcribed like any other, so the person's VOICE and their WORDS are on
 file. The person then exercises DPDP §12 and gives the business their number.
 

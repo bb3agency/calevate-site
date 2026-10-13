@@ -475,121 +475,9 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         # origin in a JSON body; what this refuses is a report about a page we do not serve.
         credential="require_own_console_origin",
     ),
-    "GET /v1/worker/session/{engine_agent_ref}": PublicRoute(
-        why=(
-            "The voice worker (apps/voice-worker, on Pipecat Cloud) reads the published "
-            "agent it is about to answer a call as. It holds no Calevate session and "
-            "cannot have one: it is a container a vendor's runtime operates, and "
-            "PLATFORM_KEK must never be in its image (DEPLOYMENT §12.2). It answers ONLY "
-            "to the Bearer token this deployment issued its own worker, compared in "
-            "constant time by `worker/service.authorized`, and a deployment with no "
-            "token configured answers nobody. A "
-            "ref naming no published agent is 404, so a stranger who guesses learns "
-            "nothing."
-        ),
-        credential="authorized",
-    ),
-    "POST /v1/worker/calls/{engine_call_id}/observations": PublicRoute(
-        why=(
-            "The same worker posting what it witnessed on one call: statuses and spoken "
-            "turns. MUTATING, and the credential below is the whole of what stands in for "
-            "a session — plus a second property that is not a credential and matters: the "
-            "tenant is PARSED out of the engine-space call ref (`tenant_of_pipecat_ref`) "
-            "and every statement then runs under that tenant's RLS, so a token holder "
-            "cannot name a row id or reach a tenant the ref does not say."
-        ),
-        credential="authorized",
-    ),
-    "POST /v1/worker/agents/{engine_agent_ref}/caller-memory": PublicRoute(
-        why=(
-            "The same worker, while a call is assembled, asking what the agent remembers "
-            "about the number now ringing. A read, same credential, and the tenant and agent "
-            "are PARSED out of the engine-space agent ref so the lookup runs under that "
-            "tenant's RLS. `compliance/caller_memory.recall` re-checks the client's switch and "
-            "the SPDI vertical refusal on every request, so a token holder learns nothing an "
-            "agent's client has not switched on. The number is in the body, never the URL."
-        ),
-        credential="authorized",
-    ),
-    "POST /v1/worker/agents/{engine_agent_ref}/attestation": PublicRoute(
-        why=(
-            "The same worker reporting the sha256 of the system prompt it actually loaded, "
-            "at session start (D-626). MUTATING, same credential and the same "
-            "resolution-from-the-ref property: the tenant and agent are PARSED out of the "
-            "engine-space agent ref and the write runs under that tenant's RLS. It is the "
-            "only production writer of `agent_config_attestations` — on an owned_runtime "
-            "engine there is no vendor to read an agent back off, so this row is the "
-            "independent witness hard rule 5's engine-side verification is scored against, "
-            "and the server computes the verdict rather than storing the worker's."
-        ),
-        credential="authorized",
-    ),
-    "POST /v1/worker/calls/{engine_call_id}/settlement": PublicRoute(
-        why=(
-            "The same worker's terminal write: the call row, the ledger-or-refusal and "
-            "the post-call trigger in one transaction (D-607). MUTATING, same credential "
-            "and same RLS-from-the-ref property as the observations route above. A "
-            "re-delivery is answered `already_settled` rather than re-applied, because "
-            "`usage_events` is append-only and has no UPDATE to undo a double write."
-        ),
-        credential="authorized",
-    ),
-    "POST /v1/worker/calls/{engine_call_id}/speaking": PublicRoute(
-        why=(
-            "The same worker reporting who is audible on one call right now (D-656): a "
-            "side, a sequence number and a timestamp, and nothing else. It writes one "
-            "expiring Redis key and no row. Same credential, and the tenant in that key is "
-            "PARSED out of the call ref exactly as on the observation route, so a token "
-            "holder cannot reach a tenant the ref does not say."
-        ),
-        credential="authorized",
-    ),
-    "POST /v1/worker/calls/{engine_call_id}/tools/opt-out": PublicRoute(
-        why=(
-            "The same worker's in-call opt-out tool: the ONLY path by which a caller "
-            "saying 'stop calling me' on an owned_runtime call reaches `dnc_list` "
-            "(SEC-COMP §2.3, hard rule 5). MUTATING, same credential and the "
-            "same RLS-from-the-ref property as the observations route above: the tenant is "
-            "PARSED out of the engine-space call ref and the suppression is written under "
-            "that tenant's RLS by `compliance/optout.record_call_optout`, the one writer "
-            "the post-call transcript pass already uses. A call this deployment is not "
-            "running is 404."
-        ),
-        credential="authorized",
-    ),
-    "POST /v1/worker/calls/{engine_call_id}/tools/callback": PublicRoute(
-        why=(
-            "The same worker's in-call call-back booking. MUTATING, same credential and "
-            "same RLS-from-the-ref property. The lawful-hours refusal (TCCCPR; SEC-COMP "
-            "§3) and the confirm-before-commit gate both run here, server-side, because "
-            "neither may be a line in a prompt a model can talk itself out of."
-        ),
-        credential="authorized",
-    ),
-    "POST /v1/worker/calls/{engine_call_id}/tools/callback/cancel": PublicRoute(
-        why=(
-            "The same worker calling off every live call-back promised to this caller's "
-            "number. MUTATING, same credential and same RLS-from-the-ref property, and "
-            "deliberately NOT an opt-out: 'do not ring me back' is not 'never call me "
-            "again', and answering it with a DNC entry would suppress a number on a "
-            "sentence its speaker did not say."
-        ),
-        credential="authorized",
-    ),
-    "POST /v1/worker/calls/{engine_call_id}/tools/handoff": PublicRoute(
-        why=(
-            "The same worker's request for a human handover. NON-MUTATING on this engine "
-            "and answered as a refusal: `PIPECAT_CAPABILITIES.in_call_handoff` is False, "
-            "so there is no leg to place — the value of the route is that the agent hears "
-            "a truthful 'you cannot transfer' instead of answering from its priors and "
-            "telling a caller to hold for a transfer that never happens. Same credential "
-            "and same RLS-from-the-ref property."
-        ),
-        credential="authorized",
-    ),
     "POST /v1/worker/engine-actions/{engine}/{tool}": PublicRoute(
         why=(
-            "The same four in-call tools (opt-out, call-back, call-back cancel, handoff) "
+            "The four in-call tools (opt-out, call-back, call-back cancel, handoff) "
             "called by a control-plane voice platform as its agent's custom actions (D-678 "
             "phase 2). MUTATING. The credential is a per-vendor-agent secret we mint, hold "
             "sealed on the agent's engine route and send as the action's header; the url "
@@ -625,15 +513,6 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
             "in our database runs, under the route's tenant RLS."
         ),
         credential="verify_agent_secret",
-    ),
-    "POST /v1/worker/calls/{engine_call_id}/tools/actions/{name}": PublicRoute(
-        why=(
-            "The Pipecat worker's door to the SAME client-action executor (D-700). The "
-            "worker's Bearer token, as on its other tool routes; the call is our own row "
-            "found by the engine call id under its tenant's RLS, and the caller's number is "
-            "that row's, never the model's."
-        ),
-        credential="authorized",
     ),
     "GET /v1/public/rate-card": PublicRoute(
         why=(

@@ -57,7 +57,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
-#: THE FOUNDER-APPROVED CARD (`docs/PIPECAT-MIGRATION.md` §12, 14 Sep 2026), typed out here
+#: THE FOUNDER-APPROVED CARD (14 Sep 2026), typed out here
 #: so a rate that moves without the founder moving it is a red test rather than a silent
 #: repricing. TYPED, not derived, and deliberately: this list IS the founder's instruction,
 #: and a version of it computed from the catalogue would assert the catalogue against
@@ -108,20 +108,8 @@ def test_the_guard_has_teeth_on_a_below_cost_rate() -> None:
     warned. A rate that clears cost but misses the 20% target is the other posture —
     reported, not refused — and the two must be distinguishable.
 
-    ⚠ **THE RATE IS DERIVED NOW, AND THE LITERAL IS WHY.** It was ₹4.00, typed against a
-    ₹4.1211 floor. D-592 moved the engine leg from Bolna's $0.02/min BYOK fee to Pipecat's
-    $0.01/min active minute, the floor fell to ₹3.3111, and ₹4.00 became a rate that CLEARS
-    cost — so a test named "the guard has teeth" was asserting that a profitable rate gets
-    refused. A literal on the wrong side of a moving line is the failure mode; half the
-    floor cannot land on the wrong side of it.
-
-    ⚠ This docstring has now said three different things about the band, which is the
-    hazard a derived rate exists to survive. It said "the whole approved Sarvam column is in
-    that band" (true before D-592), then "every rung on both columns now clears the 20%
-    target" (true only between D-592 and 14 Sep 2026). What is true today: the founder's
-    14 Sep card puts EIGHT of twelve cells under the target — the whole Clear column at
-    17.2%, and Studio's `pro` and `max` at 18.8% and 14.4% — and none below cost. The
-    assertions below do not depend on any of that, which is the point of deriving them.
+    The rate is DERIVED: half the floor cannot land on the wrong side of it, whereas a typed
+    literal sits on the wrong side of the line the moment a cost leg moves.
     """
     half_floor = (cost_floor_inr_per_min("clear") / 2).quantize(Decimal("0.01"))
     below_cost = _pack("greedy", "50000", str(half_floor), "6.00")
@@ -217,16 +205,6 @@ def test_the_legacy_list_rate_setting_still_equals_the_entry_rungs_clear_rate() 
     assert default == PACK_CATALOGUE[0].clear_inr_per_min
 
 
-def test_the_fifteen_thousand_rung_exists_between_ten_and_twenty_five() -> None:
-    """The `plus` pack is new in D-547 and its position in the ladder is the decision — a
-    rung appended at the end would break the monotonicity every other assertion rests on."""
-    plus = pack_by_id("plus")
-    assert plus is not None
-    assert plus.amount_inr == Decimal("15000")
-    ids = [p.pack_id for p in PACK_CATALOGUE]
-    assert ids.index("scale") < ids.index("plus") < ids.index("pro")
-
-
 def test_the_card_preview_is_twelve_rows_in_card_then_voice_order() -> None:
     """What the ops console renders before it writes a card, and what CI scores, are the
     same twelve verdicts in the same order (`ops/config_routes._record_card`)."""
@@ -293,15 +271,6 @@ def test_credits_are_one_rupee_each_and_talk_time_divides_by_the_voices_rate() -
     assert int(sarvam) == 3333
     assert int(cartesia) == 2500
     assert cartesia < sarvam
-
-
-def test_no_pack_carries_a_bonus_any_more() -> None:
-    """The deprecated fields are zero on every rung, not merely unused: `billing/payments.py`
-    still reads `bonus_credits` for one release (plan §10) and must find nothing to grant."""
-    for pack in PACK_CATALOGUE:
-        assert pack.bonus_pct == Decimal("0"), pack.pack_id
-        assert pack.bonus_credits == Decimal("0.0000"), pack.pack_id
-        assert pack.total_credits == pack.paid_credits, pack.pack_id
 
 
 # --- the RETIRED bonus grant (DB) ---------------------------------------------

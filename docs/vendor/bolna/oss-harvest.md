@@ -91,10 +91,10 @@ obvious value here, which is why nothing was guessed. **OPERATIONS §2 gate 16.*
 `TranscriberProvider.SARVAM` → `SarvamTranscriber`. Confirms the BYOK STT/TTS claim in
 `BOLNA_CAPABILITIES`. **Not** confirmed on the LLM leg — see above.
 
-### Telephony providers include Exotel and Vobiz
+### Telephony providers include Exotel
 
-`TelephonyProvider`: twilio, exotel, plivo, vobiz, sip-trunk, freeswitch, default,
-database. Consistent with D-05's Exotel/Vobiz pick.
+`TelephonyProvider` includes twilio, exotel, sip-trunk and freeswitch, among others.
+Consistent with D-05's Exotel pick.
 
 ### `ConversationConfig` — the two knobs we send are real
 

@@ -409,7 +409,7 @@ export function LaunchCheckMock() {
 /* ------------------------------------------------------------- voice picker */
 
 /**
- * Choosing how the agent sounds — `components/voicePicker.tsx`'s two groups, "Studio voice"
+ * Choosing how the agent sounds — the console's voice cards, grouped "Studio voice"
  * and "Clear voice". On the live engine (`ENGINE=thinnest`, D-687) Clear is the hosted
  * platform's studio band, and Anjali and Rakesh Khanna are two of its studio-tab voices
  * (`thinnest-findings/mirror/snapshots/2026-10-07b/pages/channels/voice-clone.md:86-88`);

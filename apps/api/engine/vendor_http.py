@@ -76,23 +76,22 @@ log = get_logger(__name__)
 REQUEST_TIMEOUT_S = 10.0
 
 # --- Throttle handling (SURFACES §3.3) ---------------------------------------
-# A 429 refuses the request rather than performing it. The carrier (Vobiz) answers one when
-# the account is over its calls-per-second OR its concurrent-call limit
-# (`vobiz-findings/mirror/pages/call/make-call.md:134`), and its error envelope names the
-# limit in `error.details.limitType`, with `error.details.retryAfter` in seconds
-# (`errors.md:205-223`). The two need different answers:
+# A 429 refuses the request rather than performing it. A vendor answers one when the account
+# is over a per-second (or per-minute) rate OR its concurrent-call limit, and its error
+# envelope names the limit (ThinnestAI: the envelope `code`; the older shape:
+# `error.details.limitType` with `error.details.retryAfter` in seconds). The two need
+# different answers:
 #
 # * `cps` clears within a second, so the ladder below backs off and retries, taking
 #   `retryAfter` as the floor when no `Retry-After` header carries one.
 # * the line limit clears only when a call ENDS, which a two-second backoff will not see, so
 #   it is not retried at all: it is raised at once as `carrier_lines_busy` (transient, and a
 #   dial that provably seized no line). The dial gate in `agents.service.dispatch_call`
-#   counts lines before dialling (`engine/carrier_pacing.py`); this is the carrier's own
-#   word for the case that count missed.
+#   counts lines before dialling (`engine/dial_lines.py`); this is the vendor's own word
+#   for the case that count missed.
 #
-# The docs print one `limitType` value, `cps`; how the concurrency limit is spelled is
-# UNKNOWN. So any OTHER named limit is read as the line limit (`is_line_limit`): a limit
-# that is not per-second does not clear inside this ladder either way.
+# Any named limit other than `cps` is read as the line limit (`is_line_limit`): a limit that
+# is not per-second does not clear inside this ladder either way.
 #
 # Three deliberate limits on what we do about it:
 #
@@ -121,7 +120,7 @@ REQUEST_TIMEOUT_S = 10.0
 #   thirty seconds later — the second tick takes no lease, dials nothing and exits. And
 #   within a tick the dials are SERIAL (`_dispatch_for_campaign` awaits one contact at a
 #   time) and the tick's whole spend is capped by the outbound line pool
-#   (`engine/carrier_pacing.outbound_line_pool`, two lines on a three-line account). So
+#   (`engine/dial_lines.outbound_line_pool`, three lines on a five-call workspace). So
 #   the worst case is a handful of sequential ten-second calls, inside both
 #   `WorkerSettings.job_timeout` (300s) and `TICK_LEASE_TTL_S` (330s). A degraded vendor
 #   slows dialling; it cannot accumulate.
@@ -157,8 +156,7 @@ THROTTLE_MAX_ATTEMPTS = 3
 THROTTLE_BASE_S = 0.5
 THROTTLE_MAX_SLEEP_S = 8.0
 
-#: The one `error.details.limitType` value the carrier documents, for its per-second limit
-#: (`vobiz-findings/mirror/pages/errors.md:205-223`).
+#: The `limitType` value for a per-second limit, which clears inside the retry ladder.
 CPS_LIMIT_TYPE = "cps"
 
 
@@ -170,7 +168,7 @@ def is_line_limit(limit_type: str | None) -> bool:
 # ThinnestAI's 429 is `{"error": "<sentence>", "code": "<code>", "limit": {name, perMinute |
 # max, windowSeconds}}` beside a `Retry-After` header (thinnest-findings/mirror/snapshots/
 # 2026-10-08/pages/api-reference/errors.md:39-54, :95-107). Its per-minute limits clear
-# inside this ladder like Vobiz's `cps`; `concurrent_calls` clears only when a call ends
+# inside this ladder like `cps`; `concurrent_calls` clears only when a call ends
 # (the line limit); `number_daily_limit` is one `from` number's 200 calls for the day
 # (:106, place-call.md:965-971) and clears tomorrow, so neither is retried here.
 THINNEST_CONCURRENT_CALLS: Final = "concurrent_calls"
@@ -247,7 +245,7 @@ async def _alert_number_daily_limit(*, engine: str, number_ref: str) -> None:
 
 #: The code a dial is refused under when every line the account allows is in use. Raised
 #: here for the carrier's own 429 and by the dial gate's line count
-#: (`engine/carrier_pacing.py`); both mean no line was seized.
+#: (`engine/dial_lines.py`); both mean no line was seized.
 LINES_BUSY_CODE = "carrier_lines_busy"
 
 
@@ -435,7 +433,7 @@ class EngineRateLimitedError(ProblemError):
 
     Same code, kind and wording as before, so every reader keyed on `code` is unchanged.
     `retry_after_s` is opt-in, for the dial gate's engine back-off
-    (`engine/carrier_pacing.start_dial_backoff`): a dial refused for the workspace's call
+    (`engine/dial_lines.start_dial_backoff`): a dial refused for the workspace's call
     ceiling should hold the next dial off for as long as the vendor asked, not re-ask it
     for every contact the same tick claimed.
     """
@@ -517,7 +515,8 @@ INSUFFICIENT_BALANCE_REASONS: Final = frozenset(
 def _vendor_error_name(envelope: dict[str, Any] | None) -> str | None:
     """The string `code` of a `{error, code}` envelope (ThinnestAI, errors.md:9-37), or None.
 
-    Bolna's `error` is an integer and Vobiz's an object, so only an envelope whose `code` is a
+    Bolna's `error` was an integer and other vendors send an object, so only an envelope whose
+    `code` is a
     short identifier is read: a vendor that never sends one is unchanged.
     """
     if envelope is None:
@@ -620,8 +619,8 @@ def _retry_after_seconds(response: httpx.Response) -> float | None:
 def _throttle_details(response: httpx.Response) -> tuple[str | None, float | None]:
     """`(limitType, retryAfter)` from a 429's error envelope, either one None when absent.
 
-    The envelope is `{"error": {"details": {"limitType": "cps", "retryAfter": 1}}}`
-    (`vobiz-findings/mirror/pages/errors.md:205-223`). Anything not in that shape is no
+    ThinnestAI names the limit in the envelope's `code`; the older shape is
+    `{"error": {"details": {"limitType": "cps", "retryAfter": 1}}}`. Anything else is no
     information, and the ladder falls back to the header and its own backoff.
     """
     envelope = _error_envelope(response)
@@ -932,7 +931,7 @@ async def vendor_request(
 
     `extra_refused_statuses` widens `REQUEST_REFUSED_STATUSES` for ONE call site, and only
     with a status that vendor's own documentation defines as a refusal of that request
-    (Vobiz's `402` on call create, `call/make-call.md:132`). The default set is unchanged
+    (ThinnestAI's `402` and `409`). The default set is unchanged
     for every other caller.
 
     `parse_float` is handed to `json.loads` for the success body, so a caller reading money

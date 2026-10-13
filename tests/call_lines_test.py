@@ -17,7 +17,6 @@ from apps.api.compliance.service import check_dispatch
 from apps.api.core.errors import install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.tenancy import call_lines
 from apps.api.tenancy.call_lines import (
     CALL_LINES_BUSY_RULE,
     CALL_LINES_SYNC_JOB,
@@ -359,8 +358,3 @@ async def test_a_paying_clients_dial_is_not_counted_here() -> None:
     await _call(tenant_id, agent_id, "in_progress")
     async with tenant_session(tenant_id) as session:
         assert await call_lines_blocker(session, tenant_id=tenant_id) is None
-
-
-def test_the_job_name_is_the_registered_function() -> None:
-    assert engine_workspaces.sync_engine_call_lines.__name__ == CALL_LINES_SYNC_JOB
-    assert call_lines.TRIAL_CALL_LINES_DEFAULT == 1 and call_lines.PAID_CALL_LINES_DEFAULT == 2

@@ -21,7 +21,7 @@ before any of it becomes a contract or a filing.
 - `docs/legal/LEGAL-OPS-PLAYBOOK.md` §0 (REPO) freezes scope: **India-only B2B, no foreign
   clients**, founder is a **sole proprietor** trading as "Calevate" (no company), AP + TS
   only, no GST registration at launch, Udyam MSME, Model B numbers (each client buys and
-  KYCs their own Exotel/Plivo/Vobiz number), founder = DLT Telemarketer, each client = a
+  KYCs their own carrier number), founder = DLT Telemarketer, each client = a
   Principal Entity. It closes with: if any of that changes — a foreign client among them —
   "this playbook is stale".
 - `docs/legal/comet-legal-research.md` (REPO) lines 2–4 record that Part G (US TCPA) and
@@ -102,8 +102,8 @@ CODE, read this session. A US tenant needs every row changed, and none is a flag
 | Money is **NUMERIC INR** (hard rule 7) | `apps/api/billing/rates.py:31` | USD invoicing, or INR invoicing with FX exposure on us |
 | DNC = TRAI's **DND registry**; `national_dnd_scrub_*` codes | `apps/api/compliance/national_dnd_routes.py` | FTC **National DNC Registry** subscription + state lists |
 | Compliance gate requires a **PE–TM DLT chain** | playbook §0; `compliance/service.py` | No DLT in the US; the gate would need a per-country regime |
-| Speech is **Sarvam** (Saaras STT, Bulbul TTS) — D-36 | CLAUDE.md | English STT/TTS provider; Sarvam's US-English quality UNKNOWN |
-| Numbers via **Exotel / Plivo / Vobiz**, client-KYC'd (Model B) | playbook §0 | Twilio/US carrier; no Indian KYC regime applies |
+| Speech is **Sarvam** (Saaras STT) — D-36 | CLAUDE.md | English STT/TTS provider; Sarvam's US-English quality UNKNOWN |
+| Numbers via **an Indian licensed carrier**, client-KYC'd (Model B) | playbook §0 | Twilio/US carrier; no Indian KYC regime applies |
 
 The India-ness sits in the **dial gate**, which is where hard rule 5 wants it. That is a
 feature for the Indian product and the reason a US tenant is an engineering project, not a

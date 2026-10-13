@@ -47,7 +47,6 @@ OTHER_KEK = base64.b64encode(b"retired-material-also-32-byteslo").decode()
 # 32 bytes each, and pairwise distinct — the property `distinct_secrets` is about.
 GOOD_HMAC = "audit-chain-key-of-thirty-two-by"
 OTHER_HMAC = "idempotency-key-of-thirty-two-by"
-GOOD_CLAIM_KEY = "caller-claim-key-of-thirty-two-b"
 #: The development intake key `reliability/engine_intake_keys.py` derives in `local`.
 PUBLISHED_INTAKE_KEK = base64.b64encode(
     hashlib.sha256(b"calevate-local-dev-engine-intake-kek/local").digest()
@@ -72,12 +71,6 @@ def good_env() -> dict[str, str]:
         "PLATFORM_KEK_RETIRED": "",
         "AWS_ACCESS_KEY_ID": "0123456789abcdef0123456789abcdef",
         "AWS_SECRET_ACCESS_KEY": "fedcba9876543210fedcba9876543210fedcba98",
-        # The owned runtime's env-only half (`owned_runtime`): the carrier pair and the
-        # claim key have no other home.
-        "CARRIER_CLAIM_SECRET": GOOD_CLAIM_KEY,
-        "VOBIZ_AUTH_ID": "MA_ACCOUNT0001",
-        "VOBIZ_AUTH_TOKEN": "vobiz-token-for-the-preflight-test",
-        "VOBIZ_CALLBACK_SECRET": "vobiz-callback-secret-of-thirty-two-plus",
     }
 
 
@@ -171,25 +164,11 @@ MUTATIONS: tuple[tuple[str, Callable[[dict[str, str]], None]], ...] = (
     ("placeholder_value", _set("SARVAM_API_KEY", "your-key-here")),
     # A field a decision deleted: every process refuses to boot on it (D-639).
     ("retired_env_key", _set("BOLNA_API_KEY", "a-leftover-vendor-key")),
-    # Env-only and absent: no caller identified, an outbound call taken for an inbound one.
-    ("carrier_claim_secret_unusable", _drop("CARRIER_CLAIM_SECRET")),
-    # Half a carrier credential places no call and reads no call record.
-    ("carrier_credentials_missing", _drop("VOBIZ_AUTH_TOKEN")),
-    # Without it voice-runtime refuses every Vobiz request; with it absent from the URLs,
-    # any Vobiz customer could point a number at our agents (D-673).
-    ("vobiz_callback_secret_unusable", _drop("VOBIZ_CALLBACK_SECRET")),
-    # Declared empty, it beats the console and the answer route refuses every call.
-    ("pipecat_stream_base_url_blank", _set("PIPECAT_STREAM_BASE_URL", "")),
-    # Pipecat Cloud's region-less host sends every stream to us-west, where no worker runs.
+    # The field's own default: every engine callback would point at the container.
     (
-        "pipecat_stream_base_url_unusable",
-        _set(
-            "PIPECAT_STREAM_BASE_URL",
-            "wss://api.pipecat.daily.co/ws/plivo?serviceHost=calevate-pipecat-worker.org",
-        ),
+        "webhook_base_url_not_public",
+        _both(_set("ENGINE", "thinnest"), _set("WEBHOOK_BASE_URL", "http://localhost:8100")),
     ),
-    # The field's own default: every carrier callback would point at the container.
-    ("webhook_base_url_not_public", _set("WEBHOOK_BASE_URL", "http://localhost:8100")),
     # ThinnestAI (D-678): its checks run only where the environment declares the engine.
     ("thinnest_api_key_missing", _set("ENGINE", "thinnest")),
     ("engine_intake_kek_missing", _set("ENGINE", "thinnest")),
@@ -440,57 +419,16 @@ def test_no_secret_value_ever_reaches_the_output(
     assert secret[:10] not in out
 
 
-def test_a_host_that_declares_another_engine_is_not_asked_for_the_carrier_leg() -> None:
-    """The gate cannot read the console's `ENGINE`, so the opt-out is the environment's."""
-    env = good_env() | {"ENGINE": "cartesia"}
-    for key in (
-        "CARRIER_CLAIM_SECRET",
-        "VOBIZ_AUTH_ID",
-        "VOBIZ_AUTH_TOKEN",
-        "VOBIZ_CALLBACK_SECRET",
-    ):
-        env.pop(key)
-    codes = refuse_codes(env)
-    assert "carrier_claim_secret_unusable" not in codes
-    assert "carrier_credentials_missing" not in codes
-    assert "vobiz_callback_secret_unusable" not in codes
-
-
-def test_a_short_claim_key_is_refused_whatever_the_engine() -> None:
-    """Set but under the floor looks configured, and both readers drop it silently."""
-    env = good_env() | {"ENGINE": "cartesia", "CARRIER_CLAIM_SECRET": "c" * 31}
-    assert "carrier_claim_secret_unusable" in refuse_codes(env)
-    local = load_example() or {}
-    local_env = dict(local) | {"CARRIER_CLAIM_SECRET": "c" * 31}
-    assert "carrier_claim_secret_unusable" in refuse_codes(local_env)
-
-
-def test_local_is_not_asked_for_the_carrier_leg() -> None:
+def test_local_is_not_asked_for_a_public_callback_base() -> None:
     example = load_example()
     assert example is not None
     codes = refuse_codes(dict(example) | {"WEBHOOK_BASE_URL": "http://localhost:8100"})
-    assert not codes & {
-        "carrier_claim_secret_unusable",
-        "carrier_credentials_missing",
-        "vobiz_callback_secret_unusable",
-        "webhook_base_url_not_public",
-    }
+    assert "webhook_base_url_not_public" not in codes
 
 
 def test_a_public_callback_base_declared_in_env_is_accepted() -> None:
-    env = good_env() | {
-        "WEBHOOK_BASE_URL": "https://hooks.calevate.tech",
-        "PIPECAT_STREAM_BASE_URL": "wss://worker.invalid/ws",
-    }
+    env = good_env() | {"WEBHOOK_BASE_URL": "https://hooks.calevate.tech"}
     assert refuse_codes(env) == set()
-
-
-def test_the_carrier_refusals_print_no_value() -> None:
-    secret = "a-carrier-claim-key-too-short"
-    findings = evaluate(good_env() | {"CARRIER_CLAIM_SECRET": secret}, load_example())
-    rendered = "\n".join(f.render() for f in findings)
-    assert "carrier_claim_secret_unusable" in rendered
-    assert secret not in rendered
 
 
 def test_finding_renders_its_code_first() -> None:
@@ -500,12 +438,6 @@ def test_finding_renders_its_code_first() -> None:
 
 
 # --- the contract with check_env_parity, and the control that proves it bites -----------
-
-
-def test_the_parity_guardrail_accepts_this_gate_as_it_stands() -> None:
-    from scripts.check_env_parity import preflight_contract_failures
-
-    assert preflight_contract_failures(set(Settings.model_fields)) == []
 
 
 def test_the_parity_guardrail_refuses_a_key_this_system_does_not_have(

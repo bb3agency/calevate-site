@@ -36,7 +36,6 @@ to the bootstrap set (D-95 cut it to eight).
 from __future__ import annotations
 
 import os
-import re
 from pathlib import Path
 
 # The one list, imported rather than restated: a second copy here would drift from the
@@ -55,18 +54,6 @@ def test_the_repo_ships_no_env_file() -> None:
     contract; `.env` is local and gitignored."""
     tracked = (REPO / ".env").exists() and not _is_ignored(".env")
     assert not tracked, ".env must stay untracked — see this module's docstring"
-
-
-def test_env_example_is_the_bootstrap_set_only() -> None:
-    """D-95 cut the template to the keys a process cannot boot without. If it grows
-    back, the harness starts finding values again on a fresh clone and stops matching
-    CI — which is exactly the divergence that hid two failures for nine commits."""
-    keys = _declared_keys(REPO / ".env.example")
-    assert len(keys) <= 8, (
-        f".env.example declares {len(keys)} keys; the bootstrap floor is 8 "
-        "(PLATFORM-CONFIG §4 plus the two required object-store fields). Everything "
-        f"else belongs in the ops console: {sorted(keys)}"
-    )
 
 
 def test_the_suite_cannot_see_the_machines_credentials() -> None:
@@ -116,18 +103,6 @@ def test_the_ambient_credentials_list_names_real_variables() -> None:
             f"{credential} is neither a Settings field nor a botocore variable — "
             "a name nothing reads guards nothing"
         )
-
-
-def _declared_keys(path: Path) -> set[str]:
-    keys: set[str] = set()
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        match = re.match(r"^([A-Z0-9_]+)=", stripped)
-        if match:
-            keys.add(match.group(1))
-    return keys
 
 
 def _is_ignored(relative: str) -> bool:
@@ -181,4 +156,4 @@ def test_every_engine_in_the_literal_has_an_entry_in_the_derived_list() -> None:
     from calevate_shared.config import EngineName
 
     all_credential_env_keys()  # raises AssertionError if an engine has no entry
-    assert len(get_args(EngineName)) >= 3, "the Literal shrank — re-read the mapping"
+    assert len(get_args(EngineName)) >= 2, "the Literal shrank — re-read the mapping"

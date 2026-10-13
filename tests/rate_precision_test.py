@@ -66,9 +66,9 @@ from calevate_shared.engine import EMBEDDING_MODELS, LLM_MODELS, SELECTABLE_LLM_
 UNIT_RATE_SHAPE: dict[str, str] = {
     # engine leg cost / billable seconds
     "telephony_s": "derived",
-    # engine leg cost / minutes, OR the owned runtime's attested per-active-minute figure
-    # (`voice_worker/meter.py::_runtime_row`), which is supplied by a human reading an
-    # invoice and is not a card this process can enumerate.
+    # engine leg cost / minutes. Rows the former owned runtime wrote carry its attested
+    # per-active-minute figure, supplied by a human reading an invoice, not a card this
+    # process can enumerate.
     "platform_min": "derived",
     # Retired for new rows (D-638); rows already written keep it. It was STRUCK on the owned
     # runtime at the per-second card rate, which is exactly the loss `stt_min` removes.
@@ -160,11 +160,9 @@ def test_tts_reference_rates_survive_the_ledger(provider: str) -> None:
 def test_a_rate_quoted_per_character_is_refused() -> None:
     """THE CASE THE `k`-PREFIX EXISTS FOR, stated as an executable fact.
 
-    Gnani publish Rs 27.00 per 10,000 characters, i.e. Rs 0.0027 a character. Per CHARACTER
-    the ledger stores Rs 0.0027 — a 0.0% error, which is exactly why this leak is invisible
-    until a cheaper vendor arrives; the figure that bites is Cartesia's attested
-    Rs 0.0034496 a character, stored as Rs 0.0034, metering our own cost 1.4% light. Per
-    THOUSAND both are exact. That difference is the whole of D-547's unit decision.
+    Cartesia's attested Rs 0.0034496 a character is stored per CHARACTER as Rs 0.0034,
+    metering our own cost 1.4% light. Per THOUSAND it is exact. That difference is the
+    whole of D-547's unit decision.
     """
     per_char = Decimal("0.0034496")
     assert not rate_is_meterable(per_char)

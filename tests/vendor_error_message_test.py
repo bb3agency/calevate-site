@@ -298,11 +298,6 @@ async def test_the_client_facing_sentence_stays_generic_and_carries_no_vendor_te
     assert raised.detail == "The voice platform could not complete this operation."
     body = raised.as_problem("/v1/agents/x")
     assert "agent_welcome_message" not in json.dumps(body)
-    assert not hasattr(raised, "vendor_message"), (
-        "the message is log-only; an attribute here would put it one `str()` away from a "
-        "client surface and would falsify campaign_dispatch._dial_failure_reason's claim "
-        "that it never reaches that process"
-    )
 
 
 async def test_the_log_key_is_one_the_formatter_actually_emits(

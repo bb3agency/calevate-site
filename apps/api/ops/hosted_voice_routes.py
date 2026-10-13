@@ -22,19 +22,17 @@
 
 The operator plays a preview from `GET /v1/ops/voices/hosted/preview`, for any hosted voice
 added or not; a client plays an offered one from `GET /v1/agents/engine-catalogue/preview`.
-Both read through `engine_catalogue_routes.stored_preview_response`. The Pipecat panel
-(`ops/voice_curation_routes.py`) is unchanged; on an engine that does not host voices
-every route here answers that it does not apply.
+Both read through `engine_catalogue_routes.stored_preview_response`. On an engine that does not
+host voices every route here answers that it does not apply.
 
-Voice ids travel in the body or the query, never the path, for `voice_curation_routes`'
-reason: half of a catalogue id is a vendor's alphabet.
+Voice ids travel in the body or the query, never the path: half of a catalogue id is a
+vendor's alphabet.
 
 STEP-UP ON THE CLONE AND THE STUDIO SWITCH, NOT ON CURATION. A clone carries the operator's two
 legal promises about a person's voice and spends a plan slot; deleting one cannot be undone
 and moves every agent on it to a standard voice (delete-voice-clone.md:7); the Studio switch
 installs a credential and changes which voice every agent speaks. Adding, enabling and
-previewing touch no agent and no call and are reversible in a click, for
-`voice_curation_routes`' argument.
+previewing touch no agent and no call and are reversible in a click.
 """
 
 from __future__ import annotations

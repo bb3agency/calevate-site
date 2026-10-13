@@ -82,22 +82,14 @@ SECTIONS: Final[tuple[Section, ...]] = (
         (
             Subsection("engine", "Active engine"),
             Subsection("thinnest", "ThinnestAI"),
-            Subsection("pipecat", "Our own runtime (Pipecat)"),
-            Subsection("cartesia", "Cartesia"),
         ),
         panels_after=(PANEL_ENGINE_MINUTE_PRICE,),
     ),
     Section(
         "telephony",
-        "Telephony and carrier",
-        "Which carrier carries our own runtime's calls, how its callbacks are trusted, and "
-        "who may sell us numbers.",
-        (
-            Subsection("carrier", "Carrier"),
-            Subsection("callbacks", "Callback security"),
-            Subsection("features", "Call features"),
-            Subsection("numbers", "Phone numbers"),
-        ),
+        "Telephony",
+        "Who may sell us numbers on an engine that rents none of its own.",
+        (Subsection("numbers", "Phone numbers"),),
     ),
     Section(
         "calling-limits",
@@ -216,9 +208,9 @@ SECTIONS: Final[tuple[Section, ...]] = (
     ),
 )
 
-_OWNED_RUNTIME = EngineScope(
-    "Used only when calls run on our own voice runtime (Pipecat) through our carrier.",
-    lambda _name, caps: caps.agent_hosting == "owned_runtime",
+_TEST_ENGINE = EngineScope(
+    "Used only on the test engine: ThinnestAI holds its own numbers and call ceiling.",
+    lambda name, _caps: name != "thinnest",
 )
 _OUR_STT = EngineScope(
     "Used only when the voice engine transcribes with our speech-to-text settings.",
@@ -227,10 +219,6 @@ _OUR_STT = EngineScope(
 _THINNEST = EngineScope(
     "Used only when the voice engine is ThinnestAI.",
     lambda name, _caps: name == "thinnest",
-)
-_CARTESIA = EngineScope(
-    "Used only when the voice engine is Cartesia.",
-    lambda name, _caps: name == "cartesia",
 )
 
 
@@ -256,7 +244,7 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "voice-engine",
         "engine",
         "Webhook base URL",
-        "Public address of the voice runtime that engines and carriers send call events to.",
+        "Public address of the voice runtime that the engine sends call events to.",
     ),
     "engine_actions_base_url": _m(
         "voice-engine",
@@ -289,88 +277,21 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Prana [Voice]. Must be call-capable, priced and allowed with Studio voices.",
         _THINNEST,
     ),
-    "pipecat_stream_base_url": _m(
-        "voice-engine",
-        "pipecat",
-        "Voice worker stream URL",
-        "The wss:// address of our deployed voice worker that answered calls are streamed to.",
-        _OWNED_RUNTIME,
-    ),
-    "cartesia_from_number_id": _m(
-        "voice-engine",
-        "cartesia",
-        "Cartesia caller ID",
-        "Cartesia's id for the outbound caller number; outbound calls are refused while unset.",
-        _CARTESIA,
-    ),
     # ---- telephony -------------------------------------------------------------------
-    "carrier": _m(
-        "telephony",
-        "carrier",
-        "Active telephony carrier",
-        "The carrier our own runtime dials on and binds numbers to.",
-        _OWNED_RUNTIME,
-    ),
-    "vobiz_api_base_url": _m(
-        "telephony",
-        "carrier",
-        "Vobiz API URL",
-        "The Vobiz REST address; change it only to point at a test double.",
-        _OWNED_RUNTIME,
-    ),
-    "vobiz_signature_required": _m(
-        "telephony",
-        "callbacks",
-        "Require Vobiz request signatures",
-        "Refuse Vobiz callbacks without a valid signature. Turning it on before signing is "
-        "set up refuses every call.",
-        _OWNED_RUNTIME,
-    ),
-    "vobiz_callback_ips": _m(
-        "telephony",
-        "callbacks",
-        "Vobiz callback IPs (override)",
-        "Comma-separated source addresses to accept Vobiz callbacks from; unset uses the "
-        "published list.",
-        _OWNED_RUNTIME,
-    ),
-    "carrier_transfer_enabled": _m(
-        "telephony",
-        "features",
-        "Transfer callers to a human",
-        "Treat the carrier's transfer contract as verified. Off until it is.",
-        _OWNED_RUNTIME,
-    ),
-    "carrier_recording_enabled": _m(
-        "telephony",
-        "features",
-        "Record calls with the carrier",
-        "Whether the carrier records calls. Agents follow the change when they are republished.",
-        _OWNED_RUNTIME,
-    ),
     "number_provider": _m(
         "telephony",
         "numbers",
         "Phone-number provider",
         "Which telephony vendor may sell this deployment a phone number.",
-        # On an engine with its own numbers (ThinnestAI) every number is recorded under
-        # that engine whatever this says, and the value is only a carrier name.
-        _OWNED_RUNTIME,
+        _TEST_ENGINE,
     ),
     # ---- calling limits --------------------------------------------------------------
-    "carrier_cps": _m(
-        "calling-limits",
-        "limits",
-        "Outbound calls started per second",
-        "At most this many dials start each second, matching the carrier account's limit.",
-        _OWNED_RUNTIME,
-    ),
     "carrier_concurrency": _m(
         "calling-limits",
         "limits",
-        "Simultaneous calls on the carrier account",
-        "Inbound and outbound together; the carrier refuses a dial over this.",
-        _OWNED_RUNTIME,
+        "Simultaneous calls on the test engine",
+        "Inbound and outbound together, on an engine with no call ceiling of its own.",
+        _TEST_ENGINE,
     ),
     "thinnest_max_concurrent_calls": _m(
         "calling-limits",
@@ -548,12 +469,6 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Model behind the Azure deployment",
         "Which model the deployment above was made from. Prices the leg; move it with the "
         "deployment.",
-    ),
-    "azure_openai_deployments": _m(
-        "language-models",
-        "azure",
-        "Other Azure deployments",
-        "model=deployment pairs, comma-separated, for every other Azure model clients may choose.",
     ),
     "azure_openai_embedding_deployment": _m(
         "language-models",
@@ -1073,12 +988,9 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "engine": ControlHint(
         options=(
             OptionLabel("thinnest", "ThinnestAI", "ThinnestAI hosts the whole call."),
-            OptionLabel("pipecat", "Our own runtime", "Our Pipecat loop on our carrier."),
-            OptionLabel("cartesia", "Cartesia", "Cartesia's hosted agents."),
             OptionLabel("fake", "Test engine", "Places no real calls."),
         )
     ),
-    "carrier": ControlHint(options=(OptionLabel("vobiz", "Vobiz"), OptionLabel("plivo", "Plivo"))),
     "thinnest_clear_voice_band": ControlHint(
         options=(
             OptionLabel(
@@ -1139,7 +1051,6 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "number_provider": ControlHint(
         kind="select",
         options=(
-            OptionLabel("vobiz", "Vobiz"),
             OptionLabel("plivo", "Plivo"),
             OptionLabel("exotel", "Exotel"),
         ),
@@ -1189,20 +1100,14 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "inbound_reserved_lines": ControlHint(
         unit="lines", help="Leave unset to use the automatic share."
     ),
-    "carrier_cps": ControlHint(unit="calls a second"),
     "copilot_daily_message_cap": ControlHint(unit="questions a day"),
     "copilot_daily_ktok_cap": ControlHint(unit="thousand tokens a day"),
     "cartesia_agent_cap": ControlHint(unit="agents", help="0 switches the Studio voice off."),
     "auto_recharge_max_failures": ControlHint(unit="failures in a row"),
     "db_pool_size": ControlHint(unit="connections"),
     # ---- formats --------------------------------------------------------------------
-    "pipecat_stream_base_url": ControlHint(kind="url", placeholder="wss://"),
     "engine_actions_base_url": ControlHint(placeholder="https://api.calevate.tech"),
     "tls_origin_address": ControlHint(placeholder="api.calevate.tech:443", help="host:port"),
-    "vobiz_callback_ips": ControlHint(help="Addresses separated by commas."),
-    "azure_openai_deployments": ControlHint(
-        placeholder="gpt-4.1-mini=my-deployment", help="model=deployment pairs, comma-separated."
-    ),
     "google_cloud_project_number": ControlHint(help="Digits only, from the Google Cloud console."),
     "whatsapp_cloud_graph_version": ControlHint(placeholder="v22.0"),
     "whatsapp_template_locale": ControlHint(placeholder="en"),
@@ -1222,9 +1127,6 @@ HIGH_RISK: Final[dict[str, str]] = {
     "thinnest_in_call_default_model": "Changes the language model every agent with none of its "
     "own answers calls with, from its next call.",
     "thinnest_developer_workspace_id": "Decides which workspace is ours, not a client's.",
-    "carrier": "New calls are dialled on the carrier you choose.",
-    "vobiz_signature_required": "Turning it on before signing is set up refuses every call.",
-    "carrier_recording_enabled": "Changes whether callers are recorded and told they are.",
     "self_serve_inr_per_min": "Every client is charged this price.",
     "platform_fee_enabled": "Decides whether every client is asked for a monthly fee.",
     "platform_fee_inr": "Every client is asked for this amount each month while the fee is on.",
@@ -1280,12 +1182,9 @@ _FIXED_WORDS: Final[dict[str, str]] = {
 _BRAND_SPELLINGS: Final[tuple[tuple[str, str], ...]] = (
     ("openai", "OpenAI"),
     ("thinnest", "ThinnestAI"),
-    ("vobiz", "Vobiz"),
     ("plivo", "Plivo"),
-    ("pipecat", "Pipecat"),
     ("cartesia", "Cartesia"),
     ("sarvam", "Sarvam"),
-    ("gnani", "Gnani"),
     ("azure", "Azure"),
     ("redis", "Redis"),
     ("alembic", "Alembic"),

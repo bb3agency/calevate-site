@@ -1203,7 +1203,7 @@ def declaration_failures(
         return [
             f"{CONTRACT} declares no `{POSTURE_RECORD_CONSTANT}: Final = ResidencyPosture("
             "...)` this check can read. The name alone is not the posture — the record is "
-            "what the RUNTIME reads (`agents.service.in_call_llm`, `engine.bind_model`), so "
+            "what the RUNTIME reads (`engine.bind_model`), so "
             "a name with no record beside it is a declaration nothing obeys."
         ]
     failures: list[str] = []

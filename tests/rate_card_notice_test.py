@@ -35,7 +35,6 @@ from apps.api.main import app
 from apps.workers import rate_card_notice
 from apps.workers.rate_card_notice import (
     NOTICE_JOB,
-    PackRates,
     _aware,
     _retry_after,
     _starts_on,
@@ -303,14 +302,6 @@ async def test_a_transport_that_refuses_asks_arq_to_retry(monkeypatch: pytest.Mo
     monkeypatch.setattr(rate_card_notice, "get_transport", lambda: _Recorder(delivered=False))
     with pytest.raises(Retry):
         await notify_rate_card_change({}, _payload(tenant_id))
-
-
-async def test_the_pack_rates_dataclass_is_frozen() -> None:
-    """It crosses a job boundary as the thing the body is rendered from; a mutable one is a
-    body that can be edited after it was composed."""
-    rung = PackRates(amount_inr=Decimal("2000"), rates=(("Clear", Decimal("5.00")),))
-    with pytest.raises(AttributeError):
-        rung.amount_inr = Decimal("1")  # type: ignore[misc]
 
 
 async def test_the_fan_out_alerts_when_it_reaches_its_budget(

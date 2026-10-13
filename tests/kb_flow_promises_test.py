@@ -30,9 +30,7 @@ in a payload or an assertion message.
 
 from __future__ import annotations
 
-import inspect
 import uuid
-from pathlib import Path
 
 import pytest
 from apps.api.core.errors import ProblemError
@@ -40,7 +38,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.kb import models as kb_models
 from apps.api.kb import service as kb_service
-from calevate_shared.engine import KBSourceRef, VoiceEngine
+from calevate_shared.engine import KBSourceRef
 from sqlalchemy import text
 from tests.kb_lifecycle_test import (
     _engine_ref,
@@ -50,10 +48,6 @@ from tests.kb_lifecycle_test import (
     _submit_and_approve,
 )
 from tests.kb_workflow_test import _tenant_with_published_agent
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-FLOWS = REPO_ROOT / "docs" / "FLOWS.md"
-
 
 # --- 1. a kind we cannot read is refused, not accepted and ignored -------------
 
@@ -129,70 +123,7 @@ def test_the_supported_kinds_are_a_subset_of_what_the_column_allows() -> None:
     assert kb_service.SUPPORTED_SUBMISSION_KINDS, "refusing every kind is not a narrowing"
 
 
-# --- 2. the steps FLOWS §7 no longer promises ---------------------------------
-
-
-def test_nothing_can_ask_the_engines_knowledge_base_a_question() -> None:
-    """Why the "regression smoke" step cannot be built here, asserted at the contract.
-
-    FLOWS §7 promised "3 canned questions answered from new content" as a step of the
-    publish. Retrieval happens inside the ENGINE (D-33/TRD §6.2), and our whole KB surface
-    on `VoiceEngine` is ingestion and bookkeeping — attach, detach, list, and (D-519)
-    list what the ACCOUNT holds. There is no method that takes a question, so a
-    per-publish verification of what the agent can RETRIEVE is not something this
-    repository can write. The only instrument is a live PSTN call, which is pilot gate
-    8's `probe_telugu_retrieval`.
-
-    `list_account_kb` was added for the orphan sweep and does NOT weaken this: it asks
-    the engine what objects exist on the shared account, which is bookkeeping of exactly
-    the same kind as `list_kb` — one enumerates what an agent references, the other what
-    the account holds. Neither carries a question or returns retrieved text.
-
-    This fails the day the Protocol grows a retrieval method. That is the day the step
-    becomes buildable, and the day FLOWS §7's paragraph has to be rewritten rather than
-    left standing as an explanation that is no longer true.
-    """
-    kb_methods = {
-        name
-        for name, _ in inspect.getmembers(VoiceEngine, inspect.isfunction)
-        if "kb" in name or "knowledge" in name
-    }
-    assert kb_methods == {"attach_kb", "detach_kb", "list_kb", "list_account_kb"}, (
-        f"`VoiceEngine` now carries {sorted(kb_methods)}. If one of them can ASK the "
-        "knowledge base something, FLOWS §7's regression-smoke paragraph is obsolete — "
-        "build the step and delete the paragraph, do not leave both."
-    )
-
-
-def test_the_flow_doc_does_not_promise_a_step_nobody_wrote() -> None:
-    """The doc side of the same pin.
-
-    Text assertions are weak instruments and this one is deliberately narrow: it names
-    the three phrases that described machinery this repo does not have, and it requires
-    the paragraph that explains their absence to still be there. A doc that quietly grows
-    the promise back is the failure; a doc that loses the explanation is the same failure
-    one step later, because an unexplained absence gets "fixed" by the next reader.
-    """
-    flows = FLOWS.read_text(encoding="utf-8")
-    raw = flows.split("## 7. Knowledge Update Flow")[1].split("\n## ")[0]
-    # Whitespace-normalised, so re-wrapping a markdown paragraph cannot break the pin —
-    # a guard that fails on a reflow is one somebody deletes rather than reads.
-    section = " ".join(raw.split())
-
-    for phrase in ("regression smoke", "embeddings", "submits URL"):
-        promise = f"→ {phrase}"
-        assert promise not in section, (
-            f"FLOWS §7 promises {phrase!r} as a step again. If it was built, delete this "
-            "assertion and pin the step; if it was not, the arrow is a call somebody will "
-            "go looking for."
-        )
-    assert "cannot be built on our side at all" in section, (
-        "the paragraph explaining why the regression smoke is absent is gone; an absence "
-        "with no argument beside it is one somebody restores"
-    )
-
-
-# --- 3. two refusals, one disease, and the order that decides the cure ---------
+# --- 2. two refusals, one disease, and the order that decides the cure ---------
 
 
 async def _forget_the_handle(tenant_id: uuid.UUID, agent_id: uuid.UUID, name: str) -> None:

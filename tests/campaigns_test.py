@@ -199,8 +199,6 @@ async def _ready_campaign(
     *,
     classification: str = "promotional",
     series: str = "140",
-    template_status: str = "approved",
-    template_classification: str | None = None,
     phones: tuple[str, ...] = ("9876500001", "9876500002", "9876500003"),
     concurrency: int = 3,
 ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
@@ -208,9 +206,7 @@ async def _ready_campaign(
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
         number_id = await _number(session, tenant_id, series, agent_id=agent_id)
-        template_id = await _template(
-            session, tenant_id, template_classification or classification, template_status
-        )
+        template_id = await _template(session, tenant_id, classification, "approved")
         campaign_id = await _create_campaign(
             session,
             tenant_id=tenant_id,
@@ -461,54 +457,6 @@ async def test_the_launch_gate_names_every_blocker_at_once() -> None:
         "national_dnd_scrub_missing",
     }
     assert all(b.reason.strip() for b in blockers), "every blocker tells the client what to do"
-
-
-async def test_a_promotional_campaign_on_a_160_number_is_no_longer_refused() -> None:
-    """140 ⇔ promotional, 160/standard ⇔ service & transactional (DATA-MODEL §6). A
-    mismatch is a DLT violation, so it blocks launch rather than warning."""
-    tenant_id, _, campaign_id = await _ready_campaign(classification="promotional", series="160")
-    async with tenant_session(tenant_id) as session:
-        blockers = await service.launch_blockers(
-            session, tenant_id=tenant_id, campaign_id=campaign_id
-        )
-    # D-692 retired the DLT template, series and number-registration rules from the gate.
-    assert "number_series_mismatch" not in [b.rule for b in blockers]
-
-
-async def test_a_service_campaign_may_dial_from_an_ordinary_did_under_d692() -> None:
-    """`standard` used to launch a service campaign and TRAI's 18 Jun 2024 voice direction
-    forbids it: a sender may not make promotional, service or transactional voice calls
-    from any other 10-digit fixed line or mobile number. See
-    `tests/outbound_voice_header_series_test.py` for the quoted text."""
-    tenant_id, _, allowed = await _ready_campaign(classification="service", series="160")
-    async with tenant_session(tenant_id) as session:
-        assert (
-            await service.launch_blockers(session, tenant_id=tenant_id, campaign_id=allowed)
-        ) == []
-
-    other, _, ordinary = await _ready_campaign(classification="service", series="standard")
-    async with tenant_session(other) as session:
-        blockers = await service.launch_blockers(session, tenant_id=other, campaign_id=ordinary)
-    # D-692 retired the DLT template, series and number-registration rules from the gate.
-    assert [b.rule for b in blockers] == []
-
-
-async def test_an_unapproved_or_mismatched_dlt_template_no_longer_blocks() -> None:
-    tenant_id, _, pending = await _ready_campaign(template_status="submitted")
-    other_tenant, _, mismatched = await _ready_campaign(
-        classification="promotional", template_classification="service"
-    )
-    async with tenant_session(tenant_id) as session:
-        pending_blockers = await service.launch_blockers(
-            session, tenant_id=tenant_id, campaign_id=pending
-        )
-    async with tenant_session(other_tenant) as session:
-        mismatch_blockers = await service.launch_blockers(
-            session, tenant_id=other_tenant, campaign_id=mismatched
-        )
-    # D-692 retired the DLT template, series and number-registration rules from the gate.
-    assert [b.rule for b in pending_blockers] == []
-    assert [b.rule for b in mismatch_blockers] == []
 
 
 async def test_a_template_status_outside_the_enum_is_refused_by_name() -> None:
@@ -1505,118 +1453,3 @@ def test_a_campaign_contacts_custom_variables_are_bounded() -> None:
         ContactIn(phone="+919876500000", custom={"k": "v" * (MAX_CONTACT_CUSTOM_VALUE_LEN + 1)})
     with pytest.raises(ValidationError):
         ContactIn(phone="+919876500000", custom={"k" * (MAX_CONTACT_CUSTOM_KEY_LEN + 1): "v"})
-
-
-async def test_an_ordinary_did_launches_a_service_campaign_attested_or_not() -> None:
-    """The client's recorded exception, end to end through the real launch gate.
-
-    TRAI binds the SENDER and names the delegation chain, so under Model B the client is
-    the party that may accept the obligation. The refusal stays the default; this proves
-    the exception reaches the gate, and the test below proves it stops at promotional.
-    """
-    from apps.api.campaigns.sender_attestation import (
-        SENDER_STATEMENT_VERSION,
-        record_attestation,
-    )
-    from apps.api.db.base import uuid7 as _uuid7
-    from sqlalchemy import text as _text
-
-    tenant_id, _, campaign_id = await _ready_campaign(classification="service", series="standard")
-    async with tenant_session(tenant_id) as session:
-        blockers = await service.launch_blockers(
-            session, tenant_id=tenant_id, campaign_id=campaign_id
-        )
-        # D-692 retired the DLT template, series and number-registration rules from the gate.
-        assert [b.rule for b in blockers] == []
-
-        number_id = (
-            await session.execute(
-                _text("SELECT number_id FROM campaigns WHERE id = :c"), {"c": campaign_id}
-            )
-        ).scalar_one()
-        user_id = _uuid7()
-        await session.execute(
-            _text(
-                "INSERT INTO users (id, email, created_at, updated_at) "
-                "VALUES (:id, :e, now(), now())"
-            ),
-            {"id": user_id, "e": f"owner-{user_id}@example.test"},
-        )
-        await session.execute(
-            _text(
-                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, "
-                "updated_at) VALUES (:id, :t, :u, 'owner', now(), now())"
-            ),
-            {"id": _uuid7(), "t": tenant_id, "u": user_id},
-        )
-        await record_attestation(
-            session,
-            tenant_id=tenant_id,
-            phone_number_id=number_id,
-            user_id=user_id,
-            statement_version=SENDER_STATEMENT_VERSION,
-        )
-
-        assert (
-            await service.launch_blockers(session, tenant_id=tenant_id, campaign_id=campaign_id)
-        ) == []
-
-        await record_attestation(
-            session,
-            tenant_id=tenant_id,
-            phone_number_id=number_id,
-            user_id=user_id,
-            statement_version=SENDER_STATEMENT_VERSION,
-            withdraw=True,
-        )
-        after = await service.launch_blockers(session, tenant_id=tenant_id, campaign_id=campaign_id)
-    assert [b.rule for b in after] == []
-
-
-async def test_a_promotional_campaign_on_an_ordinary_number_is_not_refused_on_series() -> None:
-    """140 is the only series that may carry a promotional call. A client declaration does
-    not make a promotional call from an ordinary number lawful, and this is the widening
-    the feature must never allow."""
-    from apps.api.campaigns.sender_attestation import (
-        SENDER_STATEMENT_VERSION,
-        record_attestation,
-    )
-    from apps.api.db.base import uuid7 as _uuid7
-    from sqlalchemy import text as _text
-
-    tenant_id, _, campaign_id = await _ready_campaign(
-        classification="promotional", series="standard"
-    )
-    async with tenant_session(tenant_id) as session:
-        number_id = (
-            await session.execute(
-                _text("SELECT number_id FROM campaigns WHERE id = :c"), {"c": campaign_id}
-            )
-        ).scalar_one()
-        user_id = _uuid7()
-        await session.execute(
-            _text(
-                "INSERT INTO users (id, email, created_at, updated_at) "
-                "VALUES (:id, :e, now(), now())"
-            ),
-            {"id": user_id, "e": f"owner-{user_id}@example.test"},
-        )
-        await session.execute(
-            _text(
-                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, "
-                "updated_at) VALUES (:id, :t, :u, 'owner', now(), now())"
-            ),
-            {"id": _uuid7(), "t": tenant_id, "u": user_id},
-        )
-        await record_attestation(
-            session,
-            tenant_id=tenant_id,
-            phone_number_id=number_id,
-            user_id=user_id,
-            statement_version=SENDER_STATEMENT_VERSION,
-        )
-        blockers = await service.launch_blockers(
-            session, tenant_id=tenant_id, campaign_id=campaign_id
-        )
-    # D-692 retired the DLT template, series and number-registration rules from the gate.
-    assert "number_series_mismatch" not in [b.rule for b in blockers]

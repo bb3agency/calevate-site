@@ -6,7 +6,7 @@ import { motion, useReducedMotion } from "motion/react";
 
 import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { DotWave } from "@/components/console/speakingIndicator";
+import { DotWave } from "@/components/console/dotWave";
 import { selectionSummary } from "@/lib/copilot/selection";
 import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";

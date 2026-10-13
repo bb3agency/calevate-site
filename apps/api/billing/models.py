@@ -129,8 +129,9 @@ AI_ASSIST_UNIT_TYPES = ("ai_assist_ktok_in", "ai_assist_ktok_out")
 #: the line every one of these feature names was split along in the first place (see each
 #: constant's own docstring). These five are bought because a client PUT KNOWLEDGE IN: the
 #: English gloss beside a Telugu chunk, the OCR pass over a photographed price list, the
-#: pgvector row for the dashboard's own search, the pack vector the phone agent answers out
-#: of, and the document written into the managed retrieval box. `kb_search_embedding`,
+#: pgvector row for the dashboard's own search, the vectors of the retired in-call knowledge pack
+#: (rows from before D-763), and the document written into the managed retrieval box.
+#: `kb_search_embedding`,
 #: `call_search_embedding` and `lead_search_embedding` are bought because somebody ASKED A
 #: QUESTION, which is ordinary AI use and belongs in the other column. `caller_embed` and
 #: `admin_copilot` are on the PLATFORM's ledger (`platform_ai_usage`) and never reach this
@@ -218,6 +219,8 @@ CLIENT_BILLED_UNIT_TYPES = (
     # larger unit because `qty` is NUMERIC(14,4) too: an hour-denominated `qty` would round
     # away up to 0.18s per call, a minute-denominated one at most 0.003s. It matches
     # `platform_min` and TRD §10.1's own ₹/min spelling of the rate.
+    # No longer written since D-763 (the former owned runtime was its writer); kept for the
+    # rows already on the append-only ledger.
     "stt_min",
     "tts_chars",
     # **THOUSANDS OF CHARACTERS, AND `kchars` RATHER THAN `chars` FOR `ktok`'s REASON
@@ -244,19 +247,9 @@ CLIENT_BILLED_UNIT_TYPES = (
     "tts_kchars",
     "llm_tok_in",
     "llm_tok_out",
-    # **THE OWNED-RUNTIME LLM LEG, PER THOUSAND TOKENS (D-592, migration a3f1c6e82d47).**
-    # `llm_tok_in`/`llm_tok_out` are the RENTED engine's rows: Bolna reports a leg CHARGE
-    # with no token count (TRD §5), so `apps/workers/pipeline.py::_meter` writes `qty = 1`
-    # priced at the whole leg. A Pipecat call has the opposite shape — we run the model
-    # ourselves and `LLMTokenUsage` reports real counts (`PIPECAT-MIGRATION.md` §1.3) — so
-    # the count belongs in `qty` and the attested per-thousand rate in `unit_cost_paid`.
-    #
-    # New unit types and NOT a re-interpretation of the two above, for `tts_kchars`' reason
-    # stated one leg over: a `qty` whose unit depends on which engine ran the call is a
-    # column no reader can sum, and `usage_events` is append-only so the ambiguity would be
-    # permanent. `k`, for the arithmetic the `ai_assist_ktok_*` paragraph above does in
-    # full — `gpt-4o-mini` input is about ₹0.0000144 a token, which stores as `0.0000` in
-    # NUMERIC(12,4), i.e. the leg would meter as exactly free.
+    # The former owned runtime's LLM leg, per thousand tokens (D-592, migration
+    # a3f1c6e82d47). No longer written; kept in the CHECK because `usage_events` is
+    # append-only and rows already written carry it.
     "llm_ktok_in",
     "llm_ktok_out",
     "platform_min",
@@ -403,13 +396,9 @@ class CallMeteringRefusal(PKMixin, Base):
     STOPS the board for a completed call with no usage rows; this is what tells an operator
     WHICH leg and WHAT to do about it.
 
-    **IT IS WRITTEN BY `apps/voice-worker/voice_worker/sink.py` AND BY NOTHING ELSE TODAY.**
-    `voice_worker/meter.py`'s `LegNotMeterableError` family carries exactly these four
-    fields (`leg`, `code`, `detail`, `remediation`) because a refusal an operator cannot act
-    on is a refusal nobody acts on. The Bolna path does not write here and should not be
-    made to: the engine reports a leg COST and that path's gap is a different shape
-    (`workers/pipeline.py::_unit_price`), and folding the two would put two meanings in one
-    table.
+    **NO LONGER WRITTEN.** Its writer was the former owned runtime's metering; the rows it
+    left are still counted (`billing/service.margin_for_tenant`'s `legs_unpriced`), and the
+    table is kept until it is dropped (hard rule 8).
 
     **APPEND-ONLY** (`db/registry.APPEND_ONLY_TABLES`). A refusal is evidence about ONE
     settlement attempt at ONE instant. A later attempt that succeeds writes `usage_events`
@@ -417,8 +406,8 @@ class CallMeteringRefusal(PKMixin, Base):
     unmetered for six weeks" is a fact somebody may need after the invoice is out.
 
     **NO PII** (hard rule 6), and the schema is what guarantees it rather than the writer's
-    manners: every column is an id, a machine code, or prose THIS REPOSITORY authored in
-    `meter.py`. There is no column a transcript, a phone number or a vendor payload could be
+    manners: every column is an id, a machine code, or prose THIS REPOSITORY authored.
+    There is no column a transcript, a phone number or a vendor payload could be
     put in, so
     there is nothing here for a DPDP erasure to reach. `call_id` is `ON DELETE RESTRICT`
     exactly as `usage_events.call_id` is: an append-only row a cascade can delete is not
@@ -433,11 +422,7 @@ class CallMeteringRefusal(PKMixin, Base):
     call_id: Mapped[UUID] = mapped_column(
         ForeignKey("calls.id", ondelete="RESTRICT"), nullable=False
     )
-    #: `voice_worker.meter.MeteredLeg` — one of §1.3's five. A plain `String` and not an
-    #: enum column: the five legs are named in the worker, which is a different deployable,
-    #: and a CHECK constraint here would be a second copy of that vocabulary that a sixth
-    #: leg would have to be added to twice. What a bad value costs is a row nobody can
-    #: group by; what a duplicated enum costs is an INSERT the database refuses mid-call.
+    #: Which leg could not be priced. A plain `String` and not an enum column.
     leg: Mapped[str] = mapped_column(String, nullable=False)
     #: The stable machine code (`meter_carrier_cdr_missing`, `meter_rate_refused`, ...).
     #: What an operator filters on and what a future alert rule would key off.

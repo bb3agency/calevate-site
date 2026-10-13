@@ -2,7 +2,7 @@
 external call meet, for every engine and every trigger.
 
 Callers: the in-call doors (`in_call.run_in_call_action`, reached by the ThinnestAI custom
-action route and by the Pipecat worker's tool route), the background job that finishes a slow
+action route), the background job that finishes a slow
 in-call write (`workers/client_actions.py`), and the client's Test button. ONE executor, so an
 action behaves the same however it was invoked (D-700).
 

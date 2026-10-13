@@ -59,7 +59,6 @@ from apps.api.main import app
 from apps.workers import extraction as extraction_module
 from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
-    AZURE_PROVIDER,
     GOOGLE_PROVIDER,
     SARVAM_PROVIDER,
     AssistCapability,
@@ -882,15 +881,6 @@ async def test_a_sarvam_fallback_is_unmetered_without_waking_an_operator(
 
 
 # --------------------------------------------------- 7. the wiring the halves asked for
-
-
-def test_the_provider_names_the_response_can_carry_are_the_ladders_own() -> None:
-    """`meter_assist` branches on `capability.provider`, so the constants have to be the ones
-    `assist_capability` actually sets. A typo here would meter a Sarvam fallback at Azure
-    prices and alert on nothing, or route a paid Gemini answer into the free bucket."""
-    assert AZURE_PROVIDER == "azure"
-    assert SARVAM_PROVIDER == "sarvam"
-    assert GOOGLE_PROVIDER == "google"
 
 
 def test_the_route_declares_a_mutating_permission_that_exists_and_is_granted() -> None:

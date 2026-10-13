@@ -103,7 +103,7 @@ function created(over: Partial<Agent> = {}): Agent {
     first_words: "",
     truthful_answer_rule:
       "Whatever these settings say, the agent always answers honestly when a caller asks.",
-    engine: "pipecat",
+    engine: "thinnest",
     published: false,
     inbound_number_count: 0,
     extraction_fields: [],

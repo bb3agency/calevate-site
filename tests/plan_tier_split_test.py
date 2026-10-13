@@ -43,7 +43,6 @@ from apps.api.compliance.service import (
     kyc_blocker,
 )
 from apps.api.db.session import admin_session, tenant_session
-from apps.api.main import app
 from apps.api.tenancy.models import DEFAULT_PLAN_TIER, PLAN_TIERS
 from sqlalchemy import text
 from tests.conftest import accept_agreements
@@ -241,22 +240,3 @@ async def test_an_invisible_row_reads_as_the_platform_default() -> None:
     wallet on the screen, no top-up offered."""
     async with admin_session() as session:
         assert await plan_tier_of(session, uuid.uuid4()) == DEFAULT_PLAN_TIER
-
-
-# --- D-707: no way back to the invoiced motion ---------------------------------------
-
-
-def test_the_plan_tier_route_is_gone_and_no_production_caller_writes_a_retired_tier() -> None:
-    """D-707: one pricing model. The route that put a client on the invoiced motion is
-    deleted, signup's tier type admits only its own two tiers, and the operator wizard
-    passes no tier at all — so nothing in production can write `managed`."""
-    from typing import get_args
-
-    from apps.api.tenancy.models import RETIRED_PLAN_TIERS
-    from apps.api.tenancy.signup import SelfServeTier
-
-    paths = {getattr(route, "path", "") for route in app.routes}
-    assert "/v1/admin/tenants/{tenant_id}/plan-tier" not in paths
-    assert not set(get_args(SelfServeTier)) & set(RETIRED_PLAN_TIERS)
-    wizard = (REPO_ROOT / "apps" / "api" / "admin" / "routes.py").read_text(encoding="utf-8")
-    assert "plan_tier=" not in wizard.split("service.create_organization(", 1)[1].split(")", 1)[0]

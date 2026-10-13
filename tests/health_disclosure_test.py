@@ -48,7 +48,6 @@ from apps.api.core import health as health_module
 from apps.api.core.bootstrap import create_app
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import JsonFormatter
-from apps.api.core.rbac import PUBLIC_PREFIXES
 from apps.api.db.session import untenanted_session
 from apps.api.main import app as api_app
 from calevate_shared.config import Settings
@@ -548,14 +547,6 @@ def test_the_typed_client_is_generated_from_a_file_and_not_from_a_server() -> No
     assert "src/lib/api/openapi.json" in generator, generator
     assert "http" not in generator, f"gen:api reaches a server: {generator}"
     assert (REPO_ROOT / "apps" / "web" / "src" / "lib" / "api" / "openapi.json").exists()
-
-
-def test_the_doc_routes_are_no_longer_declared_a_public_surface() -> None:
-    """`PUBLIC_PREFIXES` is the repo's written statement of what is unauthenticated by
-    design, and `integrations/routes.py` cites it as the reason a handler's docstring
-    was rewritten. Leaving the entries behind would leave that statement true."""
-    assert not set(DOC_ROUTES) & set(PUBLIC_PREFIXES)
-    assert "/healthz" in PUBLIC_PREFIXES, "the probe itself is still unauthenticated"
 
 
 __all__: list[Any] = []

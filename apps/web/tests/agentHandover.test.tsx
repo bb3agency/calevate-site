@@ -11,7 +11,6 @@ import {
   agentScript,
   clientLlmTiers,
   spendThisMonth,
-  voiceCatalogue,
   agentCallHandling,
 } from "./fixtures/sharedReads";
 
@@ -106,7 +105,7 @@ const AGENT: Agent = {
   first_words: "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
   truthful_answer_rule:
     "Whatever these settings say, the agent always answers honestly when a caller asks.",
-  engine: "pipecat",
+  engine: "thinnest",
   published: true,
   inbound_number_count: 1,
   extraction_fields: [],
@@ -157,7 +156,6 @@ function routes(over: Record<string, unknown> = {}) {
       open_count: 0,
       total: 0,
     },
-    "/v1/agents/voices": voiceCatalogue("client"),
     "/v1/agents/lanes": LANES,
     // The header's "spent this month" line (owners hold billing:read).
     [AGENT_SPEND_PATH]: spendThisMonth(),

@@ -209,20 +209,6 @@ async def test_no_leg_is_billable_without_an_attestation_any_more() -> None:
             await tts_price_is_billable(session, provider="sarvam", at=datetime.now(UTC))
 
 
-async def test_cartesia_is_not_billable_before_anyone_has_read_an_invoice() -> None:
-    """Hard rule 7 with no REPORTED tier: at an instant before any attestation exists there
-    is no figure, so the tier is not billable and `offerable_voices` refuses it by name
-    rather than offering a voice whose minutes would meter as free."""
-    async with untenanted_session() as session:
-        assert not await tts_price_is_billable(
-            session,
-            provider="cartesia",
-            # An instant before this repository existed: whatever a live deployment has
-            # attested since, nobody had read an invoice then.
-            at=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-
-
 async def test_a_naive_instant_is_refused_rather_than_guessed_at() -> None:
     """A month is a fact about a timezone (IST at the edge), and a naive instant has none."""
     async with untenanted_session() as session:

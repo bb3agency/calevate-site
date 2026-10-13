@@ -75,9 +75,8 @@ RECORDING_REDIRECT_LIMIT = 3
 #: unbounded body at least as well as it describes an unbounded redirect chain — a
 #: worker's memory is the shared resource in one case and its slot in the other.
 MAX_RECORDING_BYTES = CALL_CAP_MAX_S * 32_000
-#: An empty body is refused. Storing it would set `recording_url`, and a stored copy is what
-#: lets the carrier's copy, then the only real one, be deleted a day later
-#: (`carrier_recordings._expire`). Only emptiness is refused because it is the one size that
+#: An empty body is refused: storing it would set `recording_url` on a copy that holds no
+#: audio. Only emptiness is refused because it is the one size that
 #: is certainly not audio; a floor above it would be a guess about the smallest real file.
 MIN_RECORDING_BYTES = 1
 #: Every hop, every lookup and every byte of one recording copy, inside ONE deadline.
@@ -320,10 +319,9 @@ def _carries_auth(url: str, auth_hosts: frozenset[str]) -> bool:
     return any(host == base or host.endswith(f".{base}") for base in auth_hosts)
 
 
-#: Audio containers by their leading bytes. Vobiz says a recording's container may not
-#: match its extension, its content type or its `recording_format`, and that an MP3 frame
-#: sync is 11 bits — `0xFF` then the top three bits set — so `0xFF 0xE3` (MPEG-2.5 Layer
-#: III) is valid (`vobiz-findings/mirror/pages/recording.md:24-37`).
+#: Audio containers by their leading bytes, because a recording's container need not match
+#: its extension or content type. An MP3 frame sync is 11 bits — `0xFF` then the top three
+#: bits set — so `0xFF 0xE3` (MPEG-2.5 Layer III) is valid.
 def sniff_audio_content_type(head: bytes) -> str:
     """The content type the stored object is served with, decided from its bytes.
 
@@ -498,8 +496,8 @@ async def copy_recording(
     `StorageUnavailableError` — the failure the pipeline already knows how to record
     against the call rather than a 422 nobody is listening for.
 
-    `auth_headers` are for a source that is not a public link (a carrier recording,
-    `engine/carrier.CarrierRecordingSource`); they go only to hops `_carries_auth` admits.
+    `auth_headers` are for a source that is not a public link (`engine/recording_source`);
+    they go only to hops `_carries_auth` admits.
     The key keeps its `.wav` suffix whatever the container, because the key is a pure
     function of (tenant, call) and every erasure and sweep derives it; the CONTENT TYPE is
     decided from the bytes (`sniff_audio_content_type`), which is what a player reads.
@@ -919,104 +917,19 @@ async def read_voice_consent(key: str) -> bytes | None:
 
 # --- carrier compliance documents (reseller stage; evidence doc §5.2) ---------
 
-#: Where a tenant's CARRIER compliance paperwork lives. Its own prefix rather than a slot
-#: under `kb-uploads`, for the reason every prefix in this module is its own: the objects
-#: have a different owner (the business itself, not its knowledge base), a different
-#: reader (an operator relaying an application to the carrier) and a different erasure
-#: story — they are the tenant's own registration documents, not a data principal's data,
-#: so a DPDP subject erasure does not reach them.
-#:
-#: ⚠ **THIS COMMENT ENDED "and an ACCOUNT offboarding does", AND THAT WAS FALSE FOR THE
-#: WHOLE LIFE OF THE PREFIX** (corrected 18 Sep 2026). `execute_tenant_erasure` has no arm
-#: over `carrier-compliance/`: no code in this repository lists it, deletes from it, or
-#: names it in a `retention_policies` category, and `carrier_application_prefix` below —
-#: the enumeration handle the sweep would have used — had no caller outside a test. So a
-#: client's GST certificate, their signed carrier application and whatever identity
-#: paperwork sits beside it survived an account closure with no erasure arm, no retention
-#: period and, worse than either, NO DISCLOSURE: the certificate a departing client is
-#: handed did not mention the files.
-#:
-#: **THE DISCLOSURE IS THE HALF THAT COULD BE FIXED FROM HERE, AND IT IS FIXED**
-#: (`tenant_erasure.TENANT_ERASURE_LIMITATIONS`/`_EXCEPTIONS`, keyword "uploaded files").
-#: The erasure ARM belongs in `workers/retention.py::execute_tenant_erasure`, beside the
-#: object-store arms that are already there, and it is OUTSTANDING. What was not available
-#: was the third option: leaving the comment asserting a sweep would have been the cheaper
-#: repair and is exactly the failure being corrected here, because a false comment and an
-#: undisclosed gap are one defect seen from two sides — and the side a client reads is the
-#: expensive one.
+#: Where a tenant's carrier compliance paperwork was filed while we ran our own carrier
+#: (before D-763). Nothing writes here any more; the account closure still sweeps what an
+#: account left (`retention.py`, `carrier_tenant_prefix`). A DPDP subject erasure does not
+#: reach it: these are the business's own registration documents, not a data principal's.
 CARRIER_DOCUMENT_PREFIX = "carrier-compliance"
-
-
-def carrier_document_key(
-    *, tenant_id: UUID, application_id: UUID, submission_id: UUID, slot: str, suffix: str
-) -> str:
-    """`carrier-compliance/{tenant}/{application}/{submission}/{slot}.{suffix}`.
-
-    THE TENANT AND THE APPLICATION ARE LOAD-BEARING for `kb_object_key`'s reason: an
-    account offboarding must be able to enumerate every object of one application without
-    a second index to keep in step, and an enumeration can only work from a key that names
-    its subject.
-
-    THE SUBMISSION SEGMENT IS WHAT KEEPS A RESUBMISSION HONEST. The application row is one
-    per tenant and MUTABLE — a rejected application is resubmitted in place — so a key
-    built from the application alone would have the second upload overwrite the bytes the
-    carrier refused, and "what did we actually send them" would stop being answerable at
-    exactly the moment somebody asks. A fresh submission id per submission makes the store
-    append-only in effect while the row still points at the current one.
-
-    NEITHER SEGMENT IS CALLER-CONTROLLED: `suffix` comes from our own extension map and
-    the client's filename never reaches the key — it is stored in a column, where a
-    hostile one is a string rather than a path.
-    """
-    return f"{CARRIER_DOCUMENT_PREFIX}/{tenant_id}/{application_id}/{submission_id}/{slot}.{suffix}"
 
 
 def carrier_tenant_prefix(*, tenant_id: UUID) -> str:
     """Every carrier compliance document of ONE ACCOUNT, across every application.
 
-    These are the business's identity and registration documents, filed for the DoT KYC
-    gate. `carrier_application_prefix` below is the per-application view an operator
-    enumerates by hand; this is the one an account closure needs, and its absence is why
-    that function's docstring claimed a sweep that did not exist.
+    What an account closure sweeps.
     """
     return f"{CARRIER_DOCUMENT_PREFIX}/{tenant_id}/"
-
-
-def carrier_application_prefix(*, tenant_id: UUID, application_id: UUID) -> str:
-    """Every object of one application, across every submission of it. Ends in `/` so the
-    prefix stops at the path segment.
-
-    **KEPT RATHER THAN DELETED, AND THE ARGUMENT IS NOT "IT MIGHT BE USEFUL LATER."** It
-    had no production caller when the comment above was corrected, and a helper whose
-    stated purpose is a sweep nobody wrote is the half-wired shape this repository treats
-    as a defect. Two things make this one earn its place anyway: it is the one definition
-    of "every object of one application", which is what an operator enumerates BY HAND
-    today when a client asks what was sent to the carrier, and
-    `tests/carrier_compliance_test.py::test_the_object_key_separates_one_submission_from_
-    the_next` pins the key-layout property it expresses — that two submissions of one
-    application are distinct objects under one enumerable prefix. Deleting it would delete
-    that pin and leave the layout asserted nowhere. What is NOT claimed any more is that
-    an erasure calls it.
-    """
-    return f"{CARRIER_DOCUMENT_PREFIX}/{tenant_id}/{application_id}/"
-
-
-async def store_carrier_document(*, key: str, data: bytes, content_type: str) -> str:
-    """Put one carrier compliance document. RAISES when the store refuses.
-
-    `store_kb_object`'s contract, for its reason: these bytes ARE the artefact. If the
-    object is not stored there is nothing to send the carrier and nothing for an operator
-    to attach to the application, and answering 201 to the client would promise a document
-    we do not hold — the client would then sit waiting for a decision on paperwork that
-    was never sent.
-    """
-    return await _put_document(
-        key=key,
-        data=data,
-        content_type=content_type,
-        log_event="carrier_document_store_failed",
-        refusal="Object storage refused the compliance document",
-    )
 
 
 KYC_DOCUMENT_PREFIX = "kyc-documents"
@@ -1048,32 +961,6 @@ async def store_kyc_document(*, key: str, data: bytes, content_type: str) -> str
         content_type=content_type,
         log_event="kyc_document_store_failed",
         refusal="Object storage refused the verification document",
-    )
-
-
-async def store_knowledge_pack(*, key: str, data: bytes) -> str:
-    """Put one in-call knowledge pack (`calevate_shared.knowledge_pack`). RAISES when the
-    store refuses.
-
-    `store_kb_object`'s contract, for a variant of its reason: these bytes ARE the artefact
-    the voice worker loads while the phone is ringing, so a publish that answered success
-    without them would leave an agent that believes it has knowledge and retrieves nothing.
-    Failing loudly keeps the published pack id and the stored object one fact.
-
-    NO `content_type` PARAMETER, unlike its two siblings: a pack is always the JSON this
-    repository serialised, never a document somebody uploaded whose type has to be decided
-    from a filename. A parameter here would be a knob with one correct setting, and a
-    second spelling of `application/json` for somebody to change in only one place.
-
-    THE KEY IS NOT LOGGED (hard rule 6) — it names a tenant, an agent and the content hash
-    of that client's approved knowledge — and `_put_document` never logs it either.
-    """
-    return await _put_document(
-        key=key,
-        data=data,
-        content_type="application/json",
-        log_event="knowledge_pack_store_failed",
-        refusal="Object storage refused the knowledge pack",
     )
 
 
@@ -1267,10 +1154,8 @@ async def read_delivery_body(key: str) -> dict[str, Any] | None:
 class StoredObject:
     """One object as the store reports it: its key and when the store says it was written.
 
-    `last_modified` is the STORE's clock, not ours, and the one consumer that reads it
-    (`workers/pack_gc.py`) treats it as the age of an immutable object rather than as an
-    instant to compare against a database timestamp — see `PACK_GRACE_S` for why that
-    distinction is what makes clock skew a non-issue here.
+    `last_modified` is the STORE's clock, not ours: the age of an immutable object, never an
+    instant to compare against a database timestamp.
 
     `None` is possible and is NOT read as "new": a store that gives no timestamp is a
     store we cannot age an object against, and every caller must fail closed on it
@@ -1285,17 +1170,12 @@ async def objects_under(prefix: str) -> list[StoredObject]:
     """Every object under one prefix, with its store-reported write time.
 
     THE ONE LISTING IN THIS MODULE. `keys_under` below is a projection of this, not a
-    second implementation: the erasure needs keys and the pack collector needs keys and
-    ages, and two paginators would be two failure contracts for one question — which is
-    the drift this function's own docstring warned about before there was a second caller
-    to make it real.
+    second implementation: two paginators would be two failure contracts for one question.
 
     RAISES on failure, deliberately. The DPDP erasure calls this (through `keys_under`),
     and an erasure that treats "the store did not answer" as "there was nothing there"
     writes a certificate claiming a deletion it did not perform. Loud and retried beats
-    quiet and false. The pack collector needs the identical contract for a different
-    reason: a listing it believes is complete and is not would report live packs as
-    unreferenced.
+    quiet and false.
 
     Not delivery-body-specific — the archived engine payloads (D-126) are enumerated by
     their own `{tenant}/{call}` prefix through here too, exactly as `delete_objects` is

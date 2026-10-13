@@ -49,7 +49,7 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 # --- every other engine: byte-identical -------------------------------------------
 
 #: sha256 of `compose_engine_prompt` for the two configs below. A change here is a change to
-#: every Pipecat prompt: re-pinned for D-714 (each platform rule said once, the spoken
+#: every other engine's prompt: re-pinned for D-714 (each platform rule said once, the spoken
 #: register, the cannot-help block), for D-739 (the turn-shape and spoken-voice rules), for
 #: D-749 (the specimen call's rules), for D-752 (the tightened platform layers) and for the
 #: do-not-call tool's narrowed trigger (ending a call is not an opt-out), each of
@@ -145,7 +145,7 @@ def test_a_long_facts_block_no_longer_costs_the_prompt_cap() -> None:
 
 
 def test_any_other_engine_keeps_the_facts_in_the_prompt() -> None:
-    for engine in (FakeEngine(name="pipecat"), FakeEngine()):
+    for engine in (FakeEngine(name="other"), FakeEngine()):
         cfg = _to_config(uuid.uuid4(), _row(), engine=engine)  # type: ignore[arg-type]
         assert not cfg.facts_in_knowledge
         assert FACTS in cfg.system_prompt
@@ -302,8 +302,8 @@ async def test_the_published_prompt_lacks_the_facts_and_passes_the_read_back() -
     assert block_of(agent["prompt"]) == FACTS, "our own record keeps the facts"
 
 
-async def test_pipecat_never_gets_a_facts_document() -> None:
+async def test_another_engine_never_gets_a_facts_document() -> None:
     tenant_id, agent_id = await _agent(SCRIPT)
-    engine = FakeEngine(name="pipecat")
+    engine = FakeEngine()
     ref = await _publish(tenant_id, agent_id, engine)
     assert await _recorded(tenant_id, ref) == (None, None)

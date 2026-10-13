@@ -4,8 +4,7 @@ What a client's agent does in the client's own systems during a call: know the c
 free times and book, send a WhatsApp or a payment link, save the caller to their CRM or
 sheet, call their own API. Built in `apps/api/actions/`; synced to ThinnestAI by
 `apps/api/reliability/engine_actions.py`; reached mid-call through
-`POST /v1/worker/engine-actions/{engine}/client/{name}` (and, on Pipecat,
-`POST /v1/worker/calls/{engine_call_id}/tools/actions/{name}`), both ending in
+`POST /v1/worker/engine-actions/{engine}/client/{name}`, which ends in
 `actions/in_call.run_in_call_action`.
 
 ## Before the first client uses one

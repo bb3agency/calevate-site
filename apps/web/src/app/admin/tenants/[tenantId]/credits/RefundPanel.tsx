@@ -52,8 +52,8 @@ import { Field, describedBy } from "./fields";
  * ## THE CONFIRMATION IS THE PAYMENT'S REFERENCE, AND THE API DID NOT ASK FOR IT
  *
  * The route carries no step-up. This panel adds one anyway, which is the opposite call
- * from the billing motion and the carrier decision — and for the opposite reason. Those
- * are reversible by the same control; this is not reversible at all: the money has left,
+ * from the billing motion — and for the opposite reason. That is reversible by the same
+ * control; this is not reversible at all: the money has left,
  * `credit_ledger` is append-only, and the repair for a wrong refund is asking the client
  * to pay again. Ceremony belongs on the act that cannot be taken back.
  *

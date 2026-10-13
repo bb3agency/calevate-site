@@ -59,7 +59,7 @@ from apps.api.reliability.engine_lookups import (
 
 log = get_logger(__name__)
 
-router = APIRouter(prefix=LOOKUPS_PATH, tags=["voice-worker"])
+router = APIRouter(prefix=LOOKUPS_PATH, tags=["engine-actions"])
 
 _REF_MAX: Final = 128
 #: The lookup body is one small JSON object; anything larger is not one.

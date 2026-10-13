@@ -125,8 +125,7 @@ server {
     # whole argument: reset, invitation and admin-bootstrap links carry their token in the
     # query string, and the built-in `combined` format logs the full request line. Named
     # per vhost rather than set once at `http` scope so that a new vhost has to make this
-    # choice deliberately instead of inheriting it (`hooks.` names it too, for the
-    # carrier's callback secret, D-673).
+    # choice deliberately instead of inheriting it (`hooks.` names it too).
     access_log /var/log/nginx/access.log calevate_redacted;
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
@@ -246,8 +245,7 @@ server {
     # whole argument: reset, invitation and admin-bootstrap links carry their token in the
     # query string, and the built-in `combined` format logs the full request line. Named
     # per vhost rather than set once at `http` scope so that a new vhost has to make this
-    # choice deliberately instead of inheriting it (`hooks.` names it too, for the
-    # carrier's callback secret, D-673).
+    # choice deliberately instead of inheriting it (`hooks.` names it too).
     access_log /var/log/nginx/access.log calevate_redacted;
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
@@ -308,8 +306,7 @@ server {
     # whole argument: reset, invitation and admin-bootstrap links carry their token in the
     # query string, and the built-in `combined` format logs the full request line. Named
     # per vhost rather than set once at `http` scope so that a new vhost has to make this
-    # choice deliberately instead of inheriting it (`hooks.` names it too, for the
-    # carrier's callback secret, D-673).
+    # choice deliberately instead of inheriting it (`hooks.` names it too).
     access_log /var/log/nginx/access.log calevate_redacted;
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
@@ -449,8 +446,7 @@ server {
     # whole argument: reset, invitation and admin-bootstrap links carry their token in the
     # query string, and the built-in `combined` format logs the full request line. Named
     # per vhost rather than set once at `http` scope so that a new vhost has to make this
-    # choice deliberately instead of inheriting it (`hooks.` names it too, for the
-    # carrier's callback secret, D-673).
+    # choice deliberately instead of inheriting it (`hooks.` names it too).
     access_log /var/log/nginx/access.log calevate_redacted;
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
@@ -632,11 +628,10 @@ server {
         include /etc/nginx/snippets/calevate-proxy.conf;
     }
 
-    # The Pipecat voice worker (`/v1/worker/**`, Bearer-authenticated by the app). Its own
-    # zone because every worker container arrives from Pipecat Cloud's shared egress, so
-    # `client_api`'s per-person 120r/m would be a fleet-wide ceiling of about seventeen
-    # live calls. The burst covers the end-of-call settlements of calls that hang up
-    # together.
+    # The voice engine's in-call actions and caller lookups (`/v1/worker/**`, authenticated
+    # per agent by the app). Its own zone because every request arrives from the engine's
+    # shared egress, so `client_api`'s per-person 120r/m would be a fleet-wide ceiling on
+    # every live call. The burst covers the lookups of calls that ring together.
     location ^~ /v1/worker/ {
         limit_req zone=worker burst=200 nodelay;
         proxy_pass http://calevate_api;
@@ -662,8 +657,8 @@ server {
     http2 on;
     server_name hooks.${ROOT_DOMAIN};
 
-    # The redacted format, because every Vobiz request carries our callback secret in its
-    # query string (D-673) and the base config's `combined` would log it whole.
+    # The redacted format, so a query-string secret (`?callback_key=`, D-673) is never logged
+    # whole the way the base config's `combined` would log it.
     access_log /var/log/nginx/access.log calevate_redacted;
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
@@ -713,50 +708,6 @@ server {
     # readiness never constructs an adapter) is the other half and is not made redundant
     # by this — voice-runtime still serves the route on the loopback interface.
     location ^~ /healthz { return 404; }
-
-    # The carrier's HTTP leg: answer and transfer documents and status callbacks
-    # (`apps/voice-runtime/carrier_routes.py`, `carrier_events.py`). Its own `carrier` zone
-    # so an engine-webhook flood cannot starve an answer document a ringing call waits on.
-    # `^~` so a regex location added later cannot take these paths from it.
-    #
-    # BUFFERED, unlike the catch-all below: these bodies are small form posts, and nginx
-    # holding the whole body before proxying means a sender that dribbles costs nginx a
-    # buffer rather than costing the app a held request. The carrier's source-IP allowlist
-    # stays in the APP, not as `allow`/`deny` here: the vendor says its addresses "are
-    # subject to change", and an nginx deny would turn a renumbering into an outage with no
-    # log line in our code (`docs/evidence/vobiz-integration-plan.md` §13).
-    #
-    # `proxy_pass` with no URI part forwards the request path exactly as received, which the
-    # app relies on: Vobiz signs the URL it requested, and the app rebuilds that URL from the
-    # configured public origin plus this path.
-    location ^~ /carrier/v1/ {
-        limit_req zone=carrier burst=100 nodelay;
-        proxy_pass http://calevate_hooks;
-        include /etc/nginx/snippets/calevate-proxy.conf;
-        proxy_request_buffering on;
-    }
-
-    # The carrier's fallback answer URL (D-675): what Vobiz fetches when an answer URL is
-    # unreachable, slow or broken. voice-runtime serves it (and alarms); when voice-runtime
-    # itself is down, restarting or slower than 3s, nginx answers with the same static
-    # document, so the caller hears a busy tone instead of the call dropping. Only 502/503/504
-    # are intercepted: a 404 from the app (an unknown carrier) passes through as a 404.
-    location = /carrier/v1/vobiz/fallback {
-        limit_req zone=carrier burst=100 nodelay;
-        proxy_pass http://calevate_hooks;
-        include /etc/nginx/snippets/calevate-proxy.conf;
-        proxy_request_buffering on;
-        proxy_read_timeout 3s;
-        proxy_intercept_errors on;
-        error_page 502 503 504 = @carrier_fallback_document;
-    }
-
-    # `apps/voice-runtime/carrier_routes.py::fallback_document`, byte for byte apart from the
-    # line break after the declaration (`tests/carrier_fallback_test.py` compares them).
-    location @carrier_fallback_document {
-        default_type application/xml;
-        return 200 '<?xml version="1.0" encoding="UTF-8"?><Response><Hangup reason="busy" /></Response>';
-    }
 
     location / {
         # `burst=200 nodelay` on top of 600r/m: the average is a campaign's worth of

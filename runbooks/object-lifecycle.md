@@ -114,11 +114,11 @@ Say this out loud when you report the change, because the wording matters legall
   days. The store removes it on its own schedule after that. You have configured a
   policy, not observed a deletion. Never put a lifecycle expiry date into a DPDP proof
   certificate as a byte-level deletion timestamp.
-- **The carrier's copy is not this rule's job.** Vobiz records the call and keeps its own
-  copy until the 20-minute recording sweep deletes it one day after ours is stored
-  (`expire_carrier_recording`, D-670; alarms `carrier_recording_ours_missing` and
-  `carrier_recording_delete_overdue`); an erasure deletes it at Vobiz directly. Our own
-  runtime records no audio, so there is no engine copy (D-664).
+- **ThinnestAI's copy is not this rule's job.** ThinnestAI records the call and serves it at
+  `recording.url`, a signed link that expires in 30 or 75 days
+  (`docs/THINNEST-INTEGRATION.md` §1); we copy it to R2, and this rule governs only our
+  copy. How long ThinnestAI keeps its own copy after the link expires is not stated here
+  and has not been verified.
 - **This is not per-tenant retention.** It never became per-tenant retention; the
   per-tenant mechanism was built next to it instead (`apps/workers/retention.py`, migration
   `9c1d3e7a05f4`), so a tenant on a 180-day policy now has their audio deleted on day 181

@@ -694,17 +694,18 @@ async def _team_members(
 async def _voices_offered(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
 ) -> str:
-    """The voice picker's own route function, `agents.voice_routes.list_voices` — so the
-    assistant offers exactly the voices the picker offers and `set_agent_voice` accepts."""
+    """The voice picker's own route function, `agents.engine_catalogue_routes.
+    engine_catalogue` — so the assistant offers exactly the voices the picker offers and
+    `agent_edit` accepts."""
     del session, args
-    from apps.api.agents.voice_routes import list_voices
+    from apps.api.agents.engine_catalogue_routes import engine_catalogue
 
-    catalogue = await list_voices(_principal(context))
+    catalogue = await engine_catalogue(_principal(context))
     rows = [voice for voice in catalogue.voices if voice.offerable][:MAX_ROWS]
     if not rows:
         return _clean(catalogue.note or "No voice can be chosen on this account right now.")
     lines = [
-        _clean(f"- {voice.label} · {voice.tier_label}") + f" [voice_id {voice.id}]"
+        _clean(f"- {voice.label} · {voice.rung.capitalize()}") + f" [voice_id {voice.voice_id}]"
         for voice in rows
     ]
     return _listing(lines, shown_of="voices", nothing="No voice can be chosen right now.")

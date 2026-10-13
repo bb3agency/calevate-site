@@ -86,7 +86,7 @@ under the name we sent it, one (`language`) is accepted under a different name
 (`tts_language`), and four are not accepted at all.
 
 `tts_voice` being writable does **not** make TTS ours: the value is a Cartesia voice id
-addressing Sonic, and nothing in D-36's Bulbul catalogue names one. `stt`/`tts` stay
+addressing Sonic, and nothing in D-36's Sarvam voice catalogue names one. `stt`/`tts` stay
 `"engine"` in `CARTESIA_CAPABILITIES` (see `line/_harness_types.py:132-139`, where
 `TTSConfig(voice_id, pronunciation_dict_id, language)` and `STTConfig(language)` carry no
 provider field at all).

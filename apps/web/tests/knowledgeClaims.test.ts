@@ -33,10 +33,9 @@ import { relPosix } from "./repoPaths";
  * - "in-call retrieval is T0 and nothing else (`docs/TRD.md:948`)" — that sentence is at
  *   `docs/TRD.md:802` and is now the stale half of a conflict this file does not get to
  *   resolve: `docs/` is authoritative, and it still describes the engine KB as unbuilt
- *   while the code above ships it. FLAGGED, not silently picked. On the engine we are
- *   migrating to the claim is false twice over — `PIPECAT_CAPABILITIES.knowledge_base` is
- *   `True` (`apps/api/engine/pipecat.py:229`) and the worker registers an in-process pack
- *   search as a CALL TOOL (`docs/PIPECAT-MIGRATION.md` §6 step 11, §8.1).
+ *   while the code above ships it. FLAGGED, not silently picked. On ThinnestAI the claim is
+ *   false: `THINNEST_CAPABILITIES.knowledge_base` is `True` and the agent searches the
+ *   client's knowledge on the voice platform during a call.
  *
  * `POST /v1/kb/sources` is the one ground that held: it still takes TEXT only
  * (`apps/api/kb/service.py:77`, `SUPPORTED_SUBMISSION_KINDS = {"text"}`). That governs the

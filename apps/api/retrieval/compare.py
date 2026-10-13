@@ -1,13 +1,13 @@
 """Score two retrieval arms against each other, so a store is retired on a NUMBER.
 
-WHY THIS EXISTS. `docs/PIPECAT-MIGRATION.md` §6 step 15 retires `kb_chunks` and its lexical
+WHY THIS EXISTS. The plan (TRD §6.3) retires `kb_chunks` and its lexical
 arm in favour of Supermemory. Nothing in this repository could have told anybody whether
 that trade is good: the pgvector arm's recall over a known corpus was never measured (the
-one recall measurement this tree holds is `tests/in_call_retrieval_recall_test.py`, and it
-scores the IN-CALL pack, which §8.1 does not retire), and box 3 has never answered a
+one recall measurement this tree held was of the former in-call pack),
+and box 3 has never answered a
 question here at all. A retirement argued from "the new one is a purpose-built memory
 product" is a preference. This module is what turns it into a table — condition (d) of the
-six §8.6 makes step 15 wait on (D-604).
+six TRD §6.3 makes step 15 wait on (D-604).
 
 WHAT IT MEASURES, AND WHY THESE THREE:
 
@@ -28,7 +28,7 @@ chunk differently — `kb_chunks` holds our projection, box 3 holds whatever its
 made — so comparing chunk text would score the chunkers rather than the retrieval. What a
 client experiences is "did it find the price list", so `document_key` keys on
 `Provenance.source_id`, which both adapters carry because WE minted it
-(`kb_documents` stays ours, §8.4) and it is the one identifier that survives the wire.
+(`kb_documents` stays ours, TRD §6.3) and it is the one identifier that survives the wire.
 
 **A PASSAGE WITH NO `source_id` IS UNKEYABLE AND COUNTS AS A MISS AND AS A DISAGREEMENT.**
 It gets a key unique to its ARM AND its position, so it can never match anything —

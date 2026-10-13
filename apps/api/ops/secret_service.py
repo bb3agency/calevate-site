@@ -119,8 +119,7 @@ def _refuse_unmanageable(key: str) -> None:
         # This refusal used to say "must be in place before Calevate starts", which is
         # true of the six bootstrap keys and false of every other member of
         # `ENV_ONLY_KEYS`: `resend_api_key` is env-only because the host that sends the
-        # most important email cannot reach this store, and the carrier pair because their
-        # reader is a container that must never hold `PLATFORM_KEK`. Telling an operator
+        # most important email cannot reach this store. Telling an operator
         # the wrong reason sends them to the wrong place — and `ENV_ONLY_DISPLAY` already
         # carries the right one, per key, in the words the console renders.
         raise ProblemError(

@@ -1150,13 +1150,6 @@ _UNMODELLED_SUCCESS: dict[str, str] = {
         "`GET /v1/copilot/jobs/{job_id}` beside it, so the payload shape IS declared — on "
         "the polling twin — and `apps/api/copilot/jobs_test.py` reads it at runtime."
     ),
-    "GET /v1/calls/{call_id}/speaking": (
-        "an SSE stream (D-656), exempt for `POST /v1/copilot/ask`'s reason: the declared "
-        "`itemSchema` is the SSE frame envelope, not the payload. The payload is "
-        "`crm/live_speaking.CallSpeakingOut` (`speaker`, `live`, `since` — no audio, text "
-        "or number), and `tests/live_speaking_test.py` pins it at runtime and against its "
-        "TypeScript twin."
-    ),
 }
 
 

@@ -137,7 +137,7 @@ function tooFewLeg(
 /** A group with a measured summary for every stage. */
 function measured(over: Partial<LatencyGroup> = {}): LatencyGroup {
   return {
-    engine: "pipecat",
+    engine: "thinnest",
     region: "us",
     calls: 12,
     turns: 240,
@@ -154,7 +154,7 @@ function measured(over: Partial<LatencyGroup> = {}): LatencyGroup {
 /** A group the server could summarise on no stage at all. */
 function tooFew(over: Partial<LatencyGroup> = {}): LatencyGroup {
   return {
-    engine: "pipecat",
+    engine: "thinnest",
     region: null,
     calls: 1,
     turns: 3,

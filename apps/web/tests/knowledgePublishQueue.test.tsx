@@ -17,7 +17,6 @@ import { routeParams } from "./adminRoute";
 import { noReply, problem, stubApi, type Routes } from "./harness";
 import { OWNER_JOINED } from "./businessProfileFixture";
 import {
-  KB_ALL_DELIVERED,
   WHATSAPP_NEVER_ASKED,
   adminOverviewSummaryReads,
 } from "./fixtures/sharedReads";
@@ -130,7 +129,6 @@ function healthy(): Routes {
     [AGENTS_PATH]: [],
     [NUMBERS_PATH]: [],
     [TEMPLATES_PATH]: [],
-    "/v1/kb/delivery": KB_ALL_DELIVERED,
     [`${TENANT_PATH}/whatsapp-alerts`]: WHATSAPP_NEVER_ASKED,
     ...adminOverviewSummaryReads(TENANT),
     [MARGIN_PATH]: {

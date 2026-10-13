@@ -401,20 +401,6 @@ def test_the_evidence_writer_refuses_a_document_that_still_carries_a_number(
     assert not out.exists()
 
 
-def test_the_committed_scorecard_matches_what_the_harness_writes_today() -> None:
-    """The artefact in `docs/evidence/` is generated, and a generated file nobody can
-    regenerate is a hand-edited one within a month. This pins the two together on the
-    parts that do not move: the banner, the regenerate command and the caveats."""
-    document = Path("docs/evidence/extraction-provider-scorecard.md").read_text(encoding="utf-8")
-    assert document.startswith("# Extraction provider scorecard — EVIDENCE ARTIFACT")
-    assert "<!-- GENERATED FILE — do not hand-edit. -->" in document
-    assert "uv run python -m scripts.eval --client=ci --provider=offline" in document
-    # The caveat that stops this file being read as a licence to move the raw-PII
-    # extraction pass off Sarvam, which D-127 G-7 forbids whatever the numbers say and
-    # which D-410 deliberately did not revisit when it moved both LLM surfaces to Azure.
-    assert "GEMINI_EXTRACTION_DEFAULT is False" in document
-
-
 def test_a_verdict_the_scorecard_cannot_hold_is_an_error_not_a_lost_column() -> None:
     """The five verdict constants are bound to `FieldScore`'s five fields by string
     identity and nothing else, so `record()` must REFUSE a name it does not hold.

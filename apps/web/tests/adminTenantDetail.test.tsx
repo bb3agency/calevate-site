@@ -25,7 +25,6 @@ import { OWNER_JOINED } from "./businessProfileFixture";
 import { browserOffline, noReply, problem, stubApi } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import {
-  KB_ALL_DELIVERED,
   WHATSAPP_NEVER_ASKED,
   adminAccountFactReads,
 } from "./fixtures/sharedReads";
@@ -197,7 +196,6 @@ function healthy(): Routes {
       capped: false,
       trial_active: false,
     },
-    "/v1/kb/delivery": KB_ALL_DELIVERED,
     [`${TENANT_PATH}/whatsapp-alerts`]: WHATSAPP_NEVER_ASKED,
     // A business type somebody chose: no "Business type not confirmed" prompt (D-722).
     [`${TENANT_PATH}/business-type`]: businessType(),

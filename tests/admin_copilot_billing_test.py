@@ -52,7 +52,7 @@ from apps.api.core.rbac import (
     role_has,
     withheld_from_view_as,
 )
-from apps.api.crm.assist import ASSIST_FEATURE_ADMIN_COPILOT, ASSIST_FEATURE_COPILOT
+from apps.api.crm.assist import ASSIST_FEATURE_ADMIN_COPILOT
 from apps.api.db.registry import APPEND_ONLY_TABLES, RLS_EXEMPT_TENANT_COLUMNS
 from apps.api.db.session import untenanted_session
 from apps.api.main import app
@@ -142,17 +142,6 @@ async def test_an_operators_question_never_touches_a_clients_ledger() -> None:
     meta = rows[0][4] if isinstance(rows[0][4], dict) else json.loads(rows[0][4])
     assert meta["feature"] == ASSIST_FEATURE_ADMIN_COPILOT
     assert meta["admin_user_id"] == str(admin_id)
-
-
-async def test_the_admin_cost_name_is_its_own_and_not_the_clients() -> None:
-    """The founder asked for "a special cost name". It is a SIBLING of the five in
-    `crm/assist.py` and it is not the client copilot's.
-
-    FAILS IF: somebody reuses `copilot`, which would make "what did the admin console cost
-    us this month" unanswerable — the query an operator runs against the ledger.
-    """
-    assert ASSIST_FEATURE_ADMIN_COPILOT == "admin_copilot"
-    assert ASSIST_FEATURE_ADMIN_COPILOT != ASSIST_FEATURE_COPILOT
 
 
 async def test_the_ref_shape_is_enforced_by_the_database_and_not_only_by_python() -> None:

@@ -4,7 +4,6 @@
     PUT  /v1/ops/secrets/{key}       new version; step-up `set_secret:<key>`
     DELETE /v1/ops/secrets/{key}     a removal version; step-up `remove_secret:<key>`
     POST /v1/ops/secrets/{key}/test  dry-run against the vendor BEFORE it goes live
-    POST /v1/ops/carrier/probe       the env-only carrier pair, as this process holds it
 
 **THERE IS NO READ-BACK ROUTE AND THERE WILL NOT BE ONE.** §7 states the reason and it
 is worth repeating where somebody would be tempted to add one: a console that can display
@@ -61,7 +60,6 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from calevate_shared.carrier import CarrierName
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
@@ -78,7 +76,7 @@ from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import StepUpGate
 from apps.api.ops.config_service import propagate
 from apps.api.ops.pricing_snapshot import refresh_pricing_snapshot
-from apps.api.ops.secret_probes import ProbeOutcome, probe_configured_carrier, probe_credential
+from apps.api.ops.secret_probes import ProbeOutcome, probe_credential
 from apps.api.ops.secret_service import (
     SecretRecord,
     count_tenant_credential_keks,
@@ -91,8 +89,6 @@ from apps.api.ops.secret_service import (
 from apps.api.reliability.service import enqueue_outbox_once
 
 router = APIRouter(prefix="/v1/ops/secrets", tags=["ops"])
-#: The carrier pair is env-only, so it has no `{key}` on the router above to test under.
-carrier_router = APIRouter(prefix="/v1/ops/carrier", tags=["ops"])
 
 GlobalSession = Annotated[AsyncSession, Depends(global_db)]
 SecretOperator = Annotated[Principal, Depends(requires("platform:secrets", realm="admin"))]
@@ -152,10 +148,8 @@ class SecretOut(BaseModel):
     testable: bool
     #: WHEN A ROTATION ACTUALLY REACHES THE CODE THAT USES THIS CREDENTIAL.
     #:
-    #: `live` for most, and `on_restart` for the ones a process captures once —
-    #: `cartesia_api_key` is the important one: the adapter copies it when `get_engine()`
-    #: builds it and that instance is cached for the life of the process, so a key
-    #: rotated here does NOT reach the code placing calls until every process restarts.
+    #: `live` for most, and `on_restart` for the ones a process captures once, so a key
+    #: rotated here does NOT reach the code using it until every process restarts.
     #: Without this field the Secrets panel implied the opposite, and the symptom of the
     #: gap — the vendor rejecting our calls — sends an operator to the vendor's dashboard
     #: rather than to a restart. Same vocabulary and same source as the config panel's
@@ -324,53 +318,6 @@ async def test_secret(
         detail=result.detail,
         verified=result.verified,
         candidate_last_four=last_four(payload.value) or MASKED,
-    )
-
-
-class CarrierProbeOut(BaseModel):
-    """The configured carrier pair's verdict, in the same vocabulary as `SecretTestOut`."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    #: Which carrier was asked: the deployment's `CARRIER`, as this process holds it.
-    carrier: CarrierName
-    outcome: ProbeOutcome
-    detail: str
-    #: False for every carrier probe today: the refusal shape has not been observed
-    #: against the live vendor from this build (OPERATIONS §2).
-    verified: bool
-
-
-@carrier_router.post(
-    "/probe",
-    response_model=CarrierProbeOut,
-    openapi_extra=permission_meta("platform:secrets"),
-    summary="Ask the carrier whether the credential pair this deployment holds works",
-    description=(
-        "Sends ONE read-only authenticated request to the selected carrier with the pair "
-        "this process was started with, and reports whether it authenticated. Takes no "
-        "candidate: the pair is env-only, so there is nothing to paste. Changes nothing."
-    ),
-)
-async def probe_carrier(
-    request: Request, session: GlobalSession, principal: SecretOperator
-) -> CarrierProbeOut:
-    """No step-up, for `test_secret`'s reason: it stores nothing and sends nothing the
-    caller supplied. Audited, because it is a credentialled call to a third party made on
-    an operator's click, and "who checked the carrier, when, and what it said" is the
-    first question after a rotation."""
-    carrier, result = await probe_configured_carrier()
-    await write_audit(
-        session,
-        action="platform.carrier_probed",
-        actor=principal,
-        object_type="carrier",
-        object_id=carrier,
-        ip=client_request_ip(request),
-        summary={"carrier": carrier, "outcome": result.outcome},
-    )
-    return CarrierProbeOut(
-        carrier=carrier, outcome=result.outcome, detail=result.detail, verified=result.verified
     )
 
 
@@ -682,4 +629,4 @@ async def rewrap_keks(
     )
 
 
-__all__ = ["REWRAP_CONFIRMATION", "carrier_router", "router", "secret_confirmation"]
+__all__ = ["REWRAP_CONFIRMATION", "router", "secret_confirmation"]

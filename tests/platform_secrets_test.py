@@ -738,34 +738,21 @@ def test_every_probe_names_where_its_endpoint_came_from() -> None:
         assert isinstance(probe.verified, bool)
 
 
-def test_every_probe_authenticates_the_way_its_adapter_does() -> None:
-    """THE CITATION IS AN ATTRIBUTION, AND NOBODY WAS CHECKING IT (D-517).
-
-    `PROBES` opens by promising *"Every endpoint and header shape below is READ FROM THIS
-    REPO'S OWN ADAPTERS ... so a probe cannot be authenticating differently from the thing
-    it is testing"*. The Cartesia probe was: it sent `X-API-Key` and
-    `Cartesia-Version: 2024-06-10` and cited `API_KEY_HEADER`, a constant the adapter has
-    not carried since D-271 moved it to `Authorization: Bearer` — so a VALID key would
-    have been refused and the console would have told the operator to rotate it.
-
-    The probe cannot import the adapter (hard rule 2; import-linter's "engine isolation"
-    contract lists `apps.api.ops` as a source module and `apps.api.engine.cartesia` as
-    forbidden), so the two literals are pinned HERE, where a test may read both sides.
-    Assert on the RENDERED header map rather than the source text: what reaches the vendor
-    is what matters, and a comment that merely mentions the old name must not fail this.
+def test_the_cartesia_probe_authenticates_the_way_cartesia_does() -> None:
+    """A probe that authenticates differently from the vendor refuses a VALID key and tells
+    the operator to rotate it (D-517: the Cartesia probe once sent `X-API-Key` after the
+    adapter had moved to `Authorization: Bearer`). No adapter in this tree calls Cartesia
+    any more, so the rendered header map is pinned here. Asserted on what reaches the
+    vendor rather than on source text, so a comment naming an old header cannot fail it.
     """
-    from apps.api.engine import cartesia as cartesia_module
     from apps.api.ops.secret_probes import PROBES
 
     cartesia = PROBES["cartesia_api_key"]
-    assert cartesia.url.startswith(cartesia_module.BASE_URL + "/")
+    assert cartesia.url.startswith("https://api.cartesia.ai/")
     assert cartesia.headers("k") == {
-        f"{cartesia_module.AUTH_HEADER}": f"{cartesia_module.AUTH_SCHEME} k",
-        cartesia_module.VERSION_HEADER: cartesia_module.API_VERSION,
-    }, (
-        "the Cartesia probe authenticates differently from the adapter it cites — a "
-        "working credential refused here tells an operator to rotate a good key"
-    )
+        "Authorization": "Bearer k",
+        "Cartesia-Version": "2026-08-14",
+    }
 
 
 def test_the_ledger_allowance_is_scoped_to_one_file() -> None:

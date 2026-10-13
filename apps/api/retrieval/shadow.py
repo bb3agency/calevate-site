@@ -6,8 +6,8 @@ was actually served, and only cut over once the divergence is understood. The al
 flipping `retrieval_provider` and watching the copilot — makes every client a test subject
 and makes the first evidence a complaint.
 
-`docs/PIPECAT-MIGRATION.md` §6 step 15 retires `kb_chunks` and its lexical arm in favour of
-Supermemory. **D-604 is why that step did not run**, §8.6 is the plan it runs against, and
+The plan (TRD §6.3) retires `kb_chunks` and its lexical arm in favour of
+Supermemory. **D-604 is why that step did not run**, TRD §6.3 is the plan it runs against, and
 this module is the instrument that plan is argued from — the thing that can be built TODAY
 while the two facts step 15 actually depends on, an install that answers and an ingestion
 path that has run, are still outside this repo.
@@ -105,7 +105,7 @@ class UnavailableArm:
     """A `RetrievalProvider` that refuses instead of answering. The shadow arm's floor.
 
     WHY THIS EXISTS RATHER THAN REUSING THE REAL FALLBACK. `supermemory.supermemory_t3`
-    takes a fallback and degrades into it, which is right on the SERVING path (§8.5: a
+    takes a fallback and degrades into it, which is right on the SERVING path (TRD §6.3: a
     client's question gets answered out of our own Postgres) and destroys the measurement
     here — a shadow arm that quietly answers out of pgvector would report that box 3 agrees
     with pgvector perfectly, on every request box 3 did not handle.

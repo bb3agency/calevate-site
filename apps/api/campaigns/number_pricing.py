@@ -18,11 +18,9 @@ at some exchange rate and adding some margin would be taking it by accident, in 
 Until an operator records a rupee figure they can point at, `attested_price_inr` is None
 and every purchase refuses.
 
-⚠ **THE CARRIER'S OWN PUBLISHED INDIAN DID PRICE IS UNKNOWN HERE.** `www.plivo.com` is
-egress-blocked from this container (measured 20 Sep 2026, curl exit with HTTP 000 through
-the egress proxy for the docs, API and pricing hosts), so no per-month figure was read
-this session and none is invented. That is exactly the gap this module routes to a human
-rather than filling.
+⚠ **THE CARRIER'S OWN PUBLISHED INDIAN DID PRICE IS UNKNOWN HERE.** No per-month figure
+has been read from the carrier, and none is invented. That is exactly the gap this module
+routes to a human rather than filling.
 """
 
 from __future__ import annotations

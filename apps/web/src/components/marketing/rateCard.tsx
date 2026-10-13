@@ -211,9 +211,9 @@ function caption(card: PublicRateCard, voice: VoiceTier): string {
  *
  * `marks` IS THE PER-VOICE HALF OF THE QUESTION, and the chip may not skip it.
  * `best_value` is the server's flag on ONE pack for the whole card; whether that pack
- * actually buys a cheaper minute is a property of the VOICE on screen. The next card
- * prices the cheaper voice flat at ₹4.00 (`docs/PIPECAT-MIGRATION.md` §12), and shading
- * one of six identical ₹4.00 columns under the words "Lowest rate" tells a buyer the
+ * actually buys a cheaper minute is a property of the VOICE on screen. A card may price a
+ * voice flat (`card_refusals` permits equal rungs), and shading
+ * one of six identical columns under the words "Lowest rate" tells a buyer the
  * ₹50,000 pack gets them a better minute than the ₹2,000 one. It does not. On a flat
  * column the whole treatment is dropped: no chip, no shading, nothing distinguishing a
  * column that is not distinguished.

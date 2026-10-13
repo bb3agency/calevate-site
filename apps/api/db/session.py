@@ -547,16 +547,13 @@ async def tenant_session(tenant_id: UUID) -> AsyncIterator[AsyncSession]:
 async def joined_tenant_session(tenant_id: UUID) -> AsyncIterator[AsyncSession]:
     """This tenant's session, JOINING the caller's transaction when there is one.
 
-    WHY IT EXISTS: A SECOND CONNECTION IS NOT A SECOND VIEW, IT IS A SECOND WRITER.
-    `apps/api/engine/pipecat.py` is an engine adapter whose "engine" is this database, and
-    `VoiceEngine` deliberately carries no session, so it opened its own. `publishing.
-    publish_agent` calls it while holding the `agents` row `FOR UPDATE` in ITS transaction
-    — and every table the adapter writes (`agent_config_versions`, `pipecat_agents`) has a
-    foreign key to `agents`, which PostgreSQL validates by taking `FOR KEY SHARE` on the
-    referenced row. `FOR KEY SHARE` conflicts with `FOR UPDATE`, so the adapter's session
-    blocked on a lock only its own caller could release, and the caller was blocked
-    awaiting the adapter: a true deadlock, broken by `statement_timeout` and invisible in
-    CI because the default test engine is the fake and touches no database.
+    WHY IT EXISTS: A SECOND CONNECTION IS NOT A SECOND VIEW, IT IS A SECOND WRITER. A
+    callee that opens its own tenant session while its caller holds an `agents` row
+    `FOR UPDATE` blocks on any foreign key to `agents` (PostgreSQL validates it by taking
+    `FOR KEY SHARE` on the referenced row), and the caller is blocked awaiting the callee: a
+    true deadlock, broken only by `statement_timeout`. Joining the caller's transaction is
+    what makes such a callee safe (`agents/studio_voices.py`,
+    `tenancy/engine_workspace.py`).
 
     THE TENANT IS AN ARGUMENT, NOT A QUESTION THE CALLER CAN ASK. There is no
     `current_tenant_session()` and there must never be one: a callee that read the ambient
@@ -571,12 +568,12 @@ async def joined_tenant_session(tenant_id: UUID) -> AsyncIterator[AsyncSession]:
     written engine record behind).
 
     REJECTED, AND WHY:
-      * *Thread the session through `VoiceEngine`* — the HTTP adapters (`cartesia`, and
+      * *Thread the session through `VoiceEngine`* — the HTTP adapters (`thinnest`, and
         `fake` standing in for one) speak to a vendor and have no database at all; a session
         parameter would put a storage concept into the one port whose purpose is that
         adapters are interchangeable.
       * *Release the `FOR UPDATE` before calling the adapter* — that lock is what
-        serialises a publish against a concurrent `set_call_cap`/`set_agent_voice`
+        serialises a publish against a concurrent `set_call_cap` or voice
         republish (`agents/service.publish_agent`, "THE LOCK"), and `kb/service.
         publish_source` argues for the same serialisation in its own words. Dropping it
         trades a deadlock for a lost update.

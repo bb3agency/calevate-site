@@ -60,9 +60,7 @@ touching a single campaign (`apps/workers/campaign_dispatch.py`).
    `status: queued` for every dial and holds the surplus over the account's concurrency
    ceiling in a queue we cannot see. So `POST /v1/ops/platform` with
    `outbound_halted: true` also queues `recall_queued_dials`, which asks the engine to
-   drop every outbound call still `queued` or `ringing` with a vendor-issued id (ringing
-   since D-663, migration `b7e4c0a63f29`: on the owned runtime a Vobiz dial rings before
-   anyone answers) and stamps `calls.recall_requested_at` on each one it pulled back.
+   drop every outbound call still `queued` or `ringing` with a vendor-issued id and stamps `calls.recall_requested_at` on each one it pulled back.
 
    **What it CANNOT do**: the vendor's stop route *"cannot stop a call already in
    progress"*. A dial that started ringing between the scan and the stop runs to its
@@ -105,47 +103,43 @@ All strings from `dispatch_campaign_tick` in `apps/workers/campaign_dispatch.py`
 
 ## 3. Platform pool exhaustion
 
-Pool math (`engine/carrier_pacing.outbound_line_pool`, D-663): the account's lines are
-`CARRIER_CONCURRENCY` (default 3), the inbound reserve is `max(1, ceil(lines ×
-INBOUND_RESERVE_RATIO))` (ratio default 0.3, so 1 line), and the outbound pool is the rest
-— 2 lines at the defaults, shared across ALL tenants. The tick subtracts the LARGER of two
-counts: our outbound `calls` rows in `queued / ringing / in_progress` updated within the
-last hour (`ACTIVE_STATUSES`, `ACTIVE_CALL_HORIZON`), and, on the owned runtime, the
-carrier's lines in use in BOTH directions (`carrier_lines_in_use()`, which counts
-ringing/in-progress calls inside `LIVE_LINE_HORIZON` and queued ones inside
-`RING_LINE_HORIZON`). An inbound caller on a line is a line the tick cannot have.
+Pool math (`engine/dial_lines.outbound_line_pool`, D-663): the workspace's lines are
+`THINNEST_MAX_CONCURRENT_CALLS` (default 5, inbound and outbound together), the inbound
+reserve is `INBOUND_RESERVED_LINES` when set, otherwise `max(1, ceil(lines ×
+INBOUND_RESERVE_RATIO))` (ratio default 0.3, so 2 lines), and the outbound pool is the rest
+— 3 lines at the defaults, shared across ALL tenants. The tick subtracts our outbound
+`calls` rows in `queued / ringing / in_progress` updated within the last hour
+(`ACTIVE_STATUSES`, `ACTIVE_CALL_HORIZON`). Inbound callers share the same ceiling and we
+cannot see them while they talk, which is what the reserve is for.
 
 Per tenant (tenant-scoped session; run for each suspect tenant):
 
 ```sql
-SELECT direction, carrier, status, count(*)
+SELECT direction, status, count(*)
 FROM calls
 WHERE status IN ('queued', 'ringing', 'in_progress')
   AND updated_at > now() - interval '1 hour'
-GROUP BY direction, carrier, status;
+GROUP BY direction, status;
 ```
 
-- Counts that look too high vs. real traffic are stranded rows: a call whose hangup
-  callback and settlement both went missing. Each ages out of the line count at its
-  horizon on its own; nothing has to release it. Check `workers/carrier_events` is
-  draining (alarm index, carrier codes) rather than fixing rows by hand.
+- Counts that look too high vs. real traffic are stranded rows: a call whose
+  `call.completed` never reached us. Each ages out of the line count at its horizon on its
+  own; nothing has to release it. Check webhook delivery
+  (`runbooks/webhook-delivery-failures.md`) rather than fixing rows by hand.
 - `no_outbound_pool` (pool ≤ 0) means config, not traffic: someone lowered
-  `CARRIER_CONCURRENCY` or raised `INBOUND_RESERVE_RATIO`. Fix the config, not the data.
+  `THINNEST_MAX_CONCURRENT_CALLS` or raised the inbound reserve. Fix the config, not the
+  data.
 - A dial the tick did not make (the "call this lead" button, lead ingest, a call-back) is
   refused `carrier_lines_busy` by the same count inside `agents.service.dispatch_call`.
+- After a `429` from ThinnestAI every dial is held off for its `Retry-After` (at least 60 s,
+  at most 15 min); the tick reads the same hold (`engine/dial_lines.dial_backoff_remaining_s`).
 
-### 3a. Is `CARRIER_CONCURRENCY` still the account's real number?
+### 3a. Is `THINNEST_MAX_CONCURRENT_CALLS` still the workspace's real number?
 
-`CARRIER_CONCURRENCY` and `CARRIER_CPS` are OUR typed-in readings of the Vobiz account
-(3 lines and CPS 1, read in the founder's console on 2 Oct 2026; OPERATIONS §2 gate V-5).
-The Vobiz account object carries its concurrent-call and CPS limits
-(`account/account-object.md:41-46`), and `GET
-/api/v1/Account/{auth_id}/concurrency` reports live use (`account/concurrency.md:15-62`).
-Re-read them whenever the account is upgraded. Set too LOW, the platform idles lines it
-paid for. Set too HIGH, Vobiz refuses the surplus dial with `429` (only a `429` on call
-create is retried) and turns an inbound caller away with SIP 503
-(`vobiz-findings/mirror/pages/call/make-call.md:134`) — the receptionist failure the
-reserve exists to prevent.
+It is OUR typed-in reading of the ThinnestAI workspace's ceiling: 5 on pay-as-you-go
+(FOUNDER-RELAYED, 7 Oct 2026; DEPLOYMENT §12). Set it to the raised figure when ThinnestAI
+confirms one by email. Set too LOW, the platform idles lines the plan allows. Set too HIGH,
+ThinnestAI refuses the surplus dial with `429`, which holds every dial off as above.
 
 ## 4. Per-tenant ceiling
 

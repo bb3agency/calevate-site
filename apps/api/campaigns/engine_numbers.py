@@ -98,7 +98,7 @@ SyncOutcome = Literal[
 
 def engine_number_provider() -> str | None:
     """The provider a number on THIS deployment's engine is recorded under, or None where
-    numbers are not the engine's (the carrier's own, on Pipecat)."""
+    the engine records numbers under no provider of its own."""
     return ENGINE_NUMBER_PROVIDER.get(get_settings().engine)
 
 
@@ -141,7 +141,7 @@ def answers_calls(
     """Does our record put an answering agent on this number? The vendor's `agent` is made
     to agree with exactly this (`wanted_attachment`, the crossed-workspace rule of
     `sync_number_attachment`), and the daily sweep repairs drift, so it stands in for the
-    carrier binding the Pipecat engine records."""
+    routing record a voice platform would otherwise need."""
     if not engine_number_ref:
         return False
     agent, _calling = wanted_attachment(

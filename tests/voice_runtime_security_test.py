@@ -9,7 +9,7 @@ internet. Which deliveries it admits is decided per engine by `WEBHOOK_AUTH_BY_E
 (`engine_intake.verify_source`): a signing engine is refused until a verifier exists, and
 an engine that verifies nothing is admitted only where it is this deployment's engine
 under `APP_ENV=local`. So the suite drives the `fake` engine's hook for everything that
-happens AFTER admission — dedupe, the ack budget, hostile payloads — and the `cartesia`
+happens AFTER admission — dedupe, the ack budget, hostile payloads — and the `fake-restricted`
 hook for the refusal path. No engine is authenticated by source address (D-639 deleted the
 one that was); `tests/client_address_test.py` owns how the caller's address is read.
 
@@ -52,7 +52,7 @@ EDGE_PROXY_IP = "127.0.0.1"  # inside TRUSTED_PROXY_CIDRS — our own nginx
 
 HOOK = "/hooks/v1/engine/fake"
 #: A signing engine's hook: refused until a verifier exists, so it is the refusal path.
-SIGNED_HOOK = "/hooks/v1/engine/cartesia"
+SIGNED_HOOK = "/hooks/v1/engine/fake-restricted"
 
 
 def _client(peer_ip: str, *, tolerate_crash: bool = False) -> AsyncClient:
@@ -174,7 +174,7 @@ async def test_a_refused_delivery_writes_nothing() -> None:
     assert ATTACKER_IP not in response.text
 
     inbox, deliveries = await _counts(
-        execution_id=execution_id, event_type=status, engine="cartesia"
+        execution_id=execution_id, event_type=status, engine="fake-restricted"
     )
     assert inbox == 0, "a rejected caller must not be able to claim an inbox key"
     assert deliveries == 0, "nor to write a forensic row"
@@ -613,10 +613,10 @@ async def test_the_fake_engine_hook_is_closed_on_a_deployment_that_runs_another_
     settings = get_settings()
     execution_id, status, body = _event()
 
-    monkeypatch.setattr(settings, "engine", "pipecat")
+    monkeypatch.setattr(settings, "engine", "thinnest")
     async with _client(ATTACKER_IP) as http:
         refused = await http.post("/hooks/v1/engine/fake", json=body)
-    assert refused.status_code == 401, "the fake hook must be shut on a pipecat deployment"
+    assert refused.status_code == 401, "the fake hook must be shut on any other engine"
     assert await _counts(execution_id=execution_id, event_type=status, engine="fake") == (0, 0)
 
     # And the mirror, so the offline pipeline is proven to still work rather than merely
@@ -634,7 +634,7 @@ async def test_the_fake_engine_hook_is_closed_on_a_deployment_that_runs_another_
 
 def test_an_engine_that_signs_is_refused_until_a_verifier_exists_not_waved_through() -> None:
     """`WEBHOOK_AUTH_BY_ENGINE` is the one table this receiver reads (D-93), and it now
-    carries an engine that SIGNS — Cartesia Line, whose scheme is unsourced.
+    carries engines that SIGN.
 
     The failure this pins is the tempting one: an engine whose declared method is `hmac`
     arriving at a receiver that implements no signature check, and the check falling
@@ -648,16 +648,16 @@ def test_an_engine_that_signs_is_refused_until_a_verifier_exists_not_waved_throu
     us, and the operator reading it needs to know the deliveries are being dropped
     deliberately (the poller is still the guarantee of record, D-31).
     """
-    verdict = verify_source("cartesia", ENGINE_EGRESS_IP)
+    verdict = verify_source("fake-restricted", ENGINE_EGRESS_IP)
     assert verdict.ok is False
     assert verdict.method == "hmac"
     assert verdict.reason == "signature verification not implemented"
 
-    # The declaration is what makes it hmac — not the engine's name — so the fixture
-    # adapter that declares the same method gets the same answer.
-    assert verify_source("fake-restricted", ENGINE_EGRESS_IP).ok is False
+    # The declaration is what makes it hmac — not the engine's name — so the real adapter
+    # that declares the same method gets the same answer here.
+    assert verify_source("thinnest", ENGINE_EGRESS_IP).ok is False
     # And the caller's address does not rescue it: an address is not signature evidence.
-    assert verify_source("cartesia", ENGINE_EGRESS_IP) == verify_source("cartesia", ATTACKER_IP)
+    assert verify_source("thinnest", ENGINE_EGRESS_IP) == verify_source("thinnest", ATTACKER_IP)
 
 
 def test_an_engine_this_deployment_never_heard_of_is_refused_and_never_labelled() -> None:
@@ -685,8 +685,8 @@ def test_an_engine_this_deployment_never_heard_of_is_refused_and_never_labelled(
         record=lambda elapsed, *, provider: labels.append(provider),
     )
     webhook_routes._refuse(time.perf_counter(), "twilio", meter=spy)
-    webhook_routes._refuse(time.perf_counter(), "cartesia", meter=spy)
-    assert labels == ["unknown", "cartesia"], "a stranger's engine name must not become a label"
+    webhook_routes._refuse(time.perf_counter(), "thinnest", meter=spy)
+    assert labels == ["unknown", "thinnest"], "a stranger's engine name must not become a label"
 
 
 async def test_a_strangers_engine_name_reaches_no_alert_field_either(
@@ -1144,9 +1144,9 @@ def test_an_acked_response_cannot_mint_a_metric_label_either() -> None:
         Response(), time.perf_counter(), "../../etc/passwd\n", {"status": "ignored"}, meter=meter
     )
     webhook_routes._ack(
-        Response(), time.perf_counter(), "cartesia", {"status": "ignored"}, meter=meter
+        Response(), time.perf_counter(), "thinnest", {"status": "ignored"}, meter=meter
     )
-    assert labels == ["unknown", "cartesia"], labels
+    assert labels == ["unknown", "thinnest"], labels
 
 
 # --- 15. a claimed transition with no job behind it --------------------------

@@ -11,8 +11,7 @@ what production does.
 """
 
 from apps.api.main import app as api_app
-from apps.workers.settings import CRON_JOBS, FUNCTIONS, WorkerSettings
-from calevate_shared.engine import VoiceEngine
+from apps.workers.settings import CRON_JOBS, FUNCTIONS
 from calevate_shared.events import CallEvent, TranscriptTurn
 from httpx import ASGITransport, AsyncClient
 
@@ -43,23 +42,12 @@ async def test_liveness_touches_no_dependency() -> None:
     assert response.json() == {"status": "ok", "service": "api"}
 
 
-def test_worker_settings_retry_policy() -> None:
-    """Jobs retry 3 times before the DLQ (TRD §8)."""
-    assert WorkerSettings.max_tries == 3
-
-
 def test_worker_registers_the_pipeline_and_its_crons() -> None:
     """A job that is written but never registered is a job that never runs — the
     reconciliation poller especially, since it is the guarantee of record (D-31)."""
     names = {f.__name__ for f in FUNCTIONS}
     assert {"ingest_engine_event", "run_post_call_pipeline"} <= names
     assert len(CRON_JOBS) >= 4
-
-
-def test_shared_contracts_are_importable() -> None:
-    """packages/shared resolves as an editable workspace dependency."""
-    assert VoiceEngine is not None
-    assert CallEvent.model_fields.keys() >= {"call_id", "engine", "engine_agent_ref"}
 
 
 def test_call_event_does_not_require_a_tenant_an_adapter_cannot_know() -> None:

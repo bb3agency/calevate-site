@@ -19,7 +19,7 @@ and holding the thing you meant to publish.
     -----------     ----------    -------------------------------------------------
     script          staged        `write_prompt_version` re-published a LIVE agent in
                                   the same transaction. Every version was born live.
-    voice           immediate     `set_agent_voice` deliberately never touched the
+    voice           immediate     a voice write never touched the
                                   engine; the response said `republish_required`.
                                   CLOSED BY D-586 — see below.
     training (T0)   immediate     `recompile_t0` re-published a LIVE agent. Correct.
@@ -38,8 +38,7 @@ WHY THE FAST LANE NEEDED THE SLOW LANE FIRST
 --------------------------------------------
 `publish_agent` sends ONE `AgentConfig` carrying script, voice, models and cap
 together. Before the applied pointer there was no way to push a voice without also
-pushing whatever sat in `system_prompt_id` — which is exactly why `voice_routes.py`
-refuses to publish and hands the client a `republish_required` flag instead. A fast
+pushing whatever sat in `system_prompt_id`. A fast
 lane was not unbuilt, it was unbuildable. Reading the applied pointer at publish time
 is what makes "apply the cap now, leave the draft script alone" expressible at all.
 
@@ -55,8 +54,9 @@ attached to it. The test is not "how risky does this feel" but §2b's own senten
 - **max call length** is conduct. It cannot alter one word; it can only reduce
   exposure. Immediate.
 - **voice** is delivery. Immediate per §2b, and since D-586 the CODE is immediate too:
-  `set_agent_voice` below writes the row and re-publishes a live agent in the same
-  transaction, exactly as the cap and the two notice toggles do. `PendingState.voice`
+  choosing a voice (`lifecycle.update_agent`) writes the row and re-publishes a live
+  agent in the same transaction, exactly as the cap and the two notice toggles do.
+  `PendingState.voice`
   still reports configured-vs-sent as two fields, because a PAUSED or draft agent, and
   an agent published before the mirror existed, still make them two facts.
 - **extraction fields** shape CRM columns, not the call. Immediate.
@@ -64,33 +64,12 @@ attached to it. The test is not "how risky does this feel" but §2b's own senten
   recompile splices into the DRAFT body, so while a script edit is staged the
   recompile stages with it rather than dragging an unapproved script live.
 
-THE CONFLICT BETWEEN THE DOCS AND THE CODE, CLOSED BY D-586 (11 Sep 2026)
---------------------------------------------------------------------------------
-This section used to REPORT an open conflict: §2b put voice on the IMMEDIATE side and
-`LANES` said so, while `set_agent_voice` did not reach the engine — so a voice change
-on a live agent was in practice STAGED until someone published, under a screen reading
-"Applies straight away". The two options were named as decision-log entries rather than
-a quiet edit, and the founder took the first: auto-republish.
-
-The ear-test objection that held it (`voice_routes.py`, pilot gate 3 — "silently
-re-voicing a running agent is not a safe default") is answered rather than ignored. It
-was an argument about WHO was choosing: an operator re-voicing somebody else's live
-phone line from a console the client cannot see. The voice is now the CLIENT's own
-choice, made on their own agent from a picker that plays the voice before it is picked,
-and the change they just made is the one they are asking for. Nothing is silent — the
-request is the consent — and the alternative is worse in exactly the way this module
-exists to stop: a screen that says the voice changed over a phone line that did not.
-
-What did NOT change: the republish sends the APPLIED script (`live_prompt_id`), so a
+A voice write republishes the APPLIED script (`live_prompt_id`), so a
 voice change still cannot drag an unapproved draft onto a live line, and a PAUSED or
 draft agent is not published by a voice write — `publish_agent` writes
 `status = 'live'`, so republishing one would put a switched-off agent back on the
 frontline as a side effect of a delivery change. For those, `PendingState.voice` still
 reports the configured voice and the sent voice as two fields.
-
-NOT MOUNTED HERE. `publishing_routes.py` carries the endpoints and, like
-`agents/prompt_routes.py` and `agents/voice_routes.py`, is wired into `main.py` by the
-integrator rather than by this wave.
 
 Sessions: every function here opens its own `tenant_session`, so an agent belonging to
 another tenant is invisible and "not found" and "belongs to someone else" are the same
@@ -115,34 +94,25 @@ from calevate_shared.engine import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.hosted_voices import parse_hosted_voice_id, source_rate_key
 from apps.api.agents.service import (
     effective_call_cap,
     publish_agent,
     refuse_call_cap_out_of_range,
 )
 from apps.api.agents.verification import EngineDrift, PublishVerification, verify_publish
-from apps.api.agents.voice_offer import (
-    VoiceReasonAudience,
-    cartesia_tier_could_be_offered,
-    count_live_cartesia_agents,
-    read_curation,
-    unofferable_reason,
-)
-from apps.api.agents.voices import (
-    Voice,
-    get_voice,
-    voice_selection_capability,
-)
+from apps.api.agents.voices import Voice, get_voice
+from apps.api.billing.engine_minutes import client_voice_tier
 from apps.api.billing.lots import voice_tier_rates
 from apps.api.billing.plans import NOW_SQL, OVERAGE_RATE_SECOND_SQL, plan_in_effect_sql
+from apps.api.billing.rates import VoiceTier
 from apps.api.billing.service import to_paise
 from apps.api.compliance.caller_memory import spdi_refuses_memory
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
-from apps.api.engine import engine_capabilities, engine_lacks, get_engine
+from apps.api.engine import engine_capabilities, get_engine
 
 log = get_logger(__name__)
 
@@ -300,6 +270,9 @@ class AgentVoice:
     #: The name of a voice the engine supplies itself (D-687 hosted catalogue), which
     #: `agents/voices.CATALOG` does not hold. None for a voice of our own.
     label: str | None = None
+    #: The client rung of a voice the engine supplies, from the rate key a call on it is
+    #: metered at. None for a voice of our own: its provider decides the rung.
+    tier: VoiceTier | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,7 +280,7 @@ class VoiceState:
     """What the agent is CONFIGURED to speak in, and what the engine was last SENT.
 
     THE WHOLE POINT IS THAT THESE ARE TWO FIELDS, AND D-586 DID NOT COLLAPSE THEM.
-    `set_agent_voice` now re-publishes a LIVE agent in the same transaction, so on a live
+    A voice write re-publishes a LIVE agent in the same transaction, so on a live
     agent the two converge on the write. They stay two facts everywhere else, and every
     one of those states is reachable:
 
@@ -434,7 +407,7 @@ class PendingState:
     # voice divergence has no version to name and neither button clears it on its own —
     # `undo_staged` does not touch the voice columns at all, so listing one here would
     # put an Undo next to a change it cannot undo. Since D-586 a divergence on a LIVE
-    # agent cannot outlive the write that created it (`set_agent_voice` republishes), so
+    # agent cannot outlive the write that created it (a voice write republishes), so
     # what is left here is a draft agent, a PAUSED one, and an agent published before the
     # mirror existed — none of which Apply or Undo acts on either. It is cleared by a
     # PUBLISH, which is what `_next_step` says. (Apply clears it as a side effect when a
@@ -540,35 +513,6 @@ class CallerMemoryResult:
 
 
 @dataclass(frozen=True, slots=True)
-class VoiceWriteResult:
-    """What one agent speaks in after a voice write, and whether the phone line agrees.
-
-    The fields are the ones `SetVoiceOut` has always carried, with two of them turned from
-    assumptions into measurements by D-586: `engine_synced` was a hard-coded `False` (this
-    endpoint never reached the engine) and is now what actually happened, and
-    `republish_required` is now false on a live agent because the republish already
-    happened inside the transaction.
-    """
-
-    agent_id: UUID
-    voice: Voice
-    agent_status: str
-    #: The agent exists on the engine (`engine_agent_ref` is set) — true for a PAUSED
-    #: agent too, which is why it is not `is_live`.
-    published: bool
-    #: The voice reached the voice platform on THIS request.
-    engine_synced: bool
-    #: What the engine was last SENT (`agents.live_tts_voice`), re-read after any push.
-    live_voice_id: str | None
-    #: Published AND the engine is not holding the configured voice. A null
-    #: `live_voice_id` counts as different: a sync we cannot prove is not a sync.
-    republish_required: bool
-    #: False when the row already held this voice — the second click, or the retry of a
-    #: request whose response was lost. Lets the route write one audit row per decision.
-    changed: bool
-
-
-@dataclass(frozen=True, slots=True)
 class CallCapResult:
     agent_id: UUID
     max_call_duration_s: int | None
@@ -595,6 +539,8 @@ class _AgentRow:
     #: The voice chosen from an engine's own catalogue (ThinnestAI), and its name there.
     engine_voice_id: str | None = None
     engine_voice_label: str | None = None
+    #: The rate key its active route is metered at, which decides the rung a call bills on.
+    engine_rate_key: str | None = None
 
     @property
     def is_live(self) -> bool:
@@ -619,7 +565,9 @@ _AGENT_SQL = (
     "SELECT a.status, a.engine_agent_ref, d.version, d.created_at, l.version, "
     "a.max_call_duration_s, a.tts_voice, a.tts_provider, a.live_tts_voice, "
     "a.live_tts_provider, a.live_verify_state, a.live_verified_at, a.engine_voice_id, "
-    "COALESCE(hv.display_label, hv.label) FROM agents a "
+    "COALESCE(hv.display_label, hv.label), "
+    "(SELECT r.engine_rate_key FROM engine_agent_routes r WHERE r.agent_id = a.id "
+    "AND r.active ORDER BY r.updated_at DESC LIMIT 1) FROM agents a "
     "LEFT JOIN platform_voice_catalog hv ON hv.voice_id = a.engine_voice_id "
     "LEFT JOIN prompt_versions d ON d.id = a.system_prompt_id "
     "LEFT JOIN prompt_versions l ON l.id = a.live_prompt_id "
@@ -646,6 +594,7 @@ async def _load(session: AsyncSession, agent_id: UUID) -> _AgentRow:
         verified_at=row[11],
         engine_voice_id=row[12],
         engine_voice_label=row[13],
+        engine_rate_key=row[14],
     )
 
 
@@ -861,11 +810,21 @@ def _engine_voice_state(row: _AgentRow) -> VoiceState:
     is configured is what a published agent holds: nothing here can be "waiting for the
     next publish".
     """
+    # A published agent bills on the rate key its route was stamped with at publish; one not
+    # yet published will be stamped from its voice's source, so that is the rung it would
+    # bill on.
+    ref = parse_hosted_voice_id(row.engine_voice_id)
+    rate_key = (
+        row.engine_rate_key
+        if row.published
+        else (source_rate_key(ref.source) if ref is not None else None)
+    )
     chosen = AgentVoice(
         voice_id=str(row.engine_voice_id),
         provider=None,
         catalog=None,
         label=row.engine_voice_label,
+        tier=client_voice_tier(get_engine().name, rate_key) if rate_key else None,
     )
     reading = _reading(chosen)
     return VoiceState(
@@ -1684,233 +1643,6 @@ async def set_call_cap(
     )
 
 
-def _refuse_unknown_voice(voice_id: str) -> ProblemError:
-    """`agents.tts_voice` is free text whose next reader is a vendor API, so a typo that
-    gets stored looks saved, publishes cleanly, and surfaces as a broken call on a
-    client's line. Refusing it costs a dictionary lookup.
-
-    ⚠ **THE REMEDIATION NO LONGER ENUMERATES THE CATALOGUE, AND BOTH REASONS ARE D-588.**
-    It used to read "Pick one of the available voices: " + every id. (a) Since curation,
-    `voice_ids()` is the LOOKUP layer and includes the voices an operator has switched off,
-    so the list was naming ids the very next check refuses — a remediation that hands the
-    reader a wrong answer is worse than none. (b) On a deployment nobody has synced the
-    catalogue is empty, and the sentence degenerated to "Pick one of the available voices:
-    ." So it points at the one read that answers per audience, per deployment and per
-    moment, and that read carries a `note` saying what to do when it is empty.
-    """
-    return ProblemError(
-        kind="business_rule",
-        code="unknown_voice",
-        title="Unknown voice",
-        detail="That voice is not in the catalog, so it cannot be set on an agent.",
-        remediation=(
-            "Read GET /v1/agents/voices for the voices offered on this account, and pick "
-            "one whose `offerable` is true."
-        ),
-        fields=[
-            {
-                "field": "voice_id",
-                "rule": "not_in_catalog",
-                "message": "Not a supported voice.",
-            }
-        ],
-    )
-
-
-async def _voice_refusal(
-    voice: Voice, *, agent_id: UUID, audience: VoiceReasonAudience
-) -> str | None:
-    """Ground the catalogue's OWN verdict about this voice, in the caller's language.
-
-    THE WRITE ASKS THE SAME QUESTION THE PICKER ASKS, which is the whole reason
-    `voice_offer.py` is a module and not a branch in the route: a picker that offered a
-    voice the write refuses — or a write that accepted one the picker greyed out — is the
-    divergence D-93 exists to remove. `audience` decides only the WORDING (an operator
-    reads the missing key or the unattested price and can act on it; a client reads the one
-    action they have), never the verdict.
-
-    `exclude_agent_id` is this agent: a live Cartesia agent moving between two Cartesia
-    personas is not a FURTHER agent on the tier, and counting it against itself would
-    refuse a change that adds nothing to the plan.
-
-    The count is measured only when it could decide anything — the cap is CARTESIA'S
-    alone (their plan has a concurrency ceiling; no such ceiling has been read for any
-    other vendor), and a deployment with no Cartesia key or no attested price already has
-    its answer — so the ordinary write opens no extra session for it.
-
-    **CURATION IS ALWAYS MEASURED (D-588)**, because ground zero applies to both providers:
-    a voice no operator has enabled may not be set on anybody's agent, and "an archived
-    voice cannot be newly selected" is this one read. It is one SELECT against a
-    platform-scoped table of tens of rows, on a write a human just made.
-    """
-    curation = await read_curation()
-    needs_count = voice.provider == "cartesia" and cartesia_tier_could_be_offered()
-    live = await count_live_cartesia_agents(exclude_agent_id=agent_id) if needs_count else 0
-    return unofferable_reason(
-        voice, cartesia_live_agents=live, curation=curation, audience=audience
-    )
-
-
-#: Locked for the duration, then re-read: the same row the UPDATE and the republish touch.
-#: `FOR UPDATE` rather than a CAS token — see `set_agent_voice` for why a voice has no
-#: version for a screen to be stale about, and what the lock is actually defending.
-_VOICE_ROW_SQL: Final = (
-    "SELECT status, engine_agent_ref, tts_voice, tts_provider, live_tts_voice "
-    "FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
-)
-
-
-async def set_agent_voice(
-    *,
-    tenant_id: UUID,
-    agent_id: UUID,
-    voice_id: str,
-    audience: VoiceReasonAudience = "operator",
-) -> VoiceWriteResult:
-    """Set the voice an agent speaks in, and put it on the phone line (D-586).
-
-    FAST LANE, AND THE REPUBLISH IS INSIDE THE TRANSACTION — the ordering
-    `set_call_cap`, `set_disclosure_posture` and `set_caller_memory` all use, for the
-    reason this module's docstring gives: a voice that only lands in our table is a screen
-    telling a client their agent sounds different while their callers hear the old voice.
-    If the engine refuses the push — a 400 on a voice their account cannot synthesise,
-    a vendor outage — the column write rolls back with it and the row goes on saying
-    exactly what the engine is running. There is no state in which the two disagree
-    because of this function.
-
-    ═══ THE FOUR CHECKS, IN THIS ORDER, AND THE ORDER IS THE POINT ═══
-
-    1. **Can a voice be chosen on this engine AT ALL** (D-93). On an engine that supplies
-       its own voices there is no id that would be correct, so refusing with
-       `unknown_voice` would send a caller hunting for the right string for ever.
-    2. **Is it a voice we sell** — a dictionary lookup against the synced catalogue.
-    3. **May it be chosen HERE, TODAY** — `voice_offer.py`'s three grounds (no Cartesia
-       key, no attested price, the platform-wide cap). This check did not exist on the
-       write before D-586: the picker greyed the voice out and the write took it anyway,
-       so a curl, a stale schema or a client who had the page open before the cap filled
-       could put an agent on a tier this deployment cannot bill for — hard rule 7, by the
-       back door. The refusal carries the REASON, in the caller's own language, because a
-       generic "no" on a client's own screen is a support ticket with no words in it.
-    4. **Does the agent exist, in THIS tenant** — under the tenant's own RLS scope, so
-       "not found" and "belongs to someone else" are deliberately the same answer.
-
-    ═══ WHY A LOCK AND NOT A CAS TOKEN ═══
-
-    BACKEND-PATTERNS §5 makes conditional UPDATE the pervasive primitive, and `apply_to_live`
-    takes an `expected_version` because a script HAS a version the operator looked at. A
-    voice does not: the client picks one entry from a catalogue, and "the voice was
-    something else when you opened the page" is not a fact that should refuse them — they
-    are asking for THIS voice, not for a transition from a particular one.
-
-    What has to be defended is different and a token cannot defend it: two writes, or a
-    write racing a publish, INTERLEAVING between our read and the engine push. `SELECT …
-    FOR UPDATE` here and `_load_agent(for_update=True)` inside `publish_agent` take the
-    same row lock, so the second writer waits for the first to COMMIT and then re-reads —
-    and the engine receives the two configurations in the order the database committed
-    them. Last write wins, which is the correct semantics for a choice, and it wins on the
-    phone line as well as in the row rather than only in one of them.
-
-    IDEMPOTENT. Re-selecting the voice the row already holds writes nothing and reports
-    `changed=False` — so a double-clicked picker is one audit row, not two. It still
-    republishes when the ENGINE is out of step (`live_tts_voice` differs), because that is
-    the one case where re-asserting the same voice is the whole point.
-    """
-    capability = voice_selection_capability()
-    if not capability.available:
-        raise engine_lacks("tts", engine=get_settings().engine)
-
-    voice = get_voice(voice_id)
-    if voice is None:
-        raise _refuse_unknown_voice(voice_id)
-
-    refusal = await _voice_refusal(voice, agent_id=agent_id, audience=audience)
-    if refusal is not None:
-        raise ProblemError(
-            kind="business_rule",
-            code="voice_not_available",
-            title="That voice cannot be used here",
-            # The ground itself, capitalised into a sentence. `voice_offer.py` writes its
-            # reasons lower-case and unpunctuated so a picker can complete "Cannot be
-            # chosen — {…}"; a problem+json `detail` is a sentence on its own.
-            detail=f"{refusal[:1].upper()}{refusal[1:]}.",
-            remediation=(
-                "Pick another voice, or ask us about this one."
-                if audience == "client"
-                else "Clear the ground named above, then set the voice again."
-            ),
-            fields=[
-                {"field": "voice_id", "rule": "not_offerable", "message": "Not available here."}
-            ],
-        )
-
-    async with tenant_session(tenant_id) as session:
-        row = (await session.execute(text(_VOICE_ROW_SQL), {"aid": agent_id})).first()
-        if row is None:
-            raise ProblemError.not_found("Agent")
-        status, engine_ref, current_voice, current_provider = (
-            str(row[0]),
-            row[1],
-            row[2],
-            row[3],
-        )
-        live_voice_id: str | None = row[4]
-        changed = (current_voice, current_provider) != (voice.id, voice.provider)
-        # `is_live`, never `published`: `publish_agent` writes `status = 'live'`, so
-        # republishing a PAUSED agent would put a switched-off phone line back into
-        # service as a side effect of a delivery change. The same guard, for the same
-        # reason, as `set_call_cap` and both notice toggles.
-        is_live = status == "live" and bool(engine_ref)
-        if changed:
-            await session.execute(
-                text(
-                    "UPDATE agents SET tts_voice = :voice, tts_provider = :provider, "
-                    "updated_at = now() WHERE id = :aid AND deleted_at IS NULL"
-                ),
-                {"voice": voice.id, "provider": voice.provider, "aid": agent_id},
-            )
-        # The engine is pushed when it is not already holding this voice — which covers
-        # the re-assertion case `changed` misses: an agent whose row was right and whose
-        # engine copy was not is exactly the agent a second click is trying to fix.
-        engine_synced = is_live and live_voice_id != voice.id
-        if engine_synced:
-            # Writes `live_tts_voice`/`live_tts_provider` itself, so the mirror below is
-            # read from the row rather than assumed from what we asked for.
-            await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
-            live_voice_id = (
-                await session.execute(
-                    text("SELECT live_tts_voice FROM agents WHERE id = :aid"), {"aid": agent_id}
-                )
-            ).scalar_one()
-
-    published = bool(engine_ref)
-    # Exact, not assumed. Null `live_tts_voice` on a published agent (published before
-    # migration c8b3f14e7a29, or with no voice) still asks for a republish — the safe
-    # direction, and the one a PAUSED agent lands in.
-    republish_required = published and live_voice_id != voice.id
-    # Catalogue ids and booleans. No prompt text and nothing about a caller (hard rule 6).
-    log.info(
-        "agent_voice_set",
-        extra={
-            "agent_id": str(agent_id),
-            "voice_id": voice.id,
-            "provider": voice.provider,
-            "changed": changed,
-            "engine_synced": engine_synced,
-            "republish_required": republish_required,
-        },
-    )
-    return VoiceWriteResult(
-        agent_id=agent_id,
-        voice=voice,
-        agent_status=status,
-        published=published,
-        engine_synced=engine_synced,
-        live_voice_id=live_voice_id,
-        republish_required=republish_required,
-        changed=changed,
-    )
-
-
 __all__ = [
     "DISCLOSURE_TOGGLES",
     "LANES",
@@ -1928,14 +1660,12 @@ __all__ = [
     "UndoResult",
     "VerificationState",
     "VoiceState",
-    "VoiceWriteResult",
     "apply_to_live",
     "audit_action_for",
     "engine_drift_for",
     "lane_of",
     "lanes",
     "pending_state_for",
-    "set_agent_voice",
     "set_call_cap",
     "set_disclosure_posture",
     "undo_staged",

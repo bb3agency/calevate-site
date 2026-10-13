@@ -64,7 +64,6 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
-from apps.api.core.settings import ENV_ONLY_FOREIGN_ENV
 from apps.api.core.stepup import StepUpGate
 from apps.api.ops.model_pricing import (
     PLAN_BILLED_TTS_PROVIDERS,
@@ -108,8 +107,8 @@ tts_router = APIRouter(prefix="/v1/ops/tts-prices", tags=["ops"])
 
 #: THE ENCODER PRICE'S OWN PREFIX, for `tts_router`'s reason and for one more of its own
 #: (D-608). The write is not a model price and must not be addressed as one — but the
-#: sharper problem is that an encoder identifier CONTAINS A SLASH: Google's OpenAI-
-#: compatibility surface lists its models as `models/gemini-embedding-2`, which is the
+#: sharper problem is that an encoder identifier MAY CONTAIN A SLASH: an OpenAI-
+#: compatibility surface can list its models as `models/<name>`, which is then the
 #: string the wire takes, the string the ledger records and therefore the string that has to
 #: be addressed. `POST /v1/ops/model-prices/{model}` cannot carry it (one path segment), and
 #: percent-encoding the slash was rejected outright: `%2F` inside a path is normalised or
@@ -118,8 +117,8 @@ tts_router = APIRouter(prefix="/v1/ops/tts-prices", tags=["ops"])
 #:
 #: REJECTED, and worth recording because it is the reflex: giving the encoder a URL-safe
 #: ALIAS and mapping it back. That would be a second vocabulary for one model — the ledger
-#: would name one thing, the console another — which is exactly what `pack_vectors
-#: .EMBEDDING_MODEL` refuses when it insists on metering under the wire spelling.
+#: would name one thing, the console another — which is why an encoder is metered under the wire
+#: spelling.
 embedding_router = APIRouter(prefix="/v1/ops/embedding-prices", tags=["ops"])
 
 GlobalSession = Annotated[AsyncSession, Depends(global_db)]
@@ -139,11 +138,12 @@ ModelId = Annotated[str, Path(max_length=64, pattern=r"^[a-z0-9][a-z0-9.\-]*$")]
 TtsProviderId = Annotated[str, Path(max_length=32, pattern=r"^[a-z][a-z0-9_]*$")]
 
 # An ENCODER identifier on the wire. `ModelId`'s character class plus ONE optional interior
-# slash, because that is the shape the two catalogue keys have (`models/gemini-embedding-2`,
-# `text-embedding-3-small`) and nothing wider. Bounded and character-classed for `ModelId`'s
-# reason — it is interpolated into a step-up string and an audit summary. It is NOT an
-# allow-list of the two known encoders: `attest_embedding_price` refuses an unknown one by
-# name, and a second copy of the catalogue here is the drift this route avoids.
+# slash, because that is the widest shape an encoder identifier takes on the wire
+# (`text-embedding-3-small`, or a vendor-prefixed `models/<name>`) and nothing wider.
+# Bounded and character-classed for `ModelId`'s reason — it is interpolated into a step-up
+# string and an audit summary. It is NOT an allow-list of the known encoders:
+# `attest_embedding_price` refuses an unknown one by name, and a second copy of the
+# catalogue here is the drift this route avoids.
 #
 # The pattern is what keeps `:path` honest: without it a `:path` parameter would accept
 # `../..` and any number of segments.
@@ -191,7 +191,7 @@ def embedding_attest_confirmation(model: str) -> str:
 
     ITS OWN PREFIX, not `attest_model_price:`, and the binding is the point: a header
     captured while pricing a chat model must not be replayable against the encoder that
-    decides how every published pack is built. A named function with a test pinning the
+    decides how every stored knowledge vector is built. A named function with a test pinning the
     literal, because it is an ops procedure a runbook prints.
     """
     return f"attest_embedding_price:{model}"
@@ -328,11 +328,9 @@ class TtsPriceOut(BaseModel):
     #: rather than being typed in the browser, so the console and the client's own screen
     #: cannot come to call one tier two things.
     tier_label: str
-    #: The synthesizer model this leg speaks with (`sonic-3.5`, `timbre-v2.5`) — the fact
-    #: that makes a price checkable against a vendor's price list, which is quoted per
-    #: model rather than per company. ⚠ The examples read `bulbul:v3, sonic-3.5` until
-    #: 19 Sep 2026; `bulbul:v3` left `agents/voices.TtsModel` with the Sarvam TTS leg
-    #: (D-629) and naming a withdrawn model here sends an operator to the wrong price list.
+    #: The synthesizer model this leg speaks with (`sonic-3.5`) — the fact that makes a
+    #: price checkable against a vendor's price list, which is quoted per model rather than
+    #: per company.
     tts_model: str
     #: Is a key for this vendor installed on this deployment? Ground 1 of the picker's
     #: three (`agents/voice_offer`), reported here because a price attested against a
@@ -367,29 +365,10 @@ class TtsPriceOut(BaseModel):
     #: THIS TREE'S OWN figure, pre-filled into the form GREYED and labelled "confirm
     #: against your vendor invoice". Never authoritative: Cartesia's is the vendor's
     #: marginal overage rate, which is why hard rule 7 keeps it out of `unit_cost_paid`
-    #: (`ops/model_pricing.reference_tts_price`). ⚠ This also named SARVAM's published list
-    #: rate until 19 Sep 2026; that leg was withdrawn (D-629) and this panel has no row for
-    #: it. Gnani's arm answers `null` today for the reason D-632 records, not for want of a
-    #: published price (D-631).
-    #:
-    #: ⚠ **`null` WHEN THIS TREE HOLDS NO REFERENCE FIGURE FOR THE PROVIDER (D-618).**
-    #: ⚠ **THIS SAID "Gnani publish no figure at all" AND THAT WAS FALSE (D-631,
-    #: 19 Sep 2026)** — their console publishes ₹27.00 / 10,000 characters
-    #: (`app.gnani.ai/voice/pricing`, founder-read and relayed; VENDOR-PUBLISHED). The
-    #: nullability stays, because what it models is whether THIS deployment can pre-fill a
-    #: figure, not whether a vendor published one: the alternative it exists to refuse — a
-    #: forced non-null string — could only ever have been another vendor's number wearing
-    #: this one's name. Whether the Gnani arm returns a figure is
-    #: `ops/model_pricing.reference_tts_price`'s to decide, and it is held back by
-    #: `check_model_lifecycle.tts_choosable`, not by anything about the vendor.
+    #: (`ops/model_pricing.reference_tts_price`).
+    #: `null` when this tree holds no reference figure for the provider: the alternative, a
+    #: forced non-null string, could only ever be another vendor's number under this name.
     reference_inr_per_1k_chars: str | None
-    #: True when the credential for this provider is held in ANOTHER deployment's
-    #: environment, so `credential_installed` is structurally False here and says nothing
-    #: (D-618, `core/settings.ENV_ONLY_FOREIGN_ENV`). Gnani's key lives in the
-    #: `calevate-pipecat-worker-secrets` secret set; this process holds no Gnani client to
-    #: give one to. Without this the panel would tell an operator who HAS attested a Gnani price
-    #: that the tier is still not offerable, and point them at a box that can never fill.
-    credential_held_elsewhere: bool = False
 
 
 class EmbeddingPriceOut(BaseModel):
@@ -428,9 +407,9 @@ class EmbeddingPriceOut(BaseModel):
     attested_by: str | None
     source_note: str | None
     #: The CATALOGUE's own input price, pre-filled into the form GREYED.
-    #: `reference_verified` is False for BOTH encoders today — Google's page is
-    #: egress-blocked from this deployment and OpenAI's was never read — so the label reads
-    #: "unverified — confirm against your vendor invoice" on both.
+    #: `reference_verified` is False for every encoder today — OpenAI's price page was
+    #: never read from this deployment — so the label reads "unverified — confirm against
+    #: your vendor invoice".
     reference_input_usd_per_mtok: str
     reference_verified: bool
 
@@ -453,8 +432,8 @@ class EmbeddingPriceAttestIn(BaseModel):
     #: When this price becomes authoritative. Omit for "from now on"; supply an earlier
     #: instant to correct the record for a period already elapsed. MUST be timezone-aware.
     effective_from: datetime | None = None
-    #: WHERE the figure came from, in the operator's words — "Google Cloud billing export
-    #: 2026-09, gemini-embedding-2 input tokens". It is the evidence that makes this an
+    #: WHERE the figure came from, in the operator's words — "Azure billing export
+    #: 2026-09, text-embedding-3-small input tokens". It is the evidence that makes this an
     #: attestation rather than a guess, and the reason recorded in `audit_log`.
     source_note: str = Field(min_length=3, max_length=500)
 
@@ -490,7 +469,7 @@ class ModelPricesOut(BaseModel):
 
     prices: list[ModelPriceOut]
     #: The VOICE tiers, on the same read as the models. One row per member of
-    #: `ops/model_pricing.TTS_PROVIDERS` — two — in catalogue order, never a shorter list:
+    #: `ops/model_pricing.TTS_PROVIDERS`, in catalogue order, never a shorter list:
     #: a panel that omitted the tier nobody has priced would hide the one row that needs
     #: an operator.
     tts_prices: list[TtsPriceOut]
@@ -823,36 +802,10 @@ def _tts_credential_installed(provider: str) -> bool:
     """Is a key for this voice vendor installed HERE?
 
     Cartesia goes through `agents/voice_offer.cartesia_credential_installed` — the picker's
-    own ground 1, so the panel and the picker cannot disagree about a key. ⚠ The fall-through
-    that read `sarvam_api_key` is gone with the Sarvam TTS leg (18 Sep 2026); that key is
-    still set and still used, by the STT leg, which this panel has never had a row for.
-
-    **FALSE, PERMANENTLY AND CORRECTLY, FOR A KEY HELD IN ANOTHER ENVIRONMENT** — see
-    `_tts_credential_held_elsewhere`, which is what stops that False being read as a fault.
+    own ground 1, so the panel and the picker cannot disagree about a key.
     """
-    # ⚠ **KEYED ON THE `Settings` FIELD, NOT ON THE BARE PROVIDER, AND IT WAS NOT BEFORE.**
-    # `ENV_ONLY_FOREIGN_ENV` is keyed `"<provider>_api_key"`, so `provider in ...` never
-    # matched and Gnani fell through to the arm below. That arm read `sarvam_api_key`, which
-    # is empty on most deployments, so the wrong branch returned the right answer by
-    # accident — until the Sarvam TTS leg was withdrawn (18 Sep 2026) and the fall-through
-    # became Cartesia's key, at which point Gnani started reporting a credential it does not
-    # have. `_tts_credential_held_elsewhere` below always used the correct key; the two now
-    # agree, which is the point of deriving both from that one mapping.
-    if f"{provider}_api_key" in ENV_ONLY_FOREIGN_ENV:
-        return False
+    del provider
     return cartesia_credential_installed()
-
-
-def _tts_credential_held_elsewhere(provider: str) -> bool:
-    """Does this provider's key live in a DIFFERENT deployment's environment? (D-618)
-
-    Derived from `core/settings.ENV_ONLY_FOREIGN_ENV` — the same mapping the config panel
-    renders "the Pipecat Cloud secret set `calevate-pipecat-worker-secrets`" from — so
-    the two screens cannot come to disagree about where a credential lives. Keyed on the
-    `Settings` field name rather than on the provider, because that mapping is the
-    authority and a second `provider == "gnani"` here would be the copy that drifts.
-    """
-    return f"{provider}_api_key" in ENV_ONLY_FOREIGN_ENV
 
 
 def _tts_row(
@@ -861,7 +814,6 @@ def _tts_row(
     *,
     billable: bool,
     credential_installed: bool,
-    credential_held_elsewhere: bool,
 ) -> TtsPriceOut:
     # "Would this leg be unbillable with nothing attested?" — asked of the one function
     # that states which legs carry a cost of their own (`default_tts_price_is_billable`,
@@ -869,7 +821,7 @@ def _tts_row(
     #
     # ⚠ **NO LEG SATISFIES IT TODAY AND THE SEAM STAYS (18 Sep 2026).** The engine-metered
     # Sarvam synthesizer leg was the only one that ever did, and it was withdrawn; both
-    # survivors are BYOK and the engine reports ₹0 for them. So the sentence below is
+    # remaining leg is BYOK and the engine reports ₹0 for it. So the sentence below is
     # currently never rendered. Asking the one function rather than hard-coding `None` is
     # what makes this screen correct again by itself the day a metered leg returns.
     leg = cast("VoiceProvider", provider)
@@ -881,7 +833,7 @@ def _tts_row(
         credential_installed=credential_installed,
         price_attested=attested is not None,
         price_billable=billable,
-        offerable=(credential_installed or credential_held_elsewhere) and billable,
+        offerable=credential_installed and billable,
         billable_without_attestation_reason=(
             None if needs else BILLABLE_WITHOUT_ATTESTATION_REASON
         ),
@@ -893,18 +845,17 @@ def _tts_row(
         reference_inr_per_1k_chars=(
             str(reference) if (reference := reference_tts_price(provider)) is not None else None
         ),
-        credential_held_elsewhere=credential_held_elsewhere,
     )
 
 
 async def _tts_rows(session: AsyncSession, *, at: datetime) -> list[TtsPriceOut]:
-    """Both voice tiers, in catalogue order, each with its verdict.
+    """Each voice tier, in catalogue order, with its verdict.
 
     The credential is read from settings (the ops console's encrypted store is overlaid
     onto them), which is where the engine adapter would read the key from — never a second
     notion of "installed".
 
-    ONE read of the price table for both rows, and the billable verdict comes from
+    ONE read of the price table for every row, and the billable verdict comes from
     `tts_price_is_billable` — the one door — rather than from `provider in attested`, which
     would be a second spelling of the rule and would report the Sarvam tier as unbillable
     the moment somebody read this file instead of that one.
@@ -916,7 +867,6 @@ async def _tts_rows(session: AsyncSession, *, at: datetime) -> list[TtsPriceOut]
             attested.get(provider),
             billable=await tts_price_is_billable(session, provider=provider, at=at),
             credential_installed=_tts_credential_installed(provider),
-            credential_held_elsewhere=_tts_credential_held_elsewhere(provider),
         )
         for provider in TTS_PROVIDERS
     ]
@@ -1055,7 +1005,7 @@ async def attest_model_price(
         "leg and the column is stored NULL. Until this exists, a client's uploaded knowledge "
         "is indexed by word-matching only — nothing is embedded, nothing is charged, and "
         "the panel says so with its ground. The model identifier is sent VERBATIM and may "
-        "contain a slash (`models/gemini-embedding-2`)."
+        "contain one interior slash (a vendor-prefixed `models/<name>`)."
     ),
 )
 async def attest_embedding_model_price(
@@ -1124,10 +1074,10 @@ async def attest_embedding_model_price(
         },
     )
     # AFTER the request's transaction commits, so the new price reaches
-    # `billing/rates.llm_price_is_billable` — which is what `kb/pack_vectors
-    # .pack_embedding_is_billable` and `retrieval/embedding.embedding_price_is_billable` ask
-    # before they address a provider — on the next publish rather than a poll interval
-    # later. `attest_model_price`'s shape, survivable if it fails because the 30s poll is
+    # `billing/rates.llm_price_is_billable` — which `retrieval/embedding.
+    # embedding_price_is_billable` asks before it addresses a provider — on the next request
+    # rather than a poll interval later. `attest_model_price`'s shape, survivable if it fails
+    # because the 30s poll is
     # the guarantee.
     tasks.add_task(refresh_pricing_snapshot)
     at = datetime.now(UTC)
@@ -1233,7 +1183,6 @@ async def attest_voice_price(
             current,
             billable=await tts_price_is_billable(session, provider=provider, at=at),
             credential_installed=_tts_credential_installed(provider),
-            credential_held_elsewhere=_tts_credential_held_elsewhere(provider),
         ),
         as_of=at.isoformat(),
     )

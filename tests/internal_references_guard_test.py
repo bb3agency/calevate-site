@@ -53,7 +53,7 @@ CLIENT_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "a vendor",
         re.compile(
-            r"\b(?:sarvam|cartesia|bulbul|saaras|sonic|gnani|timbre|vobiz|plivo|pipecat"
+            r"\b(?:sarvam|cartesia|saaras|sonic|plivo"
             r"|thinnest(?:ai)?|bolna|exotel)\b",
             re.I,
         ),

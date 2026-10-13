@@ -243,9 +243,9 @@ function RateCardTable({ card }: { card: RateCard }) {
                       </>
                     ) : null}
                   </td>
-                  {/* The RUNG, not a vendor: which company speaks a rung depends on the
-                      engine (D-687 put ThinnestAI's studio band behind Clear on one engine
-                      and Gnani is behind it on the other), and this card prices the rung. */}
+                  {/* The RUNG, not a vendor: which company speaks a rung is a setting
+                      (D-688: the Clear band is chosen in the console), and this card prices
+                      the rung. */}
                   <td className="py-2 pr-4 text-ink-muted">{cell.tier_label}</td>
                   <td className="py-2 pr-4 text-right tabular-nums text-ink">
                     {formatRupeeRate(cell.inr_per_min)}

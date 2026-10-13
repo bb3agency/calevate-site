@@ -3,18 +3,17 @@
 The concurrency doctrine, in the order FLOWS §5 states it, because one client's
 campaign must never starve another's inbound receptionist:
 
-1. `Settings.carrier_concurrency`, the lines the carrier account carries
-2. minus the inbound reserve (`engine/carrier_pacing.inbound_line_reserve`) → the
-   OUTBOUND pool (`engine/carrier_pacing.outbound_line_pool`)
+1. the lines the engine account carries (`engine/dial_lines.engine_concurrency_cap`)
+2. minus the inbound reserve (`engine/dial_lines.inbound_line_reserve`) → the
+   OUTBOUND pool (`engine/dial_lines.outbound_line_pool`)
 3. per-tenant `concurrency_ceiling` (plans row), CLAMPED to that outbound pool —
    a ceiling above the pool is not a ceiling (`_tenant_ceiling`)
 4. per-campaign slider ≤ tenant ceiling
 
 This tick's arithmetic is the BUDGET; the ENFORCEMENT is the line check inside every
-dial's intent transaction (`agents.service.dispatch_call`), which counts both directions
-on the carrier and covers the dials this tick does not make (the "call this lead" button,
-lead ingest). Active-call counts come from OUR `calls` table (status
-queued/ringing/in_progress), which the carrier callbacks keep current.
+dial's intent transaction (`agents.service.dispatch_call`), which covers the dials this
+tick does not make (the "call this lead" button, lead ingest). Active-call counts come from
+OUR `calls` table (status queued/ringing/in_progress).
 
 TWO GATES RUN HERE, and they answer different questions:
 
@@ -97,7 +96,6 @@ from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.agents.service import (
     UNCONFIRMED_ENGINE_CALL_PREFIX,
     DialUnconfirmedError,
-    carrier_lines_in_use,
     dial_was_not_placed,
     dispatch_call,
 )
@@ -131,17 +129,12 @@ from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.engine.carrier_pacing import (
-    dial_backoff_remaining_s,
-    dials_through_our_carrier,
-    outbound_line_pool,
-)
+from apps.api.engine.dial_lines import dial_backoff_remaining_s, outbound_line_pool
 
 # OUR normalized engine error, not a vendor payload shape — hard rule 2 bounds what
 # may cross this line and an HTTP status is on the safe side of it.
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.integrations import service as integrations
-from apps.api.worker.service import POSTCALL_DEDUPE_PREFIX
 
 # The call-back pass this tick runs (D-514). NOT an arq job of its own, and the reason is
 # the shared outbound pool: a call-back and a campaign contact compete for the same
@@ -574,23 +567,16 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
         started += started_here
         running.extend(planned)
 
-    # Rule 1+2: what is left of the shared pool after the lines already in use. On the
-    # owned runtime that count is the carrier's, both directions (`carrier_lines_in_use`):
-    # an inbound caller on the line is a line this tick cannot have. The larger of the two
-    # counts wins, because over-counting idles a line for one tick and under-counting
-    # sends a dial the line check in `dispatch_call` will refuse.
-    #
-    # The carrier REFUSES a dial over the account's concurrency (`429`,
-    # `vobiz-findings/mirror/pages/call/make-call.md:134`) and an inbound caller over it is
-    # turned away, so this budget is what keeps campaigns from eating the receptionist's
-    # line; the per-dial check is what makes it hold for dials this tick does not make.
-    in_use = await carrier_lines_in_use() if dials_through_our_carrier() else 0
-    global_budget = max(0, pool - max(total_active, in_use))
+    # Rule 1+2: what is left of the shared pool after the lines already in use. The
+    # engine's account refuses a dial over its ceiling (`429`), so this budget is what keeps
+    # campaigns from eating the receptionist's line; the per-dial check in `dispatch_call`
+    # is what makes it hold for dials this tick does not make.
+    global_budget = max(0, pool - total_active)
     # An engine that answered a dial with `429` for its own call ceiling is held off for the
-    # vendor's `Retry-After` (`carrier_pacing.start_dial_backoff`). Claiming contacts into
+    # vendor's `Retry-After` (`dial_lines.start_dial_backoff`). Claiming contacts into
     # that window would only refund each one to a thirty-minute wait, so the tick spends
     # nothing; the call-back pass below still runs at zero budget to settle what finished.
-    # Always 0.0 on an engine without its own ceiling, so the carrier path is unchanged.
+    # Always 0.0 on an engine without its own ceiling.
     if global_budget and await dial_backoff_remaining_s() > 0:
         global_budget = 0
 
@@ -1608,14 +1594,11 @@ async def _reap_stuck_dialing(
 UNANSWERED_SETTLE_AFTER = timedelta(minutes=2)
 
 #: The same wait for a call that ended `failed`. Longer, because `failed` is also the status
-#: of a call whose hang-up cause we do not map — including one somebody answered — and a
-#: worker that died mid-call is finalised only after `call_finalise`'s grace. Settling it
-#: on the ladder first would ring back a person who was spoken to.
+#: of a call whose hang-up cause we do not map — including one somebody answered — and
+#: settling it on the ladder first would ring back a person who was spoken to.
 FAILED_SETTLE_AFTER = timedelta(minutes=20)
 
-#: Contacts dialling a call that ended unanswered and that no post-call pipeline has
-#: claimed. The outbox row keyed `post-call:{calls.id}` is the claim
-#: (`worker/service.settle_call`); while it exists the pipeline owns the contact.
+#: Contacts dialling a call that ended unanswered.
 _UNANSWERED_DIALS_SQL = text(
     "SELECT cc.id, cc.attempts FROM campaign_contacts cc "
     "JOIN calls c ON c.id = cc.last_call_id "
@@ -1625,8 +1608,6 @@ _UNANSWERED_DIALS_SQL = text(
     "   AND c.updated_at < now() - make_interval(secs => :unanswered)) "
     "  OR (c.status = 'failed' AND c.updated_at < now() - make_interval(secs => :failed))"
     ") "
-    "AND NOT EXISTS (SELECT 1 FROM outbox_messages o "
-    "  WHERE o.dedupe_key = :prefix || c.id::text) "
     "FOR UPDATE OF cc SKIP LOCKED"
 )
 
@@ -1651,7 +1632,6 @@ async def _settle_unanswered_dials(
                 "cid": campaign_id,
                 "unanswered": UNANSWERED_SETTLE_AFTER.total_seconds(),
                 "failed": FAILED_SETTLE_AFTER.total_seconds(),
-                "prefix": POSTCALL_DEDUPE_PREFIX,
             },
         )
     ).all()

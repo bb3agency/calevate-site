@@ -46,10 +46,9 @@ a screen and a test cannot disagree about what "thin" means:
 * **below cost is a REFUSAL** — `card_refusals` names it, `tests/credit_packs_test.py`
   fails on it, and the ops console will not write a card containing it.
 * **below `MIN_GROSS_MARGIN` is a WARNING.** The founder's card of 11 Oct 2026 (D-728:
-  Clear ₹4.50, Studio ₹6.00, flat) earns against each engine's floor:
+  Clear ₹4.50, Studio ₹6.00, flat) earns against the engine's floor:
 
       ThinnestAI  Clear 38.9% (₹2.75)    Studio 21.5% (₹4.7099)
-      Pipecat     Clear 18.0% (₹3.6891)  Studio 12.5% (₹5.2499, carrier included)
 
   Nothing is below COST. The thin cells are a deliberate opening price, not a defect.
   ⚠ **DO NOT "FIX" A THIN CELL BY MOVING A RATE** — that is a pricing decision, not a test
@@ -132,11 +131,9 @@ class CreditPack:
     pack_id: str
     #: What the client pays, in rupees. Equal to the credits granted (1 credit = ₹1).
     amount_inr: Decimal
-    #: ₹/min for a call taken by an agent on the CLEAR rung. ⚠ This line named a VENDOR
-    #: ("the Sarvam (Bulbul v3) voice") until 19 Sep 2026, and by then the vendor was
-    #: wrong: the Sarvam TTS leg was withdrawn on 18 Sep and Gnani `timbre-v2.5` serves
-    #: this rung (D-629). A pack sells a RUNG — which vendor speaks it is ours to change
-    #: and has changed once already — so the field is documented by what the client bought.
+    #: ₹/min for a call taken by an agent on the CLEAR rung. A pack sells a RUNG — which
+    #: vendor speaks it is ours to change — so the field is documented by what the client
+    #: bought.
     clear_inr_per_min: Decimal
     #: ₹/min for a call taken by an agent on the STUDIO rung (Cartesia Sonic 3.5 today).
     #: Never below the Clear rate — invariant 6, checked by `card_refusals`.

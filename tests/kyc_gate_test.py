@@ -374,7 +374,7 @@ async def test_the_unimplemented_claim_is_a_constant_not_a_comment() -> None:
 
     assert provisioning.PROVISIONING_IMPLEMENTED is False
     # **STILL FALSE AFTER D-537, AND THE REASON IS WORTH PINNING.** It marks a
-    # CARRIER-DIRECT adapter — an Exotel or Plivo client holding that carrier's auth id
+    # CARRIER-DIRECT adapter — a carrier client holding that carrier's auth id
     # and token — and none was written: the numbers this product now buys are bought
     # THROUGH THE VOICE ENGINE, on the engine's own carrier account. Two other modules
     # rest on "this repository holds no telephony credential of any kind" and stay true.

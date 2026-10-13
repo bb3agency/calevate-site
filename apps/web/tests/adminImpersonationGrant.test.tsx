@@ -15,7 +15,6 @@ import { OWNER_JOINED } from "./businessProfileFixture";
 import { noReply, problem, stubApi } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import {
-  KB_ALL_DELIVERED,
   WHATSAPP_NEVER_ASKED,
   adminOverviewSummaryReads,
 } from "./fixtures/sharedReads";
@@ -43,11 +42,6 @@ const TENANT_PATH = `/v1/admin/tenants/${TENANT}`;
 const IMPERSONATED = [
   "/v1/kb/sources?status=pending_approval",
   "/v1/kb/sources?status=approved",
-  // Whether the published knowledge actually reached each agent
-  // (`KnowledgeDeliveryPanel`). A client-realm READ taken through the impersonated
-  // session on purpose — the operator must see the client's own answer, not a parallel
-  // one — so it needs the grant exactly like the two queue reads above it.
-  "/v1/kb/delivery",
   // The agents, numbers, templates and spend-cap reads left the overview with their panels
   // (D-661: Agents, Compliance › Campaign setup, Money › Spend); the grant rule is unchanged.
   // The health summary at the top of the overview (redesign #2) reads the client's own
@@ -121,7 +115,6 @@ function routes(): Routes {
     } satisfies Margin,
     "/v1/kb/sources?status=pending_approval": [],
     "/v1/kb/sources?status=approved": [],
-    "/v1/kb/delivery": KB_ALL_DELIVERED,
     [`${TENANT_PATH}/whatsapp-alerts`]: WHATSAPP_NEVER_ASKED,
     ...adminOverviewSummaryReads(TENANT),
     "/v1/agents": [],

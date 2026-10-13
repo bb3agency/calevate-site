@@ -94,7 +94,7 @@ async def test_a_minute_is_metered_at_the_posted_rate_plus_the_one_fee(
     expected = ("1.2795", "3.8385", "2.5590")
     on_band(band)
     assert thinnest_topup_fee() == topup_fee("thinnest") == Decimal(fee)
-    assert topup_fee("pipecat") == 0
+    assert topup_fee("fake") == 0
     at = await _attest_platform("2.50")
     tenant_id, _agent = await _seed_tenant(f"fee_{uuid.uuid4().hex[:10]}")
     for (seconds, _qty, _cost, _charge), want in zip(PRODUCTION_CALLS, expected, strict=True):
@@ -395,7 +395,7 @@ async def test_a_minute_never_restated_is_restated_at_the_stated_fee(
         return tenant_id if agent_ref == ref else None
 
     async def _only_this_tenant(engine_name: str) -> int:
-        assert await real_restate("pipecat") == 0
+        assert await real_restate("fake") == 0
         written = await engine_charges.restate_tenant_minutes(tenant_id, fee=topup_fee(engine_name))
         return len(written)
 
@@ -424,7 +424,7 @@ async def test_the_restatement_walks_every_tenant_on_the_engine(on_band: Any) ->
     assert await engine_charges.restate_minutes_without_fee("thinnest") >= 3
     after = await _ledger(tenant_id)
     assert len(after["restated"]) == 3
-    assert await engine_charges.restate_minutes_without_fee("pipecat") == 0
+    assert await engine_charges.restate_minutes_without_fee("fake") == 0
 
 
 # --- the correction to 2.36% (12 Oct 2026) -------------------------------------------------
@@ -565,4 +565,4 @@ async def test_the_correction_walks_every_tenant_on_the_engine(on_band: Any) -> 
     await engine_charges.restate_tenant_minutes(tenant_id, fee=Decimal("0.10"))
     assert await engine_charges.correct_overstated_fees("thinnest") >= 3
     assert len(await _corrections(tenant_id)) == 3
-    assert await engine_charges.correct_overstated_fees("pipecat") == 0
+    assert await engine_charges.correct_overstated_fees("fake") == 0

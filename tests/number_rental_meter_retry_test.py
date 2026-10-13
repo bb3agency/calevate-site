@@ -21,7 +21,7 @@ def failing_meter(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     alarms: list[str] = []
 
     async def _estate() -> list[tuple[Any, ...]]:
-        return [(uuid.uuid4(), uuid.uuid4(), "plivo", Decimal("1.00"), None)]
+        return [(uuid.uuid4(), uuid.uuid4(), "thinnest", Decimal("1.00"), None)]
 
     async def _record(*_a: Any, **_kw: Any) -> Any:
         raise RuntimeError("database went away")

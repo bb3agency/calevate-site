@@ -73,9 +73,10 @@ operator-readable sentence plus the per-property verdicts (`prompt_applied`,
   prompt-length ceiling truncating the tail. **Pause the agent, then choose a direction.**
 * **The sentence says "published before that rule existed (D-674)"** — the confidentiality
   rule is the only property missing. Not a breach and not a vendor edit: every agent
-  published before D-674 holds a prompt composed without it. **Republish the agent.** The
-  voice worker's output guard protects its calls meanwhile. If the sentence instead lists
-  the confidentiality rule among several properties, read the others first.
+  published before D-674 holds a prompt composed without it. **Republish the agent.**
+  Until then no other layer keeps it from repeating its instructions (ThinnestAI runs the
+  call, so there is no output guard of ours). If the sentence instead lists the
+  confidentiality rule among several properties, read the others first.
 * `disclosure_applied: false` — **treat as an incident, not a config drift.** Hard rule 5
   is the second property here with a legal consequence. Since D-163 it reads BOTH ways:
   on an agent whose owner switched a notice OFF, `false` means the vendor is still

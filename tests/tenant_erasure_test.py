@@ -1,8 +1,8 @@
 """TENANT erasure — the writer `organizations.deleted_at` never had (FLOWS §9, D-120).
 
-`tests/tenant_birth_known_gaps_test.py` recorded the gap: nine readers, no writer, so
+The gap: nine readers, no writer, so
 "erase this whole client" had no execution path and a column of load-bearing behaviour
-was unreachable. That entry is deleted in this change, which is what these tests are for.
+was unreachable.
 
 What is asserted here, in the order it matters:
 
@@ -758,11 +758,10 @@ async def test_an_erased_tenant_records_no_further_inbound_call() -> None:
     engine_clause = next(
         line for line in proof["limitations"] if "voice platform" in line and "manual" in line
     )
-    # What the owned runtime does (refuses the call) and what it cannot (release the number,
-    # stop a third-party platform's agent) are both stated.
-    assert "does not reach an answering agent" in engine_clause
+    # What the erasure cannot do (release the number, stop the voice platform's agent) is
+    # stated.
     assert "numbers are not released" in engine_clause
-    assert "answers until it is retired" in engine_clause
+    assert "answers on the voice platform until it is retired" in engine_clause
 
 
 @pytest.mark.anyio
@@ -828,19 +827,17 @@ async def test_the_written_request_names_the_clients_knowledge_bases_too() -> No
 
 
 @pytest.mark.anyio
-async def test_a_pipecat_tenant_erasure_completes_and_files_the_carrier_request() -> None:
-    """THE BLOCKER AND THE GAP, on the engine that runs calls.
+async def test_a_former_own_runtime_tenant_erasure_completes_and_files_the_carrier_request() -> (
+    None
+):
+    """Rows our own runtime wrote before D-763 still erase, and the carrier is still asked.
 
-    The blocker: every `engine_agent_routes` ref was quoted into a vendor task, and a
-    Pipecat ref is `pipecat:<tenant>:<agent>` — not id-shaped — so the task INSERT raised
-    and the whole tenant erasure rolled back. Those refs name rows in our own database.
-
-    The gap: nothing opened a `telephony` task, so the carrier's records of every call it
-    connected were named on no operator's list. And speech and language were opened only
-    when a third-party engine ref existed, which on Pipecat is never — although every
-    Pipecat call sends audio and turns to both.
+    A `pipecat` route ref is `pipecat:<tenant>:<agent>`, not id-shaped, and names rows in our
+    own database, so it must never be quoted into a vendor task (quoting it once raised and
+    rolled the whole tenant erasure back). The carrier that connected those calls keeps its
+    own records of them, so a `telephony` task quotes every carrier call id; and speech and
+    language are opened because every such call sent audio and turns to both.
     """
-    from calevate_shared.engine import pipecat_call_ref
 
     tenant_id, agent_id, _ = await _tenant()
     call_id = uuid.uuid4()
@@ -865,7 +862,7 @@ async def test_a_pipecat_tenant_erasure_completes_and_files_the_carrier_request(
                 "id": call_id,
                 "t": tenant_id,
                 "a": agent_id,
-                "e": pipecat_call_ref(tenant_id, call_id),
+                "e": f"pipecat:{tenant_id}:{call_id}",
                 "c": carrier_call_id,
             },
         )

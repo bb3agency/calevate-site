@@ -7,7 +7,7 @@
     POST /v1/admin/tenants/{tenant_id}/kyc/digilocker-requirement   require or clear DigiLocker
 
 `admin:tenants`, tenant in the PATH, and every write done inside `tenant_session(tenant_id)`,
-the shape `carrier_application_routes` and `record_kyc_verification` share. Every action is
+the shape `record_kyc_verification` shares. Every action is
 audited; every read of one client's rows records an admin tenant read.
 
 NO STEP-UP, deliberately, matching `record_kyc_verification`: each of these is reversible on

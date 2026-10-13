@@ -41,12 +41,13 @@ from apps.api.core.redis import get_redis
 from apps.api.db.session import get_engine as get_db_engine
 from apps.api.db.session import untenanted_session
 from apps.api.engine import vendor_http
-from apps.api.engine.cartesia import CartesiaEngine
 from apps.api.engine.fake import (
     DEFAULT_FAKE_CAPABILITIES,
     EXTERNAL_DEPLOYMENT_CAPABILITIES,
     FakeEngine,
 )
+from apps.api.engine.thinnest import BASE_URL as THINNEST_BASE_URL
+from apps.api.engine.thinnest import ThinnestEngine
 from apps.api.reliability import service as reliability
 from apps.api.reliability.service import body_hash
 from calevate_shared.engine import (
@@ -80,10 +81,10 @@ ATTACKER_IP = "203.0.113.9"
 EDGE_PROXY_IP = "127.0.0.1"
 
 HOOK = "/hooks/v1/engine/fake"
-#: A signing engine's hook. The receiver refuses every delivery to it (`engine_intake`'s
-#: `hmac` branch: no verifier is implemented), which makes it the refusal path these tests
-#: can drive now that no engine is authenticated by source address.
-SIGNED_HOOK = "/hooks/v1/engine/cartesia"
+#: A signing engine's hook. The receiver refuses an unsigned delivery to it, which makes it
+#: the refusal path these tests can drive now that no engine is authenticated by source
+#: address.
+SIGNED_HOOK = "/hooks/v1/engine/thinnest"
 
 
 # =============================================================================
@@ -456,7 +457,7 @@ class _AcceptsAVoiceItSaysItCannotSpeak(FakeEngine):
     """Declares that the ENGINE dictates TTS, then accepts our voice anyway.
 
     THE headline failure this slice exists to remove, staged. Nothing errors: the
-    operator picks Bulbul v3, the row saves, the publish returns 200, and the caller
+    operator picks a voice, the row saves, the publish returns 200, and the caller
     hears the engine's own voice forever. Every screen goes on reporting the voice that
     was chosen, because from our side nothing ever said otherwise.
     """
@@ -681,19 +682,27 @@ async def test_the_conformance_suite_rejects_a_deliberately_broken_adapter(
 LADDER_PARAM = "ladder"
 
 
-class _DriftedLadder(CartesiaEngine):
-    """A real HTTP adapter whose transport ladder has drifted back to where it was.
+class _DriftedLadder(ThinnestEngine):
+    """A real HTTP adapter whose transport ladder has drifted back to the pre-D-240 shape:
+    no 429 handling at all, and a 2xx whose body will not parse collapsed into `{}`.
 
-    This is not an invention: it is `cartesia._request` as it stood before D-240 —
-    no 429 handling at all, and a 2xx whose body will not parse collapsed into `{}`. It
-    is kept as a saboteur rather than deleted with the bug because the transport clauses
+    It is kept as a saboteur because the transport clauses
     are the only thing standing between a future adapter and the same two answers, and a
     clause nothing can fail is not a clause.
     """
 
     async def _request(
-        self, method: str, path: str, *, absent_is_success: bool = False, **kwargs: Any
+        self,
+        method: str,
+        path: str,
+        *,
+        route: str,
+        workspace: str | None,
+        absent_is_success: bool = False,
+        extra_refused_statuses: frozenset[int] = frozenset(),
+        **kwargs: Any,
     ) -> dict[str, Any]:
+        del route, workspace, extra_refused_statuses
         try:
             response = await self._http().request(method, path, **kwargs)
         except httpx.HTTPError as exc:
@@ -719,12 +728,11 @@ class _DriftedLadder(CartesiaEngine):
         return payload if isinstance(payload, dict) else {"data": payload}
 
 
-def _drifted_ladder(handler: Callable[[httpx.Request], httpx.Response]) -> CartesiaEngine:
+def _drifted_ladder(handler: Callable[[httpx.Request], httpx.Response]) -> ThinnestEngine:
     return _DriftedLadder(
         api_key="test-key",
-        from_number_id="num_test",
         client=httpx.AsyncClient(
-            base_url="https://api.cartesia.test", transport=httpx.MockTransport(handler)
+            base_url="https://api.thinnest.test", transport=httpx.MockTransport(handler)
         ),
     )
 
@@ -967,7 +975,7 @@ async def test_the_fake_engine_hook_is_closed_when_the_deployment_runs_a_real_en
 ) -> None:
     """`verify_source` accepts the `fake` engine from ANY source IP — correct for local
     work, catastrophic in production. The route is mounted in every environment, so on
-    a prod box running ENGINE=cartesia a stranger can still POST `/hooks/v1/engine/fake`
+    a prod box running ENGINE=thinnest a stranger can still POST `/hooks/v1/engine/fake`
     and get an inbox claim, a forensic row and an ARQ job for free.
 
     An unauthenticated queue-write is exactly the thing hard rule 3's verification step
@@ -978,7 +986,7 @@ async def test_the_fake_engine_hook_is_closed_when_the_deployment_runs_a_real_en
     monkeypatch.setattr(
         engine_intake,
         "get_settings",
-        lambda: real_settings.model_copy(update={"engine": "cartesia"}),
+        lambda: real_settings.model_copy(update={"engine": "thinnest"}),
     )
 
     execution_id, _status, body = _event()
@@ -1166,11 +1174,10 @@ async def test_a_rejected_caller_is_named_in_the_alert(caplog: pytest.LogCapture
 
 #: Every module under `apps.api.engine`, GLOBBED off the tree rather than typed out.
 #:
-#: The list this replaces named `bolna` and `fake` and had never learned about
-#: `cartesia` (P2.6) — a hand-written enumeration of a set that grows, which is the drift
-#: class D-103 exists for and which is invisible precisely because the missing entry is
-#: the one nobody thought about. A third adapter could have leaked into the ack path and
-#: this assertion would have stayed green.
+#: A hand-written list here once missed an adapter (P2.6) — a hand-written enumeration
+#: of a set that grows, which is the drift class D-103 exists for and which is invisible
+#: precisely because the missing entry is the one nobody thought about. Another adapter
+#: could have leaked into the ack path and this assertion would have stayed green.
 #:
 #: The whole PACKAGE, not just the adapters: `apps.api.engine.__init__` builds them, so
 #: importing any submodule pulls httpx and the vendor clients into a process that must
@@ -1566,36 +1573,6 @@ _VENDOR_ONLY_KEYS = frozenset(
         # the currency; ours are `listed_call_tier` and `listed_price_per_minute`.
         "callPricePerMinuteMicro",
         "callTier",
-        # Cartesia Line (TRD §10.5; the adapter marks which shapes are sourced, and
-        # `docs/vendor/cartesia/` carries the citations since D-270).
-        "agent_call_id",
-        "duration_seconds",
-        "from_number_id",
-        # Their pagination cursor parameter, read at source in their generated client.
-        # Nothing of ours is called this. (`summaries`, the envelope `GET /agents` answers
-        # with, is NOT here — see `_SHARED_PAYLOAD_KEYS`.)
-        "starting_after",
-        # `telephony_params` is Cartesia's noun for the caller and callee numbers; ours
-        # are `from_e164`/`to_e164`, so the vendor's container escaping the adapter would
-        # be a payload shape above the boundary.
-        "telephony_params",
-        # `introduction` AND `document_ids` USED TO BE HERE and were removed by D-281,
-        # which is the third way an entry can go stale and the one the clause below could
-        # not have guessed: the vendor did not rename either field and neither entry was
-        # fictional — the OPERATIONS that read them stopped existing. Cartesia's agent
-        # record carries no prompt, no greeting and no document list, so `create_agent`,
-        # `update_agent` and `get_agent` refuse on `agent_hosting` rather than reading a
-        # response with those keys in it. A word no adapter reads cannot escape from one,
-        # which is the whole premise of this list; if a Cartesia agent read ever comes back
-        # (gate 19(a)), both entries come back with it.
-        "outbound_calls",
-        # `start_time`/`end_time` are Cartesia's names for the two instants everything
-        # else in this repo calls `started_at`/`ended_at` — `ExecutionSnapshot`,
-        # `CallEvent` and the `calls` columns all use the `_at` spelling, so the bare form
-        # appearing in shipped code outside the adapter is a vendor shape that escaped.
-        # Ordinary-looking English words, banned for `introduction`'s reason.
-        "start_time",
-        "end_time",
         # ThinnestAI (D-678): camelCase instants and their list cursor. Ours are
         # `started_at`/`ended_at` and no cursor crosses the adapter boundary.
         "startedAt",
@@ -1633,11 +1610,6 @@ _VENDOR_ONLY_KEYS = frozenset(
         "voiceEngine",
     }
 )
-# `next_page` was here and is gone with the Cartesia listing rewrite (D-270): their page
-# model carries no `has_more`/`next_page` at all, it cursors on the last row's id. It was
-# removed rather than kept "just in case", because
-# `test_every_banned_key_is_still_a_word_some_adapter_speaks` is what stops this list
-# accumulating words that describe nothing.
 
 #: Keys an adapter reads that are ALSO ours. Being here is not permission to read a vendor
 #: payload — it is an admission that this word carries no evidence either way, so the
@@ -1839,7 +1811,7 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "speaker",
         "started_at",
         "status",
-        # Cartesia's `GET /agents` envelope key — and also OURS: `apps/workers/retention.py`
+        # A vendor envelope key — and also OURS: `apps/workers/retention.py`
         # counts the call `summaries` it sweeps under exactly this name. Which is the
         # whole point of this set: the word carries no evidence either way, so the
         # repo-wide scan may not use it. Banning it turned a real retention counter into
@@ -1943,7 +1915,6 @@ _SHIPPED_ROOTS = ("apps", "packages/shared/src", "scripts")
 _ADAPTER_PACKAGE = "apps/api/engine"
 
 _ADAPTER_SOURCES = (
-    "apps/api/engine/cartesia.py",
     "apps/api/engine/fake.py",
     "apps/api/engine/thinnest.py",
 )
@@ -2123,25 +2094,23 @@ _PII_EXTRACTED_VALUE = "zzq-extracted-field-value"
 
 
 def _pii_execution(execution_id: str) -> dict[str, Any]:
-    """A completed Line call in Cartesia's documented shape (`AgentCall`, the same shape the
+    """A finished call in ThinnestAI's `GET /calls/{id}` shape (the same shape the
     conformance stub serves), carrying a caller's number and transcript text."""
     started = datetime.now(UTC) - timedelta(minutes=5)
     return {
         "id": execution_id,
-        "agent_id": "agent_pii",
         "status": "completed",
-        "start_time": started.isoformat().replace("+00:00", "Z"),
-        "end_time": (started + timedelta(seconds=95)).isoformat().replace("+00:00", "Z"),
+        "direction": "inbound",
+        "phone": _PII_NUMBER.lstrip("+"),
+        "from": _PII_NUMBER.lstrip("+"),
+        "agent": {"id": "agent_pii", "name": "PII agent"},
+        "startedAt": started.isoformat().replace("+00:00", "Z"),
+        "endedAt": (started + timedelta(seconds=95)).isoformat().replace("+00:00", "Z"),
+        "seconds": 95,
         "summary": f"caller {_PII_NUMBER} said {_PII_EXTRACTED_VALUE}",
-        "telephony_params": {"from": _PII_NUMBER, "to": "+911140000000"},
-        "transcript": [
-            {
-                "role": "user",
-                "text": _PII_TRANSCRIPT_TURN,
-                "start_timestamp": 0.0,
-                "end_timestamp": 2.0,
-            },
-        ],
+        "fields": {},
+        "transcript": [{"speaker": "customer", "text": _PII_TRANSCRIPT_TURN, "at": "x"}],
+        "recording": None,
     }
 
 
@@ -2173,29 +2142,28 @@ async def test_no_adapter_logs_a_phone_number_a_transcript_or_an_extraction(
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal listings
-        path = request.url.path
-        if path == "/agents" and request.method == "GET":
+        path = request.url.path.removeprefix("/api/v1")
+        if path == "/calls" and request.method == "GET":
             listings += 1
             if listings > 1:
                 # The second listing: throttled forever from its very first request, so
                 # the ladder logs `engine_throttled` and then `engine_throttle_exhausted`
                 # — both with a vendor body full of PII.
                 return httpx.Response(429, json={"error": f"slow down, {_PII_NUMBER}"})
-            return httpx.Response(200, json={"summaries": [{"id": "agent_pii_listed"}]})
-        if path == "/agents/calls" and request.method == "GET":
-            return httpx.Response(200, json={"data": [_pii_execution("exec_pii_listed")]})
-        if path.startswith("/agents/calls/") and request.method == "GET":
+            return httpx.Response(
+                200, json={"items": [_pii_execution("exec_pii_listed")], "nextCursor": None}
+            )
+        if path.startswith("/calls/") and request.method == "GET":
             return httpx.Response(200, json=_pii_execution("exec_pii_one"))
         # Every other route refuses, so `engine_error` fires with a body that carries PII.
         return httpx.Response(
             400, json={"error": f"bad request for {_PII_NUMBER}: {_PII_TRANSCRIPT_TURN}"}
         )
 
-    engine = CartesiaEngine(
+    engine = ThinnestEngine(
         api_key="test-key",
-        from_number_id="num_test",
         client=httpx.AsyncClient(
-            base_url="https://api.cartesia.test", transport=httpx.MockTransport(handler)
+            base_url=THINNEST_BASE_URL, transport=httpx.MockTransport(handler)
         ),
     )
     monkeypatch.setattr(vendor_http, "throttle_delay_s", lambda *a, **k: 0.0)

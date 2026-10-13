@@ -1,9 +1,9 @@
-"""The voice worker's door has its own edge zone, never tighter than the app's (PG8).
+"""The voice engine's door has its own edge zone, never tighter than the app's (PG8).
 
 `/v1/worker/**` used to fall through to the api vhost's `location /`, i.e. `client_api`
-at 120r/m per IP. Every worker container arrives from Pipecat Cloud's shared egress, so
-that was a fleet-wide ceiling, and it sat in front of an app that budgets the same traffic
-at two 600/min buckets per caller. A refused settlement is the call's post-call work lost.
+at 120r/m per IP. The engine calls from a handful of shared egress addresses, so that was a
+fleet-wide ceiling in front of an app that budgets the same traffic at 600/min per caller.
+A refused in-call action is a caller told the wrong thing.
 """
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ from __future__ import annotations
 from apps.api.core.ratelimit import profile_for
 from tests.edge_route_policy_test import _CONF_ZONE, RATE_ZONES_TEMPLATE, Location, block_for
 
-#: One path per app bucket on the worker's door: the settlement and the speaking state.
-WORKER_PATHS = ("/v1/worker/calls/x/settlement", "/v1/worker/calls/x/speaking")
+#: One path per kind of engine call on the door: an in-call action and a caller lookup.
+WORKER_PATHS = ("/v1/worker/engine-actions/thinnest/opt-out", "/v1/worker/engine-lookups/thinnest")
 
 
 def _zone_rates_per_minute() -> dict[str, int]:
@@ -40,8 +40,8 @@ def test_the_worker_door_is_counted_in_its_own_zone() -> None:
 
 
 def test_the_edge_is_never_the_tighter_limit_on_the_worker_door() -> None:
-    """The app's two worker buckets are per caller and independent, so one egress address
-    can legitimately spend both. The edge rate must cover their sum."""
+    """The app counts every engine call against one per-caller bucket, so one egress
+    address can legitimately spend all of it. The edge rate must cover it."""
     profiles = [profile_for(path, "POST") for path in WORKER_PATHS]
-    assert sorted(profile.name for profile in profiles) == ["worker_api", "worker_live"]
-    assert _zone_rates_per_minute()["worker"] >= sum(p.per_client for p in profiles)
+    assert {profile.name for profile in profiles} == {"worker_api"}
+    assert _zone_rates_per_minute()["worker"] >= max(p.per_client for p in profiles)

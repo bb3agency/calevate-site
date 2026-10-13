@@ -410,14 +410,6 @@ def _ack(
     return body
 
 
-def stamp_ack(response: Response, started: float, source: str, *, meter: AckMeter) -> float:
-    """`_ack` for a response whose body is a document rather than an ack (the carrier's
-    answer and fallback XML): the same metric, span attribute, slow alert and `X-Ack-Ms`.
-    Returns the milliseconds stamped, for the caller's own log line."""
-    _ack(response, started, source, {}, meter=meter)
-    return float(response.headers["X-Ack-Ms"])
-
-
 def acknowledge_ignored(
     response: Response, started: float, source: str, *, reason: str, meter: AckMeter
 ) -> dict[str, str]:
@@ -1136,5 +1128,4 @@ __all__ = [
     "read_bounded",
     "router",
     "settle",
-    "stamp_ack",
 ]

@@ -72,7 +72,7 @@ Indian businesses, Telugu-language-first) get **AI phone agents** that:
 
 ### How it technically works (this matters for data-protection and telecom law)
 
-1. A phone call is carried by an **Indian telecom provider** (Exotel / Plivo / Vobiz class)
+1. A phone call is carried by an **Indian telecom provider** (Exotel class)
    over a regular Indian phone number.
 2. The live call is orchestrated by a **rented third-party voice platform (Bolna)** whose
    orchestrator is **hosted in the United States (AWS us-east-1)**.
@@ -304,7 +304,7 @@ the **post-commencement DPDP regime**.
 F4. **Processor obligations**: what must be in the contract between me and my client
 (Data Processing Addendum), and what must flow **down** to my sub-processors? My sub-processor
 chain is: Bolna (voice platform, US), Sarvam AI (speech, India), Microsoft Azure OpenAI (US),
-OpenAI, Google, Exotel/Plivo/Vobiz (telephony, India), Cloudflare (storage/CDN), the VPS host,
+OpenAI, Google, Exotel-class carriers (telephony, India), Cloudflare (storage/CDN), the VPS host,
 Sentry (errors), Resend (email). **None of these DPAs are signed yet.** Which ones can I
 execute by clicking an online standard DPA, and which need negotiation?
 

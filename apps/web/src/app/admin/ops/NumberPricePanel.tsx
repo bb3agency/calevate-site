@@ -198,7 +198,7 @@ export function NumberPricePanel() {
                   value={source}
                   onChange={(e) => setSource(e.target.value)}
                   disabled={!access.allowed}
-                  placeholder="e.g. 'Vobiz order form, 2 Oct 2026'"
+                  placeholder="e.g. 'Vendor order form, 2 Oct 2026'"
                   className={FIELD}
                 />
                 {valid.error("source")}

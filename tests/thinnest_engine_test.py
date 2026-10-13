@@ -595,7 +595,7 @@ async def test_numbers_are_listed_and_never_bought() -> None:
                 json={
                     "items": [
                         {"number": "918012345678", "source": "rented", "provider": "ThinnestAI"},
-                        {"number": "918012345679", "source": "brought", "provider": "vobiz"},
+                        {"number": "918012345679", "source": "brought", "provider": "telnyx"},
                     ],
                     "nextCursor": None,
                 },

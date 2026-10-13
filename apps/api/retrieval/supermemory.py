@@ -1,19 +1,18 @@
 """T3 out of a self-hosted Supermemory (box 3), behind the port D-502 left for it.
 
-WHAT THE FOUNDER DECIDED, 14 Sep 2026 (`docs/PIPECAT-MIGRATION.md` §8). Supermemory becomes
+WHAT THE FOUNDER DECIDED, 14 Sep 2026 (TRD §6.3). Supermemory becomes
 the document store, index and caller-memory layer, running ON the Calevate VPS during
 development. It sits BEHIND `calevate_shared.retrieval.RetrievalProvider` — dashboard
 copilot, CRM search and caller memory read from it — and **it is never on the call path**.
-The in-call knowledge pack is fetched once per session and searched in the worker's own
-memory (§8.1, p50 0.31 ms, zero network per turn); nothing here is imported by
-`apps/voice-runtime` or `apps/voice-worker`, and `tests/kb_tiers_test.py` pins the audio
-path's route inventory as an equality so it cannot become one by accident.
+In-call knowledge is the voice platform's own knowledge base; nothing here is imported by
+`apps/voice-runtime`, and `tests/kb_tiers_test.py` pins the audio path's route inventory
+as an equality so it cannot become one by accident.
 
 --------------------------------------------------------------------------------
 WHAT THIS ADAPTER IS NOT: A VERIFIED INTEGRATION
 --------------------------------------------------------------------------------
 **Supermemory is not installed here and `supermemory.ai` is egress-blocked from this
-container** (§8.5, measured 14 Sep 2026). So this is a SEAM built against a contract nobody
+container** (TRD §6.3, measured 14 Sep 2026). So this is a SEAM built against a contract nobody
 in this repository has read: every path, request key and response key lives in
 `supermemory_wire.ASSUMED_CONTRACT`, labelled ASSUMED, correctable in one object. Hard rule
 11 is why they are gathered there rather than spelled inline, where the next reader would
@@ -25,7 +24,7 @@ Three vendor questions are open and each is answered by DEGRADING rather than by
   `SupermemoryWireMismatchError`, which is caught here beside the transport errors.
 * **Does it report token usage?** UNKNOWN — so metering reads the usage block if it is
   there and logs at ERROR when it is not (`_meter`), rather than inventing a quantity.
-* **Which release is safe to pin?** Three upstream issues bear on it (§8.5: #1336 custom
+* **Which release is safe to pin?** Three upstream issues bear on it (TRD §6.3: #1336 custom
   embedding env vars ignored, #1315 searches empty on Linux in 0.0.6, #1320 segfault under
   concurrent embedding), and all three are UNVERIFIED as to current state. That is a
   version gate for an operator, not a code branch — and #1315 in particular is precisely
@@ -35,7 +34,7 @@ Three vendor questions are open and each is answered by DEGRADING rather than by
 --------------------------------------------------------------------------------
 TENANCY IS OURS, AND THAT IS A DESIGN CONSTRAINT RATHER THAN A CAVEAT
 --------------------------------------------------------------------------------
-§8.4: the local build is single-tenant with ONE auto-generated API key; scoped per-tenant
+TRD §6.3: the local build is single-tenant with ONE auto-generated API key; scoped per-tenant
 keys are an Enterprise feature [VERIFIED-VENDOR-DOCS: /docs/self-hosting/local-vs-
 enterprise, read by the founder 14 Sep 2026]. So `capabilities.per_tenant_namespace` is
 **False** — which the port defines as "tenancy is enforced only by our filter, which is a
@@ -47,18 +46,18 @@ it is recorded, and three things follow from it:
 2. Every record that comes BACK is re-checked against the same scope and dropped if it does
    not carry the tag. The filter we send and the filter the server honoured are different
    facts, and against a single-tenant build only the second one is worth anything.
-3. `kb_documents` stays ours (§8.4), so DPDP erasure remains one statement we can prove
+3. `kb_documents` stays ours (TRD §6.3), so DPDP erasure remains one statement we can prove
    returned zero rows. `deletion_proof` is False here for the same reason
    `per_tenant_namespace` is: we cannot check their delete.
 
 --------------------------------------------------------------------------------
 HARD RULE 7: THE PRICE IS CHECKED BEFORE THE PROVIDER IS SELECTED
 --------------------------------------------------------------------------------
-A search embeds the question, and on box 2 that embedding must not be local (§8.3) — so it
+A search embeds the question, and on box 2 that embedding must not be local (TRD §6.3) — so it
 is bought from a model vendor on OUR account, per question. `search_is_billable()` asks
 `billing/rates.llm_price_is_billable` of the model an operator says the install is
 configured with, BEFORE a request is made, exactly as `retrieval/embedding.
-embedding_price_is_billable` and `kb/pack_vectors.pack_embedding_is_billable` do. No price,
+embedding_price_is_billable` does. No price,
 no provider: `supermemory_t3` returns None and the Postgres retriever answers. No figure is
 invented here and none is wired — the Gemini embedding price is UNVERIFIED in this tree
 (§10.4) and becomes billable only when an operator enters their own invoice figure in the
@@ -279,7 +278,7 @@ def search_is_billable() -> bool:
 class SupermemoryRetriever:
     """T3 from box 3, with the Postgres retriever underneath it. One `RetrievalProvider`.
 
-    **IT DEGRADES, IT DOES NOT FAIL** (§8.5: "if it is down, calls do not notice and uploads
+    **IT DEGRADES, IT DOES NOT FAIL** (TRD §6.3: "if it is down, calls do not notice and uploads
     do not notice — only dashboard search degrades to the Postgres fallback"). Unreachable
     host, timeout, HTTP error, a body the assumed contract does not describe: all four end
     in the fallback answering, because from the client's seat they are one event — box 3 did
@@ -295,7 +294,7 @@ class SupermemoryRetriever:
 
     name = PROVIDER_NAME
 
-    #: Declared, never discovered (the port's rule), and two of these are the decision §8.4
+    #: Declared, never discovered (the port's rule), and two of these are the decision TRD §6.3
     #: forced rather than defaults:
     #:
     #: `per_tenant_namespace` is **False** — the local build is single-tenant with one API
@@ -304,7 +303,7 @@ class SupermemoryRetriever:
     #: composite carrying this adapter truthfully reports False too.
     #:
     #: `deletion_proof` is **False** — there IS a second copy now, and we cannot prove a
-    #: delete landed in it. `kb_documents` staying ours (§8.4 reason 2) is what keeps DPDP
+    #: delete landed in it. `kb_documents` staying ours (TRD §6.3 reason 2) is what keeps DPDP
     #: erasure provable; claiming the vendor's delete here would be the silence that rule
     #: exists to refuse.
     #:
@@ -446,7 +445,7 @@ class SupermemoryRetriever:
         """THE FALLBACK'S STAMP, and that is not a shortcut — it is the more correct one.
 
         The port wants a token that changes whenever this tenant's retrievable knowledge
-        changes. §8.4 keeps `kb_documents` ours precisely because it is the authority on
+        changes. TRD §6.3 keeps `kb_documents` ours precisely because it is the authority on
         what a tenant has published; box 3 is a projection of it. So the Postgres stamp
         moves on exactly the events that should invalidate a cached answer, and it moves
         whether or not box 3 is reachable — which a vendor-side index version would not.

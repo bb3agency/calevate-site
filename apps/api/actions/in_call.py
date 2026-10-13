@@ -1,8 +1,8 @@
 """The ONE in-call door to a client's action, for every engine (D-700).
 
-ThinnestAI reaches it through its custom actions (`worker/engine_actions.client_action`);
-the Pipecat worker reaches it through `/v1/worker/calls/{engine_call_id}/tools/actions/{name}`. Both
-authenticate their caller, establish WHICH call this is from their own records, and hand
+ThinnestAI reaches it through its custom actions (`worker/engine_actions.client_action`).
+The route authenticates its caller, establishes WHICH call this is from its own records, and
+hands
 over a `CallFacts` — then everything after that is here: which action, whether it may run,
 whether it runs now or in the background, and the sentence the agent says about it.
 

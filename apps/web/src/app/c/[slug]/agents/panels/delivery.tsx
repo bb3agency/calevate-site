@@ -7,18 +7,15 @@
  *
  * ## Both apply to the NEXT call, and the copy says so
  *
- * The server writes the row and re-publishes a live agent in the SAME transaction
- * (`agents/publishing.py`), so neither has an Apply step. What a client must still be told
- * is the one thing a transaction cannot decide: a call already in progress finishes as it
- * started. "Applies immediately" without that sentence is how somebody comes to believe a
- * shorter cap cuts off the call they are listening to.
+ * What a client must be told is the one thing a save cannot decide: a call already in
+ * progress finishes as it started. "Applies immediately" without that sentence is how
+ * somebody comes to believe a shorter cap cuts off the call they are listening to.
  *
  * ## Nothing here composes a refusal of its own
  *
- * An unofferable voice carries the server's own sentence in the client's language
- * (`agents/voice_offer.py::client_unofferable_reason`); a cap outside the range is refused
- * with `call_cap_out_of_range` and the bounds come from `GET /v1/agents/lanes`. A vendor
- * refusal on the re-publish arrives as a `dependency` problem with NOTHING saved, and
+ * A voice that cannot be chosen carries the server's own sentence; a cap outside the range is
+ * refused with `call_cap_out_of_range` and the bounds come from `GET /v1/agents/lanes`. A
+ * vendor refusal on the re-publish arrives as a `dependency` problem with NOTHING saved, and
  * `ProblemNotice` says so in the server's words.
  *
  * No permission gate: `agents:write` is held by `owner` and `staff`, every role that can
@@ -33,61 +30,37 @@ import {
   PRIMARY_BUTTON_SM,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
-  Skeleton,
   formatCallCap,
 } from "@/components/ui";
 import { TEXT_ACTION } from "@/components/console/section";
 import { SettingRow } from "@/components/console/settingRow";
 import { ClientEngineVoices } from "@/components/engineCatalogueList";
-import { SaveBar } from "@/components/console/saveBar";
+import { useEngineCatalogue } from "@/lib/api/engineCatalogue";
 import { useLanes, useSetMyCallCap, type PendingState } from "@/lib/api/publishing";
 import { useClientSession } from "@/lib/api/session";
-import { useSetMyAgentVoice, useVoiceCatalogue } from "@/lib/api/voices";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { useCopilotSurface } from "@/lib/copilot/registry";
-import { asText } from "@/lib/copilot/types";
 
-import { VoiceCards } from "./voiceCards";
-
-/** One sentence, shared by both controls, because it is one promise. */
+/** The call cap's promise: a save applies from the next call. */
 const NEXT_CALL_NOTE =
   "Saved changes reach the calling system straight away and apply from the next call. " +
   "A call already in progress finishes exactly as it started.";
 
 /**
- * The voice cards, and a save that appears only once the choice differs from the saved
- * voice — the write re-publishes a live agent, so a mis-tap must not be the save.
+ * The voice platform's own voices as cards, with a save that appears only once the choice
+ * differs from the saved voice (`ClientEngineVoices`).
  */
 export function VoiceChoice({ agentId, state }: { agentId: string; state: PendingState }) {
   const session = useClientSession();
-  const catalogue = useVoiceCatalogue(session);
-  const save = useSetMyAgentVoice(session, agentId);
-  const [choice, setChoice] = useState<string | null>(null);
-  const saved = state.voice.configured?.voice_id ?? "";
-  const selected = choice ?? saved;
-  const changed = selected !== "" && selected !== saved;
-  useUnsavedGuard(changed);
+  const catalogue = useEngineCatalogue(session);
 
-  // THE VOICE SECTION, DECLARED TO THE ASSISTANT: which voice callers hear, and the choice
-  // as a field it can fill ("use a female Telugu voice"). Nothing changes until the owner
-  // presses "Use this voice".
-  const offered = catalogue.data?.selectable ? catalogue.data.voices.filter((v) => v.offerable) : [];
+  // THE VOICE SECTION, DECLARED TO THE ASSISTANT: which voice callers hear. The choice itself
+  // is made on the cards; nothing changes until the owner saves it.
   useCopilotSurface({
     route: "/c/{slug}/agents/{id}",
     title: "Agent: voice",
     realm: "client",
-    fields:
-      offered.length > 0
-        ? [
-            {
-              id: "agent-voice",
-              label: "Voice callers hear",
-              type: "select",
-              value: selected,
-              options: offered.map((v) => ({ value: v.id, label: `${v.label} (${v.tier_label})` })),
-            },
-          ]
-        : [],
+    fields: [],
     facts: [
       { key: "voice_now", label: "What callers hear now", value: state.voice.headline },
       {
@@ -95,67 +68,12 @@ export function VoiceChoice({ agentId, state }: { agentId: string; state: Pendin
         label: "What is on screen",
         value: catalogue.data ? "the voices have loaded" : catalogue.error ? "the voices failed to load" : "still loading",
       },
-      { key: "unsaved", label: "A different voice is picked but not saved", value: changed ? "yes" : "no" },
     ],
-    unsaved: changed,
-    apply: (items) => {
-      for (const item of items) {
-        const id = asText(item.value);
-        if (item.field_id === "agent-voice" && offered.some((v) => v.id === id)) setChoice(id);
-      }
-    },
+    unsaved: false,
+    apply: () => undefined,
   });
 
-  // A read like any other: a skeleton in flight and a refusal on failure — never an empty
-  // list, which would be a claim about the product rather than about a request.
-  if (catalogue.isLoading) return <Skeleton rows={3} />;
-  if (catalogue.error || !catalogue.data) {
-    return (
-      <ProblemNotice
-        error={catalogue.error ?? new Error("The voices did not load, so there is nothing to choose from.")}
-        onRetry={() => void catalogue.refetch()}
-      />
-    );
-  }
-  if (!catalogue.data.selectable) {
-    // The deployment working as intended, so the server's own words and not an error card.
-    return (
-      <div className="space-y-3">
-        <p className="text-sm text-ink-muted">{catalogue.data.note}</p>
-        <ClientEngineVoices session={session} agentId={agentId} />
-      </div>
-    );
-  }
-
-  return (
-    <form
-      className="space-y-4"
-      noValidate
-      onSubmit={(event) => {
-        event.preventDefault();
-        save.mutate(selected, { onSuccess: () => setChoice(null) });
-      }}
-    >
-      {catalogue.data.note && <p className="text-sm text-ink-muted">{catalogue.data.note}</p>}
-      {save.error && <ProblemNotice error={save.error} />}
-      <VoiceCards
-        name="my-agent-voice"
-        voices={catalogue.data.voices}
-        value={selected}
-        rates={state.voice_tier_rates}
-        tiers={catalogue.data.tiers}
-        onChange={setChoice}
-      />
-      {(changed || save.isPending) && (
-        <SaveBar
-          label="Use this voice"
-          saving={save.isPending}
-          onCancel={() => setChoice(null)}
-          note={NEXT_CALL_NOTE}
-        />
-      )}
-    </form>
-  );
+  return <ClientEngineVoices session={session} agentId={agentId} />;
 }
 
 /** The longest one call may run, as one row: the limit in force, and an inline edit. */

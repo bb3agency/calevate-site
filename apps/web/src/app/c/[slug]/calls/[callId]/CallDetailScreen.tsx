@@ -6,8 +6,6 @@ import { ArrowLeft } from "lucide-react";
 
 import { NoticeBox, ProblemNotice } from "@/components/ui";
 import { LiveCallPanel } from "@/components/console/liveCallPanel";
-import { LIVE_STATUS } from "@/components/console/liveCalls";
-import { useCallSpeaking } from "@/lib/api/callSpeaking";
 import type { CallAudioPlayerHandle } from "@/components/callAudioPlayer";
 import { useClientRealm } from "@/lib/api/session";
 import {
@@ -114,15 +112,6 @@ export function CallDetailScreen({
   const [showRaw, setShowRaw] = useState(false);
   const raw = useRawTranscript(session, callId);
   const recording = useRecordingLink(session, callId);
-  /*
-   * WHO IS SPEAKING, while the call is live (D-656): an SSE stream opened only for an
-   * in-progress call. `session` is the realm's memoised object — a fresh one per render
-   * would reopen the stream. `live` turns false when the call ends, and the screen falls
-   * back to the post-call view that the 60-second poll fills in.
-   */
-  const speaking = useCallSpeaking(session, callId, {
-    enabled: call.data?.status === LIVE_STATUS,
-  });
   /**
    * One press, one request, one audit row — in BOTH directions.
    *
@@ -294,7 +283,6 @@ export function CallDetailScreen({
         <LiveCallPanel
           startedAt={detail.started_at}
           agentName={detail.agent_name ?? null}
-          speaker={speaking.live ? speaking.speaker : null}
         />
       )}
 

@@ -1,4 +1,4 @@
-"""ThinnestAI's call lifecycle beside Pipecat's (D-678 phase 2, lane B): the workspace's call
+"""ThinnestAI's call lifecycle (D-678 phase 2): the workspace's call
 ceiling and its 429, the refusals `POST /calls` documents, the recall that must not hang up
 a live conversation, the zero-credit script, the recording source, the replay window, the
 BYOK check and the charge sweep. Shapes come from the 7 Oct 2026 snapshot of the vendor's
@@ -27,7 +27,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
-from apps.api.engine import carrier_pacing, reset_engine_cache, vendor_http
+from apps.api.engine import dial_lines, reset_engine_cache, vendor_http
 from apps.api.engine.fake import FakeEngine
 from apps.api.engine.recording_source import RecordingFetchRules
 from apps.api.engine.thinnest import BASE_URL, PAUSED_LINE_MESSAGE, ThinnestEngine
@@ -38,7 +38,6 @@ from apps.api.engine.vendor_http import (
     vendor_request,
 )
 from apps.workers import engine_charges, storage
-from calevate_shared.config import Settings
 from calevate_shared.engine import CallContext, ExecutionSnapshot, RecallOutcome
 from sqlalchemy import text
 from tests.callback_dispatch_test import _dialable_tenant
@@ -77,7 +76,7 @@ def _greeting() -> httpx.Response:
 
 @pytest.fixture
 def on_thinnest(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    monkeypatch.setattr(carrier_pacing, "get_engine", lambda: SimpleNamespace(name="thinnest"))
+    monkeypatch.setattr(dial_lines, "get_engine", lambda: SimpleNamespace(name="thinnest"))
     monkeypatch.setenv("THINNEST_MAX_CONCURRENT_CALLS", "5")
     monkeypatch.setenv("INBOUND_RESERVE_RATIO", "0.3")
     monkeypatch.delenv("INBOUND_RESERVED_LINES", raising=False)
@@ -87,25 +86,21 @@ def on_thinnest(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     get_settings.cache_clear()
 
 
-def test_the_ceiling_defaults_to_the_pay_as_you_go_five() -> None:
-    assert Settings.model_fields["thinnest_max_concurrent_calls"].default == 5
-
-
 def test_on_thinnest_the_pool_is_its_ceiling_less_the_inbound_reserve(on_thinnest: None) -> None:
-    assert carrier_pacing.engine_concurrency_cap() == 5
-    assert carrier_pacing.outbound_line_pool() == 3
+    assert dial_lines.engine_concurrency_cap() == 5
+    assert dial_lines.outbound_line_pool() == 3
 
 
 def test_the_carrier_pool_is_unchanged_on_any_other_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(carrier_pacing, "get_engine", lambda: SimpleNamespace(name="pipecat"))
+    monkeypatch.setattr(dial_lines, "get_engine", lambda: SimpleNamespace(name="fake"))
     monkeypatch.setenv("CARRIER_CONCURRENCY", "3")
     monkeypatch.setenv("THINNEST_MAX_CONCURRENT_CALLS", "50")
     get_settings.cache_clear()
     try:
-        assert carrier_pacing.engine_concurrency_cap() is None
-        assert carrier_pacing.outbound_line_pool() == 2
+        assert dial_lines.engine_concurrency_cap() is None
+        assert dial_lines.outbound_line_pool() == 2
     finally:
         get_settings.cache_clear()
 
@@ -126,30 +121,30 @@ async def test_a_429_holds_every_dial_off_for_at_least_a_minute(
     on_thinnest: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake = _FakeRedis()
-    monkeypatch.setattr(carrier_pacing, "get_redis", lambda: fake)
-    assert await carrier_pacing.dial_backoff_remaining_s() == 0.0
-    assert await carrier_pacing.start_dial_backoff(None) == carrier_pacing.ENGINE_BACKOFF_DEFAULT_S
-    assert await carrier_pacing.dial_backoff_remaining_s() == 60.0
+    monkeypatch.setattr(dial_lines, "get_redis", lambda: fake)
+    assert await dial_lines.dial_backoff_remaining_s() == 0.0
+    assert await dial_lines.start_dial_backoff(None) == dial_lines.ENGINE_BACKOFF_DEFAULT_S
+    assert await dial_lines.dial_backoff_remaining_s() == 60.0
     # A longer hold-off is taken, bounded; a shorter one never shortens a running one.
-    assert await carrier_pacing.start_dial_backoff(86_400) == carrier_pacing.ENGINE_BACKOFF_MAX_S
-    await carrier_pacing.start_dial_backoff(5)
-    assert await carrier_pacing.dial_backoff_remaining_s() == carrier_pacing.ENGINE_BACKOFF_MAX_S
+    assert await dial_lines.start_dial_backoff(86_400) == dial_lines.ENGINE_BACKOFF_MAX_S
+    await dial_lines.start_dial_backoff(5)
+    assert await dial_lines.dial_backoff_remaining_s() == dial_lines.ENGINE_BACKOFF_MAX_S
 
 
 async def test_the_hold_off_is_never_read_on_an_engine_without_a_ceiling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(carrier_pacing, "get_engine", lambda: SimpleNamespace(name="pipecat"))
+    monkeypatch.setattr(dial_lines, "get_engine", lambda: SimpleNamespace(name="fake"))
 
     def _no_redis() -> None:
-        raise AssertionError("the carrier path must not read the engine hold-off")
+        raise AssertionError("an engine without a ceiling must not read the hold-off")
 
-    monkeypatch.setattr(carrier_pacing, "get_redis", _no_redis)
-    assert await carrier_pacing.dial_backoff_remaining_s() == 0.0
+    monkeypatch.setattr(dial_lines, "get_redis", _no_redis)
+    assert await dial_lines.dial_backoff_remaining_s() == 0.0
 
 
 def test_a_dial_inside_the_hold_off_is_refunded_not_spent() -> None:
-    refusal = carrier_pacing.engine_backoff_refusal()
+    refusal = dial_lines.engine_backoff_refusal()
     assert refusal.code == "engine_rate_limited"
     assert dial_was_not_placed(refusal) is True
 
@@ -212,7 +207,7 @@ async def _routed_tenant() -> tuple[uuid.UUID, uuid.UUID]:
                 "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
                 "engine, engine_agent_ref, created_at, updated_at) VALUES (:id, :tid, 'Lines', "
                 "'both', 'Idi AI assistant.', 'Idi AI assistant.', 'This call is being "
-                "recorded.', 'I keep a short note of what you ask about.', 'live', 'pipecat', "
+                "recorded.', 'I keep a short note of what you ask about.', 'live', 'fake', "
                 ":ref, now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id, "ref": ref},
@@ -220,7 +215,7 @@ async def _routed_tenant() -> tuple[uuid.UUID, uuid.UUID]:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
-                "active, created_at, updated_at) VALUES ('pipecat', :ref, :tid, :aid, true, "
+                "active, created_at, updated_at) VALUES ('fake', :ref, :tid, :aid, true, "
                 "now(), now())"
             ),
             {"ref": ref, "tid": tenant_id, "aid": agent_id},
@@ -236,7 +231,7 @@ async def _in_use(tenant_id: uuid.UUID) -> int:
             agents_service._ENGINE_LINES_IN_USE_SQL,
             {
                 "statuses": agents_service._ENGINE_LINE_STATUSES,
-                "horizon": carrier_pacing.ENGINE_LINE_HORIZON.total_seconds(),
+                "horizon": dial_lines.ENGINE_LINE_HORIZON.total_seconds(),
             },
         )
 
@@ -273,8 +268,8 @@ async def test_a_dial_is_refused_once_the_outbound_lines_are_held(
 
 @pytest.fixture
 def engine_capped(monkeypatch: pytest.MonkeyPatch) -> list[float | None]:
-    """`dispatch_call` on an engine that dials on its own account with a call ceiling: no
-    carrier of ours, a cap of five. Returns the hold-offs `start_dial_backoff` was asked
+    """`dispatch_call` on an engine that dials on its own account with a call ceiling, a
+    cap of five. Returns the hold-offs `start_dial_backoff` was asked
     for; the hold-off and the pool are set per test."""
     reset_engine_cache()
     started: list[float | None] = []
@@ -286,7 +281,6 @@ def engine_capped(monkeypatch: pytest.MonkeyPatch) -> list[float | None]:
     async def _clear() -> float:
         return 0.0
 
-    monkeypatch.setattr(agents_service, "outbound_carrier", lambda: None)
     monkeypatch.setattr(agents_service, "engine_concurrency_cap", lambda: 5)
     monkeypatch.setattr(agents_service, "dial_backoff_remaining_s", _clear)
     monkeypatch.setattr(agents_service, "start_dial_backoff", _start)
@@ -693,7 +687,7 @@ def test_the_tolerance_is_a_paisa_floor_or_two_percent(
 async def test_the_sweep_is_a_no_op_on_an_engine_without_a_billing_view(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(engine_charges, "get_engine", lambda: SimpleNamespace(name="pipecat"))
+    monkeypatch.setattr(engine_charges, "get_engine", lambda: SimpleNamespace(name="fake"))
     assert await engine_charges.reconcile_engine_charges({}) == "engine_without_charges"
 
 

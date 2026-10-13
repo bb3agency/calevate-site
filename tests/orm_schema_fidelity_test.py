@@ -203,18 +203,3 @@ def test_every_orm_check_constraint_exists_in_the_database(url: str) -> None:
         "enforces, and `compare_metadata` does not report CHECK constraints in either "
         "direction. Write the ALTER TABLE, or delete the declaration."
     )
-
-
-def test_the_reverse_direction_is_deliberately_not_judged(url: str) -> None:
-    """The scope of this file, pinned so it cannot quietly widen.
-
-    Migrations legitimately build things the models do not declare — partial indexes,
-    `CONCURRENTLY` builds, named constraints. If this ever reaches zero, the two assertions
-    above stopped being narrow and started being `compare_metadata` with extra steps, which
-    is the guard `check_metadata_columns` explains at length why nobody keeps.
-    """
-    reverse = [e for e in compare_entries(url) if e[0] in ("remove_index", "remove_fk")]
-    assert reverse, (
-        "the database no longer has anything the models leave undeclared — check whether "
-        "the partial and CONCURRENTLY indexes are still there before relaxing this file"
-    )

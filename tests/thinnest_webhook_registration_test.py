@@ -223,7 +223,7 @@ async def test_other_engines_and_private_addresses(
 ) -> None:
     tenant_id, ref = await _route()
     async with tenant_session(tenant_id) as session:
-        skipped = await ensure_agent_webhook(session, engine="pipecat", engine_agent_ref=ref)
+        skipped = await ensure_agent_webhook(session, engine="fake", engine_agent_ref=ref)
     assert skipped.outcome == "not_applicable"
 
     monkeypatch.setattr(get_settings(), "webhook_base_url", "http://localhost:8100")
@@ -264,7 +264,7 @@ async def test_the_sweep_reenables_and_alarms(
 
 
 async def test_the_sweep_is_a_no_op_on_other_engines(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(get_settings(), "engine", "pipecat")
+    monkeypatch.setattr(get_settings(), "engine", "fake")
     assert await sweep.reconcile_engine_webhooks({}) == "engine_without_webhooks"
 
 

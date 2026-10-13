@@ -94,8 +94,8 @@ export interface RefundDraft {
  * be taken back — the money has left, and `credit_ledger` is append-only, so the repair
  * for a wrong one is a fresh payment from the client. Per the friction rule, ceremony
  * belongs on the irreversible act. It is deliberately the opposite call from
- * `set_tenant_plan_tier` and the carrier decision, which carry none because both of
- * their directions are reversible.
+ * `set_tenant_plan_tier`, which carries none because both of its directions are
+ * reversible.
  *
  * The word is the PAYMENT'S OWN REFERENCE, for `credits/page.tsx`'s reason: a fixed word
  * becomes muscle memory within a week, a reference is different every time, and typing

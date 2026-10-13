@@ -117,7 +117,6 @@ IST_SLOTS: dict[str, tuple[int, int, str]] = {
     "cron:prune_reliability_tables": (9, 10, "04:10 UTC"),
     "cron:sweep_abandoned_owner_ids": (9, 17, "04:17 UTC"),
     "cron:sweep_kb_orphans": (9, 40, "04:40 UTC"),
-    "cron:sweep_knowledge_packs": (10, 7, "05:07 UTC"),
     "cron:send_agent_knowledge_digests": (12, 22, "07:22 UTC"),
 }
 

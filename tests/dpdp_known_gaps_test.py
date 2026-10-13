@@ -13,11 +13,10 @@ for, because `campaign_contacts` rides the `lead` period the client has already 
 and `scheduled_callbacks` the `transcript` one (`workers/retention.DERIVED_COPIES`). An
 entry saying a store is kept for ever cannot survive the day it stops being.
 
-**THE ASSERTION IS AN EQUALITY**, in the shape `tests/reliability_known_gaps_test.py`
-established. Each key has a probe that answers "is this still true?" and the test asserts
-the set of still-open gaps EQUALS the recorded set. So an entry cannot outlive its defect
-— fixing one turns this file red and forces the entry's deletion in the same change — and
-a comment or a TODO, which can, is not an option.
+**THE ASSERTION IS AN EQUALITY.** Each key has a probe that answers "is this still true?"
+and the test asserts the set of still-open gaps EQUALS the recorded set. So an entry cannot
+outlive its defect — fixing one turns this file red and forces the entry's deletion in the
+same change — and a comment or a TODO, which can, is not an option.
 """
 
 from __future__ import annotations

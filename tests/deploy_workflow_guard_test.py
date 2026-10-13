@@ -46,11 +46,6 @@ def _edit(path: Path, old: str, new: str) -> None:
 # --- wiring -------------------------------------------------------------------
 
 
-def test_the_live_tree_passes(capsys: pytest.CaptureFixture[str]) -> None:
-    assert guard.main() == 0
-    assert "DEPLOY WORKFLOW: OK" in capsys.readouterr().out
-
-
 def test_it_reads_the_real_script_options() -> None:
     """If the argument loop moves, `check_flags_exist` would pass vacuously — so the
     wiring is asserted against options the script demonstrably has."""

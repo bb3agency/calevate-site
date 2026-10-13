@@ -5,12 +5,12 @@ Version 1.0. From zero to a running local stack. Target machine: Linux/macOS/WSL
 ## 1. Prerequisites
 
 Docker + Compose v2 · Python 3.12 + `uv` · Node 20 + `pnpm` · `terraform` (infra work
-only) · accounts/keys (none is needed for `ENGINE=fake`, the default): Sarvam, Cartesia,
-Gnani, Pipecat Cloud and Vobiz for the owned runtime (D-592/D-662), plus an **Azure
+only) · accounts/keys (none is needed for `ENGINE=fake`, the default): ThinnestAI for
+`ENGINE=thinnest` (D-678), Cartesia for the Studio rung (our key, sent to ThinnestAI as
+voice-only BYOK), Sarvam for the first post-call extraction pass, plus an **Azure
 subscription with an Azure OpenAI resource created in East US 2 and a `gpt-4o-mini`
 deployment** (`AZURE_OPENAI_RESOURCE` + `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_DEPLOYMENT`
-— D-410, region per D-449), and OpenAI and Google keys for the other two LLM legs
-(D-456), Cloudflare R2 or DO
+— D-410, region per D-449), Cloudflare R2 or DO
 Spaces (local dev uses MinIO instead). Authentication is first-party and needs no vendor
 account (D-165/D-170/D-177 — Clerk is deleted).
 
@@ -45,23 +45,16 @@ account (D-165/D-170/D-177 — Clerk is deleted).
 > quota in your subscription are different facts and only the second makes a call
 > succeed. Check quota before switching, and move `AZURE_OPENAI_DEPLOYMENT` with it.
 >
-> ⚠ **THE SWITCH IS TWO SETTINGS AND A REPUBLISH.** `AZURE_OPENAI_MODEL` is the only one of
-> the four that is `applies: live`, and only because nothing sends it anywhere — it prices
-> the leg. `AZURE_OPENAI_RESOURCE` and `AZURE_OPENAI_DEPLOYMENT` are **`live_agents`**
-> (baked into each published agent as its LLM endpoint and model id, so saving either
-> republishes every live agent, D-720), and `AZURE_OPENAI_API_KEY` is `operator_step` (the
-> in-call copy lives in the engine's credential store).
-> Change the model alone and you have changed the INVOICE and nothing else: the calls keep
-> running the old deployment while every usage event is priced at 2.67x. Move the
-> deployment id with it, then republish.
+> **Move the model and the deployment together.** Change `AZURE_OPENAI_MODEL` alone and you
+> have changed what the leg is priced at and nothing else: requests still run the old
+> deployment. Move `AZURE_OPENAI_DEPLOYMENT` with it.
 >
 > **The key is static.** No rotation cron, no service account, no org policy: the v1
 > surface takes the key in `Authorization: Bearer`. Put it in the secrets manager, never in
 > a committed file, and never log it.
 >
 > Nothing is blocked meanwhile: with no Azure credential, `assist_capability()` answers
-> `no_credential` and the disclosed Sarvam fallback carries the dashboard assistant, while
-> the in-call leg simply does not run (OPERATIONS §2).
+> `no_credential` and the disclosed Sarvam fallback carries the dashboard assistant (OPERATIONS §2).
 
 ## 2. Bootstrap
 
@@ -71,9 +64,7 @@ cp .env.example .env                  # fill values per §4
 make up                               # = docker compose up -d: postgres:16+pgvector, redis:7, minio
                                       # (minio is compiled from source on the first run:
                                       # no anonymous MinIO image exists; infra/minio/Dockerfile)
-uv sync --all-packages                # --all-packages, not bare `uv sync`: the bare form
-                                      # installs only the server image's set (D-667) and
-                                      # leaves the voice worker's pipecat tree out (matches
+uv sync --all-packages                # --all-packages, not bare `uv sync` (matches
                                       # ci.yml's `backend` "Install dependencies" step)
 uv run alembic upgrade head
 uv run python -m scripts.seed         # reserved slugs, vertical templates, retention defaults
@@ -159,18 +150,14 @@ transcripts and events, no network — all pipeline/CRM/billing work happens off
 
 ⚠ **AND IT WORKS ONLY UNDER `APP_ENV=local` SINCE D-615.** The fake engine's webhook
 route is an unauthenticated write endpoint — that is exactly how the pipeline is driven
-offline — and the receiver used to open it wherever the named engine was the deployment's
-engine. That licence belongs to a DEV INSTRUMENT, not to the word `none`, and a second
-engine now declares `none` for the opposite reason (`pipecat`: nothing external calls it
-at all), which made `/hooks/v1/engine/pipecat` a public write on a production box. So
-`engine_intake.verify_source` now requires `APP_ENV=local` too. If `make smoke` or a hand
+offline — so `engine_intake.verify_source` admits it only under `APP_ENV=local`: that
+licence belongs to a dev instrument, never to a production box. If `make smoke` or a hand
 `curl` at `/hooks/v1/engine/fake` starts answering 401, check `APP_ENV` before anything
 else: the refusal reason is "an engine that verifies nothing is admitted only under
 APP_ENV=local".
-Set `ENGINE=pipecat` only when testing the real conversation loop; the worker and its
-credentials are set up as `docs/PIPECAT-MIGRATION.md` describes, and nothing external
-calls a webhook of ours on that engine. Real PSTN test calls: staging number only; they
-cost money — log them.
+Set `ENGINE=thinnest` only when testing against ThinnestAI itself (DEPLOYMENT §12 lists its
+variables); its webhooks and in-call actions need public `https` addresses, which a
+local stack does not expose by itself. Real PSTN test calls cost money — log them.
 
 ## 4. Environment variables — eight, and everything else is a screen
 

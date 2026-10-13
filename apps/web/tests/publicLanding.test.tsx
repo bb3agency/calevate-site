@@ -514,8 +514,8 @@ describe("the qualification-layer section", () => {
  * and `kind="file"` are declared on the wire and REFUSED by the service
  * (`apps/api/kb/service.py:77`). Everything else has moved: this console has a file input
  * (`app/c/[slug]/knowledge/AddDocument.tsx:133`, behind `POST /v1/kb/uploads`, D-534), and
- * `PIPECAT_CAPABILITIES.knowledge_base` is `True` with an in-process pack search registered
- * as a call tool (`docs/PIPECAT-MIGRATION.md` §8.1). The COPY below is therefore
+ * `THINNEST_CAPABILITIES.knowledge_base` is `True`: the agent searches the client's knowledge
+ * on the voice platform during a call. The COPY below is therefore
  * CONSERVATIVE rather than false, and is left as it stands.
  *
  * ⚠ UNRESOLVED CONFLICT: `docs/TRD.md:802` still says in-call retrieval is "T0 and nothing
@@ -1304,7 +1304,7 @@ describe("the ROI calculator", () => {
     const { container } = render(await Home());
     // Default 200 × 26 × 2 min × ₹7.00 = ₹72,800.00 — the STUDIO list rate, because that is
     // the voice the calculator opens on (D-629): no agent can be put on a Clear voice until
-    // somebody attests a Gnani price, so opening on Clear would quote a rate this buyer
+    // somebody attests its price, so opening on Clear would quote a rate this buyer
     // cannot run at. `LIST_RATE` above is asserted against the fixture; what is asserted
     // here is the arithmetic.
     expect(calc(container).textContent).toContain("₹72,800.00");

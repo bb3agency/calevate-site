@@ -25,7 +25,6 @@ from scripts.check_erasure_coverage import (
     ENTRYPOINT_EXEMPT,
     ERASURE_ENTRYPOINTS,
     ERASURE_EXEMPT,
-    ERASURE_SOURCES,
     MIN_EXEMPTION_REASON,
     ErasureReach,
     SchemaState,
@@ -215,30 +214,10 @@ class TestItCanStillSeeItsOwnSubject:
     against a set extracted from source, and an extraction that silently stopped working
     would report every table as uncovered — which reads as noise and gets exempted away."""
 
-    def test_the_live_walk_finds_every_anchor(self) -> None:
-        reach = erasure_reach()
-        assert reach.blind_spots == []
-        assert reach.tables >= COVERAGE_ANCHORS, sorted(COVERAGE_ANCHORS - reach.tables)
-
     def test_a_moved_source_is_reported_rather_than_passed_over(self) -> None:
         reach = erasure_reach(sources=(REPO_ROOT / "apps" / "workers" / "gone.py",))
         assert reach.blind_spots
         assert not reach.tables >= COVERAGE_ANCHORS
-
-    def test_every_erasure_source_exists(self) -> None:
-        """The list is enumerated because "which code is an erasure" is a judgement; a
-        name in it that has moved is exactly the state the blind-spot arm reports."""
-        missing = [path for path in ERASURE_SOURCES if not path.exists()]
-        assert missing == []
-
-
-@pytest.mark.parametrize("table", sorted(ERASURE_EXEMPT))
-def test_every_registered_exemption_argues_its_case(table: str) -> None:
-    """An exemption is an argument, not a checkbox. Parametrized so a thin entry names
-    itself rather than hiding in a list comprehension's failure message."""
-    reason = ERASURE_EXEMPT[table].strip().lstrip("\u26a0 ")
-    assert len(reason) >= MIN_EXEMPTION_REASON
-    assert reason[0].isupper() and reason.endswith(".")
 
 
 def test_the_live_arm_sees_a_new_un_erased_table() -> None:

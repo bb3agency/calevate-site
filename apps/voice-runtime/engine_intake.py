@@ -123,13 +123,6 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
         # forbid; getting any of the three wrong would produce a receiver that rejects
         # every real delivery and accepts nothing but our own test vectors.
         #
-        # THE PREVIOUS COMMENT HERE SAID THIS WAS UNREACHABLE — "no signing engine is
-        # selectable as `ENGINE=`" — and that stopped being true when D-93 put `cartesia`
-        # in `config.EngineName`. It is reachable now, on purpose, and the answer is the
-        # same one: `CartesiaEngine.verify_webhook` fails closed for the identical reason
-        # (`SIGNATURE_UNIMPLEMENTED_REASON`), so the receiver and the adapter refuse
-        # together rather than one of them deciding to be helpful.
-        #
         # WHY THE REFUSAL MUST OUTLIVE THE TEMPTATION TO SOFTEN IT. `webhook_routes`
         # derives the forensic row's `signature_valid` from `verdict.method == "hmac"`, so
         # a wave-through here would not merely accept a forgery — it would FILE one as
@@ -147,7 +140,7 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
     if method == "none":
         # An engine that declares NO authenticity control at all. Which makes this route an
         # unauthenticated write endpoint, and the route table is identical in every
-        # environment: on a prod box running ENGINE=cartesia, `/hooks/v1/engine/fake` would
+        # environment: on a prod box running ENGINE=thinnest, `/hooks/v1/engine/fake` would
         # hand any stranger who found the URL an inbox claim, a forensic row and an ARQ job.
         #
         # TWO GATES (D-615). The first is that the engine IS this deployment's engine —
@@ -157,15 +150,9 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
         #
         # ⚠ **THE FIRST GATE ALONE IS NOT AN ADMISSION RULE, BECAUSE A PRODUCTION ENGINE
         # CAN DECLARE `none`.** `fake` earns the open door by being a DEV INSTRUMENT — it is
-        # how the whole pipeline runs offline (DEV-SETUP §3) — not by declaring `none`.
-        # `pipecat` declares `none` for the opposite reason: NOTHING EXTERNAL CALLS IT
-        # (`PIPECAT-MIGRATION.md` §3D; the worker is inside our own trust boundary and
-        # writes to the database directly). On a deployment running `ENGINE=pipecat` the
-        # first gate alone would open `/hooks/v1/engine/pipecat` to any stranger who found
-        # the URL. `PipecatEngine.verify_webhook` and `WEBHOOK_AUTH_BY_ENGINE`'s `pipecat`
-        # entry both record that this is the receiver's to fix and not theirs to re-label:
-        # `hmac` there would fail closed by claiming this engine signs its webhooks, which
-        # is false.
+        # how the whole pipeline runs offline (DEV-SETUP §3) — not by declaring `none`,
+        # and a production engine that declared `none` would otherwise open its route to any
+        # stranger who found the URL.
         #
         # So the second gate is the ENVIRONMENT, which is what actually separates the two
         # cases and is the fact `fake`'s licence always rested on. `local` is this repo's
@@ -175,10 +162,9 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
         # that verifies nothing "is allowed … but it must say so, in `method='none'` … the
         # receiver's own per-engine check is what keeps such an adapter out of production".
         #
-        # It costs nothing on any engine that really is called from outside: `cartesia`
-        # is `hmac`. What it costs `pipecat` is nothing at all —
-        # there is no delivery to lose — and what it costs `fake` on a staging or production
-        # box is the ability to drive the pipeline by POSTing at it, which is the capability
+        # It costs nothing on any engine that really is called from outside: `thinnest` is
+        # `hmac`. What it costs `fake` on a staging or production box is the ability to drive the
+        # pipeline by POSTing at it, which is the capability
         # being removed on purpose.
         settings = get_settings()
         if settings.engine != engine:

@@ -152,37 +152,6 @@ async def test_the_bootstrap_six_are_never_managed_and_never_appliable() -> None
         "platform_kek_retired",
         "redis_url",
         "resend_api_key",
-        # D-618. The Gnani TTS key, env-only for the carrier pair's reason below PLUS one
-        # of its own: no process on this host holds a Gnani client, so a stored value would
-        # have no reader here under any arrangement. `apps/voice-worker` reads
-        # `GNANI_API_KEY` from its own secret set.
-        "gnani_api_key",
-        # D-614. The carrier pair is env-only for the third distinct reason in this set
-        # and the strongest: their reader is `pipecat.serializers.PlivoFrameSerializer`
-        # inside the `apps/voice-worker` container, which must never hold `PLATFORM_KEK`
-        # and therefore can never open `platform_secrets` however it is deployed. A box
-        # for either on the console would accept a rotation of a LIVE carrier credential
-        # and reach nothing.
-        "plivo_auth_id",
-        "plivo_auth_token",
-        # The caller-claim signing key: read by voice-runtime, which never opens the
-        # credential store, and by the voice worker, which cannot.
-        "carrier_claim_secret",
-        # D-662. The Vobiz pair: voice-runtime verifies callback signatures with the token
-        # and never opens the credential store.
-        "vobiz_auth_id",
-        "vobiz_auth_token",
-        # D-673. The callback secret and its previous generation: voice-runtime checks
-        # them and never opens the credential store.
-        "vobiz_callback_secret",
-        "vobiz_callback_secret_retired",
-        # D-621. The voice worker's API BASE URL, env-only for `gnani_api_key`'s reason
-        # exactly: it is read by that same container and by no process on this host, so a
-        # box for it here would be a value nothing could deliver and nothing could read.
-        # Its TOKEN is deliberately NOT here — `apps/api/worker/service.authorized` reads
-        # that one to verify a header, so it has a reader on this host and is console-
-        # managed. One wire, two halves, two classifications, because they have two readers.
-        "pipecat_worker_api_base_url",
         # D-678. The ThinnestAI key is captured when the adapter is built, and the base URL
         # decides which host that key is sent to, so neither may be editable in the console.
         "thinnest_api_key",

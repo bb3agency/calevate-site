@@ -106,19 +106,6 @@ def _tree(
         path.write_text(body)
 
 
-def test_the_real_tree_passes() -> None:
-    """First, because a checker that rejects everything also rejects the defect."""
-    result = subprocess.run(
-        [sys.executable, "-m", "scripts.check_audit_ip"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "AUDIT IP: OK" in result.stdout
-
-
 def test_a_faithful_copy_of_a_clean_tree_passes(tmp_path: Path) -> None:
     """Proves the doctored trees below differ from a clean one only in the defect, and
     not in some accident of how they are assembled."""

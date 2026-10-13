@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { formatDuration } from "@/components/ui";
 
 import { LiveDot } from "./liveCalls";
-import { SpeakingIndicator, type Speaker } from "./speakingIndicator";
 
 /** Whole seconds since `startedAt`, ticking once a second while mounted. */
 function useElapsedSeconds(startedAt: string | null | undefined): number | null {
@@ -27,19 +26,13 @@ function useElapsedSeconds(startedAt: string | null | undefined): number | null 
  * The elapsed time is counted in the browser from the server's `started_at`; it renders
  * nothing until mounted so the server and first client render agree. The figure is
  * not announced (it changes every second); the "Live" heading is.
- *
- * `speaker` is the integration seam for the live speaking signal (voice worker → API →
- * browser). Until a source supplies it, callers pass `null` and both sides render at
- * rest. Nothing here fetches it.
  */
 export function LiveCallPanel({
   startedAt,
   agentName,
-  speaker,
 }: {
   startedAt: string | null | undefined;
   agentName: string | null;
-  speaker: Speaker | null;
 }) {
   const elapsed = useElapsedSeconds(startedAt);
   return (
@@ -47,10 +40,10 @@ export function LiveCallPanel({
       aria-labelledby="live-call-heading"
       className="rounded-card border border-line bg-surface p-4 sm:p-5"
     >
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         <h2 id="live-call-heading" className="flex items-center gap-2 text-sm font-semibold text-ink">
           <LiveDot />
-          Live call
+          Live call{agentName ? ` with ${agentName}` : ""}
         </h2>
         {elapsed !== null && (
           <span className="text-[13px] tabular-nums text-ink-muted">
@@ -59,7 +52,6 @@ export function LiveCallPanel({
           </span>
         )}
       </div>
-      <SpeakingIndicator speaker={speaker} labels={{ caller: "Caller", agent: agentName ?? "Agent" }} />
     </section>
   );
 }

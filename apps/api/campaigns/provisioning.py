@@ -8,7 +8,7 @@ never published, and forwarding is configured on the client's own line by their 
 carrier — no code, no credential, nothing of ours.
 
 **MODEL B IS NOT WITHDRAWN AND IS STILL THE OTHER HALF OF THE PRODUCT.** A client who
-holds their own Exotel / Plivo / Vobiz connection still brings it, still passes that
+holds their own carrier connection still brings it, still passes that
 carrier's KYC, still stays the subscriber of record and still issues us revocable
 credentials; `agents.service.provision_number` RECORDS that number and asks no operator
 for anything (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9, `:239-317`). The two models now
@@ -17,8 +17,8 @@ not two code paths.
 
 THE TWO GATES, AND WHY THEY ARE DIFFERENT KINDS OF FACT
 -------------------------------------------------------
-1. **CAN the engine sell us one?** `EngineCapabilities.number_series`. Cartesia answers
-   "none"; the owned runtime buys through the carrier instead. This is a
+1. **CAN the engine sell us one?** `EngineCapabilities.number_series`. ThinnestAI answers
+   "none" (numbers are rented in its own console). This is a
    VENDOR capability, read from the descriptor, never from a settings key.
 2. **MAY WE?** `Settings.number_resale_authorization`. The playbook's condition on this
    decision is not waived, it is SEQUENCED: *"A future 'we provision the number for
@@ -94,27 +94,18 @@ log = get_logger(__name__)
 # `provider_not_implemented` rather than looking configured: `NUMBER_PROVIDER=twilio` must
 # fail loudly, not quietly behave like Exotel.
 #
-# `plivo` and `vobiz` are here because the engine's own regulated-numbers guide maps the
-# two series our `NUMBER_SERIES` enum names onto them, and it is a table, not a hedge
-# (`bolna-findings/mirror/pages/guides/inbound/obtaining-regulated-phone-numbers.md:15-16`):
-#
-#     | **140-series** | Telemarketing and promotional calls | Vobiz  |
-#     | **160-series** | Transactional and service calls ... | Plivo  |
-#
-# `exotel` stays and is deliberately not the same kind of entry. Bolna's number-purchase
-# API cannot broker an Exotel number at all — `POST /phone-numbers/buy`'s provider enum is
-# `twilio | plivo | vobiz` (`bolna-findings/mirror/pages/api-reference/phone-numbers/
-# buy.md:67-73`) — but Exotel is a first-class BYO-ACCOUNT integration there
-# ("Bring Your Own Account | ✅ Yes", `.../supported-telephony-providers.md:32`), so an
-# Exotel number is bought FROM EXOTEL by the client and connected.
+# `plivo` is a carrier whose numbers ThinnestAI transfers on live (thinnest-findings/mirror/
+# snapshots/2026-10-08/pages/channels/voice.md:483-492). `exotel` is the Indian carrier a
+# client brings its own account from (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9).
 # `twilio` is absent on purpose: it is the non-India provider
-# (`.../supported-telephony-providers.md:34` lists its countries and India is not one).
+# (`bolna-findings/mirror/pages/supported-telephony-providers.md:34` lists its countries
+# and India is not one).
 #
-# ⚠ **THIS IS NOT THE LIST OF PROVIDERS WE MAY BUY FROM.** That set is the engine's
-# (`buy.md:67-73`) and is asked of the engine, per purchase, from the search result an
-# operator picked. Two questions, two answers; conflating them is how `NUMBER_PROVIDER`
-# would come to decide something it knows nothing about.
-KNOWN_PROVIDERS: Final[tuple[str, ...]] = ("exotel", "plivo", "vobiz")
+# ⚠ **THIS IS NOT THE LIST OF PROVIDERS WE MAY BUY FROM.** That set is the engine's and is
+# asked of the engine, per purchase, from the search result an operator picked. Two
+# questions, two answers; conflating them is how `NUMBER_PROVIDER` would come to decide
+# something it knows nothing about.
+KNOWN_PROVIDERS: Final[tuple[str, ...]] = ("exotel", "plivo")
 
 # Authored reason codes — never vendor prose. They name OUR configuration or legal state,
 # are logged, and are never returned to a client (telling them which of our secrets or
@@ -262,8 +253,8 @@ def provisioning_not_configured(reason: str | None) -> ProblemError:
         )
     if engine_number_console(get_settings().engine) is not None:
         # A voice platform that rents numbers and attaches them in its own console (D-678):
-        # the Vobiz sentence below would send an operator to a carrier this deployment does
-        # not use.
+        # the generic sentence below would send an operator to a buying connection that
+        # does not exist.
         return ProblemError(
             kind="dependency",
             code="number_provisioning_not_configured",
@@ -283,13 +274,10 @@ def provisioning_not_configured(reason: str | None) -> ProblemError:
         code="number_provisioning_not_configured",
         title="This deployment cannot buy a phone number",
         detail=(
-            "Calevate's own voice runtime has no number-buying connection to a carrier, "
-            "so a number cannot be bought from here."
+            "This deployment's voice platform has no number-buying connection, so a number "
+            "cannot be bought from here."
         ),
-        remediation=(
-            "Ask us to record a number on Calevate's own carrier account "
-            "instead: the client opens no operator account and issues us no credentials."
-        ),
+        remediation="Ask us to record a number the client already holds instead.",
     )
 
 

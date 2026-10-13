@@ -217,17 +217,16 @@ def test_every_selectable_engine_has_an_authenticity_story() -> None:
         "engine. Add the entry to WEBHOOK_AUTH_BY_ENGINE with the adapter's declaration."
     )
 
-    # THE OTHER DIRECTION IS AN ALLOWLIST, NOT A COUNT. All three entries are conformance
+    # THE OTHER DIRECTION IS AN ALLOWLIST, NOT A COUNT. Both entries are conformance
     # FIXTURES — one `FakeEngine` instance per capability axis the suite has to exercise
     # (`fake-restricted` signs its webhooks, `fake-deployed` deploys its agents
-    # elsewhere, `fake-owned-runtime` holds the agent record AND runs the program, D-592)
-    # — and each is named here so a fourth has to be argued for rather than
+    # elsewhere) — and each is named here so a third has to be argued for rather than
     # appear. They are keyed separately because `WEBHOOK_AUTH_BY_ENGINE` is keyed by NAME
     # and the receiver reads that table: two instances sharing one name while declaring
     # different capabilities is the ambiguity the table cannot survive. Neither is in
     # `config.EngineName`, so neither can reach a deployment.
     unselectable = sorted(set(WEBHOOK_AUTH_BY_ENGINE) - SELECTABLE_ENGINES)
-    assert unselectable == ["fake-deployed", "fake-owned-runtime", "fake-restricted"], (
+    assert unselectable == ["fake-deployed", "fake-restricted"], (
         "the only engines allowed to have an authenticity story without being selectable "
         f"are the conformance fixtures; found {unselectable}"
     )
@@ -303,19 +302,13 @@ ENGINE_ISOLATION_CONTRACT = "engine isolation: only engine/ may see vendor paylo
 #: Adapter modules listed in the contract BEFORE the file they name exists, and why.
 #:
 #: import-linter does not object to a forbidden module that is absent — measured, not
-#: assumed: adding `apps.api.engine.pipecat` to a tree with no such file still reports
-#: "2 kept, 0 broken". So an entry written ahead of its code is INERT, and an inert entry
+#: assumed: adding a module name to a tree with no such file still reports "2 kept, 0
+#: broken". So an entry written ahead of its code is INERT, and an inert entry
 #: is indistinguishable from an entry whose file somebody renamed. This ledger is the
 #: difference, and it is an EQUALITY assertion for the same reason `KNOWN_OPEN_COPIES` is:
 #: landing the module fails this test until the entry is deleted from here, so a line
 #: cannot outlive the gap it describes.
-ADAPTERS_LISTED_AHEAD_OF_THEIR_MODULE: dict[str, str] = {
-    # EMPTY, AND THE LAST ENTRY WAS DELETED BY THE CODE IT DESCRIBED. `apps.api.engine
-    # .pipecat` was listed here from step 1 of `docs/PIPECAT-MIGRATION.md` §6; step 3
-    # landed `apps/api/engine/pipecat.py`, so the contract entry stopped being inert and
-    # this ledger line stopped being true in the same commit — which is exactly the
-    # equality assertion below doing its job.
-}
+ADAPTERS_LISTED_AHEAD_OF_THEIR_MODULE: dict[str, str] = {}
 
 
 def _forbidden_engine_modules() -> set[str]:
@@ -354,19 +347,11 @@ def test_every_shipped_adapter_is_forbidden_to_the_rest_of_the_tree() -> None:
     #: supporting modules beside them (`capabilities`, `health`, `vendor_http`, ...) hold
     #: no vendor payload shape and are the factory's own machinery, so naming them would
     #: forbid business code from reaching an engine at all.
-    #: Carrier adapters are vendor modules too, named by the carrier seam's own map (D-662).
-    from apps.api.engine.carrier import CARRIER_ADAPTER_MODULES
-
-    carrier_modules = set(CARRIER_ADAPTER_MODULES.values())
     shipped = {
         f"apps.api.engine.{path.stem}"
         for path in sorted(engine_dir.glob("*.py"))
-        if path.stem in ALL_ENGINE_NAMES or f"apps.api.engine.{path.stem}" in carrier_modules
+        if path.stem in ALL_ENGINE_NAMES
     }
-    assert carrier_modules <= shipped, (
-        f"`CARRIER_ADAPTER_MODULES` names {sorted(carrier_modules - shipped)}, which are not "
-        "files in apps/api/engine/"
-    )
 
     missing = sorted(shipped - forbidden)
     assert not missing, (

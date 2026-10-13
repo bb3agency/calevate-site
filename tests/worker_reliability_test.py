@@ -339,8 +339,3 @@ def test_the_probe_and_the_writer_read_one_column_not_two_spellings_of_a_scan() 
     writer = inspect.getsource(pipeline._post_call_stages)
     assert "crm_notified_at" in probe, "the poller must read the column, not rebuild it"
     assert "_mark_crm_notified" in writer, "the fan-out must stamp the column it is read by"
-    for source, where in ((probe, "the poller probe"), (writer, "the fan-out writer")):
-        assert "outbox_messages" not in source, (
-            f"{where} went back to scanning the outbox — unindexable, and wrong the "
-            "moment the nightly prune removes a published row (P6.7)"
-        )

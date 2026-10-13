@@ -45,44 +45,9 @@ Nothing below can be improvised, and each is somebody else's to provide:
       you happened to be on. In the dashboard it is "Create bucket" → **Location** →
       choose a region instead of leaving *None*. The full argument, both buckets, and why
       a hint is placement and NOT residency: `infra/README.md` §5 item 2.
-- [ ] **A THIRD R2 token — read-only, for the voice worker alone** (DEPLOYMENT §12.5
-      gate 10). The Pipecat Cloud container does exactly one thing to object storage:
-      `get_object` on `knowledge-packs/<tenant>/<agent>/<sha>.json`
-      (`apps/voice-worker/voice_worker/storage.py`). It must NOT get the token above:
-      that one reads and WRITES the same bucket's `recordings/`, `kb-uploads/` and
-      `engine-payloads/` for every tenant, and the container is operated by a third
-      party. Create it read-only, scoped as narrowly as R2 lets you (R2 → API tokens),
-      and hold it as `KB_PACK_READONLY_ACCESS_KEY_ID` /
-      `KB_PACK_READONLY_SECRET_ACCESS_KEY`; `pipecat-worker-setup.sh secrets` asks for it
-      under those names, never offers the VPS value for it, and refuses that value if you
-      paste it. It goes into the Pipecat secret set ONLY — never into `/var/www/calevate/
-      .env`. ⚠ Whether an R2 token can be scoped to the `knowledge-packs/` PREFIX rather
-      than only to the bucket is **UNKNOWN — `developers.cloudflare.com` is not readable
-      from the development container** (403 on CONNECT, measured 18 Sep 2026); check it in
-      the dashboard and use the prefix if it is offered. Read-only bucket scope is the
-      floor.
-- [ ] **The Vobiz account's Auth ID and Auth Token** (D-662; Vobiz is the default carrier).
-      They go into `/var/www/calevate/.env` as `VOBIZ_AUTH_ID` / `VOBIZ_AUTH_TOKEN` and
-      **nowhere else**: never into the Pipecat secret set, because the worker ends a Vobiz
-      call with the stream `stop` message and needs no carrier credential. The token is
-      also the key Vobiz signs callbacks with, which is why voice-runtime reads it. Before
-      the first live call, the account needs KYC done, an India data region, inbound
-      enabled and a number bought: `runbooks/vobiz-first-live-call.md` §1.
-- [ ] **Only if you will run `CARRIER=plivo`**: a Plivo credential for the voice worker
-      that is NOT your account-level one (DEPLOYMENT §12.5 gate 11). No Plivo account has
-      ever existed, and with `CARRIER=vobiz` (the default) skip this item. The worker uses
-      it only to hang a leg up; the
-      account-level auth token can also originate calls, buy numbers and read every CDR,
-      in that same third-party container. Hold it as `PLIVO_WORKER_AUTH_ID` /
-      `PLIVO_WORKER_AUTH_TOKEN`. ⚠ **What Plivo actually offers as the narrowest such
-      credential is UNKNOWN — `www.plivo.com` is not readable from the development
-      container** (403 on CONNECT, measured 18 Sep 2026), so nothing here claims
-      subaccounts or scoped keys exist. In the Plivo console, check in this order:
-      (a) a credential that can terminate a call but not originate one, buy a number or
-      list CDRs; (b) failing that, a subaccount limited to this worker's numbers;
-      (c) failing both, keep the account-level value knowingly, with rotation plus spend
-      and concurrency limits as the compensating control — and write which of the three
-      you found into gate 11, with the screen it came from.
+- [ ] **A ThinnestAI full-access API key** (`ta_live_…`, ThinnestAI **Settings → API
+      keys**; a Build key cannot place calls). It goes into `/var/www/calevate/.env` as
+      `THINNEST_API_KEY` and nowhere else (DEPLOYMENT §12).
 - [ ] A **non-Cloudflare** offsite target for the nightly dump — B2, S3 or a Hetzner
       Storage Box. The edge and the WAL archive are already the same vendor; this copy is
       the one that survives a Cloudflare account event.
@@ -258,7 +223,7 @@ uv sync --all-packages     # for the backup alert relay only (step 1); NOT for t
 
 **`/var/www/calevate/.env`** — no script will ever write this, and the deploy aborts
 without it. The eight bootstrap keys plus the object-store credentials plus the three HMAC
-secrets:
+secrets, plus the engine's three lines:
 
 ```sh
 APP_ENV=prod
@@ -278,27 +243,16 @@ AWS_REGION=auto
 AUDIT_CHAIN_SECRET=<32 random bytes>
 IDEMPOTENCY_SCOPE_SECRET=<32 random bytes>
 IMPERSONATION_GRANT_SECRET=<32 random bytes>
-# The carrier pair (D-662, DEPLOYMENT §12.6). Env-only: voice-runtime reads them and never
-# opens the credential store. Never copy the Vobiz pair into the Pipecat secret set.
-VOBIZ_AUTH_ID=<MA_… from the Vobiz console>
-VOBIZ_AUTH_TOKEN=<from the Vobiz console>
-# Env-only too. The same value goes into the Pipecat secret set (DEPLOYMENT §12.2).
-CARRIER_CLAIM_SECRET=<32 random bytes>
-# Env-only, D-673. `openssl rand -hex 32` on your own machine. It rides every URL we give
-# Vobiz, so it must differ from CARRIER_CLAIM_SECRET and VOBIZ_AUTH_TOKEN, and it never goes
-# into the Pipecat secret set. The preflight below refuses the deploy without it, and
-# voice-runtime refuses every Vobiz request (DEPLOYMENT §12.6).
-VOBIZ_CALLBACK_SECRET=<openssl rand -hex 32>
+# The engine (DEPLOYMENT §12). ENGINE is console-managed, but the pre-swap check cannot
+# read the console, so .env declares it too. The key and the intake key are env-only.
+ENGINE=thinnest
+THINNEST_API_KEY=<ta_live_… from §0>
+ENGINE_INTAKE_KEK=<32 random bytes, base64; back it up with PLATFORM_KEK>
 ```
 
-**Do not put `CARRIER` in this file.** It is set in the ops console (Platform
-configuration) and defaults to `vobiz`. The environment always beats the console, so a
-`CARRIER=` line here would make the carrier switch on that screen accept a change and do
-nothing. The same holds for `VOBIZ_SIGNATURE_REQUIRED`, `VOBIZ_CALLBACK_IPS`,
-`CARRIER_CPS` and `CARRIER_TRANSFER_ENABLED`: set them from the console, not here. Leave
-signature enforcement and transfer off for the first deploy. Signature enforcement is
-turned on during the first live call (`runbooks/vobiz-first-live-call.md`); transfer stays
-off until a live test shows it working and the founder decides to enable it.
+**Do not put `WEBHOOK_BASE_URL` or `ENGINE_ACTIONS_BASE_URL` in this file.** They are set in
+the ops console (Platform configuration) at §9a. The environment always beats the console,
+so a line here would make that screen accept a change and do nothing.
 
 ```sh
 chmod 600 .env
@@ -321,11 +275,11 @@ Expect `DEPLOY ENV: OK`. If it says `dsn_host_unreachable_from_container` you us
 `localhost` where you needed `host.docker.internal`. If it says `retired_env_key`, the
 file was copied from an older host and carries a key a decision deleted (the message
 names the decision): delete those lines. Every process refuses to boot while they remain.
-If it says `carrier_claim_secret_unusable` or `carrier_credentials_missing`, the carrier
-lines above are missing or the claim key is shorter than 32 bytes. If it says
-`webhook_base_url_not_public` or `pipecat_stream_base_url_blank`, this file holds a value
-for one of those console-managed keys that cannot work: remove the line and set the value
-in the console at §9a.
+If it says `thinnest_api_key_missing`, `thinnest_api_key_unusable`,
+`engine_intake_kek_missing` or `engine_intake_kek_unusable`, the engine lines above are
+missing or hold a value that cannot work (DEPLOYMENT §12 says which). If it says
+`webhook_base_url_not_public`, this file holds a value for that console-managed key that
+cannot work: remove the line and set the value in the console at §9a.
 
 ---
 
@@ -491,78 +445,31 @@ scripts/vps-deploy.sh nginx
 
 ---
 
-## 9a. The Pipecat voice worker, and the three values that point calls at it — **[unrun]**
+## 9a. The ThinnestAI engine, and the values that point it at us — **[unrun]**
 
-Nothing above deploys the conversation loop: it runs as a container on Pipecat Cloud, not
-on this box, and no call is answered until it is up (DEPLOYMENT §12). It needs the API
-reachable at `https://api.<ROOT_DOMAIN>`, so do this after step 9.
+ThinnestAI hosts the whole call (D-678); nothing else is deployed for it. Its webhooks and
+in-call actions need the hooks and API hosts reachable over https, so do this after step 9.
+Every variable is described in DEPLOYMENT §12.
 
-**1. Set the VPS half in the ops console** (Platform configuration, after step 7 gives you
-an operator). These are console-managed: do not put them in `.env`.
+**1. Set the console half** (Platform configuration, after step 7 gives you an operator).
+These are console-managed: do not put them in `.env`. `ENGINE` is not here because `.env`
+declares it (§3), and the console shows it as set in the environment.
 
 | Key | Value |
 |---|---|
-| `ENGINE` | `pipecat` |
-| `WEBHOOK_BASE_URL` | `https://hooks.<ROOT_DOMAIN>`, the exact scheme and host the carrier calls. It must be https and a public host; readiness refuses anything else outside `local`. |
-| `PIPECAT_WORKER_API_TOKEN` | 32 random bytes from the command in §0. The worker presents it to `/v1/worker/*`; with none set every one of those routes answers 401. |
+| `WEBHOOK_BASE_URL` | `https://hooks.<ROOT_DOMAIN>`. ThinnestAI posts `call.completed` and `call.analysed` to `<WEBHOOK_BASE_URL>/hooks/v1/engine/thinnest`. It must be https and a public host. |
+| `ENGINE_ACTIONS_BASE_URL` | `https://api.<ROOT_DOMAIN>`. Each agent's in-call actions call `<ENGINE_ACTIONS_BASE_URL>/v1/worker/engine-actions/thinnest/<tool>`; publish refuses while it is unset or not public. |
 
-`PIPECAT_STREAM_BASE_URL` comes in step 4, once the worker exists. `CARRIER` stays at its
-default, `vobiz`.
-
-**2. Push the worker's secret set and deploy it**, with the script that holds the
-contract (DEPLOYMENT §12.2 for every variable, §12.6 for the carrier half):
-
-```sh
-scripts/deploy/pipecat-worker-setup.sh doctor        # changes nothing; lists what is missing
-scripts/deploy/pipecat-worker-setup.sh install-cli
-scripts/deploy/pipecat-worker-setup.sh login
-scripts/deploy/pipecat-worker-setup.sh sources       # where each value comes from; prints none
-scripts/deploy/pipecat-worker-setup.sh secrets
-scripts/deploy/pipecat-worker-setup.sh deploy
-```
-
-`secrets` asks for `PIPECAT_WORKER_API_BASE_URL` (`https://api.<ROOT_DOMAIN>`), the SAME
-`PIPECAT_WORKER_API_TOKEN` you set in step 1, the SAME `CARRIER_CLAIM_SECRET` as this
-host's `.env`, `CARRIER=vobiz`, and the read-only knowledge-pack R2 token from §0. No
-`VOBIZ_*` value ever goes in it, and no `PLIVO_*` value while the carrier is Vobiz.
-
-**3. Prove the deployed container reaches the API with its token.**
-`bot.py --preflight` inside the deployed container must print `VOICE WORKER PREFLIGHT: OK`
-(DEPLOYMENT §12.2). Read the agent's logs with `pipecat cloud agent logs
-calevate-pipecat-worker`.
-
-**4. Point the answer document at the worker.** Set `PIPECAT_STREAM_BASE_URL` in the ops
-console to Pipecat Cloud's telephony endpoint for the deployed agent, in this shape:
-
-```
-wss://ap-south.api.pipecat.daily.co/ws/plivo?serviceHost=calevate-pipecat-worker.<ORG>
-```
-
-`<ORG>` is your Pipecat Cloud organization name (`pipecat cloud organizations list`). The
-shape is Pipecat's (`docs.pipecat.ai/pipecat-cloud/guides/telephony/plivo-websocket` and
-`/guides/regions`, read 5 Oct 2026). `plivo` is right for Vobiz: Vobiz speaks Plivo's stream
-protocol. **The `ap-south.` prefix is not optional.** The endpoint without a region routes to
-`us-west`, where this agent is not deployed, and a US media leg would also break Vobiz's
-India media-anchoring rule (OPERATIONS gate V-8). voice-runtime appends the agent ref to the
-path and its own claims to the query, and keeps `serviceHost`. If the dashboard shows a
-different URL for the agent, use the dashboard's and record the difference under gate V-3.
-
-**5. Check readiness on both services.** It names, by key, whatever is still missing:
+**2. Check readiness on both services.** It names, by key, whatever is still missing:
 
 ```sh
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/healthz/ready   # api
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8100/healthz/ready   # voice-runtime
 ```
 
-Under `ENGINE=pipecat` the api is not ready without the worker token, the Vobiz pair, a
-usable `CARRIER_CLAIM_SECRET`, `VOBIZ_CALLBACK_SECRET` (on Vobiz) and a public
-`WEBHOOK_BASE_URL`; voice-runtime is not ready without `PIPECAT_STREAM_BASE_URL`, the claim
-key, `VOBIZ_CALLBACK_SECRET` (on Vobiz) and the public `WEBHOOK_BASE_URL`. A 503
-writes `health_not_ready` to the service's log with `missing_config_keys`, which is where
-the names are. Then press **Test the carrier credentials** beside the Vobiz rows under
-*Set outside this console* in the ops console: it asks Vobiz whether the pair this
-deployment holds authenticates. Then continue with DEPLOYMENT §12.6's carrier order and
-`runbooks/vobiz-first-live-call.md`.
+A 503 writes `health_not_ready` to the service's log with `missing_config_keys`, which is
+where the names are. Then continue with
+`runbooks/thinnest-first-live-call.md`.
 
 ---
 
@@ -639,7 +546,7 @@ This is the routine path once the host is live, run by hand: automatic deploys a
    sudo -u postgres pg_dump -Fc -d calevate -f /var/backups/calevate/pre-<sha>-$(date +%F-%H%M).dump
    ```
 
-2. **Add any new `.env` keys** the release needs, as `calevate` (`sudo -u calevate nano /var/www/calevate/.env`). On `ENGINE=thinnest`, `.env` declares `ENGINE=thinnest` itself. The pre-swap check cannot read the console, and without that line it assumes Pipecat and demands the Vobiz secrets; the console then shows the key as set in the environment.
+2. **Add any new `.env` keys** the release needs, as `calevate` (`sudo -u calevate nano /var/www/calevate/.env`). `.env` declares `ENGINE=thinnest` itself (§3): the pre-swap check cannot read the console, and without that line it skips the engine checks; the console then shows the key as set in the environment.
 
 3. **Switch to the service account, export the four nginx variables** (§4, never in `.env`), and update the checkout:
 

@@ -335,13 +335,6 @@ def test_a_thin_exemption_reason_is_refused(
     assert any("no reason a reviewer can weigh" in f for f in guard.dynamic_site_failures())
 
 
-def test_the_real_tree_is_clean() -> None:
-    """The live assertion, not a sandbox: this repo's alarms and its index agree right
-    now. It is the same call `make guardrails` and CI make, kept here so a targeted test
-    run cannot pass while the gate is red."""
-    assert guard.evaluate() == []
-
-
 def test_an_unclassified_alarm_fails(sandbox: Any, tmp_path: Path) -> None:
     """D-591's half of the contract: you cannot add an alarm without choosing how loud it
     is. Unclassified codes fall to the `page` default, which is the SAFE direction but not

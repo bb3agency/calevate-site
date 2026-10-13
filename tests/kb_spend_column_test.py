@@ -5,7 +5,7 @@ shown as a separate column / I mean the usage of this in the clients portal too"
 what each failure costs, worst first:
 
 1. **The lens matches the meter.** `KB_INGESTION_FEATURES` is a tuple of strings and the
-   five modules that WRITE those strings each define their own constant. If a rename moved
+   modules that WRITE those strings each define their own constant. If a rename moved
    one side and not the other, the column would silently read ₹0.00 for a real cost — which
    is worse than no column, because it answers the question wrongly rather than not at all.
 2. **It is a COMPONENT, never a second total.** A screen that added it to `used_inr` would
@@ -38,7 +38,6 @@ from apps.api.billing.rates import (
 )
 from apps.api.crm.assist import ASSIST_FEATURE_KB_GLOSS, ASSIST_FEATURE_KB_OCR
 from apps.api.db.session import tenant_session
-from apps.api.kb.pack_vectors import ASSIST_FEATURE_PACK_EMBED
 from apps.api.retrieval.embedding import (
     ASSIST_FEATURE_CALL_SEARCH,
     ASSIST_FEATURE_KB_EMBED,
@@ -51,6 +50,10 @@ from sqlalchemy import text
 from tests.ai_quota_test import _tenant
 
 MODEL = AZURE_OPENAI_DEFAULT_MODEL
+
+#: Written by the knowledge-pack encoder until D-763 removed it. It stays in the lens so a
+#: month that holds its rows still counts them as knowledge spend.
+RETIRED_PACK_EMBED_FEATURE = "kb_pack_embed"
 
 
 async def _meter(tenant_id: UUID, *, feature: str, tokens_in: int) -> Decimal:
@@ -67,10 +70,10 @@ async def _meter(tenant_id: UUID, *, feature: str, tokens_in: int) -> Decimal:
     return metered.cost_inr
 
 
-def test_the_lens_names_exactly_the_five_features_that_are_bought_by_an_upload() -> None:
+def test_the_lens_names_exactly_the_features_that_are_bought_by_an_upload() -> None:
     """THE DRIFT GUARD, and the reason the tuple is spelled in a leaf rather than imported.
 
-    `billing/models.py` cannot import the five modules that define these names — they import
+    `billing/models.py` cannot import the modules that define these names — they import
     `billing/ai_quota`, which imports this — so the tuple is literals plus this test, the
     same registry-and-check shape hard rule 4 uses. A rename on either side is a red test
     rather than a column that reads zero.
@@ -79,7 +82,7 @@ def test_the_lens_names_exactly_the_five_features_that_are_bought_by_an_upload()
         ASSIST_FEATURE_KB_GLOSS,
         ASSIST_FEATURE_KB_OCR,
         ASSIST_FEATURE_KB_EMBED,
-        ASSIST_FEATURE_PACK_EMBED,
+        RETIRED_PACK_EMBED_FEATURE,
         ASSIST_FEATURE_SUPERMEMORY_INGEST,
     }
     # The three QUESTION-time features stay OUT. The line is who caused the spend: these are
@@ -99,7 +102,7 @@ async def test_the_knowledge_column_is_a_component_of_the_month_and_not_a_second
     exactly why the client screen labels the second "of which".
     """
     tenant_id = await _tenant()
-    upload = await _meter(tenant_id, feature=ASSIST_FEATURE_PACK_EMBED, tokens_in=40_000)
+    upload = await _meter(tenant_id, feature=ASSIST_FEATURE_KB_EMBED, tokens_in=40_000)
     question = await _meter(tenant_id, feature=ASSIST_FEATURE_KB_SEARCH, tokens_in=1_000)
     assert upload > 0 and question > 0
 
@@ -113,7 +116,7 @@ async def test_the_knowledge_column_is_a_component_of_the_month_and_not_a_second
 
 
 async def test_every_ingestion_feature_lands_in_the_column() -> None:
-    """All five, not just the one this lane moved — an operator asking "what did their
+    """Every one, retired included — an operator asking "what did their
     knowledge cost us" must not get an answer that silently omits the OCR pass."""
     tenant_id = await _tenant()
     total = Decimal("0")
@@ -142,7 +145,7 @@ async def test_uploading_past_the_allowance_takes_the_balance_negative_and_is_no
     # Enough to clear the tier's whole allowance in one go, then a second upload on top.
     overshoot = await _meter(tenant_id, feature=ASSIST_FEATURE_KB_EMBED, tokens_in=7_000_000)
     assert overshoot > included
-    second = await _meter(tenant_id, feature=ASSIST_FEATURE_PACK_EMBED, tokens_in=100_000)
+    second = await _meter(tenant_id, feature=ASSIST_FEATURE_KB_EMBED, tokens_in=100_000)
     assert second > 0, "an upload past the ceiling was not metered"
 
     async with tenant_session(tenant_id) as session:
@@ -189,7 +192,7 @@ async def test_one_tenants_uploads_never_reach_another_tenants_column() -> None:
     and `read_ai_quota` also names the tenant, so a cross-tenant read is zero rows twice."""
     uploader = await _tenant()
     bystander = await _tenant()
-    await _meter(uploader, feature=ASSIST_FEATURE_PACK_EMBED, tokens_in=50_000)
+    await _meter(uploader, feature=ASSIST_FEATURE_KB_EMBED, tokens_in=50_000)
 
     async with tenant_session(bystander) as session:
         quota = await read_ai_quota(session, tenant_id=bystander)
@@ -202,7 +205,7 @@ async def test_the_split_is_one_scan_over_the_rows_the_meter_wrote() -> None:
     that already exist. Asserted at the store so a future "kb_ktok_in" unit type, which would
     need a migration and a second idempotency key, is a deliberate act rather than a drift."""
     tenant_id = await _tenant()
-    await _meter(tenant_id, feature=ASSIST_FEATURE_PACK_EMBED, tokens_in=10_000)
+    await _meter(tenant_id, feature=ASSIST_FEATURE_KB_EMBED, tokens_in=10_000)
 
     async with tenant_session(tenant_id) as session:
         units = (
@@ -218,18 +221,18 @@ def test_an_input_only_attestation_can_price_an_upload() -> None:
     """The seam that connects this column to D-608's other half: once the encoder's price is
     attested INPUT-ONLY, an embedding's rows carry a real `unit_cost_paid` on the input leg
     and an exact zero on the output leg — which is the truth about an embedding rather than
-    a default (`kb/pack_vectors._vectors_for` passes `tokens_out=0`)."""
-    encoder = "models/gemini-embedding-2"
+    a default."""
+    encoder = "text-embedding-3-small"
     try:
         install_llm_price_attestations(
             lambda: {
                 encoder: LlmPriceAttestation(
                     model=encoder,
-                    input_usd_per_mtok=Decimal("0.20"),
+                    input_usd_per_mtok=Decimal("0.02"),
                     output_usd_per_mtok=None,
                     read_on=date(2026, 9, 15),
                     attested_by="founder",
-                    source="Google Cloud billing export 2026-09",
+                    source="Azure billing export 2026-09",
                 )
             }
         )

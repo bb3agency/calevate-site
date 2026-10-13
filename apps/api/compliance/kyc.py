@@ -32,14 +32,7 @@ WHAT THE RESEARCH SETTLED (read before changing the shape of this record)
    ₹50 lakh. This is exactly R-11's exposure — on a self-serve motion the applicant is
    a stranger — and it is why the refusals below are refusals rather than warnings.
    — The Telecommunications Act, 2023 (indiacode.nic.in), s.3.
-4. **Our carrier enforces it downstream anyway.** Vobiz (D-662) requires KYC before it
-   rents an Indian number, serves India-registered businesses only, and requires each
-   `customer_use` sub-account to complete KYC in its own name, created with
-   `kyc_calls_blocked: true` until it does. So a product that let a client "buy" a
-   number without a KYC record would be writing a cheque the carrier will bounce.
-   — VERIFIED-VENDOR-DOCS: `vobiz-findings/mirror/pages/compliance/india/
-     calling-regulations.md:30-35` and `compliance/india/kyc.md:65`.
-5. **DLT Principal Entity registration overlaps and does NOT subsume this.** PE
+4. **DLT Principal Entity registration overlaps and does NOT subsume this.** PE
    registration asks for PAN, GST/CIN and the authorised signatory's government ID on
    company letterhead — the same *entity* documents — so re-collecting them would be
    waste, and this record therefore stores a REFERENCE and never a second copy. But PE

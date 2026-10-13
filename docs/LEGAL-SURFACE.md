@@ -460,29 +460,20 @@ to any client who bought on that sentence.
    asserts nothing about where the resource physically is. **The resource's region and its
    deployment type are attested by a human (OPERATIONS §2 gates 20 and 20c), not proved by
    the build**, and any public copy that implies otherwise is the misrepresentation this
-   finding is about. Speech (Sarvam) and the first post-call extraction pass remain Indian
-   SERVICES in the sense that the vendor is an Indian company — ⚠ and since 27 Aug 2026 that
+   finding is about. The first post-call extraction pass (Sarvam) remains an Indian
+   SERVICE in the sense that the vendor is an Indian company — ⚠ and since 27 Aug 2026 that
    is the ONLY sense in which they may be described as such: the vendor's own policy permits
    processing outside India, so "Indian service" may not be written where a reader will take
    it for residency (see the correction in §4 above).
 
-⚠ **AND "SPEECH" IS NO LONGER ONE LEG WITH ONE VENDOR — D-629 (18 Sep 2026) SPLIT IT, AND
-NOTHING IN THIS DOCUMENT HAD LEARNED THAT** (noted 19 Sep 2026). Read every "speech
-(Sarvam)" above and below as **speech-to-TEXT only**. Sarvam Saaras still transcribes every
-call and still runs the first extraction pass, and everything this document says about what
-Sarvam RECEIVES is unchanged. What left is SYNTHESIS: `agents/voices.py::TtsModel` is
-`Literal["sonic-3.5", "timbre-v2.5"]`, so the voice a caller HEARS is Gnani's (Clear) or
-Cartesia's (Studio) — and of Gnani's own pages nobody here has read one (all three sites
-egress-blocked, measured 15 Sep 2026), while Cartesia's sub-processor row reads NOT VERIFIED
-on location. **So the sentence "speech … remains an Indian service" may not be written
-unqualified any more, even in the narrowed vendor-is-an-Indian-company sense this section
-established on 27 Aug 2026.** The legal SET moved with D-629 (privacy r8, DPA r7,
-sub-processors r7, and `apps/web/src/lib/legal/subprocessors.ts` carries Gnani's own
-row); this document did not. ⚠ **AND ONE LIVE MARKETING STRING STILL HAS THE OLD
-SENTENCE**: `apps/web/src/lib/marketing/compliance.ts::WHERE_IT_RUNS` opens *"Speech and the
-first reading of your transcript are Indian services, on every call"*, rendered by
-`components/marketing/home/trust.tsx` and `app/security/page.tsx`. That is an F-1 CPA
-2019 surface and it is outside this document's reach — flagged here, not fixed here.
+**Speech is not ours at all (D-678, D-763).** ThinnestAI hears and speaks every call, and a
+Studio voice is Cartesia on our key through ThinnestAI's voice-only BYOK. Sarvam runs only
+the first post-call extraction pass and the disclosed dashboard fallback, so read every
+"speech (Sarvam)" in this section as that extraction pass. The live marketing string,
+`apps/web/src/lib/marketing/compliance.ts::WHERE_IT_RUNS` (rendered by
+`components/marketing/home/trust.tsx` and `app/security/page.tsx`), says the call runs on a
+hosted voice platform that keeps data in India by its own account and may process the
+language-model step outside India.
 
 **⚠ AND THE NARROWED REPLACEMENT ON THE LANDING PAGE IS NOW WRONG TOO, IN TWO WAYS. Read
 this before quoting anything above as closed.** ⚠ **THE QUOTED TILE NO LONGER EXISTS**
@@ -509,12 +500,11 @@ LANGUAGE leg is Microsoft's on BOTH surfaces, so "the one model endpoint that is
 [Indian]" now carries every word the caller speaks rather than a redacted dashboard query.
 
 **What the page may truthfully say** — narrower again, and after D-449 it may not claim
-India for the language leg at all, nor (after the 27 Aug 2026 correction in §4) India
-PROCESSING for the speech leg: speech-to-TEXT (Sarvam) and the first post-call extraction
-pass run on an Indian company whose own policy permits it to process outside India
-(⚠ this read "speech (Sarvam)"; since D-629 the SYNTHESIS half of speech is Gnani's or
-Cartesia's and may not be covered by that clause), and the landing
-page now says both halves in one sentence; the language model runs on a Microsoft Azure OpenAI account
+India for any language leg, nor (after the 27 Aug 2026 correction in §4) India PROCESSING
+for speech: the call runs on a hosted voice platform that, by its own published account,
+stores data in India and may process the language-model step outside India; the first
+post-call extraction pass runs on an Indian company whose own policy permits it to process
+outside India; and the dashboard assistant's model runs on a Microsoft Azure OpenAI account
 **configured for East US 2**, no code path can send it anywhere else without editing one
 frozen constant, **and the account's region and deployment type are confirmed by a person
 against the provider's console and filed as evidence** — checked, not proved by a build.
@@ -975,7 +965,7 @@ shape `check_model_lifecycle.py` already uses to consume
 `docs/evidence/azure-deployment-attestation.json`. Owner: ours (guards/config lane, not
 this one). No external dependency.
 
-### F-14 — Two published documents promised a recording control the product does not have. **CLOSED on the copy, 22 Aug 2026; the mechanism is pilot gate 3.**
+### F-14 — Two published documents promised a recording control the product does not have. **CLOSED on the copy, 22 Aug 2026; the mechanism is open.**
 
 `/legal/privacy` §4.1 told callers that *"if a caller declines recording during the call,
 recording stops, the call continues, and the refusal is written to an immutable consent
@@ -984,7 +974,7 @@ ledger"*, and `/legal/acceptable-use` §2.6 told clients the same. Neither is bu
 engine reports no per-call recording consent yet (pilot gate 3)"*), nothing writes a
 `recording`-purpose `consent_ledger` row, and no in-call tool stops a recording (the
 tools an agent has are opt-out, call-back, call-back cancel and handoff,
-`apps/api/worker/tools.py`) — so no agent can stop a recording mid-call.
+`reliability/engine_actions.py`) — so no agent can stop a recording mid-call.
 `docs/SECURITY-COMPLIANCE.md` §2.2 contained both halves of the contradiction three
 sentences apart (*"nothing in this codebase can [switch recording off]"* directly above
 *"Caller decline ⇒ recording off"*); it now marks the second as specification.
@@ -995,7 +985,8 @@ is recorded and kept"* was the accurate surface of the three, so it is unchanged
 caller has instead is erasure through the client, which fixes a destruction date and
 produces a certificate, and the notice now says that.
 
-**What closes the mechanism:** pilot gate 3. Not ours — it needs the engine to report a
+**What closes the mechanism:** not ours, and no gate holds it since gate 3 was retired
+(D-763) — it needs the engine to report a
 per-call recording decision, or a second in-call tool once gate 8 verifies the vendor's
 custom-function behaviour.
 
@@ -1307,10 +1298,10 @@ own pages, not third-party reporting, and every residency sentence in the client
 now traces to one of them.
 
 - `enterprise/data-residency.md` — "By default, all Bolna AI services operate in United States (US)-hosted infrastructure"; "Data residency is an Enterprise feature"; what India residency covers when bought (storage AND processing)
-- `enterprise/indian-server-configuration.md` — the conditions for Indian-server routing: Plivo telephony, listed transcriber/synthesizer, Azure OpenAI, and **no customer-supplied provider keys**
+- `enterprise/indian-server-configuration.md` — the conditions for Indian-server routing: a single named telephony provider, listed transcriber/synthesizer, Azure OpenAI, and **no customer-supplied provider keys**
 - `concepts/security.md` — US default (`us-east-1`) and `ap-south-1` when residency is on; TLS 1.2+; no webhook HMAC; the three webhook egress addresses; VAPT A+ on request; GDPR named and DPDP not
 - `compliance-application/introduction.md` and `how-to-submit-guide.md` — the account-level compliance application: CIN certificate, GST number and certificate, 12–24h review
-- `guides/inbound/obtaining-regulated-phone-numbers.md` — 140-series via Vobiz (TATA DLT portal, PE registration ₹5,900, LOA), 160-series via Plivo (RBI/SEBI certificate, PE/TM IDs, URN, header and template registration)
+- `guides/inbound/obtaining-regulated-phone-numbers.md` — 140-series and 160-series through two different named carriers (140: TATA DLT portal, PE registration ₹5,900, LOA; 160: RBI/SEBI certificate, PE/TM IDs, URN, header and template registration)
 - `api-reference/violations/{overview,list,submit}.md` — the Violations API and the fields it carries
 
 **GST and payments**

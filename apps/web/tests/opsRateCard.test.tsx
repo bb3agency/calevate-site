@@ -355,11 +355,11 @@ const MODEL_PRICES_BASE = {
 /** One ENCODER row, as `GET /v1/ops/model-prices` publishes it (D-608). */
 function embeddingRow(over: Partial<EmbeddingPrice> = {}): EmbeddingPrice {
   return {
-    model: "models/gemini-embedding-2",
-    provider: "google",
+    model: "text-embedding-3-small",
+    provider: "azure_openai",
     used_for:
-      "the knowledge pack's dense arm — the half that answers a question typed in Telugu script",
-    dimensions: 3072,
+      "semantic search over a client's own knowledge, their past calls and their leads",
+    dimensions: 1536,
     credential_installed: true,
     price_attested: false,
     usable: false,
@@ -368,7 +368,7 @@ function embeddingRow(over: Partial<EmbeddingPrice> = {}): EmbeddingPrice {
     attested_at: null,
     attested_by: null,
     source_note: null,
-    reference_input_usd_per_mtok: "0.20",
+    reference_input_usd_per_mtok: "0.02",
     reference_verified: false,
     ...over,
   };
@@ -380,9 +380,7 @@ function ttsRow(over: Partial<TtsPrice> = {}): TtsPrice {
     provider: "cartesia",
     tier_label: "Studio",
     tts_model: "sonic-3.5",
-    // D-618. False for Cartesia, whose key this deployment really does hold or not; true
-    // belongs to a provider whose credential lives in the voice worker's own secret set.
-    credential_held_elsewhere: false,
+    // D-618: whether this deployment holds a key for the vendor.
     // The CATALOGUE figure — a pre-fill to confirm an invoice against, never the value a
     // minute is metered at. Required on `TtsPriceOut`.
     reference_inr_per_1k_chars: "3.4496",
@@ -401,9 +399,9 @@ function ttsRow(over: Partial<TtsPrice> = {}): TtsPrice {
 }
 
 const CLEAR_ROW = ttsRow({
-  provider: "gnani",
+  provider: "thinnest",
   tier_label: "Clear",
-  tts_model: "timbre-v2.5",
+  tts_model: "thinnest-premium",
   price_attested: false,
   price_billable: true,
   offerable: true,
@@ -497,7 +495,6 @@ describe("the rate card an operator is about to date", () => {
     // and this card prices the rung either way.
     expect(container.textContent).toContain("Clear");
     expect(container.textContent).toContain("Studio");
-    expect(container.textContent).not.toContain("Gnani");
     // The server's percentage, printed — never a division done in the browser from two
     // rounded figures.
     expect(container.textContent).toContain("17.60%");
@@ -784,14 +781,14 @@ describe("the encoder price that decides whether an upload is indexed at all", (
     const { container } = renderOps(routes());
 
     await screen.findByText(/Knowledge indexing prices/);
-    expect(container.textContent).toContain("models/gemini-embedding-2");
-    expect(container.textContent).toContain("Google · 3072-number vectors");
+    expect(container.textContent).toContain("text-embedding-3-small");
+    expect(container.textContent).toContain("Azure OpenAI · 1536-number vectors");
     expect(container.textContent).toContain(
       "Uploads are being indexed by word-matching only",
     );
     expect(container.textContent).toContain("Off — needs a confirmed price");
     // The unverified pre-fill is labelled as such, never printed as the value.
-    expect(container.textContent).toContain("0.20");
+    expect(container.textContent).toContain("0.02");
     expect(container.textContent).toContain("(recorded)");
   });
 
@@ -814,8 +811,18 @@ describe("the encoder price that decides whether an upload is indexed at all", (
   it("sends the identifier with its slash intact and the step-up bound to the encoder", async () => {
     // The whole reason this write has its own prefix and a `:path` parameter: the model id
     // contains a `/`, and percent-encoding it is what proxies normalise or refuse.
-    const path = `POST /v1/ops/embedding-prices/models/gemini-embedding-2`;
-    const { calls } = renderOps(routes({ [path]: { ok: true } }));
+    const model = "models/test-embedding";
+    const path = `POST /v1/ops/embedding-prices/${model}`;
+    const { calls } = renderOps(
+      routes({
+        [path]: { ok: true },
+        [OPS_MODEL_PRICES_PATH]: {
+          ...MODEL_PRICES_BASE,
+          tts_prices: [CLEAR_ROW, ttsRow()],
+          embedding_prices: [embeddingRow({ model })],
+        },
+      }),
+    );
 
     await screen.findByText(/Knowledge indexing prices/);
     fireEvent.click(
@@ -826,10 +833,10 @@ describe("the encoder price that decides whether an upload is indexed at all", (
     const price = form.querySelector(
       "input[inputmode='decimal']",
     ) as HTMLInputElement;
-    fireEvent.change(price, { target: { value: "0.20" } });
+    fireEvent.change(price, { target: { value: "0.02" } });
     fireEvent.change(
-      screen.getByPlaceholderText(/Google Cloud billing export/),
-      { target: { value: "Google Cloud billing export 2026-09" } },
+      screen.getByPlaceholderText(/Azure billing export/),
+      { target: { value: "Azure billing export 2026-09" } },
     );
     fireEvent.change(screen.getByLabelText(/Type CONFIRM/), {
       target: { value: "CONFIRM" },
@@ -839,11 +846,11 @@ describe("the encoder price that decides whether an upload is indexed at all", (
     const write = await waitForCall(calls, path);
     // The exact typed string, and NO output key at all.
     expect(JSON.parse(write.body ?? "null")).toEqual({
-      input_usd_per_mtok: "0.20",
-      source_note: "Google Cloud billing export 2026-09",
+      input_usd_per_mtok: "0.02",
+      source_note: "Azure billing export 2026-09",
     });
     expect(write.headers["X-Confirm-Action"]).toBe(
-      "attest_embedding_price:models/gemini-embedding-2",
+      `attest_embedding_price:${model}`,
     );
   });
 
@@ -857,10 +864,10 @@ describe("the encoder price that decides whether an upload is indexed at all", (
             embeddingRow({
               price_attested: true,
               usable: true,
-              input_usd_per_mtok: "0.200000",
+              input_usd_per_mtok: "0.020000",
               attested_at: "2026-09-15T06:00:00Z",
               attested_by: "Ops",
-              source_note: "Google Cloud billing export 2026-09",
+              source_note: "Azure billing export 2026-09",
             }),
           ],
         },

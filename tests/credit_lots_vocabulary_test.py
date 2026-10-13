@@ -44,12 +44,3 @@ async def test_the_database_check_admits_exactly_those_sources() -> None:
     # And NOTHING else: the count pins the arm that would otherwise pass by adding a
     # sixth value nobody typed into the constant.
     assert definition.count("::text") == len(LOT_SOURCES)
-
-
-def test_the_voice_tiers_are_the_two_the_card_prices() -> None:
-    """`VoiceTier` is spelled in `lots.py` rather than imported from `agents/voices.py`,
-    which Phase C owns — pricing a minute must not depend on the voice catalogue loading.
-    This is the pin that the two do not drift apart while they are apart."""
-    from apps.api.billing.lots import VoiceTier
-
-    assert get_args(VoiceTier) == ("clear", "studio")

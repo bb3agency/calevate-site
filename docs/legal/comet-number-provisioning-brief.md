@@ -103,7 +103,7 @@ say where.
 2.1 Is Model B **clearly lawful** and does it remove the Part 1 problems entirely?
 
 2.2 **Can a third party (me) operate calls on a connection held by someone else?** Check the
-published terms of **Exotel, Plivo, Knowlarity, Ozonetel and Twilio India** for whether:
+published terms of **Exotel, Knowlarity, Ozonetel and Twilio India** for whether:
    - a sub-account or delegated-access model exists,
    - API credentials may lawfully be shared with or issued to a vendor,
    - the TSP's terms permit an agency/third-party to originate traffic on the client's
@@ -126,15 +126,15 @@ another client, or does that trigger a fresh KYC and a quarantine period?
 ## PART 3 — Concurrency and technical reality
 
 3.1 **How many simultaneous calls can run on one Indian DID/virtual number?** Is concurrency
-a property of the **number**, the **trunk/channels**, or the **account**? What do Exotel and
-Plivo actually sell — per-number channel limits, or account-level concurrency?
+a property of the **number**, the **trunk/channels**, or the **account**? What does Exotel
+actually sell — per-number channel limits, or account-level concurrency?
 
 3.2 For **inbound**, can one number receive many simultaneous calls, and what is the actual
 purchasable unit?
 
 3.3 If a client brings their own number/trunk, does my rented voice platform (**Bolna**)
 support **BYO-trunk / SIP connect**, and what does that integration require? (Bolna publishes
-"connect" guides for Exotel, Plivo and Vobiz — confirm what "connect" means in practice and
+"connect" guides for Indian carriers — confirm what "connect" means in practice and
 whether the number can stay in the client's account.)
 
 ## PART 4 — 140 vs 160 series, and what each model can dial

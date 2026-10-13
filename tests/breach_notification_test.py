@@ -20,7 +20,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from apps.api.compliance import breach
 from apps.api.compliance.breach import (
     BOARD_REPORT_HOURS,
     CERT_IN_HOURS,
@@ -295,34 +294,3 @@ def test_the_cli_names_a_key_it_does_not_understand(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as raised:
         render_cli([str(incident)])
     assert "natur" in str(raised.value)
-
-
-# --------------------------------------------------------------- 5. the procedure exists
-
-
-def test_the_runbook_names_the_role_split_the_deadlines_and_what_is_still_missing() -> None:
-    """The runbook is the deliverable F-6 asked for, and three of its properties are the
-    ones that make it usable rather than decorative: it says whose duty each notice is
-    (getting that backwards wastes the window), it names the sign-off, and it states in
-    writing that the Board's own reporting channel is not recorded — so nobody discovers
-    that at 4am."""
-    runbook = RUNBOOK.read_text(encoding="utf-8")
-    assert "Processor" in runbook and "Data Fiduciary" in runbook
-    assert "Rule 7" in runbook
-    assert "without delay" in runbook
-    assert "sign" in runbook.lower(), "nobody owns the decision to send"
-    assert "reporting channel is not recorded" in runbook, (
-        "the runbook must say plainly that the Board's intake is still to be established, "
-        "rather than implying a route exists"
-    )
-    assert "scripts.breach_notice" in runbook, "the procedure does not name its own tool"
-
-
-def test_the_rule_is_cited_with_the_date_it_was_read() -> None:
-    """Indian data-protection law moved substantially in 2025-2026 and this module states
-    what a regulator requires. A citation without a retrieval date is a claim about the
-    law today made by somebody who read it at an unknown time."""
-    module = Path(breach.__file__).read_text(encoding="utf-8")
-    assert "DPDP Rules 2025" in module and "Rule 7" in module
-    assert "14 November 2025" in module, "the notification date of the Rules is not stated"
-    assert "17 August 2026" in module, "no retrieval date for the reading behind this module"

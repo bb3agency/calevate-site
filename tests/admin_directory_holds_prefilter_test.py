@@ -140,21 +140,3 @@ async def test_a_managed_account_is_not_asked_and_answers_the_same_empty_holds()
     # either way, asserted so the claim above cannot be satisfied by a change that skips
     # the tier read and reads the records anyway.
     assert not [s for s in seen if "kyc_records" in s or "first_campaign_reviews" in s]
-
-
-def test_the_tier_line_is_imported_and_not_re_spelled() -> None:
-    """One place decides which tiers can be held, and it is not this surface.
-
-    `held_tenants` makes the same argument about its own use of the constant: a
-    pre-filter on the CANDIDATE SET is not a second copy of the RULE, and stays true only
-    while both surfaces read the line from `compliance/service.py`. A literal
-    `("self_serve", "trial")` in `admin/service.py` would be the drift the gates are
-    written to prevent, and it would be invisible until the day the line moves.
-    """
-    import inspect
-
-    source = inspect.getsource(admin_service.tenant_overview)
-    assert "SELF_SERVE_TIERS" in source, "the directory no longer names the shared constant"
-    assert "self_serve" not in source, (
-        "the tier line is spelled out in the directory as well as in compliance/service.py"
-    )

@@ -36,19 +36,6 @@ match at all: a Latin-script question and a Telugu-script passage share no lexem
 through `kb.service.refresh_projection_keys` — the same `_TSV_SQL` the publish uses, never
 a second spelling of the key.
 
-⚠ **AND THE SECOND FROZEN ARTEFACT IS THE IN-CALL KNOWLEDGE PACK, WHICH IS THE ONE THE
-PHONE ACTUALLY ANSWERS OUT OF.** `kb/pack.py` freezes an agent's live chunks — text AND
-gloss — into an immutable, content-addressed object at publish, and `agents.
-knowledge_pack_sha256` points at it; the voice worker fetches that object once per session
-and searches it in process, so nothing it answers ever re-reads `kb_documents`. The same
-publish-then-gloss ordering that stranded the sparse key stranded the pack, and worse:
-`refresh_projection_keys` at least leaves the dense arm, while an ungloss'd pack is the
-whole of in-call retrieval at the 0.083 recall@1 `tests/in_call_retrieval_recall_test.py`
-measured on 14 Sep 2026 (n=24, `query_te` against an English-only index), with 22 of the 24
-questions answered `not_found`. So this sweep also REBUILDS the pack of
-every agent whose digest no longer matches its corpus, through `kb.pack.
-refresh_published_pack` — the publish path's own entry point, never a second builder.
-
 THE SPEND CONTROLS, because this job costs real money on a timer and nothing above it
 says no:
 
@@ -62,10 +49,9 @@ says no:
 * `MAX_GLOSS_CHARS` — a token ceiling bounds the REQUEST's cost, not the size of what gets
   STORED, and stored bytes are what retention and every future embedding actually pay for.
 
-The two DERIVED rebuilds below (`MAX_REKEY_ROWS_PER_TENANT`, `MAX_PACK_AGENTS_PER_TENANT`)
-are not in that list and are not spend controls: neither buys a model call. They bound
-statements and object-store round trips, which is a different currency with a different
-right answer, and each constant argues its own.
+The DERIVED rebuild below (`MAX_REKEY_ROWS_PER_TENANT`) is not in that list and is not a
+spend control: it buys no model call. It bounds statements, which is a different currency
+with a different right answer.
 
 WHICH LEG, AND WHY NOT SARVAM. Azure, through `workers/chat.py` — the ONE
 OpenAI-compatible client in this tree — on the credentials `extraction.azure_credentials()`
@@ -116,8 +102,7 @@ from apps.api.core.settings import get_settings
 from apps.api.crm.assist import ASSIST_FEATURE_KB_GLOSS
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb.gloss import GLOSS_NOT_NEEDED, GLOSS_PENDING, GLOSS_READY, needs_gloss
-from apps.api.kb.pack import agents_with_stale_packs, refresh_published_pack
-from apps.api.kb.service import refresh_projection_keys, try_lock_tenant_knowledge
+from apps.api.kb.service import refresh_projection_keys
 from apps.workers import chat
 from apps.workers.extraction import AZURE_PROVIDER, azure_credentials
 
@@ -151,19 +136,6 @@ MAX_CHUNKS_PER_TENANT: Final = 20
 #: statement and no money — a tick can only make 60 keys stale, so 200 drains any backlog a
 #: tick can create and still bounds the one-off catch-up over rows that predate the fix.
 MAX_REKEY_ROWS_PER_TENANT: Final = 200
-
-#: Agents whose IN-CALL KNOWLEDGE PACK is checked for staleness per tenant per tick
-#: (`kb.pack.agents_with_stale_packs`, then `kb.pack.refresh_published_pack` for each that
-#: is). Sized so that no realistic tenant is ever truncated — an account runs a handful of
-#: agents, not twenty-five — because the scan is ordered and a tenant over the ceiling would
-#: have the same tail starved every tick rather than draining like the two budgets above.
-#: It is a ceiling against a pathological row count, not a rate.
-#:
-#: WHY IT CAN BE THIS GENEROUS: the scan is READ-ONLY and lock-free, one indexed read per
-#: agent, and the expensive half — a storage GET and possibly a PUT — is paid only for an
-#: agent whose digest actually moved, which is at most once per late gloss ever. A settled
-#: tenant costs one query plus one entries read per glossed agent, twice an hour.
-MAX_PACK_AGENTS_PER_TENANT: Final = 25
 
 #: The output valve (`EXTRACTION_MAX_TOKENS`' shape). A chunk is at most
 #: `kb.service.MAX_CHUNK_CHARS` (700) characters and its English rendering is asked to be
@@ -343,122 +315,6 @@ async def _rekey_one_tenant(tenant_id: UUID) -> int:
         return 0
 
 
-async def _refresh_packs_one_tenant(tenant_id: UUID) -> int:
-    """Rebuild this tenant's stale in-call packs. Returns packs re-pointed; never raises.
-
-    **WHY THIS IS NOT FOLDED INTO `_rekey_one_tenant`'s TRANSACTION, WHICH IS THE OBVIOUS
-    ONE PASS.** A re-key is one statement against `kb_chunks` and nothing else; a pack
-    refresh is a storage GET and possibly a PUT per agent, on a link whose latency we do not
-    control. Sharing a transaction would hold the re-key's row locks open across those round
-    trips for every agent in the list — the lock-held-incident shape `MAX_REKEY_ROWS_PER_TENANT`
-    exists to refuse, bought back one level up. So the two derived rebuilds share the TENANT
-    LOOP (one pass over `tenants_holding_knowledge`) and not a transaction, which is the part
-    of "one pass" that was actually costing anything.
-
-    **THE SCAN IS READ-ONLY AND SEPARATE FROM EACH REFRESH, FOR THE SAME REASON ONE LEVEL
-    DOWN.** `agents_with_stale_packs` takes no locks, so the whole candidate set is decided
-    without holding anything; then each stale agent is refreshed in its OWN short session, so
-    one agent's storage stall cannot pin another agent's row and one agent's database failure
-    cannot roll back a pointer already moved for its neighbour.
-
-    **AND THAT IS EXACTLY WHY THE REFRESH — NOT THE SCAN — TAKES THE PUBLISH LOCK.** The
-    candidate list is a set of HINTS the moment the scan's transaction ends; only the
-    per-agent transaction below can be exclusive with the publish it is racing, because an
-    advisory lock lives and dies with the transaction that took it. A lock around the scan
-    would read as diligence and protect nothing. See the comment at the call site for the
-    interleaving, and `kb/service.try_lock_tenant_knowledge` for why it is the TRY form.
-
-    **THE FAILURE POSTURE IS `refresh_published_pack`'s, UNCHANGED, AND THAT IS WHY IT IS
-    REUSED RATHER THAN RE-ARGUED.** A storage failure there keeps the OLD pointer (so the
-    agent answers from a pack that provably exists — stale, never absent), alerts
-    `knowledge_pack_publish_failed` and returns None; there is no state in which the column
-    names bytes nobody stored, because the object is written before the pointer. What this
-    function adds is only the tick's own posture: the sweep must survive one tenant, so a
-    DATABASE failure — the half `refresh_published_pack` deliberately re-raises — is caught
-    here rather than ending the fleet-wide tick behind it.
-
-    **IT MAY NOT SWALLOW SILENTLY**, for `_rekey_one_tenant`'s reason with a sharper edge: a
-    stale pack is invisible from every screen and the agent keeps answering, out of an
-    artefact missing the English half of every entry. `attention` and not a page because the
-    selection is difference-driven — a tick that failed leaves exactly the same agents
-    selectable — so the condition self-heals in thirty minutes.
-    """
-    try:
-        async with tenant_session(tenant_id) as session:
-            stale = await agents_with_stale_packs(
-                session, tenant_id=tenant_id, limit=MAX_PACK_AGENTS_PER_TENANT
-            )
-    except Exception as failure:
-        alert(
-            "CORE_LOGIC",
-            "kb_gloss_pack_refresh_failed",
-            detail=(
-                "an English gloss was stored but the agents whose frozen in-call knowledge "
-                "pack it overtook could not be identified, so those agents keep answering "
-                "the phone out of a pack with no English in it"
-            ),
-            tenant_id=str(tenant_id),
-            error=type(failure).__name__,
-        )
-        return 0
-
-    refreshed = 0
-    for agent_id in stale:
-        # PER AGENT, so one poisoned agent cannot starve the rest of the tenant's list for
-        # ever: the scan is ordered and deterministic, so a failure caught at the tenant
-        # level would hand the same prefix to every future tick and never reach the tail.
-        try:
-            async with tenant_session(tenant_id) as session:
-                # SERIALIZED AGAINST THE TENANT'S PUBLISHES, IN THE TRANSACTION THAT DOES
-                # THE WORK, and the interleaving it closes is a LOST UPDATE rather than a
-                # torn read. `refresh_published_pack` is a read-then-write whose middle is
-                # an object-store GET and possibly a PUT: it reads the corpus, freezes it,
-                # and only then points `agents.knowledge_pack_sha256` at the result. A
-                # publish committing inside that gap has already written the pointer for
-                # the corpus it just made live — under `lock_tenant_knowledge`, in one
-                # transaction — and this UPDATE then blocks on that same agents row, is
-                # re-checked against the committed version under READ COMMITTED, finds the
-                # publisher's id genuinely `IS DISTINCT FROM` ours, and overwrites it. The
-                # client withdrew a price list and their agent goes on reciting it out of a
-                # pack this sweep re-pointed at, because we read the corpus one commit too
-                # early. Not theoretical: the gap is the length of a storage round trip and
-                # the loser is always the sweep, since the publisher commits first.
-                #
-                # TRY, NEVER WAIT — `try_lock_tenant_knowledge` argues it, and it is the
-                # whole reason this is not the blocking form: a publish holds this key
-                # across its engine round trips, which the adapter's throttle ladder prices
-                # in minutes, and a client's Publish button must never queue behind a timer.
-                #
-                # SKIPPING COSTS NOTHING because the selection is a DIFFERENCE and not a
-                # worklist: an agent passed over here consumed nothing, its pointer still
-                # disagrees with its corpus, and the next tick's `agents_with_stale_packs`
-                # selects it again — as it does for a tick that failed on the store. The
-                # publish we deferred to usually settles it outright: `publish_source` ends
-                # in `refresh_published_pack` itself, so the pack the sweep wanted to build
-                # is very often already built by the time the lock frees.
-                if not await try_lock_tenant_knowledge(session, tenant_id=tenant_id):
-                    continue
-                if (
-                    await refresh_published_pack(session, tenant_id=tenant_id, agent_id=agent_id)
-                    is not None
-                ):
-                    refreshed += 1
-        except Exception as failure:
-            alert(
-                "CORE_LOGIC",
-                "kb_gloss_pack_refresh_failed",
-                detail=(
-                    "an English gloss was stored but the frozen in-call knowledge pack it "
-                    "overtook could not be rebuilt, so this agent keeps answering the phone "
-                    "out of a pack with no English in it"
-                ),
-                tenant_id=str(tenant_id),
-                agent_id=str(agent_id),
-                error=type(failure).__name__,
-            )
-    return refreshed
-
-
 async def tenants_holding_knowledge() -> list[UUID]:
     """Every tenant that holds a knowledge source, from D-368's index.
 
@@ -541,7 +397,6 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
     translated = 0
     not_needed = 0
     rekeyed = 0
-    repacked = 0
     for tenant_id in tenants:
         # THE PAID HALF IS BUDGETED; THE RE-KEY BELOW IS NOT, AND THE LOOP NO LONGER BREAKS.
         # It used to `break` the moment the tick's translations were spent, which was right
@@ -606,13 +461,6 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
         # anything here, for the reason above.
         rekeyed += await _rekey_one_tenant(tenant_id)
 
-        # AND THE PACK, on the same unbudgeted footing and for the same reason: an agent
-        # whose pack a gloss overtook belongs to a tenant whose chunks may all be settled,
-        # so a loop that ran only where translations were bought would never look at it
-        # again. The scan itself is what makes that affordable — it is read-only and, for a
-        # tenant with nothing stale, writes nothing and touches no object store.
-        repacked += await _refresh_packs_one_tenant(tenant_id)
-
     log.info(
         "kb_gloss_tick",
         extra={
@@ -620,13 +468,10 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
             "translated": translated,
             "not_needed": not_needed,
             "rekeyed": rekeyed,
-            # Agent ids are never logged here, only how many packs moved: a count is what
-            # says "the sweep is reaching the phone" without naming whose knowledge changed.
-            "repacked": repacked,
             "budget_left": budget,
         },
     )
-    return f"translated={translated} not_needed={not_needed} rekeyed={rekeyed} repacked={repacked}"
+    return f"translated={translated} not_needed={not_needed} rekeyed={rekeyed}"
 
 
 __all__ = [
@@ -635,7 +480,6 @@ __all__ = [
     "MAX_CHUNKS_PER_TENANT",
     "MAX_CHUNKS_PER_TICK",
     "MAX_GLOSS_CHARS",
-    "MAX_PACK_AGENTS_PER_TENANT",
     "MAX_REKEY_ROWS_PER_TENANT",
     "tenants_holding_knowledge",
     "write_knowledge_glosses",

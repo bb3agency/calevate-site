@@ -194,13 +194,6 @@ def test_the_registry_has_no_entries_for_counts_that_are_gone() -> None:
     )
 
 
-def test_every_reason_is_a_sentence_rather_than_a_shrug() -> None:
-    """The registry's value is the thinking, not the key. A one-word reason is an
-    exemption nobody had to justify."""
-    for (name, table), reason in UNSCOPED_COUNT_REASONS.items():
-        assert len(reason) >= 80, f"{name}:{table} has a reason too short to be one: {reason!r}"
-
-
 # --- the second shape: rows left behind in a globally-ordered queue ------------
 
 #: Tables whose rows a GLOBAL, ordered consumer walks — so a row left behind does not

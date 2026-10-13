@@ -5,7 +5,6 @@ import type { TenantSummary } from "@/lib/api/admin";
 import type { Agent, HandoffOut } from "@/lib/api/agents";
 import type { Me } from "@/lib/api/client";
 import type { PeRegistration } from "@/lib/api/dltRegistration";
-import type { DeliveryList } from "@/lib/api/kb";
 import { EMPTY_SCRIPT } from "@/lib/api/script";
 import type { KycRecord } from "@/lib/api/kyc";
 import type { LeadFields } from "@/lib/api/leadFields";
@@ -14,7 +13,6 @@ import type { ClientMaintenance } from "@/lib/api/maintenance";
 import type { HostedVoices } from "@/lib/api/opsHostedVoices";
 import type { OwnNumbersStatus } from "@/lib/api/ownNumbers";
 import type { Lanes } from "@/lib/api/publishing";
-import type { OfferedVoice, VoiceCatalogue } from "@/lib/api/voices";
 import type { WalletLots } from "@/app/c/[slug]/billing/lots";
 import type { PlatformFee } from "@/lib/api/platformFee";
 import type { Spend } from "@/lib/api/spend";
@@ -92,12 +90,6 @@ export const CLIENT_SHELL_ROUTES = {
   // No trial running: the shell's trial strip renders nothing.
   "/v1/billing/wallet": prepaidWallet(),
 };
-
-/** Every agent's knowledge delivered — `GET /v1/kb/delivery` with nothing outstanding. */
-export const KB_ALL_DELIVERED = {
-  items: [],
-  not_delivered_count: 0,
-} satisfies DeliveryList;
 
 /** The owner has never been asked about WhatsApp alerts, and there is no channel yet. */
 export const WHATSAPP_NEVER_ASKED = {
@@ -229,77 +221,6 @@ export function handoffOff(agentId: string): HandoffOut {
 }
 
 /**
- * The voice catalogue in the state this deployment is in: a Studio voice (Cartesia,
- * Sonic 3.5) on offer, and the Clear rung (Gnani, Timbre v2.5) refused because nobody has
- * attested its price (`apps/api/agents/voice_offer.py` ground 2). Ids are spelled
- * `<tts_model>:<speaker>`, as `voices.voice_id_of` composes them.
- *
- * The refusal sentences are the server's, per realm: an operator is told which console row
- * to fill in, a client is told the tier is unavailable and never which vendor is behind it
- * (`voice_offer.client_unofferable_reason`, `voice_routes._tier_note`).
- */
-export function voiceCatalogue(realm: "client" | "admin"): VoiceCatalogue {
-  const clearRefusal =
-    realm === "client"
-      ? "the Clear voice is not available on your account yet — ask us"
-      : "nobody has recorded what a Gnani minute costs on this account, and an unpriced minute is unmetered spend rather than a free one — attest the Gnani TTS price in the ops console";
-  const voices: OfferedVoice[] = [
-    {
-      id: "sonic-3.5:ananya",
-      label: "Ananya",
-      provider: "cartesia",
-      tts_model: "sonic-3.5",
-      speaker: "ananya",
-      voice_tier: "studio",
-      tier_label: "Studio",
-      gender: null,
-      languages: ["te-IN", "hi-IN", "en-IN"],
-      note: "A studio read.",
-      verified: true,
-      offerable: true,
-      unavailable_reason: null,
-      not_on_offer: false,
-    },
-    {
-      id: "timbre-v2.5:Suhana",
-      label: "Suhana",
-      provider: "gnani",
-      tts_model: "timbre-v2.5",
-      speaker: "Suhana",
-      voice_tier: "clear",
-      tier_label: "Clear",
-      gender: null,
-      languages: ["te-IN", "hi-IN", "en-IN"],
-      note: "Timbre v2.5.",
-      verified: true,
-      offerable: false,
-      unavailable_reason: clearRefusal,
-      not_on_offer: false,
-    },
-  ];
-  return {
-    control: "ours",
-    selectable: true,
-    source: "engine",
-    note: "Pick the voice this agent speaks in.",
-    voices,
-    tiers: [
-      {
-        provider: "gnani",
-        label: "Clear",
-        offerable: 0,
-        in_catalogue: 1,
-        note:
-          realm === "client"
-            ? "No Clear voice is available on your account at the moment, so there is nothing to choose in that quality here. Ask us if you want one."
-            : "1 Clear voice(s) are in the catalogue and none of them can be offered right now — the reason is on each row. Reading the catalogue again will not change that.",
-      },
-      { provider: "cartesia", label: "Studio", offerable: 1, in_catalogue: 1, note: null },
-    ],
-  };
-}
-
-/**
  * One agent as `GET /v1/agents` lists it — live, published, on the platform's model. For a
  * screen that reads the roster only to name the agent it is about.
  */
@@ -324,7 +245,7 @@ export function agentRow(over: Partial<Agent> = {}): Agent {
     first_words: "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
     truthful_answer_rule:
       "Whatever these settings say, the agent always answers honestly when a caller asks.",
-    engine: "pipecat",
+    engine: "thinnest",
     published: true,
     inbound_number_count: 1,
     extraction_fields: [],
@@ -559,9 +480,8 @@ export function clientLlmTiers(over: Partial<ClientLlmDefaults> = {}): ClientLlm
 }
 
 /**
- * `GET /v1/ops/voices/hosted?scope=added` on an engine whose voices are our own catalogue
- * (`ENGINE=pipecat`): the Voices page reads it first and, on `available: false`, shows the
- * Pipecat catalogue (D-687).
+ * `GET /v1/ops/voices/hosted?scope=added` on an engine that hosts no voices: the Voices page
+ * prints the server's sentence (D-687).
  */
 export const HOSTED_VOICES_PROBE_PATH = "/v1/ops/voices/hosted?scope=added";
 export const NOT_HOSTED = {
@@ -706,7 +626,7 @@ export function agentScript(over: Record<string, unknown> = {}) {
  * builder reads it for the voice tier its "Put it live" step names.
  */
 export function settledPending(over: Record<string, unknown> = {}) {
-  const clear = { voice_id: "timbre-v2.5:Suhana", provider: "gnani", voice_tier: "clear", catalog: null };
+  const clear = { voice_id: "engine:anika", provider: null, voice_tier: "clear", catalog: null };
   return {
     agent_id: "agent-1",
     agent_status: "live",
@@ -717,7 +637,7 @@ export function settledPending(over: Record<string, unknown> = {}) {
     call_cap_is_platform_default: true,
     worst_case_call_cost_inr: "12.50",
     precedence_rule: "Script decides content.",
-    voice: { configured: clear, live: clear, headline: "Callers hear Suhana.", unnamed_note: null },
+    voice: { configured: clear, live: clear, headline: "Callers hear Anika.", unnamed_note: null },
     voice_tier_rates: [
       { voice_tier: "clear", label: "Clear", inr_per_min: "2.50", further_open_lots: 0 },
       { voice_tier: "studio", label: "Studio", inr_per_min: "4.00", further_open_lots: 0 },

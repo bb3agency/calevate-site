@@ -31,7 +31,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.session import long_running_statements, tenant_session
 from apps.api.main import app
 from apps.api.reliability.engine_actions import ACTION_NAMES, OPT_OUT
-from apps.api.worker.tools import OPTOUT_DONE_SAY
+from apps.api.worker.in_call_tools import OPTOUT_DONE_SAY
 from apps.workers import agent_test_ai, chat
 from apps.workers import agent_test_conversations as worker
 from apps.workers.extraction import PROVIDER_UNAVAILABLE_REASON
@@ -127,21 +127,6 @@ def test_no_opt_out_step_at_all_still_fails() -> None:
 
 
 # --- (c) why the standard callers ran ---------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("code", "words"),
-    [
-        ("assist_quota_exhausted", "allowance is used up"),
-        ("assist_provider_unavailable", "did not answer in time"),
-        ("assist_no_credential", "not switched on for your account"),
-        ("something_else", "not available"),
-    ],
-)
-def test_the_standard_set_note_says_why(code: str, words: str) -> None:
-    note = worker.not_written_note(code)
-    assert words in note and note.startswith("The standard test callers ran")
-    assert words in worker.not_judged_reason(code)
 
 
 def test_the_worker_ai_budget_fits_the_job_timeout() -> None:

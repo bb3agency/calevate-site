@@ -21,7 +21,7 @@ You are a **sole developer / freelancer** shipping **Calevate** as a full B2B Sa
 | GST | **Not at launch.** Watch the ₹20 lakh all-India services threshold and the triggers in §4. |
 | Banking | Personal savings only for a tiny test. **Current account** once money is recurring. |
 | Entity proof | **Udyam (MSME)** first. GST later if a trigger hits. |
-| Phone numbers | **Model B.** Client buys and KYCs the number on **their** Exotel / Plivo / Vobiz account. |
+| Phone numbers | **Model B.** Client buys and KYCs the number on **their** own licensed Indian carrier account (Exotel class). |
 | Your carrier account | **Not required** for client live traffic. Only if Calevate itself needs a demo/sales/support DID. |
 | DLT | **You = Telemarketer (TM)** once. **Each client = Principal Entity (PE).** They bind your TM-ID in the PE–TM chain. |
 | Bolna | Orchestrator only. Does **not** issue Indian numbers and does **not** replace DLT or carrier KYC. |
@@ -41,7 +41,7 @@ Calevate is multi-tenant B2B SaaS. Client businesses get AI phone agents that:
 
 Technical stack that drives law (do not pretend this is “just software”):
 
-1. Call is carried by an **Indian licensed operator / UL-VNO class vendor** (Exotel / Plivo / Vobiz).
+1. Call is carried by an **Indian licensed operator / UL-VNO class vendor** (Exotel class).
 2. Live call is orchestrated by **Bolna** (third-party voice platform; US-hosted orchestrator in the original architecture).
 3. STT/TTS: **Sarvam AI** (India).
 4. LLM: **Azure OpenAI / other US providers** — transcribed speech can leave India on every turn.
@@ -263,13 +263,13 @@ True for **client live numbers**.
 False if:
 
 - Calevate needs its own demo / sales / support number, or
-- A client says “just give me a number” (that is Model A — refuse or send them to Exotel/Plivo).
+- A client says “just give me a number” (that is Model A — refuse or send them to a licensed carrier such as Exotel).
 
-### 9.3 Plivo / Exotel / Vobiz (client side)
+### 9.3 Licensed Indian carriers (client side)
 
 Indian virtual numbers are **not** “rent a US DID in one API call.”
 
-Plivo (and peers) require, before an Indian number:
+Indian carriers require, before an Indian number:
 
 - India-registered business docs (COI **or Udyam**, plus PAN/GST as they list)
 - Often an **India data region** account
@@ -301,14 +301,14 @@ Concurrency is **channels / account trunk**, not “one number = one call.” A 
 Bolna is **BYOA / BYOC**:
 
 ```
-Client carrier (Exotel / Plivo / Vobiz / SIP)
+Client carrier (Exotel class / SIP)
         ↕ webhooks / SIP
       Bolna
         ↕
   STT + LLM + TTS
 ```
 
-Bolna publish connect flows for Exotel, Plivo, Vobiz: Account SID / Auth / number go in **per tenant**. “Connect” means **use the client’s already-provisioned number**, not “Bolna sells 140/160.”
+Bolna published connect flows for Indian carriers: Account SID / Auth / number go in **per tenant**. “Connect” means **use the client’s already-provisioned number**, not “Bolna sells 140/160.”
 
 Inbound and outbound both work **if the carrier number and account allow that direction**.
 
@@ -359,7 +359,7 @@ GST is **not** mandatory for TM signup if Udyam/S&E is accepted. Portals differ;
 3. Client registers **headers** and **content templates** under *their* PE (SMS; voice follows the same PE world / 140–160 assignment).
 4. Client → **PE–TM Chain / Manage Telemarketer → New Chain** → paste **your TM-ID**.
 5. **You** accept in the TM login. Client may need to approve again. Status must be **Active**.
-6. **Separately**, client buys the DID on Exotel/Plivo and finishes **carrier KYC**. DLT does not create the phone number.
+6. **Separately**, client buys the DID on a licensed carrier (Exotel class) and finishes **carrier KYC**. DLT does not create the phone number.
 
 Exotel-class vendors publish *their* TM-ID for clients who use that vendor as TM. You are the TM **for Calevate**, so they use **your** TM-ID, not Exotel’s, unless Exotel is the TM of record (don’t mix those models).
 
@@ -368,7 +368,7 @@ Exotel-class vendors publish *their* TM-ID for clients who use that vendor as TM
 This **kills zero-touch self-serve** for outbound. Budget sales time:
 
 1. Have a business proof (GST/Udyam/S&E).
-2. Open Exotel/Plivo (India), submit KYC, wait for number (days; city-matched address).
+2. Open a licensed carrier account (Exotel class, India), submit KYC, wait for number (days; city-matched address).
 3. Register PE on a DLT portal (fee on their side).
 4. Headers + templates.
 5. Bind your TM-ID; you accept.
@@ -418,7 +418,7 @@ Regulation 4 (REPORTED reading; nobody here has opened the text) says the **Send
 - verified KYC and the no-cold-calls pledge (D-692), unchanged;
 - a **disclosure inside the pledge (version 2)**, accepted by checkbox: calls are automated calls by Calevate's AI voice agent through Calevate's licensed telephony partners, from numbers rented in the business's name; for every call Calevate keeps the verified business details, the calling number, the purpose, the consent and do-not-call records and the call record, and may share them with a telecom provider or regulator that asks; and the client confirms its calls are made only for the purposes set in its campaigns.
 
-**What this does not change:** the regulation still binds the Sender in law. The founder accepted that risk. Keep asking ThinnestAI/Plivo whether a platform-level declaration exists (OPERATIONS §2 gate 59), and do not tell a client that the disclosure makes them compliant.
+**What this does not change:** the regulation still binds the Sender in law. The founder accepted that risk. Keep asking ThinnestAI (which relays its telephony provider, Plivo) whether a platform-level declaration exists (OPERATIONS §2 gate 59), and do not tell a client that the disclosure makes them compliant.
 
 ---
 
@@ -455,7 +455,7 @@ Foreign **clients** are frozen. Foreign **sub-processors** are not. Speech can s
 
 - Privacy Policy (you as fiduciary for account data; processor for call content).
 - DPA with each client (processor clauses, sub-processor list, deletion, breach notice).
-- Sub-processor list: Bolna, Sarvam, Azure/OpenAI/Gemini, Exotel/Plivo/Vobiz (theirs), Cloudflare/R2, VPS, Sentry, Resend, etc.
+- Sub-processor list: Bolna, Sarvam, Azure/OpenAI/Gemini, the client's carrier (theirs), Cloudflare/R2, VPS, Sentry, Resend, etc.
 - Click-through DPAs where the vendor offers them (Microsoft, Google, Cloudflare). Bolna — check; do not assume.
 - Grievance Officer: can be **you**. Publish name, email, Indian phone, address (IT Rules / consumer e-commerce hygiene; payment gateways look for this).
 - Recording: cautious practice = announce. Case law on one-party recording is messy; do not rely on “India is one-party” as a slogan.
@@ -549,7 +549,7 @@ GST is **not** in this list.
 
 | # | What | Who | Cost | Time | If skipped |
 |---|---|---|---|---|---|
-| B1 | Client opens Exotel/Plivo/Vobiz, KYC, buys DID | Client | their rental | days | No number |
+| B1 | Client opens a licensed carrier account, KYC, buys DID | Client | their rental | days | No number |
 | B2 | Client gives you API credentials + number | Client | 0 | 1 hour | Cannot connect |
 | B3 | You store per-tenant secrets; connect Bolna inbound | You | Bolna bill | hours | Dead air |
 | B4 | Recording / AI disclosure on the inbound agent | You | 0 | hours | Privacy/complaint risk |
@@ -575,7 +575,7 @@ GST is **not** in this list.
 | GSTIN + LUT | ₹20 lakh **or** client blockage **or** foreign clients (foreign = new playbook) |
 | Shops & Establishment | Bank/DLT asks, or you rent an office |
 | AP Professional Tax | CA says you are in the slab |
-| Own Exotel/Plivo account | You want a Calevate demo/support DID |
+| Own licensed carrier account | You want a Calevate demo/support DID |
 | Pvt Ltd / OPC | Liability, fundraising, or mid-size clients refuse to contract an individual |
 | Advocate review of 8 legal docs | Before any non-trivial volume or first outbound |
 | Cyber / PI insurance | When monthly revenue makes premium rational |
@@ -597,7 +597,7 @@ Any outbound (callback, campaign, promo)?
   └─ STOP until your TM-ID + their PE + Active chain + correct series + scrub.
 
 Client wants YOU to give them a number for ₹X/month?
-  └─ NO (Model A). Send them to Exotel/Plivo. Or lose the deal.
+  └─ NO (Model A). Send them to a licensed carrier. Or lose the deal.
 
 Turnover → ₹20 lakh or ITC demanded?
   └─ GST. Then RCM on foreign vendors becomes your problem.
@@ -662,7 +662,7 @@ Take these to professionals. Do **not** fill with guesses.
 
 **Bolna / carrier docs (you)**
 
-- Current Exotel/Plivo/Vobiz “connect” fields.  
+- Current carrier “connect” fields.  
 - Whether one DID can be voice + SMS + WhatsApp on that carrier.
 
 ---
@@ -680,7 +680,7 @@ Print this.
 - [ ] Books folder  
 - [ ] CA 1-hour: ITR + PT + presumptive **no**  
 - [ ] Bolna account  
-- [ ] Onboarding UI: client pastes Exotel/Plivo keys + number  
+- [ ] Onboarding UI: client pastes carrier keys + number  
 - [ ] Inbound-only live  
 - [ ] **Before outbound:** TM-ID (~₹5,900)  
 - [ ] Client PE + headers/templates + PE–TM Active  
@@ -702,7 +702,7 @@ You (PAN) ── Udyam ── Current A/c ── Razorpay ── INR from AP/TS 
         │         │
 Client ─┴── DLT PE-ID + headers/templates
         │
-        └── Exotel/Plivo/Vobiz account + DID (their KYC)
+        └── Carrier account + DID (their KYC)
                     │
                     ▼
                   Bolna  ── Sarvam / Azure / your app

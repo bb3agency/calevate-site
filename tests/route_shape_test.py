@@ -33,7 +33,6 @@ import uuid
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
-from apps.api.agents.voice_routes import SetVoiceIn
 from apps.api.core.auth import tenant_of
 from apps.api.core.rbac import (
     MUTATING_PERMISSIONS,
@@ -320,17 +319,6 @@ async def test_a_client_token_cannot_reach_the_publish_endpoint() -> None:
     assert response.status_code == 401, response.text
 
 
-async def test_the_old_publish_path_no_longer_exists() -> None:
-    """The move is a breaking path change, stated as a test so nobody has to diff the
-    OpenAPI snapshot to discover it. `/v1/agents/{agent_id}` still resolves for GET,
-    so a POST to the old publish URL is a routing miss, not a permission answer."""
-    paths = {route.path for route in iter_api_routes(app)}
-    assert "/v1/agents/{agent_id}/publish" not in paths
-    assert "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/publish" in paths
-    # The reads that share this router kept their paths.
-    assert {"/v1/agents", "/v1/agents/{agent_id}"} <= paths
-
-
 # -------------------------------------------------------- /v1/me enforces its label
 
 
@@ -497,18 +485,17 @@ async def test_no_admin_realm_route_lives_outside_the_admin_path_space() -> None
 
 
 async def test_no_route_in_the_admin_path_space_admits_a_client_realm_principal() -> None:
-    """The CONVERSE of the rule above, and the backstop the two behavioural refusals lean
+    """The CONVERSE of the rule above, and the backstop the behavioural refusals lean
     on once their routes moved into `/v1/admin`.
 
     The test above answers "is every admin-realm route inside the admin path space".
     Nothing answered the other direction — "is everything inside the admin path space
-    admin-realm" — and that gap sits directly under the two behavioural refusals for
-    publish and voice.
+    admin-realm" — and that gap sits directly under the behavioural refusals, such as
+    publish's.
 
-    THE REASON THOSE TWO CANNOT COVER IT, measured rather than assumed: downgrade
-    `voice_routes.VoiceSetter` to `realm="client"` and
-    `agent_voice_test::test_a_client_realm_principal_cannot_set_the_voice` stays GREEN,
-    because both handlers also take `session: AdminSession` and `core.deps.admin_db`
+    THE REASON THEY CANNOT COVER IT: downgrade an admin route's permission to
+    `realm="client"` and its behavioural refusal test stays GREEN, because the handler
+    also takes `session: AdminSession` and `core.deps.admin_db`
     depends on `current_admin` — so the client token meets the same 401 from the session
     dependency. Two locks on one door is good; a test that cannot tell which one is
     holding is not, because the day a handler stops needing an admin session the
@@ -577,52 +564,3 @@ async def test_a_client_token_is_refused_the_admin_space_as_a_realm_answer() -> 
     body = refused.json()
     assert body["kind"] == "auth", body
     assert "realm" in body["detail"].lower(), body
-
-
-async def test_the_voice_write_moved_and_the_old_path_is_gone() -> None:
-    """The instance, both halves — a breaking URL change stated as a test rather than
-    left for someone to find by diffing the OpenAPI snapshot.
-
-    No deprecation window and no alias, deliberately: `realm="admin"` means the only
-    caller that can reach it is our own console, which ships from this repo against a
-    client generated from this schema, so there is no third party to strand. An alias
-    would keep the copyable wrong shape live on the wrong limiter — the defect the move
-    exists to delete. Same call as `POST /v1/agents/{agent_id}/publish` above.
-
-    ⚠ **`PATCH /v1/agents/{agent_id}/voice` IS LIVE AGAIN (D-586) AND THIS TEST USED TO
-    ASSERT IT WAS ABSENT.** It is not the old route restored, and the rule the move
-    established is untouched: the rule was "no ADMIN-realm route in the client path
-    space", not "nothing may ever live at that path". The route there now is CLIENT-realm
-    and names no tenant at all — the tenant is the caller's own session — so none of the
-    four mechanisms that made the old shape wrong applies to it. The general assertion
-    above (`test_no_admin_realm_route_lives_outside_the_admin_path_space`) is what
-    actually guards the rule, and it walks the whole table; this case is the instance,
-    and the instance is now BOTH halves being where they belong.
-    """
-    paths = {route.path for route in iter_api_routes(app)}
-    client_voice = next(
-        route for route in iter_api_routes(app) if route.path == "/v1/agents/{agent_id}/voice"
-    )
-    assert client_voice.methods == {"PATCH"}
-    assert "tenant_id" not in {param.name for param in client_voice.dependant.path_params}
-    assert ("agents:write", "any") in _enforced(client_voice), (
-        'the client door must stay realm-agnostic: `realm="client"` would lock out the '
-        "view-as operator the founder asked for"
-    )
-    voice = next(
-        route
-        for route in iter_api_routes(app)
-        if route.path == "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice"
-    )
-    assert voice.methods == {"PATCH"}
-    assert "tenant_id" in {param.name for param in voice.dependant.path_params}
-    assert not _depends_on(voice, tenant_of)
-    assert ("agents:write", "admin") in _enforced(voice)
-    assert "/v1/agents/{agent_id}/call-cap" in paths, (
-        "the cap's client door ships beside the voice's — one decision, both settings"
-    )
-    # The client-realm READ that shares this router kept its path: a client may still
-    # hear what their agent sounds like (D-21), it is only the write that moved.
-    assert "/v1/agents/voices" in paths
-    # And the tenant left the body with it — one place names the tenant, not two.
-    assert "tenant_id" not in set(SetVoiceIn.model_fields)

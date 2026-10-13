@@ -18,13 +18,12 @@ reintroduced — which is the regression test the fix earned, and the reason a c
 a TODO was never an option. A future slice that finds a new egress gap it cannot close
 adds it back, with what closes it.
 
-**THE ASSERTION IS AN EQUALITY**, in the shape `tests/reliability_known_gaps_test.py`
-established. Every key has a probe answering "is this still true?", and the test asserts
-the still-open set EQUALS the recorded set. So an entry cannot outlive its defect — the
-fix turns this red and forces the entry's deletion in the same change — and the probes
-OUTLIVE their entries, so a gap that is closed and then reopened fails here with the same
-message it was found with. A comment or a TODO can do none of that, which is why neither
-is an option.
+**THE ASSERTION IS AN EQUALITY.** Every key has a probe answering "is this still true?",
+and the test asserts the still-open set EQUALS the recorded set. So an entry cannot outlive
+its defect — the fix turns this red and forces the entry's deletion in the same change —
+and the probes OUTLIVE their entries, so a gap that is closed and then reopened fails here
+with the same message it was found with. A comment or a TODO can do none of that, which is
+why neither is an option.
 
 The third gap found in this slice — a consent-blocked lead that any dial path will still
 ring — is recorded in `tests/lead_consent_carryover_test.py` instead, because its probe

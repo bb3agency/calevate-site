@@ -24,9 +24,7 @@ import {
   type ConfigWrite,
 } from "@/lib/api/opsConfig";
 import {
-  OPS_CARRIER_PROBE_PATH,
   OPS_SECRETS_PATH,
-  type CarrierProbe,
   type KekState,
   type PlatformSecret,
   type SecretTest,
@@ -221,10 +219,10 @@ const MODEL_PRICES: ModelPrices = {
   // the panel's job is to say what is switched off rather than render a blank.
   embedding_prices: [
     {
-      model: "models/gemini-embedding-2",
-      provider: "google",
-      used_for: "the knowledge pack's dense arm",
-      dimensions: 3072,
+      model: "text-embedding-3-small",
+      provider: "azure_openai",
+      used_for: "semantic search over a client's own knowledge, their past calls and their leads",
+      dimensions: 1536,
       credential_installed: false,
       price_attested: false,
       usable: false,
@@ -233,7 +231,7 @@ const MODEL_PRICES: ModelPrices = {
       attested_at: null,
       attested_by: null,
       source_note: null,
-      reference_input_usd_per_mtok: "0.20",
+      reference_input_usd_per_mtok: "0.02",
       reference_verified: false,
     },
   ],
@@ -245,7 +243,6 @@ const MODEL_PRICES: ModelPrices = {
       tier_label: "Studio",
       tts_model: "sonic-3.5",
       credential_installed: false,
-      credential_held_elsewhere: false,
       price_attested: false,
       price_billable: false,
       offerable: false,
@@ -1130,8 +1127,7 @@ describe("the keys this console can never change", () => {
   beforeEach(() => openSection("infrastructure"));
   // D-614. The API has published `bootstrap` since D-101 and the console rendered NONE of
   // it, so the surface built to stop "an operator looking for APP_ENV found nothing at
-  // all" produced exactly that nothing. These two rows look alike and mean opposite
-  // things, which is the whole reason the section needed a test rather than a glance.
+  // all" produced exactly that nothing. One row set and one not, so both verdicts render.
   const envOnly = () =>
     configList([configField()], {
       bootstrap: [
@@ -1141,16 +1137,13 @@ describe("the keys this console can never change", () => {
           env_var: "APP_ENV",
           reason: "it decides whether dev tokens are accepted.",
           configured: false,
-          held_by: null,
         },
         {
-          key: "plivo_auth_id",
-          label: "Plivo auth ID",
-          env_var: "PLIVO_AUTH_ID",
-          reason:
-            "the carrier credential is read by the voice worker's own telephony serializer.",
-          configured: false,
-          held_by: "the Pipecat Cloud secret set `calevate-pipecat-worker-secrets`",
+          key: "resend_api_key",
+          label: "Resend API key",
+          env_var: "RESEND_API_KEY",
+          reason: "the alert relay on the database host can only read this from the environment.",
+          configured: true,
         },
       ],
     });
@@ -1160,7 +1153,7 @@ describe("the keys this console can never change", () => {
 
     await screen.findByText("Set outside this console");
     expect(container.textContent).toContain("APP_ENV");
-    expect(container.textContent).toContain("PLIVO_AUTH_ID");
+    expect(container.textContent).toContain("RESEND_API_KEY");
     expect(container.textContent).toContain(
       "it decides whether dev tokens are accepted.",
     );
@@ -1169,73 +1162,13 @@ describe("the keys this console can never change", () => {
     expect(screen.queryByLabelText(/New value/)).toBeNull();
   });
 
-  it("calls an unset key a fault only when this deployment is the one that holds it", async () => {
+  it("calls an unset key a fault and a set one set", async () => {
     const { container } = renderOps(opsRoutes({ [OPS_CONFIG_PATH]: envOnly() }));
 
     await screen.findByText("Set outside this console");
     // `APP_ENV` belongs here and is missing — a real fault, said once.
     expectTextCount(container, "Not set in this deployment's environment", 1);
-    // `PLIVO_AUTH_ID` is missing for the correct reason: it belongs in a vendor's secret
-    // set, and a VPS declaring it would be a VPS holding a live carrier credential with
-    // no reader. It gets the location, not a verdict.
-    expect(container.textContent).toContain(
-      "Held by the Pipecat Cloud secret set `calevate-pipecat-worker-secrets`",
-    );
-  });
-
-  // PG5. The Vobiz pair is env-only, so `/secrets/{key}/test` has no row to test it from;
-  // the check sits beside the pair and sends nothing but the request.
-  const withVobizPair = () =>
-    configList([configField()], {
-      bootstrap: [
-        {
-          key: "vobiz_auth_id",
-          label: "Vobiz auth ID",
-          env_var: "VOBIZ_AUTH_ID",
-          reason: "the Vobiz account id is read by voice-runtime as well.",
-          configured: true,
-          held_by: null,
-        },
-        {
-          key: "vobiz_auth_token",
-          label: "Vobiz auth token",
-          env_var: "VOBIZ_AUTH_TOKEN",
-          reason: "the Vobiz token places calls.",
-          configured: true,
-          held_by: null,
-        },
-      ],
-    });
-
-  it("tests the carrier pair from beside it, once, with no value in the request", async () => {
-    const verdict: CarrierProbe = {
-      carrier: "vobiz",
-      outcome: "rejected",
-      detail: "The vendor refused the credential pair this deployment holds.",
-      verified: false,
-    };
-    const { calls } = renderOps(
-      opsRoutes({
-        [OPS_CONFIG_PATH]: withVobizPair(),
-        [`POST ${OPS_CARRIER_PROBE_PATH}`]: verdict,
-      }),
-    );
-
-    await screen.findByText("Set outside this console");
-    const buttons = screen.getAllByRole("button", { name: /Test the carrier credentials/ });
-    expect(buttons).toHaveLength(1);
-    fireEvent.click(buttons[0]);
-
-    await screen.findByText(/The vendor refused the credential pair/);
-    const probes = calls.filter((c) => c.path === OPS_CARRIER_PROBE_PATH);
-    expect(probes).toHaveLength(1);
-    expect(probes[0].body).toBeNull();
-  });
-
-  it("offers no carrier check on a deployment that lists no carrier pair", async () => {
-    renderOps(opsRoutes({ [OPS_CONFIG_PATH]: envOnly() }));
-    await screen.findByText("Set outside this console");
-    expect(screen.queryByRole("button", { name: /Test the carrier credentials/ })).toBeNull();
+    expectTextCount(container, "Set in this deployment's environment", 1);
   });
 });
 

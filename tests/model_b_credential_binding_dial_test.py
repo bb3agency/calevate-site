@@ -1,28 +1,17 @@
-"""The dial's tenant binding, and the absence of a platform carrier account (Model B).
+"""The dial's tenant binding.
 
-Two different claims, kept in one file because an audit reads them as one:
-
-1. **A dial cannot mix two tenants.** `agents.service.dispatch_call` is the platform's
-   single outbound entry point and the only function in this tree that takes BOTH a
-   tenant-scoped session and a `tenant_id`. It reads the agent, the DLT-registered header
-   and the caller memory under the SESSION's `app.tenant_id`, and writes the `calls`
-   intent row under `tenant_session(tenant_id)`. RLS cannot see a mismatch — each half is
-   individually legal — so the binding is asserted explicitly and pinned here.
-2. **There is no platform carrier ACCOUNT for a dial to be placed on.** Model B (D-474)
-   makes the client the subscriber of record. The only carrier secrets this platform has
-   a name for are `Settings.plivo_auth_id` / `plivo_auth_token`, which live in the
-   `calevate-pipecat-worker` secret set and are read by Pipecat's own serializer to HANG
-   UP (`DELETE /v1/Account/{auth_id}/Call/{call_id}/`). Nothing on the API, worker or
-   voice-runtime side reads them, and that is what keeps a client's traffic off a
-   Calevate carrier account. The last test fails the day some module starts.
+A dial cannot mix two tenants. `agents.service.dispatch_call` is the platform's single
+outbound entry point and the only function in this tree that takes BOTH a tenant-scoped
+session and a `tenant_id`. It reads the agent, the DLT-registered header and the caller
+memory under the SESSION's `app.tenant_id`, and writes the `calls` intent row under
+`tenant_session(tenant_id)`. RLS cannot see a mismatch — each half is individually legal —
+so the binding is asserted explicitly and pinned here.
 """
 
 from __future__ import annotations
 
-import ast
 import uuid
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -34,13 +23,6 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from sqlalchemy import text
 from tests.conftest import accept_agreements
-
-#: The two field names that would let an `apps/` module dial on OUR carrier account.
-_PLATFORM_CARRIER_FIELDS = frozenset({"plivo_auth_id", "plivo_auth_token"})
-
-#: The deployables that must never read them. `apps/voice-worker` is absent deliberately:
-#: it is the one container that DOES hold the pair, for the hangup.
-_MODEL_B_DEPLOYABLES = ("apps/api", "apps/workers", "apps/voice-runtime")
 
 
 @pytest.fixture(autouse=True)
@@ -123,39 +105,6 @@ async def test_an_untenanted_session_can_never_dial() -> None:
             lead_id=None,
             phone_e164="+919876543210",
         )
-
-
-def test_no_shared_deployable_reads_the_platform_carrier_credential() -> None:
-    """MODEL A, PINNED OUT — by attribute access, not by grep.
-
-    `Settings` carries the carrier pair so the credential has a row in the platform's own
-    register (a name, an `env_var`, and the sentence saying it belongs in the Pipecat
-    Cloud secret set). A READ of it from the API, the workers or voice-runtime would be a
-    process on our side holding a carrier account's keys, which is the step from Model B
-    to Model A and a legal decision rather than a code change
-    (`campaigns/provisioning.PROVISIONING_IMPLEMENTED`).
-
-    Matched on `ast.Attribute` so the many prose mentions — `core/settings.py`'s env-only
-    reasons, `engine/pipecat.py`'s note on why there is no per-tenant store — do not read
-    as uses. A string constant would find those and teach the next person to delete the
-    explanations instead of the access.
-    """
-    repo_root = Path(__file__).resolve().parents[1]
-    offenders: list[str] = []
-    for deployable in _MODEL_B_DEPLOYABLES:
-        for path in sorted((repo_root / deployable).rglob("*.py")):
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Attribute) and node.attr in _PLATFORM_CARRIER_FIELDS:
-                    offenders.append(f"{path.relative_to(repo_root)}:{node.lineno} .{node.attr}")
-
-    assert not offenders, (
-        "these modules read the platform's own carrier credential, which is Model A: "
-        + ", ".join(offenders)
-    )
-
-
-# --- the database half ---------------------------------------------------------------
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:

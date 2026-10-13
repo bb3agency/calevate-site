@@ -94,8 +94,8 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
             `sweep_kb_drift` returns on its first line when the engine lacks the
             capability, so on such an engine it records nothing on every run, for ever, by
             design. Every engine `Settings.engine` can name declares one today
-            (`calevate_shared.config.EngineName` — `fake`, `cartesia`, `pipecat`; each
-            adapter's `*_CAPABILITIES.knowledge_base` is `True`), so this notice is currently
+            (`calevate_shared.config.EngineName` — `thinnest`, `fake`; each adapter's
+            `*_CAPABILITIES.knowledge_base` is `True`), so this notice is currently
             unreachable. It STAYS rather than being deleted:
             the field is on the wire precisely so the screen reads the engine's own answer
             instead of a value typed here, and a capability that flipped True once can flip

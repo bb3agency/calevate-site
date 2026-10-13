@@ -28,11 +28,11 @@
 
 The founder decided three things:
 
-1. ThinnestAI becomes a third selectable voice engine, `ENGINE=thinnest`, behind the existing **deployment-wide** switch.
-2. ThinnestAI's own numbers are used. They were rented in their console; since D-693 a client's number is bought through our own purchase flow, in the client's workspace (§3a). Confirmed 7 Oct 2026: Vobiz is isolated to `ENGINE=pipecat`, bringing a carrier account to ThinnestAI is not used, by decision, and a move back to Pipecat would give clients new numbers (no portability between engines).
+1. ThinnestAI becomes a voice engine, `ENGINE=thinnest`, behind the **deployment-wide** switch. Since D-763 (13 Oct 2026) it is the only engine besides the test fake.
+2. ThinnestAI's own numbers are used. They were rented in their console; since D-693 a client's number is bought through our own purchase flow, in the client's workspace (§3a). Confirmed 7 Oct 2026: bringing a carrier account to ThinnestAI is not used, by decision.
 3. Voices and models come from their catalogue, with a clearly marked slot for BYOK once ThinnestAI documents how it works. For voices this is superseded by D-687 (§4a): the voice-only BYOK documented on 7 Oct carries the Studio rung, and the language model stays theirs.
 
-**The Pipecat engine is not changed by any of this.** `ENGINE=pipecat` must behave exactly as it does today, and every Pipecat, Vobiz and carrier test must stay green.
+**There is no second engine to fall back to (D-763).** `ENGINE` accepts `thinnest` and `fake` (tests). A rollback is redeploying the previous image; the removed engine is recoverable from the git tag named in D-763.
 
 Evidence for every vendor fact below:
 - `thinnest-findings/mirror/` (VERIFIED-VENDOR-DOCS; the paths in this document are under its `pages/`);
@@ -49,17 +49,17 @@ That is `AgentHosting = "control_plane"`: the shape the rented engine had before
 
 **Reuse those seams; do not build parallel ones.**
 
-| Calevate leg | Pipecat today | ThinnestAI |
-|---|---|---|
-| Phone line | Vobiz (our account) | ThinnestAI-rented number only (their carrier; ₹1/min with BYOK includes it). Vobiz is never used on this engine (founder, 7 Oct 2026) |
-| Call control | voice-runtime answer XML → Pipecat Cloud | ThinnestAI |
-| STT / LLM / TTS | Sarvam / Gemini-Azure-OpenAI / Cartesia-Gnani, our keys | STT and LLM: theirs (`GET /models`). TTS: Clear speaks their studio-band catalogue voices and our admin's clones; Studio speaks Cartesia on our key through voice-only BYOK (§4a). No Gnani |
-| Opening | Notices switched on spoken verbatim, then the model greets with the opening line (D-654, D-708) | One field, the whole first words: the notices switched on, then the script's opening line (`compose_first_utterance`, D-708). Inbound: agent `greeting`. Outbound: the call's `purpose` (spoken first), the same words with the call's variables filled in |
-| Truthful floor, confidentiality | Prompt plus worker checks plus `PromptLeakGuard` | Prompt only, verified by reading `instructions` back. No output guard is possible |
-| In-call tools | `/v1/worker/**` on our API | ThinnestAI custom actions to our API with `X-Agent-Secret` (`agent/custom-api.md`). Phase 2 |
-| Hang-up and results | Vobiz callbacks plus worker settlement | `call.completed` and `call.analysed` webhooks, plus the call list |
-| Recording | Vobiz records; we copy to R2 within 90 days | `recording.url` (public signed link, expires in 30 or 75 days); we copy to R2 |
-| Cost | Vobiz CDR `total_cost` | Operator-attested ₹/min times 30-second pulses. Each call's `costMicro` is kept on `calls.engine_charged_inr` and reconciled against it (D-690, §5) |
+| Calevate leg | ThinnestAI |
+|---|---|
+| Phone line | ThinnestAI-rented number only (their carrier; ₹1/min with BYOK includes it) |
+| Call control | ThinnestAI |
+| STT / LLM / TTS | STT and LLM: theirs (`GET /models`). TTS: Clear speaks their studio-band catalogue voices and our admin's clones; Studio speaks Cartesia on our key through voice-only BYOK (§4a) |
+| Opening | One field, the whole first words: the notices switched on, then the script's opening line (`compose_first_utterance`, D-708). Inbound: agent `greeting`. Outbound: the call's `purpose` (spoken first), the same words with the call's variables filled in |
+| Truthful floor, confidentiality | Prompt only, verified by reading `instructions` back. No output guard is possible |
+| In-call tools | ThinnestAI custom actions to our API with `X-Agent-Secret` (`agent/custom-api.md`). Phase 2 |
+| Hang-up and results | `call.completed` and `call.analysed` webhooks, plus the call list |
+| Recording | ThinnestAI records every call; `recording.url` (public signed link, expires in 30 or 75 days); we copy it to R2 and keep it 90 days |
+| Cost | Operator-attested ₹/min times 30-second pulses. Each call's `costMicro` is kept on `calls.engine_charged_inr` and reconciled against it (D-690, §5) |
 
 ## 2. Mapping the `VoiceEngine` protocol (`apps/api/engine/thinnest.py`)
 
@@ -176,9 +176,7 @@ The workspace comes from the object's handle where there is one — `<raw>@<org_
 
 **Offboarding.** Closing an account queues `offboard_engine_workspace`: each number in the client's workspace released with `?confirm=release` and `released_at` set, each of its agents' actions retired and the agent deleted, then `DELETE /customers/{id}` — refused with 409 while it still holds a rented number, which is why the numbers go first (`customers.md:136-146`). Afterwards requests into it answer 410, its webhooks are off, and it is erased 30 days later; until then `POST /customers/{id}/restore` brings it back (`:148-161`). Restoring the Calevate account re-provisions, which restores the customer if the vendor still holds it. Released numbers do not come back. A failure alarms `engine_workspace_offboarding_failed`; an admin's **Offboard** (`POST /v1/admin/engine-workspaces/tenants/{id}/offboard`) re-queues it. Runbook: `runbooks/engine-workspace-provisioning.md`.
 
-**Surfaces.** The client's admin Identity verification page shows the approval read-only (`kyc/NumberApprovalPanel.tsx`, with Check again now) in place of the Plivo-only typed carrier decision, which shows only where the carrier in use approves client businesses itself. The voice-workspace panel on the client's admin Numbers page (`admin/tenants/[tenantId]/numbers/WorkspacePanel.tsx`: status, workspace id, last error, business details with Send business details and Refresh status, numbers, Retry provisioning, Offboard); the ops summary `GET /v1/admin/engine-workspaces/summary` (workspaces provisioned against tenants, failures, plan headroom); the client's Numbers page as three steps — verify your business, business details, buy a number — naming no provider (D-679).
-
-**`ENGINE=pipecat` is unchanged.** Every function above answers "not applicable" on an engine without customer workspaces (`engine_has_workspaces`).
+**Surfaces.** The client's admin Identity verification page shows the approval read-only (`kyc/NumberApprovalPanel.tsx`, with Check again now) The voice-workspace panel on the client's admin Numbers page (`admin/tenants/[tenantId]/numbers/WorkspacePanel.tsx`: status, workspace id, last error, business details with Send business details and Refresh status, numbers, Retry provisioning, Offboard); the ops summary `GET /v1/admin/engine-workspaces/summary` (workspaces provisioned against tenants, failures, plan headroom); the client's Numbers page as three steps — verify your business, business details, buy a number — naming no provider (D-679).
 
 ### 3c. Free-trial test calls (D-697)
 
@@ -196,7 +194,7 @@ The founder's decision of 9 Oct 2026: a free trial is for experiencing Calevate.
 
 **Choosing the shared number.** The ops console panel **Shared trial number** (`GET /v1/ops/trial-number`) offers only numbers our developer workspace holds (`GET /phone-numbers` with no workspace header) that no client has recorded; `ops.config_service.set_value` re-checks every write of `trial_caller_number` against the same list (`ops/trial_number.assert_trial_number_selectable`). An operator smoke-tests the whole path with `POST /v1/admin/tenants/{id}/trial/test-call` (`runbooks/trial-calling.md`).
 
-**No AI answers the shared number (D-742).** Inbound to it never reaches a trial client's agent. Its line is one agent in the developer workspace named "Calevate shared trial number (no answer)", never recorded in `agents` and no client's, with `voice.answersCalls: false` and `voice.unavailableMessage` = `engine_numbers.TRIAL_LINE_MESSAGE` ("Thanks for calling back. This number only places test calls for businesses trying Calevate, so no one can take your call here. Goodbye."). English, because the phone provider's own Indian-English voice reads it and plays the standard sentence for Telugu script; no greeting (D-708); ≤300 characters (api-reference/agents/create-agent `AgentVoiceInput`; channels/voice "When Answer calls is off", read 11 Oct 2026). `converge_trial_line` finds it by name, makes it once, repairs it when found answering or reworded, and makes it the number's line (switching its voice on only for the attach if the platform refuses a paused agent); each lend then sends `callingAgent` only. It runs from the daily number sweep, on the first test call of a process, and from the ops panel's **Set it up now** (`POST /v1/ops/trial-number/line`), which shows its state. Whether the message is billed is not documented (UNKNOWN; if it is, one 30-second Premium pulse, about ₹1.38). Spoken on Plivo and Twilio numbers only. The number is never recorded against a client (`engine_number_is_trial_number`), the daily number sweep leaves it out of `engine_number_unrecorded` and alarms `trial_number_recorded_to_client` if it finds a record.
+**No AI answers the shared number (D-742).** Inbound to it never reaches a trial client's agent. Its line is one agent in the developer workspace named "Calevate shared trial number (no answer)", never recorded in `agents` and no client's, with `voice.answersCalls: false` and `voice.unavailableMessage` = `engine_numbers.TRIAL_LINE_MESSAGE` ("Thanks for calling back. This number only places test calls for businesses trying Calevate, so no one can take your call here. Goodbye."). English, because the phone provider's own Indian-English voice reads it and plays the standard sentence for Telugu script; no greeting (D-708); ≤300 characters (api-reference/agents/create-agent `AgentVoiceInput`; channels/voice "When Answer calls is off", read 11 Oct 2026). `converge_trial_line` finds it by name, makes it once, repairs it when found answering or reworded, and makes it the number's line (switching its voice on only for the attach if the platform refuses a paused agent); each lend then sends `callingAgent` only. It runs from the daily number sweep, on the first test call of a process, and from the ops panel's **Set it up now** (`POST /v1/ops/trial-number/line`), which shows its state. Whether the message is billed is not documented (UNKNOWN; if it is, one 30-second Premium pulse, about ₹1.38). Spoken on ThinnestAI's Plivo and Twilio numbers only. The number is never recorded against a client (`engine_number_is_trial_number`), the daily number sweep leaves it out of `engine_number_unrecorded` and alarms `trial_number_recorded_to_client` if it finds a record.
 
 **Sync.** A test call is a `calls` row with `trial_call = true`, written by `dispatch_call` and completed by the normal webhook and poller, so its transcript, recording and minutes show up like any call. The trial's free minutes count those rows' `duration_s`; the daily cap counts them since IST midnight. A trial writes nothing to the ledger (D-536 unchanged); its minutes are metered at our cost.
 
@@ -208,13 +206,11 @@ A client's agent acts in the client's own systems during a call. Vendor paths ar
 
 **What exists.** Seven kinds (`actions/models.ACTION_KINDS`): `caller_lookup` (the caller's record from Zoho CRM, HubSpot, a shared Google Sheet or the client's API, matched on the caller's number), `calendar` (Google Calendar free times and booking, India time), `whatsapp` (a template from the client's own WhatsApp Business account via Meta Cloud API, AiSensy or Interakt), `payment_link` (a Razorpay Payment Link on the client's own account, sent on their WhatsApp), `crm` (create or update the caller's Zoho lead/contact or HubSpot contact), `sheets` (one row per call in a shared sheet, or a lookup), `custom_api` (the client's https endpoint). Each is set up on the agent's Actions; the accounts are connected on Integrations → Connected accounts.
 
-**Why our endpoint and not the vendor's tools.** ThinnestAI has its own Cal.com, Grist, WhatsApp-template and helpdesk tools (`agent/actions.md:37-76`), configured in its console against accounts connected there. Ours keep the credentials sealed by us, run our dispatch gate (DNC) and messaging-consent ledger before anything reaches a caller, audit every run, and behave the same on Pipecat. So each client action is a ThinnestAI **custom action** pointing at `POST /v1/worker/engine-actions/{engine}/client/{name}?agent=<handle>`, exactly like our four platform tools (§8).
+**Why our endpoint and not the vendor's tools.** ThinnestAI has its own Cal.com, Grist, WhatsApp-template and helpdesk tools (`agent/actions.md:37-76`), configured in its console against accounts connected there. Ours keep the credentials sealed by us, run our dispatch gate (DNC) and messaging-consent ledger before anything reaches a caller, and audit every run. So each client action is a ThinnestAI **custom action** pointing at `POST /v1/worker/engine-actions/{engine}/client/{name}?agent=<handle>`, exactly like our four platform tools (§8).
 
 **Registered and kept in step** (`reliability/engine_actions.py`). An action is live when the agent's master switch and the action are both on (`actions.service.in_call_tools`). Every live action is a vendor action on the agent, in the agent's own workspace (D-693, the handle carries it): name = the action's name (`^[a-z][a-z0-9_]{2,39}$`, `api-reference/actions/create-action.md`), description = the client's text plus a platform sentence binding the model to the answer's `say`, parameters = the values the model fills (static and call values are applied by us), `speakBefore` = the line the agent says while it works (≤ 200 characters), the per-agent sealed `X-Agent-Secret`, and a body carrying `{{call.id}}`. The converge creates, repairs, re-enables and DELETES — a vendor action of ours that is no longer live goes — at publish, in the drift sweep, and at once after any change on the Actions or Connections screens (`sync_client_actions_now`, which never fails the client's save: the in-call door refuses anything not live in our database). Unpublishing removes them all. At most four per agent (`THINNEST_CLIENT_ACTIONS_MAX`, refused as `client_actions_over_limit`; the vendor's "eight tools per agent", `agent/actions.md:213`, gate A-6).
 
 **One call.** The route checks the agent's secret, the workspace header, the engine and the live call (`GET /calls/{id}` on that agent, ringing or connected); the vendor's own test, which has no call, runs nothing. It makes sure our `calls` row exists, then `actions/in_call.run_in_call_action` runs the action within 7 seconds (ThinnestAI asks for an answer within 10, `mcp/own-database.md:48`; gate A-8) or, for a CRM record or a sheet row, acknowledges at once and queues `run_client_action`. The answer is `{status, say, …}` like our own tools'. The caller's number is the vendor's `phone` on the call. Per call: two WhatsApp messages and two payment links per action, on top of ThinnestAI's thirty custom-action calls per conversation per hour (`agent/custom-api.md:147-155`).
-
-**Pipecat.** The same executor is reached at `POST /v1/worker/calls/{engine_call_id}/tools/actions/{name}`; the worker does not yet register client actions as tools, so `PIPECAT_CAPABILITIES.action_tools` stays False (D-700).
 
 **Knowing the caller.** OUTBOUND: before the dial, `agents.service.dispatch_call` runs the agent's live caller lookup (`actions/pre_dial.py`, 3 s, never a gate) and sends what it found as the call's `name` (≤ 120) and the variables `caller_name` and `caller_details` (≤ 150 each; `api-reference/calls/place-call.md:895-899, :912-917`), so there is no wait on the line. INBOUND: the live docs (read 10 Oct 2026, past the 8 Oct mirror) add a pre-answer hook, `voice.callStartUrl`. Every published agent's hook is OUR endpoint, `POST /v1/worker/engine-lookups/thinnest?agent=<ref>` (D-716, `reliability/engine_lookups.py`, `worker/engine_lookups.py`): the vendor mints the signing secret and returns it once on the PATCH that sets the address, we seal it on the agent's route (`call_start_secret_*`, `PLATFORM_KEK`) and rotate with `callStartSecret: "rotate"` when we hold none; each request is verified with the v2 webhook signature and answered within 0.8 s with up to 20 short variables from our CRM for that tenant (`crm/caller_lookup.py`: name, interest, caller known, call back allowed; last call topic, open call back and language only when the agent remembers callers), or `{"variables": {}}`. Phone and WhatsApp inbound only. The drift sweep reads `callStartUrl` back and alarms `engine_caller_lookup_repaired`. A client's own caller-lookup ACTION, where one is set up, still runs as the agent's first action with a 4 s budget; the agent's past-conversation memory (`pastConversations`) recognises a repeat caller with no delay. Whether an inbound agent reads a contact's name is UNKNOWN (gate A-11).
 
@@ -268,7 +264,6 @@ The founder's decisions; they supersede D-681's "Clear = Premium band" and "Stud
 - **Model on a Studio call.** With voice-only BYOK the call minute includes their model, so a call runs only on their low-cost models (Prana, Prana [Voice], GPT-OSS 120B, GPT-5 Nano, GPT-4.1 Nano today; `GET /models` marks `voiceOnlyByok`); setting another model returns 400, and an agent already on another model runs GPT-OSS 120B on calls (`bring-your-own-keys.md:44-63`). A Studio agent's model choice is therefore narrower than a Clear agent's.
 - **No fallback.** If our Cartesia key fails, the voice does not speak; their own STT and LLM keep their usual backups (`bring-your-own-keys.md:98-103`). BYOK calls never fall back to ThinnestAI's own models (email of 11 Oct 2026). A Studio call's `byok_failed` or `voice_failed` therefore alarms `studio_call_voice_failed` with the remedy: check the Cartesia key and balance in ops Voices (D-736; `runbooks/thinnest-first-live-call.md`).
 - **Rung switch.** A field change on republish: the vendor agent, its number and its knowledge stay where they are (D-688). A republish of an agent made before D-693 also moves it into its client's workspace (§3b), which is a recreate, not a rung switch. The switch is read once when a call starts, so a call already ringing keeps the old voice.
-- **Gnani is not used on this engine.** No ThinnestAI surface, label or price names it.
 
 ## 5. Money
 
@@ -278,7 +273,7 @@ ThinnestAI's `costMicro` (millionths of the currency, on `call.analysed` and `GE
 - **Meaning of ₹1/min:** BYOK including telephony. Their own models are ₹1.5 or ₹2.5 (FOUNDER-RELAYED).
 - **Unit cost (D-723):** `unit_cost_paid` = billed minutes × attested rate × (1 + wallet top-up fee). The operator attests the posted rate per billed minute, BEFORE the fee (the figure on ThinnestAI's price page and in `costMicro`, which excludes the fee, evaluation §12 item 8); the meter adds the wallet top-up fee, 2.36% on every plan (ThinnestAI email of 12 Oct 2026, D-754; `billing/engine_minutes.topup_fee`), on every rate key, `byok_voice` included. Cartesia's synthesis on a Studio call never enters the wallet and carries no fee. The ops console's per-minute panel shows the all-in figure beside each posted rate. Minutes metered before 11 Oct 2026 without the fee are restated by one compensating `other` row per call (`meta.kind = engine_topup_fee_restatement`), appended by the hourly charge sweep before it compares; client charges do not move.
 - **No rate, no sale:** an unattested rate refuses to sell the minute, exactly as the LLM price door does today.
-- **Client billing (D-681):** the client is billed in the same 30-second steps on every engine (`rates.client_billed_minutes`), separately from this cost metering.
+- **Client billing (D-681):** the client is billed in 30-second steps (`rates.client_billed_minutes`), separately from this cost metering.
 - **What is sold (D-687, superseding D-681's Premium-only rule):** the vendor `studio` band is sold as **Clear** (₹4.00 on every pack) and the voice-only BYOK leg as **Studio** (the Studio column, ₹7.00 falling to ₹5.50). `standard` and `premium` voices are refused. Publish still refuses an agent with no voice chosen (`engine_voice_required`) and full workspace-keys mode (`engine_own_keys_not_on_sale`). The client rung comes from the stamped `engine_agent_routes.engine_rate_key`, never from `agents.tts_voice`. The Studio leg has its own rate key, `byok_voice` (D-687), for which the operator attests ₹1.50; Cartesia's own charge to our key is a separate cost line through the existing Cartesia pricing.
 - **Cost floors (D-687, D-754).** A floor is a margin guard and never the billed cost. The rates are VENDOR-STATED (Premium band ₹2.50, studio band ₹3.00, voice-only BYOK ₹1.50; top-up fee 2.36% on every plan, ThinnestAI email of 12 Oct 2026) and reach money only through an operator's attestation. Rate card D-728: Clear ₹4.50, Studio ₹6.00.
   - **Clear:** Premium band ₹2.50 × 1.0236 = **₹2.559/min**, a 43.1% gross margin; studio band ₹3.00 × 1.0236 = **₹3.071/min**, 31.8%. Both before ThinnestAI Pro's ₹2,499 a month (needed for the studio band and above three customers) and GST.
@@ -296,7 +291,7 @@ ThinnestAI's `costMicro` (millionths of the currency, on `call.analysed` and `GE
   - The 20,000-character cap is checked before publish (`snapshots/2026-10-07/pages/api-reference/agents/update-agent.md:426-431`; the 6 Oct pages said 8,000). The facts stay in knowledge because `instructions` is re-sent, and paid for, on every turn.
   - **The business facts are not in the prompt (founder's decision, 6 Oct 2026).** On this engine only, the script's `[T0 FACTS]` block is taken out of `instructions` and pushed as one knowledge document titled "Business facts" (`agents/engine_facts.py`), so the 20,000 characters hold the platform rules and the client's script. The prompt gains one platform-written section, `FACTS_IN_KNOWLEDGE_GUIDANCE`: look the facts up in knowledge, never guess, and say "I don't know" with a callback offer when they are not there. Every hard-rule block (speaking rules, `CONFIDENTIALITY_RULE`, the truthful floor) stays in the prompt and the read-back still verifies them. Every other engine composes byte-for-byte as before (`tests/thinnest_facts_in_knowledge_test.py` pins the digests).
 - **D-669, D-708.** The first words verbatim in `greeting` (inbound) and `purpose` (outbound): the notices the agent's switches turn on, then its opening line. The switches never remove the opening line, so an agent with both notices off still greets callers, and an outbound agent is refused (`engine_opening_required`) only when it has no notice switched on and no opening line written.
-- **D-674.** The prompt rule only. `PromptLeakGuard` does not run on this engine, and SECURITY-COMPLIANCE §6.1 must say so.
+- **D-674.** The prompt rule only: nothing of ours sits between ThinnestAI's model and its voice (SECURITY-COMPLIANCE §6.1).
 - **Recording notice.**
   - `recordCalls:true` makes ThinnestAI record.
   - Our recording disclosure and truthful answer apply unchanged.
@@ -324,7 +319,7 @@ ThinnestAI's `costMicro` (millionths of the currency, on `call.analysed` and `GE
 | Per-minute rates (`platform`, `standard`, `premium`, `studio`, `byok_voice`) | ops console **Per-minute rates**, attested with step-up | Hard rule 7. The band `thinnest_clear_voice_band` names is sold as Clear and `byok_voice` (voice-only BYOK) as Studio (D-687, D-688); no other band is sold |
 | Per-agent webhook signing secrets and action secrets | sealed in the DB | Returned once by the vendor, or generated by us |
 
-Each key has an entry in `check_deploy_env` (env-only ones), `DEPLOYMENT.md` §12.7 and
+Each key has an entry in `check_deploy_env` (env-only ones), `DEPLOYMENT.md` §12 and
 `PLATFORM-CONFIG.md` §4, a plain label in the ops console's Calling section, and readiness
 on `/healthz/ready`: `THINNEST_API_KEY` from the adapter, and `ENGINE_INTAKE_KEK` (api,
 workers, voice-runtime), `WEBHOOK_BASE_URL` and `ENGINE_ACTIONS_BASE_URL` (api, workers)
@@ -334,8 +329,8 @@ vendor keys are stripped in tests by `tests/conftest._no_ambient_credentials`.
 ## 8. What is built (phase 1, D-678; phase 2, D-682)
 
 Phase 1 built the adapter, the inbound intake, reconciliation, the catalogue, the business
-facts as knowledge and engine-minute pricing. Phase 2 makes `ENGINE=thinnest` on par with
-Pipecat for a first live call. Pipecat's behaviour is unchanged by both.
+facts as knowledge and engine-minute pricing. Phase 2 makes `ENGINE=thinnest` ready for a
+first live call.
 
 - **Adapter and catalogue.** `apps/api/engine/thinnest.py` (conformance suite), the offer
   seam for voices and models (`agents/engine_catalogue_offer.py`, `engine_choice.py`), the
@@ -345,8 +340,8 @@ Pipecat for a first live call. Pipecat's behaviour is unchanged by both.
   request are ThinnestAI custom actions to `/v1/worker/engine-actions/thinnest/<tool>` on the
   api (`engine/thinnest_actions.py`, `reliability/engine_actions.py`,
   `worker/engine_actions.py`), each carrying the agent's sealed per-agent secret in
-  `X-Agent-Secret`, verified in constant time before the body is read, reusing the Pipecat
-  tools' service functions. Registered, converged and enabled at publish, removed at
+  `X-Agent-Secret`, verified in constant time before the body is read, calling the service
+  functions in `worker/in_call_tools.py`. Registered, converged and enabled at publish, removed at
   unpublish, and checked by the drift sweep. Which call: every body carries the platform-
   filled `{{call.id}}` and every action call the `X-Call-Id` header
   (`snapshots/2026-10-08/pages/agent/custom-api.md:84-119`); the receiver reads the call
@@ -354,7 +349,7 @@ Pipecat for a first live call. Pipecat's behaviour is unchanged by both.
   a hand-over destination on duty puts the caller through itself (`escalate_to_human`) and
   holds no hand-over action of ours; without one the request is recorded, not bridged.
 - **Call lifecycle and money (phase 2).** Dispatch is held to `thinnest_max_concurrent_calls`
-  (`engine/carrier_pacing.py`); a delivery whose signed `x-thinnest-delivered-at` is more
+  (`engine/dial_lines.py`); a delivery whose signed `x-thinnest-delivered-at` is more
   than 5 minutes from our clock is refused (`voice-runtime/signed_intake.REPLAY_TOLERANCE`,
   D-691; the `sentAt` window it replaced dropped every retry);
   the usage call log's per-call charge is compared with what we metered and alarmed on a

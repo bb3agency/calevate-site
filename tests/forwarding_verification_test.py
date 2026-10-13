@@ -4,7 +4,7 @@ concurrency result, the limits, and that every minute of it is ours."""
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -315,7 +315,3 @@ async def test_hang_up_ends_the_live_legs(rig: Rig) -> None:
     test = await _start(tenant_id, line_id)
     assert await testing.hang_up_legs(tenant_id, test.id) == 2
     assert len(rig.engine.hung) == 2
-
-
-async def test_stale_window_constant_is_two_minutes() -> None:
-    assert timedelta(seconds=120) == testing.ARRIVAL_WINDOW

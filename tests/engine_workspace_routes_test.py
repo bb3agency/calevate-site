@@ -138,7 +138,7 @@ async def test_the_number_screens_are_absent_where_clients_have_no_workspace(
 
     tenant_id = await _tenant()
     headers = await _client_headers(tenant_id)
-    monkeypatch.setattr(get_settings(), "engine", "pipecat")
+    monkeypatch.setattr(get_settings(), "engine", "fake")
     async with _http() as http:
         status = await http.get("/v1/numbers/own/status", headers=headers)
         assert status.json()["available"] is False

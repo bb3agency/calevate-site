@@ -171,7 +171,7 @@ RetirementStance = Literal["dated", "none-announced", "unread"]
 #: `calevate_shared.engine.SARVAM_STT_PROVIDER`, `saaras`, `SARVAM_API_KEY` and the `stt`
 #: half of `languages.VERIFIED_VENDOR_LEGS` — and still a sub-processor. Reading this line
 #: as "Sarvam is out" deletes the transcription vendor.
-TtsProvider = Literal["cartesia", "gnani"]
+TtsProvider = Literal["cartesia"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -720,10 +720,6 @@ class TtsModelLifecycle:
         return None if self.retires_on is None else (self.retires_on - today).days
 
 
-#: When the Gnani evidence was gathered: the founder's reading of `docs.gnani.ai` and this
-#: container's reading of the installed `gnani-vachana` wheel, which were the same day.
-_GNANI_READ_ON: Final = date(2026, 9, 15)
-
 #: When the pinned Bolna mirror was read for the Bolna-cited row below. The mirror
 #: is hash-pinned
 #: (`bolna-findings/mirror/MANIFEST.json`), so unlike the founder-relayed rows above this
@@ -737,10 +733,9 @@ _TTS_READ_ON: Final = date(2026, 9, 7)
 #: voices.py`), and why Sarvam has none: `saaras` is a TRANSCRIBER, and Sarvam's presence on
 #: the STT leg is untouched by anything here.
 #:
-#: THE TWO ROWS REST ON DIFFERENT READINGS. `sonic-3.5` has the MODEL VENDOR's own page:
-#: Cartesia's API-changes page dates four retirements — `sonic-3`, `sonic-2` and
-#: `sonic-turbo` all sunset 20 Oct 2026 — and leaves `sonic-3.5` undated, which is the
-#: strongest "none-announced" in this file. `timbre-v2.5` has no lifecycle page at all.
+#: `sonic-3.5` rests on the MODEL VENDOR's own page: Cartesia's API-changes page dates four
+#: retirements — `sonic-3`, `sonic-2` and `sonic-turbo` all sunset 20 Oct 2026 — and leaves
+#: `sonic-3.5` undated, which is the strongest "none-announced" in this file.
 TTS_MODEL_LIFECYCLE: Final[dict[str, TtsModelLifecycle]] = {
     "sonic-3.5": TtsModelLifecycle(
         model="sonic-3.5",
@@ -783,55 +778,6 @@ TTS_MODEL_LIFECYCLE: Final[dict[str, TtsModelLifecycle]] = {
                 "than to a current one, and the rented engine's adapter (deleted by D-639) "
                 "refused rather than defaulted. Whether the HOSTED platform ran that commit "
                 "was UNKNOWN: OPERATIONS §2 gate 52."
-            ),
-        ),
-    ),
-    "timbre-v2.5": TtsModelLifecycle(
-        model="timbre-v2.5",
-        provider="gnani",
-        retires_on=None,
-        # **`unread`, NOT `none-announced`, AND THE DIFFERENCE IS THE WHOLE OF HARD RULE
-        # 11.** Nobody has opened a Gnani lifecycle, deprecation or API-changes page —
-        # there may not be one — and `__post_init__` would refuse `none-announced` on
-        # unverified evidence anyway. This is the stance `gpt-5.6-luna` carries for the
-        # same reason: withheld solely because nobody has read a page for it.
-        retirement_stance="unread",
-        replacement=None,
-        retirement=Evidence(
-            source="docs.gnani.ai/api/introduction/introduction",
-            read_on=_GNANI_READ_ON,
-            verified=False,
-            note=(
-                "UNREAD. The four Gnani pages this product is built on are the two TTS "
-                "pages, the VC page and the introduction (sitemap `lastmod` 2026-08-05 / "
-                "2026-08-10; the introduction itself prints 'Last verified: 5 August "
-                "2026'), read by the founder at docs.gnani.ai on 15 Sep 2026 and relayed. "
-                "NONE of them is a lifecycle page, and no deprecation notice, sunset date "
-                "or successor model was found on any of them — which is 'nobody has "
-                "looked at a page that would say so', not 'the vendor announced nothing'. "
-                "⚠ `docs.gnani.ai`, `gnani.ai` and `api.vachana.ai` are EGRESS-BLOCKED "
-                "from this container (all measured HTTP 000 on 15 Sep 2026), so this "
-                "cannot be re-read here. Settle it with Gnani: OPERATIONS §2 gate 56."
-            ),
-        ),
-        availability=Evidence(
-            source="gnani/tts/client.py:34-104 (gnani-vachana 0.7.9, installed wheel)",
-            read_on=_GNANI_READ_ON,
-            verified=True,
-            note=(
-                "VERIFIED-VENDOR-SDK, and it is the strongest evidence class available for "
-                "this leg because the HOST is blocked and the WHEEL is not. The vendor's "
-                "own installed SDK carries `SUPPORTED_MODELS = {'timbre-v2.0', "
-                "'timbre-v2.5'}`, the 42-name `TIMBRE_V25_VOICES` set and the validator "
-                "that makes `language` a `timbre-v2.5`-only parameter — every one of which "
-                "agrees with the founder's reading of docs.gnani.ai/api/TTS/available-"
-                "voices (lastmod 2026-08-05). Pinned by `uv.lock` at sha256 "
-                "20146a9df14ad3e0942dad5de10d92b1a2a94ecac7b931b3cc2d8f2e8f2fd8e8. "
-                "⚠ THERE IS NO ENGINE IN FRONT OF THIS ONE: the two rows above cite what "
-                "BOLNA accepts, because Bolna parses their identifiers. Gnani is called "
-                "from our own container (`voice_worker/gnani_tts.py`), so the vendor's own "
-                "acceptance is the only acceptance there is. NOT VERIFIED BY A CALL: no "
-                "Gnani request has ever been made from this product."
             ),
         ),
     ),

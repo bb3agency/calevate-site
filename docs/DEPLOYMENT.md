@@ -9,8 +9,8 @@ with the failure modes already found and fixed there. Decisions D-25…D-27 in R
 ## 0. Hosting decision (D-25 for the scope, D-180 for the provider and region)
 
 The calevate.tech site is NOT in the live-call path — when this was decided the rented
-engine (Bolna, D-31) hosted the entire voice pipeline; since D-592/D-639 the conversation
-loop runs in our own container on Pipecat Cloud `ap-south`, still off this host. So the site stack (web, api, workers, webhook
+engine (Bolna, D-31) hosted the entire voice pipeline, and ThinnestAI hosts the whole call
+today (D-678), still off this host. So the site stack (web, api, workers, webhook
 receiver) needs only a **general-purpose VPS; India co-location is NOT REQUIRED for it.**
 
 **The host is nevertheless an Indian one: a Hostinger India VPS (D-180).** Read the two
@@ -745,9 +745,7 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
     `.deploy-state/deployed-sha` is the baseline the next `--changed` run diffs from, so it
     means "every component runs this commit": a deploy of named components advances it
     only when they cover everything that changed since it, and otherwise says which
-    components are still pending. A `--changed` range that touches the Pipecat voice
-    worker's inputs prints the `pipecat-worker-setup.sh deploy` command, because this
-    script never deploys that worker (§12).
+    components are still pending.
 
 **The whole sequence runs under one host lock** (`scripts/deploy/host-lock.sh`), taken
 before step 1 and released by the kernel when the process exits, however it exits. The
@@ -926,13 +924,9 @@ Calevate adaptations:
    logs see real caller IPs, not CF edge IPs. (Their config lacks this; the survey
    flagged it.)
 4. **Rate zones** (ours): `auth` 20r/m · `admin_api` 180r/m · `client_api` 120r/m ·
-   `webhooks` 600r/m (engine events burst on campaign completion) · `carrier` 600r/m
-   (the hooks vhost's `/carrier/v1/` location, burst 100: answer documents a ringing call
-   waits on, status callbacks and transfer documents, kept apart so a webhook flood cannot
-   spend their budget; D-662) · `worker` 1200r/m (the api vhost's `/v1/worker/` location,
-   burst 200: the Pipecat voice worker's turn batches, settlements and speaking state,
-   sized as the sum of the app's `worker_api` and `worker_live` profiles because every
-   worker container shares Pipecat Cloud's egress addresses) · `health` 60r/m · `browser`
+   `webhooks` 600r/m (engine events burst on campaign completion) · `worker` 1200r/m (the api
+   vhost's `/v1/worker/` location: ThinnestAI's in-call actions and caller lookups, which
+   arrive from a handful of shared egress addresses) · `health` 60r/m · `browser`
    600r/m. App-layer limits stay authoritative; nginx is edge defense.
 
    `browser` was `default` at 90r/m, and it was refusing honest traffic: the origin's
@@ -1286,9 +1280,7 @@ configuration that used to sit beside it was removed rather than wired (D-49).
 > `Dockerfile` runs `uv sync --frozen --no-dev --group errors` (D-667): the sync target is
 > the workspace ROOT, whose `dependencies` are exactly `calevate-api`,
 > `calevate-voice-runtime` and `calevate-workers`, and `errors` is a root
-> `[dependency-groups]` entry holding `sentry-sdk`. Not `--all-packages`, which also
-> installs the voice worker's pipecat/onnxruntime/numpy tree (111 distributions against
-> 70, none of the difference imported by these three services); not `--package`, because
+> `[dependency-groups]` entry holding `sentry-sdk`. Not `--package`, because
 > a member target refuses a root group and a repeated `--package` needs uv 0.9.8 while the
 > image pins 0.8.17. It stays a group rather than a member's runtime dependency so that no
 > member's list carries it and voice-runtime's boot graph (hard rule 3) is unchanged —
@@ -1326,8 +1318,8 @@ working through §4d's six hand-first items →
 the hygiene timer (9.7a)**, **and only now set `VPS_DEPLOY_ENABLED=true`** → 8. one full CD cycle
 (push → CI → auto-deploy) verified green, **then the rollback drill of §4d step 7** → **9. backups (below — the longest step, and
 the one this order previously assumed away)** → 10. ~~configure Bolna per-agent webhook URLs and verify the source-IP
-allowlist~~ WITHDRAWN by D-639 (the Bolna adapter and the allowlist are deleted); the Pipecat leg's carrier wiring is
-`docs/PIPECAT-MIGRATION.md` §6 step 6 → 11. pre-launch checklist (OPERATIONS §8).
+allowlist~~ WITHDRAWN by D-639 (the Bolna adapter and the allowlist are deleted); the ThinnestAI engine's
+configuration is §12 and its first call is `runbooks/thinnest-first-live-call.md` → 11. pre-launch checklist (OPERATIONS §8).
 
 ### 9.3a Step 3 in full — the two roles, and why the sequence is written out
 
@@ -1527,7 +1519,7 @@ land at step 7, §9.7a.)
 the other 55 keys are step 10a.** After the first deploy the platform is running and its
 integrations are unconfigured —
 each refusing by name, none pretending to work. Open `admin.calevate.tech/ops` and set
-them: engine (`pipecat`, or `cartesia` + `CARTESIA_API_KEY`), the Sarvam stack, the four `AZURE_OPENAI_*` values
+them: engine (`thinnest` and the values §12 lists), the Sarvam extraction key, the four `AZURE_OPENAI_*` values
 (resource, key, deployment, model — D-410), `EMAIL_PROVIDER`
 plus its credential (`RESEND_API_KEY` for `resend`, `SMTP_*` for `smtp`) and
 `ALERTS_EMAIL`, `USD_INR_RATE` (the FALLBACK rate, since D-475: vendor costs normally
@@ -1699,541 +1691,12 @@ Ours:
 **Nothing here has been installed.** Root on a VPS is external blocker 9 in the teardown's
 §9.1, and `visudo -c` has never been run against this policy on a host with sudo.
 
-## 12. The FOURTH deployable: `apps/voice-worker` on Pipecat Cloud (D-592, D-606)
-
-Everything above this section is about ONE box. This one is not on it, is not in Compose,
-is not built by `scripts/vps-deploy.sh`, and does not answer to nginx: the conversation
-loop runs as a container on **Pipecat Cloud `ap-south`** — box 1 of
-`docs/PIPECAT-MIGRATION.md` §8, the only box on the call path. The VPS keeps the control
-plane (§1 unchanged); this holds STT, LLM, TTS, turn detection and the in-call knowledge
-base in its own memory.
-
-**NOTHING IN THIS SECTION HAS BEEN RUN.** There is no Pipecat Cloud account, so no image
-has been built, no secret set created, no agent deployed, and no call served. The image
-could not even be built where it was written: `docker pull` fails through this
-environment's proxy (the registry's blob CDN answers 403, measured 15 Sep 2026 — the same
-failure §4d item 1 records for ghcr.io). Read every "how" below as a written intention
-with its evidence attached, exactly as §4d asks you to read the VPS deploy.
-
-### 12.1 What is deployed, and how
-
-| | |
-|---|---|
-| **Artifact** | `apps/voice-worker/Dockerfile`, built from the REPOSITORY ROOT: `docker build -f apps/voice-worker/Dockerfile .` The workspace lock spans every member and `calevate-shared` is a workspace distribution, so the context cannot be narrower. |
-| **Base image** | `dailyco/pipecat-base`, which carries the entrypoint that imports `bot.py` and calls `bot(runner_args)` per session, and `uv`. Ours supplies neither. |
-| **Dependencies** | `uv sync --frozen --no-dev --package calevate-pipecat-worker` — 77 distributions, none of them arq, sentry-sdk or uvicorn. That is measured against this lockfile (4 Oct 2026, `uv sync --dry-run`), not estimated; the root `Dockerfile`'s server set (api, voice-runtime, workers; D-667) or `--all-packages` would put the monolith's dependency surface in the container that answers the phone. |
-| **Manifest** | `apps/voice-worker/pcc-deploy.toml` — agent name, secret set, `agent-1x` profile, `min_agents = 1`. |
-| **Deploy verb** | `pipecat cloud auth login` (a browser login, one-time, a human), then `pipecat cloud secrets set calevate-pipecat-worker-secrets --file <file>`, then `pipecat cloud deploy`. |
-| **Logs** | `pipecat cloud agent logs calevate-pipecat-worker`. |
-
-Every one of those verbs is from the vendor's own scaffold, which ships INSIDE the pinned
-`pipecat-ai==1.10.0` wheel and is therefore a primary source this repository can read
-without egress: `pipecat/cli/agent_templates/AGENTS.md:290-310` and
-`pipecat/cli/templates/server/{Dockerfile,pcc-deploy.toml}.jinja2`.
-
-**The image carries no `CMD` and no `ENTRYPOINT`**, like the scaffold's, because the base
-image owns the process. It also carries no `WORKDIR`: the base sets one, and this is a
-single-stage build that never moves the tree, so the absolute path `uv` bakes into
-`_editable_impl_calevate_shared.pth` is still correct at runtime whatever that WORKDIR
-turns out to be. (That is why `scripts/check_image_paths.py` is not extended to this file
-— the two-stage disagreement it guards cannot happen here. `tests/dockerfile_context_test.py`
-DOES cover it, because the `.dockerignore` question is identical.)
-
-### 12.2 The runtime configuration contract
-
-**There is no `.env` in this container and no ops console to read from it.** The console's
-credentials are sealed with `PLATFORM_KEK`, and **`PLATFORM_KEK` must never be in this
-image** — it opens every credential the platform holds, and this is the one deployable a
-vendor's runtime operates. So the vendor's secret set is the injector, and a human puts
-the same value in both places: the ops console for the VPS stack, the secret set for this
-container. Nothing fetches one from the other.
-
-`apps/voice-worker/voice_worker/boot.py` is the authority; this table is its index.
-
-| Variable | Required | Where it comes from | What it is for |
-|---|---|---|---|
-| `PIPECAT_WORKER_API_BASE_URL` | yes | the public base URL of `apps/api` (e.g. `https://api.calevate.tech`) | where the worker reads its published agent from and posts its calls' events to (D-621). ⚠ **`DATABASE_URL` WAS THIS ROW AND IS GONE.** The worker cannot reach our Postgres at all — it is on the VPS host behind the Docker bridge (`compose.prod.yml:36`) and this container is box 1 on Pipecat Cloud, a different network — so a DSN here was a value that could never have connected. See §12.5 gate 6, now closed. It is a `Settings` field classified `ENV_ONLY`, because nothing on the VPS reads it. |
-| `PIPECAT_WORKER_API_TOKEN` | yes | ops console (`pipecat_worker_api_token`) | the Bearer token the worker presents to `/v1/worker/*`. CONSOLE-MANAGED, unlike the base URL beside it and unlike `GNANI_API_KEY`: `apps/api/worker/service.authorized` reads it to verify the header, so it has a reader on this host and belongs in the credential store. The SAME value goes in this secret set — a human puts it in both places and nothing fetches one from the other. ⚠ It is never shared with a credential a third party holds: it opens the WRITE surface for our ledger. Absent on the API side ⇒ every `/v1/worker/*` route answers 401 to everybody. |
-| `OBJECT_STORE_ENDPOINT` / `OBJECT_STORE_BUCKET` | yes | secrets manager | the R2 bucket the knowledge pack is fetched from at session start |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | yes | **a knowledge-pack-only R2 token, into THIS secret set only** (`KB_PACK_READONLY_ACCESS_KEY_ID` / `KB_PACK_READONLY_SECRET_ACCESS_KEY` — §12.5 gate 10) | botocore resolves these itself; the boot gate only checks that they are PRESENT, because a field of ours would be a second value the SDK ignores. ⚠ **NOT THE VPS'S R2 CREDENTIAL, AND THE SETUP SCRIPT REFUSES IT.** This container does exactly one `get_object` under `knowledge-packs/` (`voice_worker/storage.py`); the platform credential reads and WRITES the same bucket's `recordings/`, `kb-uploads/` and `engine-payloads/` for every tenant, and a vendor's runtime operates this container. The NAME stays the vendor's because botocore reads no other (`boot.py:108`); the credential behind it is a separate, read-only one. |
-| `AWS_REGION` | no | defaults to `auto` | R2's documented signature scope (D-450), not a placement |
-| `SARVAM_API_KEY` | yes | ops console (`sarvam_api_key`) | STT on every call, and today's TTS |
-| `CARTESIA_API_KEY` | no | ops console (`cartesia_api_key`) | the Studio voice tier only |
-| `GNANI_API_KEY` | no | **Gnani account, into THIS secret set only** | the Gnani TTS leg (D-618), used by an agent whose `ModelConfig.tts_provider` names it; a container without it refuses that call by name and serves every other one. It is a `Settings` field so the ops console can LIST it under *Set outside this console* with `held_by` naming this secret set — and it REFUSES to store it, because `PLATFORM_KEK` is not in this image and, unlike `CARTESIA_API_KEY`, nothing in `apps/api` holds a Gnani client to give a stored value to. ⚠ No Gnani voice is offerable until somebody also attests what a Gnani minute costs (hard rule 7, OPERATIONS §2 gate 56), so installing this key alone changes nothing a client can see. |
-| `CARRIER_CLAIM_SECRET` | **yes when `CARRIER=vobiz`** (the default); optional on Plivo | **a random string of at least 32 bytes you generate; the SAME value in the VPS `.env` (the api and voice-runtime read it) and in THIS secret set** | seals the caller number voice-runtime puts on the stream URL (AES-256-GCM under a derived key, `calevate_shared.worker_api.seal_caller_claim`, 120 s), so no edge log between the carrier and this container can read it; the worker believes the number only when the claim opens for the agent the call was routed to. The same secret keys the HMAC on an outbound dial's call claim (our call id and its direction, `worker_api.call_claim_mac`), and on the VPS it is also the root of the sealed transfer token (`calevate_shared/carrier_token.py`). A `Settings` field classified `ENV_ONLY`: voice-runtime never opens the credential store and this container cannot. Unset or shorter than 32 bytes ⇒ this container refuses to boot on Vobiz, and voice-runtime refuses to serve the answer document for a call we dialled (`carrier_call_claim_key_missing`) rather than let the worker run it as inbound on a row of its own. **The two values must be equal:** if they differ, every dialled call is settled under the wrong row and `apps/api` raises `carrier_call_claim_mismatch`. On the VPS side a missing or short value is named by `/healthz/ready` on the api and on voice-runtime under `ENGINE=pipecat`, and refused before the swap by the deploy preflight (`carrier_claim_secret_unusable`). Never reuse `PIPECAT_WORKER_API_TOKEN` for it. |
-| `AZURE_OPENAI_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | **at least one** | ops console | the in-call LLM. WHICH one a call needs is decided per agent by `ModelConfig.llm_provider`, so the gate demands one and a call for a provider this container has no key for is refused by name rather than run on another vendor's credential. |
-| `CARRIER` | no | default `vobiz`; the same value as `CARRIER` in the ops console, which is where the VPS reads it (it is kept out of the VPS `.env`, §12.6) | the carrier this container assumes for a socket whose stream URL names none (D-662). voice-runtime's answer document names the carrier on the stream URL (`carrier=`), and that claim decides per call; Pipecat's own detection reads both carriers' `start` frame as `plivo` (`calevate_shared.carrier.WIRE_FAMILY`), so it can only check the claim, never choose. `vobiz` uses our own `VobizFrameSerializer`, which ends a call by sending the stream `stop` message and needs no carrier credential; `plivo` uses Pipecat's Plivo serializer. |
-| `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` | **only when `CARRIER=plivo`** | **a credential issued for THIS WORKER** (`PLIVO_WORKER_AUTH_ID` / `PLIVO_WORKER_AUTH_TOKEN`, §12.5 gate 11), into THIS secret set only | read by Pipecat's Plivo serializer, which hangs a leg up over Plivo's REST API at `EndFrame`. Not the account-level credential the VPS would use, and the setup script refuses that one: the worker needs to hang a leg up, while the account credential can also originate calls, buy numbers and read every CDR. With `CARRIER=vobiz` (the default) the boot gate does not ask for them and they should not be in the secret set; a call whose stream URL claims Plivo then reaches a container without them and is refused by name (`voice_worker/carrier.py`, `CarrierCredentialsMissingError`). Since D-614 both are `Settings` fields, listed by the ops console under *Set outside this console* with `held_by` naming this secret set, and never stored there. |
-| `PIPECAT_WORKER_TURN_BATCH_SIZE` | no | default 8 | how many spoken turns wait in memory before one batched write (D-620). `1` restores a write per turn. |
-| `PIPECAT_WORKER_TURN_FLUSH_SECONDS` | no | default 10.0 | how long the oldest buffered turn may wait. **This is the bound on what a crash costs** — a size-only rule never flushes a conversation that has gone quiet, which is exactly when a container is replaced. Refuses zero; set the BATCH to 1 instead. |
-| `PIPECAT_WORKER_DRAIN_GRACE_SECONDS` | no | default 20.0 | §12.4 |
-| `PIPECAT_WORKER_READY_FILE` | no | unset by default | §12.3 |
-
-**It fails at BOOT, loudly, naming every missing variable at once** —
-`boot.load_worker_config` raises one `WorkerConfigError` listing all of them, rather than
-teaching an operator about eight variables across eight deploys. Prove an image before a
-caller meets it with
-
-```
-python bot.py --preflight     # prints VOICE WORKER PREFLIGHT: OK|FAIL and exits 0|1
-```
-
-which loads the configuration, opens the HTTP client and asks `/v1/worker/session/` for a
-ref that names no agent — a 404 proves the API is reachable AND that this container's token
-is the one the deployment installed, which is strictly more than the `SELECT 1` it replaced
-proved (a DSN carries its own credential; a base URL does not). The two variables
-that are not `Settings` fields (`PIPECAT_WORKER_DRAIN_GRACE_SECONDS`,
-`PIPECAT_WORKER_READY_FILE` — neither is a credential) are registered in
-`scripts/check_env_parity.py` (`CONTAINER_ENV_KEYS`) with the argument for each;
-`tests/voice_worker_boot_test.py` is what keeps that registry honest in both directions,
-because the parity guard's AST scan cannot see this module at all, and
-`tests/pipecat_credentials_test.py` is what keeps every OTHER name in this table spelled
-exactly as its `Settings` field (D-614) — one value, one name, two homes.
-
-### 12.3 Health and readiness
-
-**Liveness is the process, and we do not simulate it.** This container has no HTTP surface
-and should not grow one: the loop that would answer a probe is the loop carrying the
-audio, so a probe that passed while the loop was wedged would be worse than no probe. The
-contract is that the process exits non-zero, immediately, on anything it cannot serve calls
-without.
-
-**Ready is not a synonym for healthy here.** The platform runs one session per instance
-(`docs/evidence/engine-replacement-comet-2026-09-06.md:122`), so a container in the middle
-of a conversation is perfectly healthy and has nothing to offer a scheduler.
-`lifecycle.SessionRegistry` is therefore the admission control AND the readiness answer,
-one object so the two cannot disagree, with four states: `starting`, `ready`, `busy`,
-`draining`.
-
-That state is published as a FILE — `PIPECAT_WORKER_READY_FILE`, present exactly while the
-container would accept a call — because a file needs no contract with a platform whose
-probe contract we have not read. An exec probe (`test -f`), a sidecar or a human with a
-shell can all use it, and it costs nothing when nobody does.
-
-### 12.4 Graceful shutdown, which is a correctness property
-
-A container replaced mid-call decides what the caller hears and whether the record of that
-call is true. The order in `SessionRegistry.drain` is the whole of it:
-
-1. **Readiness goes false first**, before anything is asked to stop, so no session is
-   admitted into a container on its way out.
-2. **Every live session is ended the graceful way** — `stop_when_done()` queues an
-   `EndFrame`, which drains what is in flight and lets the transport close. That close is
-   also the HANG-UP. On Vobiz (the default, D-662) `VobizFrameSerializer` answers `EndFrame`
-   with the stream `stop` message and Vobiz ends the call (cause 4010,
-   `vobiz-findings/mirror/pages/xml/stream/stream-events.md:226-236`), so no credential is
-   involved. On Plivo, Pipecat's `PlivoFrameSerializer` answers it with
-   `DELETE /v1/Account/{auth_id}/Call/{call_id}/`, which is why the boot gate requires the
-   Plivo credential when `CARRIER=plivo`.
-3. **A session that drains inside the grace ends the way every call ends**: the pipeline's
-   own handler emits `completed`, which by its definition means "our pipeline drained" and
-   never "the call connected and lasted N seconds" — §1.2 gives the billable facts to the
-   carrier.
-4. **A session that does not drain in time is recorded and then cut**: we write the
-   terminal `CallEvent` ourselves, as `failed`, BEFORE cancelling, because `cancel()` does
-   not guarantee the pipeline's finished handler ever runs. A call left with an
-   `in_progress` row and no terminal event is one the post-call pipeline waits on for
-   ever.
-
-**We install our own SIGTERM handler and refuse Pipecat's.** `WorkerRunner(handle_sigterm=True)`
-answers SIGTERM with `cancel()` — the immediate path, no drain, no `EndFrame`
-(`pipecat/workers/runner.py:550-566`, `:347`) — which is every failure above at once. The
-runner is constructed with `handle_sigterm=False` and `lifecycle.ShutdownSignal` owns the
-signal.
-
-**What a shutdown cannot do, plainly: settle the ledger.** `meter.CallMeter.metered_rows`
-refuses without a `CarrierCdr` and a `RuntimeUsage`, and neither exists at the moment a
-container is replaced — the CDR is the carrier's and arrives after the leg ends. The
-ledger for a cut call is settled later, from the CDR, against the `call_id` this process
-already wrote. What the shutdown owes the money path is exactly the terminal event that
-makes that reconciliation possible.
-
-### 12.5 What a human must do before the first deploy, and what is still UNKNOWN
-
-`docs.pipecat.ai` is egress-blocked from this repository's container and
-`dailyco/pipecat-base` cannot be pulled through its proxy, so the following are UNKNOWN
-rather than decided. None of them is guessed at in code.
-
-**RUN THEM WITH `scripts/deploy/pipecat-worker-setup.sh`, WHICH IS WHERE THIS LIST NOW
-LIVES AS SOMETHING EXECUTABLE.** Each numbered step below is a subcommand (`doctor`,
-`install-cli`, `login`, `digest`, `secrets`, `build`, `preflight`, `deploy`), every one is
-idempotent, and `doctor` changes nothing and reports what a host is still missing — which
-is what makes moving to another VPS a re-run rather than a re-read. Two properties of it
-are load-bearing rather than convenience:
-
-* **It installs uv from the digest this repository already pins** (`Dockerfile:54`) by
-  copying it out of a container that is never started, rather than piping a remote
-  installer into a shell — hard rule 9, and it keeps ONE uv provenance in the tree.
-* **It discovers the Pipecat CLI's interface instead of trusting this document.** Every
-  `pipecat cloud ...` flag here is REPORTED and was never read from the vendor; the script
-  reads the CLI's own `--help` and REFUSES, printing that help, when the shape disagrees.
-  A guess that sent a credential to a flag that does not exist would look like success and
-  leave the key unset. If it refuses, the help it prints is the primary source and this
-  section is what gets corrected.
-
-Secrets it collects are never echoed, never written inside the checkout, and are shredded
-on every exit path including a signal.
-
-1. **Create the Pipecat Cloud account and authenticate.** ✅ **CLOSED (16 Sep 2026)** —
-   and ⚠ **NOT WITH `auth login`, WHICH DOES NOT WORK ON A HEADLESS HOST.** That verb binds
-   a listener on the LOCAL loopback (`127.0.0.1:8400`) and waits for an OAuth callback, so a
-   laptop browser sends the callback to the LAPTOP and the deploy host waits for ever. Use
-   **`pipecat cloud auth use-pat`** — a Personal Access Token, prompted and not echoed,
-   stored to `~/.config/pipecatcloud/pipecatcloud.toml`. (An
-   `ssh -L 8400:127.0.0.1:8400` tunnel also works; the PAT needs neither tunnel nor
-   browser.) *Pass condition*: `pipecat cloud auth whoami` names the organization.
-2. **Establish how `ap-south` is selected.** ✅ **CLOSED (16 Sep 2026). IT IS BOTH — A
-   DEPLOY FLAG AND A MANIFEST KEY — AND THE EARLIER ANSWER HERE WAS HALF WRONG.**
-   `pipecat cloud deploy` takes `--region` / `-r`, and `pipecat cloud organizations
-   default-region ap-south` sets the account default (done, on the deploy host).
-
-   ⚠ **"THE MANIFEST GENUINELY CANNOT CARRY ONE" WAS A MISREADING AND IS WITHDRAWN.** It
-   came from the vendor's SCAFFOLD TEMPLATE (`pipecat/cli/templates/server/
-   pcc-deploy.toml.jinja2`), which emits no region — but a template is what the vendor
-   chose to GENERATE, not what the parser ACCEPTS. The parser is
-   `pipecatcloud/_utils/deploy_utils.py::load_deploy_config`, whose `expected_keys` set is
-   authoritative and contains both `region` and `architecture` (version 1.2.0, installed
-   from PyPI and read 16 Sep 2026). That set is also a refusal list — an unknown key raises
-   "Unexpected keys in config file" rather than being ignored — so the manifest is now the
-   one place both are declared, and the CLI validated it: loading
-   `apps/voice-worker/pcc-deploy.toml` through that function returns `region='ap-south'`,
-   `architecture='arm64'`, `image=None`, `build_id=None`.
-
-   ⚠ **AND `--architecture` DESCRIBES THE IMAGE, IT DOES NOT CONVERT ONE.** The CLI
-   pre-validates it against the region's `supported_architectures`
-   (`_utils/regions.py::validate_architecture_for_region`), so a mismatch is refused at the
-   edge rather than becoming a container that never starts.
-
-   *Pass condition — met*: `pipecat cloud regions list` run, the architectures recorded in
-   `docs/evidence/pipecat-cloud-bringup-2026-09-16.md`, and both `region` and
-   `architecture` declared in the manifest with a test asserting them
-   (`tests/pipecat_target_platform_test.py`).
-3. **Pin the base image by digest.** ✅ **CLOSED (16 Sep 2026), WITH THE ARCHITECTURE
-   RIGHT AND ONE PREMISE OF THE PREVIOUS ENTRY CORRECTED.**
-
-   ```
-   dailyco/pipecat-base@sha256:7dcc71f3e658b66fcb36fa420a16673d3ca1c52b932d496365763dbbb9844c4c
-   ```
-
-   **EVIDENCE CLASS: VERIFIED** — read from the Docker Hub registry on 16 Sep 2026 with
-   `docker buildx imagetools inspect dailyco/pipecat-base:latest --raw`, which returns the
-   OCI image index and names each platform's child digest. The amd64 sibling is
-   `sha256:613244ff092d65f9d9b5c9ba8f6a405c7557639508680f6a57d38f59069ce071`, and that is
-   the one a plain `docker pull` on this amd64 fleet resolves to.
-
-   ⚠ **"NO DIGEST CAN BE RESOLVED FROM HERE" WAS FALSE, AND IT SHAPED THE PREVIOUS THREE
-   ENTRIES.** It assumed resolving a digest meant PULLING, which the proxy does block
-   (Docker Hub's blob CDN answers 403). Reading a manifest list is a different request and
-   is not blocked — so the digest never needed to be a REPORTED figure relayed from the
-   deploy host at all. `pipecat-worker-setup.sh digest` now reads the index and selects the
-   entry whose platform is `linux/arm64`, which also removes the older failure mode:
-   `docker pull --platform` is silently a no-op on a host with no binfmt handlers and can
-   return the host's image anyway.
-
-   ⚠ **AND IT IS NOW THE DOCKERFILE'S DEFAULT RATHER THAN AN OPERATOR ENV VAR, REVERSING
-   THE REASONING RECORDED HERE.** That reasoning — "baking it into the build file would
-   make a stale pin look like a verified one" — loses to a fact about the build path chosen
-   in gate 4: **a Pipecat Cloud build cannot be handed a `--build-arg`.** Its request
-   carries `uploadId`, `dockerfilePath` and `region` and nothing else
-   (`_utils/deploy_utils.py` -> `api.py::_build_create`). An `ARG` defaulting to a mutable
-   tag would therefore mean every cloud build silently taking that tag, with the ARG
-   looking like it was protecting something. The staleness concern is answered instead by
-   `digest`, which now DIFFS the registry against the committed line and says so.
-4. **Build the image.** ⚠ **REPLACED BY D-622: WE DO NOT BUILD IT. PIPECAT DOES.**
-
-   The deploy host is amd64 and every Pipecat Cloud region is arm64, so a local build must
-   cross-compile — and this host cannot execute an arm64 binary at all:
-   `/proc/sys/fs/binfmt_misc` holds only `python3.12`, and `docker run --platform
-   linux/arm64 alpine:3.20 uname -m` answers `exec format error` (measured on the deploy
-   host, 16 Sep 2026). The alternatives were to install QEMU emulation on a production VPS
-   and emulate an entire image build, **and then** stand up a registry plus an image-pull
-   secret so the platform could fetch the result — `pipecat cloud deploy` PULLS an `image`
-   it is given, and this repository publishes the worker image nowhere.
-
-   With no `image` and no `build_id` in the manifest, `deploy --yes` uploads the build
-   context and builds it on the platform ("No image specified, using Pipecat Cloud Build",
-   `cli/commands/deploy.py:909-945`), and **cloud builds use managed pull credentials**, so
-   the `--credentials` secret is not needed either (`:953-957`). Builds are
-   content-addressed and cached per region, so a redeploy that changes nothing re-uploads
-   nothing.
-
-   ⚠ **THE BUILD CONTEXT WAS 2.3GB AND NOBODY HAD MEASURED IT.** Computed with the vendor's
-   own exclusion code, this repository's context came to **78,540 files / 2.3GB**, because
-   `.dockerignore` had never heard of `.claude/worktrees/` (a full checkout per agent) or
-   `mergewt/`, both of which `.gitignore` knows. That is an OOM rather than a slow build on
-   this path specifically: `docker build` streams its context to a local daemon, while
-   `create_deterministic_tarball` builds the whole tarball in memory first. It is now 1,268
-   files / 29.2MB, `scripts/pipecat_build_context.py` computes it for both the operator
-   (`pipecat-worker-setup.sh context`) and CI, and `tests/build_context_test.py` holds a
-   ceiling plus the rule that nothing `.gitignore` ignores may appear in it.
-
-   ⚠ **WHAT IS STILL UNKNOWN, AND IT IS NARROW.** The CLI never states which architecture
-   the vendor's builder targets, and we will not infer one: the build request carries a
-   `region` and no architecture field, every region is arm64-only, and `--architecture` is
-   validated against the region — but what the server does with that is not in the client
-   source. *Pass condition*: `pipecat cloud build list` / `build logs <id>` shows a
-   successful build for `ap-south`, and the deployed container reaches its own preflight
-   (a §12.2 reason, not an `ImportError` and not a silent non-start). With no live calls,
-   a wrong build costs a rerun — which is why this one is safe to settle empirically and
-   was not safe to settle by guessing.
-
-   ✅ **THE BUILD RAN AND SUCCEEDED, 16 Sep 2026 (REPORTED-BY-OPERATOR).** Build
-   `85554203-766d-4b6c-b379-1169c0249c7c`, region `ap-south`, organization
-   `calevate-voice`, **74 seconds**, from a context of **1,271 files / 10.0MB compressed**
-   — against the 1,268 files this repository predicted, the difference being
-   `.deploy-state/`. The CLI's review panel echoed the manifest back unchanged
-   (`Region: ap-south`, `agent-1x`, `Min agents: 1`), which also retires the last doubt in
-   gate 2.
-
-   ⚠ **AND THE DEPLOY THEN REFUSED, CORRECTLY**: *"Secret set
-   'calevate-pipecat-worker-secrets' not found"*. `secrets` had aborted on a missing
-   `PLIVO_AUTH_ID` and pushes only after collecting every value, so nothing existed. The
-   vendor fails CLOSED here rather than starting an agent with an empty environment — the
-   state their own guide calls the bad one. Re-running `deploy` after `secrets` reuses the
-   build, which is cached by context hash.
-
-   **WHAT A SUCCESSFUL BUILD DOES NOT PROVE, AND THIS GATE STAYS OPEN FOR IT**: what it
-   targeted. An amd64 build of this image would have succeeded identically. Nothing has yet
-   been observed STARTING. *Pass condition, unchanged*: a deployed container reaches its own
-   `--preflight` — a §12.2 reason rather than a failure to start.
-5. **Create the secret set** with the §12.2 table. *Pass condition*: `--preflight` prints
-   OK inside the deployed container.
-6. ✅ **HOW THE WORKER REACHES THIS DATABASE AT ALL — CLOSED BY D-621 (opened and closed
-   16 Sep 2026).** It does not reach it, and it no longer tries.
-
-   **What the gate was.** Found by running `pipecat-worker-setup.sh sources` on the deploy
-   host: `psql` could not translate `host.docker.internal`, because Postgres runs ON THE
-   HOST and only the Docker bridge reaches it. The worker is **box 1** (Pipecat Cloud,
-   `docs/PIPECAT-MIGRATION.md` §8) and `:181` had the adapter speaking to it THROUGH THE
-   DATABASE — a design settled with a box diagram had a network edge nobody drew. Nothing
-   else in the contract had this problem: the object store is R2 and is internet-reachable
-   already.
-
-   **Which of the four options was taken, and why.** The third: *stop the worker touching
-   Postgres directly.* It reads its published agent, and posts its calls' events and its
-   settlement, over HTTPS to `apps/api` — three Bearer-authenticated routes under
-   `/v1/worker`, with the wire models in `calevate_shared.worker_api` so neither end can
-   drift. It is the only option that does not put the database holding every client's caller
-   data on the public internet, and the only one whose fix is entirely ours: the other three
-   wait on Pipecat Cloud's egress ranges (UNKNOWN, and would have to come from the vendor), a
-   database migration to a managed service, or a private-link feature nobody has confirmed
-   exists. The design and the seven facts it rests on are
-   `docs/evidence/worker-http-contract.md`.
-
-   **What that cost, stated rather than hidden.** `apps/voice-worker` no longer imports
-   SQLAlchemy at all; `voice_worker/db.py` and `voice_worker/outbox.py` are deleted;
-   `DatabaseEventSink` is `HttpEventSink` and there is exactly one sink, because two writers
-   of one ledger is the drift this repository keeps guards for. §8's picture has an HTTPS
-   edge from box 1 to box 2 where it had a Postgres one. Three things moved to the server
-   with the write and are stronger there: the tenant resolution (parsed from the engine-space
-   ref, then RLS), the redactor (`text_redacted` is no longer computed by a container a
-   vendor's runtime operates) and the rate card (hard rule 7 — the worker sends quantities,
-   never money).
-
-   *Pass condition*: `bot.py --preflight` prints OK **inside the deployed container**, which
-   is what proves the API answers this container's token from box 1. That is now the whole of
-   step 5's pass condition too — there is no second dependency to prove.
-
-7. **Learn the SIGTERM-to-SIGKILL window and set `PIPECAT_WORKER_DRAIN_GRACE_SECONDS`.** The
-   20-second default is reasoned from OUR bounds (a 5 s pipeline flush, a 2 s tool
-   ceiling, one INSERT) and from nothing the platform has told us. *Pass condition*: a
-   measured number replaces the default, or the default is confirmed against a documented
-   window.
-9. **NOBODY KNOWS WHO CALLED. The two parties never reach `calls`.** ⚠ **OPENED 17 Sep
-   2026, and it is wider than it looks.** `calls.from_e164` is not a display field:
-   `leads.phone_e164` is NOT NULL and the post-call pipeline derives it from this column on
-   inbound (`workers/pipeline.py:1903,1968`); caller memory filters on
-   `c.from_e164 IS NOT NULL` as a hard condition (`workers/caller_memory_distil.py:206`);
-   and a DPDP erasure takes its SUBJECT from the same field (`pipeline.py:1600`). A call
-   with no number **files no lead, grows no caller memory, and has nothing to erase
-   against** — the third being a compliance surface rather than a feature.
-
-   **THE SERVER'S HALF IS BUILT (D-623) AND THE PRODUCER IS NOT.** The wire models carry
-   `from_e164`/`to_e164` on both `ObservationBatch` and `SettlementRequest`, the upsert
-   writes them, a party is learned once and never overwritten, and four clauses in
-   `tests/worker_api_test.py` pin it — so the day a producer exists, nothing between the
-   socket and the column has to be designed under pressure. What does not exist is anything
-   to send them:
-
-   **On Vobiz (D-662) the producer is designed and waits on a live call.** The WebSocket
-   `start` frame carries no party numbers (`vobiz-findings/mirror/pages/xml/stream/
-   stream-events.md:78-107`), but the answer-URL request does: `From` is the calling party
-   and `To` the called party (`xml/request.md:30-31`). voice-runtime reads `From` and passes
-   it to the worker on the stream URL under the D-649 caller claim; an outbound dial knows
-   both numbers when it places the call. Whether the claim survives the trip to Pipecat
-   Cloud is OPERATIONS §2 gate V-3. On Plivo, the alternate carrier, Pipecat's handshake
-   parses neither party (`runner/utils.py:250-262`) and nothing else supplies them.
-
-   *Pass condition*: a real call leaves a `calls` row whose `from_e164` is the caller's
-   number, and the post-call pipeline files a lead from it. Until then the column is NULL
-   and the consequences above are KNOWN rather than discovered.
-8. **Decide `min_agents` with the first client.** One warm instance is a pilot choice:
-   zero means a documented ~10 s cold start on an inbound call (`…comet-2026-09-06.md:93`),
-   and the honest ten-line clinic figure is ten reserved instances at roughly ₹19,008 a
-   month before a single active minute (`:93`, `:104`) against a product with no monthly
-   fee (`:149`). *Pass condition*: the number is chosen against a real concurrency
-   requirement and the floor is in the cost model.
-10. **Mint a KNOWLEDGE-PACK-ONLY R2 credential, and stop handing this container the
-    platform's.** ⚠ **OPENED 18 Sep 2026. IT IS A CONSOLE ACTION ONLY THE FOUNDER CAN
-    TAKE, AND UNTIL IT IS TAKEN THE WORKER RUNS WITH MORE AUTHORITY THAN IT USES.**
-
-    **What the worker actually needs.** ONE operation: `get_object` on
-    `knowledge-packs/<tenant>/<agent>/<sha>.json`
-    (`apps/voice-worker/voice_worker/storage.py::ObjectStorePackFetcher.fetch`; the key
-    builder is `calevate_shared.knowledge_pack.pack_object_key`, prefix
-    `knowledge-packs/`). No put, no list, no delete, no presign — that whole module is one
-    client builder and one `get_object`.
-
-    **What it was being given.** `scripts/deploy/pipecat-worker-setup.sh` offered this
-    host's `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` straight out of the deploy `.env`
-    — the credential `apps/workers/storage.py` uses to read AND write the SAME bucket,
-    which also holds `recordings/` (every tenant's call audio), `kb-uploads/` (their source
-    documents) and `engine-payloads/`. The container it goes into is operated by Pipecat
-    Cloud. The script now asks for `KB_PACK_READONLY_ACCESS_KEY_ID` /
-    `KB_PACK_READONLY_SECRET_ACCESS_KEY`, offers nothing from the VPS for them, and
-    REFUSES the platform-wide value if it is pasted in. **The variable name sent to the
-    container is still `AWS_ACCESS_KEY_ID`**, because botocore resolves the credential from
-    that spelling and nothing else (`voice_worker/boot.py:108`) — the name is the vendor's,
-    the credential is new.
-
-    **What the founder does, in the Cloudflare dashboard (R2 → API tokens):** create a
-    token whose permission is READ-ONLY and whose scope is the pack bucket, then put its
-    id/secret into the worker's secret set (`pipecat-worker-setup.sh secrets`) and nowhere
-    else. Rotate it there alone; it must never appear in the VPS `.env`.
-
-    ⚠ **UNKNOWN — `developers.cloudflare.com` is not readable from this container (403 on
-    CONNECT through the egress proxy, measured 18 Sep 2026), so whether an R2 API token can
-    be scoped to a PREFIX (`knowledge-packs/`) rather than only to a bucket has NOT been
-    verified and is not asserted here.** The founder checks that in the console. If prefix
-    scoping exists, scope it to `knowledge-packs/`. If it does not, a read-only
-    BUCKET-scoped token is the floor this gate accepts — and the residual exposure is then
-    read access to every recording and KB upload in that bucket, which is strictly less
-    than today's read-write but is not nothing, and is the reason this gate stays open
-    rather than closing on "read-only is fine".
-
-    *Pass condition*: `pipecat cloud secrets` holds a credential that is NOT the one in the
-    VPS `.env` (compare `last_four`), a `get_object` on a `knowledge-packs/` key succeeds
-    from the deployed container (`bot.py --preflight` plus one real session with a
-    published pack), and a `put_object` with the same credential is REFUSED.
-11. **Issue the voice worker its own Plivo credential, not the account's — only if
-    `CARRIER=plivo`.** Opened 18 Sep 2026. Since D-662 the default carrier is Vobiz, the
-    worker ends a Vobiz call with the stream `stop` message, and the secret set holds no
-    carrier credential at all; that is a stronger answer to this gate's question than any
-    scoped credential. The gate below applies unchanged the day Plivo is switched on.
-
-    The worker needs the carrier credential for one thing: hanging a leg up at `EndFrame`
-    (§12.2, read by Pipecat's `PlivoFrameSerializer`, `voice_worker/boot.py:133,143`). The
-    account-level `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` can also originate calls, buy
-    numbers and read every CDR on the account — in a container a third party operates, on
-    a product whose outbound path is governed by TRAI/DLT.
-
-    The script now asks for it as `PLIVO_WORKER_AUTH_ID` / `PLIVO_WORKER_AUTH_TOKEN` and
-    refuses the account-level value if it is pasted in.
-
-    ⚠ **UNKNOWN — WHAT PLIVO ACTUALLY OFFERS AS THE NARROWEST CREDENTIAL IS NOT VERIFIED
-    AND IS DELIBERATELY NOT GUESSED.** `www.plivo.com` is not readable from this container
-    (403 on CONNECT through the egress proxy, measured 18 Sep 2026), so no claim is made
-    here about subaccounts, scoped API keys, per-application credentials or IP allowlists.
-    **What the founder must check in the Plivo console**, in this order: (a) does Plivo
-    issue a credential that can terminate an in-progress call but NOT originate one, buy a
-    number, or list CDRs — under any name; (b) if not, does it issue a SUBACCOUNT
-    credential whose blast radius is limited to the numbers this worker answers on; (c) if
-    neither exists, record that here, and the compensating control is rotation plus the
-    account-level spend and concurrency limits, chosen knowingly rather than by default.
-    Whatever the answer, it is written into this gate with the console screen it came from
-    — that is a VENDOR-PUBLISHED reading, and it is the only thing that closes this gate.
-
-    *Pass condition*: the secret set holds a carrier credential distinct from the VPS's
-    (compare `last_four`), a call still hangs up cleanly at `EndFrame`, and this gate
-    records what Plivo offers, read from Plivo.
-
-**Still UNKNOWN after all of that, and listed so nobody mistakes silence for agreement:**
-whether the base image requires the entrypoint to be named exactly `bot.py`; what its
-WORKDIR, its Python version and its own pinned tags are; whether Pipecat Cloud probes a
-container for health at all, and in what shape; whether it injects the secret set as
-process environment or by another route (the scaffold's wording implies environment);
-whether it imports the module at container start or at first session; and what a Pipecat
-"active minute" bills (`docs/PIPECAT-MIGRATION.md` §7, §3.5 P-1), which is why
-`meter.RuntimeUsage` is an operator attestation rather than a rate.
-
-**One thing in this repository still stops a call even once all of the above is done**, and
-it is ours rather than a vendor's: the normalized event writer (`boot.build_event_sink`,
-§6 step 11's next wave). It refuses by name at boot, so the container cannot answer a phone
-and lose the conversation. The second item this paragraph used to name — the route to a
-tenant and an agent — is BUILT (D-610): `bot.resolve_call_identity` reads the agent ref off
-the path of the socket the carrier connected to, which `apps/voice-runtime/carrier_routes.py`
-put there in the answer document. It still refuses by name when that path carries no ref.
-
-### 12.6 The carrier (D-662): what each deployable needs, and the order to turn it on
-
-The carrier is Vobiz by default and Plivo behind the switch. Vendor facts are in
-`docs/evidence/vobiz-api-contract.md`; the first live call is
-`runbooks/vobiz-first-live-call.md`. The worker's half is in the §12.2 table (`CARRIER`,
-and `PLIVO_*` only when `CARRIER=plivo`). Everything below is on the VPS.
-
-| Variable | Read by | Where it comes from | What it is for |
-|---|---|---|---|
-| `VOBIZ_AUTH_ID` / `VOBIZ_AUTH_TOKEN` | api, workers, voice-runtime | the Vobiz console (Auth ID `MA_…` and its token), into the VPS `.env` only | `X-Auth-ID` / `X-Auth-Token` on every REST call (call create, hangup, transfer, CDR, Application and number binding, the `GET /api/v1/auth/me` probe), and the token is the key Vobiz signs callbacks with, which is why voice-runtime needs it. `ENV_ONLY` (`apps/api/core/settings.py`, `ENV_ONLY_REASONS`): voice-runtime never opens the credential store. **Never in the Pipecat worker's secret set.** The docs say regenerating the token invalidates the old one at once (`vobiz-findings/mirror/pages/api-reference/authentication.md:54`); the console says the old one "stays valid for the grace window", length not stated (Vobiz console, founder-relayed, 2 Oct 2026, VENDOR-PUBLISHED). A rotation is `runbooks/vobiz-first-live-call.md` §10: new token into `.env`, then `scripts/vps-deploy.sh api workers voice-runtime`, then prove each container picked it up. |
-| `CARRIER` | api, workers, voice-runtime | ops console (needs republish); default `vobiz`. **Not in `.env`**: the environment beats the console, so a `.env` line would make the console's switch accept a change and do nothing | which carrier new dials go out on and new number bindings are made at. A number already bound at the other carrier keeps answering there until it is bound again from its screen. Keep the worker's `CARRIER` the same. |
-| `VOBIZ_API_BASE_URL` | api, workers | default `https://api.vobiz.ai/api/v1` | the REST base; changed only to point at a test double. |
-| `VOBIZ_SIGNATURE_REQUIRED` | voice-runtime | ops console, applies live; default false | refuse a Vobiz callback without a valid `X-Vobiz-Signature-V3`. Turn on only after OPERATIONS §2 gate 55 (b) passes, or every call is refused. |
-| `VOBIZ_CALLBACK_IPS` | voice-runtime | ops console, applies live; unset means Vobiz's published list (`calevate_shared.carrier.VOBIZ_CALLBACK_IPS`) | comma-separated source addresses a Vobiz callback must come from. Gate V-1. |
-| `VOBIZ_CALLBACK_SECRET` | api, workers, voice-runtime | **generate it on your own machine with `openssl rand -hex 32`** (64 hex characters; hex because it needs no URL escaping anywhere — a base64 value also works, we percent-encode it, but hex leaves nothing for a console or a proxy to mangle), into the VPS `.env` only (`ENV_ONLY`). At least 32 characters; never the same value as `CARRIER_CLAIM_SECRET` or `VOBIZ_AUTH_TOKEN` | the shared secret on every URL we register with Vobiz (`?callback_key=…`, D-673). voice-runtime refuses a Vobiz request without it even from a Vobiz address, because every Vobiz customer sends from those addresses. Outside `local`, an unset or short value refuses every Vobiz request, refuses dials, bindings and transfers before they leave, is named by `/healthz/ready` on api and voice-runtime under `CARRIER=vobiz`, and fails the deploy preflight (`vobiz_callback_secret_unusable`). Vobiz's console and call records show it, so it is a bearer value, not a signing key. Rotation: `runbooks/vobiz-first-live-call.md` §11. |
-| `VOBIZ_CALLBACK_SECRET_RETIRED` | voice-runtime (api and workers ignore it) | the VPS `.env`, only during a rotation | the previous secret, still ACCEPTED so Applications and in-flight calls registered under it keep working until they are re-registered; never written onto a URL. Remove it when the rotation is done. |
-| `CARRIER_CPS` | api, workers | ops console, applies live; default 1 | outbound dials started per second, at most, enforced on every dial in `agents.service.dispatch_call` (`engine/carrier_pacing.py`). Set to the account's `cps_limit` (gate V-5); the founder's account showed CPS 1 and 3 concurrent calls (Vobiz console, founder-relayed, 2 Oct 2026, VENDOR-PUBLISHED), so the default matches. |
-| `CARRIER_CONCURRENCY` | api, workers | ops console, applies live; default 3 | the account's simultaneous calls, inbound and outbound together. Every dial counts the calls holding a line in both directions (`carrier_lines_in_use()`) and is refused with `carrier_lines_busy` when the outbound pool is full. Set to the account's `concurrent_calls_limit` (gate V-5). |
-| `INBOUND_RESERVE_RATIO` | api, workers | ops console; default 0.3 | the share of `CARRIER_CONCURRENCY` kept for callers: `max(1, ceil(lines × ratio))`, so 1 of 3 lines today and an outbound pool of 2 (founder decision, 2 Oct 2026). |
-| `CARRIER_TRANSFER_ENABLED` | api, voice-runtime | ops console, applies live; default false | whether an in-call handoff may transfer the caller through the carrier. Off means the handoff tool answers `not_available`, and voice-runtime refuses to serve a transfer document. |
-| `CARRIER_RECORDING_ENABLED` | api, voice-runtime, workers | ops console, applies on republish; default true | whether Vobiz records calls (D-668). Turning it off stops recording on the next call; turning it on records only agents republished afterwards, because the recording disclosure is fixed at publish. Recordings are copied to our `recordings/` storage and kept 90 days. |
-| `CARRIER_CLAIM_SECRET` | api, voice-runtime (and the worker, §12.2) | the VPS `.env` only (`ENV_ONLY`); the same value goes in the worker's secret set | seals the caller claim and signs the call claim on the stream URL, and keys the sealed transfer token. Under `ENGINE=pipecat`, `/healthz/ready` on both services names it when it is missing or under 32 bytes, and the deploy preflight refuses it (`carrier_claim_secret_unusable`). |
-| `PIPECAT_STREAM_BASE_URL` | voice-runtime | ops console, applies live; set after the worker is deployed, from the Pipecat Cloud dashboard | the worker's WebSocket base the answer document points at: the REGIONAL Pipecat Cloud endpoint, `wss://ap-south.api.pipecat.daily.co/ws/plivo?serviceHost=<agent>.<org>` (its own query is kept and the call's claims are appended to it). The region-less `api.pipecat.daily.co` routes every stream to `us-west`, where no worker runs. Empty ⇒ the answer route refuses every call (`carrier_stream_base_not_configured`). Empty, not `wss://`, or region-less outside `local` ⇒ voice-runtime's `/healthz/ready` names it and `scripts.check_deploy_env` fails (`pipecat_stream_base_url_unusable`; `settings.is_deployable_stream_base`). |
-| `WEBHOOK_BASE_URL` | api, voice-runtime | ops console (needs republish) | the public hooks origin every answer, hangup and status URL is built on. The signature is checked against the URL rebuilt from it plus the request path, so it must be the exact scheme and host Vobiz calls. Outside `local` it must be https on a host that is not loopback; the field's default (`http://localhost:8100`) is neither, and readiness on both services names it until it is set (`core/settings.is_public_callback_base`). |
-
-**Order of a first carrier deploy.** Each step is one that can be checked before the next.
-
-1. **Migrate.** Migration `d4a7b2c91e30` adds `phone_numbers.carrier_binding_id` and
-   admits `vobiz` in the `carrier_compliance_applications` CHECK; both are additive (hard
-   rule 8, nothing dropped), so the normal migrate-then-swap of §4a applies.
-2. **Put `VOBIZ_AUTH_ID`, `VOBIZ_AUTH_TOKEN` and `VOBIZ_CALLBACK_SECRET`
-   (`openssl rand -hex 32`) in the VPS `.env`** and deploy with
-   `scripts/vps-deploy.sh`. The change touches `packages/shared/` and `apps/api/core/`, so
-   §4c deploys api, workers and voice-runtime together. *Pass condition*: **Test the
-   carrier credentials**, beside the Vobiz rows under *Set outside this console* in the ops
-   console's Platform configuration, answers that the pair authenticated
-   (`POST /v1/ops/carrier/probe`: it asks Vobiz `GET /auth/me` with the pair the running
-   api holds, takes no input, stores nothing and is audited as `platform.carrier_probed`).
-3. **nginx.** The hooks vhost gains a `/carrier/v1/` location with its own rate zone, so
-   a burst of status callbacks cannot starve the answer requests a ringing call waits on.
-   Re-render and reload as §9.5 describes. *Pass condition*: `nginx -t` passes and a
-   request to `/carrier/v1/vobiz/answer/x` from outside Vobiz's addresses is refused by
-   voice-runtime, not by nginx (the address check lives in the application, because Vobiz
-   says its addresses change). The hooks vhost logs with `calevate_redacted`, so a request
-   to `/carrier/v1/vobiz/answer/x?callback_key=test` appears in
-   `/var/log/nginx/access.log` as `callback_key=[redacted]` (D-673).
-4. **The Pipecat worker.** Re-run `scripts/deploy/pipecat-worker-setup.sh secrets` with
-   `CARRIER=vobiz`, the VPS's `CARRIER_CLAIM_SECRET` and no `PLIVO_*` values, then
-   `deploy`; then set `PIPECAT_STREAM_BASE_URL` in the ops console to the deployed
-   agent's `wss://` base (`runbooks/first-deploy.md` §9a). *Pass condition*:
-   `bot.py --preflight` prints OK inside the deployed container, and `/healthz/ready`
-   answers 200 on both the api (`:8000`) and voice-runtime (`:8100`).
-5. **Ops console.** Leave `VOBIZ_SIGNATURE_REQUIRED` and `CARRIER_TRANSFER_ENABLED` off;
-   set `CARRIER_CPS` from gate V-5.
-6. **Bind one test number** from the admin number screen (this creates the Vobiz
-   Application and attaches the number), then run `runbooks/vobiz-first-live-call.md`.
-   The account was a trial account on 2 Oct 2026; the runbook's first precondition is the
-   recharge.
-
-**Rollback.** Moving `CARRIER` to `plivo` stops new dials and new bindings on Vobiz at
-once; numbers already bound on Vobiz keep answering through Vobiz until rebound, because
-both carriers' routes stay served. To stop a Vobiz number answering, detach it in the
-Vobiz console. There is no Plivo account, so `plivo` today means "dial nothing": Plivo's
-side refuses by name.
-
-### 12.7 The ThinnestAI engine (D-678): configuration
-
-`ENGINE=thinnest` is the third selectable engine (`docs/THINNEST-INTEGRATION.md`). It needs
-no fourth deployable and no carrier account: ThinnestAI hosts the agent, the call and the
-number. Vendor facts cite `thinnest-findings/mirror/pages/` (VERIFIED-VENDOR-DOCS).
+## 12. The ThinnestAI engine (D-678): configuration
+
+`ENGINE=thinnest` is the production engine (`docs/THINNEST-INTEGRATION.md`); the only other
+value is `fake`, for tests (D-763). It needs no deployable beyond the VPS stack and no carrier
+account of ours: ThinnestAI hosts the agent, the call, the number and the recording. Vendor
+facts cite `thinnest-findings/mirror/pages/` (VERIFIED-VENDOR-DOCS).
 
 | Variable | Read by | Where it comes from | What it is for |
 |---|---|---|---|
@@ -2251,7 +1714,7 @@ number. Vendor facts cite `thinnest-findings/mirror/pages/` (VERIFIED-VENDOR-DOC
 | `TRIAL_DAILY_CALL_CAP` | api | ops console (applies live), added by D-697, default 10 | Test calls one trial account may place per IST day. |
 | `TRIAL_STUDIO_MINUTES` | api | ops console (applies live), added by D-727, default 15 | Studio minutes one trial account may use on test calls before a Studio test call is refused (`trial_studio_minutes_used`); Clear test calls are unaffected. |
 | `TRIAL_CALL_MAX_SECONDS` | api | ops console (applies live), added by D-697, default 180 | The per-call `maxCallSeconds` sent on a test call, 60..1200 (`snapshots/2026-10-08/pages/api-reference/calls/place-call.md:1122-1126`). |
-| `THINNEST_MAX_CONCURRENT_CALLS` | api, workers | ops console (applies live), default `5` | The ThinnestAI workspace's simultaneous calls, inbound and outbound together (`snapshots/2026-10-07/pages/api-reference/calls/place-call.md:454-460`). 5 is the pay-as-you-go ceiling (FOUNDER-RELAYED, 7 Oct 2026); set it to the raised figure when ThinnestAI confirms one by email. `INBOUND_RESERVE_RATIO` of it is kept for callers (3 outbound of 5 at the default 0.3), every dial counts our live outbound calls under the same lock as the carrier line check and is refused with `carrier_lines_busy` when the pool is full, and a `429` holds all dials off for the vendor's `Retry-After` (at least 60 s, at most 15 min). |
+| `THINNEST_MAX_CONCURRENT_CALLS` | api, workers | ops console (applies live), default `5` | The ThinnestAI workspace's simultaneous calls, inbound and outbound together (`snapshots/2026-10-07/pages/api-reference/calls/place-call.md:454-460`). 5 is the pay-as-you-go ceiling (FOUNDER-RELAYED, 7 Oct 2026); set it to the raised figure when ThinnestAI confirms one by email. `INBOUND_RESERVE_RATIO` of it is kept for callers (3 outbound of 5 at the default 0.3), every dial counts our live outbound calls under one lock and is refused with `carrier_lines_busy` when the pool is full, and a `429` holds all dials off for the vendor's `Retry-After` (at least 60 s, at most 15 min). |
 | `ENGINE_ACTIONS_BASE_URL` | api | ops console (needs republish), no default | The API's public `https://` origin (e.g. `https://api.calevate.tech`). Under `ENGINE=thinnest` each agent's in-call actions (opt-out, call-back, call-back cancel, handoff) are ThinnestAI custom actions calling `<ENGINE_ACTIONS_BASE_URL>/v1/worker/engine-actions/thinnest/<tool>`; the vendor accepts `https://` only (`snapshots/2026-10-07/pages/api-reference/actions/create-action.md:174-181`). Publish refuses with `engine_actions_url_not_public` while it is unset or not public, and the drift sweep raises `engine_actions_unreachable` when the vendor's test call does not reach it. Not `WEBHOOK_BASE_URL`, which is voice-runtime's host. `/healthz/ready` on api and workers names it under `ENGINE=thinnest` outside `local` while it is unset or not public (D-682). |
 
 Per-agent webhook signing secrets are not configuration: `POST /webhooks` returns each one
@@ -2374,11 +1837,6 @@ sudo tail -n 2 /var/log/postgresql/postgresql-16-main.log   # stamps end in IST
 t=$(systemctl show -p LastTriggerUSec --value calevate-basebackup.timer); echo "$t"; date -u -d "$t"
 ```
 
-The Pipecat worker (§12) runs on Pipecat Cloud, not this host. Its image sets
-`TZ=Asia/Kolkata`; whether `dailyco/pipecat-base` carries `/usr/share/zoneinfo` is
-UNVERIFIED. Check once on a built image: `docker run --rm --entrypoint date <image>` must
-print IST; if it prints UTC the base has no zone files and the worker logs stay UTC.
-
 ### 13.3 Rollback
 
 ```sh
@@ -2391,5 +1849,5 @@ sudo systemctl reload nginx
 The app image needs no rollback for the host's sake: it names every zone it depends on.
 
 Cross-references: TRD §1 (deployables) · OPERATIONS §5–6 (SLOs, drills) ·
-SECURITY-COMPLIANCE §5 (secrets, TLS) · ROADMAP D-25/D-26/D-27/D-592/D-606 · SURFACES §3 ·
-PIPECAT-MIGRATION §8 (the three boxes) for the fourth deployable in §12.
+SECURITY-COMPLIANCE §5 (secrets, TLS) · ROADMAP D-25/D-26/D-27/D-678/D-763 · SURFACES §3 ·
+THINNEST-INTEGRATION for the engine configured in §12.

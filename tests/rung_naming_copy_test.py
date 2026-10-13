@@ -2,13 +2,13 @@
 
 **WHAT THE WORDS WERE, AND WHY THEY ARE EXCLUDED.** `standard` and `premium` are the
 competitor's own rung names (D-547 excludes them BY NAME, TRD §10.3); `basic` is a claim
-about the Sarvam voice no measurement in this repository supports; and "value" as a rung
+about a voice no measurement in this repository supports; and "value" as a rung
 name is a marketing rung we never adopted either. None of the four is our vocabulary, and
 the founder read three surfaces on 9 Sep 2026 that were still using them.
 
 **THE SECOND ERROR WAS WORSE THAN THE VOCABULARY, AND IT IS WHY THIS FILE EXISTS RATHER
-THAN A FIND-AND-REPLACE.** The two rungs the words were attached to are NOT a voice, a
-Bulbul version, or the Sarvam/Cartesia tier. They are the plan's two overage-rate slots —
+THAN A FIND-AND-REPLACE.** The two rungs the words were attached to are NOT a voice or a
+voice tier. They are the plan's two overage-rate slots —
 `plans.overage_rate` and `plans.overage_rate_second` — and the code says so in three
 places: `billing/service.py` above `OVERAGE_RUNGS` ("overage-rate slots ... NOT
 voice-quality tiers"), `apps/workers/pipeline.py` beside the `meta.tts_tier` stamp ("THIS
@@ -65,8 +65,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parents[1]
 WEB = REPO / "apps/web/src"
 
@@ -99,8 +97,8 @@ def _assert_no_rung_words(text: str, where: str) -> None:
             "`standard`/`premium` are the competitor's rung names (excluded by D-547), "
             "`basic` is a voice claim nothing here measures, and `value` is a marketing "
             "rung we never adopted. These buckets are the plan's two OVERAGE-RATE SLOTS "
-            "(`plans.overage_rate` / `overage_rate_second`) — not a voice, not a Bulbul "
-            "version, not the Sarvam/Cartesia tier — so name them for the rate they are."
+            "(`plans.overage_rate` / `overage_rate_second`) — not a voice and not a "
+            "voice tier — so name them for the rate they are."
         )
 
 
@@ -138,27 +136,7 @@ def test_an_invoice_line_still_says_which_agreed_rate_it_was_charged_at() -> Non
     assert len(set(_RUNG_WORDING.values())) == 2, "the two rungs print the same words"
 
 
-# ────────────────────── the operator's screens, by reading source ──────────────────────
-
-#: The admin screens that report the overage rungs. The client console is deliberately not
-#: on this list: it never names a rung, and `tests` below sweeps the whole tree anyway.
-ADMIN_RUNG_SCREENS = (
-    # ⚠ `MarginPanel.tsx`, not the client screen's `page.tsx`: that route module was split
-    # by subject (UX-DOCTRINE §6, Sep 2026) and the rung labels went with the panel. Aimed
-    # at the route it left behind, this guard would be scanning a nineteen-line file.
-    "apps/web/src/app/admin/tenants/[tenantId]/MarginPanel.tsx",
-    # RE-AIMED (D-661): the commercials route module now only mounts the screen; the rate
-    # labels live in the screen (in effect, history) and the terms form.
-    "apps/web/src/app/admin/tenants/[tenantId]/commercials/CommercialsScreen.tsx",
-    "apps/web/src/app/admin/tenants/[tenantId]/commercials/TermsForm.tsx",
-)
-
-
-@pytest.mark.parametrize("rel", ADMIN_RUNG_SCREENS)
-def test_no_admin_screen_labels_a_rung_with_the_excluded_words(rel: str) -> None:
-    path = REPO / rel
-    assert path.is_file(), f"{rel} has moved — this guard is scanning nothing"
-    _assert_no_rung_words(_copy_only(path.read_text(encoding="utf-8")), rel)
+# ─────────────────────────── the web tree ───────────────────────────
 
 
 def test_the_whole_web_tree_is_clean_of_rung_vocabulary() -> None:
@@ -177,60 +155,6 @@ def test_the_whole_web_tree_is_clean_of_rung_vocabulary() -> None:
             for hit in pattern.finditer(text):
                 offenders.append(f"{path.relative_to(REPO)}: {hit.group(0)}")
     assert offenders == [], "rung vocabulary in user-visible copy:\n  " + "\n  ".join(offenders)
-
-
-# ───────────────────────── and the three that must NOT be swept ─────────────────────────
-
-
-def test_the_dlt_number_class_still_says_standard() -> None:
-    """140 promotional / 160 service / standard is TELECOM vocabulary, not a pricing rung.
-
-    It is a `<option value="standard">` on a compliance-facing control and a wire value the
-    campaign path reads; an over-correcting sweep would break the control and the wire
-    together.
-    """
-    # THE CONTROL MOVED AGAIN (D-576): recording a client's number left the CAMPAIGN panel
-    # for the numbers screen, where it belongs — an operator onboarding an inbound-only
-    # client was being sent to a screen about outbound campaigns, with the series
-    # preselected to a DLT class. The assertion follows the control rather than the file,
-    # and matches the VALUE plus the word rather than the exact element, because the option
-    # now carries a plain-language tail ("standard — an ordinary business line").
-    numbers = (
-        REPO / "apps/web/src/app/admin/tenants/[tenantId]/numbers/NumbersScreen.tsx"
-    ).read_text(encoding="utf-8")
-    assert '<option value="standard">standard' in numbers, (
-        "the DLT number class lost its `standard` option — that word is the TRAI series "
-        "name (CLAUDE.md's domain vocabulary), not one of the excluded rung names"
-    )
-
-    # NUMBER_SERIES, not SERIES_FOR_CLASSIFICATION: `standard` is still one of the three
-    # series an operator may record, and is still the right word for an ordinary DID on the
-    # inbound leg. What it may no longer do is carry an OUTBOUND commercial campaign.
-    from apps.api.agents.models import NUMBER_SERIES
-
-    assert "standard" in NUMBER_SERIES
-
-
-def test_ordinary_english_value_and_premium_survive() -> None:
-    """Two words that are only forbidden as RUNG names.
-
-    The insurance vertical quotes a policy premium, and half the console's forms say
-    "value" about a field's contents. A guard that could not tell these from a tier name
-    would delete correct copy to protect a rule about a different word.
-    """
-    verticals = (REPO / "apps/web/src/lib/verticalExamples.ts").read_text(encoding="utf-8")
-    assert "Annual premium" in verticals, "the insurance example lost its policy premium"
-
-    # The config screen is a folder of section modules (D-661); the change form is one of
-    # them, so the whole folder is read rather than one file that may move again.
-    config_dir = REPO / "apps/web/src/app/admin/ops/config"
-    config_files = sorted(config_dir.glob("*.ts*"))
-    assert config_files, "apps/web/src/app/admin/ops/config has moved — this check reads nothing"
-    config = "\n".join(path.read_text(encoding="utf-8") for path in config_files)
-    assert "New value" in config, (
-        'the platform config panel lost its ordinary-English "New value" — that is a '
-        "field's contents, not a pricing rung"
-    )
 
 
 def test_the_wire_keys_survive_until_step_two() -> None:

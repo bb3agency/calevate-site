@@ -63,13 +63,13 @@ Recorded because each was caught by the founder, not by me.
 | # | The mistake | The correction |
 |---|---|---|
 | 1 | Reported "zero Bolna claims survived verification" as a footnote, implying weakness | It was a **coverage gap in that research run**. A direct fetch of bolna.ai afterwards surfaced 5 named case studies with metrics that changed the evidence base. → **R2** |
-| 2 | Injected "Pipecat is the fallback engine" across seven docs | **No fallback engine is designated.** Engine risk is carried by the VoiceEngine adapter contract + conformance suite. Pipecat appears only in D-02's phase-2 trajectory. Founder correction — do not re-add. |
+| 2 | Injected a named open-source framework as "the fallback engine" across seven docs | **No fallback engine is designated.** Engine risk is carried by the VoiceEngine adapter contract + conformance suite. Own orchestration appears only in D-02's phase-2 trajectory. Founder correction — do not re-add. |
 | 3 | Treated Telugu quality as a platform differentiator | Under BYOK the models are identical across platforms, so it isn't one — **except** turn detection, which is orchestration-layer. → **R4** |
 | 4 | Claimed "Outpero self-orchestrates and pays no platform fee" as fact | **Retracted.** It was inferred from their security page + mid-call failover. Their TTS trio (Sarvam/Smallest/Cartesia) exactly matches Bolna's supported-provider list, which is equally consistent with them *being a customer*. Their orchestration layer is **UNKNOWN**. → **R7** |
 | 5 | Guessed their premium tier was a cloned Sarvam voice | Their shipped JS says otherwise: `value:sarvam_per_min`, `standard:smallest_per_min`, `premium:cartesia_per_min`. **Sarvam is their cheapest tier.** Read the code before theorising. |
 | 6 | Compared Cartesia Line's $0.06 against Vapi's $0.05 as equivalent | Vapi's is an orchestration tax *on top of* model spend; Line's bundles models. **"Appears to" resolved to CONFIRMED (Aug 2026, D-88)**: Line's LLM is BYOK via LiteLLM but Ink 2 (STT) and Sonic 3.5 (TTS) have no swap interface — from Cartesia's own Line SDK README, which is first-party where their docs site is unreachable from our build environment. The lesson survives the confirmation: the error was comparing the numbers before establishing the layer. → **R5** |
 | 7 | Amortised Outpero's monthly fee into their effective rate but left **our** fixed costs outside ours | Applied the same rule to ourselves (TRD §10.2) — and it revealed that D-11's ₹6–8/min overage is below true cost under ~5,000 platform min/month. → **R6** |
-| 8 | Recorded "Bulbul v2 is discontinued" (D-20) | Wrong — that came from *ThinnestAI's* model listing, not Sarvam's. v2 is live at **half** the v3 price (D-35). Read the vendor's own rate card, not a reseller's. |
+| 8 | Recorded "Sarvam's v2 TTS model is discontinued" (D-20) | Wrong — that came from *ThinnestAI's* model listing, not Sarvam's. v2 is live at **half** the v3 price (D-35). Read the vendor's own rate card, not a reseller's. |
 
 ---
 

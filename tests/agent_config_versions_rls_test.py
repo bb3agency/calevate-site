@@ -7,11 +7,8 @@ a competitor who can read another tenant's rows learns when their script changed
 and can confirm a guessed script by composing it and comparing digests. The attestation
 table adds when that business's agents were actually running.
 
-The WRITE direction matters more than usual here. These rows are the witness `get_agent`
-answers from on an `owned_runtime` engine, so a neighbour able to insert an attestation
-against somebody else's agent could manufacture agreement — turning the one control that
-detects a drifted worker into a control that reports whatever an attacker wants. The
-append-only clauses are in `tests/agent_config_versions_test.py`; this file is isolation.
+No code writes these tables any more (D-763); they stay in the database, under their
+isolation policy, until their drop migration.
 
 SHARED DATABASE DISCIPLINE: two organisations minted by this module, every assertion scoped
 to their own ids, and nothing counts rows globally.
@@ -131,8 +128,7 @@ async def test_one_tenant_sees_none_of_anothers_config_rows() -> None:
 
 async def test_an_untenanted_session_sees_neither_tables_rows() -> None:
     """The fail-closed property: no GUC, no rows. A sweep or an ops query that forgets to
-    enter a tenant reads nothing rather than reading everyone. Neither table has an
-    untenanted reader to widen for — the worker attests inside its own tenant's session."""
+    enter a tenant reads nothing rather than reading everyone."""
     tenant_id, agent_id = await _org()
     await _plant(tenant_id, agent_id, b"untenanted")
 
@@ -148,11 +144,7 @@ async def test_an_untenanted_session_sees_neither_tables_rows() -> None:
 
 
 async def test_a_neighbour_cannot_manufacture_an_attestation() -> None:
-    """THE WRITE HALF, and on this table it is the one that matters.
-
-    `get_agent` on an `owned_runtime` engine answers from the newest attestation. A
-    neighbour able to insert one against somebody else's agent could manufacture agreement
-    — making the control that detects a drifted worker report whatever they chose. The
+    """THE WRITE HALF. The
     policy has no `WITH CHECK`, so the INSERT is judged by the USING clause and a row whose
     `tenant_id` is not this session's is refused outright.
     """

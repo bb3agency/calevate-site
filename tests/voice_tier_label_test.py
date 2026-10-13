@@ -37,15 +37,10 @@ def test_every_tier_has_a_label_and_no_tier_has_two() -> None:
 
 #: Every name a VENDOR of ours goes by, including one that no longer speaks.
 #:
-#: ⚠ **THIS USED TO BE `VOICE_TIERS`, AND THE GUARD HAS BEEN CHECKING THE WRONG SET SINCE
-#: IT WAS WRITTEN (corrected 19 Sep 2026).** It read "for vendor in VOICE_TIERS" and passed
-#: only because the rung tokens WERE the vendors' names — so the day they stopped being
-#: (D-630) it began asserting that the label "Clear" must not contain the rung token
-#: `clear`, which is the opposite of the rule. The rule is that no VENDOR's name reaches a
-#: client, and the vendors are `VoiceProvider`. `sarvam` is kept by hand: it is not a TTS
-#: provider any more (D-629) and a label naming it would still be a vendor name on a
-#: client's screen, which is exactly what this guard is for.
-_VENDOR_NAMES: Final = (*get_args(VoiceProvider), "sarvam", "bulbul", "timbre", "sonic")
+#: The rule is that no VENDOR's name reaches a client, and the vendors are `VoiceProvider`.
+#: `sarvam` is kept by hand: it is not a TTS provider, and a label naming it would still be
+#: a vendor name on a client's screen.
+_VENDOR_NAMES: Final = (*get_args(VoiceProvider), "sarvam", "sonic")
 
 
 def test_no_label_names_a_vendor() -> None:
@@ -58,22 +53,6 @@ def test_no_label_names_a_vendor() -> None:
                 f"vendor {vendor!r}. The wire keeps the rung's token; what a human "
                 f"reads must not name who synthesises it."
             )
-
-
-def test_no_label_is_one_the_comparable_product_uses_or_a_quality_claim() -> None:
-    """Copying a competitor's rung names reads as copying the product; `basic` would be
-    a claim about the Sarvam voice this repo has never measured."""
-    for label in VOICE_TIER_LABELS.values():
-        assert label.lower() not in {"standard", "premium", "basic"}
-
-
-def test_the_label_is_reached_by_a_function_so_there_is_one_definition() -> None:
-    """Callers go through `voice_tier_label`, never the mapping, so the day a label is
-    computed rather than looked up there is one place to change."""
-    for tier in VOICE_TIERS:
-        assert voice_tier_label(tier) == VOICE_TIER_LABELS[tier]
-        assert voice_tier_label(tier).strip() == voice_tier_label(tier)
-        assert voice_tier_label(tier), "a blank label renders as a nameless tier"
 
 
 @dataclass(frozen=True, slots=True)

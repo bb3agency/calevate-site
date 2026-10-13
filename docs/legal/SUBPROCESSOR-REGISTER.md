@@ -33,19 +33,13 @@ are comma-separated keys; aliases are comma-separated words that would identify 
 <!-- register:start -->
 | Identity | Role | Categories | Named publicly | Aliases |
 |---|---|---|---|---|
-| Vobiz | Telephone carrier on the self-hosted engine (`ENGINE=pipecat`, Calevate's own account); carries nothing on the live deployment | telephony | no | Vobiz |
-| Plivo | Fallback carrier the software can be switched to; no account held | telephony | no | Plivo |
-| ThinnestAI | Hosted voice platform that runs the whole call and rents the numbers: the live deployment (`ENGINE=thinnest`, since 7 Oct 2026); speaks the Clear voice quality and holds our admin-cloned voices | telephony, voice-platform | no | ThinnestAI, Thinnest |
-| Pipecat Cloud | Container platform our own call program runs on (`ENGINE=pipecat`; not the live deployment) | voice-platform | no | Pipecat |
-| Cartesia | Alternative voice platform (contingency) | voice-platform | no | Cartesia |
-| Sarvam | Speech recognition during the call on the self-hosted engine (`ENGINE=pipecat`); not on the live deployment | speech-to-text | no | Sarvam, Saaras, Bulbul |
-| Sarvam | First post-call extraction pass over the raw transcript | post-call-extraction | no | Sarvam |
+| ThinnestAI | Hosted voice platform that runs the whole call and rents the numbers (`ENGINE=thinnest`, since 7 Oct 2026); recognises speech, runs the in-call model, speaks the Clear voice quality and holds our admin-cloned voices | telephony, voice-platform | no | ThinnestAI, Thinnest |
+| Sarvam | First post-call extraction pass over the raw transcript | post-call-extraction | no | Sarvam, Saaras |
 | Sarvam | Standby for the in-app assistant, prose only, no look-up tools | language-models | no | Sarvam |
-| Cartesia | Voice synthesis for the Studio voice quality, on our own account: through the hosted voice platform's voice-only BYOK on the live deployment, directly on `ENGINE=pipecat` | text-to-speech | no | Cartesia, Sonic |
-| Gnani | Voice synthesis for the Clear voice quality on the self-hosted engine (`ENGINE=pipecat`) only; not used on the live deployment | text-to-speech | no | Gnani, Timbre |
-| Microsoft | Azure OpenAI, East US 2: the in-app assistant's default language model on every deployment, and the default in-call model on `ENGINE=pipecat` (on the live deployment the hosted voice platform runs the in-call model) | language-models | no | Microsoft, Azure |
-| OpenAI | Alternative in-call language model on `ENGINE=pipecat`; does not serve the in-app assistant | language-models | no | OpenAI |
-| Google | Gemini API: alternative language model, the in-call leg on `ENGINE=pipecat` and the assistant under conditions | language-models | no | Gemini, Vertex |
+| Cartesia | Voice synthesis for the Studio voice quality, on our own account, through the hosted voice platform's voice-only BYOK | text-to-speech | no | Cartesia, Sonic |
+| Microsoft | Azure OpenAI, East US 2: the in-app assistant's default language model | language-models | no | Microsoft, Azure |
+| OpenAI | Language model a key can be installed for; serves neither the call nor the in-app assistant | language-models | no | OpenAI |
+| Google | Gemini API: the in-app assistant under conditions | language-models | no | Gemini, Vertex |
 | Hostinger | Application server and PostgreSQL (D-180; the production VPS, deployed 7 Oct 2026) | hosting | no | Hostinger |
 | Cloudflare | R2 object storage: recordings, exports, archived call documents, CRM bodies, backup segments | object-storage | no | Cloudflare, R2 |
 | Cloudflare | Edge in front of the site: TLS, caching, attack protection | edge-network | no | Cloudflare |
@@ -77,33 +71,20 @@ The tracing collector has no row: no company is chosen and nothing is configured
 described in the public `monitoring` category; choosing a company for it adds a row here
 and is a clause 5 notice.
 
+The carrier, hosting and voice vendors of our own call engine, and Cartesia as a contingency engine,
+left the register with D-763 (13 Oct 2026), when that engine was removed; none
+was used on the live deployment. Sarvam's in-call speech-recognition role left with them.
+
 ## Per-vendor detail
 
 Each section carries what the public page used to say in the vendor's own row. The public
 category rows say the same facts without the names. Evidence classes follow hard rule 11.
 
-### Vobiz (telephony), with Plivo as fallback
-
-- Does: calling numbers and carrier connection; the call's media terminates at the carrier
-  and it streams the call audio both ways to and from our call program. Vobiz in use on our
-  own account; Plivo is a fallback our software can be switched to, with no account held.
-- Receives: caller and called numbers, call detail records, live audio both ways, and a
-  recording of the call, which we copy and keep 90 days; Vobiz's copy is deleted one day
-  after ours is saved (D-668/D-670). Vobiz states it otherwise keeps a recording up to
-  30 days.
-- Location: not stated by the vendor. Nothing Vobiz publishes that we have read says where
-  it processes or stores call data; no country is named (founder instruction 2 Oct 2026).
-- Status: configured, not enabled on the live deployment, which runs `ENGINE=thinnest` and
-  sends Vobiz nothing (founder, 7 Oct 2026). Core only if the deployment is switched back to
-  `ENGINE=pipecat`, and then it carries the founder's test calls only until Vobiz consents in
-  writing to client traffic (gate V-10).
-
 ### ThinnestAI (telephony, voice platform)
 
-- Does: runs the whole call on the live deployment (`ENGINE=thinnest`, D-678; production
-  since 7 Oct 2026) instead of Pipecat Cloud: holds the agent we configure, answers and
-  places calls on numbers it rents to us, and does its own speech recognition, language
-  model and voice. Vobiz carries nothing on this deployment. Calevate resells it under its
+- Does: runs the whole call (`ENGINE=thinnest`, D-678; production since 7 Oct 2026): holds
+  the agent we configure, answers and places calls on numbers it rents to us, and does its
+  own speech recognition, language model and voice. Calevate resells it under its
   white-label programme (founder, 6 Oct 2026). Voices (D-687, 8 Oct 2026): the Clear
   quality is spoken by its own studio-band voices, including voices our admin clones on it;
   the Studio quality is spoken by Cartesia on OUR key through its voice-only BYOK, so it
@@ -128,44 +109,19 @@ category rows say the same facts without the names. Evidence classes follow hard
   request); recording retention 30/49/75 days by plan, transcripts until deleted. No DPA is
   recorded as signed in this repository (OPERATIONS gate T-5).
 
-### Pipecat Cloud (voice platform)
+### Sarvam (post-call extraction, assistant standby)
 
-- Does: runs our own call program in a container. Replaced Bolna (deleted D-639, 2 Oct
-  2026), a third-party voice platform that documented running calls on US infrastructure by
-  default.
-- Receives: the most sensitive combination on the register: live audio both ways, the
-  transcript as produced, the agent's instructions, its knowledge, and, where caller
-  continuity is on, the note of what a returning caller said before. The platform runs the
-  container they pass through; that is a distinction about purpose, not access.
-- Location: the region the vendor calls "ap-south". A region name, not a residency
-  commitment; which country or city it is in is NOT ESTABLISHED. Both documented hosts are
-  egress-blocked from the build environment (re-measured 15 Sep 2026).
-- Status: configured, not enabled. No account, the manifest has never been applied, no
-  container started, no call run. Not established: operating legal entity and country; where
-  "ap-south" is; what its terms permit including training; retention; whether a DPA can be
-  entered; its own sub-processors.
-
-### Cartesia (alternative voice platform)
-
-- Contingency engine adapter (`engine/cartesia.py`), never adopted. Would receive the same
-  categories as the call platform. Location not verified. Nothing sent.
-
-### Sarvam (speech-to-text, post-call extraction, assistant standby)
-
-- Does: speech recognition during the call on `ENGINE=pipecat` only (on the live deployment
-  the hosted voice platform recognises speech); on every deployment, the first extraction
-  pass over the transcript (`SARVAM_API_KEY` is required);
+- Does: the first extraction pass over the transcript (`SARVAM_API_KEY` is required);
   standby for the in-app assistant if no other provider can answer, where it answers in
   prose only, is given no look-up tools, cannot read leads, calls or campaigns and cannot
-  fill a form or propose a change. Since 18 Sep 2026 (D-629) it synthesises no voice.
-- Receives: call audio and the raw, unredacted transcript (a callback-number field needs the
-  digits).
+  fill a form or propose a change. It hears no calls and synthesises no voice.
+- Receives: the raw, unredacted transcript (a callback-number field needs the digits).
 - Location: India for the COMPANY; not India for the data. Its privacy policy ("Cross-Border
   Data Transfers") says personal data may be transferred to and processed outside India,
   naming US cloud infrastructure (AWS, GCP, Azure) and analytics providers, EU model and
   security vendors, and other jurisdictions as necessary, under EU SCCs, adequacy decisions
   and DPAs. Its India-storage commitments cover content-studio voice biometrics and payment
-  data, not API speech traffic.
+  data, not API traffic.
 - Terms: ToS v2.0, effective 29 Jul 2026, s.17.5 permits training on inputs, outputs and
   usage data, per its privacy policy and applicable law and, where required, subject to a
   consent that may be declined or withdrawn (declining may restrict some offerings). Does
@@ -193,12 +149,10 @@ category rows say the same facts without the names. Evidence classes follow hard
 - EVIDENCE: VENDOR-PUBLISHED, RELAYED (`docs/evidence/cartesia-tts-verification-2026-09-06.md`
   §A5); cartesia.ai is egress-blocked here. Certification claims recorded there are
   marketing lines, not certificates, and are not repeated publicly.
-- Path on the live deployment (D-687, D-688, 8 Oct 2026): the hosted voice platform sends a
-  Studio agent's words to Cartesia on OUR Cartesia key, installed in our ThinnestAI developer
-  workspace with voice-only BYOK on and followed only by agents set to it (`thinnest-findings/mirror/snapshots/
+- Path (D-687, D-688, 8 Oct 2026): the hosted voice platform sends a Studio agent's words to
+  Cartesia on OUR Cartesia key, installed with voice-only BYOK on (`thinnest-findings/mirror/snapshots/
   2026-10-07b/pages/api-reference/bring-your-own-keys.md:13-24`). Cartesia bills our
-  account directly; ThinnestAI holds the key encrypted (`:77-78`). On `ENGINE=pipecat` our
-  own call program calls Cartesia directly. Same receipt either way.
+  account directly; ThinnestAI holds the key encrypted (`:77-78`).
 - Status: ENABLED since 11 Oct 2026. Production usage that day records a Studio call on a
   trial account (a `tts_kchars` usage row, 0.806 kchars): the agent's spoken text, which can
   include personal data a caller gave (a name, order details), reached Cartesia. Studio is
@@ -210,30 +164,14 @@ category rows say the same facts without the names. Evidence classes follow hard
   caller's or a client's voice; no client data goes into it (founder, 11 Oct 2026; disclosed
   on the public page from sub-processors revision 20).
 
-### Gnani (text-to-speech, Clear)
-
-- Same receipt as Cartesia's synthesis role. All three of its sites are egress-blocked
-  (measured 15 Sep 2026). Only its price is read: Rs 27.00 per 10,000 characters,
-  `app.gnani.ai/voice/pricing`, founder-relayed 19 Sep 2026, VENDOR-PUBLISHED. Nothing about
-  training, retention, residency or a DPA is established. Its published SDK names the
-  address its speech service answers on and no region.
-- Status: configured, not enabled, and on `ENGINE=pipecat` only. Not used on the live
-  deployment (`ENGINE=thinnest`), where the Clear quality is the hosted voice platform's own
-  studio-band voices (D-687) and Gnani is not one of its voice providers. On `ENGINE=pipecat`:
-  no credential, and the Clear rung is unsellable until an operator attests a billed price
-  (hard rule 7). Nothing sent. The row stays because `gnani_api_key` is still a setting the
-  Pipecat engine reads.
-
 ### Microsoft — Azure OpenAI (language models)
 
-- The in-app assistant on every deployment (including the fallback for a client whose own
-  model cannot serve the assistant, and the hourly memory distillation job), and the
-  default in-call model on `ENGINE=pipecat`. On the live deployment (`ENGINE=thinnest`) the
-  hosted voice platform runs the in-call model with its own providers, so Microsoft
-  receives no call turns there.
-- Receives: in call, the conversation turn by turn; on the dashboard leg, the redacted
-  transcript a client asks to have re-read, what a user types, and look-up results (lead
-  names and statuses, redacted call summaries, campaign and agent names, counts, knowledge).
+- The in-app assistant (including the fallback for a client whose own model cannot serve
+  the assistant, and the hourly memory distillation job). The hosted voice platform runs
+  the in-call model with its own providers, so Microsoft receives no call turns.
+- Receives: the redacted transcript a client asks to have re-read, what a user types, and
+  look-up results (lead names and statuses, redacted call summaries, campaign and agent
+  names, counts, knowledge).
   Phone numbers reach it as markers; no raw transcript or extraction payload.
 - Location: United States, East US 2, by configuration. Vertex asia-south1 until 19 Aug
   2026; Azure South India 19-22 Aug 2026; East US 2 since 22 Aug 2026 (D-449). The endpoint
@@ -241,19 +179,17 @@ category rows say the same facts without the names. Evidence classes follow hard
 
 ### OpenAI (language models)
 
-- Alternative for the IN-CALL leg on `ENGINE=pipecat` only (nothing on the live
-  deployment, where the hosted voice platform runs the call's model); does not serve the in-app assistant because nobody
-  here has read its data-use position (`DASHBOARD_TERMS_UNREAD`). Receives the conversation
-  turn by turn; never the recording. United States; no Indian region to request.
-  Client-selectable.
+- A key can be installed (`openai_api_key`), but nothing sends it data: the hosted voice
+  platform runs the call's model, and the in-app assistant refuses this provider because
+  nobody here has read its data-use position (`DASHBOARD_TERMS_UNREAD`). United States; no
+  Indian region to request.
 
 ### Google — Gemini API (language models)
 
-- Alternative for the in-call leg, and for the assistant only while a recorded confirmation
-  holds that our Google account is on a no-training plan with nothing opted back in.
-  Receives the same as Microsoft's legs; never a raw transcript, extraction payload, raw
-  phone number or recording. Location: global; the developer API names no region.
-  Client-selectable.
+- The in-app assistant only while a recorded confirmation holds that our Google account is
+  on a no-training plan with nothing opted back in. Receives the same as Microsoft's
+  dashboard leg; never a raw transcript, extraction payload, raw phone number or recording.
+  Location: global; the developer API names no region.
 
 ### Hostinger (hosting)
 
@@ -290,7 +226,7 @@ category rows say the same facts without the names. Evidence classes follow hard
 ### Supermemory (knowledge search)
 
 - Knowledge store and search outside the call (assistant and dashboard search); the live
-  call answers from a sealed copy in the call program. Would receive every published
+  call answers from the hosted voice platform's copy. Would receive every published
   knowledge passage and the questions asked of it. Intended to be self-hosted on our server,
   but its address is an operator setting that takes effect with no release. Its terms and
   delete surface are unread (supermemory.ai egress-blocked, 14 Sep 2026); erasure rests on

@@ -56,7 +56,7 @@ from sqlalchemy import text
 from tests.conftest import accept_agreements
 
 SCRIPT = "Sunrise Clinic receptionist. Greet in Telugu, then take the appointment."
-VOICE = "bulbul:v3:anushka"
+VOICE = "legacy-voice:anushka"
 DASHBOARD_EDIT = "Whatever the vendor's console was used to write at 3am."
 NEW_SCRIPT = "Sunrise Clinic receptionist. Quote the NEW price list."
 #: A number nobody in this repository published — the vendor's Tools tab is a form, and
@@ -178,7 +178,7 @@ async def _published_agent(engine: FakeEngine) -> tuple[uuid.UUID, uuid.UUID, st
             created_by=None,
         )
         await session.execute(
-            text("UPDATE agents SET tts_voice = :v, tts_provider = 'sarvam' WHERE id = :a"),
+            text("UPDATE agents SET tts_voice = :v, tts_provider = 'cartesia' WHERE id = :a"),
             {"v": VOICE, "a": agent_id},
         )
     with _engine(engine):

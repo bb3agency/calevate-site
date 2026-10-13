@@ -16,8 +16,7 @@ WHICH PROMPT A PUBLISH SENDS (SURFACES §2b two-speed publishing)
 not the draft one. That single change is what makes a fast lane expressible at all:
 this function sends ONE `AgentConfig` carrying script and voice and cap together, so
 before `live_prompt_id` existed there was no way to push a voice change without also
-pushing whatever unapproved script sat in `system_prompt_id`. It is exactly why
-`voice_routes.py` refuses to publish and returns `republish_required` instead.
+pushing whatever unapproved script sat in `system_prompt_id`.
 
 The COALESCE is safe rather than lenient, and the invariant that makes it safe lives
 in `prompts.insert_prompt_version`: the one statement that can create a divergence
@@ -47,8 +46,8 @@ WHICH VOICE THE ENGINE IS HOLDING (migration c8b3f14e7a29)
 that can say what the engine has. It records `agents.live_tts_voice` /
 `live_tts_provider` from the `AgentConfig` it just sent, in the same UPDATE as
 `engine_agent_ref`. `agents.tts_voice` stays the CONFIGURED voice, and the two are
-allowed to differ because `voice_routes.set_agent_voice` writes the row without
-publishing — so "does a republish change what callers hear?" is
+allowed to differ because a voice written to the row reaches the engine only at the next
+publish — so "does a republish change what callers hear?" is
 `live_tts_voice IS DISTINCT FROM tts_voice`, which `agents/publishing.py` reads and
 `GET /v1/agents/{agent_id}/pending` answers.
 
@@ -102,25 +101,17 @@ from calevate_shared.call_script import (
 from calevate_shared.calling_window import IST
 from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER
 from calevate_shared.engine import (
-    LLM_MODELS,
-    SARVAM_STT_PROVIDER,
     AgentConfig,
     CallContext,
     DisclosurePosture,
     EngineAgentRef,
     HandoffSpec,
-    LlmModelTrapName,
-    LlmProvider,
     ModelConfig,
     NumberSeries,
     ProvisionedNumber,
     VoiceEngine,
-    azure_openai_base_url,
-    bind_model,
     compose_engine_prompt,
     compose_opening_line,
-    leg_for_model,
-    openai_base_url,
     truthful_answer_directive,
 )
 from calevate_shared.engine_scope import scope_of
@@ -147,15 +138,6 @@ from apps.api.agents.engine_facts import sync_business_facts
 from apps.api.agents.engine_limits import refuse_over_engine_limits, refuse_unpriced_engine
 from apps.api.agents.hosted_voices import parse_hosted_voice_id
 from apps.api.agents.languages import published_extra_languages
-from apps.api.agents.llm_models import (
-    ResolvedLlmModel,
-    deployment_for,
-    installed_llm_providers,
-    platform_default_model,
-    resolve_llm_model,
-    unofferable_reason,
-)
-from apps.api.agents.llm_tiers import client_model_label
 from apps.api.agents.models import (
     AGENT_DIRECTIONS,
     CALL_CAP_DEFAULT_S,
@@ -176,7 +158,6 @@ from apps.api.billing.engine_minutes import (
     record_engine_rate_key,
 )
 from apps.api.compliance.caller_memory import recall
-from apps.api.compliance.carrier_application import assert_carrier_application_accepted
 from apps.api.compliance.platform_dnc import PLATFORM_DNC_BLOCK_CODE, platform_dnc_refusal
 from apps.api.compliance.trial_access import (
     refuse_on_trial,
@@ -192,29 +173,21 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
-from apps.api.db.session import session_tenant, tenant_session, untenanted_session
-from apps.api.engine import engine_capabilities, get_engine, require_capability
+from apps.api.db.session import session_tenant, tenant_session
+from apps.api.engine import get_engine, require_capability
 from apps.api.engine.capabilities import ENGINE_COMPLIANCE_FLOOR_ABSENT
-from apps.api.engine.carrier import RetiresAgentBindings
-from apps.api.engine.carrier_pacing import (
+from apps.api.engine.catalogue import HostsVoices
+from apps.api.engine.dial_lines import (
     CARRIER_LINES_LOCK_KEY,
     ENGINE_LINE_HORIZON,
     LINES_BUSY_RULE,
-    LIVE_LINE_HORIZON,
-    PACING_RULE,
-    RING_LINE_HORIZON,
-    DialPacingTimeoutError,
-    await_dial_slot,
     dial_backoff_remaining_s,
-    dials_through_our_carrier,
     engine_backoff_refusal,
     engine_concurrency_cap,
     lines_busy,
     outbound_line_pool,
-    pacing_timed_out,
     start_dial_backoff,
 )
-from apps.api.engine.catalogue import HostsVoices
 from apps.api.engine.hosted_platform import hosted_agent_limits
 from apps.api.engine.thinnest_workspace import (
     trial_agent_in_developer_workspace,
@@ -241,18 +214,6 @@ from apps.api.tenancy.business_profile import assert_ready_to_go_live
 from apps.api.tenancy.engine_workspace import engine_has_workspaces, resolve_workspace
 from apps.api.tenancy.lifecycle import assert_account_open
 
-# THE ONE READER OF THE THREE `azure_openai_*` CREDENTIAL FIELDS, imported rather than
-# re-derived (D-410). It lives beside the dashboard-AI client because that is where the
-# first caller was, and it is not an extraction fact: it answers "does this deployment
-# hold an Azure OpenAI credential", which since D-410 is ONE question with ONE answer for
-# both LLM surfaces — they share a resource, a key and a deployment. A second read here
-# would be the second place that decides what "configured" means, which is the D-103 /
-# D-105 defect class, and it would also lose the half-set/unset distinction that function
-# already draws (`azure_credential_incomplete`). `apps/api` importing `apps/workers` is
-# the established direction here (`crm/assist.py`, `crm/service.py`, `admin/health.py`),
-# and `workers/extraction.py` imports only `apps/api/core/*`, so there is no cycle.
-from apps.workers.extraction import azure_credentials
-
 log = get_logger(__name__)
 
 #: The `calls.engine_call_id` of a dial WE have decided to place and the vendor has not
@@ -269,8 +230,8 @@ log = get_logger(__name__)
 #: can SELECT for — which is what `_reap_stuck_dialing` does with it.
 #:
 #: Collision with a vendor id is what the prefix rules out: an engine id is an opaque
-#: vendor token (Cartesia's is a `call_…` handle) or the owned runtime's
-#: `pipecat:<tenant>:<call>` (`calevate_shared.engine.pipecat_call_ref`); neither carries
+#: vendor token, or on historical rows the former owned runtime's
+#: `pipecat:<tenant>:<call>`; neither carries
 #: this prefix, so nothing outside this module writes this shape.
 UNCONFIRMED_ENGINE_CALL_PREFIX = "local:"
 
@@ -301,26 +262,18 @@ DIAL_NOT_PLACED_CODES = frozenset(
         "engine_rate_limited",
         # All of these are raised BEFORE any HTTP request leaves this process.
         "engine_not_configured",
-        "engine_capability_unverified",
         "engine_capability_absent",
-        "engine_caller_id_not_configured",
         # This agent has more than one registered header and nothing here may pick
         # (`resolve_caller_id`). Raised before the adapter is touched, so no line was
-        # seized — same standing as the two above.
+        # seized.
         "agent_caller_id_ambiguous",
         # The dial arrived without the truthful-answer rule on it, or reached an engine
         # that has nowhere to put one (D-282). Refused inside the adapter before the
         # request is built, so no line was seized and the contact keeps its place — the
         # same standing as a missing caller id, and for the same reason.
         ENGINE_COMPLIANCE_FLOOR_ABSENT,
-        # The owned runtime's carrier dial was missing a fact its request needs (our call
-        # id, the public callback address, the published agent). Raised before the request
-        # is built (`engine/pipecat._dial_precondition_failed`).
-        "carrier_dial_precondition_failed",
-        # The carrier account's limits (`engine/carrier_pacing.py`): no dial slot opened in
-        # time, or every outbound line is in use — raised by `dispatch_call` before the
-        # intent row is written, or by the carrier's own `429` naming its concurrency limit.
-        PACING_RULE,
+        # The engine account's call ceiling (`engine/dial_lines.py`): every outbound line is
+        # in use, raised by `dispatch_call` before the intent row is written.
         LINES_BUSY_RULE,
         # The calling number used its daily allowance at the voice platform (a 429 the
         # vendor documents as nothing placed, `engine/vendor_http.number_daily_limit_error`).
@@ -477,9 +430,7 @@ class AgentRow(TypedDict):
     disclosure_line: str | None
     stt_provider: str | None
     stt_model: str | None
-    #: What was configured ON THIS AGENT, or NULL to inherit the account's default. On an
-    #: Azure leg the resolved value is deliberately ignored — `in_call_llm` explains why
-    #: the endpoint and the identifier cannot be split.
+    #: What was configured ON THIS AGENT, or NULL to inherit the account's default.
     llm_model: str | None
     #: The ACCOUNT's default, read from `organizations` in the same statement so the
     #: middle rung of the fallback cannot be resolved against a different transaction's
@@ -790,418 +741,30 @@ def _assert_has_a_script(agent: AgentRow) -> str:
     )
 
 
-class InCallLLM(TypedDict):
-    """The three `ModelConfig` LLM fields `in_call_llm` decides, as a shape.
+def _model_legs(agent: AgentRow, *, engine: VoiceEngine) -> dict[str, Any]:
+    """The speech fields of `ModelConfig`, for the legs this engine lets us choose.
 
-    `llm_provider` and `llm_base_url` are `NotRequired` because the two arms genuinely
-    differ in ARITY, not just in value: an unconfigured deployment returns the model alone
-    and leaves the other two at `ModelConfig`'s defaults, which is what "no Azure leg"
-    means. Spelling them `| None` instead would make the difference invisible to a reader
-    and would let a future arm send `llm_provider=None` beside a real `llm_base_url`.
+    A leg the engine DICTATES (ThinnestAI's transcriber, model and voice, D-678) is sent as
+    the row holds it — `require_speech_leg` refuses any value there, and no writer fills
+    those columns — and the voice is cleared. On an engine whose voice leg is ours the
+    row's catalogue id is split into model and speaker by `speech_for_voice_id`, with the
+    catalogue's display name beside them (`ModelConfig.tts_voice_label`).
     """
-
-    llm_model: str | None
-    llm_provider: NotRequired[LlmProvider]
-    llm_base_url: NotRequired[str]
-    #: The model's request-field traps, in OUR vocabulary, for the adapter to render into
-    #: the vendor's body (`ModelConfig.llm_traps`). `NotRequired` for the same arity reason
-    #: as the two above: the passthrough arm decides no model, so it has no traps to state
-    #: — as against stating an empty tuple, which would be a claim that the model it did not
-    #: choose has none.
-    llm_traps: NotRequired[tuple[LlmModelTrapName, ...]]
-
-
-def resolved_llm_model(agent: AgentRow) -> ResolvedLlmModel:
-    """Which model this agent runs, and which level said so (D-454).
-
-    ONE resolver for the whole product — `agents/routes.py` reports it, `llm_routes.py`
-    reports the account's half of it, and `_to_config` sends it. A second `or` chain at
-    any of those is how the screen and the phone line start disagreeing about which model
-    is running, which is the class of defect D-103/D-105 exist for.
-
-    A thin wrapper over `resolve_llm_model` on purpose: that function takes two nullable
-    strings and no row type, so it stays testable without a database, and this one is
-    where the row's column NAMES are spelled — once.
-    """
-    return resolve_llm_model(
-        agent_model=agent["llm_model"], organization_model=agent["organization_llm_model"]
-    )
-
-
-def chosen_llm_model(agent: AgentRow) -> str | None:
-    """The model somebody EXPLICITLY chose for this agent, or `None` if nobody did.
-
-    Not the same question as `resolved_llm_model`, and the difference is what `_to_config`
-    needs: the resolver always answers, because the platform rung is always there, while
-    an engine leg that has no Azure credentials needs to be able to say "no model
-    configured, use your own default". Derived FROM the resolver rather than by a second
-    `or` chain, so the two can never disagree about which level won.
-    """
-    resolved = resolved_llm_model(agent)
-    return None if resolved.source == "platform" else resolved.model
-
-
-def in_call_llm(configured_model: str | None) -> InCallLLM:
-    """The LLM leg's three `ModelConfig` fields for one agent — D-410's one decision point.
-
-    THE WHOLE SWITCH LIVES HERE, and that is the reason this function exists rather than
-    three expressions inline. D-400 made the canonical in-call LLM a paid one; D-410
-    re-aimed it at Azure OpenAI in `AZURE_LOCATION`. Between a decision and its delivery
-    there is always a temptation to leave the decision as prose and the code as it was —
-    and then nobody can say what "when it lands, flip it" actually means. It means this
-    function, and nothing else.
-
-    THREE CONDITIONS, AND EVERY ONE IS NECESSARY — resource, key, deployment. They are
-    not three settings that happen to travel together; each names a different way the leg
-    fails, and each fails at a different, worse moment:
-
-    1. **A RESOURCE** (`azure_openai_resource`). It is the first label of the hostname, so
-       without it there is no endpoint to name at all.
-    2. **A KEY** (`azure_openai_api_key`). **This is D-404's condition in its Azure form,
-       and it is still the one a reviewer would drop.** The resource and the deployment
-       are enough to BUILD a URL, so a leg configured from those two alone looks complete
-       and points every agent at an endpoint nothing can authenticate against. That does
-       not fail at publish time, where somebody would see it. It fails as a 401 from
-       Azure, mid-sentence, on a client's live phone call.
-    3. **A DEPLOYMENT** (`azure_openai_deployment`). Azure serves a model under a
-       deployment ID the operator chose, and the v1 surface addresses THAT. A resource
-       with no deployment addresses a host and no model.
-
-    ⚠ **WHAT THE KEY CHECK CAN AND CANNOT PROVE, AND THE GAP GOT WIDER RATHER THAN NARROWER
-    WHEN THE VENDOR'S DOCS WERE READ.** It proves WE hold a key. It does not prove the
-    ENGINE holds it: Bolna authenticates from its own credential store, which
-    `VoiceEngine.set_llm_credential` writes. An Azure leg needs FOUR entries — the key, the
-    endpoint, the deployment and an api-version — and the platform can only PUSH the key:
-    the endpoint, the deployment and an api-version whose value nothing here can derive are
-    the operator's to install, so "the engine is configured" is further from "we hold a key"
-    than it was when this comment believed one entry was the whole of it. The condition
-    stays "this deployment holds a key it could install", which is the strongest thing a
-    publish path can check without doing the vendor's bookkeeping for it, and OPERATIONS §2
-    gate 16f is where the rest is observed.
-
-    WHAT D-410 DELETED FROM THIS LADDER, said plainly rather than left as an absence:
-    the founder's constant (`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE`) is gone with the
-    Vertex leg, and the switch is now the configuration itself — a deployment holding no
-    Azure credential publishes exactly as it did before. And **the D-404 hazard the third
-    condition guarded against has changed shape rather than survived**: under Vertex, the
-    dashboard AI needed only a project id while the in-call leg needed a mintable bearer,
-    so turning the assistant on could silently move the phone line. Under D-410 both
-    surfaces read the SAME three fields, so configuring the dashboard assistant does move
-    the in-call leg — deliberately, because it is one credential to one resource in one
-    region, which is D-410's whole argument. What must never happen is a HALF-configured
-    move, which is what `azure_credentials()` refuses.
-
-    THE MODEL IDENTIFIER MOVES WITH THE ENDPOINT, and this is the half a reviewer would
-    wave through. An Azure leg never sends a model NAME: the wire value is a deployment id,
-    so `agents.llm_model` cannot be pasted onto it. **This paragraph used to end "and the
-    column is deliberately ignored", which was right while nothing could write the column
-    and became a money defect the moment something could** (D-454): ignoring a choice means
-    quoting the model the client picked and running the one the single deployment serves.
-    The column is not ignored and it is not pasted through either — it SELECTS, via
-    `deployment_for()`, and the paragraph below is that rule.
-
-    **THE CHOSEN MODEL PICKS THE DEPLOYMENT, WHICH IS THE WHOLE OF D-454'S WIRE HALF.**
-    `configured_model` is what somebody CHOSE for this agent — its own column, or its
-    account's default (`chosen_llm_model`) — or `None` when nobody chose, which on this
-    arm means the platform's own model. It is not decorative and it is not only a pricing
-    key: `deployment_for()` turns it into the deployment id that actually serves it, so a
-    client who selects `gpt-4.1-mini` gets an agent published against the `gpt-4.1-mini`
-    deployment. Before that, a selection could be recorded and quoted at 2.7x while every
-    call ran the default deployment — charging for something we did not deliver, with
-    nothing in a transcript or an execution payload to show it.
-
-    ⚠ **AND IT REFUSES RATHER THAN FALLING BACK when no deployment serves the chosen
-    model.** The API cannot normally produce that state (`validate_llm_model` refuses the
-    selection at the write path, from the SAME `offerable_models()` predicate), so this
-    is the arm for the one way it can still arise: an operator removing a deployment entry
-    from `Settings.azure_openai_deployments` under accounts that already chose. Falling
-    back to the default deployment there is precisely the silent wrong-model charge this
-    exists to prevent, and falling back to "no model" would put a client's agent on the
-    engine's own default. A refusal costs one publish and names what an operator must do;
-    it does not touch agents that are already live, which keep the deployment they were
-    published against.
-
-    ⚠ **`llm_model` IS THE DEPLOYMENT ID HERE, NOT `Settings.azure_openai_model`**, and
-    on every other OpenAI-compatible provider those would be the same string. The model
-    name records which model the deployment was made from; it is what
-    `LLM_MODELS[model].price` prices and it never goes on the wire.
-    `ModelConfig.llm_model` says the same thing at the other end of this seam.
-
-    **THE PROVIDER NAME AND THE MODEL BINDING BOTH COME FROM THE DECLARED POSTURE (D-432)**
-    rather than being spelled here. This function is still the ONE decision point for the
-    leg; what moved is that it no longer re-states WHICH posture is in force. `"azure_openai"`
-    was a third spelling of a decision that had no first — the posture is declared once, in
-    `calevate_shared.engine.DECLARED_POSTURE_NAME`, and `scripts/check_model_residency.py`
-    fails the build when the declaration and the tree disagree in either direction. A caller
-    reading `binding.addressed` gets the right string under every posture, which is what
-    stops the wire/price distinction being a convention two settings apart.
-
-    **AND IT DISPATCHES ON THE MODEL'S OWN LEG NOW, NOT ON WHETHER AZURE IS CONFIGURED.**
-    Everything above is the Azure leg's story and all of it still holds; what changed is that
-    it is no longer the only story. `leg_for_model` resolves which of the three declared legs
-    a chosen identifier runs on, and the three differ in ARITY rather than only in value:
-
-    * **`azure_openai`** — a resource, a key and a per-model deployment, all three checked
-      above, and the endpoint built from the resource. The only leg with an indirection
-      between the model somebody chose and the string that goes on the wire.
-    * **`openai`** — the model's own published name, and `openai_base_url()`, which pins the
-      `us` data-residency host in the AUTHORITY. That endpoint is sent deliberately even
-      though the leg would work without one: it is the only leg in this product whose region
-      a BUILD can prove (`check_model_residency` check 4 reads the label off the builder's
-      own return template), and the documented cost — the engine drops its persistent
-      WebSocket when any `base_url` is set — is a latency optimisation nobody has measured
-      against a residency property this tree can check from its own AST.
-    * **`google`** — the model's own name and NO endpoint at all. Not an omission: the
-      engine's Gemini provider builds its client from a single API key and never reads a base
-      URL, so a configured endpoint there is a value nothing sends. `ModelConfig` enforces
-      the absence rather than tolerating it.
-
-    ⚠ **THE CREDENTIALS FOR THE OTHER TWO LEGS ARE NOT OURS TO HOLD, AND THAT IS WHY THERE IS
-    NO `openai_credentials()` BESIDE `azure_credentials()`.** Azure's key reaches the vendor
-    through OUR endpoint, so this repository must hold it. OpenAI's and Google's live in the
-    ENGINE's own credential store (`_OPENAI_PROVIDER_KEY` / `_GOOGLE_PROVIDER_KEY` in the
-    adapter) — one flat entry each, installed by an operator, and invisible to any read-back
-    of ours. What this function can check is that the platform CLAIMS to hold one, which is
-    `llm_models.installed_llm_providers()`, and that check belongs at SELECTION time where a
-    person can act on it rather than at publish time where it is an outage. So the refusal
-    below is stated over `unofferable_reason` — one predicate, one sentence, whichever of the
-    three conditions failed — instead of over a deployment lookup that means nothing on two
-    of the three legs.
-
-    Returns a dict rather than a `ModelConfig` because the caller is building one with the
-    speech legs alongside, and two `ModelConfig`s merged is a second place for the LLM
-    fields to be decided. `InCallLLM` rather than `dict[str, object]`, so that dict stays
-    CHECKED where it is splatted into `ModelConfig`: an `object` value unpacked through
-    `**` widens EVERY keyword at that call site, which is how these three fields and the
-    four speech fields beside them all became unverified together.
-    """
-    credentials = azure_credentials()
-    # WHICH LEG BEFORE ANYTHING ELSE, because it decides which of the questions below even
-    # applies. `platform_default_model()` is the last rung of `agent -> organization ->
-    # platform` and is the same function the API's resolver uses for the same rung, so the
-    # model this publishes and the model the screen reports are one decision.
-    model = configured_model or platform_default_model()
-    leg = leg_for_model(model)
-    traps = tuple(trap.name for trap in LLM_MODELS[model].traps)
-
-    if configured_model is None and leg.provider not in installed_llm_providers():
-        # THE PASSTHROUGH ARM: NOBODY CHOSE, AND WE HOLD NO KEY FOR THE LEG THE PLATFORM'S
-        # OWN DEFAULT RUNS ON. Send no model at all and let the engine answer from its own
-        # default client — which is what every conformance fixture, every local run and every
-        # CI run exercises, and what a deployment whose console has not been filled in has
-        # always done.
-        #
-        # ⚠ **THE CONDITION USED TO BE `leg is azure_openai and azure_credentials() is
-        # None`, AND BOTH HALVES CHANGED FOR A REASON.**
-        #
-        # * **It is no longer Azure-only**, because the platform default no longer has to be
-        #   an Azure model (`Settings.platform_llm_model`). The old spelling would
-        #   have refused every publish on a deployment whose default is a Gemini model and
-        #   whose Google key is not installed yet — i.e. CI, every local run, and the
-        #   founder's own deployment between the decision and the ops-console work. What the
-        #   arm actually encodes is "this platform cannot address its own default, so the
-        #   engine's default answers", and that sentence was never about Azure.
-        # * **It fires only when NOBODY CHOSE.** The old arm also passed a CLIENT'S CHOSEN
-        #   model through on an unconfigured deployment, which is the one thing this seam
-        #   must not do: it published an agent under a model somebody was quoted and billed
-        #   for while the engine served whatever its own bundled tier holds. A choice we
-        #   cannot honour now falls to the refusal below, which is the loud direction, and
-        #   `validate_llm_model` already refuses that selection at the write path.
-        return {"llm_model": None}
-
-    refusal = unofferable_reason(model)
-    if refusal is not None:
-        log.error(
-            "agent_llm_model_not_offerable",
-            # The MODEL, the LEG and the operator GROUND — never a client's own values: all
-            # three are platform configuration and together they are the whole of what an
-            # operator has to act on. The ground lives HERE, in the operator's log, and NOT
-            # in the message below, because publish is a client action: the person who sees
-            # the refusal cannot install a key, create a deployment or attest a price, so
-            # the client-facing message names only what they can do (CLAUDE.md: a user-safe
-            # message on the path they reach, an operator-actionable line on the one they do
-            # not). This path is defensive — `validate_llm_model` already refuses the
-            # selection — so it is only reached when config changed under a live choice.
-            extra={"llm_model": model, "llm_provider": leg.provider, "ground": refusal},
-        )
-        raise ProblemError(
-            kind="business_rule",
-            code="llm_model_not_deployed",
-            title="This agent's language model isn't available right now",
-            detail=(
-                # The TIER, never the model id: this reaches the client's go-live button.
-                f"This agent is set to the {client_model_label(model)} AI model tier, and it "
-                "isn't switched on for this account yet — publishing it would put calls on "
-                "a model we cannot run."
-            ),
-            remediation=(
-                "Choose an available tier, or ask your Calevate team to switch this one on."
-            ),
-        )
-
-    # THE TWO MODEL STRINGS, BOUND UNDER THE DECLARED POSTURE rather than picked apart
-    # here (D-432). `bind_model` is what knows that Azure addresses a DEPLOYMENT while the
-    # other two legs address the model by its own published name; it REFUSES a deployment
-    # id on a leg that has nowhere to put one, so the two arms cannot be confused by a
-    # caller. Reading `.addressed` (never `.priced`) is what makes the wire/pricing
-    # distinction a property of a type instead of a comment two settings apart.
-    #
-    # `deployment_for` is asked ONLY on the leg that has deployments — the refusal above
-    # already proved one exists there — because on the other two it would answer a question
-    # that does not apply with a `None` that reads like a failure.
-    deployment = deployment_for(model) if leg.addresses_a_deployment else None
-    binding = bind_model(deployment=deployment, model=model)
-    decided: InCallLLM = {
-        "llm_model": binding.addressed,
-        # From the MODEL, not the posture (D-456): three legs are declared, so the
-        # provider follows the model that was actually resolved above. Reading it off the
-        # posture would have named one vendor for every leg the day a second was declared.
-        "llm_provider": leg.provider,
-        "llm_traps": traps,
+    legs: dict[str, Any] = {
+        "stt_provider": agent["stt_provider"],
+        "stt_model": agent["stt_model"],
+        "stt_autodetect": False,
     }
-    if leg.provider == "azure_openai":
-        # `credentials is not None` is proved by the passthrough arm above, which returned
-        # on exactly the case where it is None for this leg. Unpacked rather than indexed so
-        # the third element is DELIBERATELY DROPPED: `azure_credentials()` answers "is this
-        # leg configured at all", and the deployment it carries is the PLATFORM model's —
-        # right only when nobody chose. Which deployment serves the model this agent runs is
-        # `deployment_for()`'s question and it is the only function permitted to answer it.
-        assert credentials is not None
-        resource, _api_key, _platform_deployment = credentials
-        decided["llm_base_url"] = azure_openai_base_url(resource)
-    elif leg.in_call_endpoint_is_ours:
-        # The OpenAI leg. `in_call_endpoint_is_ours` rather than `builder is not None`: since
-        # D-478 the google leg ALSO has a builder (for the dashboard copilot's OpenAI-compat
-        # surface), but its IN-CALL endpoint is the engine's own — Bolna dials Google via its
-        # first-class `google` provider — so google must fall through to the endpoint-less
-        # arm, not pick up `openai_base_url()`. See `PostureLeg.in_call_endpoint_is_ours`.
-        decided["llm_base_url"] = openai_base_url()
-    return decided
-
-
-class InCallSpeech(TypedDict):
-    """The four `ModelConfig` speech fields `in_call_speech` decides, as a shape.
-
-    Total rather than `NotRequired`, unlike `InCallLLM`, and the difference is real: the
-    LLM arms differ in ARITY (a passthrough leg names no endpoint at all), while every
-    speech arm answers all four slots — the answer is just `None` on the ones nothing
-    configured. Spelling them optional would hide that.
-    """
-
-    stt_provider: str | None
-    stt_model: str | None
-    stt_autodetect: bool
-    tts_model: str | None
-    tts_voice: str | None
-    tts_voice_label: str | None
-
-
-def in_call_speech(agent: AgentRow, *, engine: VoiceEngine) -> InCallSpeech:
-    """The speech legs' `ModelConfig` fields for one agent — the STT twin of `in_call_llm`.
-
-    ═══ WHY THIS EXISTS: THE STT LEG WAS NEVER WRITTEN, SO EVERY AGENT PUBLISHED A NULL
-    TRANSCRIBER. ═══
-
-    `agents.stt_provider` and `agents.stt_model` are nullable Text columns and **nothing in
-    this tree has ever written them** — no route, no service, no seed, no migration
-    default. `_to_config` read them faithfully, the adapter forwarded them faithfully, and
-    every published agent sent `"transcriber": {"provider": null, "model": null}`. The
-    engine then chose its own default transcriber, on a Telugu-first product, with no
-    symptom anywhere: `require_speech_leg` returns early on `None`, the read-back compares
-    null against whatever came back, and the only place the truth appears is a transcript
-    that quietly is not Telugu. `SARVAM_DEFAULT_STT` is what should have been going.
-
-    ⚠ **THE PLATFORM DEFAULT IS NOW `Settings.sarvam_stt_model`, NOT THE CONSTANT** (D-583).
-    It still DEFAULTS to `SARVAM_DEFAULT_STT`, so nothing moved; what changed is that the
-    engine's validator turned out to enforce a per-model language matrix no published page
-    states ("Provided language: te-IN is not available for the model: saaras:v3"), and the
-    only instrument that can answer which model serves Telugu is that validator. Read at the
-    point of use rather than captured at import, so a console edit reaches the next publish
-    without a restart.
-
-    ⚠ **THE DEFAULT IS FILLED ONLY WHERE THE LEG IS OURS TO FILL**, which is the half a
-    reviewer would drop and the half that would have broken working agents.
-    `require_speech_leg("stt", ...)` REFUSES a non-None STT selection on an engine whose
-    transcriber is its own product (`EngineCapabilities.stt == "engine"`). Filling a
-    platform default unconditionally would therefore make every agent on such an engine
-    UNPUBLISHABLE — a fix for a silent defect that causes a loud one. So the question is
-    put to the engine, exactly as `voice_selection_capability` and `fake.py`'s snapshot put
-    it: `capabilities.is_ours("stt")`.
-
-    On a dictated engine the ROW's values still travel verbatim rather than being dropped.
-    That is deliberate and it is `require_speech_leg`'s own argument: dropping a selection
-    is the quiet option that leaves a screen offering a choice nothing honours. Refusing it
-    is that guard's job, not this resolver's, and today no row holds one anyway.
-
-    THE TTS HALF IS A SPLIT, NOT A DEFAULT, and it fills nothing. `agents.tts_voice` holds
-    OUR catalogue id (`bulbul:v3:ashutosh`); the vendor's Sarvam provider wants the model
-    and the speaker in two different keys — plus the voice's DISPLAY NAME in a third
-    (`ModelConfig.tts_voice_label`), which is looked up here for the reason that field
-    states: a cloned voice's name has no derivable relationship to its id, so it can only
-    come from wherever the voice was enumerated. `None` for an id the catalogue does not
-    recognise, which is the same free-text passthrough the split itself does.
-    `speech_for_voice_id` is the one splitter and it
-    is a CATALOGUE LOOKUP — see its docstring for why splitting the string would turn the
-    legacy value `bulbul:v3` into the model `bulbul`. No default is invented here: an agent
-    with no voice configured still publishes with none, which is `voice_selection_capability`
-    and the picker's business, not this function's.
-
-    `engine` is a PARAMETER rather than a `get_engine()` call inside, for the reason
-    `engine_capabilities`' own docstring gives: all four `_to_config` call sites already
-    hold the adapter they are about to publish against (`_call_prompt_for`, `publish_agent`,
-    `publish_variant`, `publishing.engine_drift_for`), and a second factory read here could
-    answer for a different instance from the one being called — a capability check on the
-    wrong evidence. Threading it also makes the drift computation and the publish path
-    provably ask the same engine, which is what stops a drift sweep reporting a mismatch it
-    manufactured itself.
-    """
-    voice_id = agent["tts_voice"]
-    tts_model, speaker = speech_for_voice_id(voice_id)
-    catalogued = get_voice(voice_id) if voice_id else None
-    label = catalogued.label if catalogued is not None else None
-    if not engine_capabilities(engine).is_ours("stt"):
-        return InCallSpeech(
-            stt_provider=agent["stt_provider"],
-            stt_model=agent["stt_model"],
-            # FALSE ON A DICTATED LEG, not the platform setting, and it is the same
-            # argument the two fields above make: an engine whose transcriber is its own
-            # product is not ours to tell how to resolve a language.
-            stt_autodetect=False,
+    if engine.capabilities.is_ours("tts"):
+        voice_id = agent["tts_voice"]
+        tts_model, speaker = speech_for_voice_id(voice_id)
+        catalogued = get_voice(voice_id) if voice_id else None
+        legs.update(
+            tts_provider=agent["tts_provider"],
             tts_model=tts_model,
             tts_voice=speaker,
-            tts_voice_label=label,
+            tts_voice_label=catalogued.label if catalogued is not None else None,
         )
-    settings = get_settings()
-    return InCallSpeech(
-        stt_provider=agent["stt_provider"] or SARVAM_STT_PROVIDER,
-        stt_model=agent["stt_model"] or settings.sarvam_stt_model,
-        stt_autodetect=settings.stt_autodetect_language,
-        tts_model=tts_model,
-        tts_voice=speaker,
-        tts_voice_label=label,
-    )
-
-
-def _model_legs(agent: AgentRow, *, engine: VoiceEngine) -> dict[str, Any]:
-    """The LLM and speech fields of `ModelConfig`, for the legs this engine lets us choose.
-
-    The LLM leg is resolved, not read (`in_call_llm`, D-410); both speech legs go through
-    `in_call_speech`. A leg the engine DICTATES (ThinnestAI's model and voice, D-678) gets
-    nothing from us: `in_call_llm` always names a provider, and `require_speech_leg`
-    refuses any value on a dictated leg, so filling it would make every agent on such an
-    engine unpublishable. Our pickers do not offer a choice on a dictated leg
-    (`voices.voice_selection_capability`), so nothing a client chose is dropped.
-    """
-    caps = engine.capabilities
-    legs: dict[str, Any] = {}
-    if caps.is_ours("llm"):
-        legs.update(in_call_llm(chosen_llm_model(agent)))
-    speech = in_call_speech(agent, engine=engine)
-    if caps.is_ours("tts"):
-        legs["tts_provider"] = agent["tts_provider"]
-    else:
-        speech["tts_model"] = speech["tts_voice"] = speech["tts_voice_label"] = None
-    legs.update(speech)
     return legs
 
 
@@ -1296,19 +859,6 @@ def _to_config(
         # auto-reschedule callbacks (D-514): one switch, one reader.
         caller_memory_enabled=bool(agent["caller_memory_enabled"]),
         models=ModelConfig(
-            # The LLM leg is resolved, not read: see `in_call_llm` for why the endpoint
-            # and the identifier it addresses cannot be configured apart (D-410).
-            #
-            # THE CHOSEN MODEL, WHICH IS THE AGENT'S OR THE ACCOUNT'S — never the
-            # platform rung, and that omission is the decision. On a deployment with an
-            # Azure leg this argument is ignored outright (the wire value is the
-            # deployment id), so the only leg it reaches is the one with NO Azure
-            # credentials, where `None` means "whatever the engine's own default is" —
-            # the body every agent row in this repository has always produced. Sending
-            # the platform rung there would substitute an Azure model identifier into a
-            # request aimed at a provider we have not configured, changing live agent
-            # bodies on an unanswered vendor question. An EXPLICIT choice is
-            # different: somebody asked for it, so it goes.
             **_model_legs(agent, engine=engine),
         ),
         engine_voice_id=hosted.voice_id,
@@ -1356,14 +906,6 @@ def _call_prompt_for(
     treats as a defect even when both copies agree. On an `external_deployment` engine
     there is no agent record, so this is the only vehicle hard rule 5 has and every dial
     carries it.
-
-    ON AN `owned_runtime` ENGINE IT IS None FOR `control_plane`'S REASON AND NOT BY
-    DEFAULT (D-592). The agent record is ours, the worker loads the composed prompt from
-    the `agent_config_versions` row the publish minted, and the worker's attestation is
-    what proves it is holding it. A per-dial copy would be the same one-string-two-
-    authorities drift, with the added cost that the attestation would then be witnessing a
-    string no call had used. `hosts_agents()` covers both shapes, which is why this
-    function has no branch of its own.
 
     IT GOES THROUGH `_to_config` AND `compose_engine_prompt`, never a second rendering.
     That is the argument `engine_drift_for` already makes for reusing `_to_config`: a
@@ -1675,15 +1217,6 @@ async def _apply_inbound_bindings(
                 bound += 1
             else:
                 await engine.unbind_inbound_number(spec)
-                # The carrier no longer routes this number anywhere, so the binding the
-                # last bind recorded names nothing; the "ready to answer" screen reads it.
-                await session.execute(
-                    text(
-                        "UPDATE phone_numbers SET carrier_binding_id = NULL, updated_at = now() "
-                        "WHERE id = :nid AND carrier_binding_id IS NOT NULL"
-                    ),
-                    {"nid": number_id},
-                )
                 released += 1
         except ProblemError as exc:
             failed += 1
@@ -1715,7 +1248,7 @@ async def _apply_inbound_bindings(
 async def retire_in_call_actions(*, agent_id: UUID, ref: str | None) -> int:
     """Remove the vendor agent's in-call actions when the agent stops being published.
 
-    A failure alarms and does not undo the pause or archive, `retire_agent_carrier_bindings`'
+    A failure alarms and does not undo the pause or archive, `route_inbound_numbers`'
     contract: the actions would still reach our endpoint, which keeps answering for the
     route, so what is left is a vendor object to tidy rather than a caller misled.
     """
@@ -1733,37 +1266,6 @@ async def retire_in_call_actions(*, agent_id: UUID, ref: str | None) -> int:
             agent_id=str(agent_id),
         )
         return 0
-
-
-async def retire_agent_carrier_bindings(*, agent_id: UUID, ref: str | None) -> bool:
-    """Remove the routing object the carrier keeps for an archived agent. True when removed.
-
-    On Vobiz that is the agent's Application, which outlives every number detached from it,
-    and an account holding more than the binding search can page through refuses new binds
-    (`engine/vobiz._find_application`). Called after the agent's numbers are released, since
-    Vobiz refuses to delete an Application a number still points at.
-
-    A failure alarms and does not undo the archive, `route_inbound_numbers`' contract: the
-    agent answers nothing either way, and what is left is a carrier object to tidy by hand.
-    """
-    engine = get_engine()
-    if not ref or not isinstance(engine, RetiresAgentBindings):
-        return False
-    try:
-        removed = await engine.retire_agent_bindings(ref)
-    except ProblemError as exc:
-        alert(
-            "CORE_LOGIC",
-            "carrier_binding_not_retired",
-            detail=(
-                "an archived agent's routing object is still on the carrier account; delete "
-                f"it in the carrier console. Refusal: {exc.code}."
-            ),
-            agent_id=str(agent_id),
-        )
-        return False
-    log.info("carrier_binding_retired", extra={"agent_id": str(agent_id), "removed": removed})
-    return removed
 
 
 # --- the credit cutover: what a caller hears when the wallet is empty (8 Sep 2026) ------
@@ -2852,7 +2354,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
 
     THE LOCK. `for_update=True` — see `_load_agent`. It closes the create/create race
     that manufactures orphans and it serializes a publish against a concurrent
-    `set_call_cap`, `apply_to_live` or `set_agent_voice` republish, all of which reach
+    `set_call_cap`, `apply_to_live` or `lifecycle.update_agent` republish, all of which reach
     this function and all of which read-then-write the same row.
     """
     # THE ACCOUNT MUST STILL BE OPEN (D-194). Publishing is what puts an agent on the
@@ -3139,7 +2641,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
             "aid": agent_id,
             # Read off the config we JUST handed the engine, not re-read from the row.
             # This statement is the only moment the two are provably equal, and a
-            # re-read here would record whatever a concurrent `set_agent_voice`
+            # re-read here would record whatever a concurrent voice write
             # committed in between — a mirror that claims the engine holds a voice it
             # was never sent. Written inside the same transaction as `engine_agent_ref`
             # and after the vendor call, so a vendor failure rolls the mirror back with
@@ -3148,7 +2650,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
             # speaker. `ModelConfig` carries the SPLIT pair the vendor's two keys take;
             # this column, `agents.tts_voice` and `publishing.py::voice_diverged` are all
             # written in catalogue IDs, so recording `config.models.tts_voice` alone here
-            # would record `ashutosh` against a configured `bulbul:v3:ashutosh` and report
+            # would record the bare speaker against a configured `<model>:<speaker>` and report
             # every published agent as permanently diverged.
             "live_voice": voice_id_of(config.models.tts_model, config.models.tts_voice),
             "live_provider": config.models.tts_provider,
@@ -3674,11 +3176,11 @@ async def republish_running_variants(
 #: ORDERED so that the AMBIGUOUS case below is deterministic across connections — a
 #: refusal that depended on the planner's row order would be a refusal that came and went.
 #:
-#: AND, WHEN THE CALL GOES OUT ON OUR CARRIER, ONLY A NUMBER THAT CARRIER HOLDS FOR
+#: AND, WHEN THE ENGINE PRESENTS ONLY NUMBERS IT HOLDS, ONLY SUCH A NUMBER, SET UP FOR
 #: OUTGOING CALLS (`:carrier` set). A caller id the dialling account does not hold is one
 #: it cannot present, and a number bought for inbound only is not one to place calls from.
-#: `:carrier` is NULL on an engine that dials on an account of its own, where neither fact
-#: is ours to check (`outbound_carrier`).
+#: `:carrier` is NULL on an engine with no such rule, where neither fact
+#: is ours to check (`outbound_number_provider`).
 _AGENT_CALLER_ID_SQL = (
     "SELECT e164 FROM phone_numbers "
     "WHERE agent_id = :aid AND dlt_status = 'registered' "
@@ -3687,22 +3189,13 @@ _AGENT_CALLER_ID_SQL = (
     "ORDER BY created_at, id"
 )
 
-#: The rules the dial gate refuses a header under when the call goes out on our carrier.
+#: The rules the dial gate refuses a header under when the engine presents only its numbers.
 NUMBER_NOT_ON_CARRIER_RULE: Final = "number_not_on_carrier"
 NUMBER_INBOUND_ONLY_RULE: Final = "number_inbound_only"
 
-#: How an operator may have typed a carrier's name into `phone_numbers.provider`, mapped to
-#: the name (`calevate_shared.carrier.CarrierName`). Migration c8f5d1b74a30 froze the same
-#: map for the rows already on file.
+#: How an operator may have typed a number provider's name into `phone_numbers.provider`,
+#: mapped to the name (`calevate_shared.carrier.NumberProvider`). Any other name records NULL.
 CARRIER_SPELLINGS: Final[dict[str, str]] = {
-    "vobiz": "vobiz",
-    "vobiz.ai": "vobiz",
-    "vobiz ai": "vobiz",
-    "www.vobiz.ai": "vobiz",
-    "plivo": "plivo",
-    "plivo.com": "plivo",
-    "plivo inc": "plivo",
-    "www.plivo.com": "plivo",
     # A number rented and attached in ThinnestAI's console (migration a3d9e6f1c204).
     "thinnest": "thinnest",
     "thinnestai": "thinnest",
@@ -3721,21 +3214,14 @@ def carrier_of_provider(provider: str | None) -> str | None:
     return CARRIER_SPELLINGS.get(provider.strip().lower())
 
 
-def outbound_carrier() -> str | None:
-    """The carrier an outbound header must be held on, or None when the engine dials on
-    an account of its own and the question is not ours."""
-    return get_settings().carrier if dials_through_our_carrier() else None
-
-
 def outbound_number_provider() -> str | None:
     """The provider an outbound header must be recorded under, or None when unconstrained.
 
-    Our carrier when we dial through one (unchanged); otherwise the provider an engine that
-    dials on its own account requires (`calevate_shared.carrier.ENGINE_NUMBER_PROVIDER`):
-    on ThinnestAI only a ThinnestAI number can be presented, since it is the vendor that
-    places the call. None for an engine with no such rule.
+    The engine places the call on its own account, so only a number it holds can be
+    presented (`calevate_shared.carrier.ENGINE_NUMBER_PROVIDER`): on ThinnestAI, a ThinnestAI
+    number. None for an engine with no such rule.
     """
-    return outbound_carrier() or ENGINE_NUMBER_PROVIDER.get(get_settings().engine)
+    return ENGINE_NUMBER_PROVIDER.get(get_settings().engine)
 
 
 # The client-facing wording of the two ways a non-campaign outbound dial (an instant
@@ -3782,9 +3268,9 @@ async def agent_outbound_number_blocker(
     the campaign rule — the campaign has a `number_id`; a callback has only the agent.
 
     `number_not_bound_to_agent` when the agent carries no number at all;
-    `number_not_registered` when it has one that is not `registered`. When the call goes
-    out on our carrier, two more: `number_not_on_carrier` when no registered number is held
-    on that carrier (a NULL provider included), and `number_inbound_only` when the ones it
+    `number_not_registered` when it has one that is not `registered`. When the engine
+    presents only its own numbers, two more: `number_not_on_carrier` when none is held
+    there (a NULL provider included), and `number_inbound_only` when the ones it
     holds were bought for incoming calls only. Ambiguity (more than one presentable number)
     is deliberately NOT judged here — it is a real refusal, but `resolve_caller_id` raises
     it at dial time with the remediation, and the gate only needs to know whether a lawful
@@ -4099,19 +3585,10 @@ async def dispatch_call(
     # outage caused by an experiment. It is not recorded as assigned — see below.
     dial_ref = arm.arm.engine_agent_ref if arm and arm.arm.engine_agent_ref else ref
 
-    # THE CARRIER ACCOUNT'S TWO LIMITS, for every caller of this function (D-663). Pacing
-    # first, outside any transaction, because a wait inside the line check would hold the
-    # platform-wide lock for up to `MAX_PACING_WAIT_S`. Both refusals are raised before the
-    # intent row exists, so nothing is left `queued` for a dial that was never placed.
-    carrier = outbound_carrier()
-    if carrier is not None:
-        try:
-            await await_dial_slot()
-        except DialPacingTimeoutError as exc:
-            raise pacing_timed_out() from exc
-    # THE SAME TWO LIMITS ON AN ENGINE THAT RUNS CALLS ON ITS OWN ACCOUNT (ThinnestAI): the
-    # vendor's hold-off after a 429, then its call ceiling under the same lock.
-    engine_capped = carrier is None and engine_concurrency_cap() is not None
+    # THE ENGINE ACCOUNT'S TWO LIMITS (ThinnestAI): the vendor's hold-off after a 429, then
+    # its call ceiling under the line lock. Both are refused before the intent row exists,
+    # so nothing is left `queued` for a dial that was never placed.
+    engine_capped = engine_concurrency_cap() is not None
     if engine_capped and await dial_backoff_remaining_s() > 0:
         raise engine_backoff_refusal()
 
@@ -4121,15 +3598,13 @@ async def dispatch_call(
         if trial is not None:
             await _hold_trial_line(intent)
             await refuse_trial_studio_over_cap(intent, tenant_id=tenant_id, agent_id=agent_id)
-        if carrier is not None:
-            await _hold_carrier_line(intent, carrier=carrier)
-        elif engine_capped:
+        if engine_capped:
             await _hold_engine_line(intent)
         await intent.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
-                "carrier, trial_call, status, created_at, updated_at) VALUES (:id, :tid, :aid, "
-                ":ecid, 'outbound', :to_e, :carrier, :trial, 'queued', now(), now())"
+                "trial_call, status, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
+                "'outbound', :to_e, :trial, 'queued', now(), now())"
             ),
             {
                 "id": call_id,
@@ -4137,7 +3612,6 @@ async def dispatch_call(
                 "aid": agent_id,
                 "ecid": intent_engine_call_id,
                 "to_e": phone_e164,
-                "carrier": carrier,
                 "trial": trial is not None,
             },
         )
@@ -4185,7 +3659,7 @@ async def dispatch_call(
                 # data (structured builder, D-script). Only the values known at dial time
                 # are supplied; an unfilled field collapses to nothing rather than being
                 # spoken as a literal `{{ }}` (see `substitute_variables`). On an engine
-                # that holds the prompt as agent state (`control_plane`, `owned_runtime`)
+                # that holds the prompt as agent state (`control_plane`)
                 # this returns None, so the merge only runs on engines that carry the
                 # prompt per call.
                 system_prompt=_call_prompt_for(
@@ -4250,18 +3724,12 @@ async def dispatch_call(
     return handle
 
 
-_CARRIER_LINES_IN_USE_SQL = text(
-    "SELECT carrier_lines_in_use(:carrier, make_interval(secs => :live), "
-    "make_interval(secs => :ring))"
-)
-
-
 async def _platform_scalar(session: AsyncSession, statement: Any, params: dict[str, Any]) -> int:
     """A platform-wide count read on a session that may be a TENANT session.
 
-    `carrier_lines_in_use()` and `dispatch_scan()` enumerate tenants from
+    `dispatch_scan()` enumerates tenants from
     `engine_agent_routes`, whose policy shows every row only while `app.tenant_id` is
-    unset; inside a tenant session they saw that one tenant, so a dial counted its own
+    unset; inside a tenant session it saw that one tenant, so a dial counted its own
     account's lines against a platform-wide cap and the cap could be overrun. The setting
     is cleared for the count and put back, inside the caller's transaction.
     """
@@ -4275,56 +3743,10 @@ async def _platform_scalar(session: AsyncSession, statement: Any, params: dict[s
         )
 
 
-async def _count_carrier_lines(session: AsyncSession, *, carrier: str | None = None) -> int:
-    """Calls holding a line on `carrier` (default: the switch) right now, both directions.
-
-    `carrier_lines_in_use()` (migration a6d3b9f52e18) walks every tenant under its own
-    `app.tenant_id`, so it answers on any session and leaves the caller's tenant as it
-    found it. Takes the caller's session and never opens one: the dial path already holds
-    a connection, and a second one there is a pool deadlock under load.
-    """
-    params = {
-        "carrier": carrier or get_settings().carrier,
-        "live": LIVE_LINE_HORIZON.total_seconds(),
-        "ring": RING_LINE_HORIZON.total_seconds(),
-    }
-    return await _platform_scalar(session, _CARRIER_LINES_IN_USE_SQL, params)
-
-
-async def carrier_lines_in_use(*, carrier: str | None = None) -> int:
-    """`_count_carrier_lines` on an untenanted session of its own, for the dispatch tick."""
-    async with untenanted_session() as fresh:
-        return await _count_carrier_lines(fresh, carrier=carrier)
-
-
-async def _hold_carrier_line(session: AsyncSession, *, carrier: str) -> None:
-    """Refuse the dial unless an outbound line is free on `carrier`; else let it take one.
-
-    Runs in the intent transaction, before the INSERT. The advisory lock serialises every
-    dial's count-then-insert, so two dials cannot both see one free line and both go out;
-    it is released at commit, by which time this dial's own `queued` row is counted by the
-    next. The row's status IS the hold: nothing releases a line explicitly, a call that
-    ends releases it, and a row whose end was never reported ages out at the horizons.
-    Inbound calls count against the same account, which is why the threshold is the
-    outbound pool and not the whole line count.
-    """
-    await session.execute(
-        text("SELECT pg_advisory_xact_lock(:key)"), {"key": CARRIER_LINES_LOCK_KEY}
-    )
-    in_use = await _count_carrier_lines(session, carrier=carrier)
-    pool = outbound_line_pool()
-    if in_use >= pool:
-        log.info(
-            "dial_refused_lines_busy",
-            extra={"carrier": carrier, "lines_in_use": in_use, "outbound_pool": pool},
-        )
-        raise lines_busy()
-
-
 #: Outbound rows holding a line on an engine-capped account, platform-wide: the sum of
 #: `dispatch_scan()`'s per-tenant count (migration d8f31a7c2409), which loops the tenants
-#: under each one's own policies and restores the caller's GUC — the construction
-#: `carrier_lines_in_use()` uses, read without a migration. Outbound only: the engine's
+#: under each one's own policies and restores the caller's GUC, read without a migration.
+#: Outbound only: the engine's
 #: inbound calls reach us when they end, which is what the inbound reserve is for.
 _ENGINE_LINES_IN_USE_SQL = text(
     "SELECT coalesce(sum(active_outbound), 0) FROM dispatch_scan(:statuses, "
@@ -4334,10 +3756,12 @@ _ENGINE_LINE_STATUSES = ["queued", "ringing", "in_progress"]
 
 
 async def _hold_engine_line(session: AsyncSession) -> None:
-    """`_hold_carrier_line` for an engine with its own call ceiling (`engine_concurrency_cap`).
+    """Refuse the dial unless an outbound line is free under the engine's call ceiling.
 
-    Same lock, so a ThinnestAI dial and the count before it are serialised exactly as a
-    carrier dial is; same refusal, so every caller already treats it as not placed.
+    The advisory lock serialises every dial's count-then-insert, so two dials cannot both
+    see one free line and both go out; `lines_busy` is a refusal every caller treats as not
+    placed. The row's status IS the hold: a call that ends releases it, and a row whose end
+    was never reported ages out at `ENGINE_LINE_HORIZON` (`engine_concurrency_cap`).
     """
     await session.execute(
         text("SELECT pg_advisory_xact_lock(:key)"), {"key": CARRIER_LINES_LOCK_KEY}
@@ -4370,7 +3794,7 @@ async def _hold_trial_line(session: AsyncSession) -> None:
     (`update-phone-number.md:144-145`), and what re-pointing it does to a call in progress
     is not documented. So the line is held for the WHOLE call: the lock serialises the
     count with this intent row, and from commit the row's own status is the hold, exactly
-    as `_hold_carrier_line` works. A call whose end is never reported ages out at
+    as `_hold_engine_line` works. A call whose end is never reported ages out at
     `trial_line_horizon()` (the call limit plus a margin), so a lost delivery cannot lock
     trials out for good.
     """
@@ -4484,7 +3908,7 @@ async def provision_number(
 
     RECORD, not obtain, and that is still true of this function under Model A: it writes a
     row. Where the number CAME from is the caller's business — a client's own connection on
-    their own Exotel / Plivo / Vobiz account (Model B, `docs/legal/LEGAL-OPS-PLAYBOOK.md`
+    their own carrier account (Model B, `docs/legal/LEGAL-OPS-PLAYBOOK.md`
     §9), or a purchase `campaigns/number_supply.buy_number` has already made at the engine
     (Model A, D-537). Nothing here talks to a carrier and nothing here spends money.
 
@@ -4554,24 +3978,6 @@ async def provision_number(
         # answered by whatever the vendor has bound to a number and nothing in our database
         # is consulted. The agent arrives in the body, so the route-level guard cannot see it.
         await assert_agent_writable(session, agent_id, verb="given a phone number")
-    if engine_owned:
-        # THE RESELLER STAGE (evidence doc 2026-09-13 §5.2). Our carrier approves each
-        # client business separately before a number may be rented for it, and the purchase
-        # carries that application's identifier. So a number that is OURS may only be
-        # recorded against a tenant whose application the carrier has accepted. Plivo's rule
-        # only: on Vobiz the call returns at once (D-666).
-        #
-        # Conditioned on `engine_owned` and not applied to every row, because the other
-        # kind of row is a client's own connection on their own operator account (Model B,
-        # `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9) — a number our carrier has no relationship
-        # with and no rule about. Refusing to RECORD one would block the onboarding path
-        # that every existing client came in through, to enforce a condition that does not
-        # apply to them.
-        #
-        # `buy_number` asks the same question BEFORE it spends, which is where the money is
-        # saved; this is the backstop for every other way an owned number reaches the table,
-        # and the one that cannot be skipped by calling this function directly.
-        await assert_carrier_application_accepted(session, tenant_id=tenant_id)
     declared = series_for_e164(e164)
     if declared is None:
         # 140 and 160 are Indian numbering series. A number outside +91 cannot be one,
@@ -4987,7 +4393,6 @@ __all__ = [
     "agent_outbound_number_blocker",
     "apply_healer_silence",
     "attach_number_to_agent",
-    "carrier_lines_in_use",
     "carrier_of_provider",
     "credit_stop_greeting",
     "credit_stop_prompt",
@@ -4997,7 +4402,6 @@ __all__ = [
     "healer_forward_greeting",
     "healer_forward_prompt",
     "lift_healer_silence",
-    "outbound_carrier",
     "outbound_number_provider",
     "provision_number",
     "publish_agent",
@@ -5007,7 +4411,6 @@ __all__ = [
     "reconcile_inbound_truthful_answer",
     "republish_running_variants",
     "resolve_caller_id",
-    "retire_agent_carrier_bindings",
     "route_inbound_numbers",
     "set_number_dlt_status",
     "set_number_engine_ref",

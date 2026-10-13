@@ -31,7 +31,6 @@ export const OPS_CONFIG_SECTIONS: ConfigSection[] = [
     [
       ["engine", "Active engine"],
       ["thinnest", "ThinnestAI"],
-      ["pipecat", "Our own runtime (Pipecat)"],
     ],
     { after: ["engine_minute_price"] },
   ),

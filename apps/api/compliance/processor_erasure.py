@@ -2,13 +2,9 @@
 
 **The hole this fills.** `execute_deletion_request` erases a data principal from our
 Postgres and our object storage and writes a certificate. Vendors that handled the call
-keep copies this system cannot delete: the telephone carrier (Vobiz) documents no route that
-deletes a call record, and the speech and language vendors publish no per-subject deletion
-either. Vobiz's RECORDINGS do have a documented delete, which the erasure calls
-(`workers/carrier_recordings.delete_carrier_recordings`, D-668); their ids are quoted in the
-same `telephony` task, so a delete that fails is still on the written request. (The rented
-voice platform this module was first written against, Bolna, documented only an agent-wide
-delete; D-639 removed it from the product.)
+keep copies this system cannot delete: the telephone carrier documents no route of ours
+that deletes a call record, and the speech and language vendors publish no per-subject
+deletion either.
 
 So for a per-subject erasure there is no API to call, and the obligation does not go away
 because there is no API to call. What is left is a written request to the vendor — a thing
@@ -102,26 +98,22 @@ __all__ = [
 #: engine port, D-36 a speech tier, D-410 a model leg); the obligation attaches to the
 #: role, and a row written today must still be readable after a vendor swap.
 #:
-#: `telephony` is the carrier (Vobiz, D-662), where the call's audio terminates:
-#: `voice_worker/carrier.py` reads 8 kHz mu-law media frames off the carrier socket in both
-#: directions, so the carrier holds the numbers, its call records and the sound of the
-#: call. Both erasures open a `telephony` task naming the carrier's own call ids
-#: (`calls.carrier_call_id`) and recording ids (`calls.carrier_recording_id`, D-668)
-#: whenever the erased calls carry them; the "telephone carrier"
-#: entry in `deletion.ERASURE_EXCEPTIONS` is the certificate's side of the same obligation.
+#: `telephony` is the carrier, where the call's audio terminates, so it holds the numbers,
+#: its call records and the sound of the call. Calls placed on our former carrier leg carry
+#: its call ids (`calls.carrier_call_id`) and recording ids (`calls.carrier_recording_id`),
+#: and both erasures quote them in a `telephony` task; the "telephone carrier" entry in
+#: `deletion.ERASURE_EXCEPTIONS` is the certificate's side of the same obligation.
 #:
 #: `voice_engine` is a third-party platform that ran the call and holds its own execution
-#: record. On an engine whose conversation runs in OUR program (`OWN_RUNTIME_ENGINES`) there
-#: is no such record to ask for: the call row, the turns and the outcome are ours and the
-#: erasure has already reached them.
+#: record. Calls our former owned runtime ran (`OWN_RUNTIME_ENGINES`) have no such record to
+#: ask for: the call row, the turns and the outcome are ours and the erasure reaches them.
 PROCESSORS: Final = ("voice_engine", "speech", "llm", "telephony")
 
-#: Engines that run the conversation in our own program, so the refs they mint
-#: (`pipecat:<tenant>:<id>`, `pckb_<digest>`) name rows in OUR database rather than objects
-#: at a vendor. Quoting them in a vendor request would ask a vendor to delete something it
-#: never held — and the `pipecat:` refs are not id-shaped, so the task INSERT would raise and
-#: take the whole erasure down with it. `tests/processor_erasure_test.py` pins this to
-#: `apps/api/worker/service.ENGINE_NAME`.
+#: The former owned-runtime engine, whose refs (`pipecat:<tenant>:<id>`, `pckb_<digest>`)
+#: still sit on historical call rows and name rows in OUR database rather than objects at a
+#: vendor. Quoting them in a vendor request would ask a vendor to delete something it never
+#: held — and the `pipecat:` refs are not id-shaped, so the task INSERT would raise and take
+#: the whole erasure down with it.
 OWN_RUNTIME_ENGINES: Final = frozenset({"pipecat"})
 
 #: `open` — the erasure ran, this processor holds a copy, nobody has asked yet.

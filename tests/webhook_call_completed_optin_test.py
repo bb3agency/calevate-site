@@ -355,13 +355,16 @@ def test_raw_optin_requires_calls_read_raw() -> None:
     assert exc.value.status == 403
 
 
-def test_owner_may_opt_into_raw() -> None:
-    # `owner` holds `calls:read_raw`; the well-formed opt-in passes without raising.
+@pytest.mark.parametrize(
+    ("raw", "role"),
+    [
+        # `owner` holds `calls:read_raw`; the well-formed opt-in passes without raising.
+        (True, "owner"),
+        # Nothing to gate when raw is off, whatever the role.
+        (False, "staff"),
+    ],
+)
+def test_an_allowed_opt_in_passes(raw: bool, role: str) -> None:
     assert_may_opt_into_raw_transcript(
-        _body(include_transcript=True, include_raw_transcript=True), _principal("owner")
+        _body(include_transcript=True, include_raw_transcript=raw), _principal(role)
     )
-
-
-def test_no_raw_optin_is_always_allowed() -> None:
-    # Nothing to gate when raw is off, whatever the role.
-    assert_may_opt_into_raw_transcript(_body(include_transcript=True), _principal("staff"))

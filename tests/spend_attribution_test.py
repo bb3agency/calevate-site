@@ -801,7 +801,7 @@ async def test_one_client_the_board_cannot_price_is_a_named_row_and_not_a_500() 
 
     THE FIXTURE IS A LEDGER ROW AND NOT A MONKEYPATCH, because the two differ in what they
     prove. Patching `margin_for_tenant` would show the `except` arm runs; writing a `call`
-    split spelled `bulbul` shows that the real reader's real refusal reaches this row — the
+    split spelled `unknown_rung` shows that the real reader's real refusal reaches this row — the
     path a stale spelling on an append-only ledger actually takes. The write is by hand
     because it has to be: `CallDemand.voice_tier` is a `VoiceTier`, so the live path cannot
     PRODUCE such a token. History can, and history arrives through the table.
@@ -843,7 +843,7 @@ async def test_one_client_the_board_cannot_price_is_a_named_row_and_not_a_500() 
                 "lots": [
                     {
                         "kind": "call",
-                        "voice_tier": "bulbul",
+                        "voice_tier": "unknown_rung",
                         "inr": "60.00",
                         "minutes": "12.0000",
                     }
@@ -868,7 +868,7 @@ async def test_one_client_the_board_cannot_price_is_a_named_row_and_not_a_500() 
         named = next(row for row in body["undecidable"] if row["tenant_id"] == str(tenant_id))
         # The READER's own sentence, carried verbatim so an operator is told which spelling
         # and what to do about it — not a label this route invented.
-        assert "bulbul" in named["reason"]
+        assert "unknown_rung" in named["reason"]
         assert named["slug"] and named["plan_tier"]
 
         # It is in NEITHER the priced rows nor the count those rows total, so the board's

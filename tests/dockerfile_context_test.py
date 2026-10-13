@@ -28,13 +28,7 @@ REPO = Path(__file__).resolve().parents[1]
 #: Every Dockerfile in this repository, each built from the REPOSITORY ROOT and so each
 #: subject to the same `.dockerignore`. Named rather than globbed: a file this list does
 #: not know about is one nothing checks, and a glob would make that silent.
-#:
-#: `apps/voice-worker/Dockerfile` (D-603) is the second. It is built with
-#: `docker build -f apps/voice-worker/Dockerfile .` — the context is the root because the
-#: workspace lock spans every member — so its COPY sources answer to the same ignore file
-#: as the root image's, and get it wrong the same way: a path excluded there is not in the
-#: context at all and the build fails at the step with "not found".
-DOCKERFILES: tuple[str, ...] = ("Dockerfile", "apps/voice-worker/Dockerfile")
+DOCKERFILES: tuple[str, ...] = ("Dockerfile",)
 
 #: Sources that are not repository paths and so cannot be ignored: `--from=` copies read
 #: from an earlier stage or a pinned image, never from the build context.

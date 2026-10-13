@@ -6,12 +6,7 @@ import { NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { PageHeader } from "@/components/console/pageHeader";
 import { useAdminAccess } from "@/app/admin/access";
 import { Term } from "@/lib/glossary";
-import {
-  useRecordKyc,
-  useTenant,
-  useTenantCarrierApplication,
-  useTenantKyc,
-} from "@/lib/api/admin";
+import { useRecordKyc, useTenant, useTenantKyc } from "@/lib/api/admin";
 import {
   KYC_STATUS_COPY,
   documentKindLabel,
@@ -22,7 +17,6 @@ import {
 
 import { StatusPill } from "@/components/admin/kit";
 import { useTenantWorkspace } from "@/lib/api/engineWorkspaces";
-import { CarrierApplicationPanel, CarrierPill } from "./CarrierApplicationPanel";
 import { FactList, SubHeading } from "./FactList";
 import { KycRecordForm } from "./KycRecordForm";
 import { KycReviewPanel } from "./KycReviewPanel";
@@ -33,11 +27,9 @@ import { recordStamp } from "./kycDraft";
  * A business's identity verification and its approval for phone numbers — the two records
  * behind "may this business have a phone connection?".
  *
- * The approval depends on the deployment. Where each client has its own voice workspace
- * (D-693) it is the voice platform's answer to the business details we sent, read from its
- * API (`NumberApprovalPanel`). Where the carrier approves each client business itself
- * (Plivo) it is typed here from the carrier's email (`CarrierApplicationPanel`). On any
- * other carrier there is nothing to approve and neither panel shows.
+ * The approval is the voice platform's answer to the business details we sent for the
+ * client's own voice workspace (D-693), read from its API (`NumberApprovalPanel`). Where the
+ * deployment has no client workspaces there is nothing to approve and the panel does not show.
  *
  * Read through impersonation, written through the admin surface (D-22): there is no
  * admin-realm read of a tenant's KYC, because `org:read` keeps it visible in a read-only
@@ -50,18 +42,11 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
   // mutation held inside it would take the confirmation of the write down with it.
   const save = useRecordKyc(tenantId);
   const record = useTenantKyc(slug);
-  // One read for the header pill and the panel: each read of this route is audited.
-  const application = useTenantCarrierApplication(tenantId);
   const write = useAdminAccess("admin:tenants", "record an identity verification");
   // Where each client has its own voice workspace (D-693) the number approval is the voice
-  // platform's, read from its API; the typed carrier decision applies only where the
-  // carrier in use approves client businesses itself (`required`).
+  // platform's, read from its API.
   const workspace = useTenantWorkspace(tenantId);
   const ownWorkspace = workspace.data?.available === true ? workspace.data : null;
-  // A failed carrier read keeps its panel, which says so rather than vanishing.
-  const carrierRelevant =
-    workspace.data?.available === false &&
-    (application.data ? application.data.required : application.error != null);
 
   // The tenant layout resolves this before mounting the page.
   if (!tenant) return null;
@@ -78,7 +63,6 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
           <>
             {record.data && <OurPill record={record.data} />}
             {ownWorkspace && <NumberApprovalPill workspace={ownWorkspace} />}
-            {carrierRelevant && application.data && <CarrierPill application={application.data} />}
           </>
         }
         description="Our identity check and the approval for phone numbers. Both gate a phone number."
@@ -161,8 +145,6 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
 
       {ownWorkspace ? (
         <NumberApprovalPanel tenantId={tenantId} workspace={ownWorkspace} canWrite={write.allowed} />
-      ) : carrierRelevant ? (
-        <CarrierApplicationPanel tenantId={tenantId} application={application} />
       ) : (
         workspace.error && <ProblemNotice error={workspace.error} onRetry={() => void workspace.refetch()} />
       )}

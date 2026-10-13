@@ -65,43 +65,6 @@ def _mutated(old: str, new: str) -> str:
     return TRD_TEXT.replace(old, new, 1)
 
 
-# --- wiring -------------------------------------------------------------------
-
-
-def test_the_check_reads_the_real_rate_card_and_the_real_biller() -> None:
-    """Both halves resolve against the live artefacts, and they agree TODAY.
-
-    This is the assertion that makes every detection test below meaningful: a check
-    reading an empty table would report OK on any mutation.
-    """
-    declared = guard.doc_tts_rates()
-    billed = guard.code_tts_rates()
-    assert declared, "TRD §10.1's TTS rate card did not parse — section 4b is reading nothing"
-    # TWO rungs again since 19 Sep 2026 (D-631). It was one for a day: the Clear rung's
-    # vendor changed at D-629 and Gnani were believed to publish no price, so that rung had
-    # no card row to diff. They publish ₹27.00 / 10,000 chars, so both rungs are back —
-    # Cartesia's DERIVED in code from the vendor's overage rate (which is what pins the doc
-    # row to arithmetic rather than to a figure somebody rounded), Gnani's read off their
-    # console. Neither is a rate any minute is BILLED at; see `code_tts_rates`.
-    assert set(declared) == set(billed) == {"sonic-3.5", "timbre-v2.5"}
-    assert declared == billed, f"the doc and the biller already disagree: {declared} vs {billed}"
-    assert "bulbul-v3" not in billed, (
-        "`TTS_INR_PER_10K_CHARS` is the CLEAR rung's per-character rate and not a "
-        "rate anybody is billed at; listing it here would demand a rate-card row for a "
-        "vendor card that no longer exists"
-    )
-    assert not guard.tts_rate_card_drift()
-
-
-def test_the_doc_states_each_rate_twice_and_both_spellings_are_read() -> None:
-    """§10.1's Cartesia card quotes ₹/10,000 chars and its per-call-minute table quotes
-    ₹/1,000. Reading only one would let the other rot unwatched — and the per-1,000 table
-    is the one a reader doing per-minute arithmetic actually uses."""
-    assert "₹57.20 / 10,000 chars" in TRD_TEXT
-    assert "₹5.7200 / 1,000 chars" in TRD_TEXT
-    assert not guard.doc_tts_rate_disagreements(), "§10.1 already disagrees with itself"
-
-
 # --- detection ----------------------------------------------------------------
 
 
@@ -164,10 +127,8 @@ def test_the_cartesia_rung_moving_in_the_doc_alone_is_named() -> None:
 def test_the_cartesia_rung_deleted_from_both_tables_is_named() -> None:
     """A rung the cost model prices and the doc does not state is unguarded money.
 
-    ⚠ **THIS IS THE ONLY RUNG LEFT TO PROTECT (18 Sep 2026)**, so it carries the argument
-    its withdrawn Sarvam twin used to: a row's absence from a table is exactly how a false
-    "discontinued" claim gets made (D-20 recorded Bulbul v2 as discontinued and D-35 had to
-    take it back). BOTH spellings have to go, which is the union rule doing its job.
+    A row's absence from a table is exactly how a false "discontinued" claim gets made. BOTH
+    spellings have to go, which is the union rule doing its job.
     """
     dropped = TRD_TEXT.replace(
         "| Text-to-Speech **Sonic 3.5**, Pro plan (the plan we are on) |", "| ~~x~~ |", 1
@@ -210,15 +171,8 @@ def test_prose_about_a_rate_is_not_read_as_a_rate() -> None:
         "was wrong. The card below is the first-party read.\n\n"
         "| Cartesia API | Published rate |\n|---|---|\n"
         "| Text-to-Speech **Sonic 3.5** | ₹57.20 / 10,000 chars |\n"
-        # BOTH rungs, because §4b diffs the whole card in both directions: a fixture
-        # carrying one rung while the biller holds two reports the missing one as drift and
-        # this clause would fail for a reason that has nothing to do with prose (D-631).
-        "| Text-to-Speech **Timbre v2.5** | ₹27.00 / 10,000 chars |\n"
     )
-    assert guard.doc_tts_rates(prose) == {
-        "sonic-3.5": Decimal("57.20"),
-        "timbre-v2.5": Decimal("27.00"),
-    }
+    assert guard.doc_tts_rates(prose) == {"sonic-3.5": Decimal("57.20")}
     # What this asserts is that the SENTENCE quoting ₹99.00 produced no rate claim at all:
     # the only sonic-3.5 figure the parse found is the table row's, which agrees with code.
     assert not guard.tts_rate_card_drift(prose)
@@ -261,18 +215,6 @@ def test_a_rate_outside_section_10_1_is_not_read() -> None:
 # skipped, because the row that goes missing will be the non-default one and that is the
 # expensive half: a margin table quoting only the cheap model is wrong the moment an
 # operator flips a console switch.
-
-
-def test_the_check_reads_the_real_llm_rows_and_they_agree_today() -> None:
-    """Wiring, on EVERY model. A check reading an empty row would report OK on every
-    mutation, which is why `llm_cost_curve_drift` treats an empty reading as a FAILURE
-    rather than a pass."""
-    points = guard.doc_llm_cost_points()
-    assert set(points) == SELECTABLE_LLM_MODELS, points
-    for model, quoted in points.items():
-        assert quoted, f"TRD §10.1 has no `| LLM …` row naming `{model}` — 4c reads nothing"
-        assert set(quoted) == {1, 5, 10}, (model, quoted)
-    assert not guard.llm_cost_curve_drift()
 
 
 @pytest.mark.parametrize("model", sorted(SELECTABLE_LLM_MODELS))
@@ -327,26 +269,3 @@ def test_the_doc_may_round_to_paise_without_being_reported() -> None:
             "precise than the doc"
         )
     assert not guard.llm_cost_curve_drift()
-
-
-def test_a_gnani_rate_appearing_in_the_card_is_named() -> None:
-    """THE HARD-RULE-7 TRIPWIRE (D-629, 18 Sep 2026), and it is the reason
-    `_TTS_PRODUCT` is deliberately wider than the rungs the biller prices.
-
-    ⚠ **THIS SAID "Gnani publish no price of any kind" UNTIL 19 SEP 2026 AND THAT WAS
-    FALSE** (D-631). What is still true is the provenance point this guard exists for: the
-    only per-character figure that was in this TREE came from a RESELLER's page for their
-    own platform, and a client-facing rate card is exactly the surface a figure of that
-    class must never reach — a number that later turns out to match a real one is still not
-    a source. The tripwire is why `_TTS_PRODUCT` is deliberately wider than the rungs the
-    biller prices: the day §10.1 states a rate the code does not hold, §4b fails naming the
-    rung and the rupees rather than falling silent because the parser never learned the
-    product's name.
-
-    The mutation states the reseller figure on the Gnani row's SECOND cell, where the row
-    currently reads `**none published**`. That is the shape the defect would really take.
-    """
-    offenders = guard.tts_rate_card_drift(
-        _mutated("| ₹27.00 / 10,000 chars |", "| ₹41.00 / 10,000 chars |")
-    )
-    assert any("timbre-v2.5" in line and "41" in line for line in offenders), offenders

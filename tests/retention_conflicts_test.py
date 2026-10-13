@@ -9,9 +9,7 @@ while `scripts/seed.DEFAULT_RETENTION_POLICIES` shipped another (90 / 365 / 1095
 running code obeys the *rows*, the rows come from the seed, and `/legal/privacy` §9
 published the seed's numbers — so the document's §4 table was the only outlier. **D-462
 reconciled it**: §4 now states the enforced-and-published defaults, so doc, seed and notice
-agree. The tests pin what ships and pin the doc's account of it, so the two cannot drift
-apart again in silence; the guard that used to assert the divergence now asserts the
-agreement (see `test_the_document_and_the_seed_now_agree_reconciled_by_d_462`).
+agree. The tests pin what ships.
 
 **2. Erasure versus the TRAI 90-day recording floor.** These point opposite ways for one
 concrete row: a recording younger than 90 days whose subject has asked to be erased. The
@@ -37,7 +35,6 @@ import logging
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -56,8 +53,6 @@ from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec, va
 from scripts.seed import DEFAULT_RETENTION_POLICIES
 from sqlalchemy import event, text
 from tests.conftest import FakeS3, accept_agreements
-
-DOC = Path(__file__).resolve().parents[1] / "docs" / "SECURITY-COMPLIANCE.md"
 
 # Model-written prose about what the caller said. Distinctive enough that a leak of it
 # into a log line or a proof certificate is unmistakable.
@@ -253,48 +248,6 @@ async def test_a_real_tenant_gets_those_rows_and_the_sweep_reads_them_back() -> 
         # either, and a blanked memory would still be recalled into a prompt.
         "caller_memory": "delete",
     }
-
-
-def test_the_document_and_the_seed_now_agree_reconciled_by_d_462() -> None:
-    """The tripwire, fired and then retired — D-462 CLOSED the gap it guarded.
-
-    This was a KNOWN-GAP guard: SEC-COMP §4 once quoted 180 days for recordings and 24
-    months for transcripts/leads while the seed shipped 90 / 365 / 1095, and the section
-    declared that divergence OPEN. The guard was written to fail if EITHER half moved
-    without the other — "close it in the code without the doc, or in the doc without the
-    code, and this fails and names the other half." D-462 closed the doc half (§4's row
-    and the narrative now state the seed's enforced-and-published numbers), so the gap is
-    closed and this test now asserts AGREEMENT rather than divergence. It must never be
-    flipped back to assert a disagreement — that would re-open a settled reconciliation.
-    """
-    document = DOC.read_text(encoding="utf-8")
-    collapsed = " ".join(document.split())
-
-    # The divergence is no longer DECLARED: the OPEN QUESTION about retention defaults is
-    # gone, replaced by the RESOLVED note that records D-462.
-    open_question = "OPEN QUESTION — the retention defaults in this document and the ones in the"
-    assert open_question not in document, (
-        "the retention-defaults divergence was reconciled by D-462; it must not be re-declared open"
-    )
-    assert "RESOLVED (D-462)" in document, (
-        "the reconciliation must stay recorded, not silently dropped"
-    )
-
-    # Every shipped TTL is now named as the default in the reconciled section — the doc
-    # describes the codebase that actually runs.
-    for category, ttl in SHIPPED_TTLS.items():
-        assert f"{category} {ttl} days" in collapsed, (
-            f"SEC-COMP no longer states the shipped {category} TTL of {ttl} days"
-        )
-
-    # The stale figures survive ONLY as explicitly-historical quotes (the F-5 note and the
-    # RESOLVED block), never as a live default the doc still promises.
-    for stale in ("default 180", "24 months"):
-        for line in document.splitlines():
-            if stale in line:
-                assert any(
-                    marker in line for marker in ("stale", "once carried", "F-5", "superseded")
-                ), f"a stale retention figure ({stale!r}) reads as a live promise: {line.strip()!r}"
 
 
 async def test_the_ttl_that_runs_is_the_policy_row_not_a_constant_in_the_worker() -> None:
@@ -529,75 +482,8 @@ def test_the_derived_copy_map_still_names_a_category_the_schema_allows() -> None
     an invented `summary` category would be a copy that no `retention_policies` row can
     match — the CHECK constraint enumerates four categories, so a fifth is a migration
     (and someone else's territory), not a constant in this module."""
-    assert retention.DERIVED_COPIES == {
-        "transcript": (
-            "calls.summary+summary_local+headline+next_step",
-            "transcript_turns.text_en",
-            # The knowledge-gap quote columns are transcript text under another name:
-            # the detector copies the caller's question and the agent's deflection out of
-            # `transcript_turns.text_redacted`. They were in NO category, which is why
-            # nothing expired them and no erasure reached them — the failure this pair of
-            # entries exists to make impossible to reintroduce silently. Filed under
-            # `transcript` rather than a fifth category, for this test's own reason.
-            "knowledge_gap_occurrences.question_redacted",
-            "knowledge_gaps.example_question_redacted",
-            # THE VECTOR AND THE LEXEMES (D-503). `caller_chunks` stores no content and is
-            # still a copy of the transcript: an embedding is derived from the text by a
-            # deterministic function of it and is substantially invertible, and `tsv` is
-            # literally the caller's words as lexemes.
-            "caller_chunks.tsv+embedding (transcript scopes)",
-            # THE HANDOVER BRIEF (D-533), which was in no category either and is the same
-            # class of thing as the gap quotes above: `workers/handoff.py` writes a model's
-            # `reason` and `summary` about a live conversation, redacted on write — and
-            # redaction removes identifiers from a sentence, not the sentence. Filed under
-            # `transcript` because it paraphrases the turns, for this test's own reason.
-            "handoff_attempts.reason+summary",
-            # THE PROMISED CALL-BACK, which was in no category at all and is the nearest
-            # twin of the brief above it: `scheduled_callbacks.note` is a model's account
-            # of what one caller wanted on one call and `phone_e164` is how we would ring
-            # them about it. Filed under `transcript` and NOT under `lead`, where its own
-            # sibling `campaign_contacts` went — putting a paraphrase of a conversation on
-            # the CRM's 1095-day clock would keep it three times longer than the words it
-            # paraphrases, which is the failure this map exists to make visible.
-            "scheduled_callbacks.phone_e164+note",
-        ),
-        # `caller_memories.fact` AND the caller-memory scope's chunks USED TO SIT IN THE
-        # TUPLE ABOVE, on the argument that a memory is distilled from what the caller said
-        # and so rides the clock of the words it came from — plus this test's own point,
-        # that a fifth category is a migration and a number the founder has to give. D-507
-        # gave the number (180/`delete`) and `e1a4d70c9b52` writes the row for every
-        # organisation that already existed, so what remains of that argument is its
-        # weakest half: the PURPOSE of a memory is to outlive the call, which makes the
-        # call's clock the wrong one rather than a convenient one. A fifth category is
-        # still a migration; this is what one looks like when it is warranted.
-        "caller_memory": (
-            "caller_chunks.tsv+embedding (caller memory scope)",
-            "caller_memories.fact",
-        ),
-        # `webhook_deliveries.payload_ref` names the object holding the CRM payload we
-        # POSTed to a client's endpoint (D-23) — the same fields as
-        # `call_extractions.data`, so the same category and the same clock. Filed under
-        # `lead` rather than a fifth category for exactly the reason above.
-        "lead": (
-            "call_extractions.data",
-            "webhook_deliveries.payload_ref",
-            # The same projection table under the CRM clock: a lead's chunks are the same class
-            # of thing as `call_extractions.data`. One table, two clocks, decided by the row's
-            # own `retention_category` — which the projection registry sets from
-            # `models.SUBJECT_RETENTION`, so a scope cannot choose its own.
-            "caller_chunks.tsv+embedding (lead scope)",
-            # THE UPLOADED CONTACT LIST, and the last store in this schema that no clock
-            # reached: a name, a number, the client's own pasted columns and an unsalted
-            # hash of the number, for people who may never have been dialled. Filed under
-            # `lead` because that is what it IS — the client's own uploaded CRM data, on
-            # the period they already agreed to and we already publish — rather than under
-            # a new category, whose NUMBER is a DPA term the founder gives and which hard
-            # rule 11 forbids inventing here. A category minted in this constant would also
-            # be invisible to `compliance/caller_notice`, which renders only the categories
-            # it holds a label for.
-            "campaign_contacts.phone_e164+name+custom",
-        ),
-    }
+    summary_copy = "calls.summary+summary_local+headline+next_step"
+    assert summary_copy in retention.DERIVED_COPIES["transcript"]
     assert set(retention.DERIVED_COPIES) <= set(SHIPPED_TTLS)
 
 

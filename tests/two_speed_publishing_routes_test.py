@@ -36,7 +36,7 @@ from apps.api.core.rbac import (
     iter_api_routes,
 )
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.engine.fake import OWNED_RUNTIME_CAPABILITIES
+from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES
 from calevate_shared.engine import EngineCapabilities
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -233,10 +233,12 @@ async def test_the_lane_table_tells_the_truth_about_an_engine_that_records_nothi
     tenant_id, _agent_id, _ref, _engine = await _live_agent_with_a_staged_draft()
     token, slug = await _member(tenant_id), await _slug(tenant_id)
 
-    def owned_runtime(engine: object = None) -> EngineCapabilities:
-        return OWNED_RUNTIME_CAPABILITIES
+    records_nothing = DEFAULT_FAKE_CAPABILITIES.model_copy(update={"records_audio": False})
 
-    monkeypatch.setattr(publishing_routes, "engine_capabilities", owned_runtime)
+    def no_recording(engine: object = None) -> EngineCapabilities:
+        return records_nothing
+
+    monkeypatch.setattr(publishing_routes, "engine_capabilities", no_recording)
     async with _client(_app()) as client:
         response = await client.get(
             "/v1/agents/lanes",

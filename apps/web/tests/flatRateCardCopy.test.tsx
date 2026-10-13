@@ -15,7 +15,7 @@ import { stubApi } from "./harness";
  * THE LADDER.
  *
  * ⚠ This is not a hypothetical shape. The founder's 14 Sep 2026 decision
- * (`docs/PIPECAT-MIGRATION.md` §12) is **Clear ₹4.00 flat at every rung**, Studio ₹7.00
+ * (`docs/BRD.md` §6.1) is **Clear ₹4.00 flat at every rung**, Studio ₹7.00
  * down to ₹5.50; `PACK_CATALOGUE` still carries the old falling card, and §6 step 16
  * applies it. So the day that one catalogue edit lands, every surface below renders
  * against a flat Clear column — and three of them narrate the ladder in prose that only

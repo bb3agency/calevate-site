@@ -74,23 +74,17 @@ Trigger: Sri opens Admin → New Client: one screen, one "Create and invite" (D-
    `apps/workers/kb_embeddings.py` into the `kb_chunks` pgvector store (D-502, which
    reversed D-28) — a store that serves the dashboard copilot and the CRM paths and is
    never on the audio path.
-6. **Number & compliance** (see §10 for the full model): **the CLIENT buys the DID on
-   their own carrier account** and passes that carrier's KYC — Model B, and Calevate
-   neither supplies nor resells it (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9;
-   `PROVISIONING_IMPLEMENTED = False` is not an unbuilt adapter, it is a refused business
-   model). They hand back the number and revocable API credentials; an operator RECORDS
-   both with `POST /v1/admin/tenants/{tenant_id}/numbers`. Numbers are virtual (no SIMs),
-   one-per-client mandatory, and the rental is billed to the client by their operator, not
-   by us; an existing client number is handled by call-forwarding to the DID (porting only
-   later, never in onboarding critical path). If outbound intended: classification decided,
-   client registers as **Principal Entity** in their own name (~₹5,900, theirs to pay and
-   theirs to file — we walk them through it and cannot file it for them), binds our TM-ID
-   in the PE–TM chain, we accept it; DLT voice template content drafted by us and filed by
-   them under their PE; series selected (140 promotional / 160-standard service). Blocked
-   until Calevate's TM registration exists — wizard shows compliance status explicitly.
-   **Testing is the one exception (D-662):** the founder's own Vobiz account holds the test
-   numbers and pays Vobiz (Model A for that account only), recorded with provider `vobiz`.
-   Client traffic waits on Vobiz's written consent (OPERATIONS §2 gate V-10) and on gate 47.
+6. **Number & compliance** (see §10 for the full model): the client buys its numbers through
+   our purchase flow, in its own business name, in its own ThinnestAI customer workspace
+   (D-693; THINNEST-INTEGRATION §3a). Buying needs the account open, the workspace active, a
+   verified KYC record (document review or DigiLocker, D-692, D-696), the workspace's
+   business-details application `accepted`, and an attested client price; the vendor's
+   monthly price is our cost and is never shown as the client's, and the client pays our
+   price monthly from its wallet (D-665). An existing client number is handled by
+   call-forwarding to the agent's number (porting only later, never in the onboarding
+   critical path). Outbound needs a verified KYC record and an accepted no-cold-calls pledge,
+   not DLT (D-692, D-762); inbound is never gated. The wizard shows compliance status
+   explicitly.
 7. **Test-call sign-off [GATE]**: "Call me" button dials admin's phone with the draft
    agent; regression mini-suite (happy path + interruption + tool call + disclosure check)
    must pass; latency numbers recorded. Only then: Publish (staging → live promote).
@@ -232,105 +226,63 @@ D-124's mirror race is deleted rather than superseded; there is nothing left to 
 
 ## 3. Inbound Call Lifecycle
 
-The owned runtime (D-592) on Vobiz (D-662). Three boxes take part: the carrier, voice-runtime
-on our VPS, and the voice worker on Pipecat Cloud `ap-south` (PIPECAT-MIGRATION §8).
-
-caller dials the client's number → the number's Vobiz Application fetches its answer URL →
-1. **Answer document** (`apps/voice-runtime/carrier_routes.py`). The URL names the agent
-   (`calevate_shared.carrier.answer_path`): the route is the URL, never the dialled number
-   (D-603). The request must come from Vobiz's published range, carry our `callback_key`
-   secret, and verify any signature it carries (D-673, SECURITY-COMPLIANCE §5). The reply
-   is XML: when the agent was published with `call_is_recorded`, a `<Record
-   recordSession="true" redirect="false" playBeep="false" finishOnKey="*">` first
-   (D-668/D-670), then a bidirectional `<Stream>` to `PIPECAT_STREAM_BASE_URL` with the
-   agent ref in the path and the caller's number SEALED on the query (D-649). No database
-   is read.
-2. **Session.** The worker reads `GET /v1/worker/session/{ref}` from the api, which serves
-   the published config, and refuses a closed, erased or pre-D-546 `churned` account's
-   agent with `worker_account_closed` (D-671); a suspended account still answers. Caller
-   memory, when the agent has it on, arrives from `POST /v1/worker/agents/{ref}/caller-memory`
-   (D-641).
-3. **Opening.** The worker speaks the notices switched on (the published `opening_line`)
-   verbatim, then the model greets with the script's opening line (D-654). The notices
-   and the opening line are separate things (D-708): the two switches decide only whether
-   the AI disclosure and the recording notice are said before the opening line, never
-   whether the opening line is said. A new agent volunteers neither notice (both toggles
-   default OFF since D-669), so it opens with its opening line only; a client switches
-   either on per agent (D-163). Whatever the toggles say, the agent answers truthfully
-   when a caller asks whether it is an AI or whether the call is recorded (hard rule 5,
-   `compose_engine_prompt`).
-4. **Conversation.** Tools the model may call: `search_knowledge_base` (the agent's
-   knowledge pack, held in the worker's memory, PIPECAT-MIGRATION §8.1),
-   `record_do_not_call`, `book_callback`, `cancel_callback`, `request_human_handoff` and
-   `end_call`. The four that write go to `/v1/worker/calls/{id}/tools/*` on the api, which
-   writes inside the request (D-650). A handover answers `not_available` unless
-   `carrier_transfer_enabled` is on (off by default, D-662); when on, Vobiz transfers the
-   caller to an Indian number on the agent's handover roster (SECURITY-COMPLIANCE §5).
-   Unknown or out-of-scope questions (T4): the agent says it does not know, offers a
-   call-back, and the call is tagged. The worker posts who is speaking for the live console
-   (D-656). Every sentence the model writes passes `PromptLeakGuard` before the voice
-   speaks it: an attempt to get the agent to reveal its instructions is declined by the
-   prompt's `CONFIDENTIALITY_RULE`, and a sentence that would reproduce them anyway is
-   replaced by one decline and the rest of that turn dropped (D-674).
-5. **After the hangup.** Transcript turns reach the api during the call in observation
-   batches (`/v1/worker/calls/{id}/observations`); after the pipeline drains, the worker
-   posts its settlement (`/v1/worker/calls/{id}/settlement`):
-   final status, carrier call id and per-leg metered quantities. The api writes the `calls` row,
-   prices the minutes from the published config (D-648) and puts ONE `post-call:{call_id}`
-   outbox row on the books, which runs the post-call pipeline (§6). Vobiz's hangup callback
-   reaches voice-runtime, is acked under 500 ms into the inbox, and
-   `workers/carrier_events.ingest_carrier_event` advances the call's status and queues the
-   CDR read, whose cost becomes OUR cost for the carrier leg as one compensating row
-   (`ux_usage_events_carrier_cdr`). The recording arrives separately: Vobiz's `RecordStop`
-   names its recording id, `workers/carrier_recordings.py` copies the audio into our
-   `recordings/` and sets `calls.recording_url`, fans out `call.recording_ready` to
-   endpoints opted into recording links (WEBHOOKS §1), and the 20-minute sweep deletes
-   Vobiz's copy a day after ours is stored (D-670). Our copy is kept 90 days
-   (`workers/retention.py`, seeded `recording` policy).
-6. SLO: lead + summary visible in client dashboard < 2 min after hangup.
-After-hours: agent runs 24/7 by default; "after_hours" flag set from business_hours →
-dashboard "after-hours captured" metric; escalation rules can differ after hours.
-Closed account: closing an account detaches every number from its agent at the carrier
-(`agents/lifecycle.release_account_numbers`) and the undo re-attaches them; the session
-refusal in step 2 is the backstop (D-671, §9).
-Failure: an answer the carrier cannot fetch or a worker that cannot start leaves the caller
-with whatever the carrier does on failure (OPERATIONS §2 V-series); a missed hangup callback
-does not leave the call open, because the worker's settlement carries its final status.
-
-### 3a. The same call on `ENGINE=thinnest` (D-678, D-682)
-
-ThinnestAI hosts the agent and the call (`docs/THINNEST-INTEGRATION.md`), so voice-runtime
-answers nothing and no worker of ours is on the line. The agent and the number live in the
-client's own ThinnestAI customer workspace (D-693); the number is ThinnestAI's own, bought
-from the client's Numbers page in the client's business name and pointed at the agent by us
-(`docs/THINNEST-INTEGRATION.md` §3a-§3b). Vobiz is never used on this engine.
+ThinnestAI hosts the agent and the call (D-678, D-682; `docs/THINNEST-INTEGRATION.md`), so no
+server of ours is on the audio path. The agent and the number live in the client's own
+ThinnestAI customer workspace (D-693); the number is ThinnestAI's own, bought from the
+client's Numbers page in the client's business name and pointed at the agent by us
+(THINNEST-INTEGRATION §3a-§3b). The number answers with the agent: the route is the agent the
+number is attached to.
 
 caller dials the client's number → ThinnestAI answers with the published agent →
-1. **Opening.** The agent's `greeting` is its first words, verbatim: the notices switched
-   on, then the script's opening line (`compose_first_utterance`, D-669, D-708). With both
-   notices off it is the opening line alone; an outbound call's `purpose` is the same
-   words with the call's `{{variables}}` filled in. The
-   instructions are `compose_engine_prompt`'s, with the business facts moved into one
-   knowledge document (founder, 6 Oct 2026). The truthful-answer floor and
-   `CONFIDENTIALITY_RULE` are in the prompt and were read back at publish; there is no
-   output guard on this engine (SECURITY-COMPLIANCE §6.1 item 4).
-2. **Conversation.** The agent's in-call actions (opt-out, call-back, call-back cancel,
-   hand-over request) are ThinnestAI custom actions calling the api at
-   `ENGINE_ACTIONS_BASE_URL` with the agent's own secret header; they reuse the same service
-   functions the Pipecat worker's tools call. There is no live transfer: a hand-over is
-   recorded for the client, not bridged.
-3. **After the hangup.** ThinnestAI posts signed `call.completed` and `call.analysed` to
+1. **Knowing the caller.** Before the agent answers, ThinnestAI calls the agent's
+   `voice.callStartUrl`, which is our caller lookup (`POST /v1/worker/engine-lookups/thinnest`,
+   `worker/engine_lookups.py`, D-716). It is verified with the v2 webhook signature and
+   answered within 0.8 s with up to 20 short variables from our CRM for that tenant, or none.
+2. **Opening.** The agent's `greeting` is its first words, verbatim: the notices switched
+   on, then the script's opening line (`compose_first_utterance`, D-669, D-708). The
+   notices and the opening line are separate things: the two switches decide only whether
+   the AI disclosure and the recording notice are said before the opening line, never
+   whether the opening line is said. A new agent volunteers neither notice (both toggles
+   default OFF since D-669); a client switches either on per agent (D-163). With both
+   notices off the greeting is the opening line alone; an outbound call's `purpose` is the
+   same words with the call's `{{variables}}` filled in. The instructions are
+   `compose_engine_prompt`'s, with the business facts moved into one knowledge document
+   (founder, 6 Oct 2026). Whatever the toggles say, the agent answers truthfully when a
+   caller asks whether it is an AI or whether the call is recorded (hard rule 5): the
+   truthful-answer floor and `CONFIDENTIALITY_RULE` are in the prompt and are read back at
+   publish and by the drift sweep. There is no output guard on this engine
+   (SECURITY-COMPLIANCE §6.1).
+3. **Conversation.** The agent answers from the client's knowledge, attached to every one of
+   its agents in ThinnestAI's knowledge base (D-689). Unknown or out-of-scope questions
+   (T4): the agent says it does not know, offers a call-back, and the call is tagged. Its
+   in-call actions (opt-out, call-back, call-back cancel, hand-over request) are ThinnestAI
+   custom actions calling the api at `ENGINE_ACTIONS_BASE_URL` with the agent's own secret
+   header (`worker/engine_actions.py`), each run once per call and arguments (D-736). There
+   is no live transfer: a hand-over is recorded for the client, not bridged.
+4. **After the hangup.** ThinnestAI posts signed `call.completed` and `call.analysed` to
    voice-runtime `/hooks/v1/engine/thinnest`, which verifies the HMAC against the agent's
    sealed secret, dedupes in the inbox, acks under 500 ms and queues the sealed body for
-   the worker (hard rule 3). The worker writes the call row, the transcript (redacted as
+   the worker (hard rule 3). The worker writes the call row and the transcript (redacted as
    on every engine), runs our extraction, CRM and leads, meters the minutes at the
    operator-attested rate in 30-second pulses (hard rule 7), debits the wallet at the
-   client rung the publish stamped (Clear, D-681), copies the recording into our
-   `recordings/` (kept 90 days) and fans out the client webhooks, `call.recording_ready`
-   included.
-4. **Reconciliation.** ThinnestAI attempts each delivery once and switches an endpoint off
+   client rung the publish stamped, and fans out the client webhooks.
+5. **The recording.** ThinnestAI's `recording.url` is a signed link that expires (30 or 75
+   days, THINNEST-INTEGRATION §1), so the pipeline's first step copies the audio into our
+   `recordings/` (`engine/recording_source.py`), sets `calls.recording_url` and fans out
+   `call.recording_ready` to endpoints opted into recording links (WEBHOOKS §1). Our copy is
+   kept 90 days (`workers/retention.py`, seeded `recording` policy). ThinnestAI's own copy
+   follows its retention; a contact erasure in the client's own workspace removes it (§9).
+6. **Reconciliation.** ThinnestAI attempts each delivery once and switches an endpoint off
    after five failures, so a sweep settles any call from their call list that we have not,
    and another switches a disabled endpoint back on with an alarm.
+7. SLO: lead + summary visible in client dashboard < 2 min after hangup.
+
+After-hours: agent runs 24/7 by default; "after_hours" flag set from business_hours →
+dashboard "after-hours captured" metric; escalation rules can differ after hours.
+Closed account: closing an account detaches every number from its agent
+(`agents/lifecycle.release_account_numbers`) and the undo re-attaches them (D-671, §9).
+Repeat callers: what the agent knows about a caller reaches it at call start through the
+lookup in step 1, never mid-call.
 
 ## 4. Instant Lead Callback (Webhook-in → Outbound)
 
@@ -344,11 +296,10 @@ Trigger: Meta Lead Ads / website form / Sheets/Zoho webhook hits our per-client 
    the halt (D-666). The call-back goes through the gate again when it fires; a
    person-level refusal (DNC, consent) books nothing. The ingest answer carries
    `callback_at`.
-3. Dial through `agents.service.dispatch_call`, the one dial path: paced to `carrier_cps`,
-   then, under one advisory lock in the intent transaction, refused with
-   `carrier_lines_busy` if the carrier's outbound pool is full (`carrier_lines_in_use()`,
-   D-663), and refused with `number_not_on_carrier` if the caller ID is not on the active
-   carrier. The agent opens with the lead's context ("you enquired about…").
+3. Dial through `agents.service.dispatch_call`, the one dial path: held off while the engine's
+   `429` hold-off runs (`engine_rate_limited`), then, under one advisory lock in the intent
+   transaction, refused with `carrier_lines_busy` if the outbound pool is full
+   (`engine/dial_lines.py`). The agent opens with the lead's context ("you enquired about…").
 4. Speed-to-lead metric recorded (form_ts → dial_ts; target < 60s).
 5. No-answer → retry policy (respecting hours) → after exhaustion: WhatsApp/SMS follow-up
    template + needs_follow_up lead status.
@@ -392,28 +343,25 @@ Three rules, all of them consequences of things stated elsewhere in this documen
   for, so a schedule shape a future build writes cannot be fired once and look finished.
   The gate runs at every occurrence, through the same `launch_campaign`.
 
-**Concurrency reservation (our dispatcher).** The carrier account's lines are shared by
-every tenant, inbound and outbound together, so one client's campaign must never starve
-another's inbound receptionist. Vobiz refuses a dial over the account's concurrent-call
-limit with `429` and turns an inbound caller away with SIP 503
-(`vobiz-findings/mirror/pages/call/make-call.md:134`), so the reserve is ours to hold
-(D-663). `apps/workers/campaign_dispatch.py` budgets, in order: (1)
-`Settings.carrier_concurrency`, the account's lines (default 3, the founder's account as
-read in the Vobiz console on 2 Oct 2026; OPERATIONS §2 gate V-5); (2) minus the inbound
-reserve, `inbound_reserved_lines` lines (unset: `max(1, ceil(lines × inbound_reserve_ratio))`), never zero — at
-the defaults one line for callers and an outbound pool of two (`engine/carrier_pacing.outbound_line_pool`);
-(3) the tenant's plan `concurrency_ceiling`, clamped to that pool; (4) the campaign's
-slider, at most the tenant ceiling. That is the BUDGET. The ENFORCEMENT is inside every
-dial's intent transaction (`agents.service.dispatch_call`): dials are paced to
-`carrier_cps` (default 1), then one advisory lock counts the calls holding a line on the
-carrier in both directions (`carrier_lines_in_use()`) and refuses with
-`carrier_lines_busy` before the INSERT. That covers the dials the tick does not make (the
-"call this lead" button, lead ingest, call-backs). The call row's status is the hold, so
-nothing has to release a line; a Redis counting semaphore was rejected because a lost
-release leaks a line until a TTL. Only a `429` on call create is retried, and an unknown
-dial outcome never is, because Vobiz documents no idempotency key (D-662). Secondary
-ceilings — Sarvam STT concurrency and the LLM provider's rate limits — are not modelled by
-the dispatcher.
+**Concurrency reservation (our dispatcher).** ThinnestAI's simultaneous-call ceiling covers
+inbound and outbound together across the whole account (OPERATIONS §2 gate T-7), so one
+client's campaign must never starve another's inbound receptionist, and the reserve is ours
+to hold (D-663). `apps/workers/campaign_dispatch.py` budgets, in order: (1) the account's
+lines, `Settings.thinnest_max_concurrent_calls` (`engine/dial_lines.engine_concurrency_cap`;
+the fake engine uses `carrier_concurrency`); (2) minus the inbound reserve,
+`inbound_reserved_lines` lines (unset: `max(1, ceil(lines × inbound_reserve_ratio))`), never
+zero — at ThinnestAI's 5, three outbound and two kept for callers
+(`engine/dial_lines.outbound_line_pool`); (3) the tenant's plan `concurrency_ceiling`,
+clamped to that pool; (4) the campaign's slider, at most the tenant ceiling. That is the
+BUDGET. The ENFORCEMENT is inside every dial's intent transaction
+(`agents.service.dispatch_call`): one advisory lock counts our own outbound calls holding a
+line — inbound calls are invisible to us until they end, which is what the reserve is for —
+and refuses with `carrier_lines_busy` before the INSERT. That covers the dials the tick does
+not make (the "call this lead" button, lead ingest, call-backs). The call row's status is the
+hold, so nothing has to release a line; a Redis counting semaphore was rejected because a
+lost release leaks a line until a TTL. A `429` from ThinnestAI holds every dial off for its
+`Retry-After` (`start_dial_backoff`, at most 15 minutes), account-wide, rather than being
+re-asked once per claimed contact.
 
 ## 6. Post-Call Pipeline (worker jobs, keyed by call_id, idempotent)
 
@@ -421,10 +369,8 @@ fetch_recording → redact_transcript → extract(schema) → upsert_lead(+repea
 phone match) → meter_usage(write unit rows + update spend_state) → notify(hot-lead rules:
 e.g., status hot OR urgency=emergency ⇒ WhatsApp+email to owner within 2 min) →
 resolve_campaign_contact → outbound_sync(call.completed via the outbox, D-23).
-On the owned runtime the pipeline never fetches the recording itself: the carrier reports it
-after the hangup, `workers/carrier_recordings` copies it (§3 step 5), and the pipeline's
-copy stage reads `calls.recording_url` as already copied (`engine/pipecat.py`,
-`get_execution`).
+The pipeline's first stage copies ThinnestAI's expiring `recording.url` into our storage
+(`engine/recording_source.py`, §3 step 5).
 `embed_if_resolved(call corpus)` is M3, NOT in the shipped pipeline
 (`apps/workers/pipeline.py` stops at outbound sync).
 Retry budget: **3 attempts** — one number, `WORKER_MAX_TRIES` in
@@ -561,10 +507,9 @@ ported per client wish.
   no exit. A soft-deleted client is a 404 on that route rather than a 409 — it is not a
   client any more, and the directory route has always said so.
 - **A closed account stops answering (D-671).** The close detaches every number from its
-  agent at the carrier and the undo re-attaches them; the numbers are not released, which
-  stays the client's choice above. The worker's session read refuses any call that still
-  reaches a closed or erased account's agent (`worker_account_closed`), and a hangup for an
-  erased account writes no call row.
+  agent (`agents/lifecycle.release_account_numbers`) and the undo re-attaches them; the
+  numbers are not released, which stays the client's choice above. A detach that fails
+  alarms per number (`engine_inbound_binding_failed`) and does not undo the close.
 - **`organizations.deleted_at` is written by the tenant erasure, and by nothing else**
   (D-122). `POST /v1/admin/tenants/{id}/erasure` — admin realm, superadmin, step-up
   confirmed and bound to the tenant — files a `tenant_erasure_requests` row and queues
@@ -581,97 +526,52 @@ ported per client wish.
   stated in the certificate rather than hidden: the append-only ledgers, DNC entries, the
   knowledge base, the client's own users and memberships, and engine-side copies
   (`compliance/tenant_erasure.TENANT_ERASURE_LIMITATIONS`).
-- **The carrier is reached by a task, and its recordings by a call** (D-664/D-668). Both
-  erasures open a `telephony` processor-erasure task quoting `calls.carrier_call_id` and
-  any carrier recording ids, because Vobiz's call records are erased by written request;
-  the recordings themselves are deleted through Vobiz's recording DELETE. Refs minted by
-  our own runtime (`pipecat:<tenant>:<id>`) name rows the erasure already reached and are
-  left out of vendor tasks.
+- **The voice platform's copy is erased in the client's own workspace** (D-691). ThinnestAI
+  has no call delete; deleting a person's contact erases their contact, conversations, calls
+  and recordings in one workspace. A data principal's erasure queues `erase_engine_contact`
+  in the client's own ThinnestAI workspace; where the client has none, nothing is asked of
+  the vendor and its copy expires with ThinnestAI's plan retention, and the certificate says
+  which (THINNEST-INTEGRATION §6). Our own copies are always erased by us. A `telephony`
+  processor-erasure task is opened only for an erased call that carries a carrier call id,
+  which a ThinnestAI call never does: such rows come only from test calls placed on our own
+  runtime before D-763 (`runbooks/processor-erasure.md`).
 
 ## 10. Number Provisioning & DLT Roles (reference)
 
-**No physical SIMs.** All numbers are virtual DIDs (Exotel / Vobiz / Plivo), routed over
-SIP, stored in `phone_numbers`.
+**No physical SIMs.** A client's numbers are ThinnestAI's own virtual numbers, rented in the
+client's own ThinnestAI customer workspace and so in the client's business name (D-693),
+carried by ThinnestAI's own telephony and recorded in `phone_numbers`. There is no carrier
+account of ours. The mechanics — the workspace's business-details application, buying,
+moving a number between workspaces, releasing, attaching a number to an agent and the daily
+sweep — are THINNEST-INTEGRATION §3a. Numbers rented in our developer workspace before
+D-693 are in Calevate's name and are for testing only (OPERATIONS §2 gate T-21).
 
-⚠ **THIS PARAGRAPH AND THE CARRIER SPLIT BELOW WERE WRITTEN FOR THE BOLNA ERA AND MISLED A
-READER ON 17 SEP 2026** — into believing Calevate provisions numbers and that outbound runs
-on 140-series. Both were read off this page and taken as current, which is exactly the cost
-of a stale blueprint. What the sentence used to carry: that the three providers were
-"connected to the engine", with Bolna's own guides verified for each and Vobiz inbound only
-ASSERTED in their capability matrix. **D-592 removed Bolna**, so there is no engine to
-connect a number to — the worker is ours and the carrier (Vobiz, D-662) is reached directly.
+**What a client pays.** ThinnestAI's `monthlyPrice` is OUR cost and is never shown as the
+client's price (hard rule 7). The client pays our attested monthly price, its first period
+collected in the purchase transaction and renewals billed after (D-665; the price is
+OPERATIONS §2 gate 26). Releasing is permanent and the current period is not refunded, by
+ThinnestAI or by us; both screens say so before the button.
 
-**READ `docs/evidence/dlt-roles-and-operating-model-2026-09-18.md` BEFORE THIS SECTION.** It
-carries the three models (A closed by UL-VNO licence text, BYON with no documented path,
-B documented), the KYC-versus-DLT distinction, and the unresolved question of where a
-Telemarketer ID attaches to a VOICE call — which nothing in this repository can answer and
-which decides whether a ₹5,900 registration is spent at all.
+**DLT (D-692, partly superseded by D-696 and D-762).** No client DLT and no Calevate
+telemarketer registration: outbound needs a verified KYC record (document review or
+DigiLocker) and an accepted no-cold-calls pledge, on every tier, and inbound is never gated.
+The DLT tables, columns and functions stay (hard rule 8). Who is the DLT telemarketer and the
+principal entity of record for a number on ThinnestAI is still asked of the vendor
+(OPERATIONS §2 gate T-9). `docs/evidence/dlt-roles-and-operating-model-2026-09-18.md` carries
+the regulatory reading behind the earlier role model (the KYC-versus-DLT distinction, and
+the open question of where a Telemarketer ID attaches to a voice call). Two facts from TRAI's
+own text still bind whatever the vendor answers: **1600xx is restricted to
+RBI/SEBI/IRDAI/PFRDA-regulated entities and government** (TRAI clarification, 10 July 2026),
+so ordinary SMB clients cannot have it; and a PE registration's ₹5,900 is **₹5,000 + 18% GST**
+(`docs/LEGAL-SURFACE.md:1284`).
 
-**CALEVATE DOES NOT BUY, SELL, RENT, ALLOCATE OR PORT A NUMBER — MODEL B**
-(`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9). The client's entity is on the CAF and the carrier
-KYC, the client is the subscriber of record and the PE on DLT, and we are the TM. The
-client keeps its own carrier credentials. Model A — a pool of numbers in our name, allocated
-to clients — reads as unlicensed telecom resale (UL-VNO is a licensed category) and is
-refused outright for a proprietor with no corporate veil (`:249`). A client who asks us to
-"just give them a number" is sent to Exotel/Plivo/Vobiz or lost as a deal (`:266`), and
-opening a Calevate carrier account to park client traffic on is stop-list item 10. The
-founder's own Vobiz account (D-662) is a TESTING account carrying the founder's own calls
-only; client traffic on it waits on Vobiz's written consent (OPERATIONS §2 gate V-10), and
-the client number browse/buy path (`campaigns/number_catalog.py`, D-537, whose rental D-665
-collects) refuses every purchase while `number_resale_authorization` is unset (gate 47).
-
-**And "provisioned via API" was never true of the regulated series anyway.** The 140- and
-160-series numbers outbound campaigns run on have **no provisioning endpoint at all** —
-`POST /phone-numbers/buy` cannot reach them. Getting one is a paperwork sequence a human
-runs on the client's side: DLT Principal-Entity registration, documents to the carrier's
-compliance address, carrier allocation, then header and template approval.
-
-⚠ **THE CARRIER SPLIT BELOW IS BOLNA'S, NOT OURS, AND IT NO LONGER BINDS ANYTHING.** It
-read: *"the carrier is not a preference either — it is fixed by the series, in the vendor's
-own table: 140-series → Vobiz, 160-series → Plivo"*, sourced from
-`bolna-findings/mirror/pages/guides/inbound/obtaining-regulated-phone-numbers.md`. That was
-a fact about which carriers BOLNA could buy each series through, and Bolna is gone
-(D-639). Our own Vobiz account (D-662) carries test calls on whatever series its numbers
-are; which series a client's outbound numbers need is decided by TRAI's classification,
-not by a carrier table. `campaigns/provisioning.KNOWN_PROVIDERS` still names three
-carriers.
-
-Two corrections that followed from reading TRAI's own text rather than the vendor's table:
-**1600xx is restricted to RBI/SEBI/IRDAI/PFRDA-regulated entities and government** (TRAI
-clarification, 10 July 2026), so ordinary SMB clients cannot have it whatever a carrier
-table says; and the ₹5,900 PE registration figure recorded in `docs/LEGAL-SURFACE.md:1284`
-is **₹5,000 + 18% GST**, not a separate charge.
-
-**One number set per client — mandatory**, because: (a) inbound number IS the client's
-public line; (b) DLT ties outbound numbers to one business identity + its templates —
-cross-client sharing is a compliance violation; (c) tenancy/routing/analytics assume it.
-
-Typical allocation per client:
-| Purpose | Series | DLT template needed | Cost note |
-|---|---|---|---|
-| Inbound receptionist | standard DID | No (receiving needs no template) | ₹0.4–0.9/min |
-| Outbound service/transactional (reminders, confirmations) | 160/standard, registered | Yes | 45–65% answer rates |
-| Outbound promotional (campaigns) | **140-series only** | Yes, approved | 8–20% answer rates — set client expectations |
-
-**DLT role model:** each **client is the Principal Entity (PE)** for calls made on their
-behalf (their identity, their templates, their consent records — PE registration ~₹5,900
-first TSP, taken out by THEM on the registrar's portal under their own PAN/GST/Udyam; we
-hold no DLT login of theirs and cannot file it, so onboarding walks them through it and
-drafts the template content they file (playbook §10.4-10.5); **the figure is
-independently corroborated by the engine vendor's own guide** — *"a payment link for
-**₹5,900** will be generated on the portal"*,
-`bolna-findings/mirror/pages/guides/inbound/obtaining-regulated-phone-numbers.md:60`). **Calevate
-registers once as the Telemarketer (TM)** under our operating entity and is linked to each
-client PE. Calevate's TM registration is therefore the single platform-level blocker
-(Risk R-01, whose entity leg is closed — sole proprietor, ROADMAP D-461); each client's PE
-registration is an onboarding step THEY complete.
+**One number set per client — mandatory**, because: (a) the inbound number IS the client's
+public line; (b) a number is issued to one business identity, the client's own; (c)
+tenancy, routing and analytics assume it.
 
 **Existing business numbers:** default answer is call-forwarding from the client's known
-number to the AI DID (zero disruption, day-one). Porting into the cloud provider is a
-later, weeks-long option — never inside onboarding.
-
-Failure route: every DID configured on the client's carrier account with a fallback
-destination (client's own phone) for engine outage (see OPERATIONS runbooks).
+number to the agent's number (zero disruption, day-one). Porting is a later, weeks-long
+option — never inside onboarding.
 
 ## 11. Buying Credit and Paying for a Call (prepaid wallet, per-lot rates)
 
@@ -680,21 +580,25 @@ Trigger: a self-serve client's wallet is low, or is empty at signup. This is the
 invoice; this is prepaid credit, and the two never meet on one account.
 
 **The one sentence to hold on to: a credit is ₹1 and never expires, but a MINUTE has a
-price, and that price belongs to the PURCHASE rather than to the account.** A bigger pack
-buys a cheaper minute — as a falling rate, not as bonus credits — and it is two rates,
+price, and that price belongs to the PURCHASE rather than to the account.** Where the card
+discounts a bigger pack it does so as a falling rate, never as bonus credits (the D-728 card
+is flat); and it is two rates,
 because the voice tier is chosen per agent (D-547,
 `docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md`). What carries the pair is the **lot** each
 purchase opens (DATA-MODEL §8 `credit_lots`).
 
 ### The card
 
-| Pack | Amount | Sarvam ₹/min | Cartesia ₹/min |
+D-728 (founder, 11 Oct 2026): flat on every pack. `billing/credit_packs.PACK_CATALOGUE` is the
+single source; BRD §6.1 carries the decision and the cost behind it.
+
+| Pack | Amount | Clear ₹/min | Studio ₹/min |
 |---|---|---|---|
-| `starter` | ₹2,000 | 5.00 | 8.00 |
-| `growth` | ₹5,000 | 5.00 | 7.00 |
-| `scale` | ₹10,000 | 4.85 | 6.75 |
-| `plus` | ₹15,000 | 4.70 | 6.50 |
-| `pro` | ₹25,000 | 4.60 | 6.25 |
+| `starter` | ₹2,000 | 4.50 | 6.00 |
+| `growth` | ₹5,000 | 4.50 | 6.00 |
+| `scale` | ₹10,000 | 4.50 | 6.00 |
+| `plus` | ₹15,000 | 4.50 | 6.00 |
+| `pro` | ₹25,000 | 4.50 | 6.00 |
 | `max` | ₹50,000 | 4.50 | 6.00 |
 
 A **free amount** (any top-up ≥ `MIN_TOPUP_INR`) takes the rates of the largest pack whose
@@ -727,8 +631,8 @@ cheaper minute than a ₹50,000 purchase.
 ### Paying for a call
 
 5. **The call ends** and the post-call pipeline runs (§6). It already knows the billable
-   minutes and the agent's voice — the tier is a pure function of the chosen voice's
-   provider, so an agent cannot hold a Cartesia voice and a Sarvam price.
+   minutes and the agent's rung — stamped at publish on the agent's route
+   (`engine_agent_routes.engine_rate_key`), never re-derived from the voice at billing time.
 6. **FIFO across lots.** The debit takes the OLDEST open lot first, decrementing under the
    same per-tenant lock the ledger takes, and closes a lot at zero. One `usage` ledger row
    is written per call, idempotent on `(tenant_id, 'usage', call_id)` — a replayed pipeline
@@ -749,22 +653,17 @@ cheaper minute than a ₹50,000 purchase.
    month per voice (`clear_minutes` / `studio_minutes` and their charges, read out of
    `meta.lots`).
 
-   ⚠ **NO CLIENT-FACING SURFACE NAMES A VENDOR AS A PRODUCT TIER** (founder, 7 Sep 2026).
-   The two voice qualities are **Clear** (spoken by Gnani Timbre v2.5) and **Studio**
-   (Cartesia Sonic 3.5), defined once
-   in `billing/rates.VOICE_TIER_LABELS` and SENT to the browser beside every per-tier
-   figure — a second copy in TypeScript is how the two drift and a client meets both names.
-   ⚠ **THIS PARAGRAPH SAID "Clear (Sarvam)" AND SAID EVERY FIELD "keeps the VENDOR
-   spelling", AND BOTH ARE NOW WRONG** (corrected 19 Sep 2026). D-629 took Sarvam off the
-   synthesis leg on 18 Sep 2026 — it is still the STT vendor on every call — and D-630
-   renamed the money columns and wire fields to the RUNGS the next morning. So the fields
-   named below keep the **rung** spelling, not a vendor's: `voice_tier`,
-   `clear_inr_per_min`, `clear_minutes` are `clear`/`studio`
-   (`billing/rates.py::VoiceTier`), and a lot's two rates were renamed by
+   ⚠ **NO CLIENT-FACING SURFACE NAMES A VENDOR AS A PRODUCT TIER** (founder, 7 Sep 2026;
+   D-679). The two voice qualities are **Clear** (ThinnestAI's own voices) and **Studio**
+   (Cartesia on our key through ThinnestAI), defined once in `billing/rates.VOICE_TIER_LABELS`
+   and SENT to the browser beside every per-tier figure — a second copy in TypeScript is how
+   the two drift and a client meets both names. The fields named below spell the **rung**,
+   not a vendor: `voice_tier`, `clear_inr_per_min`, `clear_minutes` are `clear`/`studio`
+   (`billing/rates.py::VoiceTier`), and a lot's two rates were named by
    `alembic/versions/f1c40d8b6e93_voice_tiers_named_for_rungs.py`, which refuses against a
-   non-empty table because they are frozen at purchase. What the paragraph was protecting is
-   unchanged and is what the rename served: an auditor reconciles a column against an
-   invoice, so a money column must never be named for a supplier that can be swapped.
+   non-empty table because they are frozen at purchase. An auditor reconciles a column
+   against an invoice, so a money column must never be named for a supplier that can be
+   swapped.
 
 9. **Correcting a purchase.** An operator restating an UNDER-credited payment grows that
    payment's own lot (one bank transfer, one card, one lot). One taking credit BACK restates
@@ -778,15 +677,13 @@ cheaper minute than a ₹50,000 purchase.
 ### The two branches that are easy to forget
 
 **A debit that SPLITS across two lots, at two different rates.** A client with 40 credits
-left on a `plus` lot (₹4.70 Clear) and 5,000 on a newer `starter` lot (₹5.00) takes a
-12-minute Clear call. ⚠ (This worked example said "Sarvam" for the rung; the rung is `clear`
-since D-630, and both ₹ figures are from the card in force on 7 Sep 2026 — today's is Clear
-flat ₹4.00, `billing/credit_packs.py::PACK_CATALOGUE`. It is kept at the old rates
-deliberately: with Clear flat, no two packs price a Clear minute differently, so the split
-this example exists to show could not be built from today's card at all.) The oldest lot pays for 8.51 minutes and empties; the remaining 3.49
+left on a lot bought at ₹4.70 a Clear minute and 5,000 on a newer lot at ₹5.00 takes a
+12-minute Clear call (an illustration: the D-728 card is flat, so today two lots differ in
+rate only when bought under different cards or opened by an operator's override). The
+oldest lot pays for 8.51 minutes and empties; the remaining 3.49
 minutes are priced at ₹5.00 off the newer lot. One call, one `usage` row, TWO entries in
 `meta.lots`, and the totals in the panel are the sum of the splits — never minutes × one
-rate. This is the ordinary case at every pack boundary, not an edge case, and it is the
+rate. It happens at every lot boundary where two rates differ, and it is the
 reason no surface may reconstruct a charge by multiplying.
 
 **A wallet driven NEGATIVE, and how it is repaid.** The dial gate refuses at a balance ≤ 0,
@@ -809,12 +706,11 @@ client is never quietly given ₹2,000 of cheap minutes to pay off a ₹300 hole
   never idempotent by itself; the ledger row is what makes it so.
 - Rate card changed mid-month: closed months and open lots are both untouched by
   construction (D-492). Nothing re-prices.
-- **A voice is sold only on an attested price.** On the owned runtime the worker calls
-  Cartesia and Gnani directly (PIPECAT-MIGRATION §5), so OPERATIONS §2 gate 52 — the
-  rented engine's wire shape for a Cartesia agent — went with Bolna (D-639). What still
-  holds a voice back is `agents/voice_offer.tts_price_is_billable`: until the vendor's key
-  is installed and an operator attests its price, the picker marks the voice unavailable
-  with its named reason — the rule `offerable_models()` already applies to an LLM.
+- **A voice is sold only on an attested price.** A Clear or Studio minute is offered only
+  once the ThinnestAI rate for its rate key is attested (`billing/engine_minutes.
+  engine_minute_is_billable`), and a Studio voice also needs the Cartesia price attested and
+  our key installed. Until then the picker marks the voice unavailable with its named
+  reason — the rule `offerable_models()` already applies to an LLM.
 - **A refunded pack takes its bonus back** (D-672): `payments.credit_refund` writes, in the
   refund's transaction, a negative `bonus` row sized so that partial refunds summing to the
   payment take back exactly the bonus, and it may take the balance below zero. Moot for a
@@ -827,5 +723,5 @@ client is never quietly given ₹2,000 of cheap minutes to pay off a ₹300 hole
 
 Owner surfaces: client — `/c/<slug>/billing` (top-up, wallet, lots, transactions);
 admin — `/admin/tenants/<id>/credits` (grants, restatements, the audited "sell this lot at
-pack X's rates" override) and `/admin/spend` (Sarvam vs Cartesia minutes, revenue from the
+pack X's rates" override) and `/admin/spend` (Clear vs Studio minutes, revenue from the
 splits, attributed TTS cost beside the plan fee).

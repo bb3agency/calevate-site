@@ -123,11 +123,10 @@ export type SpeakingRate = Schemas["SpeakingRateOut"];
 /**
  * A rung's name, for sentences about a cell.
  *
- * Named by RUNG and not by vendor: which company speaks a rung is a property of the engine
- * (D-687: ThinnestAI's studio band behind Clear and Cartesia on our key behind Studio under
- * `ENGINE=thinnest`; Gnani and Cartesia under `ENGINE=pipecat`), and this card prices the
- * rung whichever it is. A vendor compiled in here was wrong on one engine or the other. The
- * vendors' own invoice lines are on the model-pricing panel, which reads them from the server.
+ * Named by RUNG and not by vendor: which company speaks a rung is configuration (D-688:
+ * ThinnestAI's Premium or Studio band behind Clear, Cartesia on our key behind Studio), and
+ * this card prices the rung whichever it is. The vendors' own invoice lines are on the
+ * model-pricing panel, which reads them from the server.
  */
 export function rungLabel(tier: string): string {
   return tier === "clear" ? "Clear" : tier === "studio" ? "Studio" : tier;

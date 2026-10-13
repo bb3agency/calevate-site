@@ -119,7 +119,6 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.engine.carrier import carrier_of_record
 from apps.api.insights.service import scrub_quotes_for_calls
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.retrieval.caller_erasure import (
@@ -134,7 +133,6 @@ from apps.api.retrieval.caller_erasure import (
 from apps.api.retrieval.supermemory_index import purge_tenant_index
 from apps.api.tenancy.engine_workspace import own_workspace
 from apps.workers import storage
-from apps.workers.carrier_recordings import enqueue_carrier_deletion
 from apps.workers.engine_customer_data import seal_subject
 from apps.workers.fleet_walk import WalkBudget
 
@@ -2470,7 +2468,7 @@ async def _search_knowledge_base(session: AsyncSession, *, phone: str) -> int:
 #: Calls this account holds that NO erasure request can ever locate.
 #:
 #: The other party's column decides, exactly as it does everywhere else that has to name
-#: the human on a call (`workers/optout._subject`, `api/worker/tools._subject`): inbound
+#: the human on a call (`workers/optout._subject`, `api/worker/in_call_tools._subject`): inbound
 #: means `from_e164`, outbound means `to_e164`. When that column is NULL there is nothing
 #: for any of `execute_deletion_request`'s three predicates to match.
 #:
@@ -2967,22 +2965,12 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         vendor_call_ids = (
             await session.execute(
                 text(
-                    "SELECT engine_call_id, carrier_call_id, carrier_recording_id, carrier "
+                    "SELECT engine_call_id, carrier_call_id, carrier_recording_id "
                     "FROM calls WHERE id = ANY(:ids) ORDER BY engine_call_id"
                 ),
                 {"ids": list(calls)},
             )
         ).all()
-        # The carrier's own recordings of these calls (D-668). Quoted in the telephony
-        # task beside the call ids, and deleted at the carrier through its documented
-        # delete once this transaction commits (`carrier_recordings.
-        # delete_carrier_recordings`); the task covers any the delete does not reach.
-        carrier_recordings_by_carrier: dict[str, list[str]] = {}
-        for row in vendor_call_ids:
-            if row[2] is not None:
-                carrier_recordings_by_carrier.setdefault(carrier_of_record(row[3]), []).append(
-                    str(row[2])
-                )
         # Only a third-party engine's ids: one our own runtime minted names a row this
         # erasure has already reached, and is not id-shaped either (`OWN_RUNTIME_ENGINES`).
         engine_call_ids = engine_held_call_refs(
@@ -3020,9 +3008,12 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                         "subject": seal_subject(phone, request_id=request_id),
                     },
                 )
+        # Calls carried on our own carrier before D-763, and that carrier's recordings of
+        # them (D-668): quoted in the telephony task for the written request, the one
+        # erasure path left for them now that no carrier client remains.
         carrier_call_ids = sorted(
             {str(row[1]) for row in vendor_call_ids if row[1] is not None}
-            | {rid for ids in carrier_recordings_by_carrier.values() for rid in ids}
+            | {str(row[2]) for row in vendor_call_ids if row[2] is not None}
         )
         # THE ENGINE AND THE CARRIER ONLY, and leaving out speech and language is the design.
         #
@@ -3072,26 +3063,6 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             ),
             {"rid": request_id, "proof": json.dumps(proof)},
         )
-
-    for carrier_name, recording_ids in carrier_recordings_by_carrier.items():
-        # After the commit, and never allowed to fail the erasure: the certificate is
-        # issued, a retry would answer "already_completed", and the telephony task opened
-        # above already quotes these ids for the written request.
-        try:
-            await enqueue_carrier_deletion(
-                carrier=carrier_name, recording_ids=sorted(recording_ids), tenant_id=tenant_id
-            )
-        except Exception as exc:
-            alert(
-                "WORKER_DELIVERY",
-                "carrier_recording_delete_failed",
-                detail=(
-                    f"carrier={carrier_name}: the deletion of {len(recording_ids)} recording(s) "
-                    f"could not be queued ({type(exc).__name__}); the erasure's telephony task "
-                    "lists their ids"
-                ),
-                tenant_id=str(tenant_id),
-            )
 
     if recordings_in_floor:
         # A WARNING, not an `alert()`: this is an expected, disclosed state under the
@@ -3591,7 +3562,7 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         caller_vectors = await erase_tenant_vectors(session, tenant_id=tenant_id)
         counts["caller_vectors_erased"] = caller_vectors.vectors
         counts["caller_memories_erased"] = caller_vectors.memories
-        # THE COPY THAT IS NOT IN THIS DATABASE (`docs/PIPECAT-MIGRATION.md` §8.4). Box 3
+        # THE COPY THAT IS NOT IN THIS DATABASE (TRD §6.3). Box 3
         # holds a document per published chunk of this account's knowledge, and §8.4 kept
         # `kb_documents` ours precisely BECAUSE a DPDP erasure has to be a statement we can
         # prove returned zero rows — the obligation follows the copy that decision created.
@@ -3803,14 +3774,13 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                 vendor_refs=engine_refs,
                 processors=("voice_engine",),
             )
-        # THE CARRIER: every call it connected for this client, by the carrier's own id.
-        # `carrier_call_id` is never cleared by an erasure arm, so it is still here.
+        # OUR FORMER CARRIER (before D-763): every call it connected for this client, by its
+        # own id. `carrier_call_id` is never cleared by an erasure arm, so it is still here.
         carrier_call_ids = [
             str(ref)
             for ref in (
                 await session.execute(
-                    # The carrier's recording ids too (D-668), for the written request;
-                    # `tenant_carrier_recordings` below deletes them at the carrier.
+                    # The carrier's recording ids too (D-668), for the written request.
                     text(
                         "SELECT carrier_call_id FROM calls "
                         "WHERE tenant_id = :tid AND carrier_call_id IS NOT NULL "
@@ -3848,20 +3818,6 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                 vendor_refs=[],
                 processors=("speech", "llm"),
             )
-        tenant_carrier_recordings: dict[str, list[str]] = {}
-        for recording_id, carrier_name in (
-            await session.execute(
-                text(
-                    "SELECT carrier_recording_id, carrier FROM calls "
-                    "WHERE tenant_id = :tid AND carrier_recording_id IS NOT NULL"
-                ),
-                {"tid": tenant_id},
-            )
-        ).all():
-            tenant_carrier_recordings.setdefault(carrier_of_record(carrier_name), []).append(
-                str(recording_id)
-            )
-
         await session.execute(
             text(
                 "UPDATE tenant_erasure_requests SET completed_at = now(), "
@@ -3869,24 +3825,6 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
             ),
             {"rid": request_id, "proof": json.dumps(proof)},
         )
-
-    for carrier_name, recording_ids in tenant_carrier_recordings.items():
-        # After the commit, for the subject erasure's reason (see `execute_deletion_request`).
-        try:
-            await enqueue_carrier_deletion(
-                carrier=carrier_name, recording_ids=sorted(recording_ids), tenant_id=tenant_id
-            )
-        except Exception as exc:
-            alert(
-                "WORKER_DELIVERY",
-                "carrier_recording_delete_failed",
-                detail=(
-                    f"carrier={carrier_name}: the deletion of {len(recording_ids)} recording(s) "
-                    f"could not be queued ({type(exc).__name__}); the erasure's telephony task "
-                    "lists their ids"
-                ),
-                tenant_id=str(tenant_id),
-            )
 
     log.info(
         "tenant_erased",

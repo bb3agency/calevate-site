@@ -49,12 +49,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 import httpx
-from calevate_shared.carrier import CarrierName
 
-from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
-from apps.api.engine.carrier import CarrierClient, build_carrier
 
 log = get_logger(__name__)
 
@@ -115,28 +111,13 @@ def _bearer(value: str) -> dict[str, str]:
 
 #: The probes this build has. A key absent from here answers `no_probe`.
 #:
-#: Every endpoint and header shape below is READ FROM THIS REPO'S OWN ADAPTERS — the code
-#: that already calls these vendors in production — rather than from memory, so a probe
-#: cannot be authenticating differently from the thing it is testing.
+#: Every endpoint and header shape below is READ FROM THIS REPO'S OWN CODE that calls the
+#: vendor, rather than from memory, so a probe cannot be authenticating differently from
+#: the thing it is testing.
 PROBES: Mapping[str, Probe] = {
-    # `apps/api/engine/cartesia.py`: BASE_URL, AUTH_HEADER/AUTH_SCHEME and
-    # VERSION_HEADER/API_VERSION. `/voices` is a listing that costs nothing.
-    #
-    # **THIS PROBE AUTHENTICATED DIFFERENTLY FROM THE ADAPTER IT CITES, WHICH IS THE ONE
-    # THING THE PARAGRAPH ABOVE PROMISES IT NEVER DOES (D-517).** It sent `X-API-Key` and
-    # `Cartesia-Version: 2024-06-10`, and named a constant — `API_KEY_HEADER` — that
-    # `cartesia.py` has not carried since D-271 moved the adapter to
-    # `Authorization: Bearer` after reading both of the vendor's generated clients. That
-    # adapter's own comment records that sending BOTH forms was REJECTED, "because two
-    # credential-bearing headers for one secret hides which one the vendor honoured". So
-    # a valid key refused on the superseded header would have told an operator to rotate
-    # a working credential — precisely the wrong answer this file exists to prevent.
-    #
-    # THE LITERALS CANNOT BE IMPORTED FROM THE ADAPTER: hard rule 2 forbids `apps.api.ops`
-    # naming `apps.api.engine.cartesia`, and import-linter enforces it. They are pinned
-    # instead by `tests/platform_secrets_test.py`, which reads both sides and fails if
-    # they drift again — an attribution nobody checks is the defect class hard rule 12
-    # closes with "if you cite something, open it".
+    # Cartesia, on the key the Studio rung speaks on. `/voices` is a listing that costs
+    # nothing; the header shape is the one the deleted Cartesia Line adapter called it with
+    # (D-271). Pinned by `tests/platform_secrets_test.py`.
     "cartesia_api_key": Probe(
         method="GET",
         url="https://api.cartesia.ai/voices",
@@ -144,10 +125,7 @@ PROBES: Mapping[str, Probe] = {
             "Authorization": f"Bearer {value}",
             "Cartesia-Version": "2026-08-14",
         },
-        source=(
-            "apps/api/engine/cartesia.py (BASE_URL, AUTH_HEADER, AUTH_SCHEME, "
-            "VERSION_HEADER, API_VERSION)"
-        ),
+        source="Cartesia API (GET /voices, Bearer auth, Cartesia-Version 2026-08-14)",
         verified=False,
     ),
     # `apps/workers/extraction.py`: SARVAM_CHAT_URL with `Authorization: Bearer`. The
@@ -197,36 +175,6 @@ PROBES: Mapping[str, Probe] = {
             "and is not evidence the key is wrong."
         ),
     ),
-    # ⚠ THE CARRIER PAIR (D-614 — `plivo_auth_id`, `plivo_auth_token`) HAS NO PROBE
-    # EITHER, AND NOT FOR WANT OF TRYING. Three independent reasons, each on its own
-    # sufficient, recorded here so the next reader does not re-derive them:
-    #
-    #   1. **This file's contract takes ONE candidate.** `probe_credential(key, candidate)`
-    #      is given a single value, and Plivo authenticates with HTTP BASIC over the PAIR
-    #      — `aiohttp.BasicAuth(auth_id, auth_token)` (VERIFIED-VENDOR-SDK: `pipecat-ai==
-    #      1.10.0` as installed, `pipecat/serializers/plivo.py:187`, read 15 Sep 2026).
-    #      Half a credential cannot authenticate, so a probe here could only ever shape-
-    #      check — and this module's whole argument is that "we could not check this" and
-    #      "this works" must never render the same.
-    #   2. **The only Plivo endpoint in evidence is a DESTRUCTIVE write.** That same file
-    #      carries the one Plivo REST call in the whole installed tree: `DELETE
-    #      https://api.plivo.com/v1/Account/{auth_id}/Call/{call_id}/` (`:184`), the
-    #      hang-up. Every probe above is a LIST for a stated reason — it changes nothing —
-    #      and a probe that hangs up a call to prove a key works is the outage this file
-    #      exists to prevent, arriving by a new route.
-    #   3. **No other endpoint may be written down.** `www.plivo.com` and `api.plivo.com`
-    #      are EGRESS-BLOCKED from this build environment (`curl: (56) CONNECT tunnel
-    #      failed, response 403`, re-measured 15 Sep 2026), so a plausible-looking
-    #      `GET /v1/Account/{auth_id}/` would be an INVENTED endpoint, which hard rule 11
-    #      forbids outright.
-    #
-    # So both answer `no_probe` — "storing it is still safe, it simply will not be verified
-    # until the first real use" — which here means the first CALL, on a credential the
-    # console cannot store anyway (`ENV_ONLY_REASONS`). What closes this is
-    # `docs/evidence/pre-build-blockers-2026-09-13.md` §10: the same research pass that
-    # gives `engine/pipecat.py` its carrier surface gives this file a listing endpoint and
-    # the auth shape, and the probe can then be written against a read that is verified
-    # rather than guessed.
     # ⚠ THE TWO DECLARED LLM LEGS (D-456 — `openai`, `google`) DELIBERATELY HAVE NO PROBE,
     # and it is not an omission. `scripts/check_model_residency.py` BANS the string
     # `api.openai.com` outside the OpenAI leg's own builder, and bans
@@ -238,21 +186,6 @@ PROBES: Mapping[str, Probe] = {
     # credentials therefore answer `no_probe` — "storing it is still safe, it simply will
     # not be verified until first use" — which is the honest state, not a gap.
 }
-
-
-#: Credentials checked through the carrier seam rather than a declarative `Probe`: Vobiz
-#: authenticates with a PAIR (`X-Auth-ID` + `X-Auth-Token`,
-#: `vobiz-findings/mirror/pages/api-reference/authentication.md:9-16`), so the candidate is
-#: one half and the deployment's configured value is the other. The read is
-#: `GET /auth/me`, which returns the account object and changes nothing (`:30-36`).
-CARRIER_PROBES: Mapping[str, CarrierName] = {
-    "vobiz_auth_id": "vobiz",
-    "vobiz_auth_token": "vobiz",
-}
-_CARRIER_PROBE_SOURCE = (
-    "apps/api/engine/vobiz.py (VobizCarrier.probe: GET /auth/me, "
-    "vobiz-findings/mirror/pages/api-reference/authentication.md:30-36)"
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,9 +216,6 @@ async def probe_credential(key: str, candidate: str) -> ProbeResult:
     `Authorization` header — which `core/logging.REDACT_KEYS` masks anywhere it could be
     logged, and which nothing here logs anyway.
     """
-    carrier = CARRIER_PROBES.get(key)
-    if carrier is not None:
-        return await _probe_carrier(key, candidate, carrier)
     probe = PROBES.get(key)
     if probe is None:
         return ProbeResult(
@@ -358,99 +288,10 @@ async def probe_credential(key: str, candidate: str) -> ProbeResult:
     )
 
 
-async def _probe_carrier(key: str, candidate: str, carrier: CarrierName) -> ProbeResult:
-    """The candidate half of a carrier pair, checked with the configured other half."""
-    cfg = get_settings().model_copy(update={key: candidate})
-    client = build_carrier(cfg, carrier)
-    if not client.configured():
-        return ProbeResult(
-            outcome="unreachable",
-            status=None,
-            detail=(
-                "This credential is one half of a pair and the other half is not set on "
-                "this deployment, so it has NOT been checked."
-            ),
-            verified=False,
-            source=_CARRIER_PROBE_SOURCE,
-        )
-    return await _ask_carrier(
-        client,
-        log_key=key,
-        refused=(
-            "The vendor refused this credential pair. One half is wrong or revoked — it "
-            "has NOT been stored."
-        ),
-    )
-
-
-async def probe_configured_carrier() -> tuple[CarrierName, ProbeResult]:
-    """The deployment's OWN carrier pair, exactly as this process holds it. No candidate.
-
-    The Vobiz pair is env-only (`ENV_ONLY_REASONS`), so the console can never install it
-    and `probe_credential`'s candidate shape has nothing to offer for it: an operator who
-    has just edited `.env` and redeployed needs to know whether what the running process
-    holds authenticates, not whether a pasted value would.
-    """
-    client = build_carrier(get_settings())
-    refusal = client.unavailable("check its carrier credential")
-    if refusal is not None:
-        return client.name, ProbeResult(
-            outcome="unreachable",
-            status=None,
-            # Our own refusal sentence — "no credentials" or "not built" — never a vendor's.
-            detail=f"Nothing was checked. {refusal.detail}",
-            verified=False,
-            source=_CARRIER_PROBE_SOURCE,
-        )
-    return client.name, await _ask_carrier(
-        client,
-        log_key="carrier",
-        refused=(
-            "The vendor refused the credential pair this deployment holds. One half is "
-            "wrong or revoked: correct it in the VPS environment and redeploy (DEPLOYMENT "
-            "§12.6)."
-        ),
-    )
-
-
-async def _ask_carrier(client: CarrierClient, *, log_key: str, refused: str) -> ProbeResult:
-    """One read-only authenticated call, and the verdict in our words."""
-    try:
-        accepted = await client.probe()
-    except ProblemError as exc:
-        log.warning("secret_probe_unreachable", extra={"config_key": log_key, "reason": exc.code})
-        return ProbeResult(
-            outcome="unreachable",
-            status=None,
-            detail=(
-                "The vendor could not be reached or did not answer as documented, so this "
-                "credential has NOT been checked. This says nothing about whether it is correct."
-            ),
-            verified=False,
-            source=_CARRIER_PROBE_SOURCE,
-        )
-    outcome: ProbeOutcome = "accepted" if accepted else "rejected"
-    log.info("secret_probe", extra={"config_key": log_key, "outcome": outcome, "status": None})
-    return ProbeResult(
-        outcome=outcome,
-        status=None,
-        detail=(
-            "The vendor accepted this credential pair for one authenticated read. That does "
-            "not prove it has every scope this platform uses, only that it authenticates."
-            if accepted
-            else refused
-        ),
-        verified=False,
-        source=_CARRIER_PROBE_SOURCE,
-    )
-
-
 __all__ = [
-    "CARRIER_PROBES",
     "PROBES",
     "Probe",
     "ProbeOutcome",
     "ProbeResult",
-    "probe_configured_carrier",
     "probe_credential",
 ]

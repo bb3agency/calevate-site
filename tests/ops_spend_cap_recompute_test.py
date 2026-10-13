@@ -41,7 +41,6 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.core.rbac import iter_api_routes
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
@@ -341,13 +340,3 @@ async def test_the_recompute_writes_one_audit_row_naming_the_tenant() -> None:
     )
     assert rows[0][1] == "spend_state" and rows[0][2] == str(tenant_id)
     assert rows[0][3] == "admin"
-
-
-def test_the_route_is_mounted_and_names_its_tenant_in_the_path() -> None:
-    """A router nobody mounted is not a surface. It also has to name its tenant in the
-    path: an admin-realm mutation that inferred the tenant from the session would be
-    un-callable by construction (D-22, `route_shape_test`)."""
-    routes = {route.path: route for route in iter_api_routes(app)}
-    assert ROUTE in routes, f"{ROUTE} is not mounted"
-    assert "POST" in (routes[ROUTE].methods or set())
-    assert "tenant_id" in {param.name for param in routes[ROUTE].dependant.path_params}

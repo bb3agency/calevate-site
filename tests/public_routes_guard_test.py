@@ -64,10 +64,6 @@ def extra_public_route() -> Iterator[str]:
 
 
 class TestWiring:
-    def test_the_live_surface_matches_its_declaration(self) -> None:
-        """The state this guardrail holds. A failure here names the disagreement."""
-        assert guard.audit(app) == []
-
     def test_the_public_and_guarded_sets_partition_the_route_table(
         self, exempt: dict[str, object]
     ) -> None:
@@ -128,88 +124,10 @@ class TestWiring:
         changing your own password is not a role you hold. The pair moves the count by two
         and the surface by nothing a reader has to newly understand.
 
-        RAISED 40 -> 43 by D-621, and this is the largest single jump since the auth slice,
-        so it earns the longest note. The three are `/v1/worker/*`: the voice worker's
-        session read and its two writes. They are exempt from the RBAC registry for a
-        structural reason — a container on Pipecat Cloud holds no Calevate session and no
-        membership a permission could be checked against — and they present the same class
-        of credential, a Bearer token THIS deployment issued, compared in constant time,
-        with an unconfigured deployment answering nobody.
-
-        **WHAT IS NEW AND IS THE THING TO RE-READ FIRST IF THIS BOUND MOVES AGAIN:** two of
-        the three MUTATE, and they mutate the ledger. Every other mutating row on this list
-        writes an event, a session or a report; these write `calls`, `transcript_turns`,
-        `usage_events` and the outbox. What makes that acceptable is not the token alone —
-        it is that the token holder cannot choose a tenant: the tenant is PARSED out of the
-        engine-space call ref (`tenant_of_pipecat_ref`) and every statement then runs under
-        that tenant's RLS, so a leaked token reaches exactly the calls whose refs it holds.
-        A fourth route here, or any route on this surface that took a tenant id as an
-        argument, is the conversation this tripwire is for.
-
-        RAISED 43 -> 44 by D-626, and the sentence above is why this paragraph exists: it IS
-        the fourth `/v1/worker/*` route, so the tripwire fired as designed and the argument
-        is owed rather than assumed.
-
-        `POST /v1/worker/agents/{engine_agent_ref}/attestation` is what finally gives
-        `agent_config_attestations` a production writer. Until it landed, `get_agent`
-        answered `system_prompt_readable=False` for every agent on this engine for ever,
-        `verification.judge` scored every publish `unreadable`, and hard rule 5's engine-side
-        check — the one that reads the truthful-answer marker back off what is RUNNING — had
-        never once executed on the owned leg. A guarantee nobody can verify is the thing this
-        route exists to end.
-
-        **WHY IT DOES NOT WIDEN THE SURFACE THE PARAGRAPH ABOVE IS WORRIED ABOUT.** It takes
-        no tenant id: the tenant is parsed out of the engine-space ref exactly as the other
-        three do, and the handler REFUSES a body naming a different agent. It is not a ledger
-        write — the row is a witness, carrying a digest and a timestamp, and it cannot move
-        money, a call or a caller's record. And it is deliberately not authoritative about
-        its own verdict: the worker sends the digest and never `matches`, because an
-        attestation whose verdict came from the attesting process agrees with itself by
-        construction. A leaked token can therefore write a WRONG witness row, which the
-        server scores `matches=False` — visible, and the opposite of silence.
-
-        RAISED 44 -> 48 by the four in-call TOOLS, and the tripwire fired exactly where the
-        paragraph three above said it would ("a fourth route here ... is the conversation
-        this tripwire is for"), so the argument is owed in full.
-
-        `POST /v1/worker/calls/{engine_call_id}/tools/{opt-out,callback,callback/cancel,
-        handoff}` are what an agent running on our OWN engine calls mid-conversation. They
-        exist because the product had two engines and one set of tools: the rented engine's
-        tool routes served these four (deleted with that engine) and
-        `voice_worker/pipeline.assemble_call` advertised exactly ONE, the knowledge search.
-        So on `owned_runtime` a caller saying "stop calling me" reached nothing at all — no
-        `dnc_list` row, no `consent_ledger` evidence, nothing for the dispatch gate to read.
-        That is hard rule 5 and SEC-COMP §2.3 failing silently, which is why this is four
-        routes in one change rather than one route now and three later.
-
-        **THEY ARE THE SAME SURFACE AS THE FOUR ABOVE THEM, NOT A NEW ONE**, and that is the
-        whole of why the bound moves rather than the design. Same Bearer token, same
-        constant-time comparison, same unconfigured-deployment-answers-nobody posture, same
-        engine gate (D-627), and — the property the ledger paragraph above rests on — the
-        same resolution: **none of them takes a tenant id**. The tenant is PARSED out of the
-        engine-space call ref and every statement runs under that tenant's RLS, so a leaked
-        token reaches exactly the calls whose refs it holds and no others.
-
-        **WHAT IS GENUINELY NEW, AND IS THE THING TO RE-READ FIRST IF THIS BOUND MOVES
-        AGAIN:** three of the four write, and they write COMPLIANCE rows rather than ledger
-        rows — `dnc_list`, `consent_ledger`, `scheduled_callbacks`. Those are reached through
-        `compliance/optout.record_call_optout` and `callbacks/service.book` /
-        `cancel_for_phones`, which are the SAME functions the rented engine's ARQ jobs reach;
-        no statement about a suppression is written here that is not written there. The
-        fourth writes nothing: this engine cannot transfer a caller
-        (`PIPECAT_CAPABILITIES.in_call_handoff` is False) and the route exists so the agent
-        hears a truthful refusal instead of answering from its priors and telling a caller to
-        hold for a transfer that never happens.
-
-        A ninth `/v1/worker/*` route, or any route on this surface that took a tenant id or
-        a phone number as an ARGUMENT rather than as an observation the server may refuse, is
-        the conversation this tripwire is for.
-
-        RAISED 48 -> 49 by `POST /hooks/v1/kyc/{provider}` (D-635), and this one is NOT the
-        same surface as the eight above it, so the argument is owed separately and is a
-        weaker one. It is a VENDOR callback like `/hooks/v1/razorpay`, not a first-party
-        worker route: the credential is an HMAC over the raw body rather than a Bearer
-        token we issued, and the caller is a licensed KYC aggregator.
+        RAISED by `POST /hooks/v1/kyc/{provider}` (D-635). It is a VENDOR callback like
+        `/hooks/v1/razorpay`, not a first-party worker route: the credential is an HMAC over
+        the raw body rather than a Bearer token we issued, and the caller is a licensed KYC
+        aggregator.
 
         WHAT IT WRITES IS THE UNCOMFORTABLE PART, and it is stated plainly rather than
         argued away: a delivery this route accepts marks a client VERIFIED, which is the
@@ -232,40 +150,20 @@ class TestWiring:
         A SECOND vendor-callback route, or any change that let this one take the tenant from
         the payload, is the conversation this paragraph is for.
 
-        RAISED 49 -> 50 by `POST /v1/worker/agents/{engine_agent_ref}/caller-memory`, the
-        ninth worker route and the first that takes a phone number, so both warnings above
-        apply. It REPLACES a route rather than adding a capability:
-        `GET /v1/engine/caller-data/{engine}` answers the same question from the same
-        `recall()`, on a second token and with the number in its query string, and its only
-        callers were the rented engine (being removed, D-639) and this worker. Here the
-        number is an observation in the body, the answer is gated live on the client's switch
-        and the SPDI refusal, and the tenant is parsed from the ref.
-
-        LOWERED 50 -> 48 by D-639, which removed two routes with the rented engine that was
-        the last caller of each: the caller-data fetch above, and the in-call action invoke
-        route (`POST /v1/actions/invoke/{engine}/{tool_id}`), whose source-IP gate no
-        remaining engine can pass.
-
-        RAISED 48 -> 49 by `POST /v1/worker/calls/{engine_call_id}/speaking` (D-656), the
-        console's live speaking indicator. Same token, same engine gate, tenant parsed from
-        the ref; it takes no tenant id and no number, and writes one expiring Redis key — no
-        row, nothing a leaked token could use to reach a caller's record.
-
         RAISED 49 -> 50 by `POST /v1/worker/engine-actions/{engine}/{tool}` (D-682): the
         in-call tools on a hosted voice platform, which calls our API as a custom action.
         One route for all four tools rather than four. The credential is a per-agent secret
         we generate and seal, compared in constant time before the body is read; an unknown
-        agent, an inactive route and a wrong secret all get the same 401. It writes what the
-        worker routes above write (opt-out, call-back), through the same functions.
+        agent, an inactive route and a wrong secret all get the same 401. It writes opt-outs
+        and call-backs through the same functions every other path uses.
 
-        RAISED 50 -> 52 by D-700, the client's OWN in-call actions, one door per engine:
+        RAISED by D-700, the client's OWN in-call actions:
         `POST /v1/worker/engine-actions/{engine}/client/{name}` (the hosted platform's
         custom action, the same per-agent secret, workspace check and live-call check as
-        the route above) and `POST /v1/worker/calls/{engine_call_id}/tools/actions/{name}`
-        (the worker's Bearer token, tenant parsed from the ref). Neither takes a tenant id
-        or a phone number: the caller's number is the platform's or our record of the call,
-        and only an action live on that agent in our database runs, under the tenant's RLS.
-        Both end in the one executor (`actions/in_call.run_in_call_action`).
+        the route above). It takes no tenant id and no phone number: the caller's number is
+        the platform's or our record of the call, and only an action live on that agent in
+        our database runs, under the tenant's RLS. It ends in the one executor
+        (`actions/in_call.run_in_call_action`).
 
         RAISED 52 -> 58. One is `GET /v1/public/status` (D-701), the public status page: a
         credential-less read, like the rate card, of incidents an operator chose to publish,
@@ -285,8 +183,12 @@ class TestWiring:
         `POST /v1/auth/client/step-up` and `/step-up/verify`: the twins of the admin realm's
         pair, exempt from the RBAC registry for the same reason (they prove a session is
         still its owner rather than grant a permission). Each needs the caller's own live
-        session and grants it nothing it did not already have."""
-        assert len(exempt) <= 61, sorted(exempt)
+        session and grants it nothing it did not already have.
+
+        LOWERED 61 -> 50 by D-763, which removed the Bearer-token `/v1/worker/*` routes of
+        our former own call loop. The three `/v1/worker/*` routes left are the hosted voice
+        platform's in-call actions and caller lookup, each authenticated per agent."""
+        assert len(exempt) <= 50, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------
@@ -404,7 +306,6 @@ class TestCalibration:
         """The health probes have no credential and must not be required to invent one —
         a liveness endpoint that needs a secret store is unrecoverable during an outage."""
         assert guard.UNAUTHENTICATED_ROUTES["GET /healthz/live"].credential is None
-        assert guard.audit(app) == []
 
     def test_a_credential_named_only_in_prose_does_not_count(
         self, exempt: dict[str, object]

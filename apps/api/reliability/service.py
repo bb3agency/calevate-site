@@ -340,9 +340,8 @@ async def sweep_idempotency(session: AsyncSession) -> int:
 #: would silently stop every notification.
 #:
 #: WHY THE CONSTANT SURVIVES AT ALL. It is the value the database now defaults to, and
-#: `tests/outbox_queue_deprecation_test.py` asserts the two agree — a default in a
-#: migration and a constant in a service that quietly diverge is how a column comes back
-#: to life. It goes in the same change as the column.
+#: the two must stay equal: a default in a migration and a constant in a service that
+#: quietly diverge is how a column comes back to life. It goes in the same change as the column.
 OUTBOX_FLEET = "default"
 
 

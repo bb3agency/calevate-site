@@ -9,23 +9,23 @@ All choices are final unless a decision-log entry (ROADMAP.md §6) supersedes th
 
 Style: **modular monolith API + isolated latency-critical runtime**, NOT microservices.
 Fault isolation and swappability come from bulkheads (queues, timeouts, circuit breakers)
-and code-level interfaces (Protocols + DI), not from network boundaries. Five deployables:
+and code-level interfaces (Protocols + DI), not from network boundaries. Four deployables:
 
 | Service | Runtime | Responsibility | Scaling driver |
 |---|---|---|---|
 | `web` | Next.js 15 (App Router), TypeScript | Admin console (admin.calevate.tech) + client app (app.calevate.tech) | Traffic; CDN-cached |
 | `api` | FastAPI (Python 3.12) modular monolith | Auth/tenancy, agent config, CRM, analytics, billing, KB mgmt | Requests; deploy freely |
-| `voice-runtime` | FastAPI, separate deploy | Carrier answer documents and status/recording callbacks (Vobiz, D-662; Plivo kept behind the switch), engine webhooks. No in-call tool routes since D-650 | **Concurrent calls; never redeployed casually; a dashboard deploy must not touch live calls** |
-| `workers` | ARQ on Redis | Post-call pipeline, carrier events and CDR reads, recording copies, embeddings, campaign dispatch, number rental, notifications, redaction, retention jobs | Queue depth; crashes delay work, never drop calls |
-| `voice-worker` | Pipecat in our own container on Pipecat Cloud `ap-south` (D-592) | The conversation loop: STT, LLM, TTS, turn detection, the in-call knowledge pack; reaches the api only over `/v1/worker/**` | Concurrent calls; deployed by its own command, never by the VPS deploy |
+| `voice-runtime` | FastAPI, separate deploy | The engine's signed webhooks (`/engine/{engine}`; ThinnestAI's are verified by `signed_intake.py`). No carrier routes and no in-call tool routes | **Concurrent calls; never redeployed casually; a dashboard deploy must not touch live calls** |
+| `workers` | ARQ on Redis | Post-call pipeline, execution reconciliation and the engine charges sweep, recording copies, embeddings, campaign dispatch, number rental, notifications, redaction, retention jobs | Queue depth; crashes delay work, never drop calls |
 
 Shared infra: PostgreSQL 16 (+pgvector) on the host, Redis (Compose), Cloudflare R2
 object storage. Hosting (D-25 narrows D-13; D-180 chose a Hostinger India VPS): the site
-stack is NOT in the live-call path — the call runs in the voice worker on Pipecat Cloud
-(PIPECAT-MIGRATION §8) — so it deploys on a general-purpose VPS; see DEPLOYMENT.md. What
-the caller waits on from the VPS is the worker's session read and its in-call tool calls
-to `/v1/worker/**`, which is why D-13's co-location reasoning still binds any in-call-path
-service.
+stack is NOT in the live-call path — ThinnestAI hosts the whole call (numbers, telephony,
+STT, LLM, TTS and recording; D-678..D-682, `docs/THINNEST-INTEGRATION.md`) — so it deploys
+on a general-purpose VPS; see DEPLOYMENT.md. What a caller waits on from the VPS is the
+caller lookup at call start and the in-call custom actions ThinnestAI sends to our API
+(`/v1/worker/**`, `worker/engine_actions.py` and `engine_lookups.py`), which is why D-13's
+co-location reasoning still binds any in-call-path service.
 
 Module boundaries inside `api` (each owns its tables; no cross-module SQL; communicate via
 service interfaces): tenancy, agents, engine, campaigns, ingest(webhooks-in), postcall,
@@ -34,14 +34,13 @@ crm, analytics, billing, kb, integrations, compliance, audit.
 ## 2. Stack (locked)
 
 - **Backend:** Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 + Alembic, `uv`,
-  Ruff + mypy(strict) in CI. One backend language (voice/AI ecosystem is Python-first;
-  phase-2 Pipecat runtime reuses everything).
+  Ruff + mypy(strict) in CI. One backend language (the voice/AI ecosystem is Python-first).
 - **Frontend:** Next.js 15 + TypeScript, Tailwind + shadcn/ui, TanStack Query, Recharts/
   Tremor. Typed API client generated from FastAPI OpenAPI.
 - **DB:** Postgres 16 for all system-of-record data. Vector/RAG: `pgvector` inside that
   same Postgres (`kb_chunks`, D-502, which reversed D-28's managed service), serving the
-  dashboard copilot and the CRM paths. In-call retrieval is the knowledge pack the voice
-  worker holds in memory (PIPECAT-MIGRATION §8.1), never a network call to this store —
+  dashboard copilot and the CRM paths. In-call retrieval is ThinnestAI's own knowledge base,
+  which every published source is attached to (D-689), never a network call to this store —
   TRD §6.
 - **Queue:** Redis + ARQ. Promote only campaign orchestration to Temporal if/when retry
   semantics outgrow ARQ. Not before.
@@ -115,12 +114,15 @@ crm, analytics, billing, kb, integrations, compliance, audit.
   Dependabot + secret scanning + SAST.
 
 ## 3. Voice Stack (locked, with verification gates)
-
-> ⚠ **D-639 (26 Sep 2026): BOLNA IS REMOVED FROM THE PRODUCT.** The founder deleted the
-> Bolna adapter; `ENGINE` accepts `fake`, `cartesia` and `pipecat`, and the engine of record
-> is the owned runtime on Pipecat Cloud (D-592, `docs/PIPECAT-MIGRATION.md`). Everything
-> below that describes Bolna — its API, webhooks, source-IP allowlist, KB, pricing and pilot
-> gates — is the record of the engine this section was written for, not an instruction:
+> **The engine is ThinnestAI (D-678..D-682; production since 7 Oct 2026).** `ENGINE` accepts
+> `thinnest` and `fake` (tests). ThinnestAI hosts the whole call — its own numbers, telephony,
+> STT, LLM, TTS and recording — and `docs/THINNEST-INTEGRATION.md` is the engine's plan and
+> build state. Bolna was deleted by D-639 and our own call engine by D-763; there is no
+> second engine, and rollback is redeploying the previous image. Everything below that
+> describes Bolna — its API, webhooks, source-IP allowlist, KB, pricing and pilot gates — is
+> the record of the engine this section was written for, not an instruction: do not
+> configure, call or buy from Bolna on its strength. What still binds from it is the dashboard
+> AI and first post-call extraction legs of the LLM bullet, which do not run in the engine.
 > do not configure, call or buy from Bolna on its strength.
 
 Primary engine: **Bolna** (api.bolna.ai, Bearer auth; agent CRUD under /v2 — legacy
@@ -277,54 +279,33 @@ Models (per-agent config, BYOK):
   and Azure's TPM/RPM quota in `eastus2` is a fourth such input — size both at pilot
   gates 13 and 20b. LLM id is a config string on the agent, so changing it is a config
   edit plus a regression run.
-- TTS: **Sarvam Bulbul V3** (11 Indian languages) — their docs list only V3; Bulbul v2
-  may no longer be offered, which moves the TTS cost line to the v3 band (₹30/10K,
-  ~₹1.20–1.35/min) [docs-verified; cost model §10 updated]. Ear-test at verification
-  (item 3) is now V3 vs their bundled voices, not a v2/v3 bake-off.
-- Telephony (D-662): **Vobiz is the carrier, behind a switch.** `Settings.carrier` is
-  `vobiz` or `plivo`, default `vobiz`; it chooses where new dials go and where numbers are
-  bound, and both carriers' answer and events routes stay served so a number keeps
-  answering at the carrier it is bound to until it is rebound. Plivo's side is a set of
-  named refusals, because no Plivo account ever existed. The founder's own Vobiz account
-  carries the testing phase (Model A for that account only); whose account a client's
-  numbers sit on is still open (D-474, D-537, OPERATIONS §2 gate V-10). The wire, every
-  fact cited into the hash-pinned mirror `vobiz-findings/mirror/pages/`, is
-  `docs/evidence/vobiz-api-contract.md`:
-  - **Inbound** is routed by a Vobiz Application whose `answer_url` is our
-    `/carrier/v1/vobiz/answer/{agent ref}` on voice-runtime; the number is attached to the
-    Application, and the agent is chosen by the URL, never by the dialled number (D-603).
-    The answer request carries `From` (form-encoded); the answer document is a
-    bidirectional `<Stream>` (μ-law 8 kHz) to the worker on Pipecat Cloud.
-  - **Outbound** is `POST /api/v1/Account/{auth_id}/Call/` from the API or workers, with
-    our call id in the answer URL's PATH (Vobiz signs the URL with its query stripped).
-    No idempotency key is documented, so only a 429 is retried.
-  - **Callbacks** (answer, ring, hangup) are checked against Vobiz's published source
-    addresses and, once gate 55 closes, against `X-Vobiz-Signature-V3`, which covers the
-    URL path and a nonce and never the body. Events go through the inbox to the
-    `ingest_carrier_event` job.
-  - **Hangup** from the worker is the stream `stop` message, so the worker holds no carrier
-    credential; the API can also hang up by REST.
-  - **The carrier's charge** comes from its CDR, read by a worker job after the call
-    ends: `total_cost` (INR) becomes our `unit_cost_paid` for the carrier leg. The client's
-    billable minutes stay the worker's measured duration (D-648); the CDR's `billsec` is
-    recorded beside it for comparison.
-  - **Transfer** is built and off by default (`carrier_transfer_enabled`); Vobiz calls its
-    accept-by-keypress step unverified.
-  - **140 and 160 series** numbers are obtained from Vobiz by request to support, not by
-    API (`vobiz-findings/mirror/pages/faq/number-series.md:11-34`); the regulatory side is
-    OPERATIONS §2 gates 47 and 58.
-- Embeddings: provider-managed if the D-28 RAG service bundles them; otherwise
-  **Cohere Embed v4** (strongest hosted cross-lingual ~0.955), BGE-M3 as fallback.
-  Whoever embeds: model name+version recorded per source version (embedding model
-  change = full re-index; background job, never a crisis).
+- Voices on ThinnestAI (D-687, D-688): **Clear** is ThinnestAI's own stack end to end, in
+  the band the console setting `thinnest_clear_voice_band` names (Premium or Studio);
+  **Studio** is Cartesia on our key through ThinnestAI's voice-only BYOK (`scope: "voice"`),
+  with ThinnestAI's STT, LLM and telephony. Every agent states `byok` (`off` for Clear,
+  `workspace` for Studio). Detail: THINNEST-INTEGRATION §4a; prices: §10.0 and BRD §6.
+- Telephony on ThinnestAI: its own numbers and carrier carry every call. A client buys
+  numbers in its own business name, in its own ThinnestAI customer workspace, once its KYC is
+  verified and its business details are approved (D-693). Outbound needs a verified KYC
+  record and an accepted no-cold-calls pledge, not DLT (D-692); inbound is never gated.
+  Dispatch is held to the console-managed `thinnest_max_concurrent_calls`
+  (`engine/dial_lines.py`). The recording is ThinnestAI's `recording.url`, copied into our
+  object store (`engine/recording_source.py`).
+- Embeddings: `text-embedding-3-small` on the existing Azure OpenAI resource (D-502, §6),
+  for the dashboard and CRM stores only. The model and width are recorded per chunk
+  (`kb_chunks.embed_model` / `embed_dim`), so a model change is a re-embed sweep, never a
+  crisis.
 
-No fallback engine is currently designated (ThinnestAI was retired by D-31 before any
-adapter existed). Engine risk is carried by the VoiceEngine adapter contract itself:
-normalized schemas and the conformance suite (`bolna` + `fake` adapters) keep a future
-second adapter cheap to add. D-02's phase-2 self-orchestration trajectory stands
-unchanged, on its own triggers (ROADMAP §5).
+No fallback engine is designated. Engine risk is carried by the VoiceEngine adapter contract
+itself: normalized schemas and the conformance suite (`thinnest` + `fake` adapters) keep a
+future second adapter cheap to add (BRD R-02).
 
 ## 4. Latency Budget (the governing constraint)
+
+> **On ThinnestAI every stage below runs inside the vendor.** We configure the agent and
+> receive results; ThinnestAI reports no stage timings, so no call on this engine writes
+> `call_engine_latency`. The budget below is the vendor-floor arithmetic, unmeasured on a
+> real call (A-5 in BRD §10).
 
 **Voice-to-voice target: p50 ≤ 500ms** — from the caller finishing their sentence to
 hearing the reply begin. Set by the founder on 27 Aug 2026; it replaces "p50 ≤ 1.1s, p95 ≤
@@ -527,7 +508,7 @@ are decisions with prices attached.
    available (`indian-server-configuration.md:63-69`). **The price is the entire BYOK
    posture**: our vendor accounts, our rate card, D-410/D-449's model control and the
    deployment-level retirement control `scripts/check_model_lifecycle.py` consumes. It also
-   requires Plivo telephony and one of their supported provider sets. Evaluated and NOT
+   requires one named telephony provider and one of their supported provider sets. Evaluated and NOT
    recommended here; recorded because it is the only documented way to delete the crossing
    while staying on this engine.
 4. **A faster language model — buys an UNKNOWN amount, and possibly nothing.** The engine's
@@ -561,20 +542,13 @@ establish is what IS achievable, measured, and that number does not exist yet.
 
 ## 5. VoiceEngine Adapter (the portability contract)
 
-> ⚠ **D-639 (26 Sep 2026): BOLNA IS REMOVED FROM THE PRODUCT.** The founder deleted the
-> Bolna adapter; `ENGINE` accepts `fake`, `cartesia` and `pipecat`, and the engine of record
-> is the owned runtime on Pipecat Cloud (D-592, `docs/PIPECAT-MIGRATION.md`). Everything
-> below that describes Bolna — its API, webhooks, source-IP allowlist, KB, pricing and pilot
-> gates — is the record of the engine this section was written for, not an instruction:
-> do not configure, call or buy from Bolna on its strength.
-
-**The carrier is a second seam beside the engine (D-662).** The owned runtime dials,
-answers and binds numbers through a carrier, and the api reaches one only through
-`apps/api/engine/carrier.py` (`CarrierClient`; `vobiz.py`, and `plivo_carrier.py` as the
-switchable fallback), chosen by `Settings.carrier`. The names and URL shapes every
-deployable shares are `calevate_shared.carrier`; voice-runtime renders the answer document
-(`carrier_routes.py`), and the worker speaks the carrier's stream protocol with its own
-serializer (`voice_worker/vobiz_serializer.py`), holding no carrier credential.
+> **The engine is ThinnestAI (D-678; `apps/api/engine/thinnest.py`).** `ENGINE` accepts
+> `thinnest` and `fake`; `docs/THINNEST-INTEGRATION.md` §2 maps this protocol onto
+> ThinnestAI's API method by method. Bolna was deleted by D-639 and our own call engine,
+> with its carrier seam, by D-763. Everything below that describes Bolna — its API,
+> webhooks, source-IP allowlist, KB, pricing and pilot gates — is the record of the engine
+> this section was written for, not an instruction: do not configure, call or buy from Bolna
+> on its strength.
 
 Nothing outside `engine/` may import a vendor SDK or see a vendor payload shape.
 
@@ -667,8 +641,8 @@ it (`apps/api/agents/verification.py`), before any column records the publish:
   `delete_agent` — Bolna's delete destroys the agent's executions, which are a retention
   obligation (SEC-COMP §4).
 
-One property here genuinely needs a vendor account and is the last equality-asserted entry
-in `tests/publish_known_gaps_test.py`: whether `POST /v2/agent` honours an idempotency key.
+One property here genuinely needs a vendor account and is still open:
+whether `POST /v2/agent` honours an idempotency key.
 Without one, a create whose RESPONSE is lost makes a second vendor object whose id we never
 saw — so there is nothing for the compensator above to name. It is not guessed. What a
 REPEAT `delete_agent` answers is the smaller unknown that remains, and it is a MARKED
@@ -773,8 +747,8 @@ scorecard — D-31]:
   automatically route through US servers regardless of other configuration settings"*
   (`enterprise/indian-server-configuration.md:65,68`). BYOK on all three legs is what this
   product IS (D-31/D-36/D-410), so buying residency today would move **zero calls**, and
-  its Indian-server routing names Plivo only — the 140-series promotional half of the
-  business dials through Vobiz. What survived that correction was narrower and was still worth
+  its Indian-server routing names a single telephony provider — the 140-series promotional half of the
+  business dialled through another carrier. What survived that correction was narrower and was still worth
   having: the MODEL legs stayed Indian (Sarvam sovereign by vendor; Azure OpenAI pinned to
   South India by gates 20/20b/20c), so the inference did not leave the country while the
   orchestration did. **D-449 WITHDREW THE LANGUAGE HALF OF THAT** — Azure OpenAI is
@@ -783,7 +757,7 @@ scorecard — D-31]:
   Indian COMPANY; its own privacy policy says personal data *"may be transferred to and
   processed in countries outside India"*, naming US cloud infrastructure (AWS/GCP/Azure) and
   EU model and security vendors, and its India-storage carve-out covers voice biometric data
-  in Content Studio and payment data rather than Saaras/Bulbul API traffic. So no leg of this
+  in Content Studio and payment data rather than Saaras API traffic. So no leg of this
   product carries an India-processing claim any more; what remains Indian is the application
   host. VENDOR-PUBLISHED (Sarvam Privacy Policy "Cross-Border Data Transfers"; ToS v2.0 eff. 29 Jul 2026 ss.6.2/17.5 — read by the founder 27 Aug 2026 and relayed; `sarvam.ai` remains egress-blocked from this container). The gates survive re-aimed; the claim does not. The fork — accept US orchestration and say so in the DPA, or move to their
   integrations and lose BYOK — is gates 9 and 12, laid out in
@@ -951,7 +925,7 @@ it remains in git history. Its adapter was never built.
 
 **Knowledge belongs to the CLIENT, not to an agent (D-689, 8 Oct 2026).** A knowledge source
 (`kb_sources`, its chunks, uploads and links) is the tenant's, and every agent of the tenant
-answers from all of it: each agent's T0 block and in-call pack are compiled from the
+answers from all of it: each agent's T0 block and knowledge documents are compiled from the
 tenant's live sources, retrieval is scoped by tenant, and on an engine whose knowledge base
 is per vendor agent (ThinnestAI) each source is pushed to every one of the client's agents
 and kept in step on every version, withdrawal, new agent and archived agent.
@@ -1171,6 +1145,80 @@ memory) if a memory-API class provider; (f) DPDP posture (data residency, deleti
 with proof via API); (g) unit cost at our volumes. Record the winner as a decision-log
 entry with the scorecard committed to the repo.
 
+### 6.3 The dashboard store: what stays in our Postgres, and the Supermemory option (D-502, D-604)
+
+Nothing in this subsection touches a call: in-call knowledge is ThinnestAI's own knowledge
+base, fed one document per published source on each of the client's agents (D-689). What
+follows is the store behind the dashboard copilot and the CRM paths, selected per request by
+`Settings.retrieval_provider` (`compiled-facts`, `pgvector` or `supermemory`; `applies: live`)
+through `apps/api/retrieval/service.get_retriever`, behind
+`calevate_shared.retrieval.RetrievalProvider`.
+
+**Supermemory as a T3 provider.** A self-hosted Supermemory install is a candidate T3 member
+behind that seam: dashboard copilot and CRM search read from it, and if it is down calls and
+uploads do not notice — only dashboard search degrades to the Postgres fallback. Its local
+build is **single-tenant with one auto-generated API key**; scoped per-tenant keys are an
+Enterprise feature [VERIFIED-VENDOR-DOCS: supermemory.ai /docs/self-hosting/local-vs-enterprise,
+read by the founder 14 Sep 2026]. Its default embedding model (`Xenova/bge-base-en-v1.5`) runs
+on the host's CPU [same source, /docs/self-hosting/overview], so on a small VPS embedding must
+be pointed at a hosted API (`SUPERMEMORY_EMBEDDING_PROVIDER` and siblings,
+/docs/self-hosting/configuration) and the setting proven with one upload and `top`, because
+upstream issue #1336 reports the variables ignored. Issues #1336, #1315 (empty searches on
+Linux in 0.0.6) and #1320 (segfault under concurrent embedding) bear on which release is
+pinned; their current state is **UNVERIFIED** (`supermemory.ai` is egress-blocked here). They
+are a version gate, not a verdict. Caller memory is NOT behind this seam: its reader is
+`compliance/caller_memory.recall` over our own `caller_memories` table, and a data principal's
+durable profile does not go to a store whose local build cannot enforce tenancy.
+
+**What stays in our Postgres whatever the T3 store is.** The document LEDGER, `kb_documents`:
+which tenant uploaded what, which version is published, when it was erased. Four reasons:
+
+1. **Tenant isolation we can prove.** Ours is FORCEd RLS enforced by Postgres (hard rule 1).
+   Against Supermemory's local build, a container tag is a filter WE remember to send, not a
+   wall the server enforces — so the wall stays on our side.
+2. **DPDP erasure.** "Delete everything for this tenant" must be one statement we can prove
+   returned zero rows. Where documents have been sent to Supermemory, `kb_index_documents`
+   records what was sent, `retrieval/supermemory_index.purge_tenant_index` sends a scope-wide
+   delete and empties those rows inside `execute_tenant_erasure`, and
+   `scripts/check_erasure_coverage.py` walks that module. The vendor publishes no way to verify
+   a deletion, so `deletion_proof` stays **False** and the certificate says the request was
+   accepted rather than confirmed; if the credential is gone while rows remain, the erasure
+   raises and issues no certificate rather than certifying a copy nothing can address.
+3. **Provenance.** Records carry our `document_id` + `document_version`, so an answer traces
+   to "brochure v3, chunk 12". The id has to be minted by us.
+4. **Rebuildability.** If the T3 store is rebuilt, the ledger says what should be in it.
+
+**When `kb_chunks` may be retired.** `kb_chunks` stays the populated pgvector store until each
+of the following is a produced fact, not a judgement:
+
+| # | Must be proven | How |
+|---|---|---|
+| a | **Reachable.** An install answers on `supermemory_base_url` and its responses match `retrieval/supermemory_wire.ASSUMED_CONTRACT`, or the contract is corrected to what it really sends | Requests from the host, the `top` check above; corrections land in `ASSUMED_CONTRACT` with page and date, and OPERATIONS §2 gets the gate |
+| b | **Priced.** An operator has attested the embedding price, so `retrieval/supermemory.search_is_billable()` is True | Ops console. Until then the provider cannot be selected, so (c)–(e) are unreachable |
+| c | **Ingested.** An ingestion path exists, has run over a real tenant's published sources, and every record carries the tenant tag and our `source_id`/`document_version` | The sweep's logs, plus a scoped search returning records `supermemory_wire.parse_search` keeps; `supermemory_records_out_of_scope` at zero |
+| d | **Measured.** `retrieval/compare.py` scores both arms over the same corpus and `k`, and the challenger does not lose recall | `compare_arms` against the real `PgVectorRetriever` and `SupermemoryRetriever`; the number goes in `docs/evidence/` with the corpus named |
+| e | **Agreed in production.** The shadow read has run on live dashboard traffic for enrolled tenants and every class of disagreement is explained | `retrieval_shadow_compared` log lines |
+| f | **Rollback without a redeploy.** Setting `retrieval_provider` back serves the next question from Postgres | Already true: `get_retriever` is called per request and holds no state; it stays true only while `kb_chunks` is populated, which is why the drop is last |
+
+The retirement is three releases, never one (hard rule 8): **stop reading**
+(`retrieval_provider = supermemory` platform-wide; the projection keeps writing, so rollback
+is one setting); **stop writing** (`kb/service.project_chunks` and `workers/kb_embeddings.py`
+stop, after a sweep proves nothing reads `kb_chunks`; the table stays populated and readable);
+**drop**, in a later release, with a reversible migration whose `downgrade` recreates the
+table, indexes and RLS policy and a backfill from `kb_documents`, because every byte in
+`kb_chunks` is derived (D-502). `kb_documents` stays in all three.
+
+**The comparison machinery.** `apps/api/retrieval/shadow.py` asks the challenger the same live
+question and serves the incumbent's answer regardless (`ShadowReadRetriever.retrieve` returns
+the primary arm's own `RetrievalResult`; the challenger's answer reaches one log line). It is
+sequential because both arms may hold the caller's one `AsyncSession`.
+`apps/api/retrieval/compare.py` scores recall@1, recall@k, MRR and agreement keyed on the
+DOCUMENT (`Provenance.source_id`), not chunk text, so it scores the two stores rather than two
+chunkers; the same scoring runs offline over `tests/fixtures/telugu_gloss_corpus.json`. Two
+live settings, both off: `retrieval_shadow_arm` names the store asked in the dark, and
+`retrieval_shadow_tenant_ids` names whose questions may be asked (**empty means nobody**),
+because a shadow search buys an embedding metered against the tenant whose question it was.
+
 ## 7. Schema-Driven Extraction (the product core)
 
 Per-agent `extraction_schema`: ordered list of {key, label, type(text|number|bool|enum|
@@ -1231,18 +1279,16 @@ and `null` if one digit is unclear, enum values verbatim and only when meant.
 
 ## 8. Post-Call Pipeline (workers; idempotent; keyed by call_id)
 
-On the owned runtime (D-592) there is no vendor execution to fetch: the voice worker's
-settlement (`POST /v1/worker/calls/{id}/settlement`) writes the `calls` row and puts one
-`post-call:{call_id}` outbox row on the books, and `engine/pipecat.get_execution` reads our
-own rows as the snapshot. The carrier's hangup callback, CDR and `RecordStop` arrive
-separately through voice-runtime and `workers/carrier_events` / `carrier_recordings`
-(FLOWS §3). A rented engine's path, kept for the `cartesia` adapter:
-webhook(execution status) → **authenticate per §5** (an unsigned engine: source-IP
-allowlist + execution-id dedupe, payload treated as a HINT; HMAC only where an engine
-signs) → authenticated Get Execution is the TRUTH → persist CallEvent + turns → enqueue:
+On ThinnestAI the engine's signed webhooks (`call.completed`, `call.analysed`; verified in
+voice-runtime by `signed_intake.py` and deduped on the event id, D-690) are HINTS, the
+authenticated Get Execution (`engine/thinnest.get_execution`, `GET /calls/{id}`) is the TRUTH,
+and `pipeline.reconcile_executions` walks the call list for anything a webhook missed:
+webhook(execution status) → **authenticate per §5** (HMAC where the engine signs; an unsigned
+engine gets source-IP allowlist + execution-id dedupe, payload treated as a HINT) →
+authenticated Get Execution is the TRUTH → persist CallEvent + turns → enqueue:
 1. fetch/persist recording to our storage (presigned; engine copy is not our system of record).
-   On Vobiz the carrier records the call and `workers/carrier_recordings` makes the copy;
-   this step finds it already made (D-668)
+   ThinnestAI's `recording.url` is a signed link that expires, so `engine/recording_source.py`
+   copies it within the vendor's documented retention.
 2. PII redaction pass on transcript (Aadhaar/PAN/card/OTP patterns + LLM assist) →
    redacted transcript is the default view; raw restricted by role
 3. extraction (per §7) → upsert Lead
@@ -1275,7 +1321,8 @@ FLOWS §6.
 > record of that decision, not the current model.
 
 Append-only `usage_events` (tenant_id, call_id, unit_type[telephony_s|stt_min|tts_chars|
-llm_tok_in|llm_tok_out|platform_min|…; the full list is `billing/models.UNIT_TYPES`], qty,
+llm_tok_in|llm_tok_out|platform_min|…; the full list is `billing/models.UNIT_TYPES`, of which
+`llm_ktok_in` and `llm_ktok_out` are no longer written (D-763)], qty,
 unit_cost_paid, occurred_at) — records OUR cost
 next to billable qty; per-client margin is a query, and phase-2/3 build-vs-rent decisions
 use months of real data. Plans are config rows {setup_fee, monthly_fee, included_min,
@@ -1297,62 +1344,42 @@ because nothing of ours runs before the vendor answers an incoming call.
 A client-bought number's rental is collected monthly at the price frozen at purchase — a
 wallet `usage` debit for a prepaid account, a `one_time_charges` invoice line for an
 invoiced one — decided in `billing/number_rental.collect_number_rental` (D-665); a refunded
-credit pack takes its bonus back in the refund's own transaction (D-672). Our carrier cost
-per call is the Vobiz CDR's `total_cost`, written as one compensating `usage_events` row,
-while the client's billable minutes stay the worker's measured duration (D-662/D-648).
+credit pack takes its bonus back in the refund's own transaction (D-672). Our cost per
+call is §10.0's engine minute (plus the Cartesia characters on a Studio call), and the
+client is billed in 30-second steps of the call's duration (D-681).
 Razorpay for collection (phase 1 can invoice manually; ledger from day 1 is non-negotiable).
 
 ## 10. Cost Model (verified July 2026; re-verify quarterly)
 
-> **7 Oct 2026 (D-681): the headline figures below are history, not today's floors.** The
-> floors a rate card is judged at are code-derived per engine in
-> `apps/api/billing/rates.py::cost_floor_inr_per_min(voice, engine=...)`: Pipecat folds in the
-> carrier leg we now own (Vobiz ₹0.44 + recording ₹0.10; Clear ₹3.6891, Studio ₹5.2499) and
-> ThinnestAI's Clear floor is ₹2.75 (₹2.50 Premium × 1.10 top-up fee, FOUNDER-RELAYED).
-> `tests/cost_floor_test.py` pins the derivations. Clients are billed in 30-second steps.
+> **What a call costs us today is §10.0.** ThinnestAI hosts the whole call (D-678..D-682), so a
+> minute's cost is ThinnestAI's attested per-minute rate plus its wallet top-up fee, and on a
+> Studio call Cartesia's charge for the characters spoken on our key. The rate card is BRD §6.1
+> (D-728: Clear ₹4.50, Studio ₹6.00 on every pack) and the margins against these costs are BRD
+> §6.2. The floors a card is judged at are code-derived in
+> `apps/api/billing/rates.py::cost_floor_inr_per_min` and pinned by `tests/cost_floor_test.py`.
+> Clients are billed in 30-second steps (D-681).
 >
-> **11 Oct 2026 (D-728): the card is Clear ₹4.50 and Studio ₹6.00, flat on every pack.**
-> Against the costs below, Clear earns 36.5% on ThinnestAI's Premium band (₹2.75/min) and
-> 25% on its Studio band (₹3.27/min) before the Pro subscription; Studio earns about 28% at
-> the first measured speaking rate (571 agent characters per call-minute, 3 calls) when
-> Cartesia bills per character. D-728 carries the working, the market comparison and the
-> open items (ThinnestAI GST, the Pro plan fee, Cartesia overage).
->
-> **8 Oct 2026 (D-687): ThinnestAI's Clear is now its studio band, and Studio is sold.** On
-> `ENGINE=thinnest` Clear costs ₹3.00 studio band × 1.09 Pro top-up fee = **₹3.27/min**
-> against the ₹4.00 Clear price, an **18.3%** gross margin before the Pro subscription
-> (price UNKNOWN here) and GST, down from D-681's 31.3%: **flagged to the founder.** Studio is
-> ₹1.50 voice-only BYOK × 1.09 = ₹1.635/min plus Cartesia's cost per call-minute (§10.1's
-> Cartesia band, ₹2.06–3.09), about ₹3.70–4.73 against ₹7.00–5.50. All three ThinnestAI
-> figures are VENDOR-STATED (`docs/evidence/thinnest-ai-evaluation.md` §10 item 7) and reach
-> money only through an operator's attestation (OPERATIONS gate T-14). The §10.1 TTS table
-> below prices the Pipecat engine's two voices and is unchanged.
+> Everything else in §10 before §10.0 and from §10.2 on is the cost model of the stacks that
+> preceded ThinnestAI — the rented Bolna engine with our own STT, TTS and LLM keys, and the
+> self-orchestration comparisons made against it. It is the record the July–September pricing
+> decisions were made on, not a description of what a ThinnestAI call pays. §10.1 keeps the
+> per-leg vendor rates that still price something on ThinnestAI (the Cartesia leg of a Studio
+> call; Sarvam's first post-call extraction pass) and the model rates the code still holds.
 
-Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · **TTS 0.97–1.46 on the Clear
-voice (Gnani Timbre v2.5 since D-629, at the vendor's published per-character rate, `₹27.00 / 10,000 chars` —
-⚠ this clause said the leg had "no figure at all" for one day, because a previous session
-had not found Gnani's pricing page and recorded the not-finding as a vendor fact; it also
-carried the Sarvam Bulbul v3 band until 18 Sep 2026, when Sarvam left the synthesis leg.
-A published rate is not a billable one: no Gnani minute may be metered until an operator
-attests an invoice figure, hard rule 7) or 2.06–3.09 on the Cartesia voice (Sonic 3.5 — a
-MONTHLY PLAN whose MARGINAL per-character rate past the included allotment is what this
-band is struck at, `billing/rates.py::CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`, priced per
-call-minute by `billing/rates.py::cartesia_tts_inr_per_call_minute` and all-in by
-`billing/rates.py::cartesia_cost_inr_per_call_minute`; D-547 made the voice a per-agent
-choice, so this leg now has two values and the call decides which)**
+Per-minute variable (₹), the own-stack summary: platform 1.5–2.0 (the Bolna BYOK fee, never
+verified) · STT 0.50 · **TTS 2.06–3.09 on the Studio voice (Cartesia Sonic 3.5 — a MONTHLY
+PLAN whose MARGINAL per-character rate past the included allotment is what this band is struck
+at, `billing/rates.py::CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`; it is also the one synthesis
+leg a ThinnestAI call still buys from a vendor of ours, §10.0)**
 · **LLM 0.10–0.24 (`gpt-4o-mini` on Azure OpenAI East US 2 — the band is the one- to
 ten-minute curve, not a rate; supersedes D-400's 0.23–0.51 Gemini band and D-36's ₹0.00.
 On the `gpt-4.1-mini` switch it is 0.27–0.65 — 2.67x, see §10.1)**
 · telephony 0.40–0.90 inbound / 0.60–1.80 outbound. **Blended all-in ≈ 3.3–3.8 (launch)
-→ 1.9–2.6 (phase 2)** — derived rather than adjusted, because adjusting is how the two
-bands drifted apart in the first place. Launch is **D-36's ≈₹3.1–3.6 plus the shipped LLM
-leg at the five-minute reference (₹0.16)** = 3.26–3.76. Phase 2 is that minus the ₹1.50
-platform fee plus §10.1's ₹0.15–0.30 compute = 1.91–2.56. *(This line read "3.3–3.9 →
-1.7–2.6" and `docs/README.md` read "3.3–3.8 → 1.9–2.5" — the same decision, subtracted
-twice by two different routes, because D-400 rounded 3.46–3.96 UP to "3.5–4.1" and every
-later re-derivation inherited the extra 0.14. Both now quote this derivation; neither is
-re-rounded independently.)* These are blended mid-ladder estimates, not the min–max — that
-is §10.1's **₹2.89–4.28**.
+→ 1.9–2.6 (phase 2)** — derived rather than adjusted. Launch is **D-36's ≈₹3.1–3.6 plus the
+LLM leg at the five-minute reference (₹0.16)** = 3.26–3.76. Phase 2 is that minus the ₹1.50
+platform fee plus ₹0.15–0.30 of self-orchestration compute = 1.91–2.56. These are blended mid-ladder
+estimates of a stack we no longer run.
+
 
 > ⚠ **THE LLM LEG IS NOT FREE AND IS NOT A FLAT PER-MINUTE RATE (D-400, repriced by D-410).**
 > D-36 priced it at ₹0.00 because Sarvam 105B is free per token; it is now `gpt-4o-mini` on
@@ -1388,40 +1415,8 @@ is §10.1's **₹2.89–4.28**.
 > confirmed against a real invoice at OPERATIONS §2 gate 20c rather than guessed into a
 > constant. This is the same discipline retired gate 14c applied to the Vertex question.
 
-> ⚠ **The model legs above are §10.1's, not July's** — this paragraph is a summary and
-> **§10.1 is the rate card.** Two July readings that survived here after §10.1 corrected
-> them, both stale in the direction that understates what we have built: "the v2 ₹0.60
-> band is likely gone; their docs list only V3 — confirm pricing on account" (D-35 read
-> the card live on 11 Aug 2026 and found v2 live at half the v3 rate; the single-tier voice
-> decision has since WITHDRAWN the v2 rung entirely — `billing/rates.py::TTS_INR_PER_10K_CHARS`
-> is one scalar for the SARVAM rung and stays one; ⚠ this clause used to read "is now one
-> scalar" full stop, and since **D-547** the card has a SECOND rung —
-> `CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`, the vendor's OVERAGE rate past the included
-> allotment on the dearest plan we can be on, DERIVED rather than typed. Two rungs, two
-> vendors, and NOT a return of v2: what D-547 added is a dearer voice, not the cheaper one
-> this note records as withdrawn.
-> ⚠ **THIS CLAUSE NAMED `CARTESIA_TTS_INR_PER_10K_CHARS` — A SYMBOL THAT HAS NEVER EXISTED
-> UNDER THAT NAME — AND CALLED IT "the Cartesia Startup plan's fee over its allotment",
-> WHICH IS THE BASIS D-556 RETIRED (10 Sep 2026).** The per-minute summary above priced the
-> Cartesia leg at **₹1.8628**, the top of the retired ₹1.24–1.86 band, and pointed at a
-> second symbol that does not exist either (`cartesia_plan_inr_per_call_minute`). §10.1 is
-> the rate card and had already carried ₹5.7200 / 1,000 chars → **₹2.06–3.09** since 9 Sep
-> 2026; the summary had not moved with it. `scripts/check_docs_drift.py` §4f now diffs this
-> paragraph's TTS band against §10.1's per-call-minute column in both directions, so a
-> summary cannot contradict the card again unwatched, and §4g refuses a
-> `billing/rates.py::<name>` citation anywhere in this document that names nothing the
-> module defines.
-> `plans.overage_rate_second` still exists as a dormant founder pricing lever), and "LLM 0.04–0.10" — which is stale in the OTHER direction now. D-36 replaced it
-> with ₹0.00 (Sarvam 105B, free per token), D-400 replaced that with a real,
-> duration-dependent leg, and **D-410 has repriced that leg onto `gpt-4o-mini`** — same
-> curve, a cheaper vendor price, and an output leg 4x its input leg rather than 8.3x.
-> `scripts/check_docs_drift.py` §4b now
-> diffs §10.1's card against `TTS_INR_PER_10K_CHARS`, so the RATES cannot drift again
-> unwatched; the platform and telephony bands here remain UNVERIFIED estimates (pilot
-> gate 12) and no check can say otherwise.
-
-Actual per-call cost comes from Get Call's
-cost.breakdown (platform_fee/stt/tts/llm/telephony, INR) recorded into usage_events.
+On ThinnestAI the per-call cost is §10.0's: the attested rate per billed minute, with
+ThinnestAI's own per-call charge (`costMicro`) reconciled against it and never metered.
 Fixed monthly: **priced against a DigitalOcean stack that is no longer the plan** —
 ~$75–125 (web/api droplet, worker droplet, managed PG, Redis, storage) ≈ ₹7–10k; plus
 platform/model minimums + numbers ≈ ₹3k. **D-25/D-26 moved hosting to a single
@@ -1444,7 +1439,6 @@ Telephony (~₹0.35–0.50) is likewise constant. Only the platform fee and late
 |---|---|---|
 | **Bolna** (primary, D-31) | **unpublished as a commercial term** — pilot gate 12; bundled ₹5.52→₹4.15; **OBSERVED at 2.0¢/min ≈ ₹1.84 on a dashboard panel (D-423, VERIFIED-DASHBOARD — the "rumoured ~₹1.8" line was closer than it deserved to be, and one agent's panel is still not a contract)**; target ≤₹1.5. **No monthly floor** (prepaid credits) | undefined "<300ms" marketing claim; compute region **documented as US by default** — *"Bolna processes calls on infrastructure in the US (AWS us-east-1)"* (`bolna-findings/mirror/pages/concepts/security.md:29`), not the URL inference this cell used to carry; India residency is Enterprise-gated and foreclosed by BYOK (D-415) |
 | LiveKit Cloud (phase-2 candidate) | marginal ₹1.23 (agent + third-party SIP, two meters) but **$50/mo Ship floor dominates**: ₹4.40/min @1k min, ₹0.88/min @5k min; concurrency capped 5/20/600 | ✅ ap-south (Mumbai) VERIFIED — best-evidenced |
-| **Pipecat Cloud** (ADOPTED for the owned runtime, D-592) | **$0.01/min active = ₹0.95** at `COST_MODEL_USD_INR`, plus $0.0005/min per warm instance that is NOT in any floor — `billing/rates.ENGINE_PLATFORM_FEE_USD_PER_MIN` / `ENGINE_RESERVED_INSTANCE_USD_PER_MIN`. ⚠ **THIS CELL READ "~₹0.88 claimed — entirely unverified" UNTIL 19 SEP 2026, AND BOTH HALVES WERE STALE**: the price has been read (VERIFIED-VENDOR-DOCS, `docs.pipecat.ai/pipecat-cloud/pricing` via `docs/evidence/engine-replacement-comet-2026-09-06.md:93,103,122`, whose own note is that the vendor's page carries NO DATE), and this is no longer a candidate. ⚠ **WHAT AN ACTIVE MINUTE COVERS IS STILL UNKNOWN** — connected time only, or container start and teardown too — which is OPERATIONS §2 **gate 57** and P-1 of `docs/evidence/pre-build-blockers-2026-09-13.md` §3.5. Until an invoice answers it the leg is REFUSED rather than estimated on a real call (`voice_worker/meter.py::RuntimePriceUnknownError`), so a Pipecat minute has a cost model figure and no metered one | `ap-south` (Mumbai) is what the worker is deployed to; **no call has measured it** (BLOCKER-1) |
 | Self-host (DO BLR / Vultr Mumbai) | ₹2.1/min @1k, ₹0.85–1.2/min @5k (₹2,112/node ≈ 8–9 concurrent) | best possible physics (co-located), unmeasured |
 | ~~Cartesia **Line**~~ (D-88, re-examined Aug 2026) | ₹5.28/min ($0.06/min, Free→Startup) — **bundled, and now CONFIRMED bundled**: Line's LLM is fully BYOK via LiteLLM (`model=` + `api_key=`, 100+ providers) but **STT and TTS are not** — Ink 2 and Sonic 3.5 are the product and the SDK exposes no swap interface (first-party: the Line SDK README, `github.com/cartesia-ai/line`). So it is not comparable to a BYOK fee, and it **cannot host D-36's Sarvam stack**. Scale tier $0.014/min (₹1.23) is enterprise-negotiated with an unpublished commitment. Monthly plans to $299 (₹26,312); agent concurrency capped 1/3/5/10 by tier. Eliminated on **telephony**, not price: Cartesia numbers / imported Twilio / Voximplant, none of which is a DLT-registered Indian number. ⚠ **ELIMINATED AS AN ORCHESTRATOR, ADOPTED AS A TTS VENDOR — TWO DECISIONS ABOUT ONE COMPANY, AND CONFLATING THEM IS THE ERROR THIS CELL NOW NAMES (D-547, 7 Sep 2026).** The verdict above is unchanged and is about **Line**, their orchestration product: it is bundled, it cannot host D-36's Sarvam stack, and its telephony reaches no DLT-registered Indian number. What D-547 adopted is **Sonic 3.5 as our SECOND TTS leg on Bolna**, where Cartesia is a first-class voice provider (`bolna-findings/mirror/pages/providers/voice/cartesia.md:58-66`, VERIFIED-VENDOR-DOCS) and the credential store takes one `CARTESIA` entry (`providers.md:146-150`) — the MODEL layer of the table below, at the plan price §10.1 states, bought while the orchestrator stays Bolna. Nothing in this row is softened by that: buying a vendor's model is not buying their platform, which is the same like-for-like rule the paragraph under this table was written to enforce | India story is REAL but enterprise-shaped: Blue Machines AI partnership (~Feb 2026) for India-**resident** processing, Bangalore office, Sonic 3 across the top 9 Indic languages incl. Telugu, on-prem/VPC/air-gapped, SOC 2 Type II + HIPAA + PCI L1. The earlier "English-first TTS" reading was **stale and is withdrawn**. Self-serve India region still unverified — `docs.cartesia.ai` and `www.cartesia.ai` are unreachable from our build environment |
 | ~~Vapi~~ | ~~₹4.40/min~~ — survives full BYOK; exceeds the entire all-in target alone | ❌ US/EU only: +230–260ms hairpin |
@@ -1458,7 +1452,7 @@ Vendors price at two different layers and the same-looking number means differen
 
 | Layer | What you buy | Representative price |
 |---|---|---|
-| **Model** (STT/TTS/LLM) | one leg of the pipeline | Cartesia Sonic TTS **₹3.29–4.40 / 1k chars by plan tier, sold only as a monthly bundle** (Startup $49 / 1.25M chars, Scale $299 / 8M; no pay-as-you-go — `docs/evidence/cartesia-tts-verification-2026-09-06.md`; this cell said "≈ ₹2.7–3.0" until 6 Sep 2026 and that figure was REPORTED and wrong); Sarvam Bulbul v3 ₹3.00 / 1k chars, usage-billed |
+| **Model** (STT/TTS/LLM) | one leg of the pipeline | Cartesia Sonic TTS **₹3.29–4.40 / 1k chars by plan tier, sold only as a monthly bundle** (Startup $49 / 1.25M chars, Scale $299 / 8M; no pay-as-you-go — `docs/evidence/cartesia-tts-verification-2026-09-06.md`; this cell said "≈ ₹2.7–3.0" until 6 Sep 2026 and that figure was REPORTED and wrong) |
 | **Orchestration, bundled** | the whole call, vendor's models included | Cartesia Line $0.06/min · Bolna bundled 6.00¢/min |
 | **Orchestration, BYOK** | the whole call, *our* models | Bolna BYOK (target ≤₹1.50) · Vapi $0.05/min **on top of** your model spend |
 | **Self-orchestrated** | nothing — you built it | ₹0 fee + ~₹0.20/min compute |
@@ -1479,68 +1473,63 @@ pay Line's ₹5.28/min has stacked two layers that never both apply. They buy Ca
 > real and survives without it: it does not need to know who Outpero pays, only that the
 > two layers are different.
 
+### 10.0 What a ThinnestAI call costs us: `unit_cost_paid`
+
+Hard rule 7 requires a real cost on every `usage_events` row, in an append-only ledger. There
+is no vendor total to convert: ThinnestAI's call results carry a charge, but the meter is built
+from independently sourced legs, and the charge is the check on it.
+
+| Leg | Quantity | Price | Source and evidence |
+|---|---|---|---|
+| Engine minute (every call) | billed minutes = `ceil(seconds / 30) × 0.5` | the operator-attested ₹/min for the call's rate key (`engine_agent_routes.engine_rate_key`: the band sold as Clear, or `byok_voice` for Studio) × (1 + `billing/rates.py::THINNEST_TOPUP_FEE`) | `billing/engine_minutes.py` (D-678, D-723). Rates VENDOR-STATED: Premium band ₹2.50, Studio band ₹3.00, voice-only BYOK ₹1.50 including the line; the 2.36% top-up fee is ThinnestAI's email of 12 Oct 2026 (D-754). An attested rate lives in `platform_engine_minute_prices` |
+| Cartesia synthesis (Studio calls only) | characters our transcript says the agent spoke, in thousands (`tts_kchars`) | the operator-attested Cartesia rate; no top-up fee, because it is billed to our own Cartesia key and never passes through the wallet | `apps/workers/pipeline.py`; the vendor's plan and overage rates are §10.1's Cartesia card |
+
+**Reconciliation, not metering.** ThinnestAI's `costMicro` (on `call.analysed` and
+`GET /calls/{id}`) is kept on `calls.engine_charged_inr` and compared hourly by
+`workers/engine_charges.py`: charge × (1 + top-up fee) against the attested minute, and a
+Studio call must carry its Cartesia row. A difference alarms; it is never written as a
+correction to the ledger (hard rule 4). Detail: THINNEST-INTEGRATION §5.
+
+**The costing rule is the same on every leg.** Each figure passes through `billing/`, refuses
+an unattested price, and never takes a catalogue number as `unit_cost_paid`. A minute with no
+attested rate is UNPRICED — recorded with a NULL cost and alarmed — never priced at zero, and
+`engine_minute_is_billable` is the door the offer and publish seams consult, so a minute
+without a rate is not sold at all. Defaulting any leg to zero is the one response that is
+never allowed: a leg we cannot price raises, exactly as `billing/rates.py::llm_inr_per_ktok`
+does for a model.
+
+**Client billing is separate** (D-681): the client is billed in the same 30-second steps on
+the rung of the agent that took the call (`billing/rates.py::client_billed_minutes`), at the
+rate frozen on the credit lot being spent (BRD §6.1).
+
 ### 10.1 Stack cost, computed from published rates (Aug 2026)
 
-Every figure below is derived from a first-party rate card; the derivation is shown so it
-can be re-checked when a rate moves. **Assumption used throughout:** the agent speaks
-40–60% of a call, at ~900 characters/minute of actual speech → **360–540 TTS characters per
-call-minute**. That ratio is the single biggest lever on the TTS line and is pilot gate 12's
-measurement — **now MEASURED from our own transcripts rather than assumed**:
+Every figure below is derived from a first-party rate card; the derivation is shown so it can
+be re-checked when a rate moves. **What each card prices on ThinnestAI:** the Cartesia card
+prices the synthesis leg of a Studio call (§10.0); the Sarvam card prices the first post-call
+extraction pass (`sarvam-105b`) and Saaras speech-to-text where we transcribe outside a call.
+A ThinnestAI call's own STT, LLM and Clear voice are inside its per-minute rate, so the STT and
+in-call LLM rows of the per-call-minute table price no ThinnestAI call: they are the own-stack
+margin model `billing/rates.py::llm_cost_inr_per_minute` still computes, and
+`scripts/check_docs_drift.py` reconciles them against the code.
+
+**Assumption used throughout:** the agent speaks 40–60% of a call, at ~900 characters/minute
+of actual speech → **360–540 TTS characters per call-minute**. That ratio is the single biggest
+lever on the Studio cost and is measured from our own transcripts:
 `GET /v1/admin/spend/tts-speaking-rate` (`billing/tts_speaking_rate.py`, the "TTS speaking
 rate — measured" card on the admin spend board) reads `length(COALESCE(text_redacted, text))`
-over the AGENT's turns ÷ `calls.duration_s` for every call with a transcript, across every
-live tenant one RLS session at a time, and publishes the p50, the p95 and the pooled
-(Σ chars / Σ minutes) chars per call-minute with the TTS ₹/min each implies at the rate
-above. **The band is the FALLBACK until the sample reaches twenty calls**
-(`TTS_SPEAKING_RATE_MIN_CALLS`; below that the route returns the sample size and
-`measured: false` and no figure — a rate from three calls displayed as measured would be
-hard rule 11's failure). The band lives in code as
+over the AGENT's turns ÷ `calls.duration_s` for every call with a transcript, across every live
+tenant one RLS session at a time, and publishes the p50, the p95 and the pooled (Σ chars / Σ
+minutes) chars per call-minute. **The band is the FALLBACK until the sample reaches twenty
+calls** (`TTS_SPEAKING_RATE_MIN_CALLS`; below that the route returns the sample size and
+`measured: false` and no figure). The first reading, 571 agent characters per call-minute over
+3 calls (D-728), is below that threshold. The band lives in code as
 `billing/rates.py::TTS_ASSUMED_CHARS_PER_CALL_MINUTE` and `scripts/check_docs_drift.py` §4e
-diffs it against every statement of it in this document, so the two cannot drift. When the
-card reads measured, re-derive this section's floor from the POOLED figure.
-
-> ⚠⚠ **SARVAM NO LONGER SYNTHESISES ANYTHING, AND THE BULBUL V3 RUNG IS GONE FROM THIS
-> CARD (D-629, 18 Sep 2026).** Sarvam is still the SPEECH-TO-TEXT vendor on every call and
-> still reads the first pass over the transcript, so its STT rows below are live and its
-> sub-processor standing is unchanged — what left is the TEXT-TO-SPEECH leg. The founder's
-> end state is **two voices, Gnani and Cartesia**: `agents/voices.TtsModel` is
-> `Literal["sonic-3.5", "timbre-v2.5"]`, **Gnani took the Clear (value) rung Sarvam held**
-> and Cartesia stays Studio.
->
-> ⚠ **THIS BLOCK READ "SO THE CLEAR RUNG HAS A VENDOR AND NO PRICE … Gnani publish none"
-> UNTIL 19 Sep 2026, AND THE NO-PRICE HALF WAS A NOT-FINDING WRITTEN DOWN AS A VENDOR
-> FACT** (D-631; hard rule 11, committed about hard rule 11's own subject). **THE CLEAR RUNG
-> HAS A VENDOR, A PUBLISHED PRICE, AND STILL NO SELLABLE RATE — and the last of those three
-> is the only one that has not moved.** Gnani's own console publishes **₹27.00 / 10,000
-> characters** for Text to Speech, with a **60 requests/minute** limit
-> (`app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and relayed; the host is
-> egress-blocked from this container, so the evidence class is **VENDOR-PUBLISHED**,
-> founder-relayed, not fetched here). `billing/rates.py::TTS_INR_PER_10K_CHARS` is struck
-> at it and the per-call-minute row below states **₹0.97–1.46**, replacing a FLOOR that had
-> been struck at a withdrawn vendor's ₹30 scalar for one day.
-> **THE PROVENANCE HALF OF THE OLD BLOCK WAS RIGHT AND SURVIVES**: the single figure that was
-> already in the wild came from a RESELLER's page for THEIR platform
-> (`docs/PIPECAT-MIGRATION.md` §7), it is not Gnani's, and re-verifying a reseller would never
-> have made it a Gnani rate — a figure that later turns out to match is still not a source.
-> **WHAT DOES NOT CHANGE: no Gnani minute is sellable.** A published catalogue price is not an
-> invoice, so hard rule 7 keeps every Gnani voice out of what a client can pick —
-> `agents/voice_offer.py`'s attested-price ground, the same pre-flight
-> `agents/llm_models.offerable_models()` applies to a model, and the identical standard that
-> makes the Gemini catalogue price `verified=False` — and no Gnani minute reaches
-> `unit_cost_paid`. One operator attestation of a real invoice unblocks all of it.
->
-> **WHAT THIS MEANS FOR EVERY ₹1.08–1.62 IN THIS DOCUMENT**: it was the Bulbul v3 TTS band
-> and it prices nothing now. Where it appears below in a DATED comparison (§10's engine
-> bake-off, the Outpero reading) it is left standing as the record of what was compared on
-> that date; where it priced the live cost model it is gone. The Cartesia rung is untouched
-> — same plan, same overage rate, same ₹2.06–3.09 — because nothing about that vendor moved.
->
-> **THE MIRROR MOVED WITH IT.** `scripts/check_docs_drift.py` §4b diffs this section's rate
-> rows against the biller in BOTH directions; `code_tts_rates()` dropped its `bulbul-v3`
-> entry on the same date and says in its own docstring why the frozen scalar is NOT listed
-> there — it is a cost-model figure divided into a floor, not a rung of the published card,
-> and listing it would demand a rate-card row here for a vendor card that no longer exists.
-> So §4b now guards one rung, the Cartesia one, and §4e still holds the speaking band.
+diffs it against every statement of it in this document. When the card reads measured,
+re-derive the Studio floor from the POOLED figure: a month's bill divides by the pooled rate,
+and the tail is published as exposure rather than multiplied into a floor. Indic scripts can
+run denser than the band, which pushes a Studio minute's cost up; the measurement is what
+confirms or reprices it.
 
 **Sarvam rate card, read live from `sarvam.ai/api-pricing` on 11 Aug 2026 and RE-READ off
 the founder's own Sarvam dashboard on 27 Aug 2026** (`indus.sarvam.ai/model-catalogue` and
@@ -1549,7 +1538,7 @@ our own doc errors — see the ⚠ notes below):
 
 | Sarvam API | Published rate |
 |---|---|
-| **Sarvam 105B (`sarvam-105b`, chat LLM)** | **₹29.28 / 1M input · ₹10.98 / 1M cached input · ₹73.20 / 1M output** — ⚠ **NOT free; see the correction note below** — *and no longer our LLM leg (D-400, D-410). Kept on the card because it is the disclosed dashboard-assist fallback, and because a rate we walked away from is worth being able to walk back to. Walking back is not free: Sarvam has no member in Bolna's `LLMProvider`, so an in-call return means `provider: "custom"` — the credential path retired gate 16c put in doubt.* |
+| **Sarvam 105B (`sarvam-105b`, chat LLM)** | **₹29.28 / 1M input · ₹10.98 / 1M cached input · ₹73.20 / 1M output** — ⚠ **NOT free; see the correction note below** — *the first post-call extraction pass and the disclosed dashboard-assist fallback* |
 | Speech-to-Text | ₹30 / hour |
 | Speech-to-Text **and Translate** (Saaras) | ₹30 / hour |
 | STT with diarization | ₹45 / hour |
@@ -1557,25 +1546,18 @@ Plans: pay-as-you-go with **no minimum**; ₹1,000 free credits; credits never e
 universal across APIs. **Rate limits are the real constraint, not price** — 60 rpm (Starter) /
 200 rpm (Pro ₹10k) / 1,000 rpm (Business ₹50k).
 
-**Cartesia rate card — the SECOND voice tier (D-547, 7 Sep 2026).** A client's agent speaks
-with Gnani Timbre v2.5 or Cartesia Sonic 3.5 — it read "Sarvam Bulbul v3 or Cartesia
-Sonic 3.5" until D-629 moved the Clear rung to Gnani; the tier is a property of the agent, and the
-credit-pack card prices a minute differently for each (§2.2 of
-`docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md`). Cartesia is **not per-character billed**: it is
-a monthly subscription with a character allotment and no pay-as-you-go option, so the ₹/chars
-row below is the plan's MARGINAL rate — the fee spread over the whole allotment — and it is
-true only when the allotment is exactly consumed.
+**Cartesia rate card — the Studio voice (D-547, D-687).** On ThinnestAI a Studio agent speaks
+Cartesia on our key through voice-only BYOK, and Cartesia bills that key directly. Cartesia is
+**not per-character billed**: it is a monthly subscription with a character allotment and no
+pay-as-you-go option, so the ₹/chars figure below is the plan's MARGINAL rate — the overage
+rate past the included allotment.
 
 | Cartesia API | Published rate | Marginal rate |
 |---|---|---|
 | Text-to-Speech **Sonic 3.5**, Pro plan (the plan we are on) | $5 / month, 100,000 credits (1 credit = 1 character), then **$65 / 1,000,000 credits** | ₹57.20 / 10,000 chars |
 
-> ⚠ **THE ROW ABOVE CHANGED ON 9 SEP 2026 AND USED TO READ "Startup plan | $49 / month,
-> 1,250,000 credits | ₹34.496 / 10,000 chars".** Two things were wrong with it. The plan was
-> wrong — the vendor states the smallest paid path is **Pro at $5/month**, not $49 — and the
-> rate was an AVERAGE (fee over allotment) that is true at exactly one volume and was silent
-> about the overage, which was then UNKNOWN. **THE OVERAGE UNKNOWN IS CLOSED**: $65 / $45 /
-> $38 per 1,000,000 credits on Pro / Startup / Scale.
+> **The overage rates are $65 / $45 / $38 per 1,000,000 credits on Pro / Startup / Scale**,
+> and the smallest paid path is **Pro at $5/month**.
 >
 > **EVIDENCE CLASS: VENDOR-PUBLISHED.** Direct correspondence — an email reply from **Ege
 > Tinmaz, Product Support Engineer, Cartesia (ege.tinmaz@cartesia.ai)** to a pricing enquiry
@@ -1594,51 +1576,22 @@ true only when the allotment is exactly consumed.
 > whether or not it is spoken). The constants live at
 > `billing/rates.py::CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS` (derived from the vendor's
 > overage rate, never typed) and `scripts/check_docs_drift.py` §4b diffs this row against
-> them in both directions, as it does the Bulbul row above.
+> them in both directions.
 
-> ⚠ **SUPERSEDED IN TWO OF ITS THREE CLAIMS BY D-547 (7 Sep 2026). THIS NOTE USED TO READ
-> "There is one voice quality now — Sarvam Bulbul v3 — so there is one TTS rate
-> (₹30 / 10,000 chars) and one client price (₹5.00/min, `self_serve_inr_per_min`)", AND
-> NEITHER THE SECOND NOR THE THIRD CLAUSE IS TRUE ANY MORE.** There are **two** voice
-> tiers, chosen per AGENT: the Sarvam voice and the Cartesia voice. So there are two TTS
-> rungs on this card — the Sarvam one above and the Cartesia one in the table beneath it —
-> and **twelve** client prices rather than one: six packs × two voices
-> (`apps/api/billing/credit_packs.py:185-223`, the table restated in the CLIENT PRICE AND
-> MARGIN passage at the end of this section), each of the two rates FROZEN on the credit
-> the purchase that bought it opened, so a later card cannot re-price credit already sold. ₹5.00/min survives as the SARVAM
-> rate on the two smallest packs — one cell of a card, not the rate — and
-> `self_serve_inr_per_min` survives only as the transition reader named in the plan's §10.
->
-> **What the single-tier decision settled and D-547 does NOT reopen: Bulbul v2 stays
-> withdrawn as a client-facing rung.** It was live at half the v3 rate (which corrected
-> D-20's "appears discontinued"); it is simply no longer offered, so it and its cost rows
-> stay gone from this card. The second tier is a second VENDOR at a DEARER rate, not the
-> cheaper rung of the same vendor coming back (BRD R-10 records the same distinction as the
-> mitigation it changes).
-> ⚠ **Corrected R-04's premise; D-400 overtook that and D-410 has closed it** — D-36 recorded Sarvam's LLM as free per token, which was read at the time as making a paid LLM leg avoidable on COST grounds (**that premise is now withdrawn — see the correction note below**); the founder took a paid leg anyway, first on Vertex and then on Azure OpenAI — South India at D-410, `eastus2` since D-449 — for the reasons in D-400, D-410 and D-449. **R-04 itself is now CLOSED on every leg**: the retirement date died with the Gemini model. The ₹0.00 line below is what we gave up rather than what we run.
-
-**Cost per call-minute.** Assumption doing the most work: the agent speaks 40–60% of a call at
-~900 characters/minute of speech → **360–540 TTS characters per call-minute**. That ratio is
-the single biggest lever on the TTS line (pilot gate 12). It is measured from our own
-transcripts, and **since D-557 (9 Sep 2026) the arithmetic below actually uses the
-measurement**: `billing/rates.SELF_SERVE_COST_FLOOR_INR_PER_MIN` is
-`sarvam_cost_floor_at(ASSUMED_SPEAKING_RATE)` — this band's top — and
-`sarvam_cost_floor_at(basis)` is the same floor at whatever the fleet's POOLED rate turns
-out to be, published on the ops rate card and the admin spend board with the sample size and
-the window beside it. ⚠ This paragraph previously said the band "is now measured", which was
-true of the board and false of every rupee: the measurement existed and nothing consumed it.
-**The band remains the fallback and the FROZEN refusal**: below twenty calls with a
-transcript (`TTS_SPEAKING_RATE_MIN_CALLS`) no figure is published as measured, and the write
-paths keep vetoing against this band's top even after one is — a veto that moved with a
-measurement would refuse tomorrow the card it accepted today (D-556's settlement, applied
-here). Pooled and not p50/p95: a month's bill divides by the pooled rate, and the tail is
-published as exposure rather than multiplied into a floor.
+**Cost per call-minute.** At the band above (360–540 characters a call-minute), the Studio
+synthesis leg is **₹2.06–3.09** at the Pro overage rate. That is the worst MARGINAL cost — what
+one more minute costs on the plan we are on — and only the refusal bound: below the allotment a
+minute costs more, because the fee is paid whether or not it is spoken, so the honest cost is a
+curve in the month's platform volume and the ops console prints it with the volume named
+(D-556). THINNEST-INTEGRATION §5 prices the Cartesia leg of a ThinnestAI Studio call at
+₹2.06–3.42 per call-minute at 571 characters a minute, by plan and volume (cartesia.ai/pricing
+read 11 Oct 2026). The refusal stays frozen at ₹88 so a currency tick cannot make a live card
+un-recordable; the live-rate figure is published beside it as a warning.
 
 | Leg | Rate | Per call-minute |
 |---|---|---|
 | STT — Saaras (STT+Translate) | ₹30/hr | **₹0.50** |
-| TTS — Gnani **Timbre v2.5** *(the Clear voice tier since D-629, 18 Sep 2026. ⚠ **THIS ROW READ "none published" AND ASSERTED THAT GNANI PUBLISH NO PRICE OF ANY KIND UNTIL 19 Sep 2026** — a previous session did not find the page and wrote the not-finding down as a vendor fact, which is the failure hard rule 11 exists for. Gnani's own console states ₹27.00 / 10,000 characters for Text to Speech, with a 60 requests/minute limit (`app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and relayed; the host is not reachable from the build container, so this is a founder-relayed reading of a primary source). The rung's COST FLOOR is struck at it, `billing/rates.py::TTS_INR_PER_10K_CHARS`, replacing a withdrawn vendor's ₹30 that had been frozen as a placeholder. ⚠ **A PUBLISHED PRICE IS NOT A BILLABLE ONE**: hard rule 7 admits an operator's attested invoice figure, and a catalogue price is `verified=False` for the same reason the Gemini one is — so no Gnani voice is offerable yet and no minute is billed at this rate)* | ₹27.00 / 10,000 chars | **₹0.97–1.46** |
-| TTS — Cartesia **Sonic 3.5** *(the second voice tier; the vendor's **Pro overage rate**, VENDOR-PUBLISHED — see the card above. ⚠ This row read ₹3.4496 / 1,000 chars and ₹1.24–1.86 until 9 Sep 2026, from the retired fee-over-allotment average on a plan we are not on)* | ₹5.7200 / 1,000 chars | **₹2.06–3.09** |
+| TTS — Cartesia **Sonic 3.5** *(the Studio voice; the vendor's **Pro overage rate**, VENDOR-PUBLISHED — see the card above)* | ₹5.7200 / 1,000 chars | **₹2.06–3.09** |
 | LLM — `gpt-4o-mini` on Azure OpenAI `eastus2` *(D-410's default and still the **base-rate** model `billing/rates.BASE_RATE_LLM_MODEL` freezes the plan rate against — no longer the platform default; region per D-449)* | $0.15/$0.60 per 1M tok | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |
 | LLM — `gpt-4.1-mini` on Azure OpenAI `eastus2` *(the live switch, `azure_openai_model`; both allow-listed models are on the Regional-Standard matrix for this region — gate 20b reads the quota)* | $0.40/$1.60 per 1M tok | **₹0.27 (1 min) / ₹0.44 (5 min) / ₹0.65 (10 min)** |
 | LLM — **`gemini-2.5-flash-lite` on Google Gemini Developer API** *(the cheapest leg we offer, and since 4 Sep 2026 the **platform default** — `Settings.platform_llm_model`. Cheaper than the base-rate model, so it carries **no** model surcharge)* | $0.10/$0.40 per 1M tok | **₹0.07 (1 min) / ₹0.11 (5 min) / ₹0.16 (10 min)** |
@@ -1671,15 +1624,11 @@ published as exposure rather than multiplied into a floor.
 > founder could find**. If they are, this leg costs MORE than the card says. Do not assume
 > either way; an invoice line against a request of known token counts settles it.
 >
-> ⚠ **The same reading CONFIRMS the speech legs and CONTRADICTS one of our own notes.**
+> **The same reading confirms the speech-to-text rate.**
 > Confirmed: `saaras:v3` **and** `saaras:v4` both at **₹30 / hour** of audio (₹45/hour with
-> diarization, which this product does not enable), and `bulbul:v3` at **₹30 / 10,000
-> chars**. Contradicted: an Aug 2026 search-summary claim, recorded in `billing/rates.py`
-> and marked REPORTED-NOT-READ, that Sarvam had shipped **Bulbul v4** — the dashboard
-> catalogue lists **no v4 row at all**, and no price for `bulbul:v2` either. The STT rate
-> now has a code home (`billing/rates.py::STT_INR_PER_HOUR`, `stt_cost_inr`) and
-> `scripts/check_docs_drift.py` §4d diffs it against this section in both directions and
-> across both spellings, exactly as §4b already does for TTS.
+> diarization, which this product does not enable). The STT rate has a code home
+> (`STT_INR_PER_HOUR` in `billing/rates.py`) and `scripts/check_docs_drift.py` §4d diffs it
+> against this section in both directions and across both spellings.
 > ⚠ **Rate limits are per ACCOUNT, not per key** (same reading): 40 requests/minute on
 > `sarvam-105b` chat at the Starter tier, pooled across every key on the account — a second
 > key buys no capacity.
@@ -1696,192 +1645,14 @@ catalogue reference deliberately so the figure is identical on a laptop, in CI a
 founder's screen. `billing/rates.py::llm_inr_per_ktok` is the billing door and it **raises**
 for a model nobody has attested — an unpriced minute is unmetered spend, not a free one.
 
-**BYOK model subtotal, by combination** (identical on every platform — not a decision
-variable, D-32):
-
-Paid-LLM rows are quoted at the **five-minute** figure — **₹0.16/min on `gpt-4o-mini`**, ₹0.44 on `gpt-4.1-mini`, ₹0.11 on `gemini-2.5-flash-lite`, ₹0.36 on `gemini-2.5-flash`, ₹0.85 on `gpt-5.4-mini` — because a blended average has to pick a call length and five minutes is the one §10's other assumptions are written for. A ten-minute call adds **₹0.08/min** to every `gpt-4o-mini` row, **₹0.21/min** to `gpt-4.1-mini`, ₹0.05 to `gemini-2.5-flash-lite`, ₹0.15 to `gemini-2.5-flash` and ₹0.39 to `gpt-5.4-mini`. None of them is a rate: `llm_cost_inr_per_minute` takes a duration because §6.1 resends the whole conversation each turn, and it takes `model` as a required keyword because the offered set now spans **7.7x per minute** at five minutes — from ₹0.11 to ₹0.85.
-
-**The cheapest offered model IS the platform default now, and the surcharge floors at zero because the BASE-RATE model is a different, dearer one.** ⚠ This paragraph used to open "the cheapest offered model is not the platform default": on 4 Sep 2026 the founder made `gemini-2.5-flash-lite` what an account runs when it has chosen nothing, and the two facts came apart deliberately — `billing/rates.BASE_RATE_LLM_MODEL` stays frozen at `gpt-4o-mini` so that moving the platform default cannot re-classify what any account is billed for (D-455), and an account that FOLLOWS the default is never surcharged whatever it resolves to. `gemini-2.5-flash-lite` costs us less per minute than `gpt-4o-mini`, which the plan's rate is struck at, so `billing/rates.py::is_surchargeable_llm_model` compares both token legs against the base model and returns False for anything at or below it — a client who moves to a cheaper model keeps their plan rate and is **not** charged an upgrade. There is no negative arm: a derived discount would publish our margin in the one direction a client could arithmetic backwards (D-455's own argument for why what a client pays is a plan term rather than a figure derived from supplier cost).
-
-> ⚠ **EVERY ROW OF THE TABLE BELOW HAS A BULBUL V3 TTS LEG, AND NO STACK OF OURS HAS ONE
-> SINCE D-629 (18 Sep 2026).** They are kept as the record of what was computed, not as the
-> live cost model: the TTS leg on the Clear rung is Gnani Timbre v2.5. ⚠ **THIS NOTE SAID
-> "and Gnani publish no price, so the Clear combination has no figure at all" UNTIL
-> 19 Sep 2026, AND THAT WAS THE HARD-RULE-11 FAILURE D-631 RECORDS.** Gnani's published
-> ₹27.00 / 10,000 chars gives the Clear TTS leg **₹0.97–1.46** per call-minute (§10.1's
-> table above), so a Clear combination IS derivable by swapping that band in for the v3
-> band exactly as the Studio one swaps ₹2.06–3.09 — the rows below are not re-derived here
-> only because they are a dated record. ⚠ **A DERIVED COST IS STILL NOT A SELLABLE RATE**:
-> hard rule 7 admits an operator's attested invoice figure and nothing else, so no Clear
-> minute is billed and no Gnani voice is offerable (hard rule 11 on the source, hard rule 7
-> on the money). When an operator attests a Gnani invoice figure, these rows are re-derived
-> from it in one edit.
-
-| Combination | Per call-minute |
-|---|---|
-| **Bulbul v3 + `gemini-2.5-flash-lite`** *(the PLATFORM DEFAULT since 4 Sep 2026 - the three legs above added at their five-minute figures)* | **₹1.69–2.23** |
-| Bulbul v3 + `gpt-4o-mini` *(D-410's default, and still the base-rate model)* | ₹1.74–2.28 |
-| Bulbul v3 + `gpt-4.1-mini` *(the switch — what it costs, stated where the choice is made)* | ₹2.02–2.56 |
-| **Bulbul v3 + Sarvam LLM** *(what runs today; cheapest verified stack)* | **₹1.58–2.12** |
-
-| Remaining legs | Per call-minute | Status |
-|---|---|---|
-| Telephony (Exotel/Vobiz class) | ₹0.35–0.50 *(estimate)* | **UNVERIFIED as a band.** Vobiz, the carrier we run (D-662), publishes ₹0.44/min plus tax for Voice API / streaming calls, which is inside it (India rate card, VENDOR-PUBLISHED, founder-relayed, 2 Oct 2026; `docs/evidence/vobiz-api-contract.md` §16; `billing/rates.py::VOBIZ_INR_PER_MIN`). Its billing pulse is UNKNOWN (gate V-7), so a short call can cost more per minute than ₹0.44 |
-| Engine platform fee (Bolna BYOK) | target ≤₹1.50 | **UNVERIFIED — pilot gate 12** |
-| **All-in, rented engine** | **₹3.43–4.28** | v3+Sarvam-LLM floor → v3+`gpt-4o-mini` ceiling at five minutes; **₹4.36 at ten**. The floor rose from the retired v2 combination (₹2.89) because the single-tier voice decision made Bulbul v3 the CHEAPEST voice we offer — there is no cheaper rung to floor against any more, and **D-547's second voice does not restore one**: Cartesia Sonic 3.5 is DEARER, so it raises the ceiling and leaves the floor exactly where it is. Swapping the TTS leg on any row above costs **+₹1.47 to +₹2.01/min** at the MARGIN (₹3.0888, the vendor's Pro overage rate over one call-minute of characters, against Bulbul v3's ₹1.08–1.62), which is why the two cost floors in `billing/rates.py` differ by ₹1.4688 — ₹4.1211 Sarvam against **₹5.5899** Cartesia. ⚠ **THIS SENTENCE READ "+₹0.24 to +₹0.78" AND "₹4.3639 Cartesia" UNTIL 9 SEP 2026**, from the retired model that spread the $49 Startup fee over the volume at which its allotment is exactly consumed; that was the plan's best case, not a floor (D-556). At a real volume the swap is dearer still: at 100 platform Cartesia call-minutes a month the whole minute costs ₹6.90. On the `gpt-4.1-mini` switch the ceiling is **₹4.56 at five minutes and ₹4.77 at ten** |
-
-> ⚠ **BOTH ENDS ADD THE SAME THREE THINGS:** a BYOK model subtotal from the table above, a
-> telephony estimate from the row above, and the engine platform fee. Written out:
->
-> ```
-> floor    = 1.58 (Bulbul v3 + Sarvam LLM, low end)  + 0.35 (telephony, low)  + 1.50 (fee) = 3.43
-> ceiling  = 2.28 (Bulbul v3 + gpt-4o-mini, high, 5m) + 0.50 (telephony, high) + 1.50 (fee) = 4.28
-> ceiling@10m = 2.36 + 0.50 + 1.50 = 4.36      gpt-4.1-mini: 2.56/2.77 + 0.50 + 1.50 = 4.56 / 4.77
-> ```
->
-> What the floor is NOT: it is not a price we have been quoted. The platform fee is
-> **UNVERIFIED** (pilot gate 12) and the dashboard reading of ~₹1.76/min in
-> `docs/PRODUCTION-READINESS.md` §A1 is a screen, not a commercial term — at ₹1.76 this
-> floor is ₹3.69 and the ceiling ₹4.54. The ladder is written against the TARGET because
-> that is the number the pricing decisions were made on; gate 12 is what replaces it.
-
-**CLIENT PRICE AND MARGIN — SIX PACKS × TWO VOICES, EACH RATE FROZEN ON THE PURCHASE THAT
-BOUGHT IT (D-547, 7 Sep 2026; supersedes the single-tier voice decision here, which
-superseded D-34's ₹6).** ⚠ **This paragraph used to open *"the self-serve client rate is
-₹5.00/min (`self_serve_inr_per_min`) — one voice quality, one client rate"*, and there is
-no longer a single self-serve rate to state.** What a minute costs turns on two things:
-which PACK the credit being spent came from, and which VOICE the agent that took the call
-speaks with. The card is `apps/api/billing/credit_packs.py:185-223`; the margin column is
-`billing/credit_packs.py::card_margins` computed against each voice's own cost floor, and
-every figure below was read from that code, not restated from the plan:
-
-| Pack | Sarvam voice ₹/min | margin | Cartesia voice ₹/min | margin |
-|---|---|---|---|---|
-| `starter` ₹2,000 | 5.00 | 17.6% | 8.00 | 45.5% |
-| `growth` ₹5,000 | 5.00 | 17.6% | 7.00 | 37.7% |
-| `scale` ₹10,000 | 4.85 | 15.0% | 6.75 | 35.3% |
-| `plus` ₹15,000 | 4.70 | 12.3% | 6.50 | 32.9% |
-| `pro` ₹25,000 | 4.60 | 10.4% | 6.25 | 30.2% |
-| `max` ₹50,000 | 4.50 | 8.4% | 6.00 | 27.3% |
-
-**The two floors those margins are struck against are DERIVED, never typed:** ₹4.1211/min
-for the CLEAR rung (`SELF_SERVE_COST_FLOOR_INR_PER_MIN` = engine fee 1.76 + STT 0.50 +
-LLM 0.2411 + TTS 1.62) and **₹5.5899** for the STUDIO rung
-(`CARTESIA_COST_FLOOR_INR_PER_MIN` — the same three shared legs plus **₹3.0888**, the
-vendor's Pro overage rate over one call-minute of characters). Telephony is in neither,
-because the client pays their own carrier (D-474).
-
-⚠ **THE CARTESIA FIGURE WAS ₹4.3639 UNTIL 9 SEP 2026 AND THE MARGINS IN THE TABLE ABOVE
-MOVED WITH IT** — on the card then in force the Cartesia column went from reading 45.5%
-down to 27.3% to reading 30.1% at ₹8.00 down to **6.8%** at ₹6.00. ⚠ **BOTH HALVES HAVE
-MOVED AGAIN SINCE AND NEITHER PAIR IS TODAY'S**: D-592 halved the engine leg (the floors
-became ₹3.3111 and ₹4.7099) and D-601 cut the card (Clear flat ₹4.00, Studio 7.00 → 5.50).
-⚠ **AND THE CLEAR FLOOR MOVED A THIRD TIME ON 19 Sep 2026 (D-631)**: its TTS leg was still
-₹1.62 — 540 chars at a withdrawn vendor's ₹30 / 10,000 — and is now Gnani's published
-₹27.00 / 10,000 (₹1.458 at the same 540 chars), so the pair READ FROM THE CODE on
-19 Sep 2026 is **₹3.1491** (`rates.py::SELF_SERVE_COST_FLOOR_INR_PER_MIN`) and
-**₹4.7099** (`::CARTESIA_COST_FLOOR_INR_PER_MIN`, unmoved). The
-twelve margins in force are computed, never quoted — `credit_packs.card_margins`, tabulated
-in `docs/PIPECAT-MIGRATION.md` §12. Nothing was repriced: the old floor was the $49
-Startup plan fee spread over the ~2,315 call-minutes at which its allotment is exactly
-consumed, i.e. the cheapest a Cartesia minute can EVER be, at a volume this platform has
-never run. It was a best case wearing a floor's name, and the ops console printed it under
-a column headed "COSTS US". The floor is now the **worst MARGINAL** cost — what one more
-minute costs on the plan we are actually on (Pro) — which is the only per-minute figure
-about a subscription that does not depend on an unmeasured volume (D-556).
-
-⚠ **AND IT IS ONLY THE REFUSAL BOUND. THE HONEST COST IS A CURVE, NOT A CONSTANT.** At ₹88
-a Cartesia call-minute costs **₹6.90 at 100** platform call-minutes a month, **₹4.93 at
-200**, **₹5.46 at 1,000** and ₹4.36 at 2,315 — the fee amortises, then the overage takes
-over. `billing/rates.cartesia_cost_inr_per_call_minute(v)` is that curve and the ops
-console prints it with the volume named. The refusal stays frozen at ₹88 so a currency tick
-cannot make a live card un-recordable; the LIVE-rate floor
-(`cartesia_cost_floor_inr_per_min_at`) is published beside it as a warning, and at ₹95.66 it
-is **₹6.0120**, above the ₹6.00 `max` rung. Two properties of this card matter more than any single cell:
-
-1. **The whole Sarvam column is BELOW the 20% `MIN_GROSS_MARGIN` target and ABOVE cost,
-   and that is a decision rather than an omission.** The guard REFUSES a rate below its
-   voice's floor and only REPORTS one below the target (`credit_packs.card_refusals`
-   against `card_margins`), because a 20% refusal would refuse the card the founder chose.
-   8.4% at the `max` rung is the thinnest cell on the card and it is thin on purpose:
-   ₹50,000 buys a cheaper minute, and the fixed-cost recovery that makes it work is the
-   §10.2 amortisation, not this line.
-2. **A rate is frozen on the LOT a purchase opens, not on the account.** A later card
-   applies to later purchases; credit already sold keeps the two rates it was sold at, and
-   credit is spent oldest-purchase-first. That is what makes D-492's "a closed month is
-   never re-priced" true by construction rather than by a dated lookup.
-
-**The client-facing NAMES of the two tiers are not the vendors' (founder, 7 Sep 2026).** A
-client reads **"Clear"** (the Sarvam voice) and **"Studio"** (the Cartesia voice), defined
-once at `billing/rates.py::VOICE_TIER_LABELS` and crossed over the wire rather than copied
-into the web; the wire fields, the ledger, the lot rows and every column keep the vendor
-spelling, because renaming a vendor in a money column is how a leg becomes unauditable.
-Two names were excluded deliberately: `standard`/`premium` are Outpero's own rung names
-(§10.3, read out of their bundle), and `basic` would be a claim about the Sarvam voice this
-repository has no measurement to support — §10.3's ⚠⚠ note is the record of a reader
-misled by exactly that kind of inference.
-
-**The dominant risk is UNMEASURED and it is on the TTS leg: Telugu/Indic character
-density.** §10.1's whole cost model rests on the assumption of 360–540 TTS characters per
-call-minute (pilot gate 12); Indic scripts can run denser than that, and because TTS is the
-largest single leg, a higher real character count pushes the cost toward — or past — the
-ceiling and compresses the margin below the accepted band. On the Sarvam column, which
-starts at 17.6% and ends at 8.4%, there is less room for that than there was when this
-paragraph described a single 22–30% rate. This is carried deliberately, not hedged in the
-price; the pilot's character-count measurement is what confirms or reprices it — and that
-measurement now exists: the admin spend board's "TTS speaking rate — measured" card
-(`GET /v1/admin/spend/tts-speaking-rate`) publishes the pooled chars per call-minute and
-the ₹/min it implies once twenty calls have transcripts, and until then says how many it
-has. **Since D-547 that number is also a BILLED QUANTITY and not only a margin input**: a
-Cartesia call has no vendor character count to bill from, so the `tts_chars` row takes its
-`qty` from the same measurement (OPERATIONS §2 gate 12(h), and gate 51 for whether the
-engine reports anything at all). `gpt-4.1-mini` remains a client-chosen upgrade billed as a
-plan surcharge (D-455), not a change to any rate on this card.
-
-**Self-orchestrated comparison (phase 2).** Same BYOK subtotal + telephony, no platform
-fee, plus ~₹0.15–0.30/min compute (2 vCPU/4 GB node ≈ ₹2,112/mo, ~8–9 concurrent):
-**≈ ₹2.20–3.14/min** (re-derived at D-410 from the ₹1.70–2.34 BYOK constant above; it read
-₹2.23–3.12 against the Gemini leg, so this one barely moved — the LLM change lands almost
-entirely inside the subtotal's own rounding). *(This is the **Bulbul v3 TTS leg across the whole
-1–10 minute LLM curve** — the CHEAPER of the two voices D-547 sells, and this parenthesis
-used to call it "the one voice quality". A Cartesia-voiced call adds ₹0.24–0.78/min to
-every figure in this comparison, on both sides of it, so the DELTA below is unchanged. The
-older blended phase-2 band of ≈₹1.9–2.6 assumed a cheaper v2 TTS rung that the single-tier
-voice decision withdrew and D-547 did not restore, so that band still does not apply.)* The delta is therefore still **≈ ₹0.9–1.5/min**,
-which is simply the platform fee: **both sides carry the identical BYOK leg, so a cheaper
-model moves the two totals together and the delta by nothing** — consistent with the
-~2k min/month break-even already stated above.
-
 ### 10.3 Reconstructing Outpero's economics (why their ₹3/₹5/₹7 tiers work)
 
-> ⚠ **SUPERSEDED where it proposes a voice-quality ladder — TWICE, AND THE SECOND TIME
-> REVERSED HALF OF THE FIRST.** The single-tier voice decision (superseding D-36/D-35/D-34)
-> collapsed our own voice offering to ONE quality (Bulbul v3) at ONE client rate (₹5.00/min),
-> and **D-547 (7 Sep 2026) has since made it TWO** — Bulbul v3 and Cartesia Sonic 3.5,
-> chosen per agent, priced as two per-minute rates on each of six packs. So the ladder this
-> section sketches is half-right in a way worth stating exactly: the **Cartesia rung is real
-> and is ours now**, and the **v2 rung is still withdrawn**, so our ladder goes UP from the
-> cheaper voice rather than down. It is also not a ladder of "qualities" — it is a ladder of
-> VENDORS, and whether the Studio vendor's Telugu is better than the Clear vendor's is still
-> the ear test nobody in this tree has run (§5). The v2 cost figures here are retained only
-> as the historical inputs the reconstruction was built on.
->
-> ⚠ **A THIRD TIME, AND THIS SECTION WAS NOT RE-READ FOR IT: D-629 (18 Sep 2026) TOOK SARVAM
-> OFF THE SYNTHESIS LEG ALTOGETHER** (noted 19 Sep 2026; two sentences above were edited,
-> the rest of the section is left as the dated record). Everywhere below that calls the
-> cheaper of OUR two voices a Sarvam or Bulbul v3 voice is describing the card as it stood
-> before that date. `agents/voices.py::TtsModel` is `Literal["sonic-3.5", "timbre-v2.5"]`:
-> the Clear rung is **Gnani Timbre v2.5** and Studio is Cartesia Sonic 3.5, and D-630
-> (19 Sep 2026) renamed the RUNGS `clear`/`studio` so that neither is spelled with a vendor's
-> name. **The client-facing rates in this section are unaffected** — ₹4.00 flat on Clear and
-> ₹7.00 → ₹5.50 on Studio are PACK rates, not vendor rates
-> (`billing/credit_packs.py::PACK_CATALOGUE`) — and **Outpero's** own
-> `rates.sarvam_per_min` below is THEIR bundle's symbol for THEIR tier and was never ours.
-> What IS affected is the cost side: our Clear leg is no longer a Bulbul v3 leg, and §10.1
-> prices it at Gnani's published ₹27.00 / 10,000 chars (₹0.97–1.46/call-minute).
-> ⚠ **AND NO CLEAR MINUTE IS SELLABLE AT ALL until an operator attests a Gnani invoice
-> figure** (hard rule 7, `agents/voice_offer.tts_price_is_billable`), so every "our Clear
-> voice at ₹4.00" sentence below describes a card rung no agent can currently be put on.
+> **SUPERSEDED where it proposes a voice-quality ladder.** Our own voices are two rungs chosen
+> per agent (D-547, D-687): **Clear** (ThinnestAI's own stack) and **Studio** (Cartesia on our
+> key through ThinnestAI), on the card in BRD §6.1 (D-728: ₹4.50 and ₹6.00 on every pack). The
+> v2 and v3 Sarvam figures below are the historical inputs this reconstruction was built on,
+> and Outpero's own `rates.sarvam_per_min` is THEIR bundle's symbol for THEIR tier and was
+> never ours. Whether Studio's Telugu beats Clear's is the ear test (OPERATIONS §2 gate T-6).
 
 With the verified Sarvam rate card, their pricing reconciles cleanly — and the reconstruction
 is instructive because **they buy the same inputs we do.** Confidence is marked per line.
@@ -1906,32 +1677,20 @@ to reconcile — do not build on it without direct verification.)*
 > DOCUMENT. THE VENDOR IS NOT THE MODEL.** On 6 Sep 2026 a session read that sentence and
 > concluded that Outpero sell *"the identical Sarvam voice at ₹3/min — same inputs, 40%
 > cheaper"*, and carried that into a pricing recommendation. It is wrong, and the arithmetic
-> in this very section is what refutes it: **a ₹3/min tier cannot carry a Bulbul v3 TTS
+> in this very section is what refutes it: **a ₹3/min tier cannot carry a Sarvam v3 TTS
 > leg.** §10.1 prices v3 at **₹1.08–1.62/call-minute** and v2 at **₹0.54–0.81** (v2 was live
 > at half the v3 rate). Add STT ₹0.50, an LLM leg and any telephony, and ₹3 does not close
 > on v3 at any plausible margin; on v2 it closes at roughly break-even.
 >
 > **FOUNDER EAR-TEST, 6 Sep 2026 (FOUNDER-OBSERVED, relayed):** the ₹3 tier "literally
-> robotic voices". That is consistent with **Bulbul v2** and not with v3, and it is the
+> robotic voices". That is consistent with **Sarvam TTS v2** and not with v3, and it is the
 > evidence that settles which Sarvam model sits behind `rates.sarvam_per_min`. Their ₹7
-> premium is Cartesia; **so is our second voice, since D-547.** ⚠ **THIS SENTENCE PAIR
-> NAMED OUR OWN VENDORS AND ONE OF THEM IS GONE (corrected 19 Sep 2026)**: it read "Our
-> Sarvam voice is **Bulbul v3** at a flat ₹4.00" and Sarvam left the synthesis leg on
-> 18 Sep 2026 (D-629). Our CLEAR voice — **Gnani Timbre v2.5** — is at a flat **₹4.00** by
-> pack, ₹1 above their cheapest tier, and our
-> STUDIO voice is **Cartesia Sonic 3.5** at **₹7.00** on the entry pack, level with their premium,
-> falling under it from the ₹5,000 pack (₹6.70) and reaching **₹5.50** at ₹50,000. ⚠ **THIS
-> READ "₹5.00 falling to ₹4.50" AND "₹8.00 ... reaching ₹6.00" UNTIL D-601 (14 Sep 2026)**,
-> and the conclusion under it moved with the card: we no longer start ABOVE them on the same
-> vendor's voice — we start level on Studio and go under. The reason the gap existed at all
-> is unchanged and is why this section exists: they pay nothing at the orchestration layer
-> and we pay a platform fee, so the room we have is the room D-592's cheaper engine leg
-> bought us.
+> premium is Cartesia; so is our Studio voice. On the D-728 card our Clear voice is ₹4.50,
+> ₹1.50 above their cheapest tier, and Studio is ₹6.00, under their ₹7 premium on every pack.
 >
-> So the honest competitive line is **not** "they undercut us on the same voice" — it is
-> that our everyday voice is better than the one they sell at ₹3 and priced **43% under**
-> the one they sell at ₹7 (it was 29% under at ₹5.00, before D-601 cut it to ₹4.00). ⚠ **WHAT IS STILL UNVERIFIED, AND MUST NOT BE WRITTEN AS FACT:** whether
-> Bulbul v3 *matches* Cartesia's quality. That is an ear judgement nobody in this tree has
+> So the honest competitive line is **not** "they undercut us on the same voice". ⚠ **WHAT IS
+> STILL UNVERIFIED, AND MUST NOT BE WRITTEN AS FACT:** whether our Clear voice *matches*
+> Cartesia's quality on Telugu. That is an ear judgement nobody in this tree has
 > made on Telugu clinic sentences (§5 already lists it as "ear-test at verification"), so
 > "premium voice at the standard price" stays a claim awaiting a dated founder attestation.
 >
@@ -1971,11 +1730,10 @@ to reconcile — do not build on it without direct verification.)*
 1. **The tier ladder is a vendor ladder, and we can build the same one.** Pricing a
    value/standard/premium tier off *which TTS vendor serves the call* is a clean, provable
    model — and every vendor they use is available to us at published rates (and all three are
-   selectable on Bolna). Our own ladder can run **Bulbul v2 → Bulbul v3 → Cartesia**, chosen
-   by measured Telugu quality rather than by their ordering.
+   selectable on Bolna). Our own rungs are chosen by measured Telugu quality rather than by their ordering.
 2. **Sarvam is their *cheap* tier, which is a positioning fact worth knowing.** They sell
    Cartesia as the premium "native Telugu" experience. Whether Cartesia actually beats
-   Bulbul v3 on Telugu is an **ear test we should run** — if it does not, their premium tier
+   Sarvam TTS v3 on Telugu is an **ear test we should run** — if it does not, their premium tier
    is a pricing story rather than a quality one, and that is directly usable in a sales
    conversation. If it does, we should adopt Cartesia for our own premium tier.
 3. **What their economics prove is nothing about orchestration** — only that a competitor
@@ -1985,7 +1743,7 @@ to reconcile — do not build on it without direct verification.)*
 
 ### 10.2 Effective cost per minute WITH fixed monthly costs amortized
 
-The ₹2.89–4.28 above is **variable cost only**. It is not what a minute actually costs us
+The ₹2.89–4.28 own-stack range (as §10.1 derived it in Aug 2026) is **variable cost only**. It is not what a minute actually costs us
 until the fixed base is carried. Applying the D-32 floor rule to ourselves (we applied it to
 LiveKit and to Outpero; it binds here too):
 
@@ -2055,13 +1813,13 @@ TTS from Sarvam. Outpero deliberately runs two model vendors and fails over betw
 mid-call. Add **Cartesia Sonic as a second TTS candidate** to the pilot: Telugu (`te`) is
 supported (verified in their TTS API docs, 42 languages), and at the Scale tier
 ($299/mo ≈ 10,667 TTS-minutes → ~$0.028/TTS-min → **≈ ₹1.0–1.5 per call-minute** at our
-40–60% ratio) it is broadly cost-comparable to Bulbul V3 while removing a single point of
-failure and hedging Bulbul V3's unpinned beta price. Caveats to verify: Cartesia plans are
+40–60% ratio) it is broadly cost-comparable to Sarvam TTS v3 while removing a single point of
+failure and hedging that model's unpinned beta price. Caveats to verify: Cartesia plans are
 **credit pools** (the per-product minute figures assume the whole pool goes to that product,
 so TTS and STT allowances are not simultaneously available), concurrency is tier-capped
 (TTS 2–15), and **Telugu voice quality is an ear test, not a docs claim**.
 Phase triggers (numeric, pre-committed):
-- **Phase 2 (own orchestration, Pipecat on CPU droplet — models stay APIs):** when
+- **Phase 2 (own orchestration on CPU hosts — models stay APIs):** when
   sustained volume > ~10–15k min/month OR a feature needs pipeline control (T1/T2 RAG
   tiers, custom turn-taking). Break-even vs ₹1.5–2/min fee is ~2k min/month; the real cost
   is engineering the barge-in/turn-taking 20%, hence the volume gate.
@@ -2086,7 +1844,7 @@ alone. FX ₹88/USD throughout, matching §10's existing figures.
 |---|---|---|
 | Platform fee | ₹1.76 (2¢) | ₹5.28 ($0.06) — **includes STT + TTS** |
 | STT | ₹0.50 (Saaras) | *in the fee (Ink 2)* |
-| TTS | ₹0.54–0.81 (Bulbul v2) · ₹1.08–1.62 (v3) | *in the fee (Sonic 3.5)* |
+| TTS | ₹0.54–0.81 (Sarvam TTS v2) · ₹1.08–1.62 (v3) | *in the fee (Sonic 3.5)* |
 | LLM | ₹0.00 → **+₹0.16 (D-410, five-minute)** | ₹0.00 → **+₹0.16** (BYOK; Cartesia's own LLM line is "free for a limited time" — do not model on it) |
 | Telephony, blended in/out | ₹0.50–1.35 | ₹0.50–1.35 |
 | **Variable total** | **₹3.30–4.42** (v2) · **₹3.84–5.23** (v3) | **₹5.78–6.63** |
@@ -2102,7 +1860,7 @@ alone. FX ₹88/USD throughout, matching §10's existing figures.
 > move is the absolute floor**, and §10.1 is where that lives: read the all-in number from
 > there, never from this table.
 
-Fixed monthly: infra ₹8,500 + ~₹300/client DID rental *(assumption — the Exotel/Vobiz
+Fixed monthly: infra ₹8,500 + ~₹300/client DID rental *(assumption — the Indian carrier
 rate card is still an open gate, ROADMAP §1)*. The Bolna path additionally buys a
 **Sarvam plan tier for RATE LIMITS, not price** (60 → 200 rpm ₹10k → 1,000 rpm ₹50k);
 the Cartesia path does not, because it is not calling Sarvam for speech. The Cartesia
@@ -2174,7 +1932,7 @@ legally dial through is not a saving. §10.5 is what to do about that.
 1. **Closing gate 12's ₹0.26 fee gap is worth ₹5,200/month at S3 and ₹15,600 at S4.**
    Real money, and a reason to run the negotiation properly — but not a crisis, and not
    something switching orchestrators fixes.
-2. **The larger lever is Bulbul v2 vs v3** — ₹0.68 vs ₹1.35 at the midpoint, which is
+2. **The larger lever is Sarvam TTS v2 vs v3** — ₹0.68 vs ₹1.35 at the midpoint, which is
    ₹13,400/month at S3 and ₹40,200 at S4, *bigger than the entire platform-fee gap*. It
    is decided by a Telugu ear test at the pilot (§10.1), not by a rate card.
 
@@ -2217,7 +1975,7 @@ why the engine port is where the work belongs:
 |---|---|---|---|
 | BYOK LLM | yes | **yes** (LiteLLM) | Sarvam 105B survives the move; D-410's Azure leg ports as a URL AND a static key, which the Vertex leg could not |
 | BYOK STT | yes (Saaras) | **no** (Ink 2) | D-36 residency argument weakens; new ear test |
-| BYOK TTS | yes (Bulbul) | **no** (Sonic) | agent voice picker becomes a lie unless capability-driven |
+| BYOK TTS | yes (Sarvam) | **no** (Sonic) | agent voice picker becomes a lie unless capability-driven |
 | Engine-side campaigns | yes (unverified, TRD §5) | no | we already dispatch in our layer — no loss |
 | Built-in KB | yes, `rag_id` (D-33) | **yes** — CORRECTED, see below | no forced loss; the shapes differ, the capability does not |
 | Webhook auth | unsigned → IP allowlist + execution-id dedupe | authenticated by an UNSOURCED scheme — see correction 2 | receiver must not hard-code one model |
@@ -2290,7 +2048,7 @@ Cartesia-provisioned, imported Twilio, or Voximplant, and none of those yields a
 DLT-registered 140/160-series Indian number. **Whether Line accepts SIP from an arbitrary
 carrier (BYOC) is the single question that decides whether this exit is available at all,
 and it is UNVERIFIED — their docs are unreachable from our build environment.** If BYOC
-works, an Indian carrier (Exotel/Vobiz class) can front Line and the exit is live. If it
+works, an Indian carrier (Exotel class) can front Line and the exit is live. If it
 does not, §10.4a's window is unreachable regardless of price. **Ask this before anything
 else; it is cheap to ask and it gates everything downstream.**
 
@@ -2299,7 +2057,7 @@ orchestrator when ALL of:
 
 1. sustained volume **> 12,500 min/month** (§10.4a's crossover), AND
 2. Line **BYOC SIP from an Indian DLT-registered carrier is confirmed in writing**, AND
-3. **Sonic Telugu passes the same ear test Bulbul passed** for D-36 — a spec claim about
+3. **Sonic Telugu passes the same ear test Sarvam TTS passed** for D-36 — a spec claim about
    9 Indic languages is not the test, and D-36 was decided by listening.
 
 Below 12,500 min/month the plan fee dominates and the answer is Bolna. Above ~26,400
@@ -2394,6 +2152,36 @@ engine is a rented component rather than the product.
 Line accepts BYOC SIP from an Indian DLT-registered carrier (§10.5). The adapter can be
 built and conformance-proven without that answer. It cannot legally dial an Indian
 consumer without it.
+
+### 10.7 Embedding cost is per document, not per minute
+
+No ThinnestAI call buys an embedding of ours: in-call knowledge is ThinnestAI's own knowledge
+base (D-689), and caller lookups at call start read our own tables. Our embedding traffic is:
+
+- **Knowledge projection**, once per document version at publish: `kb_chunks` is embedded by
+  `workers/kb_embeddings.py` with `retrieval/embedding.EMBEDDING_MODEL`
+  (`text-embedding-3-small` on the existing Azure OpenAI resource, §6). A 50-page knowledge
+  base is roughly 25,000 tokens (ESTIMATE).
+- **Dashboard and CRM search**, one query embedding per search that reaches the dense arm.
+- **Caller memory buys no embedding.** Its write, `workers/caller_memory_distil.py`, is an
+  hourly chat completion after the call, metered through `record_ai_assist_usage`, so it
+  reaches the client's bill and their spend cap can stop it.
+
+**Hard rule 7 gates every one of them.** An embedding is bought only once its model's price is
+attested (`retrieval/embedding.embedding_price_is_billable`); until then the leg is a no-op and
+nothing is charged. When rupees are spent they are visible per client and separately from
+dashboard AI, on the admin spend board (`AbsorbedAiSpendOut.kb_used_inr`) and on the client's
+own screen (`AiQuotaOut.kb_used_inr`).
+
+**What an attested price would cost is not a number anybody here has.** The volume scales with
+what clients upload, not with how much they are called, and there is no client upload figure to
+multiply; the formula is tokens published × the attested input rate, and the multiplicand is
+UNKNOWN until there are clients uploading.
+
+**If Supermemory is adopted (§6.3), the cost to watch is its ingestion, not embedding.** A
+50-page document is about 200 chunks, each drawing a chat call far larger than an embedding call
+(ESTIMATE). Ingestion must therefore be QUEUED, never inline: one client uploading a 300-page
+manual must not sit in front of another client's work on a small box.
 
 ## 11. Multi-Tenancy & Security (engineering-level; full detail in SECURITY-COMPLIANCE.md)
 

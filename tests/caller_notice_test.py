@@ -103,7 +103,6 @@ async def _publish(
     fields: list[dict[str, object]] | None = None,
     ai_disclosure: bool = True,
     recording_notice: bool = True,
-    direction: str = "inbound",
 ) -> None:
     """Put the agent in the state a caller can actually reach, with a schema attached."""
     schema_id = uuid.uuid4()
@@ -127,7 +126,7 @@ async def _publish(
                 "s": schema_id,
                 "ai": ai_disclosure,
                 "rec": recording_notice,
-                "dir": direction,
+                "dir": "inbound",
                 "a": agent_id,
             },
         )
@@ -164,32 +163,6 @@ async def test_the_itemised_list_is_this_tenants_own_extraction_schema() -> None
     assert "Your phone number" in labels
     assert "A recording of the call" in labels
     assert "A transcript of the call" in labels
-
-
-async def test_a_field_two_agents_both_capture_is_listed_once() -> None:
-    """A receptionist and a follow-up campaign both ask for a callback time. Listing it
-    twice would read as two different collections of the same thing."""
-    tenant_id, agent_id, _, _ = await _tenant()
-    await _publish(tenant_id, agent_id)
-    second = uuid.uuid4()
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "INSERT INTO agents (id, tenant_id, name, direction, language_primary, "
-                "disclosure_line, ai_disclosure_line, recording_notice_line, "
-                "caller_memory_notice_line, status, engine, created_at, updated_at) VALUES (:i, "
-                ":t, 'Follow-up', 'outbound', 'te-IN', 'This is an AI assistant.', 'This is an "
-                "AI assistant.', 'This call is recorded.', 'I keep a short note of what you ask "
-                "about.', 'draft', 'fake', now(), now())"
-            ),
-            {"i": second, "t": tenant_id},
-        )
-    await _publish(tenant_id, second, direction="outbound")
-
-    draft = await _draft(tenant_id)
-
-    labels = [item.what for item in draft.collected]  # type: ignore[attr-defined]
-    assert labels.count("Preferred appointment time") == 1
 
 
 async def test_the_periods_are_the_tenants_own_retention_rows() -> None:

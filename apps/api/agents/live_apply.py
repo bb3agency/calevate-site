@@ -16,8 +16,8 @@ published by a settings change; the change rides on the script that is already l
 
 A CALL IN PROGRESS FINISHES ON WHAT IT STARTED WITH. On ThinnestAI a connected call keeps
 the configuration it started with, for every agent field (ThinnestAI email of 12 Oct 2026,
-VENDOR-STATED; OPERATIONS T-28); on Pipecat the worker reads its config once per call.
-Either way the next call, including the next dial of a running campaign, starts on the new
+VENDOR-STATED; OPERATIONS T-28).
+The next call, including the next dial of a running campaign, starts on the new
 settings.
 
 SCOPES. `platform` walks every live agent on the active engine, `tenant` one client's, and

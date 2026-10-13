@@ -19,7 +19,7 @@ from apps.api.compliance.models import KYC_PROVIDERS
 from apps.api.core import platform_config as pc
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
-from apps.api.engine.pipecat import PIPECAT_CAPABILITIES
+from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES
 from apps.api.engine.thinnest import BASE_URL
 from apps.api.engine.thinnest_customers import ThinnestCustomers, set_thinnest_customers
 from apps.api.engine.thinnest_workspace import remember_developer_workspace
@@ -169,7 +169,7 @@ def test_bounds_come_from_the_field() -> None:
     rate = _control("usd_inr_rate")
     assert rate.kind == "money_inr" and rate.minimum == "0" and rate.minimum_exclusive
     assert rate.maximum == "1000" and rate.step == "0.01"
-    assert _control("carrier_cps").minimum_exclusive is False
+    assert _control("thinnest_max_concurrent_calls").minimum_exclusive is False
 
 
 def test_a_share_from_zero_to_one_is_a_percentage() -> None:
@@ -203,8 +203,9 @@ def test_model_options_read_as_names() -> None:
 
 
 def test_the_route_serves_the_control_and_the_option_labels() -> None:
-    out = _out(_fields()["engine"], ("pipecat", PIPECAT_CAPABILITIES))
-    assert out.control.kind == "select"
+    out = _out(_fields()["engine"], ("fake", DEFAULT_FAKE_CAPABILITIES))
+    # Two engines (ThinnestAI and the test engine) fit a segmented control.
+    assert out.control.kind == "segmented"
     assert out.control.risk == "high"
     assert {option.value: option.label for option in out.options}["thinnest"] == "ThinnestAI"
 

@@ -198,16 +198,16 @@ async def test_a_token_that_names_no_rung_refuses_rather_than_vanishing() -> Non
     operator meeting it has to know which spelling the ledger holds before they can decide
     whether to teach the build about it or to correct the row.
     """
-    tenant_id = await _debit_at_rungs(("bulbul", "120.00", "20.0000"))
+    tenant_id = await _debit_at_rungs(("unknown_rung", "120.00", "20.0000"))
     try:
         async with tenant_session(tenant_id) as session:
-            with pytest.raises(ValueError, match="bulbul"):
+            with pytest.raises(ValueError, match="unknown_rung"):
                 await billing.voice_tier_usage(
                     session, tenant_id=tenant_id, month=current_billing_month()
                 )
             # The prepaid statement reads the same splits by rate and refuses for the same
             # reason: lines short of the ledger would disagree with the debits behind them.
-            with pytest.raises(ValueError, match="bulbul"):
+            with pytest.raises(ValueError, match="unknown_rung"):
                 await billing.prepaid_call_statement_lines(
                     session, tenant_id=tenant_id, month=current_billing_month()
                 )

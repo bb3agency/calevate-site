@@ -2,11 +2,10 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
-import { VOICES_PATH } from "@/lib/api/voices";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, type Routes } from "./harness";
-import { agentRow, voiceCatalogue } from "./fixtures/sharedReads";
+import { agentRow } from "./fixtures/sharedReads";
 
 /**
  * "Live" versus "confirmed live" — the publish read-back on the agent screen.
@@ -149,7 +148,6 @@ function render(
         },
         experiment: null,
       },
-      [VOICES_PATH]: voiceCatalogue("admin"),
       ...over,
     },
   );

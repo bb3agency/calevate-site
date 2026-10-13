@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from apps.api.core.middleware import RateLimitMiddleware
 from apps.api.core.ratelimit import PROFILES, RULES, Rule, profile_for, resolve_rule
 from apps.api.core.rbac import iter_api_routes
 from apps.api.main import app
@@ -130,8 +129,6 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         ("/v1/ops/secrets/{key}", "PUT", "admin_api"),
         ("/v1/ops/secrets/{key}", "DELETE", "admin_api"),
         ("/v1/ops/secrets/{key}/test", "POST", "costly"),
-        # A credentialled vendor call per click, like the candidate test above it.
-        ("/v1/ops/carrier/probe", "POST", "costly"),
         # Every one-click LLM or engine round trip a client can start (security pass,
         # 11 Oct 2026): these sat at `client_api`, 240/min.
         ("/v1/calls/{call_id}/translation", "POST", "costly"),
@@ -161,10 +158,8 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         # The public rate card must NOT fall into `client_api`: its one caller is the
         # marketing site's server, so a per-person ceiling would be a per-site one.
         ("/v1/public/rate-card", "GET", "public_read"),
-        # The live speaking state has its own bucket, so it can never 429 the settlement
-        # beside it (D-656).
-        ("/v1/worker/calls/{engine_call_id}/speaking", "POST", "worker_live"),
-        ("/v1/worker/calls/{engine_call_id}/settlement", "POST", "worker_api"),
+        ("/v1/worker/engine-actions/{engine}/{tool}", "POST", "worker_api"),
+        ("/v1/worker/engine-lookups/{engine}", "POST", "worker_api"),
     ],
 )
 def test_named_routes_land_in_the_profile_they_were_weighted_for(
@@ -325,14 +320,6 @@ def test_the_credential_fingerprint_has_exactly_one_caller() -> None:
         "live credential; every other bucket subject goes through `bucket_subject`. See "
         "its docstring and `tenancy/signup.py::_consume`."
     )
-
-
-def test_the_middleware_still_has_no_second_profile_table() -> None:
-    """`RateLimitMiddleware` used to carry its own `PROFILES`/`EXEMPT` tuples. The census
-    can only speak for the limits if there is one table, so the class must not grow
-    another."""
-    assert not hasattr(RateLimitMiddleware, "PROFILES")
-    assert not hasattr(RateLimitMiddleware, "EXEMPT")
 
 
 #: Routes whose CALLER is a vendor rather than a person or a browser: the lead-intake

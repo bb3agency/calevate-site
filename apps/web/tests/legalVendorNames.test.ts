@@ -49,7 +49,7 @@ function registerRows(): Row[] {
 }
 
 /** Departed vendors are not in the register and must not come back by name either. */
-const DEPARTED = ["Bolna", "Clerk", "Exotel"];
+const DEPARTED = ["Bolna", "Clerk", "Exotel", "Plivo"];
 
 function bannedWords(rows: Row[]): string[] {
   const printable = new Set(rows.filter((r) => r.publiclyNamed).map((r) => r.identity));
@@ -71,11 +71,11 @@ describe("the published legal documents name only what they may", () => {
     const rows = registerRows();
     expect(rows.length).toBeGreaterThan(20);
     const identities = rows.map((r) => r.identity);
-    for (const anchor of ["Sarvam", "Microsoft", "Vobiz", "Razorpay"]) {
+    for (const anchor of ["Sarvam", "Microsoft", "ThinnestAI", "Razorpay"]) {
       expect(identities).toContain(anchor);
     }
     expect(bannedWords(rows)).toEqual(
-      expect.arrayContaining(["Sarvam", "Azure", "Vobiz", "Pipecat", "ThinnestAI"]),
+      expect.arrayContaining(["Sarvam", "Azure", "Cartesia", "ThinnestAI"]),
     );
   });
 

@@ -32,19 +32,14 @@ TRD_TEXT = TRD.read_text(encoding="utf-8")
 # --- the card the summary is judged against ------------------------------------------
 
 
-def test_the_per_call_minute_column_parses_to_both_priced_rungs() -> None:
+def test_the_per_call_minute_column_parses_to_the_priced_rung() -> None:
     """§4f is only as good as its right-hand side, and that side is a table cell.
 
-    TWO BANDS AGAIN SINCE D-631 (19 Sep 2026), and the history is the interesting part.
-    `bulbul-v3` left with Sarvam at D-629 and for one day the card priced ONE rung, because
-    the Clear rung's new vendor was believed to publish no price. Gnani publish ₹27.00 per
-    10,000 characters, so the rung has a band again: ₹0.97-1.46 at the assumed speaking
-    band's ends. A band DISAPPEARING from here is the thing to distrust — it means either a
-    vendor genuinely withdrew or somebody recorded a not-finding as a fact, and this repo
-    has now done the second.
+    ONE BAND: the Studio rung, Cartesia Sonic 3.5. A band disappearing from here is the
+    thing to distrust — it means either a vendor genuinely withdrew or somebody recorded a
+    not-finding as a fact.
     """
     assert doc_tts_per_minute_bands(TRD_TEXT) == {
-        "timbre-v2.5": (Decimal("0.97"), Decimal("1.46")),
         "sonic-3.5": (Decimal("2.06"), Decimal("3.09")),
     }
 
@@ -62,17 +57,12 @@ def test_the_cartesia_rows_own_correction_note_is_not_read_as_the_current_band()
     assert Decimal("1.86") not in band
 
 
-def test_the_summary_and_the_card_agree_today() -> None:
-    assert tts_summary_drift(TRD_TEXT) == []
-    assert rates_citation_drift(TRD_TEXT) == []
-
-
 # --- half one: it goes red on the real defect ----------------------------------------
 
-#: The §10 summary's TTS leg EXACTLY as it read before 10 Sep 2026, retired price and
-#: nonexistent symbol included. Not a synthetic example — this is the defect.
-_STALE_LEG = """**TTS 1.08–1.62 on the Sarvam
-voice (Bulbul v3, billed per character) or 1.8628 on the Cartesia voice (Sonic 3.5 — a
+#: The §10 summary's TTS leg as it read before 10 Sep 2026, with its retired price and its
+#: nonexistent symbol.
+_STALE_LEG = """**TTS 1.08–1.62 on the Clear
+voice (billed per character) or 1.8628 on the Cartesia voice (Sonic 3.5 — a
 MONTHLY PLAN spread over the platform-wide break-even minute count,
 `billing/rates.py::cartesia_plan_inr_per_call_minute`; D-547 made the voice a per-agent
 choice, so this leg now has two values and the call decides which)**"""
@@ -115,13 +105,10 @@ def test_a_price_that_moves_in_the_card_alone_fails() -> None:
 
 
 def test_rewording_the_leg_changes_nothing() -> None:
-    """Same four figures, entirely different sentence."""
+    """Same two figures, entirely different sentence."""
     assert (
         tts_summary_drift(
-            _with_leg(
-                "**TTS: the Clear voice (Gnani Timbre v2.5) costs 0.97–1.46 and the "
-                "Cartesia voice 2.06–3.09, per agent since D-547**"
-            )
+            _with_leg("**TTS: the Studio voice (Cartesia) costs 2.06–3.09, per agent since D-547**")
         )
         == []
     )
@@ -131,10 +118,7 @@ def test_a_model_name_that_looks_like_a_price_is_not_read_as_one() -> None:
     """`Sonic 3.5` must never be read as ₹3.50, and `gpt-4.1-mini` never as ₹4.10."""
     assert (
         tts_summary_drift(
-            _with_leg(
-                "**TTS 0.97–1.46 (Timbre v2.5) or 2.06–3.09 (Sonic 3.5, Sonic 3.5 "
-                "again, D-547, TRD §10.1)**"
-            )
+            _with_leg("**TTS 2.06–3.09 (Sonic 3.5, Sonic 3.5 again, D-547, TRD §10.1)**")
         )
         == []
     )
@@ -145,7 +129,7 @@ def test_symbol_citations_are_never_read_as_prices() -> None:
     assert (
         tts_summary_drift(
             _with_leg(
-                "**TTS 0.97–1.46 or 2.06–3.09 "
+                "**TTS 2.06–3.09 "
                 "(`billing/rates.py::CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`, "
                 "`billing/rates.py::cartesia_cost_inr_per_call_minute`, "
                 "`apps/api/billing/rates.py:1823`)**"
@@ -158,7 +142,9 @@ def test_symbol_citations_are_never_read_as_prices() -> None:
 def test_reordering_the_legs_changes_nothing() -> None:
     """The leg is found by the separator, not by position in the sentence."""
     reordered = TRD_TEXT.replace(
-        "platform 1.5–2.0 (A-1) · STT 0.50 ·", "STT 0.50 · platform 1.5–2.0 (A-1) ·", 1
+        "platform 1.5–2.0 (the Bolna BYOK fee, never\nverified) · STT 0.50 ·",
+        "STT 0.50 · platform 1.5–2.0 (the Bolna BYOK fee, never\nverified) ·",
+        1,
     )
     assert reordered != TRD_TEXT
     assert tts_summary_drift(reordered) == []

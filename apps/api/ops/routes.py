@@ -1094,8 +1094,7 @@ class VoiceCatalogueRefreshOut(BaseModel):
     #: force (`agents/voices.SEED_CATALOG`). ⚠ SINCE D-588 THERE IS NO SEED: `0` means
     #: this process offers NO voices, which is the correct state for a deployment nobody
     #: has synced and is not the same fact as "nothing is enabled". On an engine that hosts
-    #: its voices (D-687) it is the hosted voices offered to clients instead: the Pipecat
-    #: catalogue is not what that engine speaks.
+    #: its voices (D-687) it is the hosted voices offered to clients instead.
     in_force: int
     #: One sentence an operator reads verbatim.
     note: str
@@ -1162,7 +1161,7 @@ async def refresh_voice_catalogue_route(
         note = _voice_refresh_note(result, in_force=in_force)
     else:
         # An engine that hosts its voices (D-687): what is in force is the hosted offer, and
-        # the sentence is about the platform's bands, never the Pipecat catalogue's count.
+        # the sentence is about the platform's bands.
         in_force = len(await offered_hosted_voices(session))
         bands = {str(band): count for band, count in hosted.bands.items()}
         summary["bands"] = bands

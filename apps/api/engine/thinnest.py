@@ -369,7 +369,7 @@ _NAME_TAG_PREFIX: Final = " #cv-"
 _NAME_TAG_RE: Final = re.compile(r" #cv-[0-9a-f]{12}$")
 
 # The code `agents.service.DIAL_NOT_PLACED_CODES` already treats as "refused before any
-# request was sent", shared with the owned runtime's dial for the same situation.
+# request was sent".
 DIAL_PRECONDITION_FAILED: Final = "carrier_dial_precondition_failed"
 
 #: The vendor's 409 code when `voice.surfaces` names phone on an agent with no number

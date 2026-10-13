@@ -19,14 +19,12 @@ box 3. There are three ordinary ways to get there and none of them is exotic.
   with them. That one has no publish event at all, ever.
 
 --------------------------------------------------------------------------------
-IT IS A DIFFERENCE, NOT A WORKLIST — AND THAT IS WHY IT IS THE SAME SHAPE AS ITS TWO SIBLINGS
+IT IS A DIFFERENCE, NOT A WORKLIST — AND THAT IS WHY IT IS THE SAME SHAPE AS ITS SIBLING
 --------------------------------------------------------------------------------
 `kb/service.refresh_projection_keys` compares the stored `tsv` against the one the text
-implies. `kb/pack.agents_with_stale_packs` compares `agents.knowledge_pack_sha256` against
-the digest the live corpus implies. This compares `kb_index_documents.content_sha256` against
+implies. This compares `kb_index_documents.content_sha256` against
 the digest the live chunk implies, and compares the ledger's rows against which chunks are
-still live. Each of the three arguments the same three properties at length, and they hold
-here for the same reasons:
+still live. Both argue the same properties, and they hold here for the same reasons:
 
 1. **It converges on rows nobody told us about** — every document written before this sweep
    existed, every publish that raced a gloss commit, every source retention deleted.
