@@ -41,8 +41,9 @@ describe("Settings > Phone numbers", () => {
     await renderClientPage(<PhoneNumbersSettingsPage />, settingsRoutes());
     expect(await screen.findByText("+91 98123 45678")).toBeTruthy();
     expect(screen.getByText("Rings 20 seconds first, then your agent answers")).toBeTruthy();
-    expect(screen.getByText(/shows your number instead of the caller's/)).toBeTruthy();
-    expect(screen.getByText(/Only one of two calls at the same time/)).toBeTruthy();
+    // The line's finding, and the settled test's when its history has loaded: one or both.
+    expect(screen.getAllByText(/shows your number instead of the caller's/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Only one of two calls at the same time/).length).toBeGreaterThan(0);
     expect(screen.getByText("No calls from this number for three days.")).toBeTruthy();
   });
 
