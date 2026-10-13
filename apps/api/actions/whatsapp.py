@@ -21,10 +21,9 @@ person" (hard rule 5: `check_dispatch` is the ONE gate every outbound path calls
 disagreement was not a considered split — the campaign leg simply had the gate and this
 leg did not.
 
-`dlt_governed=False`, exactly as the escalation passes it: WhatsApp is Meta-BSP, not
-DLT/TCCCPR (LEGAL-OPS-PLAYBOOK §11), so it has no PE-TM chain and no 140/160 header and
-the DLT layer of the gate does not describe it. Every other rule — the live DNC read
-above all, the India-only destination, the big red switch, the tenant cap — does.
+WhatsApp is Meta-BSP, not DLT/TCCCPR (LEGAL-OPS-PLAYBOOK §11), and the gate no longer
+asks any TCCCPR-only check (D-692, D-762), so it runs the same rules as a voice dial: the
+live DNC read above all, the India-only destination, the big red switch, the tenant cap.
 
 EVIDENCE CLASS, each read on the vendor's own page on 9 Oct 2026 (VERIFIED-VENDOR-DOCS):
 
@@ -125,7 +124,6 @@ async def assert_recipient_may_be_messaged(
         tenant_id=tenant_id,
         agent_id=agent_id,
         phone_e164=phone_e164,
-        dlt_governed=False,
     )
     if not decision.allowed:
         # Ids and the RULE only — never the number (hard rule 6).
@@ -167,7 +165,7 @@ async def assert_business_contact_may_be_messaged(
         log.info("whatsapp_test_not_business_contact", extra={"tenant_id": str(tenant_id)})
         raise WhatsAppNotOptedInError()
     decision = await check_dispatch(
-        session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone_e164, dlt_governed=False
+        session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone_e164
     )
     if not decision.allowed:
         raise WhatsAppBlockedError(decision.rule or "unknown")

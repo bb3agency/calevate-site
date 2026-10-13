@@ -122,6 +122,12 @@ def _display(path: Path) -> str:
 #: only shrink, and a NEW write-only column fails outright. Every entry says what closes
 #: it — an entry that cannot say that is a defect wearing a comment.
 WRITE_ONLY_BASELINE: dict[str, str] = {
+    "AutodialerNotice.notified_on": (
+        "its only writer left is `scripts/restore_drill.py`'s fixture row, which gives the "
+        "append-only trigger a row to probe; the product stopped reading and writing "
+        "`autodialer_notices` with D-762. Closes with the migration that drops the table "
+        "(hard rule 8's two-step), which removes the drill row with it"
+    ),
     "WebhookDelivery.signature_valid": (
         "forensic, and the reader is a person with psql. It records whether an inbound "
         "engine webhook was HMAC-verified or merely IP-allowlisted (SEC-COMP §4), which "

@@ -3815,31 +3815,11 @@ async def agent_outbound_number_blocker(
 async def agent_registered_numbers(session: AsyncSession, *, agent_id: UUID) -> list[str]:
     """Every DLT-registered number bound to this agent, oldest first.
 
-    The numbers its outbound calls can present. `resolve_caller_id` refuses more than one;
-    the dial gate's declaration check needs them all, since whichever is used must have
-    been declared.
+    The numbers its outbound calls can present; `resolve_caller_id` refuses more than one.
     """
     rows = (
         await session.execute(
             text(_AGENT_CALLER_ID_SQL), {"aid": agent_id, "carrier": outbound_number_provider()}
-        )
-    ).all()
-    return [str(row[0]) for row in rows]
-
-
-async def tenant_registered_numbers(session: AsyncSession) -> list[str]:
-    """Every DLT-registered number bound to any of this tenant's agents, oldest first.
-
-    On the caller's RLS-scoped session, so "this tenant" is the session's tenant. What the
-    readiness screen asks the declaration question about, so it reports the refusal the
-    dial gate would give for any agent rather than only the one being dialled.
-    """
-    rows = (
-        await session.execute(
-            text(
-                "SELECT e164 FROM phone_numbers WHERE agent_id IS NOT NULL "
-                "AND dlt_status = 'registered' ORDER BY created_at, id"
-            )
         )
     ).all()
     return [str(row[0]) for row in rows]

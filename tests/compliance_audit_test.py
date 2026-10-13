@@ -48,7 +48,7 @@ from tests.conftest import (
     accept_agreements,
     bind_number_for_tests,
     fund_wallet,
-    record_autodialer_notice_for_tests,
+    verify_kyc_and_pledge_for_tests,
 )
 from tests.national_dnd_test import record_test_scrub
 
@@ -99,9 +99,9 @@ async def _tenant(*, direction: str = "outbound") -> tuple[uuid.UUID, uuid.UUID]
     # default motion now, so an unfunded tenant is refused `no_credits` on every
     # outbound dial and this file would report that in place of what it is about.
     await fund_wallet(uuid.UUID(str(created["id"])))
-    # Regulation 4's advance autodialler notice: every outbound dial requires it, so a
-    # fixture without one reports `autodialer_notice_missing` instead of its own subject.
-    await record_autodialer_notice_for_tests(uuid.UUID(str(created["id"])))
+    # D-692's verified KYC and current no-cold-calls pledge: every outbound dial requires
+    # them, so a fixture without them reports that refusal instead of its own subject.
+    await verify_kyc_and_pledge_for_tests(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     ref = f"fakeagent_audit_{uuid.uuid4().hex[:8]}"
     async with tenant_session(tenant_id) as session:

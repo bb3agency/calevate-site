@@ -126,11 +126,12 @@ does not exist is a false compliance record. In gate order:
       /v1/admin/tenants/{tenant_id}/numbers/{number_id}/dlt-status`), on provider `vobiz`,
       direction `both`; rules `number_not_registered`, `number_not_on_carrier`,
       `number_inbound_only`.
-- [ ] **The client's auto-dialler notice (TCCCPR Regulation 4) is recorded, in effect, and
-      declares that number** (`/v1/compliance/autodialer-notice`).
+- [ ] The client's verified KYC and current no-cold-calls pledge (version 2, which carries
+      the automated-calling disclosure that replaced the auto-dialler notice, D-762); rules
+      `kyc_missing`, `outbound_pledge_missing`, `outbound_pledge_outdated`.
 - [ ] A free outbound line: fewer than 2 calls holding a line on Vobiz (`carrier_lines_busy`).
 
-The four bold items are regulatory facts outside this repository. If any of them is not
+The three bold items are regulatory facts outside this repository. If any of them is not
 true yet, the outbound half of §5 waits for it; the inbound half does not need any of
 them.
 

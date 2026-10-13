@@ -553,6 +553,17 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "days; invoices under earlier arrangements are honoured as issued. Clause 11 "
                 "drops the managed engagement. MATERIAL: what a client pays changes.",
             ),
+            # D-762.
+            Revision(
+                "15",
+                False,
+                "D-762: clause 5 no longer asks the client to give its telecom access "
+                "provider advance written notice of automated dialling, and clause 4 no "
+                "longer stops outbound calling on a withdrawn notice; clause 5 points to the "
+                "disclosure of how automated calls are placed, accepted with the pledge. "
+                "NOT MATERIAL: the client is asked for less, and the disclosure is accepted "
+                "through pledge version 2.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -600,6 +611,17 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "D-696: section 2.1's upload route takes the owner's PAN card only, no "
                 "longer an Aadhaar copy. NOT MATERIAL: the client is asked for less and no "
                 "obligation moves.",
+            ),
+            # D-762.
+            Revision(
+                "6",
+                False,
+                "D-762: section 2.9 no longer requires the client's advance notice to its "
+                "access provider; it discloses how automated calls are placed, what Calevate "
+                "keeps for each call and that it may share it with a telecom provider or "
+                "regulator that asks, in the words the owner accepts with pledge version 2. "
+                "NOT MATERIAL: the client is asked for less, and the disclosure is accepted "
+                "through the pledge.",
             ),
         ),
         effective_date="2026-09-02",

@@ -244,7 +244,6 @@ async def send_save_number_message(ctx: dict[str, Any], payload: dict[str, Any])
             tenant_id=tenant_id,
             agent_id=agent_id,
             phone_e164=str(caller),
-            dlt_governed=False,
         )
         if not decision.allowed:
             await _finish(

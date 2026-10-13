@@ -1331,16 +1331,13 @@ autodialer_notices(id, tenant_id → organizations RESTRICT, state ENUM[notified
   access_provider TEXT NOT NULL, objective TEXT NOT NULL, notified_on DATE,
   notice_reference TEXT NULL, declared_clis TEXT[] NOT NULL DEFAULT '{}',
   recorded_by → users RESTRICT, created_at)          -- INSERT-only (hard rule 4)
-  -- The client's notice to its access provider that it operates an autodialer (migration
-  -- e5c1a70b93f4); the current position is the LATEST row (INDEX
-  -- ix_autodialer_notices_latest_for_tenant), a withdrawal is a new row. `declared_clis`
-  -- (migration f39583a282fb) are the E.164 numbers the calls will present, declared in
-  -- advance as the TCCCPR Third Amendment requires as an access provider summarised it
-  -- (`docs/evidence/trai-tcccpr-third-amendment-2026-09-18.md`, REPORTED); the dial gate
-  -- refuses a call any of whose agent's numbers is undeclared
-  -- (`autodialer_notice_blocker` → `autodialer_notice_cli_undeclared`), and the count
-  -- limit lives in
-  -- `compliance/autodialer.py` rather than a CHECK.
+  -- UNWRITTEN SINCE D-762 (13 Oct 2026): the product no longer asks for the notice, so no
+  -- route, gate or screen reads or writes this table. Kept with its rows, FORCEd RLS and
+  -- append-only triggers; dropped in a later release (hard rule 8).
+  -- It held the client's TCCCPR Regulation 4 notice to its access provider (migration
+  -- e5c1a70b93f4); the LATEST row was the current position (INDEX
+  -- ix_autodialer_notices_latest_for_tenant), a withdrawal a new row. `declared_clis`
+  -- (migration f39583a282fb) were the E.164 numbers the calls would present.
 -- consent_ledger also carries ix_consent_ledger_callback_lookup (tenant_id, phone_e164,
 --   captured_at DESC, id DESC) WHERE purpose = 'callback' and ix_consent_ledger_withdrawn_call
 --   (call_id) WHERE status = 'withdrawn' AND call_id IS NOT NULL (migration e95e0d780629),

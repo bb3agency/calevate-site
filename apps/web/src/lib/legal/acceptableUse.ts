@@ -30,7 +30,7 @@ import type { LegalDocument } from "./types";
  * The subsection numbers are cited from outside this file — `dpa.ts` sends a reader to
  * "section 2.6" for the recording and AI announcements — and a clause reference that
  * resolves to the wrong clause is the defect `legal.test.tsx`'s reference resolver exists
- * for. So 2.9 (the autodialler notice) and 2.10 (the thirty-minute window on a fresh
+ * for. So 2.9 (how automated calls are placed) and 2.10 (the thirty-minute window on a fresh
  * enquiry) sit at the end of section 2 rather than beside the rules they are nearest in
  * subject. Renumbering to improve the reading order would silently re-point every
  * reference an adviser, a client or another document has already written down.
@@ -100,8 +100,7 @@ export const ACCEPTABLE_USE: LegalDocument = {
                 "what creates the Principal Entity and Telemarketer roles, the " +
                 "registration of headers and templates, the number series in section " +
                 "2.2, the preference registers in section 2.3, the calling window in " +
-                "section 2.4 and the advance notice about automated dialling in section " +
-                "2.9. We name it once, here, so that your adviser can read our " +
+                "section 2.4. We name it once, here, so that your adviser can read our " +
                 "obligations against the regulation rather than against our summary of " +
                 "it; the rest of this policy calls it the commercial-communications " +
                 "framework.",
@@ -418,51 +417,28 @@ export const ACCEPTABLE_USE: LegalDocument = {
           ],
         },
         {
-          id: "autodialler-notice",
-          heading: "2.9 Telling your access provider that these calls are dialled automatically",
+          id: "automated-calls",
+          heading: "2.9 How your automated calls are placed",
           blocks: [
             {
               kind: "para",
               text:
-                "Every outbound call Calevate places for you is placed by an automated " +
-                "dialler. The commercial-communications framework puts one duty on the " +
-                "sender of such calls: tell your own telecom access provider, in writing " +
-                "and in advance, that you use an automated dialler and what the calls " +
-                "are for. You are the sender. Your access provider is the operator that " +
-                "supplies the outbound line you call from.",
-            },
-            {
-              kind: "callout",
-              tone: "warning",
-              title: "We cannot give this notice for you",
-              text:
-                "It is a letter between your business and your own operator, and the " +
-                "operator's counterparty is you. A notice from us covering our clients " +
-                "would not be the notice the rules ask for, and we will not pretend " +
-                "otherwise by sending one. What we do is refuse to dial until you have " +
-                "given it.",
+                "Your agent's outbound calls are automated calls made by Calevate's AI " +
+                "voice agent through Calevate's licensed telephony partners, from " +
+                "numbers rented in your business's name. For every call Calevate keeps " +
+                "your verified business details, the number the call came from, what " +
+                "the call was for, the person's consent and do-not-call records, and the " +
+                "call record, and may share these with a telecom provider or regulator " +
+                "that asks for them.",
             },
             {
               kind: "para",
               text:
-                "So record with us the provider you wrote to, what you told them these " +
-                "calls are for, the date you gave the notice, and a reference for the " +
-                "letter if you have one. Until that is recorded, no outbound call goes " +
-                "out for your account — not a campaign, not a single lead, not a " +
-                "callback. There are three separate ways this stops your dialling and " +
-                "the message you get says which: you have recorded no notice; you " +
-                "recorded one and later withdrew it; or the notice you recorded is dated " +
-                "in the future, in which case outbound starts on that date and nothing " +
-                "is wrong with your paperwork.",
-            },
-            {
-              kind: "callout",
-              tone: "note",
-              title: "Your incoming calls are unaffected",
-              text:
-                "Answering a call somebody else placed dials nothing, so this has " +
-                "nothing to do with it. Your agents keep picking up throughout. What " +
-                "waits is the calls that go out.",
+                "The account owner accepts this disclosure with the no-cold-calls pledge " +
+                "in section 2.1, and confirms there that your calls are made only for the " +
+                "purposes you set in your campaigns. When either changes, outbound calls " +
+                "wait until the owner accepts the new version. Your incoming calls are " +
+                "unaffected.",
             },
           ],
         },

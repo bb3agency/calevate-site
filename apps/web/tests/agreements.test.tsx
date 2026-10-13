@@ -10,7 +10,7 @@ import {
 } from "@/lib/api/agreements";
 
 import { NeverAnswers, problem, renderClientPage } from "./harness";
-import { AUTODIALER_NOTICE_RECORDED, OWNER_ME } from "./fixtures/sharedReads";
+import { OWNER_ME } from "./fixtures/sharedReads";
 
 /**
  * Agreements & readiness — the screen that clears the one refusal a client can clear.
@@ -99,10 +99,9 @@ function readiness(over: Partial<LegalReadiness> = {}): LegalReadiness {
   };
 }
 
-/** The autodialer-notice panel below the agreements, and the `/v1/me` it reads. */
-const NOTICE_PANEL = {
+/** The `/v1/me` the screen reads. */
+const ME_ROUTE = {
   "/v1/me": OWNER_ME,
-  "/v1/compliance/autodialer-notice": AUTODIALER_NOTICE_RECORDED,
 };
 
 /** Everything accepted, nothing else in the way. */
@@ -127,7 +126,7 @@ const READY = readiness({
 describe("the screen renders the server's verdict and never its own", () => {
   it("prints the outstanding verdict, every document's state, and whose move each blocker is", async () => {
     await renderClientPage(<AgreementsPage />, {
-      ...NOTICE_PANEL,
+      ...ME_ROUTE,
       [READINESS_PATH]: readiness(),
     });
 
@@ -149,7 +148,7 @@ describe("the screen renders the server's verdict and never its own", () => {
 
   it("shows who accepted what, and offers nothing to click once nothing is outstanding", async () => {
     await renderClientPage(<AgreementsPage />, {
-      ...NOTICE_PANEL, [READINESS_PATH]: READY });
+      ...ME_ROUTE, [READINESS_PATH]: READY });
 
     await screen.findByText("This account is ready to make calls.");
     expect(screen.getAllByText("Accepted")).toHaveLength(4);
@@ -163,7 +162,7 @@ describe("the screen renders the server's verdict and never its own", () => {
     // carries no effective date. A reader who sees no row cannot tell that from a screen
     // that forgot to print one.
     await renderClientPage(<AgreementsPage />, {
-      ...NOTICE_PANEL,
+      ...ME_ROUTE,
       [READINESS_PATH]: readiness(),
     });
     await screen.findByText("Outgoing calls are blocked.");
@@ -180,7 +179,7 @@ describe("accepting", () => {
     // freshly-seeded cache with a stale view if the two ever disagreed.
     let accepted = 0;
     const { calls } = await renderClientPage(<AgreementsPage />, {
-      ...NOTICE_PANEL,
+      ...ME_ROUTE,
       [READINESS_PATH]: () => (accepted >= 4 ? READY : readiness()),
       [ACCEPTANCES_PATH]: () => {
         accepted += 1;
@@ -223,7 +222,7 @@ describe("accepting", () => {
 
   it("renders the refusal when a version moved under an open tab", async () => {
     await renderClientPage(<AgreementsPage />, {
-      ...NOTICE_PANEL,
+      ...ME_ROUTE,
       [READINESS_PATH]: readiness(),
       [ACCEPTANCES_PATH]: problem(409, {
         type: "https://calevate.tech/problems/legal_version_not_current",
@@ -251,7 +250,7 @@ describe("who may sign", () => {
     const reason =
       "Only the account owner can accept these agreements. You can read every document here.";
     await renderClientPage(<AgreementsPage />, {
-      ...NOTICE_PANEL,
+      ...ME_ROUTE,
       [READINESS_PATH]: readiness({
         can_accept: false,
         can_accept_reason: reason,
@@ -274,7 +273,7 @@ describe("when the read does not land", () => {
     // calls" over a request that failed is a compliance claim made on no evidence, and
     // the client acts on it by going back to the campaign they cannot launch.
     await renderClientPage(<AgreementsPage />, {
-      ...NOTICE_PANEL,
+      ...ME_ROUTE,
       [READINESS_PATH]: problem(503, {
         title: "We could not load your agreements.",
       }),
@@ -290,7 +289,7 @@ describe("when the read does not land", () => {
 
   it("shows a skeleton while the read is in flight, not an empty screen", async () => {
     const { container } = await renderClientPage(<AgreementsPage />, {
-      ...NOTICE_PANEL,
+      ...ME_ROUTE,
       [READINESS_PATH]: new NeverAnswers(),
     });
 
@@ -299,58 +298,39 @@ describe("when the read does not land", () => {
   });
 });
 
-describe("the autodialler notice item", () => {
-  /** The server's own sentences for `autodialer_notice_missing` (gate reason, row step). */
-  const NOTICE_REASON =
-    "Your business has not recorded that it told its telecom access provider, in writing and in advance, that these calls are placed by an automated dialler and what they are for. TRAI requires the sender of the calls to give that notice, so it has to come from you rather than from Calevate. Send it to the provider that supplies your outbound line, then record the date here. Answering incoming calls is unaffected.";
-  const NOTICE_STEP =
-    "Send the notice, then record the provider, the date on it and the numbers it names on your Agreements screen.";
+describe("a client blocker row", () => {
+  /** The server's own sentences for `outbound_pledge_outdated` (gate reason, row step). */
+  const PLEDGE_REASON =
+    "The no-cold-calls pledge has been updated since this account accepted it. Read and accept the current version to resume outbound calls. Answering incoming calls is unaffected.";
+  const PLEDGE_STEP = "The account owner reads and accepts the new version on Verify your business.";
   const blocked = readiness({
     verdict:
       "This account cannot make outgoing calls yet. What is in the way is listed below, with whose move each one is.",
     outstanding_documents: 0,
     blockers: [
       {
-        rule: "autodialer_notice_missing",
-        title: "Your autodialler notice to your access provider",
-        reason: NOTICE_REASON,
+        rule: "outbound_pledge_outdated",
+        title: "No-cold-calls pledge updated",
+        reason: PLEDGE_REASON,
         actor: "client",
-        next_step: NOTICE_STEP,
+        next_step: PLEDGE_STEP,
       },
     ],
   });
-  const routes = {
-    "/v1/me": OWNER_ME,
-    "/v1/compliance/autodialer-notice": {
-      ...AUTODIALER_NOTICE_RECORDED,
-      recorded: false,
-      state: null,
-      access_provider: null,
-      objective: null,
-      notified_on: null,
-      effective: false,
-      declared_clis: [],
-    },
-    [READINESS_PATH]: blocked,
-  };
+  const routes = { "/v1/me": OWNER_ME, [READINESS_PATH]: blocked };
 
   it("is one plain line with whose move it is, and the server's sentences behind its ⓘ", async () => {
     await renderClientPage(<AgreementsPage />, routes);
     await screen.findByText("Outgoing calls are blocked.");
 
-    expect(screen.getByText("Your autodialler notice to your access provider")).toBeTruthy();
+    expect(screen.getByText("No-cold-calls pledge updated")).toBeTruthy();
     expect(screen.getByText("Your move")).toBeTruthy();
     // Not on the page until asked for: the long explanation printed twice was the defect.
-    expect(screen.queryByText(NOTICE_REASON)).toBeNull();
+    expect(screen.queryByText(PLEDGE_REASON)).toBeNull();
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "About Your autodialler notice to your access provider",
-      }),
-    );
-    expect(await screen.findByText(NOTICE_REASON)).toBeTruthy();
-    expect(screen.getByText(NOTICE_STEP)).toBeTruthy();
-    expect(screen.getByText(/Trial test calls come from Calevate's own number/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "About No-cold-calls pledge updated" }));
+    expect(await screen.findByText(PLEDGE_REASON)).toBeTruthy();
+    expect(screen.getByText(PLEDGE_STEP)).toBeTruthy();
   });
 
   it("says inbound is unaffected once, and prints no em dash", async () => {
@@ -358,20 +338,5 @@ describe("the autodialler notice item", () => {
     await screen.findByText("Outgoing calls are blocked.");
     expect(screen.getAllByText(/Calls coming in are unaffected/i)).toHaveLength(1);
     expect(container.textContent).not.toContain("—");
-  });
-
-  it("opens the record form in place and puts the caret in its first field", async () => {
-    await renderClientPage(<AgreementsPage />, routes);
-    await screen.findByText("Outgoing calls are blocked.");
-
-    const toggle = await screen.findByRole("button", { name: /Record your notice/ });
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    const field = screen.getByLabelText("Which operator did you tell?");
-    expect(field.closest("form")?.hidden).toBe(true);
-
-    fireEvent.click(screen.getByRole("button", { name: "Record it" }));
-    await waitFor(() => expect(field.closest("form")?.hidden).toBe(false));
-    await waitFor(() => expect(document.activeElement).toBe(field));
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
   });
 });

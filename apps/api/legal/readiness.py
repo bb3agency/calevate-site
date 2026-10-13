@@ -44,8 +44,6 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.service import tenant_registered_numbers
-from apps.api.compliance.autodialer import autodialer_notice_blocker
 from apps.api.compliance.carrier_application import carrier_application_required
 from apps.api.compliance.preference_scrub import campaigns_awaiting_scrub
 from apps.api.compliance.service import (
@@ -193,35 +191,6 @@ ROW_COPY: dict[str, _Copy] = {
         next_step=(
             "The reason beside this item names where the application stands. Your account "
             "manager will tell you if the carrier needs anything more from you."
-        ),
-    ),
-    # The four notice steps say only what to DO. They are rendered beside the gate's own
-    # reason, which already says what the notice is, whose duty it is and that inbound is
-    # unaffected; repeating it here is what made the client screen print it twice.
-    "autodialer_notice_missing": _Copy(
-        title="Your autodialler notice to your access provider",
-        actor="client",
-        next_step=(
-            "Send the notice, then record the provider, the date on it and the numbers it "
-            "names on your Agreements screen."
-        ),
-    ),
-    "autodialer_notice_withdrawn": _Copy(
-        title="Your autodialler notice has been withdrawn",
-        actor="client",
-        next_step="Give the notice again, then record it on your Agreements screen.",
-    ),
-    "autodialer_notice_not_yet_effective": _Copy(
-        title="Your autodialler notice has not taken effect yet",
-        actor="client",
-        next_step="Nothing to fix. Outgoing calls can start on the date your notice bears.",
-    ),
-    "autodialer_notice_cli_undeclared": _Copy(
-        title="A number your agents call from is not on your autodialler notice",
-        actor="client",
-        next_step=(
-            "Add the number to your notice, send it again, then record it on your "
-            "Agreements screen, which lists the numbers the notice does not name yet."
         ),
     ),
     "tm_registration_missing": _Copy(
@@ -376,18 +345,6 @@ async def readiness_rows(
     unpledged = await outbound_pledge_blocker(session, tenant_id=tenant_id)
     if unpledged is not None:
         rows.append(_row(*unpledged))
-
-    # THE SENDER'S OWN NOTICE, and it is here rather than only in `check_dispatch` because
-    # a gate that stops every outbound call and appears on no screen is a client staring at
-    # a dead campaign with nothing to act on. Same predicate, so the sentence they read
-    # here is the sentence the dial refused with. Asked about every number the account's
-    # agents can present, since a number missing from the notice refuses every call it
-    # would carry.
-    notice = await autodialer_notice_blocker(
-        session, tenant_id=tenant_id, caller_ids=await tenant_registered_numbers(session)
-    )
-    if notice is not None:
-        rows.append(_row(*notice))
 
     agreements = await legal_service.agreements_blocker(session, tenant_id=tenant_id)
     if agreements is not None:

@@ -277,7 +277,12 @@ Their interim advice: keep our own records of the business making the calls, the
 nature of each automated-calling use, the numbers used, and the customer consent and campaign
 records.
 
-**What it changes in Calevate today: nothing in code.**
+**Superseded the same day by D-762 (founder, 13 Oct 2026):** the product no longer asks a
+client for the notice; a disclosure inside the no-cold-calls pledge (version 2) replaces it,
+and the risk that the regulation still binds the Sender is accepted. The two bullets below
+on the notice describe the position before D-762. The open questions in this section stand.
+
+**What it changed in Calevate at the time of the reply: nothing in code.**
 - **The notice stays the client's job.** Regulation 4 binds the Sender, and a client is the
   Sender (`compliance/autodialer.py`). Nothing in this reply says ThinnestAI or Plivo gives
   the notice for a workspace. So the outbound gate keeps refusing a dial until the client has

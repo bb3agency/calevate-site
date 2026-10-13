@@ -289,11 +289,10 @@ TENANT_TABLES = [
     # NOT append-only: `completed_at` and `proof` are stamped on completion, exactly as
     # on `deletion_requests`.
     "tenant_erasure_requests",
-    # This client's notice to their own access provider that they run an autodialer
-    # (migration e5c1a70b93f4). Tenant data: it names one client's carrier relationship
-    # and the objective they declared. Append-only — a withdrawal is a new row, because
-    # an UPDATE would destroy the evidence that the notice was live while last month's
-    # calls were placed.
+    # A client's TCCCPR Regulation 4 notice to its access provider (migration
+    # e5c1a70b93f4). Tenant data: it names one client's carrier relationship and the
+    # objective they declared. Unwritten since D-762 removed the notice from the product;
+    # kept (with its rows) until a later release drops it (hard rule 8).
     "autodialer_notices",
     # One recording whose destruction an erasure OWES but could not lawfully perform yet
     # (migration 9c1d3e7a05f4). Tenant data: it names one of this client's calls and the
@@ -1025,9 +1024,9 @@ APPEND_ONLY_TABLES = [
     "call_metering_refusals",
     "consent_ledger",
     "audit_log",
-    # An autodialer notice and its withdrawal are two rows, never one row edited: the
-    # gate reads the LATEST, and the history is what shows the notice was live while a
-    # given month's calls were placed (migration e5c1a70b93f4).
+    # An autodialer notice and its withdrawal were two rows, never one row edited
+    # (migration e5c1a70b93f4). Nothing writes it since D-762; the trigger stays so the
+    # rows already recorded cannot be altered before the table is dropped.
     "autodialer_notices",
     "credit_ledger",
     "one_time_charges",

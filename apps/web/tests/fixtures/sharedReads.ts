@@ -3,7 +3,6 @@ import { currentISTMonth } from "@/lib/api/invoice";
 import type { LegalReadiness } from "@/lib/api/agreements";
 import type { TenantSummary } from "@/lib/api/admin";
 import type { Agent, HandoffOut } from "@/lib/api/agents";
-import type { AutodialerNotice } from "@/lib/api/autodialerNotice";
 import type { Me } from "@/lib/api/client";
 import type { PeRegistration } from "@/lib/api/dltRegistration";
 import type { DeliveryList } from "@/lib/api/kb";
@@ -453,19 +452,6 @@ export const OWNER_ME = {
   withheld_acts: [],
   organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
 } satisfies Me;
-
-/** The autodialer notice filed with the access provider and in effect. */
-export const AUTODIALER_NOTICE_RECORDED = {
-  recorded: true,
-  state: "notified",
-  access_provider: "Airtel",
-  objective: "Appointment reminders",
-  notified_on: "2026-09-01",
-  notice_reference: null,
-  effective: true,
-  declared_clis: ["+919848022338"],
-  undeclared_clis: [],
-} satisfies AutodialerNotice;
 
 /** One client as the admin directory summarises it — `GET /v1/admin/tenants/{id}`. */
 export function tenantSummary(over: Partial<TenantSummary> = {}): TenantSummary {

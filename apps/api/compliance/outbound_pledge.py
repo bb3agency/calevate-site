@@ -7,9 +7,15 @@ that: only people who already deal with the business or asked to be called, neve
 bought, rented or scraped list. It does not replace the DNC scrub or calling hours, which
 still run on every dial.
 
+VERSION 2 ADDS A DISCLOSURE (D-762): how the calls are placed, what Calevate records for
+each one, and that the records may be shared with a telecom provider or regulator that asks.
+It replaced the per-client TCCCPR Regulation 4 autodialer notice, which the product no
+longer asks for. It names no vendor (D-679) and claims no compliance for the client or for
+us. The paragraphs are separated by a blank line, which the client screen preserves.
+
 VERSIONED, AND A NEW VERSION RE-OPENS THE GATE. `PLEDGE_VERSION` is the integer the gate
 compares the latest acceptance against; changing a word of `PLEDGE_TEXT` without bumping it
-is caught by `tests/outbound_pledge_test.py`, which pins the hash per version. An
+is caught by `tests/kyc_two_paths_test.py`, which pins the hash per version. An
 acceptance records the SHA-256 of the exact text accepted, so "what did they agree to" is
 answerable without trusting that this file was never edited.
 """
@@ -28,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 
-PLEDGE_VERSION: Final = 1
+PLEDGE_VERSION: Final = 2
 
 PLEDGE_TEXT: Final = (
     "No cold calls. On behalf of this business I confirm that our agents will call only "
@@ -38,6 +44,14 @@ PLEDGE_TEXT: Final = (
     "stop calling anyone who asks us to, straight away. We understand that calls are placed "
     "only between 9:00 and 21:00 IST, that numbers on the do-not-call list are never "
     "called, and that our outbound calling will be suspended if we break this pledge."
+    "\n\n"
+    "How your automated calls are placed. Your agent's outbound calls are automated calls "
+    "made by Calevate's AI voice agent through Calevate's licensed telephony partners, "
+    "from numbers rented in your business's name. For every call Calevate keeps your "
+    "verified business details, the number the call came from, what the call was for, the "
+    "person's consent and do-not-call records, and the call record, and may share these "
+    "with a telecom provider or regulator that asks for them. I confirm that our calls are "
+    "made only for the purposes we set in our campaigns."
 )
 
 PLEDGE_TEXT_SHA256: Final = hashlib.sha256(PLEDGE_TEXT.encode("utf-8")).hexdigest()

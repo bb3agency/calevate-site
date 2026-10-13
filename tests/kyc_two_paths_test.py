@@ -80,7 +80,6 @@ from tests.conftest import (
     accept_agreements,
     fund_wallet,
     put_business_on_file_for_tests,
-    record_autodialer_notice_for_tests,
     verify_kyc_and_pledge_for_tests,
 )
 
@@ -92,7 +91,11 @@ KYC = "/v1/compliance/kyc"
 PLEDGE = "/v1/compliance/outbound-pledge"
 #: The SHA-256 of `PLEDGE_TEXT` at each version. A wording change without a version bump
 #: fails here, which is what keeps an old acceptance from standing for new words.
-PINNED_PLEDGE_HASHES = {1: "868220698e23736c2e867cec8c186f0afa19f298d076aa64fd7e64a68820f1a6"}
+PINNED_PLEDGE_HASHES = {
+    1: "868220698e23736c2e867cec8c186f0afa19f298d076aa64fd7e64a68820f1a6",
+    # D-762: the disclosure of how automated calls are placed and what is recorded.
+    2: "c12b456cb24706580df90fc7efd862c37719ffb3dba60b778861065e24e4423b",
+}
 
 
 def _client() -> AsyncClient:
@@ -184,12 +187,11 @@ async def _dial(tenant_id: UUID, agent_id: UUID) -> Any:
 
 
 async def _ready_tenant() -> tuple[UUID, UUID]:
-    """A managed tenant with an outbound agent, the autodialer notice and money — and NO
-    DLT registration and NO bound number, which D-692 no longer requires."""
+    """A managed tenant with an outbound agent and money — and NO DLT registration and NO
+    bound number, which D-692 no longer requires."""
     org = await _tenant()
     tenant_id = UUID(str(org["id"]))
     agent_id = await _agent(tenant_id)
-    await record_autodialer_notice_for_tests(tenant_id, kyc_and_pledge=False)
     await fund_wallet(tenant_id)
     return tenant_id, agent_id
 

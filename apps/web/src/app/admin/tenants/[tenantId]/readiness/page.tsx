@@ -40,11 +40,6 @@ const RULE_SCREENS: Record<string, RuleScreen> = {
   kyc_digilocker_required: { href: (id) => `/admin/tenants/${id}/kyc`, cta: "Open verification" },
   outbound_pledge_missing: { href: (id) => `/admin/tenants/${id}/kyc`, cta: "Open verification" },
   outbound_pledge_outdated: { href: (id) => `/admin/tenants/${id}/kyc`, cta: "Open verification" },
-  // DELIBERATELY ABSENT: the four `autodialer_notice_*` rules. The notice is the client's
-  // own letter to their access provider and only the client realm records it
-  // (`POST /v1/compliance/autodialer-notice`); no admin screen can, so a link here would
-  // send an operator to a page with nothing on it. The row's next step says what to ask.
-  //
   big_red_switch: { href: () => "/admin/ops", cta: "Open the ops switchboard" },
   // DELIBERATELY ABSENT: `agreements_not_accepted`. Accepting is the account owner's own
   // act and there is no admin path to it — `VIEW_AS_WITHHELD_ACTS` withholds it from a

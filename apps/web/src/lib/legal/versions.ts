@@ -419,6 +419,17 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:890f24739803639c4e237b56078dabd9f65a91a7df1fd7bdd4f2d444a9ab159f",
       },
+      // D-762: clause 5 no longer asks the client to notify its access provider of
+      // automated dialling, and clause 4 no longer stops outbound on a withdrawn notice;
+      // clause 5 points to the disclosure accepted with the pledge (AUP 2.9). NOT
+      // MATERIAL: the client is asked for less, and the disclosure is accepted through
+      // pledge version 2.
+      {
+        revision: "15",
+        material: false,
+        contentHash:
+          "sha256:e317d730b43e1be8b1c114ac1d387c9a62e46eba786a804fdc9911e741f5ad31",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -466,6 +477,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:d9330bea74147681ac340051ea1b6ac4ab9b5cf1311c4b1658d32092ac13ef4c",
+      },
+      // D-762: section 2.9 stops requiring the client's own notice to its access provider
+      // and instead discloses how automated calls are placed and what is kept for each,
+      // the same words the owner accepts with pledge version 2. NOT MATERIAL: the client
+      // is asked for less, and the disclosure is accepted through the pledge.
+      {
+        revision: "6",
+        material: false,
+        contentHash:
+          "sha256:23c376a4c06538da724c7752091e2a5a42ea6b3754851c343b39c45d5b8e1b84",
       },
     ],
     effectiveDate: "2026-09-02",

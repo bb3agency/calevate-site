@@ -141,8 +141,8 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
 >
 > **UNCHANGED:** the DNC scrub on every dial, calling hours, the list-consent provenance
 > (purchased lists refused), the AI disclosure and the truthful answers (hard rule 5), the
-> agreements, money, the account state and the Regulation 4 autodialer notice (D-692 did
-> not decide on it, so it still binds). **No per-contact consent record is required**
+> agreements, money and the account state. (The Regulation 4 autodialer notice, which D-692
+> left standing, was removed from the product by D-762 on 13 Oct 2026; see §3.) **No per-contact consent record is required**
 > beyond what D-624 already lets an account opt into. **Inbound never depends on any of
 > this.**
 >
@@ -218,51 +218,31 @@ cite the same string:
     the only series that may carry a marketing call; `ATTESTABLE_CLASSIFICATIONS` is
     `{service, transactional}`, and `number_series_mismatch` names both ways out — attach a
     140/160 number, or confirm — only where the second one is genuinely open.
-- The client has told its **Originating Access Provider, in advance and in writing, that
-  it uses an auto dialler and what for** — TCCCPR Regulation 4, relayed as *"Every Sender
-  shall notify the Originating Access Provider, in advance, about the use of Auto Dialer
-  or Robo-Calls as well as the intended objective of such calls in writing."* Every call
-  this product places is autodialled, so this is a precondition of outbound as such, and
-  the refusals are **`autodialer_notice_missing`**, **`autodialer_notice_withdrawn`** and
-  **`autodialer_notice_not_yet_effective`** (a notice dated in the future is recorded
-  honestly and starts covering calls on the day it bears).
-  - **EVIDENCE CLASS: REPORTED**, not primary. The text above is a research-agent reading
-    of TCCCPR 2018 and its Second Amendment, founder-relayed 13 Sep 2026
-    (`docs/evidence/number-series-inbound-vs-outbound-2026-09-13.md` §3.3); `trai.gov.in`
-    is egress-blocked from the build container (measured 20 Sep 2026), so nobody in this
-    repository has opened the regulation. **OPERATIONS §2 gate 59 is the address of that
-    gap**, and until it closes no client-facing surface may state that giving this notice
-    makes them compliant — only that their access provider requires it.
-  - **THE SAME SHAPE AS THE PE REGISTRATION: it is the CLIENT's act and our record.**
-    Regulation 4 binds the Sender, and under our operating model the client owns the
-    number, asserts the CLI and benefits from the calls. Calevate does not notify on their
-    behalf and no surface may imply that it does. One append-only row per decision in
-    `autodialer_notices` (tenant-scoped, FORCEd RLS), holding which provider was told,
-    the objective as notified, the date of the notice and the client's own reference; a
-    withdrawal is a new row and the latest one decides.
-  - **WHAT IS DELIBERATELY NOT MODELLED.** The evidence states in terms that whether the
-    obligation is per sender, per campaign, per number or per objective *is not stated*,
-    and no advance PERIOD is stated either. So the record is keyed on the SENDER, the gate
-    asks only whether this sender has given notice before today, and the recorded objective
-    is **not** matched against a campaign's purpose. Inventing either would be inventing
-    the shape of a legal obligation.
-  - **INBOUND IS UNAFFECTED.** Regulation 4 is about the *use of* an auto dialler; a
-    receptionist answering a call the customer placed dials nothing, and an inbound agent
-    is refused by `agent_inbound_only` long before this rule is reached.
-  - **ENFORCED AT THE PER-DIAL GATE AND AT LAUNCH, WITH ONE PREDICATE.**
-    `compliance.service.check_dispatch` refuses every outbound dial — campaign contact,
-    "call this lead" and instant callback alike — and `campaigns.service.launch_blockers`
-    asks the same `autodialer_notice_blocker` with the same arguments (the tenant, and
-    every registered number bound to the campaign's agent), so a campaign that could never
-    dial cannot launch "ready". It is asked in `launch_blockers` itself rather than in
-    `_entity_blockers`, because that helper is shared with `dispatch_blockers` and
-    `check_dispatch` already asks this per contact. The Third Amendment's declared-number
-    requirement (REPORTED, `docs/evidence/trai-tcccpr-third-amendment-2026-09-18.md` row 2)
-    adds a fourth refusal, **`autodialer_notice_cli_undeclared`**, for a number the agent
-    calls from that the notice does not name.
-  - **THE WRITE SURFACE** is the client's own: `POST /v1/compliance/autodialer-notice`
-    (`compliance/autodialer_routes.py`), rendered on the client's Agreements screen, which
-    the launch panel links to beside these refusals.
+- **No autodialer notice is asked for (D-762, founder decision 13 Oct 2026).** TCCCPR
+  Regulation 4, relayed as *"Every Sender shall notify the Originating Access Provider, in
+  advance, about the use of Auto Dialer or Robo-Calls as well as the intended objective of
+  such calls in writing"* (REPORTED, `docs/evidence/number-series-inbound-vs-outbound-2026-09-13.md`
+  §3.3; nobody in this repository has opened the regulation), was a launch and per-dial
+  gate from D-637 until D-762. It is no longer asked by `check_dispatch`,
+  `launch_blockers` or the readiness screen, and its record-and-withdraw routes are gone.
+  - **WHY.** Clients could not complete it: ThinnestAI, relaying Plivo on 13 Oct 2026,
+    could not yet name the access provider for a number or a notice process
+    (`docs/vendor/thinnest-replies-2026-10-12.md` §10), so every outbound client was
+    refused by a step nobody could take. The founder judged that clients who buy a product
+    cannot be expected to correspond with telecom providers.
+  - **WHAT REPLACES IT** is a disclosure inside the no-cold-calls pledge (version 2,
+    `compliance/outbound_pledge.py`, accepted by checkbox): calls are automated calls by
+    Calevate's AI voice agent through Calevate's licensed telephony partners, from numbers
+    rented in the business's name; Calevate keeps the verified business details, the
+    calling number, the purpose, the consent and do-not-call records and the call record
+    for every call and may share them with a telecom provider or regulator that asks; and
+    the client confirms its calls are made only for the purposes set in its campaigns.
+    Together with KYC (2c) this is the product's answer. It is not a claim that the client
+    or Calevate is compliant with Regulation 4.
+  - **THE RISK IS ACCEPTED, NOT RESOLVED.** The regulation still binds the Sender in law.
+    OPERATIONS §2 gate 59 stays open for what it requires and for ThinnestAI/Plivo's answer.
+  - **THE TABLE STAYS, UNWRITTEN.** `autodialer_notices` keeps its FORCEd RLS and its
+    append-only triggers until a later release drops it (hard rule 8).
 - Contact list DNC-scrubbed (national DND + tenant `dnc_list`) with scrub timestamp; a
   list with nothing left after the scrub is `all_contacts_dnc`, an empty one
   `no_contacts`. **The two scrubs are separate facts and this bullet used to claim a

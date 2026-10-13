@@ -170,35 +170,28 @@ export default function SecurityPage() {
                 Before a first outbound call
               </h3>
               <p>
-                Outbound calling also needs the registrations Indian rules require —
-                the business whose calls they are, and the telemarketer placing
-                them. The product refuses to dial a campaign until that is in place,
-                and inbound answering is unaffected by any of it. What those
-                obligations are is set out in{" "}
+                Outbound calling also needs a verified business and an accepted
+                no-cold-calls pledge. The product refuses to dial a campaign until
+                both are in place, and inbound answering is unaffected by either.
+                What those obligations are is set out in{" "}
                 <Link href="/legal/terms" className={INLINE_LINK}>
                   the terms
                 </Link>{" "}
                 rather than summarised here.
               </p>
-              {/* `check_dispatch` items 7b (`compliance/autodialer.py`) and 2c
-                  (`compliance/kyc.py`), both outbound-only. Two things this may not say:
-                  that the client is compliant (the autodialer obligation's own evidence
-                  class is REPORTED; nobody here has opened TCCCPR Reg 4), and that a new
-                  account can switch outbound on by itself, which the number arrangement
-                  still prevents. */}
+              {/* `check_dispatch` item 2c (`compliance/kyc.py`,
+                  `compliance/outbound_pledge.py`), outbound-only. This may not say that
+                  the client is compliant, nor that a new account can switch outbound on
+                  by itself, which the number arrangement still prevents. */}
               <p>
-                Two more things stand in front of a first outbound call, and until
-                both are in place every outbound dial is refused. You have to tell
-                your own telecom access provider, in writing and in advance, that
-                these calls are placed by an automated dialler and what they are for
-                — that notice is yours to give, because it is your business the
-                provider holds to it. And we verify the business behind the account:
-                an operator checks a public business-registry record before its
-                calls go out. You record that notice yourself, on your agreements
-                screen, once you have sent it. Outbound is still not something a new
-                account switches on alone — the number your calls go out from is
-                arranged with us — but every gate in front of it is one you can see
-                and clear. Answering incoming calls is unaffected by any of it.
+                We verify the business behind the account before its calls go out,
+                and the account owner accepts the no-cold-calls pledge together with
+                our disclosure of how automated calls are placed and what we keep for
+                each one. Until both are in place every outbound dial is refused.
+                Outbound is still not something a new account switches on alone — the
+                number your calls go out from is arranged with us — but every gate in
+                front of it is one you can see and clear. Answering incoming calls is
+                unaffected by any of it.
               </p>
             </div>
             <MockStage

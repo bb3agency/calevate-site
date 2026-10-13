@@ -14,8 +14,8 @@ send from.
 WHAT MUST HOLD BEFORE IT IS SENT, in the worker (`workers/forwarding.send_save_number`):
 the switch is on; this caller of this client has never been sent one (`save_number_messages`
 is unique on a keyed hash of the number, so "once ever" is the database's answer); the dial
-gate's do-not-call, halt and account checks (`check_dispatch(dlt_governed=False)`, the
-regime the WhatsApp follow-up uses); and the caller's own messaging opt-in
+gate's do-not-call, halt and account checks (`check_dispatch`, as the WhatsApp
+follow-up asks them); and the caller's own messaging opt-in
 (`compliance.consent.read_messaging_consent`). A caller who booked has not thereby opted in
 to WhatsApp, so in practice it reaches only callers whose opt-in is on file: that is the
 consent rule working, not a gap to code around.

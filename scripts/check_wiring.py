@@ -99,6 +99,32 @@ DYNAMIC_ROUTER_MODULES: dict[str, str] = {
 # keyed per FIELD for the same reason: a model-level exemption would cover the next
 # column somebody adds).
 UNWIRED_BASELINE: dict[str, str] = {
+    # ONE reason, five entries: the registry is keyed per column (see above).
+    "AutodialerNotice.access_provider": (
+        "D-762 removed the TCCCPR Regulation 4 autodialer notice from the product, which "
+        "deleted every writer and reader of `autodialer_notices`. Kept with its rows under "
+        "hard rule 8's two-step; closes with the migration that drops the table"
+    ),
+    "AutodialerNotice.declared_clis": (
+        "D-762 removed the TCCCPR Regulation 4 autodialer notice from the product, which "
+        "deleted every writer and reader of `autodialer_notices`. Kept with its rows under "
+        "hard rule 8's two-step; closes with the migration that drops the table"
+    ),
+    "AutodialerNotice.notice_reference": (
+        "D-762 removed the TCCCPR Regulation 4 autodialer notice from the product, which "
+        "deleted every writer and reader of `autodialer_notices`. Kept with its rows under "
+        "hard rule 8's two-step; closes with the migration that drops the table"
+    ),
+    "AutodialerNotice.notified_on": (
+        "D-762 removed the TCCCPR Regulation 4 autodialer notice from the product, which "
+        "deleted every writer and reader of `autodialer_notices`. Kept with its rows under "
+        "hard rule 8's two-step; closes with the migration that drops the table"
+    ),
+    "AutodialerNotice.objective": (
+        "D-762 removed the TCCCPR Regulation 4 autodialer notice from the product, which "
+        "deleted every writer and reader of `autodialer_notices`. Kept with its rows under "
+        "hard rule 8's two-step; closes with the migration that drops the table"
+    ),
     "Agent.escalation_config": (
         "D-533 stopped writing it (the handover roster moved to `agent_handoff_members`) and "
         "D-695 removed its last reader, the admin intake's fallback. Kept under hard rule 8's "

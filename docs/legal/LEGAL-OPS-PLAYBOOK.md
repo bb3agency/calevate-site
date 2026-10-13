@@ -409,6 +409,17 @@ If the client uploads a list with no consent and your platform dials it:
 - Cold / promo campaign → **140** + PE templates + DND + TM. Refuse if they only have a 160 or a raw mobile.
 - OTP / “your order shipped” → 160 **if they are even eligible**; most SMBs will not be. Do not fake 160 eligibility.
 
+### 10.9 The autodialer notice (TCCCPR Regulation 4) — not gated in the product (D-762)
+
+Regulation 4 (REPORTED reading; nobody here has opened the text) says the **Sender** tells its Originating Access Provider, in writing and in advance, that it uses an auto dialler and what for. From D-637 until 13 Oct 2026 the product refused every outbound call until the client recorded that notice.
+
+**Founder decision 13 Oct 2026 (D-762): the product no longer asks for it.** Clients are businesses that buy and use a product; they cannot be expected to write to telecom providers, and on 13 Oct ThinnestAI (relaying Plivo) could not yet name the access provider for a number or a notice process (`docs/vendor/thinnest-replies-2026-10-12.md` §10). What replaces it in the product:
+
+- verified KYC and the no-cold-calls pledge (D-692), unchanged;
+- a **disclosure inside the pledge (version 2)**, accepted by checkbox: calls are automated calls by Calevate's AI voice agent through Calevate's licensed telephony partners, from numbers rented in the business's name; for every call Calevate keeps the verified business details, the calling number, the purpose, the consent and do-not-call records and the call record, and may share them with a telecom provider or regulator that asks; and the client confirms its calls are made only for the purposes set in its campaigns.
+
+**What this does not change:** the regulation still binds the Sender in law. The founder accepted that risk. Keep asking ThinnestAI/Plivo whether a platform-level declaration exists (OPERATIONS §2 gate 59), and do not tell a client that the disclosure makes them compliant.
+
 ---
 
 ## 11. SMS and WhatsApp (when you add them)

@@ -188,14 +188,9 @@ const SOLUTIONS: readonly Solution[] = [
     ],
     yours: [
       "The list, and when it may run — inside the platform's own 9am–9pm window, never outside it.",
-      "The registration paperwork, which the product refuses to dial without.",
-      // `compliance/autodialer.py`, read by `check_dispatch` item 7b: the notice binds the
-      // SENDER, so Calevate cannot give it on a client's behalf. The limit on what this
-      // may claim is that the obligation's evidence class is REPORTED — nobody here has
-      // read TCCCPR Reg 4 — so it describes what the product refuses, not what the law
-      // requires. Recording it is a step the client really has: `compliance/
-      // autodialer_routes.py` and the panel on the agreements screen.
-      "Written notice to your own telecom access provider, in advance, that these calls are placed by an automated dialler and what they are for. It has to come from you, and no outbound call goes out until you have recorded it on your agreements screen.",
+      // `check_dispatch` item 2c (D-692, D-762): what the product refuses without, not
+      // what the law requires.
+      "Verifying your business, and accepting the no-cold-calls pledge with our disclosure of how automated calls are placed. No outbound call goes out until both are in place.",
     ],
     never: [
       "It does not dial outside 9am–9pm, and that is not a setting you can raise.",

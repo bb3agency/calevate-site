@@ -114,6 +114,31 @@ describe("who may act on Verify your business", () => {
   });
 });
 
+describe("the pledge and its calling disclosure (D-762)", () => {
+  const TWO_PARAGRAPHS = {
+    ...PLEDGE,
+    pledge_text:
+      "No cold calls. We call only people who deal with us.\n\nHow your automated calls are placed. Calevate keeps the call record.",
+  };
+
+  it("shows both paragraphs and a checkbox that accepts both", async () => {
+    await renderClientPage(
+      <VerifyBusinessPage />,
+      routes(OWNER, KYC_NOT_STARTED, { [PLEDGE_PATH]: TWO_PARAGRAPHS }),
+    );
+    expect(await screen.findByText("No-cold-calls pledge and calling disclosure")).toBeTruthy();
+    const quote = screen.getByText(/How your automated calls are placed/);
+    expect(quote.tagName).toBe("BLOCKQUOTE");
+    expect(quote.className).toContain("whitespace-pre-line");
+    expect(quote.textContent).toContain("\n\n");
+    expect(
+      screen.getByRole("checkbox", {
+        name: "I have read the pledge and the disclosure, and accept them on behalf of the business.",
+      }),
+    ).toBeTruthy();
+  });
+});
+
 describe("the DigiLocker return", () => {
   const COMPLETE = `POST ${KYC_PATH}/verification/complete`;
 

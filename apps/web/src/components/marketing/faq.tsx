@@ -150,29 +150,20 @@ const QUESTIONS: { q: string; a: string }[] = [
   {
     q: "Do we need a DLT registration to make outbound calls?",
     /*
-     * WHAT THE GATE ASKS SINCE D-692: verified KYC (`compliance/kyc.py`), the no-cold-calls
-     * pledge (`compliance/outbound_pledge.py`) and the sender's own advance autodialer
-     * notice (`compliance/autodialer.py`). No DLT registration is asked for. The answer
-     * says what the product refuses, never that the law requires nothing, because the
-     * legal questions in `docs/evidence/dlt-roles-and-operating-model-2026-09-18.md` are
-     * still open with counsel.
-     *
-     * The notice is the CLIENT's to give and we may not imply otherwise — the access
-     * provider's counterparty is the sender. Its legal ground is REPORTED (nobody here has
-     * opened TCCCPR Reg 4), so this describes what the product refuses, not what the law
-     * says. The notice IS lodgeable — `POST /v1/compliance/autodialer-notice` and the
-     * panel on the agreements screen — so the answer names where. No figure and no price
-     * vocabulary: this block renders on the homepage.
+     * WHAT THE GATE ASKS SINCE D-692 AND D-762: verified KYC (`compliance/kyc.py`) and the
+     * no-cold-calls pledge with its disclosure (`compliance/outbound_pledge.py`). No DLT
+     * registration and no autodialler notice is asked for. The answer says what the
+     * product refuses, never that the law requires nothing, because the legal questions
+     * in `docs/evidence/dlt-roles-and-operating-model-2026-09-18.md` are still open with
+     * counsel. No figure and no price vocabulary: this block renders on the homepage.
      */
     a:
       "The product does not ask for one, from you or from a telemarketer. Before your " +
       "agent can call out, we verify the identity of the business behind the account, " +
       "and you accept our no-cold-calls pledge: your agent calls only people who asked " +
-      "to hear from you. You must also tell your own telecom access provider, in writing " +
-      "and in advance, that the calls are placed by an automated dialler and what they " +
-      "are for — that notice has to come from you rather than from us, and you record it " +
-      "on your agreements screen. The product refuses to dial until each of those is in " +
-      "place. Inbound answering is not affected by any of it.",
+      "to hear from you, with our disclosure of how your automated calls are placed and " +
+      "what we keep for each one. The product refuses to dial until both are in place. " +
+      "Inbound answering is not affected by either.",
   },
   {
     q: "Can we stop it once it is running?",

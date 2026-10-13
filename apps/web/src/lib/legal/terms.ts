@@ -227,10 +227,10 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               "is charged under the wrong head and you cannot claim it. Clause 6.2 sets " +
               "out our own GST position.",
             "You must complete identity verification where the Acceptable Use Policy " +
-              "requires it, accept the outbound pledge, and keep your verification and " +
-              "your notices current. A verification that lapses, a pledge version you " +
-              "have not accepted, or a notice you withdraw stops your outbound calling " +
-              "until it is restored. Your incoming calls are unaffected.",
+              "requires it, accept the outbound pledge, and keep your verification " +
+              "current. A verification that lapses, or a pledge version you have not " +
+              "accepted, stops your outbound calling until it is restored. Your " +
+              "incoming calls are unaffected.",
           ],
         },
       ],
@@ -265,13 +265,10 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               "Only the account owner can accept the pledge; nobody at Calevate can " +
               "accept it for you, even while helping you with your account. Breaking it " +
               "lets us suspend your outbound calling under clause 10.",
-            "Telling your own telecom access provider, in writing and before the calls " +
-              "start, that these calls are placed by an automated dialler and what they " +
-              "are for. The rules put that notice on the sender of the calls, which is " +
-              "your business and not Calevate, so it is not something we can send for " +
-              "you. Until your account records that you gave it, no outbound call goes " +
-              "out — your incoming calls are unaffected. Section 2.9 of the Acceptable " +
-              "Use Policy says what to record and what happens if you withdraw it.",
+            "Making your calls only for the purposes you set in your campaigns. With the " +
+              "outbound pledge, the account owner accepts our disclosure of how your " +
+              "automated calls are placed and what we keep for each one, which section " +
+              "2.9 of the Acceptable Use Policy sets out.",
             "Having a lawful basis for every number you upload and every call you ask us " +
               "to place, and being able to evidence it — including what the person agreed " +
               "to, when, and for what. Consent obtained for one purpose does not " +

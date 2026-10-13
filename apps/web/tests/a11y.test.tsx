@@ -135,7 +135,6 @@ import { adminBusinessProfileFixture, businessProfileFixture } from "./businessP
 import { RATE_CARD_ROUTES } from "./fixtures/rateCard";
 import { LEAD_CALLING_ROUTES } from "./fixtures/leadCalling";
 import {
-  AUTODIALER_NOTICE_RECORDED,
   KB_ALL_DELIVERED,
   LANES,
   NO_MAINTENANCE,
@@ -3459,7 +3458,6 @@ const CLIENT_SCREENS: Screen[] = [
     routes: {
       "/v1/me": ME,
       "/v1/legal/readiness": LEGAL_READINESS,
-      "/v1/compliance/autodialer-notice": AUTODIALER_NOTICE_RECORDED,
     },
   },
   {

@@ -250,7 +250,7 @@ async def test_whatsapp_send_blocked_when_the_dispatch_gate_refuses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """THE TWO PATHS ASK THE SAME QUESTION. `workers/whatsapp._send_escalation` has always
-    run `check_dispatch(dlt_governed=False)` before the opt-in; this in-call action path
+    run `check_dispatch` before the opt-in; this in-call action path
     ran only the opt-in — so a number on the tenant's DNC list that had once granted
     messaging consent was refused by the campaign leg and messaged by this one. One
     outbound channel, one answer (hard rule 5).

@@ -161,8 +161,11 @@ function PledgeCard({
   const accept = useAcceptPledge(session);
   const [read, setRead] = useState(false);
   return (
-    <Card title="No-cold-calls pledge">
-      <blockquote className="rounded-md bg-surface-muted p-4 text-sm text-ink">{pledge.pledge_text}</blockquote>
+    <Card title="No-cold-calls pledge and calling disclosure">
+      {/* The server separates the pledge and the disclosure with a blank line (D-762). */}
+      <blockquote className="whitespace-pre-line rounded-md bg-surface-muted p-4 text-sm text-ink">
+        {pledge.pledge_text}
+      </blockquote>
       <p className={FIELD_HINT}>Version {pledge.version}.</p>
       {pledge.is_current ? (
         <p className="mt-3 text-sm text-ink">
@@ -186,7 +189,7 @@ function PledgeCard({
               disabled={!access.allowed}
               onChange={(event) => setRead(event.target.checked)}
             />
-            I have read this and accept it on behalf of the business.
+            I have read the pledge and the disclosure, and accept them on behalf of the business.
           </label>
           <button
             type="button"

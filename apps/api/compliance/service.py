@@ -43,10 +43,11 @@ Checks, in the order that fails cheapest-first:
    DLT-registered header (`agents.service.agent_outbound_number_blocker`) are no longer
    asked by this gate. The functions and the data stay (hard rule 8); KYC and the pledge
    (2c) carry the outbound precondition instead.
-7b. **The sender's advance autodialer notice** — TCCCPR Regulation 4 requires the Sender
-   to tell its Originating Access Provider, in writing and in advance, that it uses an
-   auto dialler and what for (`autodialer_notice_blocker`). Every call this gate clears
-   is autodialled, so it is a precondition of outbound as such; inbound is untouched.
+7b. **No autodialer-notice check (D-762).** TCCCPR Regulation 4's advance notice to the
+   Originating Access Provider is not asked here: the founder removed it from the product
+   on 13 Oct 2026, and the disclosure in pledge v2 (2c) is the product's answer. The
+   regulation still binds the Sender in law; `docs/ROADMAP.md` D-762 records the accepted
+   risk.
 
 Inbound calls never reach this function: the caller initiated them, which is the
 consent-clean property D-38 leads with.
@@ -75,7 +76,6 @@ from apps.api.agents.reconciliation import (
     TRUTHFUL_ANSWER_MISSING,
     TRUTHFUL_ANSWER_VERDICT_TTL_S,
 )
-from apps.api.agents.service import agent_registered_numbers
 from apps.api.billing.dispute_hold import DISPUTE_HOLD_REASON, dispute_hold_active
 from apps.api.billing.platform_fee import (
     PLATFORM_FEE_PAUSE_REASON,
@@ -85,7 +85,6 @@ from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
 from apps.api.billing.trials import trial_billing_active
 from apps.api.callbacks.service import cancel_for_phones
-from apps.api.compliance.autodialer import autodialer_notice_blocker
 from apps.api.compliance.caller_ref import ANONYMIZED_PREFIX
 from apps.api.compliance.carrier_application import (
     CARRIER_APPLICATION_MISSING_REASON,
@@ -931,29 +930,23 @@ async def check_dispatch(
     tenant_id: UUID,
     agent_id: UUID,
     phone_e164: str,
-    dlt_governed: bool = True,
     trial_call: bool = False,
 ) -> DispatchDecision:
     """Returns a decision rather than raising, so callers can render *why* a button is
     disabled — SURFACES §2b asks for blocked features to be visibly explained instead
     of silently missing.
 
-    `dlt_governed` selects the LEGAL REGIME, not a strength. The TCCCPR world governs
-    VOICE calling and is the default; since D-692 the only check it still selects is the
-    Regulation 4 autodialer notice. WhatsApp is a DIFFERENT regime entirely (Meta BSP /
-    WABA, opt-in in `whatsapp_alert_optin_ledger`; LEGAL-OPS-PLAYBOOK §11 is explicit it is
-    "Not DLT/TCCCPR"), so the escalation path passes `dlt_governed=False`.
-    It is NOT a bypass of hard rule 5: every other rule (halt, account, agent, KYC,
-    money, hours, DNC, consent, and the India-only destination) still runs, and the flag
-    defaults to the stricter voice regime so a forgotten caller gets MORE checks, not
-    fewer. The messaging leg's own consent gate (`resolve_escalation_destination`'s
-    opt-in) runs at its call site, beside this one.
+    Voice and WhatsApp callers ask the same checks. A `dlt_governed` flag used to select
+    the TCCCPR-only ones for voice; D-692 retired the DLT checks and D-762 the Regulation 4
+    autodialer notice, which left it selecting nothing, so it was removed. The messaging
+    leg's own consent gate (`resolve_escalation_destination`'s opt-in) runs at its call
+    site, beside this one.
 
     `trial_call` marks a FREE-TRIAL TEST CALL (D-697, `agents/trial_calls.py`). A trial
     account is refused every other outbound call, and only a trial account may place a
-    test call. A test call is not asked for KYC (it unlocks only after payment), the
-    autodialer notice or the carrier application (it rings from Calevate's own shared
-    number, not the client's); it is still asked the halt, the drain, the account, the
+    test call. A test call is not asked for KYC (it unlocks only after payment) or the
+    carrier application (it rings from Calevate's own shared number, not the client's);
+    it is still asked the halt, the drain, the account, the
     agent and its truthful answers (hard rule 5), the pledge, the agreements, the spend cap,
     calling hours, the India-only destination, the do-not-call list and consent."""
     platform = await get_platform_status()
@@ -1156,8 +1149,8 @@ async def check_dispatch(
     #
     # Checked HERE rather than beside the DLT block below, and the placement is the point: on
     # these accounts consent REPLACES the registration, so it must be asked in the same
-    # breath as the rest of the person-level questions and not inside a `dlt_governed` branch
-    # they may never enter.
+    # breath as the rest of the person-level questions and not inside a DLT branch they may
+    # never enter.
     if consent is None and await outbound_requires_consent(session, tenant_id=tenant_id):
         return DispatchDecision(
             allowed=False,
@@ -1206,29 +1199,15 @@ async def check_dispatch(
     # The founder decided on 8 Oct 2026 that clients do not register on DLT and Calevate
     # does not register as a telemarketer; KYC and the no-cold-calls pledge, asked above,
     # replace both. `docs/ROADMAP.md` D-692 names the counsel questions that stay open.
-    #
-    # What remains here is the sender's advance autodialer notice — TCCCPR Regulation 4,
-    # a separate obligation D-692 did not decide on, so it still binds. Skipped for
-    # WhatsApp (`dlt_governed=False`), which is a Meta-BSP channel with no carrier notice
-    # (LEGAL-OPS-PLAYBOOK §11). `compliance/autodialer.py` carries the evidence class.
-    if dlt_governed and not trial_call:
-        notice_block = await autodialer_notice_blocker(
-            session,
-            tenant_id=tenant_id,
-            caller_ids=await agent_registered_numbers(session, agent_id=agent_id),
-        )
-        if notice_block is not None:
-            rule, reason = notice_block
-            return DispatchDecision(allowed=False, rule=rule, reason=reason)
+    # The Regulation 4 autodialer notice that used to be asked here was removed by D-762;
+    # the disclosure in pledge v2 replaces it.
 
     # AND WHETHER THE CARRIER STILL APPROVES OF THIS BUSINESS — the reseller stage
-    # (evidence doc 2026-09-13 §5.2). Asked LAST and OUTSIDE the `dlt_governed` branch,
-    # both deliberately: last because it is the most specific refusal in the gate and a
-    # client should read the general ones first, and outside because it is not a DLT
-    # question — it is the carrier's own contractual condition on a number rented through
-    # us, and it binds whatever regime the call is under. The WhatsApp escalation path
-    # passes `dlt_governed=False` and has no `phone_numbers` row of ours to match, so it
-    # is unaffected by construction rather than by exemption.
+    # (evidence doc 2026-09-13 §5.2). Asked LAST because it is the most specific refusal in
+    # the gate and a client should read the general ones first. It is the carrier's own
+    # contractual condition on a number rented through us and binds whatever channel the
+    # call is on; the WhatsApp escalation path has no `phone_numbers` row of ours to match,
+    # so it is unaffected by construction rather than by exemption.
     carrier_block = (
         None
         if trial_call

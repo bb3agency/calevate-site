@@ -23,7 +23,6 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from apps.api.compliance.autodialer import NOTICE_STATES
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
 CONSENT_PURPOSES = ("recording", "callback", "marketing", "messaging")
@@ -1529,8 +1528,18 @@ class ProcessorErasureTask(PKMixin, Base):
     )
 
 
+#: The two states a recorded notice could be in. Kept beside the model since D-762 deleted
+#: the module that wrote the rows; the CHECK constraint in migration `e5c1a70b93f4` spells it.
+NOTICE_STATES = ("notified", "withdrawn")
+
+
 class AutodialerNotice(PKMixin, Base):
-    """This client's notice to their access provider that they operate an autodialer.
+    """A client's record of its TCCCPR Regulation 4 notice to its access provider.
+
+    NOTHING WRITES THIS TABLE SINCE D-762 (13 Oct 2026), which removed the notice from the
+    product: no route, no gate and no screen reads or writes it. The table and its rows are
+    kept for one release and dropped in a later one (hard rule 8: never drop in the release
+    that stops writing). Do not build on it.
 
     INSERT-only (hard rule 4). A withdrawal is a NEW row with `state='withdrawn'`, and
     the current position is the LATEST row for the tenant — an UPDATE would destroy the

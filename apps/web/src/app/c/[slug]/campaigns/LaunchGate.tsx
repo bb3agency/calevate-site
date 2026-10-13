@@ -16,7 +16,6 @@ import { lookup } from "@/lib/lookup";
 import { ConsentProvenanceAnswer } from "./ConsentProvenance";
 import { LaunchConfirm } from "./LaunchConfirm";
 import {
-  AUTODIALER_NOTICE_BLOCKERS,
   BLOCKER_COPY,
   FIRST_CAMPAIGN_REVIEW_LABEL,
   KYC_BLOCKERS,
@@ -85,8 +84,6 @@ export function LaunchGate({
       return { href: at("/billing?tab=usage"), label: "See your monthly spending limit" };
     if (KYC_BLOCKERS.includes(rule))
       return { href: at("/verify-business"), label: "Go to Verify your business" };
-    if (AUTODIALER_NOTICE_BLOCKERS.includes(rule))
-      return { href: at("/agreements"), label: "Record your autodialler notice" };
     if (FIRST_CAMPAIGN_BLOCKERS.includes(rule))
       return { href: at("/campaign-review"), label: FIRST_CAMPAIGN_REVIEW_LABEL };
     return undefined;

@@ -19,7 +19,8 @@ public. It has its own, narrower checks instead, every one of them explicit here
 * every run is audited.
 
 Whether TRAI's autodialer notice (TCCCPR reg. 4 as amended 12 Feb 2025, web-secondary)
-reaches a non-commercial test call is not settled: OPERATIONS gate F-6.
+reaches a non-commercial test call is not settled: OPERATIONS gate F-6. The product asks no
+client for that notice since D-762.
 
 HOW IT RUNS. Leg 1 rings from the shared trial number, leg 2 (when an operator has chosen a
 second number) from that one, each placed by its own developer-workspace agent

@@ -54,7 +54,7 @@ from tests.conftest import (
     accept_agreements,
     bind_number_for_tests,
     fund_wallet,
-    record_autodialer_notice_for_tests,
+    verify_kyc_and_pledge_for_tests,
 )
 from tests.national_dnd_test import record_test_scrub
 
@@ -142,10 +142,9 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
             ),
             {"r": ref, "t": tenant_id, "a": agent_id},
         )
-    # Regulation 4's advance autodialer notice: `check_dispatch` refuses every outbound
-    # dial without one, so a fixture missing it reports `autodialer_notice_missing` in
-    # place of the line budget this module measures.
-    await record_autodialer_notice_for_tests(tenant_id)
+    # D-692's verified KYC and current no-cold-calls pledge: every outbound dial requires
+    # them, so a fixture without them reports that refusal instead of its own subject.
+    await verify_kyc_and_pledge_for_tests(tenant_id)
     _TENANTS.append(tenant_id)
     return tenant_id, agent_id
 

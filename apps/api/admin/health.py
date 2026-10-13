@@ -478,8 +478,8 @@ async def _outbound_signals(
     * `dnc` and `calling_hours` are properties of a CONTACT and a CLOCK, not of an account.
       A board that went amber on every row every evening at 21:00 IST would train an
       operator to ignore it.
-    * The per-CAMPAIGN and per-AGENT rules (consent provenance, the agent's state, its
-      autodialer notice) need a campaign to be about. They are the launch screen's subject
+    * The per-CAMPAIGN and per-AGENT rules (consent provenance, the agent's state) need
+      a campaign to be about. They are the launch screen's subject
       and the client can see them there.
     """
     if on_trial:
