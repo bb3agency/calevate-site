@@ -118,8 +118,10 @@ CALLER_HEARD_FAILURE: frozenset[EngineProblemKind] = frozenset(
 class EngineProblem(BaseModel):
     """Something the engine reports going wrong on a call while it is still live.
 
-    Kind and time only: the engine's own sentence about it is not carried, so nothing a
-    vendor writes can reach a screen or a log through this model.
+    Kind and time, and for `own_key_failed` alone the engine's sentence about the key (D-769),
+    because which key failed and why is what an operator needs and the kind does not say it.
+    Every other kind's sentence is not carried, so nothing a vendor writes reaches a screen
+    through this model.
     """
 
     kind: EngineProblemKind
@@ -129,6 +131,10 @@ class EngineProblem(BaseModel):
     engine_call_id: str
     occurred_at: datetime | None = None
     engine: str
+    #: The engine's own sentence on an `own_key_failed`, shortened by the adapter with long
+    #: digit runs masked, since it is vendor text we cannot vouch holds no caller detail. It
+    #: reaches the operator alarm only (whose line `alert` logs), never a client surface.
+    operator_detail: str | None = None
 
 
 class CallQuality(BaseModel):

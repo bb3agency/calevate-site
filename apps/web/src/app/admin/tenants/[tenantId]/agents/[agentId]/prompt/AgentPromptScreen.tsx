@@ -18,6 +18,7 @@ import { StatusPill, sentenceCase } from "@/components/admin/kit";
 import { AGENT_STATUS_TONE } from "../../../statePill";
 import { CallCapPanel } from "./sections/callCap";
 import { CallHandlingPanel } from "./sections/callHandling";
+import { ReplyLengthPanel } from "./sections/replyLength";
 import { ExperimentPanel } from "./sections/experiment";
 import { GoLivePanel, PublishingPanel } from "./sections/live";
 import { ScriptSection } from "./sections/script";
@@ -230,6 +231,7 @@ export function AgentPromptScreen({ tenantId, agentId }: { tenantId: string; age
                     write={write}
                   />
                   <CallHandlingPanel tenantId={tenantId} agentId={agentId} slug={slug} write={write} />
+                  <ReplyLengthPanel tenantId={tenantId} agentId={agentId} write={write} />
                 </>
               );
             case "test":

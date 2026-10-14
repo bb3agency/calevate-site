@@ -692,3 +692,23 @@ def test_the_new_alarms_are_registered() -> None:
     ):
         assert code in ALARM_SEVERITY
     assert RECIPIENT_OPTED_OUT_CODE == "engine_recipient_opted_out"
+
+
+@pytest.mark.rls
+async def test_a_call_that_fell_back_to_the_workspace_keys_is_a_named_variance(
+    charge_alarms: list[tuple[str, str]],
+) -> None:
+    """D-769: an agent on our model and voice whose key was gone runs on the workspace's
+    default scope and is billed for what ran (ThinnestAI, 14 Oct 2026), here the voice-only
+    minute (₹1.50) against the ₹1.00 own-voice-and-model minute the route was metered at."""
+    tenant_id, call_id = await _call_with_usage(
+        rate_key="byok_llm_voice", minute_cost=Decimal("1.0236"), tts=True
+    )
+    outcome = await engine_charges.reconcile_call_charge(
+        tenant_id, call_id, Decimal("1.500000"), engine="thinnest"
+    )
+    assert outcome == "variance"
+    [(code, detail)] = charge_alarms
+    assert code == "engine_call_cost_variance"
+    assert "rate_key=byok_llm_voice" in detail and "charged-with-fee INR 1.5354" in detail
+    assert "ran on the workspace's default keys" in detail

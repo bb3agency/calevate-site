@@ -21,11 +21,13 @@ from apps.api.crm import service as crm_service
 from apps.api.db.session import tenant_session
 from apps.api.engine.health import PlatformStatus
 from apps.api.engine.thinnest import (
+    PROBLEM_DETAIL_MAX_CHARS,
     HandoffTarget,
     ThinnestEngine,
     _tools_drift,
     handoff_agents_body,
     parse_quality,
+    problem_detail,
 )
 from apps.api.engine.thinnest_webhooks import SUBSCRIBED_EVENTS
 from apps.api.healer import health
@@ -87,7 +89,9 @@ def test_a_call_object_carries_its_quality_and_an_inbound_completion_its_callref
         ("no_answer_from_model", "no_answer_from_model"),
     ],
 )
-def test_a_problem_is_read_without_the_vendors_sentence(kind: str, ours: str) -> None:
+def test_a_problem_carries_the_vendors_sentence_only_for_a_key_failure(
+    kind: str, ours: str
+) -> None:
     problem = ThinnestEngine(api_key="ta_x").parse_problem(
         {
             "id": "evt_1",
@@ -103,7 +107,9 @@ def test_a_problem_is_read_without_the_vendors_sentence(kind: str, ours: str) ->
     )
     assert problem is not None and problem.kind == ours
     assert problem.engine_call_id == "out_9" and problem.engine_agent_ref == "ag_5"
-    assert "detail" not in problem.model_dump()
+    assert problem.operator_detail == (
+        "A reply took 6.2 seconds to start." if ours == "own_key_failed" else None
+    )
 
 
 def test_an_unknown_problem_kind_is_not_read() -> None:
@@ -268,7 +274,7 @@ async def _route(*, rate_key: str | None = None) -> tuple[uuid.UUID, uuid.UUID, 
     return tenant_id, agent_id, ref
 
 
-def _problem(ref: str, call: str, kind: str) -> dict[str, Any]:
+def _problem(ref: str, call: str, kind: str, detail: str = "x") -> dict[str, Any]:
     event_id = f"evt_{uuid.uuid4().hex[:10]}"
     body = json.dumps(
         {
@@ -279,7 +285,7 @@ def _problem(ref: str, call: str, kind: str) -> dict[str, Any]:
                 "callId": call,
                 "agentId": ref,
                 "kind": kind,
-                "detail": "x",
+                "detail": detail,
                 "at": "2026-10-11T09:00:00Z",
             },
         }
@@ -487,3 +493,33 @@ async def test_the_outage_check_says_whose_fault_it_looks_like(
     up = PlatformStatus(reachable=True, calls_operational=True, data_operational=True, reported="v")
     assert "look at our side first" in healer._status_words(up)
     assert "did not answer" in healer._status_words(PlatformStatus(reachable=False))
+
+
+def test_the_key_failure_sentence_is_one_short_line_with_long_numbers_masked() -> None:
+    long = "Your Google key was refused  for project 9876543210 (quota).\n" + "x" * 400
+    detail = problem_detail(long)
+    assert detail is not None and "\n" not in detail
+    assert "9876543210" not in detail and "[number]" in detail and "(quota)" in detail
+    assert len(detail) == PROBLEM_DETAIL_MAX_CHARS and detail.endswith("…")
+    assert problem_detail("Key 12345 failed.") == "Key 12345 failed."
+    assert problem_detail(None) is None and problem_detail("   ") is None
+
+
+async def test_an_own_key_failure_alarm_carries_the_platforms_sentence(
+    alerts: list[tuple[str, dict[str, Any]]],
+) -> None:
+    _tenant_id, _agent_id, ref = await _route(rate_key="byok_llm_voice")
+    await engine_signals.ingest_engine_problem(
+        {},
+        _problem(
+            ref,
+            f"in_{uuid.uuid4()}",
+            "byok_failed",
+            detail="Your Gemini key returned 429: quota exceeded.",
+        ),
+    )
+    [(code, fields)] = alerts
+    assert code == "engine_call_own_key_failed"
+    assert 'The voice platform said: "Your Gemini key returned 429: quota exceeded."' in str(
+        fields["detail"]
+    )

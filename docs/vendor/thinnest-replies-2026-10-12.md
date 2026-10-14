@@ -454,3 +454,155 @@ no model, D-750 stands); the own-model cost floor is to use our real prompt size
    and `call.analysed` (is `cachedInputTokens` billed by Google at the cached rate through
    their call?), and whether `maxReplyTokens` applies on calls.
 4. The text of the speaking rules `callInstructions` replaces (§11.5 item 5).
+
+## 12. Ashutosh's answer to the founder's follow-up, received 14 Oct 2026 10:07
+
+Relayed by the founder. **VENDOR-STATED** unless a snapshot line is cited (paths under
+`thinnest-findings/mirror/snapshots/2026-10-13/pages/`).
+
+1. **"My voice and my language model, our speech-to-text" is built** at ₹1/min flat, the
+   11 Oct offer; chat replies ₹0.02 each, as on the other own-key choices. Studio is this
+   choice (`llm_voice`), Clear stays "Only my language model" (`llm`). A workspace needs **both
+   an LLM key and a voice key** for Studio. Matches `api-reference/bring-your-own-keys.md:18-20,
+   :25-28`.
+2. **Per-agent choice.** Each agent follows the workspace default, is `off`, or names a scope
+   the workspace holds keys for, so one client can have Clear and Studio agents in one
+   workspace (the agent's "How Agent uses your keys" setting; API field `byok`). The snapshot
+   already documents it (`api-reference/calls/get-call.md:191-199`: `null` follows the
+   workspace, `"off"`, or `all | voice | llm | llm_voice`; a scope without verified keys is
+   refused `409`). **If a key is later removed, the call still goes ahead on the workspace
+   default and is billed for what actually ran.** **Live date: "with our next release"; he
+   will confirm.** Until then a per-agent `llm`/`llm_voice` may not take effect.
+3. **Tokens per call: added.** Get Call and `call.analysed` carry
+   `usage {inputTokens, outputTokens, cachedInputTokens}`. Where a provider reports no usage,
+   the input side is an estimate from the prompt's length (`api-reference/calls/get-call.md:
+   1102-1135`: "treat it as a close guide rather than an invoice"; the post-call summary and
+   field extraction are not counted).
+4. **`byok.failed` is a console notification, not a webhook.** Subscribe to `call.problem`,
+   which fires once per call, while the call is still going, with `kind: "byok_failed"` and
+   payload `{callId, agentId, kind, detail, at}`; `detail` is a plain sentence describing the
+   failure.
+5. **`maxReplyTokens` applies to every call reply, own key included.** Default 300, settable
+   100-800 per agent (Playground → Reply length; `api-reference/agents/update-agent.md:839-845`,
+   "one ceiling for chat and calls"). A reply that reaches it is **cut off at that point**.
+
+### 12.1 What it means for Calevate
+
+| Item | State before this reply | What is missing on our side | Built (D-769, 14 Oct 2026) |
+|---|---|---|---|
+| 1. `llm_voice` | Built, D-764, switched off | Confirm a Studio publish on our model installs both the Cartesia key and the Google key in the client's workspace before naming `llm_voice` | Already in order (`ensure_studio_in`, then `ensure_own_model_in`, then the write); the last read must now also show the voice key ready, else `studio_account_not_ready` with nothing written. Tested |
+| 2. Per-agent scope | Built: every agent names its scope and the publish reads it back | Not live at the vendor until their next release; the read-back already refuses a publish the vendor ignored. A call that falls back to the workspace default is billed differently from the route's rate key: our cost must come from what the vendor charged for the call, not from the scope we asked for | Read-back refusal confirmed and tested (`workspace` or `voice` back after `llm_voice`; `voice` was unread before). `engine_call_cost_variance` already compares each call's charge with its metered minute; on `byok_llm_voice` it now names a possible fallback. Alarmed, not restated: no documented field says which scope a call ran on. T-29 and the runbook: `thinnest_own_model` stays off until ThinnestAI confirms |
+| 3. Usage tokens | Metered (D-764) | Mark a call's token cost as estimated when the vendor estimated it (it does not say so per call: question below) | Waits on §12.2 question 2 |
+| 4. `byok_failed` | Alarm `engine_call_own_key_failed` (D-767) | Carry `detail` (the vendor's sentence) to the operator alarm, never to a client | `EngineProblem.operator_detail` (byok only; one line, 240 characters, digit runs of six or more masked) ends the alarm's text |
+| 5. `maxReplyTokens` | **Not sent**: every agent runs the vendor default 300 | State it on every agent write, verify it on read-back and in the drift sweep, admin-settable 100-800 per agent | Sent on every write from `agents.max_reply_tokens` (migration `b9d4e2a7c6f1`) else console `thinnest_reply_length` (300); read back at publish and by the sweep (`reply_length`); admin "Reply length" under Call handling |
+
+### 12.2 For the next email (unsent; the founder sends)
+
+1. When a call falls back to the workspace default because a key was removed, does Get Call or
+   `call.analysed` say which scope ran and what the minute was billed at?
+2. Does `usage` say when the input count is an estimate?
+3. With our own LLM key, do the post-call summary and field extraction run on our key (so our
+   Google account pays tokens `usage` does not count) or on yours?
+4. Still open from §11.8: the `byok-model` `409` wording; the Standard voice plan; the speaking
+   rules `callInstructions` replaces. And the live date of per-agent scopes.
+
+## 13. Draft of the next email (14 Oct 2026, unsent; the founder sends)
+
+Gathers everything still unanswered from §5 (9 and 11 Oct emails), §9 (12 Oct build), §11.2
+and §11.8 (13 Oct), and §12.2 (14 Oct). Items answered since are left out.
+
+> **Subject:** Calevate: follow-ups after the per-agent keys release
+>
+> Hi Ashutosh,
+>
+> Thanks for building the fourth choice and per-agent keys so quickly; that is exactly the
+> Clear and Studio split we need. A consolidated list of what is still open on our side:
+>
+> **Per-agent keys and billing**
+> 1. When will per-agent `byok` go live? We will hold our Gemini set-ups until you confirm,
+>    and then place one test call on each.
+> 2. With our own LLM key, do the post-call summary and field extraction run on our key (so
+>    Google bills us for tokens `usage` does not count) or on yours?
+> 3. `PUT /agents/{id}/byok-model`: the page text says it is refused with `409` when the
+>    workspace is not using its own keys, but the response table says `409` means "not using
+>    its own voice key (it brings no keys, or only its language model)". Can a Clear agent
+>    (scope `llm`, no voice key) have its own model, or does it always run the model stored
+>    with the key?
+> 4. What is the Standard voice plan (which voices, and the per-minute price), next to Premium
+>    and Studio?
+> 5. Is there a volume rate on the Studio voice band? Clear runs on it, and at ₹3.00 a minute it
+>    is most of our cost.
+>
+> **Agent behaviour**
+> 6. The text of the 16 speaking rules that `callInstructions` replaces, so our prompt keeps
+>    the ones we still want.
+> 7. Is `voice.surfaces: []` accepted on an agent with no number? We send it so a new agent does
+>     not answer on the website button or WhatsApp.
+>
+> **Numbers**
+> 8. Does `POST /phone-numbers` (rent) honour `Idempotency-Key`? The errors page says keys are
+>     kept 24 hours, but the rent page does not list the header; we send it.
+>
+> **Compliance**
+> 9. The signed DPA and the list of your sub-processors that handle a call on your stack.
+> 10. Please exclude our developer workspace, and every customer workspace under it, from model
+>     training (your "Your data: erasure and training" page says the owner asks support; this is
+>     that request), and confirm in writing once it is done.
+> 11. Any update from Plivo on the TRAI regulation 4 notice.
+>
+> Thanks,
+> Umesh
+
+### 13.1 Things to ask them to build (for the same email; founder adds)
+
+Each request rests on a documented limitation (snapshot paths under
+`thinnest-findings/mirror/snapshots/2026-10-13/pages/`) and a requirement in our code or docs.
+
+> **Things that would help us, if you can build them** (if any already exists, please point us
+> to it)
+>
+> A. **What each call was billed as.** Get Call already gives `costMicro`. Alongside it, please
+>    add which key choice the call ran on (`off`, `voice`, `llm`, `llm_voice` or `all`), the voice
+>    plan (Standard, Premium or Studio), the per-minute rate and the billed seconds. We sell two
+>    tiers at different prices and reconcile every call; with per-agent choices and the fallback
+>    when a key is removed, the total alone cannot tell us which tier a call really ran on.
+>
+> B. **Characters synthesised on our voice key, per call.** Cartesia bills us per character, and
+>    sentences sent before an interruption are synthesised even when the caller never hears them.
+>    A per-call count of characters sent to our voice account (on Get Call or `call.analysed`),
+>    and ideally stopping synthesis at the interruption, would let us cost Studio exactly. Today we
+>    can only count the characters in the transcript.
+>
+> C. **Mark estimated token counts.** A flag such as `usage.inputTokensEstimated: true` when the
+>    input side is your estimate, so we know which calls to treat as approximate.
+>
+> D. **Share our clones with our customer workspaces.** Our admin clones voices in the developer
+>    workspace; a client's agent runs in that client's own workspace, so today we re-create the
+>    clone in every client workspace from the stored recording, and each copy counts against that
+>    workspace's clone limit. Letting a developer's clone be used by its customer workspaces would
+>    remove the copies and the limit problem.
+>
+> E. **Shorter retention, or deleting one call.** Recordings are kept 30 / 49 / 75 days by plan,
+>    and no endpoint deletes a single call or recording (`DELETE /calls/{id}` only cancels). We keep
+>    our own copy, and our clients set their own retention, sometimes shorter than yours. A
+>    per-workspace retention setting on the API, or `DELETE` for one call's recording and
+>    transcript, would let their setting apply on your side too.
+>
+> F. **Tell us when an erasure finishes.** `DELETE /contacts/{id}` can answer `recordingsPending`
+>    and the rest is retried nightly with no completion signal, so a person has to close our
+>    erasure record by hand. A webhook (for example `contact.erased`) or a status on the contact
+>    when the last recording is gone would close it automatically.
+>
+> G. **A webhook when a workspace's own keys change.** If a key fails verification, is removed or
+>    own keys are switched off, a webhook would let us react immediately; today we see a key
+>    failure only per call (`call.problem`) and check each workspace on a schedule.
+>
+> H. **Mark which voices our own Cartesia account owns** in `GET /byok/voices` (today only the
+>    order implies it).
+
+Evidence: A — `api-reference/calls/get-call.md:594-605` (`costMicro`), §12 item 2 (fallback);
+B — §11.2 row 6; C — `api-reference/calls/get-call.md:1102-1112`; D — `docs/THINNEST-INTEGRATION.md`
+"Clones" (`agents/clone_copies.py`, gate T-18); E — `workspace/usage.md:88-96`,
+`api-reference/calls/cancel-call.md:7`; F — `workspace/data-and-erasure.md:14-56`,
+THINNEST-INTEGRATION "Erasure" (D-691); G — §12 item 4, the hourly sweeps (D-727, D-764); H — §9
+item 1 (moved here from question 9 of the draft).

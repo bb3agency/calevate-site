@@ -1573,6 +1573,8 @@ _VENDOR_ONLY_KEYS = frozenset(
         # the currency; ours are `listed_call_tier` and `listed_price_per_minute`.
         "callPricePerMinuteMicro",
         "callTier",
+        # ThinnestAI's reply ceiling on an agent (D-769); ours is `max_reply_tokens`.
+        "maxReplyTokens",
         # ThinnestAI (D-678): camelCase instants and their list cursor. Ours are
         # `started_at`/`ended_at` and no cursor crosses the adapter boundary.
         "startedAt",

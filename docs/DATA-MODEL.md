@@ -217,6 +217,9 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
     -- eight, model one of five Sonic ids, dictionary id `^[A-Za-z0-9][A-Za-z0-9_-]{2,79}$`,
     -- and `sonic-2` with speed, volume and emotion NULL (ThinnestAI `byok-voice`). Sent only
     -- while `engine_voice_id` is a Studio voice (`agents/voice_tuning.py`).
+  max_reply_tokens INTEGER,  -- b9d4e2a7c6f1, D-769. The longest reply in tokens, set by
+    -- operators only; CHECK 100-800 (ThinnestAI `maxReplyTokens`). NULL inherits the console's
+    -- `thinnest_reply_length` (`agents/reply_length.py`); sent on every publish.
   system_prompt_id → prompt_versions, extraction_schema_id → extraction_schemas,
   business_hours JSONB, escalation_config JSONB,   -- business_hours: unread since D-695 (the profile)
   -- THE OPENING NOTICES (D-163, migration f4a1d0b6e29c). SEC-COMP §2 states two

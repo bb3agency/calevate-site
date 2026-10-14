@@ -194,6 +194,18 @@ export function agentCallHandling(agentId = "agent-1") {
   };
 }
 
+/** One agent's reply length (D-769), inheriting the platform's 300 tokens. */
+export function agentReplyLength(agentId = "agent-1") {
+  return {
+    agent_id: agentId,
+    max_reply_tokens: null,
+    default: 300,
+    effective: 300,
+    min: 100,
+    max: 800,
+  };
+}
+
 /** The lane rules — `GET /v1/agents/lanes`, with the platform's call-cap bounds. */
 export const LANES = {
   precedence_rule: "Script decides content.",

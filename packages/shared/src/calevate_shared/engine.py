@@ -3174,6 +3174,16 @@ class ByokVoiceTuning(BaseModel):
         )
 
 
+#: The longest one agent reply may be, in tokens: one ceiling for every reply on a call, and
+#: a reply that reaches it is cut off there. 100-800 with 300 the default is ThinnestAI's
+#: `maxReplyTokens` (`thinnest-findings/mirror/snapshots/2026-10-13/pages/api-reference/
+#: agents/create-agent.md:760-768`, update-agent.md:839-845), so our default changes nothing
+#: a call does. Held here because the setting, the column CHECK and `AgentConfig` share them.
+REPLY_TOKENS_MIN: Final = 100
+REPLY_TOKENS_MAX: Final = 800
+REPLY_TOKENS_DEFAULT: Final = 300
+
+
 class AgentConfig(BaseModel):
     """What an agent IS, in our terms. The adapter renders this into the vendor's
     agent object."""
@@ -3297,6 +3307,12 @@ class AgentConfig(BaseModel):
     #: settings reads them; excluded from every dump for `detect_machines`' reason.
     turn_silence_ms: int = Field(default=250, exclude=True)
     end_call_on_finish: bool = Field(default=True, exclude=True)
+    #: The reply ceiling in tokens (D-769): the agent's own, else the console's
+    #: `thinnest_reply_length`, resolved by `apps/api/agents/reply_length`. Excluded from
+    #: every dump for `detect_machines`' reason.
+    max_reply_tokens: int = Field(
+        default=REPLY_TOKENS_DEFAULT, ge=REPLY_TOKENS_MIN, le=REPLY_TOKENS_MAX, exclude=True
+    )
     #: When the caller goes quiet (F3, F9, 12 Oct 2026), resolved agent -> organisation ->
     #: Calevate by `apps/api/agents/call_handling`: ask "are you still there?" after this many
     #: seconds (None: never ask), this many times, in the client's own words (None: the
@@ -5811,6 +5827,9 @@ __all__ = [
     "PIPECAT_REF_PREFIX",
     "PLATFORM_RULES_PREAMBLE",
     "PLATFORM_RULES_TAIL_HEADER",
+    "REPLY_TOKENS_DEFAULT",
+    "REPLY_TOKENS_MAX",
+    "REPLY_TOKENS_MIN",
     "VOICE_STYLE_GUIDANCE",
     "WEBHOOK_AUTH_BY_ENGINE",
     "AccountKBListing",

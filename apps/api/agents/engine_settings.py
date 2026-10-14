@@ -78,6 +78,8 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         "filler_timing",
         "interruptions",
         "end_phrases",
+        # The longest reply, in tokens: the agent's own or the console's (D-769).
+        "reply_length",
     }
 )
 

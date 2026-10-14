@@ -5,7 +5,7 @@ import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/pro
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, stillLoading, type Routes } from "./harness";
-import { agentCallHandling, agentRow } from "./fixtures/sharedReads";
+import { agentCallHandling, agentReplyLength, agentRow } from "./fixtures/sharedReads";
 /*
  * The agent page is a settings layout (D-661): Live opens first and holds the publish
  * controls this file is about; the call-cap cases open Call length.
@@ -116,6 +116,7 @@ function render(over: Partial<Routes> = {}) {
       [TENANT_PATH]: { id: TENANT, name: "Sunrise Clinic", slug: "sunrise" },
       "/v1/agents": [agentRow({ id: AGENT })],
       [`/v1/agents/${AGENT}/call-handling`]: agentCallHandling(AGENT),
+      [`/v1/admin/tenants/${TENANT}/agents/${AGENT}/reply-length`]: agentReplyLength(AGENT),
       [ME_PATH]: {
         realm: "admin",
         user_id: "0192f0aa-7777-7000-8000-0000000000f2",
@@ -338,5 +339,54 @@ describe("putting an agent on the voice platform for the first time", () => {
     await screen.findByText(
       /This agent has no script yet — the client's business profile/,
     );
+  });
+});
+
+/**
+ * Reply length (D-769), operators only: the longest reply the agent may give. The panel says
+ * the ceiling in force and whether it is the agent's own, saves a number through the
+ * operator's door, and "Use the platform setting" saves null.
+ */
+describe("reply length", () => {
+  const REPLY_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/reply-length`;
+
+  it("names the inherited ceiling and saves the agent's own as a number", async () => {
+    nav.params = new URLSearchParams("section=limits");
+    const { calls } = await render({
+      [`PATCH ${REPLY_PATH}`]: { ...agentReplyLength(AGENT), max_reply_tokens: 500, effective: 500 },
+    });
+
+    await screen.findByText("Replies are held to 300 tokens, the platform setting.");
+    fireEvent.change(screen.getByLabelText("Longest reply, in tokens"), {
+      target: { value: "500" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await screen.findByText(/set for this agent\. The platform setting is 300\./);
+    const patch = calls.find((c) => c.method === "PATCH" && c.path === REPLY_PATH);
+    expect(JSON.parse(patch?.body ?? "{}")).toEqual({ max_reply_tokens: 500 });
+  });
+
+  it("puts an agent with its own ceiling back on the platform setting with null", async () => {
+    nav.params = new URLSearchParams("section=limits");
+    const { calls } = await render({
+      [`GET ${REPLY_PATH}`]: { ...agentReplyLength(AGENT), max_reply_tokens: 650, effective: 650 },
+      [`PATCH ${REPLY_PATH}`]: agentReplyLength(AGENT),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Use the platform setting" }));
+
+    await waitFor(() => {
+      const patch = calls.find((c) => c.method === "PATCH" && c.path === REPLY_PATH);
+      expect(JSON.parse(patch?.body ?? "{}")).toEqual({ max_reply_tokens: null });
+    });
+  });
+
+  it("refuses with the server's words when the read fails", async () => {
+    nav.params = new URLSearchParams("section=limits");
+    await render({
+      [`GET ${REPLY_PATH}`]: problem(503, { title: "Upstream unavailable" }),
+    });
+    await screen.findByText("Upstream unavailable");
   });
 });

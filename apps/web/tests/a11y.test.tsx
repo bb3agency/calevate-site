@@ -150,6 +150,7 @@ import {
   AGENT_SPEND_PATH,
   callLinesRoute,
   CALL_HANDLING_BOUNDS as SHARED_CALL_HANDLING_BOUNDS,
+  agentReplyLength,
   VOICE_EFFECTIVE_DEFAULTS,
   VOICE_ORGANIZATION_NONE,
   VOICE_OWN_NONE,
@@ -5032,6 +5033,7 @@ const ADMIN_SCREENS: Screen[] = [
         },
       ],
       "/v1/agents/agent-1/call-handling": AGENT_CALL_HANDLING,
+      "/v1/admin/tenants/t1/agents/agent-1/reply-length": agentReplyLength(),
       "/v1/agents/agent-1/pending": {
         agent_id: "agent-1",
         agent_status: "live",

@@ -1678,6 +1678,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/reply-length": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The longest reply one client agent may give
+         * @description The longest reply this agent may give, in tokens (100-800). A reply that reaches it is cut off where it stands. `max_reply_tokens` null inherits the console's `thinnest_reply_length`, which `default` reports.
+         */
+        get: operations["admin_get_reply_length_v1_admin_tenants__tenant_id__agents__agent_id__reply_length_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set the longest reply one client agent may give (audited)
+         * @description The longest reply this agent may give, in tokens (100-800). A reply that reaches it is cut off where it stands. `max_reply_tokens` null inherits the console's `thinnest_reply_length`, which `default` reports.
+         */
+        patch: operations["admin_set_reply_length_v1_admin_tenants__tenant_id__agents__agent_id__reply_length_patch"];
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/undo": {
         parameters: {
             query?: never;
@@ -22528,6 +22552,29 @@ export interface components {
             /** Replayed */
             replayed: number;
         };
+        /** ReplyLengthIn */
+        ReplyLengthIn: {
+            /** Max Reply Tokens */
+            max_reply_tokens: number | null;
+        };
+        /** ReplyLengthOut */
+        ReplyLengthOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Default */
+            default: number;
+            /** Effective */
+            effective: number;
+            /** Max */
+            max: number;
+            /** Max Reply Tokens */
+            max_reply_tokens: number | null;
+            /** Min */
+            min: number;
+        };
         /** ResendInviteIn */
         ResendInviteIn: {
             /** Attestation */
@@ -29990,6 +30037,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["apps__api__agents__routes__PublishOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_get_reply_length_v1_admin_tenants__tenant_id__agents__agent_id__reply_length_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplyLengthOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_set_reply_length_v1_admin_tenants__tenant_id__agents__agent_id__reply_length_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplyLengthIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplyLengthOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

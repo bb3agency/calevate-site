@@ -399,6 +399,11 @@ def _alarm_problem(problem: EngineProblem, route: _Route) -> None:
                 "platform holds for us (ops Voices: Studio ready reads the voice key back) "
                 "and the provider accounts behind them for quota, billing or a revoked key, "
                 "then place a test call on this agent."
+                + (
+                    f' The voice platform said: "{problem.operator_detail}"'
+                    if problem.operator_detail
+                    else ""
+                )
             ),
             episode=str(route.agent_id),
             **ids,

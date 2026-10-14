@@ -37,6 +37,13 @@ switch is refused (`own_model_not_ready`) until they are done.
 
 ## 2. Switch it on
 
+**Not before ThinnestAI confirms per-agent scopes are live** (D-769). Their reply of 14 Oct 2026
+says each agent's own `llm` / `llm_voice` takes effect "with our next release", and that they
+will confirm. Until then an agent's scope may not take effect: our publish read-back refuses an
+agent whose `byok` does not come back as sent, so switching on early fails every publish rather
+than silently billing a different set-up. Switch on only once ThinnestAI has confirmed and a
+test call on each set-up (step 3) passes (OPERATIONS §2 gate T-29).
+
 1. Optional, recommended for a client with many live agents: prepare its workspace first with
    `POST /v1/ops/voices/own-model/enable {tenant_id}` (step-up `enable_own_model_workspace`).
    It installs our Google key there, switches the workspace's own keys on with scope `llm` when
@@ -65,8 +72,13 @@ switch is refused (`own_model_not_ready`) until they are done.
 - **Per agent.** The drift sweep reads each agent's `byok` and its model of our key back and
   puts them back when they moved (`engine_agent_voice_key_repaired`).
 - **A key failure on a call** arrives as `call.problem` `byok_failed` and alarms
-  `engine_call_own_key_failed`; the caller heard ThinnestAI's apology for that turn. The docs
-  give nothing more specific about which key failed.
+  `engine_call_own_key_failed`; the caller heard ThinnestAI's apology for that turn. The alarm
+  ends with ThinnestAI's own sentence about the failure (`detail`, one line, long numbers
+  masked, D-769), which is the best indication of which key failed and why.
+- **A key gone at call start** does not fail the call: it runs on the workspace's default scope
+  and is billed for what ran (ThinnestAI, 14 Oct 2026). On a Studio agent the charge
+  reconciliation then raises `engine_call_cost_variance` against the `byok_llm_voice` minute,
+  saying the call may have fallen back; check the workspace's keys on the "Our own model" card.
 
 ## 4. Switching it off
 

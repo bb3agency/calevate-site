@@ -293,6 +293,14 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "have our Google key installed and its price attested.",
         _THINNEST,
     ),
+    "thinnest_reply_length": _m(
+        "voice-engine",
+        "thinnest",
+        "Longest agent reply, in tokens",
+        "Every agent without its own reply length uses it, 100 to 800. A reply that reaches "
+        "it is cut off mid-sentence. 300 is ThinnestAI's own default.",
+        _THINNEST,
+    ),
     # ---- telephony -------------------------------------------------------------------
     "number_provider": _m(
         "telephony",
@@ -1112,6 +1120,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "forwarding_test_daily_cap": ControlHint(unit="tests a day"),
     "whatsapp_message_inr": ControlHint(unit="rupees"),
     "thinnest_max_concurrent_calls": ControlHint(unit="calls at once"),
+    "thinnest_reply_length": ControlHint(unit="tokens"),
     "carrier_concurrency": ControlHint(unit="calls at once"),
     "inbound_reserved_lines": ControlHint(
         unit="lines", help="Leave unset to use the automatic share."

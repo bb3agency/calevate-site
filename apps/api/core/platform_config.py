@@ -555,6 +555,12 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "saving it moves every live agent with no model of its own onto it while our own "
         f"model is switched on{_NOW}",
     ),
+    # Each agent's `maxReplyTokens` is stamped at publish (D-769), so saving it republishes
+    # every live agent; the settings sweep repairs one whose ceiling moved.
+    "thinnest_reply_length": AppliesRule(
+        LIVE_AGENTS,
+        f"saving it moves every live agent with no reply length of its own onto it{_NOW}",
+    ),
     # Read inside every ThinnestAI dial's intent transaction (`agents/service.dispatch_call`)
     # and once per dispatch tick for the outbound pool, like `carrier_concurrency`.
     "thinnest_max_concurrent_calls": AppliesRule(LIVE),

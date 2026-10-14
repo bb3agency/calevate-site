@@ -117,6 +117,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.llm_routes import router as llm_defaults_router
     from apps.api.agents.prompt_routes import router as prompt_admin_router
     from apps.api.agents.publishing_routes import router as publishing_router
+    from apps.api.agents.reply_length_routes import admin_router as reply_length_admin_router
     from apps.api.agents.routes import router as agents_router
     from apps.api.agents.script_routes import router as script_router
     from apps.api.agents.trial_call_routes import router as trial_calls_router
@@ -320,6 +321,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(call_handling_router)
     application.include_router(call_handling_admin_router)
     application.include_router(voice_tuning_admin_router)
+    application.include_router(reply_length_admin_router)
     # A client's calls at once (F7): `/v1/admin/organizations/{id}/call-lines`.
     application.include_router(call_lines_router)
     # Editing an agent's extraction VARIABLES (D-460). The client router's

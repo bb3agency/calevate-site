@@ -155,6 +155,7 @@ from apps.api.agents.own_model import (
     refuse_unofferable_own_model,
 )
 from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
+from apps.api.agents.reply_length import resolve_max_reply_tokens
 from apps.api.agents.t0_block import block_of, without_block
 from apps.api.agents.verification import verify_publish
 from apps.api.agents.voice_tuning import TUNING_COLUMNS, config_tuning
@@ -500,6 +501,8 @@ class AgentRow(TypedDict):
     has_phone_number: NotRequired[bool]
     #: The Studio voice tuning columns, in `voice_tuning.TUNING_COLUMNS` order.
     voice_tuning: NotRequired[tuple[object, ...]]
+    #: The reply ceiling an operator set (D-769); NULL inherits the console's.
+    max_reply_tokens: NotRequired[int | None]
 
 
 def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
@@ -594,7 +597,9 @@ async def _load_agent(
                 "AND n.released_at IS NULL AND n.engine_number_ref IS NOT NULL "
                 "AND n.provider = :number_provider), "
                 # How a Studio voice sounds on this agent (`agents/voice_tuning`).
-                f"{TUNING_COLUMNS} "
+                f"{TUNING_COLUMNS}, "
+                # The reply ceiling an operator set (`agents/reply_length`).
+                "a.max_reply_tokens "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -676,6 +681,7 @@ async def _load_agent(
             number_refs=list(row[47] or ()),
         ),
         "voice_tuning": tuple(row[48:53]),
+        "max_reply_tokens": row[53],
         # A restricted free trial never places a call back (D-697), so its agents must not
         # offer one (founder decision 1, 10 Oct 2026).
         "callbacks_offered": await restricting_trial(session, tenant_id=tenant_id) is None,
@@ -848,6 +854,7 @@ def _to_config(
         and not call_backs_withheld(agent.get("prompt")),
         detect_machines=bool(agent.get("detect_machines", False)),
         **_call_settings_fields(agent),
+        max_reply_tokens=resolve_max_reply_tokens(agent.get("max_reply_tokens")),
         has_phone_number=bool(agent.get("has_phone_number", False)),
         forwarded_line=bool(agent.get("forwarded_line", False)),
         # THE NOTICES THE AGENT VOLUNTEERS BEFORE ITS OPENING LINE, composed from this
@@ -2276,9 +2283,24 @@ async def _own_model_in_client_workspace(
         session, engine=engine.name, at=datetime.now(UTC)
     ):
         raise own_model_unpriced()
-    await ensure_own_model_in(
+    state = await ensure_own_model_in(
         session, engine, tenant_id=tenant_id, workspace=config.engine_workspace
     )
+    if own_rate != rate_key:
+        # A Studio agent on our model names `llm_voice`, which the vendor refuses unless the
+        # workspace holds BOTH keys verified (bring-your-own-keys.md:92-97). The Cartesia key
+        # was switched on and read back just before (`_studio_in_client_workspace`); this
+        # last read must still show it beside the Google key, so the agent write never names
+        # a scope the workspace cannot run.
+        from apps.api.agents.hosted_voices import own_voice_key_ready
+        from apps.api.agents.studio_voices import studio_account_not_ready
+
+        if not own_voice_key_ready(state):
+            log.warning(
+                "own_model_studio_voice_key_not_ready",
+                extra={"tenant_id": str(tenant_id), "scope": state.scope},
+            )
+            raise studio_account_not_ready()
     return config, own_rate
 
 

@@ -765,3 +765,79 @@ async def test_switching_our_model_off_puts_the_agent_back_on_the_platforms_mode
     assert (sent.engine_own_voice_key, sent.engine_own_model) == (False, None)
     assert sent.engine_model_id is None  # a choice of our model is never sent as theirs
     assert await _route_model(tenant_id, ref) == ("premium", None)
+
+
+# --- D-769: per-agent scope kept, and both Studio keys before the write --------------------
+
+
+@pytest.mark.parametrize("held", ["workspace", "voice"])
+async def test_a_studio_agent_whose_scope_the_platform_did_not_keep_is_refused(held: str) -> None:
+    """Per-agent scopes are not live at the vendor until its next release (ThinnestAI, 14 Oct
+    2026): an agent sent `llm_voice` that reads back following the workspace, or on `voice`,
+    is not answering on our model, and the publish read-back says so."""
+    routes = {
+        ("GET", "/agents/ag_9", None): _ok({"id": "ag_9", "instructions": "x", "byok": held}),
+        ("GET", "/agents/ag_9/knowledge", None): _ok({"items": [], "nextCursor": None}),
+    }
+    snapshot = await _engine(_Vendor(routes)).get_agent("ag_9")
+    cfg = _cfg(engine_own_voice_key=True, engine_own_model="gemini-2.5-flash-lite")
+    assert _own_voice_key_verdict(cfg, snapshot) is False
+
+
+class _KeysAtWriteEngine(_PublishingEngine):
+    """Records the client workspace's own-keys state at the moment the agent is written."""
+
+    def __init__(self, **kw: Any) -> None:
+        super().__init__(**kw)
+        self.keys_at_write: list[OwnVoiceKeyState] = []
+
+    async def create_agent(self, cfg: AgentConfig) -> str:
+        with in_workspace(cfg.engine_workspace):
+            self.keys_at_write.append(await self.own_key_state())
+        return await super().create_agent(cfg)
+
+
+async def test_a_studio_agent_on_our_model_is_written_only_after_both_keys_read_back(
+    own_model_on: set[str],
+    no_webhook: None,
+    hosted_rows: CatalogueRows,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "cartesia_api_key", "sk_car_test")
+    tenant_id, agent_id = await _agent()
+    voice = await hosted_rows.add("byok")
+    await _set_columns(tenant_id, agent_id, voice, None)
+    with selected(_KeysAtWriteEngine(key_state=OFF_KEY)) as engine:
+        await _publish(tenant_id, agent_id)
+    assert isinstance(engine, _KeysAtWriteEngine)
+    [state] = engine.keys_at_write
+    assert state.speaks_on_own_voice and state.voice_provider == "cartesia"
+    assert (state.llm_provider, state.llm_verified) == ("google", True)
+
+
+class _VoiceKeyLostEngine(_PublishingEngine):
+    """Installing our model key leaves the workspace without its verified voice key."""
+
+    async def install_own_model_key(self, *, provider: str, api_key: str, model: str) -> None:
+        await super().install_own_model_key(provider=provider, api_key=api_key, model=model)
+        state = await self.own_key_state()
+        self._set_state(state.model_copy(update={"voice_provider": None, "complete": False}))
+
+
+async def test_a_studio_agent_on_our_model_is_refused_when_the_voice_key_is_gone(
+    own_model_on: set[str],
+    no_webhook: None,
+    hosted_rows: CatalogueRows,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "cartesia_api_key", "sk_car_test")
+    tenant_id, agent_id = await _agent()
+    voice = await hosted_rows.add("byok")
+    await _set_columns(tenant_id, agent_id, voice, None)
+    with (
+        selected(_VoiceKeyLostEngine(key_state=OFF_KEY)) as engine,
+        pytest.raises(ProblemError) as caught,
+    ):
+        await _publish(tenant_id, agent_id)
+    assert caught.value.code == studio_module.STUDIO_ACCOUNT_NOT_READY
+    assert isinstance(engine, _VoiceKeyLostEngine) and engine.sent == []

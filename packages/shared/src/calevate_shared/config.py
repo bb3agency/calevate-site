@@ -26,6 +26,9 @@ from calevate_shared.engine import (
     COPILOT_FAST_MODEL_DEFAULT,
     COPILOT_PLANNING_MODEL_DEFAULT,
     PLATFORM_DEFAULT_LLM_MODEL,
+    REPLY_TOKENS_DEFAULT,
+    REPLY_TOKENS_MAX,
+    REPLY_TOKENS_MIN,
     SARVAM_DEFAULT_STT,
     THINNEST_OWN_MODEL_DEFAULT,
     AzureOpenAIModel,
@@ -462,6 +465,12 @@ class Settings(BaseSettings):
     #: (selectable, key installed, price attested). Gemini 2.5 Flash-Lite can switch thinking
     #: off; a Gemini 3 model cannot (`calevate_shared.engine.GoogleDirectModel`).
     thinnest_own_model_default: GoogleDirectModel = THINNEST_OWN_MODEL_DEFAULT
+    #: The reply ceiling, in tokens, every agent with none of its own is published with
+    #: (D-769). A reply that reaches it is cut off mid-sentence; the default is the vendor's
+    #: own, so leaving it changes nothing a call does (`calevate_shared.engine.REPLY_TOKENS_*`).
+    thinnest_reply_length: int = Field(
+        default=REPLY_TOKENS_DEFAULT, ge=REPLY_TOKENS_MIN, le=REPLY_TOKENS_MAX
+    )
     #: The public `https://` origin of `apps/api` (e.g. `https://api.calevate.tech`) that
     #: ThinnestAI's custom actions call for our in-call tools (`reliability/engine_actions.py`).
     #: Not `webhook_base_url`: that is voice-runtime's face, which may not write the DNC list

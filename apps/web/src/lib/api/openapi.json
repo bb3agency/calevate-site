@@ -31497,6 +31497,76 @@
         "title": "ReplayOut",
         "type": "object"
       },
+      "ReplyLengthIn": {
+        "additionalProperties": false,
+        "properties": {
+          "max_reply_tokens": {
+            "anyOf": [
+              {
+                "maximum": 800.0,
+                "minimum": 100.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Reply Tokens"
+          }
+        },
+        "required": [
+          "max_reply_tokens"
+        ],
+        "title": "ReplyLengthIn",
+        "type": "object"
+      },
+      "ReplyLengthOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "default": {
+            "title": "Default",
+            "type": "integer"
+          },
+          "effective": {
+            "title": "Effective",
+            "type": "integer"
+          },
+          "max": {
+            "title": "Max",
+            "type": "integer"
+          },
+          "max_reply_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Reply Tokens"
+          },
+          "min": {
+            "title": "Min",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agent_id",
+          "max_reply_tokens",
+          "default",
+          "effective",
+          "min",
+          "max"
+        ],
+        "title": "ReplyLengthOut",
+        "type": "object"
+      },
       "ResendInviteIn": {
         "additionalProperties": false,
         "properties": {
@@ -47683,6 +47753,116 @@
         "summary": "Create/update the agent on the engine and record its routing (admin realm, D-21)",
         "tags": [
           "agents",
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/reply-length": {
+      "get": {
+        "description": "The longest reply this agent may give, in tokens (100-800). A reply that reaches it is cut off where it stands. `max_reply_tokens` null inherits the console's `thinnest_reply_length`, which `default` reports.",
+        "operationId": "admin_get_reply_length_v1_admin_tenants__tenant_id__agents__agent_id__reply_length_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplyLengthOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The longest reply one client agent may give",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
+      "patch": {
+        "description": "The longest reply this agent may give, in tokens (100-800). A reply that reaches it is cut off where it stands. `max_reply_tokens` null inherits the console's `thinnest_reply_length`, which `default` reports.",
+        "operationId": "admin_set_reply_length_v1_admin_tenants__tenant_id__agents__agent_id__reply_length_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplyLengthIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplyLengthOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set the longest reply one client agent may give (audited)",
+        "tags": [
           "admin"
         ],
         "x-calevate-permission": "agents:write"

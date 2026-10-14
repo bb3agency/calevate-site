@@ -11,7 +11,7 @@ from uuid import UUID
 
 from calevate_shared.carrier import NumberProvider
 from calevate_shared.config import SELECTABLE_ENGINES
-from calevate_shared.engine import LLM_MODEL_NAMES
+from calevate_shared.engine import LLM_MODEL_NAMES, REPLY_TOKENS_MAX, REPLY_TOKENS_MIN
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -382,6 +382,12 @@ class Agent(PKMixin, TimestampMixin, Base):
             f"AND turn_silence_ms <= {TURN_SILENCE_MAX_MS})",
             name="turn_silence_range",
         ),
+        # The agent's own reply ceiling (D-769, migration b9d4e2a7c6f1); NULL inherits.
+        CheckConstraint(
+            f"max_reply_tokens IS NULL OR (max_reply_tokens >= {REPLY_TOKENS_MIN} "
+            f"AND max_reply_tokens <= {REPLY_TOKENS_MAX})",
+            name="max_reply_tokens_range",
+        ),
         *call_setting_checks(),
         *studio_voice_checks(),
         # A floor, not the offer (migration b7e2d94f1a30): which ids may be chosen is a
@@ -496,6 +502,9 @@ class Agent(PKMixin, TimestampMixin, Base):
     studio_voice_emotion: Mapped[str | None] = mapped_column(Text)
     studio_voice_model: Mapped[str | None] = mapped_column(Text)
     studio_voice_dictionary_id: Mapped[str | None] = mapped_column(Text)
+    # The longest reply this agent may give, in tokens, set by an operator only (D-769).
+    # NULL inherits `Settings.thinnest_reply_length`.
+    max_reply_tokens: Mapped[int | None] = mapped_column(Integer)
     business_hours: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     escalation_config: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     # THE PER-AGENT MASTER SWITCH for in-call Actions/tools (migration

@@ -56,6 +56,15 @@ variance means the posted rate itself is wrong. The fee is the payment gateway's
 every plan (`thinnest_topup_fee`). On a Studio call the charge is ThinnestAI's own minute
 only; Cartesia bills our key separately, and that cost is the call's `tts_kchars` row, which
 must exist.
+
+A KEY FALLBACK IS A VARIANCE. An agent that names a scope whose key is gone when a call starts
+runs that call on the workspace's default scope and is "billed for what actually ran"
+(ThinnestAI's answer of 14 Oct 2026, VENDOR-STATED; `snapshots/2026-10-13/pages/api-reference/
+calls/get-call.md:191-205`). The meter stamps the route's rate key, so such a call's charge
+differs from its metered minute and `engine_call_cost_variance` names it, saying so on the
+own-voice-and-model route where the two rates differ. It is alarmed, not restated: neither
+Get Call nor `call.analysed` documents which scope a call ran on, so the charge says that the
+minute was wrong and not which rate was right.
 """
 
 from __future__ import annotations
@@ -71,6 +80,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from apps.api.billing.engine_minutes import (
+    BYOK_LLM_VOICE_RATE_KEY,
     OWN_VOICE_RATE_KEYS,
     TOPUP_FEE_META_KEY,
     cost_with_fee,
@@ -245,6 +255,13 @@ async def reconcile_call_charge(
         if tts_cost is not None
         else ""
     )
+    fallback = (
+        " On our own model and voice a different charge can also mean the call ran on the "
+        "workspace's default keys because one of ours was gone when it started: check the "
+        "workspace's own keys in ops Voices."
+        if rate_key == BYOK_LLM_VOICE_RATE_KEY
+        else ""
+    )
     alert(
         "WORKER_TERMINAL",
         "engine_call_cost_variance",
@@ -252,7 +269,7 @@ async def reconcile_call_charge(
             f"rate_key={rate_key}: {variance_sentence(metered_inr, expected)} "
             f"(the voice platform charged INR {charged_inr}, plus the {fee * 100}% top-up "
             "fee). The attested per-minute rate does not reproduce what this call cost."
-            f"{synthesis}"
+            f"{synthesis}{fallback}"
         ),
         call_id=str(call_id),
         tenant_id=str(tenant_id),

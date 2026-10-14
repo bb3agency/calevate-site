@@ -607,6 +607,26 @@ _PROBLEM_KINDS: Final[dict[str, EngineProblemKind]] = {
     "voice_failed": "voice_failed",
 }
 
+#: The most of the vendor's problem sentence an operator alarm carries.
+PROBLEM_DETAIL_MAX_CHARS: Final = 240
+#: Six or more digits in a row could be a phone number or an account id, which the alarm
+#: line must not carry (hard rule 6); a key failure needs neither.
+_LONG_DIGITS_RE: Final = re.compile(r"\d[\d\s-]{4,}\d")
+
+
+def problem_detail(value: Any) -> str | None:
+    """`call.problem`'s `detail` fit for an operator alarm: one line, long digit runs
+    masked, at most `PROBLEM_DETAIL_MAX_CHARS`; None when there is no sentence."""
+    if not isinstance(value, str):
+        return None
+    line = " ".join(value.split())
+    line = _LONG_DIGITS_RE.sub(
+        lambda m: "[number]" if sum(ch.isdigit() for ch in m.group()) >= 6 else m.group(), line
+    )
+    if len(line) > PROBLEM_DETAIL_MAX_CHARS:
+        line = line[: PROBLEM_DETAIL_MAX_CHARS - 1].rstrip() + "…"
+    return line or None
+
 
 def _turn_start_ms(
     entry: dict[str, Any], *, started: datetime | None, answered: datetime | None
@@ -928,8 +948,12 @@ def _byok_value(on: bool, own_model: str | None = None) -> str:
 
 #: An agent's `byok` read back as (speaks on our voice key, answers on our model key).
 #: `all` is the three-key mode `engine_choice` refuses to sell, so it reads as unknown.
+#: `voice` is never sent, but it is a documented read-back (get-agent.md:658-673) with one
+#: meaning, so an agent the vendor holds on it is compared, not left unread: sent `llm_voice`
+#: and read back `voice` is the per-agent scope not kept, and refuses the publish.
 _BYOK_SCOPES: Final[dict[str, tuple[bool, bool]]] = {
     "workspace": (True, False),
+    "voice": (True, False),
     "off": (False, False),
     "llm": (False, True),
     "llm_voice": (True, True),
@@ -1057,6 +1081,7 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
         "voice.greetingUninterruptible",
     ),
     "end_phrases": ("voice.endPhrases",),
+    "reply_length": ("maxReplyTokens",),
 }
 _LANGUAGE_KEYS: Final = frozenset({"language", "voice.language"})
 
@@ -1177,6 +1202,8 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
                 same = _steps_held(have) == want
             elif key == "voice.turnSilenceSeconds":
                 same = _same_seconds(want, have)
+            elif key == "maxReplyTokens":
+                same = _same_whole_number(want, have)
             elif key == "voice.surfaces":
                 same = _same_words(want, have, ordered=False)
             elif key in ("voice.thinkingLines", "voice.endPhrases"):
@@ -1200,6 +1227,31 @@ def _same_seconds(wanted: Any, held: Any) -> bool:
     if isinstance(held, bool) or not isinstance(held, int | float):
         return False
     return round(held * 1000) == round(float(wanted) * 1000)
+
+
+def _same_whole_number(wanted: int, held: Any) -> bool:
+    """A count read back as the one sent. The request schema types `maxReplyTokens` as a
+    number the vendor rounds and the answer as an integer (update-agent.md:703-709,
+    :839-845), so `300.0` is the same value; `null` or a boolean is drift."""
+    if isinstance(held, bool) or not isinstance(held, int | float):
+        return False
+    return round(held) == wanted
+
+
+def _refuse_unsaved_reply_length(wanted: dict[str, Any], saved: dict[str, Any]) -> None:
+    """The publish read-back of the reply ceiling, from the agent the write answers with
+    (update-agent.md:7): a ceiling that came back different would cut the agent's replies
+    off somewhere we did not choose, so the publish is refused rather than left live."""
+    if "maxReplyTokens" in saved and not _same_whole_number(
+        wanted["maxReplyTokens"], saved.get("maxReplyTokens")
+    ):
+        log.warning("thinnest_reply_length_not_saved")
+        raise _business_refusal(
+            "engine_reply_length_not_saved",
+            title="The voice platform did not save this agent's reply length",
+            detail="The longest reply read back from the voice platform differs from the one sent.",
+            remediation="Publish again. If it keeps happening, contact us.",
+        )
 
 
 def _same_words(wanted: list[str], held: Any, *, ordered: bool) -> bool:
@@ -1747,6 +1799,11 @@ class ThinnestEngine:
             # the script has none to send, which removes any script held there
             # (update-agent.md:588-595), so the outline is only ever in one place.
             "steps": _steps_body(cfg),
+            # The reply ceiling (D-769), an integer 100-800, default 300, for calls and chat
+            # alike; a reply that reaches it is cut off there (thinnest-findings/mirror/
+            # snapshots/2026-10-13/pages/api-reference/agents/update-agent.md:839-845,
+            # create-agent.md:760-768). Always stated, so a console edit reads as drift.
+            "maxReplyTokens": cfg.max_reply_tokens,
         }
         # Ids from `GET /voices` and `GET /models`, checked against the catalogue before
         # publish (`agents/engine_choice.py`). A voice of our own voice key goes to
@@ -2217,6 +2274,7 @@ class ThinnestEngine:
             if raw is None:
                 raise _bad_response("The voice platform did not return an agent id.")
         _refuse_unsaved_steps(body, data)
+        _refuse_unsaved_reply_length(body, data)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_own_model(raw, workspace, cfg)
         await self._apply_built_in_tools(raw, workspace, cfg)
@@ -2228,6 +2286,7 @@ class ThinnestEngine:
         self.built_in_tools_body(cfg)
         saved = await self._write_agent("PATCH", f"/agents/{raw}", "/agents/{ref}", workspace, body)
         _refuse_unsaved_steps(body, saved)
+        _refuse_unsaved_reply_length(body, saved)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_own_model(raw, workspace, cfg)
         await self._apply_built_in_tools(raw, workspace, cfg)
@@ -3593,8 +3652,9 @@ class ThinnestEngine:
     def parse_problem(self, payload: dict[str, Any]) -> EngineProblem | None:
         """A VERIFIED `call.problem` delivery as our problem, or None for any other event, an
         unknown `kind` or a delivery naming no call (docs.thinnest.ai api-reference/webhooks
-        "call.problem", read 11 Oct 2026). `detail`, the vendor's own sentence, is not
-        read."""
+        "call.problem", read 11 Oct 2026). `detail`, the vendor's own sentence ("a sentence
+        you can show a person", snapshots/2026-10-13/pages/api-reference/webhooks.md:131-132),
+        is read for `byok_failed` alone, for the operator alarm (`problem_detail`)."""
         if payload.get("event") != "call.problem":
             return None
         problem_id = _str(payload.get("id"))
@@ -3611,6 +3671,9 @@ class ThinnestEngine:
             engine_call_id=call,
             occurred_at=_parse_dt(body.get("at")) or _parse_dt(payload.get("sentAt")),
             engine=self.name,
+            operator_detail=problem_detail(body.get("detail"))
+            if kind == "own_key_failed"
+            else None,
         )
 
     async def platform_status(self) -> PlatformStatus:

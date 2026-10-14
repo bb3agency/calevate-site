@@ -156,6 +156,10 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "how a Studio voice sounds on one agent (D-767), operators only: the client realm has "
         "no screen or route showing it, so a view-as session has nothing to read"
     ),
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/reply-length": (
+        "the longest reply one agent may give (D-769), operators only: the client realm has "
+        "no screen or route showing it, so a view-as session has nothing to read"
+    ),
     "/v1/admin/organizations/{org_id}/call-handling": (
         "the account's call handling defaults (D-751), the operator's door; the client's "
         "own `GET /v1/organization/call-handling` is `org:read` (the `llm-defaults` case)"
