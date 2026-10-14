@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 import signed_intake
-from apps.api.compliance import optout
+from apps.api.compliance import dnc, optout
 from apps.api.compliance.dnc import check_number
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.reliability.engine_intake_keys import seal_delivery
@@ -58,9 +58,16 @@ async def _call(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> tuple[uuid.UUID, s
     return call_id, engine_call_id
 
 
-def _payload(ref: str, engine_call_id: str, *, phone: str | None = PHONE) -> dict[str, Any]:
+def _payload(
+    ref: str, engine_call_id: str, *, phone: str | None = PHONE, reason: str | None = None
+) -> dict[str, Any]:
     event_id = f"evt_{uuid.uuid4().hex[:10]}"
-    data: dict[str, Any] = {"callId": engine_call_id, "source": "call", "optedOutAt": "2026-10-08"}
+    data: dict[str, Any] = {
+        "callId": engine_call_id,
+        "source": "call",
+        "optedOutAt": "2026-10-08",
+        "reason": reason,
+    }
     if phone is not None:
         data["phone"] = phone
     body = json.dumps({"id": event_id, "event": "contact.opted_out", "data": data})
@@ -94,6 +101,14 @@ async def _inbox_status(row_id: uuid.UUID) -> str:
                 )
             ).scalar_one()
         )
+
+
+@pytest.fixture(autouse=True)
+def opt_out_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`contact.opted_out` is read by the ThinnestAI adapter (`parse_opt_out`)."""
+    from apps.api.engine.thinnest import ThinnestEngine
+
+    monkeypatch.setattr(engine_signals, "get_engine", lambda: ThinnestEngine(api_key="ta_x"))
 
 
 @pytest.fixture
@@ -154,6 +169,64 @@ async def test_the_number_is_filed_on_the_hearing_clients_list_only() -> None:
             )
         ).scalar_one()
     assert rows == 1
+
+
+async def _evidence(tenant_id: uuid.UUID) -> dict[str, Any]:
+    async with tenant_session(tenant_id) as session:
+        return dict(
+            (
+                await session.execute(
+                    text(
+                        "SELECT evidence FROM consent_ledger WHERE tenant_id = :tid "
+                        "AND phone_e164 = :p AND status = 'withdrawn'"
+                    ),
+                    {"tid": tenant_id, "p": E164},
+                )
+            ).scalar_one()
+        )
+
+
+async def test_the_callers_words_are_kept_redacted_as_the_evidence_and_shown_on_the_entry(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    tenant_id, agent_id, ref = await _route()
+    _call_id, engine_call_id = await _call(tenant_id, agent_id)
+    words = "naa number 9876543210 ki inka call cheyakandi"
+    assert (
+        await engine_signals.ingest_engine_opt_out({}, _payload(ref, engine_call_id, reason=words))
+        == "recorded"
+    )
+    evidence = await _evidence(tenant_id)
+    assert "9876543210" not in evidence["matched"]
+    assert evidence["matched"].endswith("ki inka call cheyakandi")
+    assert "cheyakandi" not in caplog.text
+
+    async with tenant_session(tenant_id) as session:
+        entry = (
+            await session.execute(
+                text("SELECT id FROM dnc_list WHERE tenant_id = :tid AND phone_e164 = :p"),
+                {"tid": tenant_id, "p": E164},
+            )
+        ).scalar_one()
+        shown = await dnc.optout_evidence(session, entry_id=entry)
+    [record] = shown.records
+    assert record.detected_by == optout.DETECTED_BY_ENGINE
+    assert record.matched == evidence["matched"]
+
+
+async def test_no_words_or_too_many_are_kept_within_the_engines_own_cap() -> None:
+    tenant_id, agent_id, ref = await _route()
+    _call_id, engine_call_id = await _call(tenant_id, agent_id)
+    await engine_signals.ingest_engine_opt_out({}, _payload(ref, engine_call_id, reason=None))
+    assert (await _evidence(tenant_id))["matched"] == ""
+
+    other, other_agent, other_ref = await _route()
+    _c, other_call = await _call(other, other_agent)
+    await engine_signals.ingest_engine_opt_out(
+        {}, _payload(other_ref, other_call, reason="stop " * 60)
+    )
+    kept = (await _evidence(other))["matched"]
+    assert len(kept) == engine_signals.OPT_OUT_REASON_MAX_CHARS
 
 
 async def test_a_call_we_have_no_row_for_still_files_the_number() -> None:

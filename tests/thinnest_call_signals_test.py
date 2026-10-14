@@ -319,6 +319,21 @@ async def test_a_studio_voice_failure_is_filed_once_and_alarms_the_key(
     assert "Cartesia key" in str(alerts[0][1]["detail"])
 
 
+async def test_an_own_key_failure_names_the_key_and_no_backup_model(
+    alerts: list[tuple[str, dict[str, Any]]],
+) -> None:
+    _tenant_id, _agent_id, ref = await _route(rate_key="byok_voice")
+    await engine_signals.ingest_engine_problem(
+        {}, _problem(ref, f"in_{uuid.uuid4()}", "byok_failed")
+    )
+    [(code, fields)] = alerts
+    assert code == "engine_call_own_key_failed"
+    detail = str(fields["detail"])
+    assert "no backup on our own keys" in detail
+    assert "apology" in detail and "quota" in detail
+    assert "backup model" not in detail
+
+
 async def test_a_clear_agents_problems_alarm_by_kind_and_a_slow_reply_alarms_nothing(
     alerts: list[tuple[str, dict[str, Any]]],
 ) -> None:
@@ -329,7 +344,7 @@ async def test_a_clear_agents_problems_alarm_by_kind_and_a_slow_reply_alarms_not
     assert await _signals(tenant_id, call) == ["own_key_failed", "slow_reply", "voice_failed"]
     assert [code for code, _ in alerts] == [
         "engine_call_voice_failed",
-        "engine_call_model_unanswered",
+        "engine_call_own_key_failed",
     ]
 
 

@@ -367,6 +367,8 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/admin/tenants/*/agents/*/publish", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/agents/*/apply", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/agents/*/undo", "costly", _m("POST")),
+    # Speaks a line on our voice key, charged per character by the provider.
+    Rule("/v1/admin/tenants/*/agents/*/voice-tuning/preview", "costly", _m("POST")),
     Rule("/v1/ops/secrets/*/test", "costly", _m("POST")),
     Rule("/v1/ops/secrets/kek/rewrap", "costly", _m("POST")),
 )

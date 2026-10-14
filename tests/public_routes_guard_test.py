@@ -187,8 +187,12 @@ class TestWiring:
 
         LOWERED 61 -> 50 by D-763, which removed the Bearer-token `/v1/worker/*` routes of
         our former own call loop. The three `/v1/worker/*` routes left are the hosted voice
-        platform's in-call actions and caller lookup, each authenticated per agent."""
-        assert len(exempt) <= 50, sorted(exempt)
+        platform's in-call actions and caller lookup, each authenticated per agent.
+
+        RAISED 50 -> 51 for `POST /v1/auth/admin/stay-signed-in` (D-766): an operator's own
+        session-length switch. It needs a second-factor-complete admin session and changes
+        only the account whose session sent it, so it grants no permission to gate."""
+        assert len(exempt) <= 51, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

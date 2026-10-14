@@ -21,7 +21,7 @@ function engineVoiceState(published: boolean): PendingState {
         ? "Callers hear Anika."
         : "This agent is not on the voice platform yet; publishing it will use Anika.",
     },
-  }) as unknown as PendingState;
+  });
 }
 
 describe("VoiceNow with a voice the calling platform supplies", () => {

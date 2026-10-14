@@ -1060,6 +1060,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/operators/{operator_id}/stay-signed-in/revocation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch off an operator's 'Stay signed in' (step-up confirmed, audited)
+         * @description Switches the operator's own 'Stay signed in' setting off and cuts their live sessions back to 30 minutes idle and 8 hours from sign-in; a session already past those ends. Only the operator can switch it on. Requires `X-Confirm-Action: end_stay_signed_in:<operator_id>`.
+         */
+        post: operations["end_operator_stay_signed_in_v1_admin_operators__operator_id__stay_signed_in_revocation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/organizations/{org_id}/call-handling": {
         parameters: {
             query?: never;
@@ -1509,7 +1529,7 @@ export interface paths {
         };
         /**
          * One client agent's call settings
-         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
+         * @description `turn_silence_ms` is the silence that ends the caller's turn, after which the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
@@ -1525,7 +1545,7 @@ export interface paths {
         head?: never;
         /**
          * Set one client agent's call settings
-         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
+         * @description `turn_silence_ms` is the silence that ends the caller's turn, after which the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
@@ -1672,6 +1692,50 @@ export interface paths {
          * @description Moves a POINTER. No `prompt_versions` row is written or deleted, so the discarded version stays readable in the history and its number is never reused.
          */
         post: operations["undo_v1_admin_tenants__tenant_id__agents__agent_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How a Studio voice sounds on one client agent
+         * @description How a Studio voice sounds on this agent. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion` (English calls only); `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a voice cloned from a long recording keeps its own pace (refused at publish or preview). They apply only while the agent's voice is a Studio one.
+         */
+        get: operations["admin_get_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set how a Studio voice sounds on one client agent (audited)
+         * @description How a Studio voice sounds on this agent. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion` (English calls only); `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a voice cloned from a long recording keeps its own pace (refused at publish or preview). They apply only while the agent's voice is a Studio one.
+         */
+        patch: operations["admin_set_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_patch"];
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hear a Studio voice on one client agent with these settings, unsaved
+         * @description Speaks one short line in the agent's Studio voice with the settings sent (the saved ones are not read), on our voice key, which the provider charges per character. Refused while the agent's voice is not a Studio one, or while no workspace runs Studio.
+         */
+        post: operations["admin_preview_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_preview_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3201,7 +3265,7 @@ export interface paths {
         };
         /**
          * An agent's call settings, and where each comes from
-         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
+         * @description `turn_silence_ms` is the silence that ends the caller's turn, after which the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
@@ -3217,7 +3281,7 @@ export interface paths {
         head?: never;
         /**
          * Set an agent's call settings, or let them inherit
-         * @description `turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
+         * @description `turn_silence_ms` is the silence that ends the caller's turn, after which the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
@@ -4100,6 +4164,26 @@ export interface paths {
         put?: never;
         /** Exchange a live session for a fresh token, keeping its lifetime */
         post: operations["refresh_session_v1_auth_admin_session_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/stay-signed-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch 'Stay signed in' on or off for your own operator account
+         * @description On: this operator's sessions may sit idle for 12 hours and last 14 days, and this browser keeps its cookie when it closes. Switching it on needs a second factor proved in the last 30 minutes (`reauthentication_required` otherwise). Off: every session of this operator goes back to 30 minutes idle and 8 hours from sign-in, and one already past those ends. Every change is audited.
+         */
+        post: operations["set_stay_signed_in_v1_auth_admin_stay_signed_in_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9914,6 +9998,43 @@ export interface paths {
          * @description For a Studio voice, the platform speaks one line on our voice key (charged per character by the provider; `text` at most 200 characters). For one of our clones, the platform's preview is fetched. A platform voice with no sample is refused: upload one instead.
          */
         post: operations["fetch_preview_v1_ops_voices_hosted_preview_fetch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voices/own-model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether agents can answer on our own model, and which client workspaces do */
+        get: operations["own_model_status_v1_ops_voices_own_model_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voices/own-model/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Install our Google key in one client's own workspace (step-up)
+         * @description Installs our Google key in the named paying client's own workspace and switches its own keys on there when they are off, every agent that would follow them confirmed off first, then reads it back; the same idempotent steps a publish on our model runs. Requires `X-Confirm-Action: enable_own_model_workspace`.
+         */
+        post: operations["enable_own_model_workspace_v1_ops_voices_own_model_enable_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -20447,6 +20568,8 @@ export interface components {
             name: string | null;
             /** Role */
             role: string;
+            /** Stay Signed In */
+            stay_signed_in: boolean;
         };
         /**
          * OperatorReasonIn
@@ -20458,7 +20581,7 @@ export interface components {
          *
          *     REQUIRED WITH CONTENT, and the bounds are copied from `ConfigSetIn` rather than
          *     re-argued: whoever reads this ledger row later has to be able to decide whether the
-         *     decision still holds, and "" tells them nothing. One base class so four routes cannot
+         *     decision still holds, and "" tells them nothing. One base class so the routes cannot
          *     disagree about what a reason is.
          */
         OperatorReasonIn: {
@@ -20671,6 +20794,54 @@ export interface components {
             pack_id: string;
             /** Studio Inr Per Min */
             studio_inr_per_min: string;
+        };
+        /** OwnModelEnableIn */
+        OwnModelEnableIn: {
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /** OwnModelOut */
+        OwnModelOut: {
+            /** Data Use Attested */
+            data_use_attested: boolean;
+            /** Default Model */
+            default_model: string;
+            /** Default Offerable */
+            default_offerable: boolean;
+            /** Default Reason */
+            default_reason: string | null;
+            /** Explanation */
+            explanation: string;
+            /** Floor Model Inr Per Min */
+            floor_model_inr_per_min: string | null;
+            /** Floor Prompt Basis */
+            floor_prompt_basis: string;
+            /**
+             * Floor Prompt Source
+             * @enum {string}
+             */
+            floor_prompt_source: "measured" | "published" | "ceiling";
+            /** Floor Prompt Tokens */
+            floor_prompt_tokens: number;
+            /** Google Key Configured */
+            google_key_configured: boolean;
+            /** Llm Voice Minute Attested */
+            llm_voice_minute_attested: boolean;
+            /** Missing */
+            missing: string[];
+            /** Note */
+            note: string;
+            /** Offerable Models */
+            offerable_models: string[];
+            /** Ready */
+            ready: boolean;
+            /** Switched On */
+            switched_on: boolean;
+            /** Workspaces */
+            workspaces: components["schemas"]["StudioWorkspaceOut"][];
         };
         /**
          * OwnNumbersStatusOut
@@ -21888,6 +22059,8 @@ export interface components {
             notice_days: number;
             /** Notice Recipients */
             notice_recipients: number;
+            /** Own Model Prompt Basis */
+            own_model_prompt_basis: string | null;
             /** Pending */
             pending: components["schemas"]["PendingCardOut"][];
             speaking_rate: components["schemas"]["SpeakingRateOut"];
@@ -23174,10 +23347,14 @@ export interface components {
         SessionOut: {
             /** Email Verified */
             email_verified: boolean;
+            /** Idle Timeout Seconds */
+            idle_timeout_seconds: number;
             /** Mfa Complete */
             mfa_complete: boolean;
             /** Realm */
             realm: string;
+            /** Stay Signed In */
+            stay_signed_in: boolean;
             /**
              * Subject Id
              * Format: uuid
@@ -23828,6 +24005,11 @@ export interface components {
             component?: ("calls" | "dashboard" | "numbers" | "assistant") | null;
             /** Title */
             title: string | null;
+        };
+        /** StaySignedInIn */
+        StaySignedInIn: {
+            /** Stay Signed In */
+            stay_signed_in: boolean;
         };
         /** StepUpVerifyIn */
         StepUpVerifyIn: {
@@ -26462,6 +26644,83 @@ export interface components {
             /** Voice Tier */
             voice_tier: string;
         };
+        /**
+         * VoiceTuningIn
+         * @description Every field optional: a field left out is kept, null clears it.
+         */
+        VoiceTuningIn: {
+            /** Dictionary Id */
+            dictionary_id?: string | null;
+            /** Emotion */
+            emotion?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Speed */
+            speed?: number | string | null;
+            /** Volume */
+            volume?: number | string | null;
+        };
+        /** VoiceTuningOptionsOut */
+        VoiceTuningOptionsOut: {
+            /** Dictionary Id Pattern */
+            dictionary_id_pattern: string;
+            /** Emotions */
+            emotions: string[];
+            /** Models */
+            models: string[];
+            /** Old Model */
+            old_model: string;
+            /** Preview Text Max Chars */
+            preview_text_max_chars: number;
+            /** Speed Max */
+            speed_max: string;
+            /** Speed Min */
+            speed_min: string;
+            /** Volume Max */
+            volume_max: string;
+            /** Volume Min */
+            volume_min: string;
+        };
+        /** VoiceTuningOut */
+        VoiceTuningOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Dictionary Id */
+            dictionary_id: string | null;
+            /** Emotion */
+            emotion: string | null;
+            /** Model */
+            model: string | null;
+            options: components["schemas"]["VoiceTuningOptionsOut"];
+            /** Speed */
+            speed: string | null;
+            /** Studio */
+            studio: boolean;
+            /** Volume */
+            volume: string | null;
+        };
+        /**
+         * VoiceTuningPreviewIn
+         * @description The settings to hear, whatever is saved; `text` is the line (a short greeting in the
+         *     agent's language when left out).
+         */
+        VoiceTuningPreviewIn: {
+            /** Dictionary Id */
+            dictionary_id?: string | null;
+            /** Emotion */
+            emotion?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Speed */
+            speed?: number | string | null;
+            /** Text */
+            text?: string | null;
+            /** Volume */
+            volume?: number | string | null;
+        };
         /** WaiverIn */
         WaiverIn: {
             /** Reason */
@@ -28593,6 +28852,44 @@ export interface operations {
             };
         };
     };
+    end_operator_stay_signed_in_v1_admin_operators__operator_id__stay_signed_in_revocation_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                /** @description The operator account's `admin_users.id`. */
+                operator_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorReasonIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     admin_get_organization_call_handling_v1_admin_organizations__org_id__call_handling_get: {
         parameters: {
             query?: never;
@@ -29725,6 +30022,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UndoOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_get_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceTuningOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_set_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceTuningIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceTuningOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_preview_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceTuningPreviewIn"];
+            };
+        };
+        responses: {
+            /** @description The preview audio. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/mpeg": string;
+                    "audio/wav": string;
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -34117,6 +34519,39 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_stay_signed_in_v1_auth_admin_stay_signed_in_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StaySignedInIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -44384,6 +44819,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HostedVoiceWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    own_model_status_v1_ops_voices_own_model_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnModelOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    enable_own_model_workspace_v1_ops_voices_own_model_enable_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnModelEnableIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnModelOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

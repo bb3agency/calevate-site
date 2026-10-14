@@ -495,7 +495,11 @@ def test_the_rate_card_prices_the_clear_column_at_the_measured_rate() -> None:
     )
     clear = _measured_floor()
     cells = config_routes._cells_out(
-        PACK_CATALOGUE, measured_cost=Decimal("6.9011"), fx=fx, clear=clear
+        PACK_CATALOGUE,
+        measured_cost=Decimal("6.9011"),
+        fx=fx,
+        clear=clear,
+        own_model_prompt_tokens=None,
     )
     sarvam = [cell for cell in cells if cell.voice_tier == "clear"]
     assert sarvam, "the card has a Clear column"
@@ -580,7 +584,8 @@ def test_the_committed_plan_panel_names_the_frozen_basis_it_refuses_on() -> None
     from apps.api.billing.terms import CommercialTerms
 
     margin = _margin_out(
-        CommercialTerms(monthly_fee=Decimal("10000"), included_min=1000, overage_rate=None)
+        CommercialTerms(monthly_fee=Decimal("10000"), included_min=1000, overage_rate=None),
+        own_model=None,
     )
     assert margin.cost_floor_inr_per_min == str(SELF_SERVE_COST_FLOOR_INR_PER_MIN)
     assert margin.cost_floor_basis == ASSUMED_SPEAKING_RATE.label

@@ -8,3 +8,6 @@ bolna-findings/mirror/** -text
 # Windows defaults to core.autocrlf=true) makes bash fail on `$'\r'` before the first line.
 *.sh text eol=lf
 infra/privileged/sbin/* text eol=lf
+
+# The vendored common-password list is hash-pinned in `authn/policy.py`; keep its bytes exact.
+apps/api/authn/blocklist/** -text

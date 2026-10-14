@@ -75,6 +75,7 @@ from apps.api.billing.list_rates import (
     pending_cards,
     record_card,
 )
+from apps.api.billing.own_model_prompt import floor_prompt_basis, tokens_of
 from apps.api.billing.plans import ist_billing_month
 from apps.api.billing.rates import (
     CARTESIA_COST_FLOOR_INR_PER_MIN,
@@ -1017,8 +1018,9 @@ async def _record_card(
     # no-op in rupees and remains what it always was: the record that the platform's own
     # price moved at this instant.
     in_force = card_with_rates(await card_at(session, at=datetime.now(UTC)))
-    _refuse_bad_card(in_force)
-    _log_margins(in_force)
+    prompt_tokens = tokens_of(await floor_prompt_basis())
+    _refuse_bad_card(in_force, own_model_prompt_tokens=prompt_tokens)
+    _log_margins(in_force, own_model_prompt_tokens=prompt_tokens)
     settings, _ = project(_projected_overrides(result))
     await record_card(
         session,
@@ -1029,14 +1031,14 @@ async def _record_card(
     )
 
 
-def _refuse_bad_card(card: tuple[CreditPack, ...]) -> None:
+def _refuse_bad_card(card: tuple[CreditPack, ...], *, own_model_prompt_tokens: int | None) -> None:
     """`card_refusals` as a 409 an operator can act on. THE ONE VETO, both write paths.
 
     Shared by the setting path above and by the card write route below rather than written
     twice, because the two refusing on different rules is exactly how a card that CI's own
     pack guard would fail reaches the table through the other door.
     """
-    refusals = card_refusals(card)
+    refusals = card_refusals(card, own_model_prompt_tokens=own_model_prompt_tokens)
     if refusals:
         raise ProblemError(
             kind="conflict",
@@ -1055,14 +1057,16 @@ def _refuse_bad_card(card: tuple[CreditPack, ...]) -> None:
         )
 
 
-def _log_margins(card: tuple[CreditPack, ...]) -> None:
+def _log_margins(card: tuple[CreditPack, ...], *, own_model_prompt_tokens: int | None) -> None:
     """The twelve verdicts, beside the act that published them. Thin at `warning`.
 
     The operator who pressed Save has the number in the same log stream as the write, and
     it is the SAME function CI scores (`credit_packs.card_margins`) and the same one the
     read route renders — three surfaces, one arithmetic.
     """
-    for pack_id, voice, verdict in card_margins(card):
+    for pack_id, voice, verdict in card_margins(
+        card, own_model_prompt_tokens=own_model_prompt_tokens
+    ):
         log.log(
             logging.WARNING if verdict.below_target else logging.INFO,
             "rate_card_margin_preview",
@@ -1313,11 +1317,11 @@ class CartesiaVolumeOut(BaseModel):
     floor_inr_per_min: str
     best_marginal_cost_inr_per_min: str
     #: **THE FROZEN BOUND THE WRITE PATH ACTUALLY REFUSES BELOW** (`rates
-    #: .CARTESIA_COST_FLOOR_INR_PER_MIN`, struck at the evidence file's ₹88), published
-    #: beside the live one because the two differ and an operator must know which number
-    #: blocks a save. A refusal that moved with a currency feed would make a card
-    #: recordable today and refused tomorrow on an FX tick alone — at ₹95.66 the live floor
-    #: is above the founder's own ₹6.00 rung — so the veto is frozen and the live figure is
+    #: .CARTESIA_COST_FLOOR_INR_PER_MIN`, struck at the founder's planning rate
+    #: `rates.PLANNING_USD_INR`, D-768), published beside the live one because the two
+    #: differ and an operator must know which number blocks a save. A refusal that moved with
+    #: a currency feed would make a card recordable today and refused tomorrow on an FX tick
+    #: alone, so the veto is frozen and the live figure is
     #: a warning. When `floor_inr_per_min` exceeds this, some rung may be under water at
     #: today's rate and still recordable, which is exactly the state the console must show.
     refusal_floor_inr_per_min: str
@@ -1413,6 +1417,9 @@ class RateCardOut(BaseModel):
     #: the one they read BEFORE pressing Record; `RateCardWriteOut.clients_notified` says
     #: only that the promise was written, which is a different fact.
     notice_recipients: int
+    #: While our own model answers calls (D-764), the prompt size every floor above adds its
+    #: model half at and where it came from (`billing/own_model_prompt`); null while it is off.
+    own_model_prompt_basis: str | None
 
 
 def _pct(ratio: Decimal | None) -> str | None:
@@ -1495,6 +1502,8 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
     # what a purchase made in the same second would freeze onto its lot.
     in_force = card_with_rates(await card_at(session, at=now))
     scheduled = await pending_cards(session, at=now)
+    own_model_basis = await floor_prompt_basis()
+    prompt_tokens = tokens_of(own_model_basis)
     recipients = int(
         (await session.execute(text(_NOTICE_RECIPIENTS), {"tiers": list(PREPAID_TIERS)})).scalar()
         or 0
@@ -1502,7 +1511,13 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
     return RateCardOut(
         effective_from=dated.isoformat() if dated is not None else None,
         target_gross_margin_pct=_pct(MIN_GROSS_MARGIN) or "0",
-        cells=_cells_out(in_force, measured_cost=measured_cost, fx=fx, clear=clear_floor),
+        cells=_cells_out(
+            in_force,
+            measured_cost=measured_cost,
+            fx=fx,
+            clear=clear_floor,
+            own_model_prompt_tokens=prompt_tokens,
+        ),
         pending=[
             PendingCardOut(
                 effective_from=card.effective_from.isoformat(),
@@ -1511,6 +1526,7 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
                     measured_cost=measured_cost,
                     fx=fx,
                     clear=clear_floor,
+                    own_model_prompt_tokens=prompt_tokens,
                 ),
             )
             for card in scheduled
@@ -1520,6 +1536,7 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
         notice_days=CARD_NOTICE_DAYS,
         earliest_effective_from=(now + timedelta(days=CARD_NOTICE_DAYS)).isoformat(),
         notice_recipients=recipients,
+        own_model_prompt_basis=None if own_model_basis is None else own_model_basis.label,
     )
 
 
@@ -1561,6 +1578,7 @@ def _cells_out(
     measured_cost: Decimal | None,
     fx: UsdInrRate,
     clear: ClearCostFloor,
+    own_model_prompt_tokens: int | None,
 ) -> list[RateCardCellOut]:
     """One card as twelve rendered cells, verdicts included — TWICE OVER since 9 Sep 2026.
 
@@ -1586,7 +1604,9 @@ def _cells_out(
     """
     amounts = {pack.pack_id: pack.amount_inr for pack in card}
     cells: list[RateCardCellOut] = []
-    for pack_id, voice, verdict in card_margins(card):
+    for pack_id, voice, verdict in card_margins(
+        card, own_model_prompt_tokens=own_model_prompt_tokens
+    ):
         at_volume_cost = _volume_cost(voice, measured_cost, clear)
         at_volume = (
             None if at_volume_cost is None else rate_margin(verdict.rate, cost=at_volume_cost)
@@ -1942,7 +1962,8 @@ async def record_rate_card(
             ),
         )
     card = _posted_card(payload.cells)
-    _refuse_bad_card(card)
+    prompt_tokens = tokens_of(await floor_prompt_basis())
+    _refuse_bad_card(card, own_model_prompt_tokens=prompt_tokens)
     if await card_is_scheduled(session, effective_from=payload.effective_from):
         raise ProblemError(
             kind="conflict",
@@ -1957,7 +1978,7 @@ async def record_rate_card(
                 "been priced at it), then record this one; or choose a different instant."
             ),
         )
-    _log_margins(card)
+    _log_margins(card, own_model_prompt_tokens=prompt_tokens)
     at = await record_card(
         session,
         card=card,
@@ -2014,6 +2035,7 @@ async def record_rate_card(
             measured_cost=None,
             fx=usd_inr_rate_now(),
             clear=clear_cost_floor_at((await fleet_speaking_rate(session)).basis()),
+            own_model_prompt_tokens=prompt_tokens,
         ),
         clients_notified=notified is not None,
     )

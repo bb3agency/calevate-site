@@ -65,9 +65,9 @@ function lengthHint(length: number, floor: number): { text: string; met: boolean
 
 export interface PasswordRowProps {
   /**
-   * Which realm's floor to show: 15 characters on the client realm, 12 on the admin one
-   * (`lib/authn/password.ts`). A form advertising the wrong one refuses what the server
-   * would take, or takes what it will refuse.
+   * Which realm's floor to show (`lib/authn/password.ts`). Both are 8 today (D-765), but
+   * the API keeps a per-realm seam and a form advertising the wrong one refuses what the
+   * server would take, or takes what it will refuse.
    */
   realm: AuthnRealm;
   /** The realm's own call. Answers how many OTHER sessions it ended. */

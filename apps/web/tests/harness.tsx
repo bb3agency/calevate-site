@@ -339,12 +339,16 @@ const DEFAULT_SESSIONS: Record<string, unknown> = {
     subject_id: "0192f0aa-0000-7000-8000-00000000000a",
     mfa_complete: true,
     email_verified: true,
+    idle_timeout_seconds: 30 * 60,
+    stay_signed_in: false,
   },
   "GET /v1/auth/client/session": {
     realm: "client",
     subject_id: "0192f0aa-0000-7000-8000-0000000000c1",
     mfa_complete: true,
     email_verified: true,
+    idle_timeout_seconds: 12 * 60 * 60,
+    stay_signed_in: false,
   },
   // D-703: which sign-in doors are open. Signup open, Google off, unless a test says so.
   "GET /v1/auth/client/sign-in-options": { google: false, self_serve_signup: true },

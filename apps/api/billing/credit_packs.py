@@ -48,7 +48,7 @@ a screen and a test cannot disagree about what "thin" means:
 * **below `MIN_GROSS_MARGIN` is a WARNING.** The founder's card of 11 Oct 2026 (D-728:
   Clear ₹4.50, Studio ₹6.00, flat) earns against the engine's floor:
 
-      ThinnestAI  Clear 38.9% (₹2.75)    Studio 21.5% (₹4.7099)
+      ThinnestAI  Clear 43.1% (₹2.5590)    Studio 18.8% (₹4.8699)
 
   Nothing is below COST. The thin cells are a deliberate opening price, not a defect.
   ⚠ **DO NOT "FIX" A THIN CELL BY MOVING A RATE** — that is a pricing decision, not a test
@@ -288,7 +288,11 @@ def deployment_engine() -> str:
 
 
 def pack_rate_margin(
-    pack: CreditPack, *, voice: VoiceTier, engine: str | None = None
+    pack: CreditPack,
+    *,
+    voice: VoiceTier,
+    engine: str | None = None,
+    own_model_prompt_tokens: int | None = None,
 ) -> RateMargin:
     """The margin verdict for one pack on one voice, against THAT voice's cost floor.
 
@@ -300,29 +304,50 @@ def pack_rate_margin(
 
     `engine` defaults to the one this deployment runs, whose floors the card is sold at.
     """
-    floor = cost_floor_inr_per_min(voice, engine=engine or deployment_engine())
+    floor = cost_floor_inr_per_min(
+        voice,
+        engine=engine or deployment_engine(),
+        own_model_prompt_tokens=own_model_prompt_tokens,
+    )
     return rate_margin(pack.inr_per_min(voice), cost=floor)
 
 
 def card_margins(
-    card: tuple[CreditPack, ...] = PACK_CATALOGUE, *, engine: str | None = None
+    card: tuple[CreditPack, ...] = PACK_CATALOGUE,
+    *,
+    engine: str | None = None,
+    own_model_prompt_tokens: int | None = None,
 ) -> tuple[tuple[str, VoiceTier, RateMargin], ...]:
     """Every `(pack_id, voice, verdict)` on a card, in card order then voice order.
 
     THE PREVIEW. The ops console renders it before writing a card
     (`ops/config_routes._record_card`) and `tests/credit_packs_test.py` asserts over it, so
     the twelve numbers an operator is shown are the twelve numbers CI scored.
+    `own_model_prompt_tokens` is the deployment's own-model prompt basis
+    (`billing/own_model_prompt.floor_prompt_basis`), which a route reads and passes.
     """
     judged_at = engine or deployment_engine()
     return tuple(
-        (pack.pack_id, voice, pack_rate_margin(pack, voice=voice, engine=judged_at))
+        (
+            pack.pack_id,
+            voice,
+            pack_rate_margin(
+                pack,
+                voice=voice,
+                engine=judged_at,
+                own_model_prompt_tokens=own_model_prompt_tokens,
+            ),
+        )
         for pack in card
         for voice in VOICE_TIERS
     )
 
 
 def card_refusals(
-    card: tuple[CreditPack, ...] = PACK_CATALOGUE, *, engine: str | None = None
+    card: tuple[CreditPack, ...] = PACK_CATALOGUE,
+    *,
+    engine: str | None = None,
+    own_model_prompt_tokens: int | None = None,
 ) -> list[str]:
     """Why this card may not be sold — empty when it may. Each string names one break.
 
@@ -339,7 +364,9 @@ def card_refusals(
     failures = [
         f"pack {pack_id!r} sells a {voice} minute at ₹{verdict.rate} against a "
         f"₹{verdict.cost} cost floor — below cost"
-        for pack_id, voice, verdict in card_margins(card, engine=engine)
+        for pack_id, voice, verdict in card_margins(
+            card, engine=engine, own_model_prompt_tokens=own_model_prompt_tokens
+        )
         if verdict.below_cost
     ]
     failures += [

@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Final, get_args
 
-from calevate_shared.engine import LLM_MODELS, LlmTier
+from calevate_shared.engine import GOOGLE_DIRECT_MODELS, LLM_MODELS, LlmTier
 
 from apps.api.agents.llm_models import (
     LlmReasonAudience,
@@ -37,6 +37,7 @@ from apps.api.agents.llm_models import (
     platform_default_model,
     unofferable_reason,
 )
+from apps.api.agents.own_model import own_model_choice_id
 from apps.api.billing.rates import is_surchargeable_llm_model
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -262,6 +263,17 @@ async def engine_model_from_client(value: str | None) -> str | None:
     """
     if value is None or not value.startswith(ENGINE_MODEL_TOKEN_PREFIX):
         return value
+    # A model of OUR key (D-764) is named `byok:<id>` and checked by `agents/own_model`.
+    own = next(
+        (
+            own_model_choice_id(model)
+            for model in sorted(GOOGLE_DIRECT_MODELS)
+            if engine_model_token(own_model_choice_id(model)) == value
+        ),
+        None,
+    )
+    if own is not None:
+        return own
     engine = get_engine()
     if not isinstance(engine, HoldsCatalogue):
         return value

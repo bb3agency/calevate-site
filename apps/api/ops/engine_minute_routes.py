@@ -28,7 +28,7 @@ from apps.api.billing.engine_minutes import (
     EngineMinutePrice,
     attest_engine_minute_price,
     attested_minute_prices,
-    client_voice_tier,
+    client_rungs,
     cost_with_fee,
     topup_fee,
 )
@@ -130,7 +130,7 @@ class EngineMinutePriceAttestIn(BaseModel):
 
 
 def _sold_as(engine: str, rate_key: str) -> str | None:
-    tier = client_voice_tier(engine, rate_key)
+    tier = (client_rungs(engine) or {}).get(rate_key)
     return None if tier is None else VOICE_TIER_LABELS[tier]
 
 

@@ -1,35 +1,24 @@
-"""The password policy: the two NIST SP 800-63B-4 §3.1.1.2 SHALLs that were unmet.
+"""The password policy (`apps/api/authn/policy.py`).
 
-The standard is quoted in `apps/api/authn/policy.py` with its source (usnistgov/800-63-4
-@ 4f2487bb81adecdc84ccaac6920bf0b500b379ae, `sp800-63b/authenticators/index.html`, read
-2026-08-26). These tests assert the BEHAVIOUR, and two of them derive the requirement
-from this repo's own facts rather than restating a number — see
-`test_every_single_factor_realm_meets_the_nist_floor`, which is the assertion that would
-have caught the original defect.
-
-What was wrong before this module existed:
-
-  * `MIN_PASSWORD_CHARS = 12` applied to both realms. The client realm has no second
-    factor (`service.MFA_REQUIRED_REALMS == {"admin"}`), so its password is the whole of
-    the authentication and §3.1.1.2's fifteen-character SHALL applies to it. The comment
-    above the constant read "NIST SP 800-63B-4 lowers the floor to 8 and recommends 15",
-    which inverts both halves of the sentence it was paraphrasing.
-  * There was NO blocklist of any kind — "verifiers SHALL compare the prospective secret
-    against a blocklist" was simply not implemented, and no test named its absence.
-  * Passwords were not Unicode-normalized before hashing.
+The standard is quoted in that module with its source (usnistgov/800-63-4 @
+4f2487bb81adecdc84ccaac6920bf0b500b379ae, `sp800-63b/authenticators/index.html`, read
+2026-08-26). The length floor is 8 on every realm by founder decision (D-765); the rest
+follows SP 800-63B-4 §3.1.1.2: a whole-password blocklist with a reason, NFC
+normalization, code-point counting, no composition rules.
 """
 
 from __future__ import annotations
 
+import hashlib
 import unicodedata
 import uuid
+from pathlib import Path
 
 import pytest
-from apps.api.authn import policy, service
+from apps.api.authn import policy
 from apps.api.authn.credentials import authenticate_subject, set_password
 from apps.api.authn.hashing import (
     MAX_PASSWORD_CHARS,
-    MIN_PASSWORD_CHARS,
     hash_password_blocking,
     verify_password_blocking,
 )
@@ -46,51 +35,19 @@ GOOD_PASSWORD = "harbour-lantern-rhubarb"
 # ── the floor ────────────────────────────────────────────────────────────────
 
 
-def test_every_single_factor_realm_meets_the_nist_floor() -> None:
-    """THE ASSERTION THAT WOULD HAVE CAUGHT THE ORIGINAL DEFECT, and the reason it is
-    written this way.
-
-    §3.1.1.2: passwords "used as a single-factor authentication mechanism" SHALL be a
-    minimum of 15 characters; fewer is permitted only for passwords "only used as part of
-    multi-factor authentication processes", and then never below 8.
-
-    Which realms are which is not restated here — it is READ from
-    `service.MFA_REQUIRED_REALMS`, the repo's own single copy of that fact (D-170). So
-    giving the client realm a second factor, or adding a third realm, moves this
-    assertion with the change instead of leaving a hard-coded 15 that nobody rechecks.
-    Hard-coding the realm names is exactly how the original 12 survived: the number was
-    right for the realm somebody had in mind and wrong for the other one.
-    """
-    for realm in AUTHN_REALMS:
-        floor = policy.min_password_chars(realm)
-        if realm in service.MFA_REQUIRED_REALMS:
-            assert floor >= 8, f"{realm} is MFA-protected; the SHALL is still 8"
-        else:
-            assert floor >= policy.SINGLE_FACTOR_MIN_CHARS, (
-                f"{realm} has no second factor, so its password is single-factor and "
-                f"SP 800-63B-4 §3.1.1.2 requires at least "
-                f"{policy.SINGLE_FACTOR_MIN_CHARS} characters"
-            )
+@pytest.mark.parametrize("realm", AUTHN_REALMS)
+def test_eight_characters_is_enough_on_every_realm(realm: str) -> None:
+    """D-765: eight characters, not on the blocklist, is accepted on client and admin."""
+    assert policy.min_password_chars(realm) == 8
+    policy.assert_password_allowed("rhubarb9", realm=realm)
 
 
-def test_the_client_realm_refuses_what_the_old_shared_floor_allowed() -> None:
-    """Twelve characters — legal under the old constant, three short of the SHALL."""
-    twelve = "abcdefghijkl"
-    assert len(twelve) == MIN_PASSWORD_CHARS
+@pytest.mark.parametrize("realm", AUTHN_REALMS)
+def test_seven_characters_is_refused_with_the_floor_in_the_message(realm: str) -> None:
     with pytest.raises(ProblemError) as caught:
-        policy.assert_password_allowed(twelve, realm="client")
+        policy.assert_password_allowed("rhubarb", realm=realm)
     assert caught.value.code == "password_length"
-    # The refusal states the CLIENT's floor, not the absolute one, or the person tries 13.
-    assert str(policy.min_password_chars("client")) in caught.value.detail
-
-
-def test_the_admin_realm_keeps_its_floor_because_it_has_a_second_factor() -> None:
-    assert policy.min_password_chars("admin") == MIN_PASSWORD_CHARS
-    # Twelve characters and not a keyboard walk — `abcdefghijkl` would clear the floor
-    # and then trip the blocklist, which is correct but tests the wrong thing here.
-    twelve = "rhubarb-oxen"
-    assert len(twelve) == MIN_PASSWORD_CHARS
-    policy.assert_password_allowed(twelve, realm="admin")
+    assert str(policy.min_password_chars(realm)) in caught.value.detail
 
 
 def test_the_ceiling_is_unchanged_and_is_still_refused_above() -> None:
@@ -142,6 +99,41 @@ def test_a_guessable_password_is_refused_with_a_reason(password: str) -> None:
     assert caught.value.fields[0]["message"]
     # And guidance, which the same paragraph also requires.
     assert caught.value.remediation
+
+
+@pytest.mark.parametrize("realm", AUTHN_REALMS)
+@pytest.mark.parametrize("password", ["password", "iloveyou", "Sunshine1", "PASSWORD1"])
+def test_a_common_password_is_refused_on_every_realm(realm: str, password: str) -> None:
+    """The corpus is compared whole and casefolded, so a capital does not slip past it."""
+    with pytest.raises(ProblemError) as caught:
+        policy.assert_password_allowed(password, realm=realm)
+    assert caught.value.code == "password_unacceptable"
+    assert caught.value.fields
+    assert "most common passwords" in caught.value.fields[0]["message"]
+
+
+def test_the_corpus_is_compared_whole_not_as_substrings() -> None:
+    """`password` is listed; a passphrase that merely contains it is not."""
+    assert "password" in policy.COMMON_PASSWORDS
+    policy.assert_password_allowed("password-for-the-harbour-office", realm="client")
+
+
+def test_the_loader_drops_entries_below_the_lowest_floor(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus.txt"
+    corpus.write_bytes("short\nCAFÉ-AU-LAIT\nlongenough\n".encode())
+    digest = hashlib.sha256(corpus.read_bytes()).hexdigest()
+
+    loaded = policy.load_common_passwords(corpus, sha256=digest)
+
+    assert loaded == frozenset({unicodedata.normalize("NFC", "café-au-lait"), "longenough"})
+
+
+def test_the_loader_refuses_a_corpus_that_does_not_match_its_pin(tmp_path: Path) -> None:
+    """An edited or truncated copy must stop the api, not quietly match less."""
+    corpus = tmp_path / "corpus.txt"
+    corpus.write_bytes(b"longenough\n")
+    with pytest.raises(RuntimeError, match="pinned sha256"):
+        policy.load_common_passwords(corpus, sha256="0" * 64)
 
 
 def test_the_users_own_address_is_context_the_blocklist_knows() -> None:
@@ -219,13 +211,16 @@ def test_normalization_is_nfc_and_not_the_compatibility_form() -> None:
 
 def test_length_is_counted_in_code_points() -> None:
     """ "Each Unicode code point SHALL be counted as a single character when evaluating
-    password length" (§3.1.1.2). Fifteen astral-plane characters is fifteen, not
-    thirty."""
-    # Fifteen DISTINCT astral-plane characters: a repeated one would clear the length
-    # rule and then be refused as a repetition, proving nothing about the count.
-    fifteen = "🙂🌧🎧🥭🚲🪔🐘🎈🧭🛺🍋🧵🪁🦚🛕"
-    assert len(fifteen) == 15 and len(fifteen.encode()) > 15
-    policy.assert_password_allowed(fifteen, realm="client")
+    password length" (§3.1.1.2). Eight astral-plane characters is eight, not 32 bytes;
+    seven is seven, and short."""
+    # DISTINCT characters: a repeated one would clear the length rule and then be refused
+    # as a repetition, proving nothing about the count.
+    eight = "🙂🌧🎧🥭🚲🪔🐘🎈"
+    assert len(eight) == 8 and len(eight.encode()) > 8
+    policy.assert_password_allowed(eight, realm="client")
+    with pytest.raises(ProblemError) as caught:
+        policy.assert_password_allowed(eight[:7], realm="client")
+    assert caught.value.code == "password_length"
 
 
 # ── enforcement placement ────────────────────────────────────────────────────
@@ -267,18 +262,16 @@ async def test_the_store_refuses_a_blocklisted_password() -> None:
     assert row is None
 
 
-async def test_raising_the_floor_never_locks_an_existing_account_out() -> None:
-    """THE PROPERTY THAT MAKES THIS CHANGE SAFE TO SHIP, asserted rather than argued.
-
-    `credentials.authenticate_subject` already carried the reasoning — a rule that
-    arrives after a password was set must not turn a correct sign-in into a refusal — and
-    it now has to hold against a stricter rule than a length bump. A 12-character client
-    password stored before the floor moved still signs in; what changed is what may be
-    STORED, not what may be presented.
+async def test_a_stricter_rule_never_locks_an_existing_account_out() -> None:
+    """`credentials.authenticate_subject`: a rule that arrives after a password was set
+    must not turn a correct sign-in into a refusal. A client password stored before the
+    blocklist refused it still signs in; the policy governs what may be STORED, not what
+    may be presented.
     """
     user_id = uuid.uuid4()
     legacy = "abcdefghijkl"
-    assert len(legacy) < policy.min_password_chars("client")
+    with pytest.raises(ProblemError):
+        policy.assert_password_allowed(legacy, realm="client")
     async with untenanted_session() as session:
         await session.execute(
             text(

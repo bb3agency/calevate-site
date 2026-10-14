@@ -19,10 +19,8 @@ What this file protects, in the order it costs money:
   whole Clear column, plus Studio's two deepest rungs), which is the founder's decision of
   14 Sep 2026 and not a defect. What is asserted as a PROPERTY is the posture: under cost
   is REFUSED, under target is merely WARNED, whichever cells happen to be which.
-- **The conversion choice is bounded**: at `LIST_PRICE_USD_INR` instead of the Cartesia
-  evidence file's own ₹88, the Cartesia floor is ₹4.5260 and the card still clears it. The
-  comment in `rates.py` states that number; this is where it is computed rather than
-  believed.
+- **One conversion**: every frozen dollar leg is struck at `PLANNING_USD_INR` (D-768), so
+  the two floors cannot disagree about a leg they share.
 - **`BASE_RATE_LLM_MODEL` is the model the floor's LLM leg is priced at**, so the floor and
   the frozen plan rate cannot come to be struck against two different models.
 """
@@ -38,7 +36,6 @@ from apps.api.billing.rates import (
     BASE_RATE_LLM_MODEL,
     CARTESIA_BEST_MARGINAL_COST_INR_PER_MIN,
     CARTESIA_COST_FLOOR_INR_PER_MIN,
-    CARTESIA_EVIDENCE_USD_INR,
     CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS,
     CARTESIA_PLANS,
     CARTESIA_PRO_PLAN,
@@ -46,13 +43,12 @@ from apps.api.billing.rates import (
     CARTESIA_VENDOR_CREDITS_PER_AUDIO_MINUTE,
     CARTESIA_VOLUME_LADDER_CALL_MINUTES,
     COST_FLOOR_REFERENCE_CALL_MINUTES,
-    COST_MODEL_USD_INR,
     ENGINE_PLATFORM_FEE_INR_PER_MIN,
     ENGINE_PLATFORM_FEE_USD_PER_MIN,
     ENGINE_RESERVED_INSTANCE_USD_PER_MIN,
-    LIST_PRICE_USD_INR,
     MIN_GROSS_MARGIN,
     MONEY_Q,
+    PLANNING_USD_INR,
     ROUNDING,
     SELF_SERVE_COST_FLOOR_INR_PER_MIN,
     TTS_ASSUMED_CHARS_PER_CALL_MINUTE,
@@ -113,14 +109,14 @@ def test_the_engine_leg_is_the_vendors_published_active_minute() -> None:
     invoice is still what settles that.
     """
     assert Decimal("0.01") == ENGINE_PLATFORM_FEE_USD_PER_MIN
-    assert Decimal("95") == COST_MODEL_USD_INR
+    assert Decimal("95") == PLANNING_USD_INR
     assert Decimal("0.95") == ENGINE_PLATFORM_FEE_INR_PER_MIN
 
 
 def test_a_warm_instance_costs_the_same_whether_or_not_a_call_is_on_it() -> None:
     """One reserved slot is ₹2,052/month, and that number is why it is not in any floor.
 
-    43,200 minutes in a 30-day month x $0.0005 = $21.60 = ₹2,052 at `COST_MODEL_USD_INR`.
+    43,200 minutes in a 30-day month x $0.0005 = $21.60 = ₹2,052 at `PLANNING_USD_INR`.
     Per CALL-minute it would depend entirely on utilisation — ₹2.05 at 1,000 busy minutes,
     ₹0.05 at 43,200 — so there is no single rupee figure to put in a per-minute floor, and
     inventing one by assuming a utilisation is how a floor stops meaning anything.
@@ -130,9 +126,9 @@ def test_a_warm_instance_costs_the_same_whether_or_not_a_call_is_on_it() -> None
     an unmeasured assumption inside it.
     """
     assert Decimal("0.0005") == ENGINE_RESERVED_INSTANCE_USD_PER_MIN
-    assert (
-        ENGINE_RESERVED_INSTANCE_USD_PER_MIN * Decimal("43200") * COST_MODEL_USD_INR
-    ) == Decimal("2052.0000")
+    assert (ENGINE_RESERVED_INSTANCE_USD_PER_MIN * Decimal("43200") * PLANNING_USD_INR) == Decimal(
+        "2052.0000"
+    )
     assert _shared_legs() == Decimal("1.6911"), "the shared legs carry the ACTIVE rate only"
 
 
@@ -171,20 +167,13 @@ def test_neither_floor_carries_a_telephony_leg() -> None:
         )
 
 
-def _shared_legs(usd_inr: Decimal = COST_MODEL_USD_INR) -> Decimal:
-    """The three legs both voices share, ₹1.6911 at the cost model's rate, backed out of the
+def _shared_legs(usd_inr: Decimal = PLANNING_USD_INR) -> Decimal:
+    """The three legs both voices share, ₹1.6911 at `PLANNING_USD_INR`, backed out of the
     Sarvam floor rather than re-summed — so this file cannot drift from
-    `rates._ex_tts_cost_inr_per_min`.
-
-    ⚠ **IT TAKES A RATE NOW, AND A CARTESIA COMPARISON MUST PASS ONE.** The engine leg
-    inside it is dollar-priced, so the sum is a function of the conversion; while
-    `CARTESIA_EVIDENCE_USD_INR` was an alias of `COST_MODEL_USD_INR` the default was right
-    for both voices and the parameter did not need to exist. D-592 moved the cost model to
-    ₹95 and left the Cartesia reading at its stated ₹88, so a Cartesia figure compared
-    against this default is now off by ₹0.07 — which is exactly how this parameter got
-    written: that seam failed a test rather than reaching a card.
+    `rates._ex_tts_cost_inr_per_min`. At any other rate the engine leg (dollar-priced)
+    moves, so the sum comes from `ex_tts_cost_inr_per_min_at` instead.
     """
-    if usd_inr == COST_MODEL_USD_INR:
+    if usd_inr == PLANNING_USD_INR:
         return SELF_SERVE_COST_FLOOR_INR_PER_MIN - tts_inr_per_call_minute(
             TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]
         )
@@ -204,25 +193,21 @@ def test_the_cartesia_plans_are_the_vendors_three_inputs_and_nothing_derived_is_
     assert CARTESIA_PRO_PLAN.included_credits == Decimal("100000")
     assert CARTESIA_PRO_PLAN.overage_usd_per_million_credits == Decimal("65")
     assert (
-        CARTESIA_PRO_PLAN.fee_inr(CARTESIA_EVIDENCE_USD_INR)
-        == Decimal("5") * CARTESIA_EVIDENCE_USD_INR
-        == Decimal("440")
+        CARTESIA_PRO_PLAN.fee_inr(PLANNING_USD_INR)
+        == Decimal("5") * PLANNING_USD_INR
+        == Decimal("475")
     )
-    assert CARTESIA_PRO_PLAN.overage_inr_per_character(CARTESIA_EVIDENCE_USD_INR) == Decimal(
-        "0.00572"
-    )
-    assert CARTESIA_PRO_PLAN.marginal_inr_per_call_minute(CARTESIA_EVIDENCE_USD_INR) == Decimal(
-        "3.08880"
-    )
+    assert CARTESIA_PRO_PLAN.overage_inr_per_character(PLANNING_USD_INR) == Decimal("0.006175")
+    assert CARTESIA_PRO_PLAN.marginal_inr_per_call_minute(PLANNING_USD_INR) == Decimal("3.334500")
     # 100,000 credits at 540 chars a call-minute is ~185 call-minutes of allotment.
     assert CARTESIA_PRO_PLAN.included_call_minutes.quantize(Decimal("0.01")) == Decimal("185.19")
 
     assert CARTESIA_STARTUP_PLAN.fee_usd == Decimal("49")
     assert CARTESIA_STARTUP_PLAN.included_credits == Decimal("1250000")
     assert CARTESIA_STARTUP_PLAN.overage_usd_per_million_credits == Decimal("45")
-    assert CARTESIA_STARTUP_PLAN.fee_inr(CARTESIA_EVIDENCE_USD_INR) == Decimal("4312")
-    assert CARTESIA_STARTUP_PLAN.marginal_inr_per_call_minute(CARTESIA_EVIDENCE_USD_INR) == Decimal(
-        "2.13840"
+    assert CARTESIA_STARTUP_PLAN.fee_inr(PLANNING_USD_INR) == Decimal("4655")
+    assert CARTESIA_STARTUP_PLAN.marginal_inr_per_call_minute(PLANNING_USD_INR) == Decimal(
+        "2.308500"
     )
 
 
@@ -232,9 +217,9 @@ def test_the_display_door_quantizes_and_the_summing_door_does_not() -> None:
     defect — the "costs us" curve quantized its TTS leg on the way out and then quantized the
     sum again, which is a second rounding nobody asked for.
 
-    IT HID AT ₹88, and that is why this test exists at all rather than the arithmetic being
-    left to speak for itself: at the Cartesia reading's own rate the shared legs land exactly
-    on four decimals, so the second quantize is a no-op and the error is identically zero.
+    IT HIDES AT A WHOLE-RUPEE RATE, and that is why this test exists at all rather than the
+    arithmetic being left to speak for itself: at `PLANNING_USD_INR` the shared legs land
+    exactly on four decimals, so the second quantize is a no-op and the error is identically zero.
     `ops/fx_rates.py` stores a published quote at SIX decimals, and the founder's 9 Sep
     decision puts that live quote on this curve — at which point the two answers part company.
 
@@ -271,27 +256,21 @@ def test_the_cartesia_floor_is_the_worst_marginal_cost_and_not_a_best_case() -> 
     depend on an unmeasured volume, and it is the figure a refusal threshold has to be
     struck at. **If this assertion ever reads ₹4.3639 again, the best case has come back.**
     """
-    # AT THE CARTESIA READING'S OWN RATE, because that is what the constant is struck at
-    # and the engine leg inside the shared sum is dollar-priced. It was the bare default
-    # until D-592 moved `COST_MODEL_USD_INR` to ₹95 and left this one at its stated ₹88.
-    shared = _shared_legs(CARTESIA_EVIDENCE_USD_INR)
-    assert shared == Decimal("1.6211")
-    assert Decimal("4.7099") == CARTESIA_COST_FLOOR_INR_PER_MIN
+    shared = _shared_legs(PLANNING_USD_INR)
+    assert shared == Decimal("1.6911")
+    assert Decimal("5.0256") == CARTESIA_COST_FLOOR_INR_PER_MIN
     assert Decimal("4.3639") != CARTESIA_COST_FLOOR_INR_PER_MIN
     assert (
-        shared
-        + max(
-            plan.marginal_inr_per_call_minute(CARTESIA_EVIDENCE_USD_INR) for plan in CARTESIA_PLANS
-        )
+        shared + max(plan.marginal_inr_per_call_minute(PLANNING_USD_INR) for plan in CARTESIA_PLANS)
     ).quantize(MONEY_Q, rounding=ROUNDING) == CARTESIA_COST_FLOOR_INR_PER_MIN
     # Pro is the dearest at the margin, so it is the plan the floor is struck on.
     assert cartesia_plan_marginal_cost_inr_per_min(
-        CARTESIA_PRO_PLAN, usd_inr=CARTESIA_EVIDENCE_USD_INR
-    ) == Decimal("4.7099")
+        CARTESIA_PRO_PLAN, usd_inr=PLANNING_USD_INR
+    ) == Decimal("5.0256")
     assert cartesia_plan_marginal_cost_inr_per_min(
-        CARTESIA_STARTUP_PLAN, usd_inr=CARTESIA_EVIDENCE_USD_INR
-    ) == Decimal("3.7595")
-    assert Decimal("3.7595") == CARTESIA_BEST_MARGINAL_COST_INR_PER_MIN
+        CARTESIA_STARTUP_PLAN, usd_inr=PLANNING_USD_INR
+    ) == Decimal("3.9996")
+    assert Decimal("3.9996") == CARTESIA_BEST_MARGINAL_COST_INR_PER_MIN
     assert CARTESIA_BEST_MARGINAL_COST_INR_PER_MIN < CARTESIA_COST_FLOOR_INR_PER_MIN
 
 
@@ -300,35 +279,31 @@ def test_the_cartesia_cost_curve_at_real_volumes_including_one_that_is_underwate
     the volume the platform actually runs, and at low volume that is far dearer than any
     floor.
 
-    ₹6.0211 at 100 call-minutes a month is ABOVE every rung on the Studio column of the
+    ₹6.4411 at 100 call-minutes a month is ABOVE every rung on the Studio column of the
     approved card, so at that volume the whole column is under water — which is exactly the
     fact the ops console was hiding. ₹4.3639 at 2,315 is the old "floor", reproduced here to
     show what it actually was: one point on this curve.
     """
     expected = {
-        Decimal("100"): (Decimal("6.0211"), "pro"),
-        Decimal("200"): (Decimal("4.0499"), "pro"),
-        Decimal("500"): (Decimal("4.4459"), "pro"),
-        Decimal("1000"): (Decimal("4.5779"), "pro"),
-        Decimal("2315"): (Decimal("3.4839"), "startup"),
+        Decimal("100"): (Decimal("6.4411"), "pro"),
+        Decimal("200"): (Decimal("4.3131"), "pro"),
+        Decimal("500"): (Decimal("4.7406"), "pro"),
+        Decimal("1000"): (Decimal("4.8831"), "pro"),
+        Decimal("2315"): (Decimal("3.7021"), "startup"),
     }
     for minutes, (cost, plan_id) in expected.items():
-        assert (
-            cartesia_cost_inr_per_call_minute(minutes, usd_inr=CARTESIA_EVIDENCE_USD_INR) == cost
-        ), minutes
-        assert (
-            cartesia_cheapest_plan(minutes, usd_inr=CARTESIA_EVIDENCE_USD_INR).plan_id == plan_id
-        ), minutes
+        assert cartesia_cost_inr_per_call_minute(minutes, usd_inr=PLANNING_USD_INR) == cost, minutes
+        assert cartesia_cheapest_plan(minutes, usd_inr=PLANNING_USD_INR).plan_id == plan_id, minutes
 
     # At 100 call-minutes a month the deepest Studio rungs still sell a minute for less
     # than it cost — the case the ₹4.3639 "floor" said could not exist and the console has
     # to warn about. The COUNT has moved twice and is not the property: four rungs before
     # D-592 halved the engine leg, one after it, two under the 14 Sep card, and all six
     # under the flat ₹6.00 card of 11 Oct (D-728), whose one Studio rate sits just under
-    # the ₹6.0211 cost. What must hold is that the set is a non-empty run of the DEEPEST
+    # the ₹6.4411 cost. What must hold is that the set is a non-empty run of the DEEPEST
     # rungs — a per-rung warning the console can print, rather than a blanket one.
-    at_100 = cartesia_cost_inr_per_call_minute(Decimal("100"), usd_inr=CARTESIA_EVIDENCE_USD_INR)
-    assert at_100 == Decimal("6.0211")
+    at_100 = cartesia_cost_inr_per_call_minute(Decimal("100"), usd_inr=PLANNING_USD_INR)
+    assert at_100 == Decimal("6.4411")
     underwater = sorted(pack.pack_id for pack in PACK_CATALOGUE if pack.studio_inr_per_min < at_100)
     assert underwater == sorted(pack.pack_id for pack in PACK_CATALOGUE)
     assert underwater, "some rung must be under water at the ladder's bottom volume"
@@ -340,27 +315,27 @@ def test_the_cartesia_cost_curve_at_real_volumes_including_one_that_is_underwate
     # The curve is NOT monotonic: it falls while a plan's allotment amortises and rises once
     # the plan is into overage. A reader who assumes otherwise writes a broken bisection.
     assert cartesia_cost_inr_per_call_minute(
-        Decimal("200"), usd_inr=CARTESIA_EVIDENCE_USD_INR
-    ) < cartesia_cost_inr_per_call_minute(Decimal("1000"), usd_inr=CARTESIA_EVIDENCE_USD_INR)
+        Decimal("200"), usd_inr=PLANNING_USD_INR
+    ) < cartesia_cost_inr_per_call_minute(Decimal("1000"), usd_inr=PLANNING_USD_INR)
 
 
 def test_the_plan_crossover_is_searched_over_a_monotone_difference() -> None:
     """Pro is cheaper below ~1,439 call-minutes a month and Startup above it — DERIVED by
     bisection, which is only valid because the difference between the two plans' monthly
     totals is non-decreasing in volume. That property is asserted, not assumed."""
-    crossover = cartesia_plan_crossover_call_minutes(usd_inr=CARTESIA_EVIDENCE_USD_INR)
+    crossover = cartesia_plan_crossover_call_minutes(usd_inr=PLANNING_USD_INR)
     assert crossover == Decimal("1439")
     assert CARTESIA_PRO_PLAN.monthly_inr(
-        crossover - 1, usd_inr=CARTESIA_EVIDENCE_USD_INR
-    ) < CARTESIA_STARTUP_PLAN.monthly_inr(crossover - 1, usd_inr=CARTESIA_EVIDENCE_USD_INR)
+        crossover - 1, usd_inr=PLANNING_USD_INR
+    ) < CARTESIA_STARTUP_PLAN.monthly_inr(crossover - 1, usd_inr=PLANNING_USD_INR)
     assert CARTESIA_PRO_PLAN.monthly_inr(
-        crossover, usd_inr=CARTESIA_EVIDENCE_USD_INR
-    ) >= CARTESIA_STARTUP_PLAN.monthly_inr(crossover, usd_inr=CARTESIA_EVIDENCE_USD_INR)
+        crossover, usd_inr=PLANNING_USD_INR
+    ) >= CARTESIA_STARTUP_PLAN.monthly_inr(crossover, usd_inr=PLANNING_USD_INR)
     previous = None
     for minutes in (Decimal(v) for v in (1, 50, 185, 300, 1439, 2315, 5000, 20000)):
         difference = CARTESIA_PRO_PLAN.monthly_inr(
-            minutes, usd_inr=CARTESIA_EVIDENCE_USD_INR
-        ) - CARTESIA_STARTUP_PLAN.monthly_inr(minutes, usd_inr=CARTESIA_EVIDENCE_USD_INR)
+            minutes, usd_inr=PLANNING_USD_INR
+        ) - CARTESIA_STARTUP_PLAN.monthly_inr(minutes, usd_inr=PLANNING_USD_INR)
         if previous is not None:
             assert difference >= previous, "the bisection's monotonicity premise has broken"
         previous = difference
@@ -374,29 +349,27 @@ def test_every_studio_rung_carries_the_volume_it_needs_to_stop_losing_money() ->
     The answer is the volume from which the rate clears cost AND KEEPS clearing it, because
     the curve is not monotonic; the ₹5.00 case below is the one that proves the difference
     matters (before D-592 it cleared cost at 200 minutes, went back under water at 1,000, and only
-    stayed clear from 1,726; the halved engine leg pulls that last figure in to 131, and the
+    stayed clear from 1,726; the halved engine leg pulls that last figure in (144 at ₹95), and the
     non-monotonic shape the assertion guards is unchanged).
     """
     assert {
         pack.pack_id: cartesia_rung_breakeven_call_minutes(
-            pack.studio_inr_per_min, usd_inr=CARTESIA_EVIDENCE_USD_INR
+            pack.studio_inr_per_min, usd_inr=PLANNING_USD_INR
         )
         for pack in PACK_CATALOGUE
     } == {
-        "starter": Decimal("101"),
-        "growth": Decimal("101"),
-        "scale": Decimal("101"),
-        "plus": Decimal("101"),
-        "pro": Decimal("101"),
-        "max": Decimal("101"),
+        "starter": Decimal("111"),
+        "growth": Decimal("111"),
+        "scale": Decimal("111"),
+        "plus": Decimal("111"),
+        "pro": Decimal("111"),
+        "max": Decimal("111"),
     }
-    sustained = cartesia_rung_breakeven_call_minutes(
-        Decimal("5.00"), usd_inr=CARTESIA_EVIDENCE_USD_INR
+    sustained = cartesia_rung_breakeven_call_minutes(Decimal("5.00"), usd_inr=PLANNING_USD_INR)
+    assert sustained == Decimal("144")
+    assert cartesia_cost_inr_per_call_minute(Decimal("200"), usd_inr=PLANNING_USD_INR) < Decimal(
+        "5.00"
     )
-    assert sustained == Decimal("131")
-    assert cartesia_cost_inr_per_call_minute(
-        Decimal("200"), usd_inr=CARTESIA_EVIDENCE_USD_INR
-    ) < Decimal("5.00")
     # THE CURVE'S SHAPE, ASSERTED DIRECTLY RATHER THAN THROUGH A RATE THAT HAPPENS TO SIT
     # ON IT. This used to read `cost(1000) > ₹5.00` — true while the floor was ₹5.5899 and
     # the whole curve sat higher, and it made the non-monotonicity look like a property of
@@ -405,16 +378,14 @@ def test_every_studio_rung_carries_the_volume_it_needs_to_stop_losing_money() ->
     # exists for is that cost RISES again once a plan is into overage, so a bisection over
     # this curve is broken; that is a statement about the curve alone.
     assert cartesia_cost_inr_per_call_minute(
-        Decimal("1000"), usd_inr=CARTESIA_EVIDENCE_USD_INR
-    ) > cartesia_cost_inr_per_call_minute(Decimal("200"), usd_inr=CARTESIA_EVIDENCE_USD_INR)
-    assert cartesia_cost_inr_per_call_minute(
-        sustained, usd_inr=CARTESIA_EVIDENCE_USD_INR
-    ) <= Decimal("5.00")
+        Decimal("1000"), usd_inr=PLANNING_USD_INR
+    ) > cartesia_cost_inr_per_call_minute(Decimal("200"), usd_inr=PLANNING_USD_INR)
+    assert cartesia_cost_inr_per_call_minute(sustained, usd_inr=PLANNING_USD_INR) <= Decimal("5.00")
     # A rate at or under the best marginal cost is never rescued by volume, and must be a
     # stated absence rather than a very large number.
     assert (
         cartesia_rung_breakeven_call_minutes(
-            CARTESIA_BEST_MARGINAL_COST_INR_PER_MIN, usd_inr=CARTESIA_EVIDENCE_USD_INR
+            CARTESIA_BEST_MARGINAL_COST_INR_PER_MIN, usd_inr=PLANNING_USD_INR
         )
         is None
     )
@@ -426,14 +397,14 @@ def test_every_studio_rung_carries_the_volume_it_needs_to_stop_losing_money() ->
     assert (
         cartesia_rung_breakeven_call_minutes(
             CARTESIA_BEST_MARGINAL_COST_INR_PER_MIN - Decimal("1.00"),
-            usd_inr=CARTESIA_EVIDENCE_USD_INR,
+            usd_inr=PLANNING_USD_INR,
         )
         is None
     )
     # The search's ceiling is derived from the plans, never typed.
     assert cartesia_envelope_stable_call_minutes(
-        usd_inr=CARTESIA_EVIDENCE_USD_INR
-    ) >= cartesia_plan_crossover_call_minutes(usd_inr=CARTESIA_EVIDENCE_USD_INR)
+        usd_inr=PLANNING_USD_INR
+    ) >= cartesia_plan_crossover_call_minutes(usd_inr=PLANNING_USD_INR)
 
 
 def test_the_measured_cost_uses_no_speaking_rate_assumption() -> None:
@@ -445,20 +416,20 @@ def test_the_measured_cost_uses_no_speaking_rate_assumption() -> None:
     differently, which could not happen if minutes were being multiplied by 540.
     """
     thin = cartesia_measured_cost_inr_per_call_minute(
-        characters=Decimal("50000"), call_minutes=Decimal("300"), usd_inr=CARTESIA_EVIDENCE_USD_INR
+        characters=Decimal("50000"), call_minutes=Decimal("300"), usd_inr=PLANNING_USD_INR
     )
     chatty = cartesia_measured_cost_inr_per_call_minute(
-        characters=Decimal("500000"), call_minutes=Decimal("300"), usd_inr=CARTESIA_EVIDENCE_USD_INR
+        characters=Decimal("500000"), call_minutes=Decimal("300"), usd_inr=PLANNING_USD_INR
     )
     assert thin is not None and chatty is not None
     assert chatty > thin
-    assert thin == (
-        _shared_legs(CARTESIA_EVIDENCE_USD_INR) + Decimal("440") / Decimal("300")
-    ).quantize(MONEY_Q, rounding=ROUNDING)
+    assert thin == (_shared_legs(PLANNING_USD_INR) + Decimal("475") / Decimal("300")).quantize(
+        MONEY_Q, rounding=ROUNDING
+    )
     # A month with no Studio minutes has no cost PER MINUTE — a stated absence, not a zero.
     assert (
         cartesia_measured_cost_inr_per_call_minute(
-            characters=Decimal("0"), call_minutes=Decimal("0"), usd_inr=CARTESIA_EVIDENCE_USD_INR
+            characters=Decimal("0"), call_minutes=Decimal("0"), usd_inr=PLANNING_USD_INR
         )
         is None
     )
@@ -489,9 +460,7 @@ def test_the_console_ladder_always_contains_a_volume_where_the_card_is_underwate
     assert CARTESIA_VOLUME_LADDER_CALL_MINUTES[0] == Decimal("100")
     assert list(CARTESIA_VOLUME_LADDER_CALL_MINUTES) == sorted(CARTESIA_VOLUME_LADDER_CALL_MINUTES)
     breakevens = [
-        cartesia_rung_breakeven_call_minutes(
-            pack.studio_inr_per_min, usd_inr=CARTESIA_EVIDENCE_USD_INR
-        )
+        cartesia_rung_breakeven_call_minutes(pack.studio_inr_per_min, usd_inr=PLANNING_USD_INR)
         for pack in PACK_CATALOGUE
     ]
     assert all(point is not None for point in breakevens)
@@ -501,36 +470,17 @@ def test_the_console_ladder_always_contains_a_volume_where_the_card_is_underwate
 
 
 def test_the_cartesia_marginal_rate_per_10k_chars_is_the_vendors_overage() -> None:
-    """₹57.20 / 10,000 chars — Pro's $65 per 1M credits at ₹88, never typed, so a conversion
+    """₹61.75 / 10,000 chars — Pro's $65 per 1M credits at ₹95, never typed, so a conversion
     or overage change moves the doc row `check_docs_drift` §4b diffs it against.
 
     ⚠ It was ₹34.496 (the Startup fee over its allotment) until 9 Sep 2026, which is an
     AVERAGE true at one volume and was silent about the overage the vendor has now stated.
     """
-    assert Decimal("57.20000") == CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS
+    assert Decimal("61.75") == CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS
     assert (
-        max(plan.overage_inr_per_character(CARTESIA_EVIDENCE_USD_INR) for plan in CARTESIA_PLANS)
+        max(plan.overage_inr_per_character(PLANNING_USD_INR) for plan in CARTESIA_PLANS)
         * Decimal("10000")
     ) == CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS
-
-
-def test_the_cartesia_floor_holds_at_the_llm_cards_conversion_too() -> None:
-    """THE BOUNDED ALTERNATIVE. `rates.py` uses the Cartesia evidence file's own ₹88 = $1 so
-    the number in code is the number in the evidence it cites. The repo's other conversion
-    is `LIST_PRICE_USD_INR` (₹95.66, the LLM card's strike). This computes the floor under
-    that conversion and asserts the card still clears it, so the choice is scored rather
-    than argued.
-    """
-    overage_per_char = (
-        CARTESIA_PRO_PLAN.overage_usd_per_million_credits * LIST_PRICE_USD_INR / Decimal("1000000")
-    )
-    alternative = (
-        _shared_legs() + overage_per_char * TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]
-    ).quantize(MONEY_Q, rounding=ROUNDING)
-    assert alternative == Decimal("5.0488")
-    assert alternative > CARTESIA_COST_FLOOR_INR_PER_MIN
-    cheapest = min(pack.studio_inr_per_min for pack in PACK_CATALOGUE)
-    assert cheapest > alternative, "the card must clear the floor under either conversion"
 
 
 def test_the_floor_selector_is_total_over_the_two_tiers_and_raises_otherwise() -> None:
@@ -565,17 +515,17 @@ def test_the_approved_card_clears_both_floors_and_thin_cells_are_warned_not_refu
     """
     expected = {
         ("starter", "clear"): Decimal("0.3002"),
-        ("starter", "studio"): Decimal("0.2150"),
+        ("starter", "studio"): Decimal("0.1624"),
         ("growth", "clear"): Decimal("0.3002"),
-        ("growth", "studio"): Decimal("0.2150"),
+        ("growth", "studio"): Decimal("0.1624"),
         ("scale", "clear"): Decimal("0.3002"),
-        ("scale", "studio"): Decimal("0.2150"),
+        ("scale", "studio"): Decimal("0.1624"),
         ("plus", "clear"): Decimal("0.3002"),
-        ("plus", "studio"): Decimal("0.2150"),
+        ("plus", "studio"): Decimal("0.1624"),
         ("pro", "clear"): Decimal("0.3002"),
-        ("pro", "studio"): Decimal("0.2150"),
+        ("pro", "studio"): Decimal("0.1624"),
         ("max", "clear"): Decimal("0.3002"),
-        ("max", "studio"): Decimal("0.2150"),
+        ("max", "studio"): Decimal("0.1624"),
     }
     thin = []
     for pack in PACK_CATALOGUE:
@@ -594,9 +544,9 @@ def test_the_approved_card_clears_both_floors_and_thin_cells_are_warned_not_refu
             assert verdict.below_target is (margin < MIN_GROSS_MARGIN)
             if verdict.below_target:
                 thin.append(f"{pack.pack_id}/{voice}")
-    # The D-728 card clears target on every cell, so nothing is thin; the per-cell posture
-    # above still holds for a thin card, and `card_refusals` refuses only below cost.
-    assert thin == []
+    # At the D-768 planning rate (₹95) the D-728 card's Studio column is under target
+    # (16.2% against the ₹5.0256 floor) and above cost: warned, never refused.
+    assert thin == [f"{pack.pack_id}/studio" for pack in PACK_CATALOGUE]
     assert card_refusals(PACK_CATALOGUE) == []
 
 
@@ -613,7 +563,7 @@ def test_the_floor_moves_with_the_dollar_and_the_refusal_bound_does_not() -> Non
     reasoning below is what survives, not the sign of that figure.
 
     ⚠ **AND THAT IS WHY THE REFUSAL BOUND IS FROZEN.** `credit_packs.card_refusals` scores
-    against `CARTESIA_COST_FLOOR_INR_PER_MIN`, struck at the evidence file's ₹88, so a
+    against `CARTESIA_COST_FLOOR_INR_PER_MIN`, struck at `PLANNING_USD_INR` (D-768), so a
     currency tick can never make the card that is on sale un-recordable — the founder's
     third decision ("the rate card does not change") would otherwise be impossible to obey.
     The live figure is published beside it and is a warning. **If this test ever shows the
@@ -627,15 +577,9 @@ def test_the_floor_moves_with_the_dollar_and_the_refusal_bound_does_not() -> Non
     cheapest_rung = min(pack.studio_inr_per_min for pack in PACK_CATALOGUE)
     assert cheapest_rung == Decimal("6.00")
     assert cheapest_rung > cartesia_cost_floor_inr_per_min_at(Decimal("88"))
-    # ⚠ **THE FLOOR RUNG NO LONGER GOES UNDER WATER AT THE LLM CARD'S RATE, AND THAT IS
-    # THE WHOLE POINT OF FREEZING THE BOUND, NOT A REASON TO UNFREEZE IT.** Until D-592 the
-    # ₹6.00 rung earned -0.2% at ₹95.66 and +7% at ₹88, which is what made the frozen bound
-    # worth arguing for. The halved engine leg pulled the ₹95.66 floor to ₹5.0554; the
-    # founder's 14 Sep card then cut the rung to ₹5.50, which still clears at BOTH
-    # conversions (8.1% at ₹95.66) — so the exposure this test was built around is closed at
-    # today's numbers and the reasoning is not. A currency tick still must not get a veto
-    # over a card that is on sale; the assertion is now the ORDER of the two floors, which
-    # is what actually encodes "the live rate can move the judgement".
+    # A dearer live quote raises the live floor and thins the margin; the assertion is the
+    # ORDER of the floors, which is what encodes "the live rate can move the judgement"
+    # while the refusal bound below stays where it is.
     assert cheapest_rung > cartesia_cost_floor_inr_per_min_at(Decimal("95.66"))
     assert cartesia_cost_floor_inr_per_min_at(Decimal("88")) < cartesia_cost_floor_inr_per_min_at(
         Decimal("95.66")
@@ -647,10 +591,7 @@ def test_the_floor_moves_with_the_dollar_and_the_refusal_bound_does_not() -> Non
 
     # The refusal is struck at the FROZEN rate and the card therefore still records — which
     # is the property `tests/credit_packs_test.py` scores and this one explains.
-    assert (
-        cartesia_cost_floor_inr_per_min_at(CARTESIA_EVIDENCE_USD_INR)
-        == CARTESIA_COST_FLOOR_INR_PER_MIN
-    )
+    assert cartesia_cost_floor_inr_per_min_at(PLANNING_USD_INR) == CARTESIA_COST_FLOOR_INR_PER_MIN
     assert cost_floor_inr_per_min("studio") == CARTESIA_COST_FLOOR_INR_PER_MIN
     assert card_refusals(PACK_CATALOGUE) == []
 
@@ -678,10 +619,9 @@ def test_the_scary_marginal_figure_is_not_the_blended_one_and_both_are_published
 
 def test_only_the_dollar_legs_move_with_the_rate() -> None:
     """The engine's active-minute rate is $0.01/min and moves; Sarvam STT is rupee-priced and does
-    not; the LLM leg is dollars but is struck at `LIST_PRICE_USD_INR`, a DIFFERENT card with
-    its own frozen conversion that re-striking would reprice accounts (TRD §10's fifteen
-    cost points). That exposure is named in `ex_tts_cost_inr_per_min_at`'s docstring rather
-    than silently absorbed, and this test is what makes the split visible.
+    not; the LLM leg is dollars but stays at `PLANNING_USD_INR` whatever rate is passed, so
+    a live quote cannot move TRD §10's fifteen cost points. `ex_tts_cost_inr_per_min_at`'s
+    docstring names that split, and this test is what makes it visible.
     """
     at_88 = ex_tts_cost_inr_per_min_at(Decimal("88"))
     at_100 = ex_tts_cost_inr_per_min_at(Decimal("100"))
@@ -713,11 +653,9 @@ def test_a_month_in_which_nothing_was_spoken_still_costs_the_subscription() -> N
     exactly the direction D-556 exists to stop.
     """
     for plan in CARTESIA_PLANS:
-        fee = plan.fee_inr(CARTESIA_EVIDENCE_USD_INR)
-        assert (
-            plan.monthly_inr_for_characters(Decimal("0"), usd_inr=CARTESIA_EVIDENCE_USD_INR) == fee
-        )
-        assert plan.monthly_inr(Decimal("0"), usd_inr=CARTESIA_EVIDENCE_USD_INR) == fee
+        fee = plan.fee_inr(PLANNING_USD_INR)
+        assert plan.monthly_inr_for_characters(Decimal("0"), usd_inr=PLANNING_USD_INR) == fee
+        assert plan.monthly_inr(Decimal("0"), usd_inr=PLANNING_USD_INR) == fee
 
 
 def test_a_negative_count_is_the_bare_fee_and_never_a_credit() -> None:
@@ -730,11 +668,9 @@ def test_a_negative_count_is_the_bare_fee_and_never_a_credit() -> None:
     ever be able to show.
     """
     for plan in CARTESIA_PLANS:
-        fee = plan.fee_inr(CARTESIA_EVIDENCE_USD_INR)
-        assert (
-            plan.monthly_inr_for_characters(Decimal("-1"), usd_inr=CARTESIA_EVIDENCE_USD_INR) == fee
-        )
-        assert plan.monthly_inr(Decimal("-10"), usd_inr=CARTESIA_EVIDENCE_USD_INR) == fee
+        fee = plan.fee_inr(PLANNING_USD_INR)
+        assert plan.monthly_inr_for_characters(Decimal("-1"), usd_inr=PLANNING_USD_INR) == fee
+        assert plan.monthly_inr(Decimal("-10"), usd_inr=PLANNING_USD_INR) == fee
         assert fee > 0
 
 
@@ -749,7 +685,7 @@ def test_a_per_minute_cost_refuses_a_month_with_no_minutes(volume: Decimal) -> N
     """
     for plan in CARTESIA_PLANS:
         with pytest.raises(ValueError, match="positive monthly volume"):
-            plan.tts_inr_per_call_minute(volume, usd_inr=CARTESIA_EVIDENCE_USD_INR)
+            plan.tts_inr_per_call_minute(volume, usd_inr=PLANNING_USD_INR)
 
 
 def test_the_modelled_cartesia_curve_rounds_exactly_once_like_the_measured_one() -> None:
@@ -759,8 +695,8 @@ def test_the_modelled_cartesia_curve_rounds_exactly_once_like_the_measured_one()
     `MONEY_Q` on the way out, so the sum rounded the division to a paisa-tenth and then
     rounded again.
 
-    IT HID AT THE FROZEN RATE AND ONLY APPEARS AT A LIVE ONE. At ₹88 the shared legs are
-    exactly ₹1.6211 — four decimals — so the second quantize is a no-op and the error is
+    IT HID AT THE FROZEN RATE AND ONLY APPEARS AT A LIVE ONE. At ₹95 the shared legs are
+    exactly ₹1.6911 — four decimals — so the second quantize is a no-op and the error is
     zero. `ops/fx_rates.py` stores a published quote at SIX decimals
     (`_RATE_QUANTUM = Decimal(1).scaleb(-6)`), and the founder's decision of 9 Sep 2026 is
     that this curve converts at the live quote. At ₹88.123456 the engine leg is
@@ -798,7 +734,7 @@ def test_the_thinnest_floors_are_the_vendor_minutes_plus_the_top_up_fee() -> Non
     not the whole of it (their stack hears and answers the call). VENDOR-STATED minute rates,
     evaluation §10 item 7."""
     from apps.api.billing.rates import (
-        CARTESIA_EVIDENCE_USD_INR,
+        PLANNING_USD_INR,
         THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN,
         THINNEST_OWN_VOICE_INR_PER_MIN,
         THINNEST_STUDIO_BAND_INR_PER_MIN,
@@ -819,7 +755,7 @@ def test_the_thinnest_floors_are_the_vendor_minutes_plus_the_top_up_fee() -> Non
     assert cost_floor_inr_per_min("clear", engine="thinnest", clear_band="premium") == Decimal(
         "2.5590"
     )
-    tts = _worst_marginal_tts(CARTESIA_EVIDENCE_USD_INR)
+    tts = _worst_marginal_tts(PLANNING_USD_INR)
     assert (Decimal("1.5354") + tts).quantize(
         Decimal("0.0001")
     ) == THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN
@@ -831,7 +767,7 @@ def test_the_thinnest_floors_are_the_vendor_minutes_plus_the_top_up_fee() -> Non
     assert abs(
         THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN
         - CARTESIA_COST_FLOOR_INR_PER_MIN
-        + ex_tts_cost_inr_per_min_at(CARTESIA_EVIDENCE_USD_INR)
+        + ex_tts_cost_inr_per_min_at(PLANNING_USD_INR)
         - Decimal("1.5354")
     ) <= Decimal("0.0002")
 

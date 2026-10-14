@@ -305,14 +305,12 @@ describe("§5.7 defect 8 — the client's password bounds are the hasher's", () 
    * The PER-REALM floors, read out of `apps/api/authn/policy.py`, which is the module
    * that enforces them (`credentials.set_password` calls it before it hashes).
    *
-   * This is the same defect as §5.7 defect 8 one level up, and it is the reason this
-   * block no longer pins `MIN_PASSWORD_CHARS` to `hashing.py`. NIST SP 800-63B-4
-   * §3.1.1.2 requires 15 characters for a single-factor password and permits fewer only
-   * under MFA, so the client and admin realms have different floors. A single client
-   * constant of 12 shown on the client-realm form would advertise a bound looser than the
-   * server's — a person types twelve characters, the form says fine, the submit is
-   * refused. `hashing.MIN_PASSWORD_CHARS` is now only the absolute KDF-side bound, which
-   * is what `MIN_PASSWORD_CHARS` here mirrors.
+   * The same defect as §5.7 defect 8 one level up: a form advertising a floor looser than
+   * the server's tells a person their password is fine and then the submit is refused.
+   * The floor is read per realm because the API keeps a per-realm seam
+   * (`policy.min_password_chars`), even though both realms are 8 today (D-765).
+   * `hashing.MIN_PASSWORD_CHARS` is only the absolute KDF-side bound, which is what
+   * `MIN_PASSWORD_CHARS` here mirrors.
    */
   const policy = readFileSync(
     join(process.cwd(), "..", "..", "apps", "api", "authn", "policy.py"),
@@ -325,8 +323,8 @@ describe("§5.7 defect 8 — the client's password bounds are the hasher's", () 
     expect(body, "MIN_CHARS_BY_REALM not found in apps/api/authn/policy.py").not.toBeNull();
     const floors: Record<string, number> = {};
     for (const [, realm, value] of body![1].matchAll(/"(\w+)"\s*:\s*(\w+)/g)) {
-      // `SINGLE_FACTOR_MIN_CHARS` is spelled as a name in the table; resolve it the same
-      // way, so the indirection the API uses to say WHY 15 does not defeat this check.
+      // The table spells its value as a named constant (`PASSWORD_MIN_CHARS`); resolve it
+      // so the indirection does not defeat this check.
       const literal = /^\d+$/.test(value)
         ? Number(value)
         : Number(new RegExp(`^${value}:[^=]*=\\s*(\\d+)`, "m").exec(policy)?.[1]);
@@ -338,14 +336,6 @@ describe("§5.7 defect 8 — the client's password bounds are the hasher's", () 
 
   it("every realm's floor matches the API's own table", () => {
     expect(MIN_PASSWORD_CHARS_BY_REALM).toEqual(serverFloors());
-  });
-
-  it("the client realm is at least 15, because its password is single-factor", () => {
-    // NIST SP 800-63B-4 §3.1.1.2: a password "used as a single-factor authentication
-    // mechanism" SHALL be a minimum of 15 characters. `service.MFA_REQUIRED_REALMS` is
-    // `{"admin"}`, so the client realm is that case. The API-side test derives this from
-    // that set; here it is pinned as a number because the web app cannot read it.
-    expect(MIN_PASSWORD_CHARS_BY_REALM.client).toBeGreaterThanOrEqual(15);
   });
 
   it("MIN_PASSWORD_CHARS is the absolute floor the hasher applies", () => {

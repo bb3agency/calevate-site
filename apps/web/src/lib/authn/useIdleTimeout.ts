@@ -5,17 +5,19 @@
  *
  * ## Why the browser has to own this at all, when the server already enforces an idle bound
  *
- * `apps/api/authn/sessions.py` gives the admin realm a 30-minute idle timeout and slides
+ * `apps/api/authn/sessions.py` gives the admin realm an idle timeout (30 minutes, or 12
+ * hours for an operator with "Stay signed in" on, D-766) and slides
  * `last_seen_at` on every verified request (`IDLE_WRITE_FLOOR`). The console polls — the
  * dashboard every twenty seconds, and `client.ts` calls a tab left open "the normal case,
  * not an edge". **So the server's idle bound essentially never fires while a tab is
  * open**: the polling keeps sliding it. An operator who walks away from an unlocked laptop
  * has a live admin session for as long as the tab lives, which is precisely the risk the
- * 30 minutes was chosen against.
+ * idle bound was chosen against.
  *
  * This hook is what makes the server's number mean what it says. It measures HUMAN
- * activity rather than HTTP activity, and its bound is the same 30 minutes — 25 to the
- * warning, 5 more to the sign-out — so the console ends a session at the moment the server
+ * activity rather than HTTP activity, and its bound is the server's own, read off the session
+ * (`adminIdleTimeoutModal.tsx`) — the warning five minutes before it,
+ * the sign-out on it — so the console ends a session at the moment the server
  * would have if nothing had been polling on the absent operator's behalf.
  *
  * ## Two timers, cleared every way out

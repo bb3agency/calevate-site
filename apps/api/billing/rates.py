@@ -356,41 +356,30 @@ def assert_rate_is_meterable(rate: Decimal, *, subject: str, unit: str) -> Decim
 # choosing) and deliberately do not pretend to meter a call. The DASHBOARD leg is
 # different and is metered for real — `billing/ai_quota.py` prices it from this table.
 
-#: The USD/INR rate every published vendor list price in this repository is struck at.
-#: RBI reference, 16 Aug 2026.
+#: ₹95 = US$1.00: the ONE rate every frozen USD→INR conversion in this repository is struck
+#: at — vendor LLM list prices, the engine fee in the per-minute cost model, and the Cartesia
+#: plan fees and overage in the Studio floors and the refusal bound (D-768).
 #:
-#: ⚠ **EVIDENCE CLASS: REPORTED, NOT READ, AND IT REACHES `unit_cost_paid`.** No session can
-#: re-fetch it: `www.rbi.org.in` is refused by this container's egress proxy on CONNECT (the
-#: same measurement `apps/workers/fx_pull.py` records for every FX host it tried). So this is
-#: a figure a past session wrote down, and hard rule 11 is explicit that a value already in
-#: this repo is not evidence of itself. It is called out HERE rather than left implied
-#: because of where it ends up: `_usd_mtok_to_inr_ktok` converts BOTH the catalogue card and
-#: an operator's attested USD invoice figure, so `llm_inr_per_ktok` — the one door to
-#: `usage_events.unit_cost_paid` for a dashboard assist — is this constant multiplied by an
-#: attested price. Attesting the price does not attest the rate that converts it.
+#: **EVIDENCE CLASS: FOUNDER DECISION, NOT A MARKET READING** (founder, 14 Oct 2026). It is a
+#: planning rate set deliberately at or above the market so the dollar legs of every margin are
+#: priced conservatively; it is not a quote from RBI, FBIL or anyone else, and must not be
+#: described as one. One rate rather than one per card, so a floor that sums a dollar engine
+#: fee with dollar TTS is not secretly a comparison of two exchange rates.
 #:
-#: WHAT THAT COSTS AND WHAT IT DOES NOT. It cannot mis-bill a CLIENT for calling: nothing on
-#: the invoice is priced from it (`usage_summary` prices minutes at the plan's own rupee
-#: rate). What it does move is money WE absorb and the rupee allowance the client is measured
-#: against — a rate that has drifted 5% makes every assist read 5% cheap or dear against
-#: `AI_QUOTA_INR`, in the same direction for every tenant, silently.
+#: It reaches `usage_events.unit_cost_paid` for a dashboard assist: `_usd_mtok_to_inr_ktok`
+#: converts both the catalogue card and an operator's attested USD invoice figure, so
+#: `llm_inr_per_ktok` is this constant times an attested price. It cannot mis-bill a client for
+#: calling (`usage_summary` prices minutes at the plan's own rupee rate); what it moves is money
+#: we absorb and the rupee allowance (`AI_QUOTA_INR`) an assist is measured against.
 #:
-#: WHAT CLOSES IT, and it is not a live read: the FX store this repository already runs
-#: (`ops/fx_rates`, the FBIL reference now pulled from FBIL itself per D-609,
-#: plausibility-banded and age-bounded) holds a
-#: rate an operator can quote, so the fix is an OPERATOR-ATTESTED strike rate beside the
-#: attested prices — the same seam, one more field — decided by the founder, since which
-#: instant a list price is struck at is a pricing decision and not a refactor. Deliberately
-#: NOT `Settings.usd_inr_rate` and NOT the live quote, for the reason directly below.
-#:
-#: NOT `Settings.usd_inr_rate`, and the distinction is why this is a named constant. That
-#: field is the rate a CALL's engine cost is converted at, stamped into `usage_events
-#: .meta` at capture so a ledger row can always be re-derived. This
-#: is the rate a LIST PRICE was quoted at — an input to a cost model and to an estimate
-#: on a screen, never to a charge. Reading the live field here would make every "about N
-#: assists" figure and every §10 margin move with an ops console, which is the opposite
-#: of a number a person can plan around.
-LIST_PRICE_USD_INR: Final = Decimal("95.66")
+#: NOT `Settings.usd_inr_rate` and NOT the live quote (`core/fx.usd_inr_rate_now`). Those
+#: convert a CALL's engine cost at capture and are stamped into `usage_events.meta`; this is
+#: the rate a price is planned at. Reading the live rate here would make every "about N
+#: assists" figure, every TRD §10 margin and the card's refusal bound move with a currency
+#: feed — a card recordable today and refused tomorrow on an FX tick alone, which is the
+#: opposite of a number a person can plan around. Live-rate figures are published beside the
+#: card instead (`cartesia_cost_floor_inr_per_min_at(<published quote>)`).
+PLANNING_USD_INR: Final[Decimal] = Decimal("95")
 
 
 def usd_mtok_to_inr_ktok_exact(usd_per_mtok: Decimal) -> Decimal:
@@ -403,13 +392,13 @@ def usd_mtok_to_inr_ktok_exact(usd_per_mtok: Decimal) -> Decimal:
     exchange rate or the unit to drift, which is the defect the one-conversion rule in
     `_usd_mtok_to_inr_ktok`'s own docstring exists to prevent.
     """
-    return usd_per_mtok * LIST_PRICE_USD_INR / Decimal("1000")
+    return usd_per_mtok * PLANNING_USD_INR / Decimal("1000")
 
 
 def _usd_mtok_to_inr_ktok(
     *, input_usd: Decimal, output_usd: Decimal | None
 ) -> Mapping[str, Decimal]:
-    """USD per MILLION tokens -> `{"in": ₹, "out": ₹}` per THOUSAND, at `LIST_PRICE_USD_INR`.
+    """USD per MILLION tokens -> `{"in": ₹, "out": ₹}` per THOUSAND, at `PLANNING_USD_INR`.
 
     `output_usd=None` — a model the vendor bills no output leg for, which is every EMBEDDING
     model (D-608) — renders `"out"` as an exact quantized ZERO rather than omitting the key.
@@ -533,7 +522,7 @@ def llm_reference_inr_per_ktok(model: str) -> Mapping[str, Decimal]:
 # force it into the existing table:
 #
 # * Sarvam publishes and bills in INR. `LlmPrice` and `LlmPriceAttestation` are USD per
-#   million tokens by construction, converted once at `LIST_PRICE_USD_INR`; feeding this
+#   million tokens by construction, converted once at `PLANNING_USD_INR`; feeding this
 #   card through them would mean inventing a dollar figure nobody ever read and then
 #   converting it back, so the rupee a client is reasoned about would move with an fx rate
 #   that has nothing to do with the invoice.
@@ -1018,13 +1007,24 @@ def llm_cost_inr_per_minute(minutes: int, *, model: str) -> Decimal:
 
     Rounded ONCE, at the end. Quantizing per turn would round 6·N times and drift.
     """
+    return _reference_call_inr_per_minute(
+        minutes, model=model, prompt_tokens=REFERENCE_CALL["prompt_tokens"]
+    )
+
+
+def _reference_call_inr_per_minute(minutes: int, *, model: str, prompt_tokens: int) -> Decimal:
+    """`REFERENCE_CALL` priced with `prompt_tokens` in place of its own prompt: the one
+    arithmetic behind TRD §10.1's rows (at the reference prompt) and the own-model floor (at
+    our real prompt size, `own_model_floor_inr_per_min`)."""
     if minutes < 1:
         raise ValueError("a reference call is at least one minute")
+    if prompt_tokens < 0:
+        raise ValueError("a prompt cannot have fewer than zero tokens")
     price = llm_reference_inr_per_ktok(model)
     turns = minutes * REFERENCE_CALL["turns_per_minute"]
     # Turn k carries the prompt plus everything said before it (k-1 exchanges), so the
     # sum over the call is `turns * prompt + turn_tokens * (0 + 1 + … + turns-1)`.
-    input_tokens = REFERENCE_CALL["prompt_tokens"] * turns + REFERENCE_CALL["turn_tokens"] * (
+    input_tokens = prompt_tokens * turns + REFERENCE_CALL["turn_tokens"] * (
         turns * (turns - 1) // 2
     )
     output_tokens = REFERENCE_CALL["output_tokens_per_turn"] * turns
@@ -1113,7 +1113,7 @@ _SECONDS_PER_MINUTE: Final[Decimal] = _SECONDS_PER_HOUR / _MINUTES_PER_HOUR
 #                               the container that runs one conversation, recorded with
 #                               its citation at `docs/evidence/
 #                               engine-replacement-comet-2026-09-06.md:93,103,122` (the
-#                               vendor page shows NO date), at the ₹95/$ this section uses.
+#                               vendor page shows NO date), at `PLANNING_USD_INR` (₹95/$, D-768).
 #                               ⚠ **RESERVED CAPACITY IS NOT IN THIS ROW AND MUST NOT
 #                               BE.** The same page prices a warm instance at
 #                               $0.0005/min whether or not a call is on it —
@@ -1164,30 +1164,14 @@ ENGINE_PLATFORM_FEE_USD_PER_MIN: Final[Decimal] = Decimal("0.01")
 #: session per instance (same citation as the leg table's engine row). **DELIBERATELY NOT
 #: SUMMED INTO ANY FLOOR**: it is a fixed cost of standing up the platform, like the VPS,
 #: and converting it to ₹/min needs a utilisation figure nobody has measured. One warm slot
-#: is $21.60/month (43,200 min), ₹2,052 at `COST_MODEL_USD_INR`. Carried here so the runway
+#: is $21.60/month (43,200 min), ₹2,052 at `PLANNING_USD_INR`. Carried here so the runway
 #: and the capacity plan have one place to read it instead of re-deriving it each time.
 ENGINE_RESERVED_INSTANCE_USD_PER_MIN: Final[Decimal] = Decimal("0.0005")
-
-#: The conversion the whole per-minute cost model is struck at: ₹95 = US$1.00, the rate the
-#: founder states is current (14 Sep 2026). Kept as one constant so a floor comparison is
-#: not secretly a comparison of two exchange rates. NOT `LIST_PRICE_USD_INR` (₹95.66, the
-#: LLM card's own strike, which is a fact about a different card and must not be collapsed
-#: into this one even now that the two nearly agree — re-striking that card reprices every
-#: account, TRD §10's fifteen cost points included).
-#:
-#: ⚠ **THIS WAS ₹88, AND THE MOVE BROKE AN ALIAS THAT USED TO BE FREE.**
-#: `CARTESIA_EVIDENCE_USD_INR` was defined as this constant, on the ground that the two
-#: happened to agree; they no longer do, because that one is a fact about what a DOCUMENT
-#: states and this one is a rate that moves. Its own comment named this line as the one
-#: that would move, and this is it. Nothing else aliases this constant.
-COST_MODEL_USD_INR: Final[Decimal] = Decimal("95")
 
 #: ₹0.95 — DERIVED, so a conversion change and a fee change are distinguishable. Written as
 #: a rupee literal until D-547; the vendor states dollars, and restating their number in our
 #: currency was a place a re-read could not land.
-ENGINE_PLATFORM_FEE_INR_PER_MIN: Final[Decimal] = (
-    ENGINE_PLATFORM_FEE_USD_PER_MIN * COST_MODEL_USD_INR
-)
+ENGINE_PLATFORM_FEE_INR_PER_MIN: Final[Decimal] = ENGINE_PLATFORM_FEE_USD_PER_MIN * PLANNING_USD_INR
 
 #: The reference call length the LLM leg is priced at inside a cost floor: the longest of
 #: the three points TRD §10.1 publishes (1 / 5 / 10 min), because that curve rises with
@@ -1339,7 +1323,7 @@ def clear_cost_floor_inr_per_min_at(basis: SpeakingRateBasis) -> Decimal:
 
     NO FX ARGUMENT, deliberately, and it is the same freeze `SELF_SERVE_COST_FLOOR_INR_PER_
     MIN` has always carried: this voice's own leg is priced per character in RUPEES, and the
-    engine fee it shares with the other voice is struck at `COST_MODEL_USD_INR`. Exactly ONE
+    engine fee it shares with the other voice is struck at `PLANNING_USD_INR`. Exactly ONE
     input to this figure moves — the speaking rate — which is what makes a change in it
     readable as the measurement landing rather than as a currency tick.
     """
@@ -1456,26 +1440,6 @@ SELF_SERVE_COST_FLOOR_INR_PER_MIN: Final[Decimal] = clear_cost_floor_at(
 # So the plan actually bought is settled by OPERATIONS §2 gate 53's load test, not by this
 # module, and every surface that renders the ladder says so.
 
-#: The USD→INR conversion the CARTESIA leg is struck at: ₹88, the rate
-#: `docs/evidence/cartesia-tts-verification-2026-09-06.md` states at every line. It was an
-#: alias of `COST_MODEL_USD_INR` while the two agreed, and its own comment named this line
-#: as the one that moves when they diverge. D-592 moved the cost model to ₹95; this did not
-#: move, because it is the rate a READING was struck at and that reading did not change.
-#:
-#: ⚠ **SO THE STUDIO FLOOR IS STRUCK WHOLLY AT 88 WHILE THE CLEAR FLOOR'S ENGINE LEG IS AT 95.**
-#: `CARTESIA_COST_FLOOR_INR_PER_MIN` passes this rate to `cartesia_cost_floor_inr_per_min_at`,
-#: which converts BOTH the dollar engine fee (`ex_tts_cost_inr_per_min_at`) and the Cartesia
-#: overage at it; `clear_cost_floor_inr_per_min_at` converts the same engine fee at
-#: `COST_MODEL_USD_INR`. The two floors therefore disagree on one shared leg, which is the
-#: thing the alias existed to prevent. It is deliberate and it is BOUNDED rather than
-#: tolerated: `tests/cost_floor_test.py::test_the_cartesia_floor_holds_at_the_llm_cards_
-#: conversion_too` already computes the whole floor at a single higher rate and shows the
-#: card clears that too, which is the property the single-rate alias was protecting. The
-#: honest close is to RE-READ Cartesia's pricing at the current rate and move this constant
-#: with a fresh citation — not to restate the evidence file as saying ₹95, which it does
-#: not, and not to freeze the cost model at a rate the founder says is stale.
-CARTESIA_EVIDENCE_USD_INR: Final[Decimal] = Decimal("88")
-
 #: One million credits — the unit the vendor quotes an overage rate in. Named because the
 #: per-character conversion below divides by it and a bare `1000000` in that expression is
 #: the kind of literal that gets mistaken for a character count.
@@ -1549,8 +1513,8 @@ class CartesiaPlan:
         9 Sep 2026). Cartesia bills in dollars, so what this leg costs us moves with the
         rupee, and a hidden default is how a frozen number ends up on a screen headed
         "COSTS US" — the exact defect this file was rewritten for. Callers name the rate
-        and therefore name its provenance: `CARTESIA_EVIDENCE_USD_INR` to reproduce the
-        evidence file's own arithmetic, or the live published quote
+        and therefore name its provenance: `PLANNING_USD_INR` for the planning figures and
+        the refusal bound (D-768), or the live published quote
         (`core/fx.usd_inr_rate_now`) for anything an operator reads as today's cost.
         """
         return self.fee_usd * usd_inr
@@ -1559,7 +1523,7 @@ class CartesiaPlan:
         """What one character past the allotment costs, in rupees, EXACT and unquantized.
 
         Quantizing here would round a figure with four significant digits below the paisa
-        (₹0.00572 at ₹88) to zero at `MONEY_Q` and make every overage free. It is a rate
+        (₹0.006175 at ₹95) to zero at `MONEY_Q` and make every overage free. It is a rate
         that gets multiplied by hundreds of thousands, so it stays exact until the product
         is taken.
         """
@@ -1616,8 +1580,8 @@ class CartesiaPlan:
         """What this plan costs for a whole month of `call_minutes`, rupees, EXACT.
 
         The fee is paid whether or not the allotment is spoken, which is the whole reason
-        this takes a volume: at 100 call-minutes a month Pro's ₹440 is ₹4.40 a minute and
-        Startup's ₹4,312 is ₹43.12.
+        this takes a volume: at 100 call-minutes a month Pro's ₹475 is ₹4.75 a minute and
+        Startup's ₹4,655 is ₹46.55.
 
         ⚠ **THIS CONVERTS MINUTES TO CHARACTERS AT THE UNMEASURED WORST-CASE SPEAKING RATE**
         (`TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]`, 540 — pilot gate 12). That is right for
@@ -1643,7 +1607,7 @@ class CartesiaPlan:
         `cartesia_cost_inr_per_call_minute` took the quantized twin below and quantized the
         sum again, which is a different answer from rounding once and is the defect
         `docs/BUILD-LOG.md` records against an invoice line. It hid at
-        `CARTESIA_EVIDENCE_USD_INR`, where the shared legs land exactly on `MONEY_Q` and the
+        `PLANNING_USD_INR`, where the shared legs land exactly on `MONEY_Q` and the
         second rounding cannot bite; `ops/fx_rates.py` stores a published quote at SIX
         decimals, and the founder's decision of 9 Sep 2026 puts that quote on this curve.
 
@@ -1714,13 +1678,11 @@ def ex_tts_cost_inr_per_min_at(usd_inr: Decimal) -> Decimal:
     ⚠ **ONLY THE ENGINE FEE MOVES WITH THE RATE, AND THE OTHER TWO ARE NOT AN OVERSIGHT.**
     The engine's platform fee is published in dollars ($0.01/min) and is genuinely
     FX-sensitive. Sarvam STT is priced in rupees, so there is nothing to convert. The LLM
-    leg is dollars — and it is struck at `LIST_PRICE_USD_INR`, a DIFFERENT card with its own
-    frozen conversion, deliberately frozen because `BASE_RATE_LLM_MODEL` is the model our
-    plan rate is struck against and re-striking it would move fifteen cost points in
-    TRD §10 and reprice accounts. Moving it here to make one screen tidier would be a
-    pricing change smuggled in as a display fix. It is ₹0.2411 of either floor; the
-    exposure is named rather than silently absorbed, and closing it is a pricing decision
-    with its own decision-log row, not this one.
+    leg is dollars but stays at `PLANNING_USD_INR` whatever `usd_inr` is passed:
+    `BASE_RATE_LLM_MODEL` is the model our plan rate is struck against, and converting it
+    at a live quote would move TRD §10's fifteen cost points with a currency feed. It is
+    ₹0.2411 of either floor, so at a live rate the gap between the two conversions is a
+    fraction of a paisa per point of FX.
     """
     return (
         ENGINE_PLATFORM_FEE_USD_PER_MIN * usd_inr
@@ -1772,7 +1734,7 @@ def cartesia_cost_inr_per_call_minute(call_minutes: Decimal, *, usd_inr: Decimal
 
     The three shared legs plus the TTS leg at that volume on the cheapest plan. This is the
     number the ops console must print under a heading that says "costs us", and it is a
-    CURVE: at ₹88 it is ₹6.02 at 100 call-minutes a month, ₹4.05 at 200 and ₹4.58 at 1,000.
+    CURVE: at ₹95 it is ₹6.44 at 100 call-minutes a month, ₹4.31 at 200 and ₹4.88 at 1,000.
     It is not monotonic, because the cheapest plan changes underneath it.
 
     Quantized ONCE, here, after the legs are summed exactly.
@@ -1801,15 +1763,15 @@ def cartesia_plan_marginal_cost_inr_per_min(plan: CartesiaPlan, *, usd_inr: Deci
 def cartesia_cost_floor_inr_per_min_at(usd_inr: Decimal) -> Decimal:
     """**THE CARTESIA COST FLOOR AT A NAMED USD→INR RATE** — the worst marginal cost.
 
-    ₹4.7099 at ₹88, ₹5.0554 at ₹95.66, ₹5.2511 at ₹100. The founder's second decision of
+    ₹5.0256 at ₹95 (`PLANNING_USD_INR`), ₹5.2511 at ₹100. The founder's second decision of
     9 Sep 2026 lives here: Cartesia bills in dollars, this repository already pulls and
     publishes USD→INR every five minutes (`ops/fx_rates.py` → `core/fx.usd_inr_rate_now`),
     and a cost we actually pay in dollars must move with the rupee.
 
     This is the pure OVERAGE marginal rate and applies only ABOVE the included allotment,
     so it is the worst case rather than what a typical month costs; the BLENDED figure is
-    `cartesia_cost_inr_per_call_minute`, and both belong on the console. The ₹5.50 max rung
-    clears cost against it (14.4% at ₹88, under the 20% target; D-601 cut it deliberately).
+    `cartesia_cost_inr_per_call_minute`, and both belong on the console. The ₹6.00 Studio rate
+    (D-728) clears cost against it by 16.2% at ₹95, under the 20% target.
 
     **THIS IS NOT THE REFUSAL THRESHOLD** — see `CARTESIA_COST_FLOOR_INR_PER_MIN`.
     """
@@ -1819,7 +1781,7 @@ def cartesia_cost_floor_inr_per_min_at(usd_inr: Decimal) -> Decimal:
 
 
 def cartesia_best_marginal_cost_inr_per_min(usd_inr: Decimal) -> Decimal:
-    """The CHEAPEST marginal cost any volume can reach, at a named rate — ₹3.7595 at ₹88.
+    """The CHEAPEST marginal cost any volume can reach, at a named rate — ₹3.9996 at ₹95.
 
     A retail rate at or below this loses money on every additional minute at every volume,
     which is why `cartesia_rung_breakeven_call_minutes` returns a stated absence for it
@@ -1942,8 +1904,8 @@ def cartesia_rung_breakeven_call_minutes(
 
     The founder's decision of 9 Sep 2026 in one function: a margin is judged at ACTUAL
     volume, so every rung on the card has a volume below which it is underwater, and the
-    console has to print it. At ₹88 and ₹6.00/min that volume is 126 call-minutes a month;
-    at ₹8.00 it is 81.
+    console has to print it. At ₹95 and ₹6.00/min that volume is 111 call-minutes a month;
+    at ₹8.00 it is 76.
 
     **"AND STAYS THAT WAY" IS LOAD-BEARING, NOT A FLOURISH.** The cost curve is not
     monotonic — it falls while a plan's allotment amortises and rises once the plan is into
@@ -1989,10 +1951,9 @@ def cartesia_rung_breakeven_call_minutes(
     return last_underwater + 1
 
 
-#: **THE FROZEN STRUCTURAL BOUND `credit_packs.card_refusals` REFUSES BELOW**, struck at the
-#: evidence file's ₹88 = $1: the shared legs (₹1.6211 — the engine leg inside them is
-#: dollar-priced, so they are ₹1.6911 at the cost model's own ₹95) plus the worst marginal
-#: TTS cost (₹3.0888) = **₹4.7099/min**.
+#: **THE FROZEN STRUCTURAL BOUND `credit_packs.card_refusals` REFUSES BELOW**, struck at
+#: `PLANNING_USD_INR` (₹95 = $1, D-768): the shared legs (₹1.6911) plus the worst marginal
+#: TTS cost (₹3.3345) = **₹5.0256/min**.
 #:
 #: ⚠ **THIS USED TO BE ₹4.3639 AND THAT NUMBER WAS A BEST CASE WEARING A FLOOR'S NAME.** It
 #: was the $49 Startup fee spread over the 2,315 call-minutes at which its allotment is
@@ -2008,49 +1969,44 @@ def cartesia_rung_breakeven_call_minutes(
 #: nobody has measured. Taking the WORST of the plans' marginal rates makes it the figure
 #: that holds on Pro, the plan the founder chose and the dearer of the two at the margin.
 #:
-#: **WHY IT IS FROZEN AT ₹88 WHEN THE FOUNDER DECIDED THE FLOOR CONVERTS AT THE LIVE RATE.**
+#: **WHY IT IS FROZEN WHEN THE FOUNDER DECIDED THE FLOOR CONVERTS AT THE LIVE RATE.**
 #: Both decisions of 9 Sep 2026 are honoured, in the two places they belong. This constant
 #: is the REFUSAL, and a refusal that moves with a currency feed would make a card
-#: recordable today and refused tomorrow on an FX tick alone — at ₹95.66 the live floor is
-#: ₹5.0554, and while the engine leg was $0.02 it was ₹6.0120, above the founder's own
-#: ₹6.00 max rung, so an operator re-recording today's live card would have been told the
-#: card that is currently on sale may not be sold. That
-#: is the outcome the founder ruled out ("the rate card does not change"), so the hard veto
-#: stays on this fixed bound and the LIVE figure —
+#: recordable today and refused tomorrow on an FX tick alone — the outcome the founder
+#: ruled out ("the rate card does not change"). So the hard veto stays on this fixed bound,
+#: struck at the founder's planning rate, and the LIVE figure —
 #: `cartesia_cost_floor_inr_per_min_at(<published quote>)` — is published loudly beside the
 #: card with the rate and the instant it was struck at. A frozen refusal plus a live warning
 #: is deliberate; a live refusal is a pricing decision made by a currency feed.
 #:
 #: **IT IS NOT A LOWER BOUND ON COST AT EVERY VOLUME, AND MUST NOT BE DESCRIBED AS ONE.**
-#: Below ~150 call-minutes a month the real cost is HIGHER (₹6.02 at 100), because the
+#: Below ~150 call-minutes a month the real cost is HIGHER (₹6.44 at 100), because the
 #: subscription is paid whether or not it is spoken; above Startup's crossover the real
-#: marginal cost is lower (₹3.7595 all-in).
+#: marginal cost is lower (₹3.9996 all-in).
 #:
 #: EVIDENCE CLASS: VENDOR-PUBLISHED for the plan inputs (Tinmaz correspondence, 9 Sep 2026)
 #: over VERIFIED-VENDOR-DOCS for the engine fee, with the SPEAKING RATE (540 chars per
 #: call-minute, unmeasured — pilot gate 12) still the weakest input in the sum. Reaches no
 #: bill (hard rule 7).
 CARTESIA_COST_FLOOR_INR_PER_MIN: Final[Decimal] = cartesia_cost_floor_inr_per_min_at(
-    CARTESIA_EVIDENCE_USD_INR
+    PLANNING_USD_INR
 )
 
-#: The BEST marginal cost at the frozen rate: ₹3.7595/min all-in (Startup's $45/1M).
+#: The BEST marginal cost at the frozen rate: ₹3.9996/min all-in (Startup's $45/1M).
 #: `cartesia_best_marginal_cost_inr_per_min` is the same quantity at a live rate.
 CARTESIA_BEST_MARGINAL_COST_INR_PER_MIN: Final[Decimal] = cartesia_best_marginal_cost_inr_per_min(
-    CARTESIA_EVIDENCE_USD_INR
+    PLANNING_USD_INR
 )
 
 #: The WORST marginal TTS price per 10,000 characters at the frozen rate — Pro's $65/1M at
-#: ₹88, ₹57.20. In the Sarvam rung's own unit (`TTS_INR_PER_10K_CHARS`) so TRD §10.1 can
+#: ₹95, ₹61.75. In the Sarvam rung's own unit (`TTS_INR_PER_10K_CHARS`) so TRD §10.1 can
 #: state the two side by side and `check_docs_drift` §4b can diff them on both rungs, and it
 #: is the MARGINAL rate rather than the old fee-over-allotment average for the floor's
 #: reason: a per-character average is true at exactly one volume, a marginal rate is true at
 #: every volume past the allotment. It is what `ops/model_pricing.reference_tts_price`
 #: pre-fills the attestation form with, GREYED and never billable (hard rule 7).
 CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS: Final[Decimal] = (
-    _worst_marginal_tts(CARTESIA_EVIDENCE_USD_INR)
-    / TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]
-    * _CHARS_UNIT
+    _worst_marginal_tts(PLANNING_USD_INR) / TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1] * _CHARS_UNIT
 )
 
 #: The volumes the ops console prints the cost curve at, in call-minutes a month,
@@ -2258,6 +2214,16 @@ THINNEST_PREMIUM_BAND_INR_PER_MIN: Final[Decimal] = Decimal("2.50")
 #: `byok_voice` rate.
 THINNEST_OWN_VOICE_INR_PER_MIN: Final[Decimal] = Decimal("1.50")
 
+#: ThinnestAI's own-voice-and-own-model minute (BYOK scope `llm_voice`), their speech-to-text
+#: and phone line included: VENDOR-PUBLISHED, `thinnest-findings/mirror/snapshots/2026-10-13/
+#: pages/api-reference/bring-your-own-keys.md:18-20,26-29`. A floor input only; the billed
+#: cost is the attested `byok_llm_voice` rate (D-764).
+THINNEST_OWN_VOICE_AND_MODEL_INR_PER_MIN: Final[Decimal] = Decimal("1.00")
+
+#: The call length our own model's floor half is quoted at: the same reference call
+#: `agents/llm_models.QUOTED_CALL_MINUTES` quotes a model's per-minute cost at.
+OWN_MODEL_FLOOR_CALL_MINUTES: Final = 5
+
 #: ThinnestAI's wallet top-up fee, as a fraction, on every plan: VENDOR-STATED, ThinnestAI
 #: email of 12 Oct 2026, "Top-ups carry only the payment gateway's charge, 2.36% in INR, the
 #: same for everyone". It replaces the console reading of 6 Oct (10% pay-as-you-go, 9% Pro,
@@ -2285,12 +2251,43 @@ THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN: Final[Decimal] = THINNEST_CLEAR_COST_FLOO
 #: (the same TTS half `CARTESIA_COST_FLOOR_INR_PER_MIN` carries). Derived.
 THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN: Final[Decimal] = (
     THINNEST_OWN_VOICE_INR_PER_MIN * (Decimal("1") + THINNEST_TOPUP_FEE)
-    + _worst_marginal_tts(CARTESIA_EVIDENCE_USD_INR)
+    + _worst_marginal_tts(PLANNING_USD_INR)
 ).quantize(MONEY_Q, rounding=ROUNDING)
 
 
+def own_model_floor_inr_per_min(model: str, *, prompt_tokens: int | None = None) -> Decimal:
+    """Our own model's cost per call-minute: the reference call at the model's catalogue
+    price, but with OUR prompt size rather than `REFERENCE_CALL`'s 900 tokens, which every
+    composed engine prompt exceeds (D-764). The model half of a floor on our model; a margin
+    guard, never a price. What a call costs is metered from its tokens.
+
+    `prompt_tokens` is the size `billing/own_model_prompt.floor_prompt_basis` resolves
+    (measured calls, else the largest published prompt); without one, the engine's prompt
+    ceiling (`own_model_prompt.CEILING_PROMPT_TOKENS`), the most any agent can send."""
+    if prompt_tokens is None:
+        from apps.api.billing.own_model_prompt import CEILING_PROMPT_TOKENS
+
+        prompt_tokens = CEILING_PROMPT_TOKENS
+    return _reference_call_inr_per_minute(
+        OWN_MODEL_FLOOR_CALL_MINUTES, model=model, prompt_tokens=prompt_tokens
+    )
+
+
+def _thinnest_own_model() -> str | None:
+    """The model a ThinnestAI floor adds while our own model is switched on, else None."""
+    from apps.api.core.settings import get_settings
+
+    settings = get_settings()
+    return settings.thinnest_own_model_default if settings.thinnest_own_model else None
+
+
 def cost_floor_inr_per_min(
-    voice: VoiceTier, *, engine: str | None = None, clear_band: str | None = None
+    voice: VoiceTier,
+    *,
+    engine: str | None = None,
+    clear_band: str | None = None,
+    own_model: str | None = None,
+    own_model_prompt_tokens: int | None = None,
 ) -> Decimal:
     """THE ONE DOOR to a per-minute cost floor, by the TIER's name and the ENGINE's.
 
@@ -2305,7 +2302,11 @@ def cost_floor_inr_per_min(
     cost-model input that no minute is metered at.
 
     On ThinnestAI the Clear floor follows the band Clear is sold on: `clear_band`, or when
-    omitted `Settings.thinnest_clear_voice_band` (D-688).
+    omitted `Settings.thinnest_clear_voice_band` (D-688). While our own model is switched on
+    (`Settings.thinnest_own_model`, D-764) both floors add that model's cost per minute
+    (`own_model`, or when omitted the console default), and the Studio minute is the
+    own-voice-and-model one. That cost is struck at `own_model_prompt_tokens`, which a caller
+    holding the deployment's prompt basis passes; omitted, it is the engine's prompt ceiling.
     """
     if voice not in (VALUE_VOICE_TIER, PREMIUM_VOICE_TIER):
         raise ValueError(f"no cost floor for voice tier {voice!r}")
@@ -2315,13 +2316,24 @@ def cost_floor_inr_per_min(
         else CARTESIA_COST_FLOOR_INR_PER_MIN
     )
     if engine == "thinnest":
+        model = own_model or _thinnest_own_model()
         if voice != VALUE_VOICE_TIER:
-            return THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN
+            if model is None:
+                return THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN
+            return (
+                THINNEST_OWN_VOICE_AND_MODEL_INR_PER_MIN * (Decimal("1") + THINNEST_TOPUP_FEE)
+                + _worst_marginal_tts(PLANNING_USD_INR)
+                + own_model_floor_inr_per_min(model, prompt_tokens=own_model_prompt_tokens)
+            ).quantize(MONEY_Q, rounding=ROUNDING)
         if clear_band is None:
             from apps.api.core.settings import get_settings
 
             clear_band = get_settings().thinnest_clear_voice_band
-        return THINNEST_CLEAR_COST_FLOOR_BY_BAND[clear_band]
+        floor = THINNEST_CLEAR_COST_FLOOR_BY_BAND[clear_band]
+        if model is None:
+            return floor
+        model_half = own_model_floor_inr_per_min(model, prompt_tokens=own_model_prompt_tokens)
+        return (floor + model_half).quantize(MONEY_Q, rounding=ROUNDING)
     return base
 
 
@@ -2394,7 +2406,7 @@ class RateMargin:
     (D-547) and a verdict that does not say which one it was struck against is a verdict a
     reader has to guess at — the ops console's card preview renders twelve of these side by
     side, six against `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and six against
-    `CARTESIA_COST_FLOOR_INR_PER_MIN` (₹3.1491 and ₹4.7099 — both DERIVED, so quote them
+    `CARTESIA_COST_FLOOR_INR_PER_MIN` (₹3.1491 and ₹5.0256 — both DERIVED, so quote them
     from the constants rather than from here).
     """
 
@@ -2781,7 +2793,6 @@ __all__ = [
     "CARTESIA_BEST_MARGINAL_COST_INR_PER_MIN",
     "CARTESIA_COST_FLOOR_INR_PER_MIN",
     "CARTESIA_CREDITS_PER_CHARACTER",
-    "CARTESIA_EVIDENCE_USD_INR",
     "CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS",
     "CARTESIA_PLANS",
     "CARTESIA_PRO_PLAN",
@@ -2794,7 +2805,6 @@ __all__ = [
     "CLIENT_PULSE_EFFECTIVE_FROM",
     "CLIENT_PULSE_SECONDS",
     "COST_FLOOR_REFERENCE_CALL_MINUTES",
-    "COST_MODEL_USD_INR",
     "ENGINE_PLATFORM_FEE_INR_PER_MIN",
     "ENGINE_PLATFORM_FEE_USD_PER_MIN",
     "ENGINE_REPORTS_TTS_MODEL",
@@ -2802,9 +2812,10 @@ __all__ = [
     "ENGINE_TTS_MODEL_GENERATION_VERIFIED",
     "INR_PRICED_LLMS",
     "LEDGER_RATE_ERROR_BUDGET",
-    "LIST_PRICE_USD_INR",
     "MIN_GROSS_MARGIN",
     "MONEY_Q",
+    "OWN_MODEL_FLOOR_CALL_MINUTES",
+    "PLANNING_USD_INR",
     "PREMIUM_VOICE_TIER",
     "PREPAID_TIERS",
     "PRICED_LLM_MODELS",
@@ -2818,6 +2829,7 @@ __all__ = [
     "STT_INR_PER_HOUR",
     "THINNEST_CLEAR_COST_FLOOR_BY_BAND",
     "THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN",
+    "THINNEST_OWN_VOICE_AND_MODEL_INR_PER_MIN",
     "THINNEST_OWN_VOICE_INR_PER_MIN",
     "THINNEST_PREMIUM_BAND_INR_PER_MIN",
     "THINNEST_STUDIO_BAND_INR_PER_MIN",
@@ -2872,6 +2884,7 @@ __all__ = [
     "llm_reference_inr_per_ktok",
     "llm_surcharge_applies",
     "llm_surcharge_billed_inr",
+    "own_model_floor_inr_per_min",
     "prepaid_billed_inr",
     "pulsed_seconds",
     "rate_is_meterable",

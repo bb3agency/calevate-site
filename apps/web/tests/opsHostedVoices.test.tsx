@@ -9,6 +9,7 @@ import {
   findByVoiceId,
   metaLine,
 } from "@/app/admin/ops/voices/hosted/voiceFilters";
+import { ownModelSteps } from "@/app/admin/ops/voices/hosted/OwnModelCard";
 import { studioSteps } from "@/app/admin/ops/voices/hosted/StudioVoicesCard";
 import {
   OPS_CLONES_PATH,
@@ -16,12 +17,15 @@ import {
   OPS_DISPLAY_NAME_PATH,
   OPS_HOSTED_AGENTS_PATH,
   OPS_HOSTED_PATH,
+  OPS_OWN_MODEL_ENABLE_PATH,
+  OPS_OWN_MODEL_PATH,
   OPS_PERSON_CLONE_PATH,
   OPS_PREVIEW_FETCH_PATH,
   OPS_STUDIO_ENABLE_PATH,
   OPS_STUDIO_VOICES_PATH,
   type HostedVoice,
   type HostedVoices,
+  type OwnModel,
   type StudioVoices,
 } from "@/lib/api/opsHostedVoices";
 import { OPS_VOICES_REFRESH_PATH } from "@/lib/api/opsVoices";
@@ -219,6 +223,37 @@ const STUDIO_OFF: StudioVoices = {
   },
 };
 
+const OWN_MODEL_ON: OwnModel = {
+  switched_on: true,
+  ready: true,
+  default_model: "gemini-2.5-flash-lite",
+  google_key_configured: true,
+  default_offerable: true,
+  default_reason: null,
+  data_use_attested: true,
+  llm_voice_minute_attested: true,
+  offerable_models: ["gemini-2.5-flash-lite"],
+  missing: [],
+  workspaces: [],
+  explanation: "Agents answer on our Google key.",
+  note: "On: 0 client workspace(s) answer on our Google key.",
+  floor_prompt_tokens: 6150,
+  floor_prompt_source: "published",
+  floor_prompt_basis:
+    "6,150 prompt tokens: the largest of 2 live agents' published prompts (0 of 20 own-model calls measured)",
+  floor_model_inr_per_min: "0.3640",
+};
+
+const OWN_MODEL_OFF: OwnModel = {
+  ...OWN_MODEL_ON,
+  switched_on: false,
+  ready: false,
+  google_key_configured: false,
+  data_use_attested: false,
+  missing: ["Save the Google (Gemini) API key in the ops console Secrets panel."],
+  note: "Not ready: Save the Google (Gemini) API key in the ops console Secrets panel.",
+};
+
 const ALL_PATH = `${OPS_HOSTED_PATH}?scope=all`;
 
 /** Every voice in these fixtures has nobody on it unless a test says otherwise. */
@@ -235,6 +270,7 @@ function routes(over: Routes = {}): Routes {
     [ADMIN_ME_PATH]: SUPERADMIN,
     [HOSTED_VOICES_PROBE_PATH]: hosted(),
     [OPS_STUDIO_VOICES_PATH]: STUDIO_ON,
+    [OPS_OWN_MODEL_PATH]: OWN_MODEL_ON,
     ...over,
   };
 }
@@ -885,6 +921,55 @@ describe("Studio setup", () => {
   });
 });
 
+
+describe("our own model card (D-764)", () => {
+  it("lists the four steps from the server's booleans", () => {
+    expect(ownModelSteps(OWN_MODEL_OFF).map((s) => [s.id, s.done])).toEqual([
+      ["key", false],
+      ["model", true],
+      ["data-use", false],
+      ["minute", true],
+    ]);
+  });
+
+  it("says what is missing and links the next step", async () => {
+    renderAdminPage(<VoicesPage />, routes({ [`GET ${OPS_OWN_MODEL_PATH}`]: OWN_MODEL_OFF }));
+    const card = (await screen.findByRole("heading", { name: "Our own model" })).closest("section")!;
+    expect(within(card).getByText("Not ready")).toBeTruthy();
+    expect(within(card).getByText("2 of 4 done")).toBeTruthy();
+    expect(within(card).getByRole("link", { name: "Open keys" }).getAttribute("href")).toBe(
+      "/admin/ops/config?section=credentials",
+    );
+  });
+
+  it("shows the prompt size the cost floor adds our model at, and where it came from", async () => {
+    renderAdminPage(<VoicesPage />, routes({ [`GET ${OPS_OWN_MODEL_PATH}`]: OWN_MODEL_ON }));
+    const card = (await screen.findByRole("heading", { name: "Our own model" })).closest("section")!;
+    expect(
+      within(card).getByText(
+        /Cost floor: gemini-2\.5-flash-lite adds ₹0\.3640\/min at 6,150 prompt tokens: the largest of 2 live agents/,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("installs our key for one client behind a step-up confirmation", async () => {
+    const tenant = "7f0c2b1e-0000-4000-8000-000000000002";
+    const { calls } = renderAdminPage(
+      <VoicesPage />,
+      routes({ [`POST ${OPS_OWN_MODEL_ENABLE_PATH}`]: OWN_MODEL_ON }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Install our key for a client now" }));
+    const dialog = await screen.findByRole("dialog", { name: "Install our Google key for a client?" });
+    fireEvent.change(within(dialog).getByLabelText(/Paying client/), { target: { value: tenant } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Install" }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "POST" && c.path === OPS_OWN_MODEL_ENABLE_PATH)).toBe(true),
+    );
+    const write = calls.find((c) => c.method === "POST" && c.path === OPS_OWN_MODEL_ENABLE_PATH)!;
+    expect(write.headers["X-Confirm-Action"]).toBe("enable_own_model_workspace");
+    expect(JSON.parse(write.body!)).toEqual({ tenant_id: tenant });
+  });
+});
 describe("cloning a voice", () => {
   async function openClone(): Promise<HTMLElement> {
     fireEvent.click(await screen.findByRole("button", { name: "Clone a voice" }));

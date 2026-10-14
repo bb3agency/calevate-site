@@ -100,7 +100,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
-from apps.api.engine.catalogue import HostsVoices
+from apps.api.engine.catalogue import HostsVoices, RunsOwnModel
 from apps.api.reliability.engine_actions import check_agent_actions
 from apps.api.reliability.engine_lookups import check_call_start
 
@@ -193,14 +193,24 @@ _assert_the_tick_fits_its_interval()
 _assert_the_sweep_can_refresh_a_verdict_before_it_expires()
 
 
-async def _repair_own_voice_key(engine_name: str, candidate: DriftCandidate, *, on: bool) -> None:
-    """Set one live agent's own-voice-key switch back to what its rung requires. A vendor
+async def _repair_own_voice_key(
+    engine_name: str, candidate: DriftCandidate, *, on: bool, own_model: str | None = None
+) -> None:
+    """Set one live agent's own-key switches back to what its settings require: our voice
+    key by its rung, our model key and its model while our model is on (D-764). A vendor
     failure is left to the next tick, which finds the same drift first."""
     # `own_voice_key_expected` is set only by an engine that hosts its voices (`service.
     # _engine_voice_fields`), so the configured engine is one.
-    engine = cast(HostsVoices, get_engine())
+    engine = get_engine()
     try:
-        await engine.set_agent_own_voice_key(candidate.engine_agent_ref, on=on)
+        if isinstance(engine, RunsOwnModel):
+            await engine.set_agent_own_keys(
+                candidate.engine_agent_ref, own_voice=on, own_model=own_model
+            )
+        else:
+            await cast(HostsVoices, engine).set_agent_own_voice_key(
+                candidate.engine_agent_ref, on=on
+            )
     except ProblemError as exc:
         log.warning(
             "engine_agent_voice_key_repair_failed",
@@ -213,7 +223,7 @@ async def _repair_own_voice_key(engine_name: str, candidate: DriftCandidate, *, 
         detail=(
             f"engine={engine_name}: a live agent was "
             + ("off" if on else "on")
-            + " our own voice key, against its voice's rung, and was put back"
+            + " our own voice key, or off the language model it publishes, and was put back"
         ),
         agent_id=str(candidate.agent_id),
         tenant_id=str(candidate.tenant_id),
@@ -396,7 +406,12 @@ async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | N
     # single field our rung decides, nobody's emergency edit, and a Clear agent left on our
     # Cartesia key bills every call at the Studio rate. The script is not touched.
     if drift.own_voice_key_applied is False and drift.own_voice_key_expected is not None:
-        await _repair_own_voice_key(engine_name, candidate, on=drift.own_voice_key_expected)
+        await _repair_own_voice_key(
+            engine_name,
+            candidate,
+            on=drift.own_voice_key_expected,
+            own_model=drift.own_model_expected,
+        )
 
     # THE AGENT'S CALL SETTINGS (D-690): voice, model, recording, call cap, caller memory,
     # escalation, call-backs, collected fields, call language, built-in tools and hand-over.

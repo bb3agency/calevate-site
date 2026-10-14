@@ -51,8 +51,8 @@ from sqlalchemy import text
 
 pytestmark = [pytest.mark.asyncio]
 
-#: Both realms have a floor (`authn/policy.MIN_CHARS_BY_REALM`) and the client realm's is
-#: the higher of the two at 15, so these clear both.
+#: Well above the realm floor (`authn/policy.min_password_chars`) and not on the
+#: blocklist, so these clear the policy on both realms.
 OLD_PASSWORD = "chinnamma-clinic-front-desk"
 NEW_PASSWORD = "kondapalli-toy-shop-evening"
 
@@ -237,25 +237,25 @@ async def test_the_current_password_is_required_and_a_wrong_one_changes_nothing(
     assert await _live(realm, caller)
 
 
-async def test_a_new_password_below_the_realm_floor_is_refused_by_the_policy(
+async def test_a_new_password_the_policy_refuses_is_refused_by_the_route(
     subject_ids: dict[str, uuid.UUID],
 ) -> None:
     """The policy lives in `credentials.set_password`, which is why this route did not have
-    to re-implement it — and this asserts the placement rather than assuming it. Sixteen
-    characters clears the router's absolute `MIN_PASSWORD_CHARS` bound, so a 422 here can
-    only have come from the store's per-realm floor being applied."""
+    to re-implement it — and this asserts the placement rather than assuming it. The
+    password clears the router's length bounds, so a `password_unacceptable` here can only
+    have come from the store applying the blocklist."""
     subject_id = subject_ids["client"]
     caller = await _token("client", subject_id)
 
     async with _client() as http:
         response = await http.post(
             _path("client"),
-            json={"current_password": OLD_PASSWORD, "new_password": "kondapalli-toy"},
+            json={"current_password": OLD_PASSWORD, "new_password": "calevate2026!!!!"},
             cookies=await _cookies("client", caller),
         )
 
     assert response.status_code == 422, response.text
-    assert response.json()["type"].endswith("/password_length"), response.text
+    assert response.json()["type"].endswith("/password_unacceptable"), response.text
     assert await _password_is("client", subject_id, OLD_PASSWORD)
 
 

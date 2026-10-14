@@ -16,6 +16,7 @@ import {
   operatorRevocationConfirmation,
   operatorRoleConfirmation,
   operatorSetupLinkConfirmation,
+  operatorStaySignedInConfirmation,
   selfAdministrationBlock,
   tierChangeTarget,
   type Operator,
@@ -98,6 +99,7 @@ function operator(over: Partial<Operator> = {}): Operator {
     role: "operator",
     created_at: "2026-08-14T09:15:00Z",
     activated: true,
+    stay_signed_in: false,
     ...over,
   };
 }
@@ -647,6 +649,40 @@ describe("revoking an account", () => {
     expect(container.textContent).toContain(
       "Nothing about this is a data erasure",
     );
+  });
+});
+
+describe("another operator's \"Stay signed in\" (D-766)", () => {
+  it("is shown, and a super admin can switch it off with the operator-bound confirmation", async () => {
+    const staying = operator({ stay_signed_in: true });
+    const { calls } = renderAdminPage(
+      <OperatorsPage />,
+      routes(listOf(FOUNDER, staying), SUPERADMIN, {
+        [`POST ${OPERATORS_PATH}/${ASHA_ID}/stay-signed-in/revocation`]: operator(),
+      }),
+    );
+
+    expect(await screen.findByText("Stays signed in")).toBeTruthy();
+    await chooseRowAction("Asha Rao", /^Switch off "Stay signed in"/);
+    const phrase = operatorConfirmPhrase(staying);
+    type(/Why you are switching off Asha Rao's "Stay signed in"/, "lost her phone");
+    type(new RegExp(`Type ${phrase} to confirm`), phrase);
+    fireEvent.click(screen.getByRole("button", { name: 'Switch off "Stay signed in"' }));
+
+    await waitFor(() => {
+      const sent = calls.find((call) => call.path.endsWith("/stay-signed-in/revocation"));
+      expect(sent, "the switch-off was never sent").toBeTruthy();
+      expect(sent?.method).toBe("POST");
+      expect(sent?.headers["X-Confirm-Action"]).toBe(operatorStaySignedInConfirmation(ASHA_ID));
+      expect(JSON.parse(sent?.body ?? "{}")).toEqual({ reason: "lost her phone" });
+    });
+  });
+
+  it("is not offered while it is off: nobody switches it on for someone else", async () => {
+    renderAdminPage(<OperatorsPage />, routes(listOf(FOUNDER, operator())));
+    await screen.findByText("Asha Rao");
+    const items = await rowMenuItems("Asha Rao");
+    expect(items.some((item) => /Stay signed in/.test(item.textContent ?? ""))).toBe(false);
   });
 });
 

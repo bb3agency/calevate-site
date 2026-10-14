@@ -563,7 +563,7 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
 const MFA_PROBLEM_CODES = ["second_factor_required"] as const;
 
 /**
- * The admin realm's 30-minute idle bound, warned about rather than sprung.
+ * The admin realm's idle bound, warned about rather than sprung.
  *
  * `authn/sessions.REALM_TIMEOUTS` ends an idle operator session server-side, and until
  * D-177 the only screen that warned about it was `/auth/admin` — the one page an operator
@@ -571,10 +571,11 @@ const MFA_PROBLEM_CODES = ["second_factor_required"] as const;
  * belongs where the form somebody is halfway through filling in lives.
  *
  * `enabled` off the session row rather than off the gate's status, so it never runs a
- * countdown for a session that does not exist.
+ * countdown for a session that does not exist; the bound off the same row, so "Stay
+ * signed in" (D-766) moves the warning from 25 minutes to 11 h 55 min.
  */
 function AdminIdleWarning() {
-  return <AdminIdleTimeoutModal enabled={useAdminSessionRow() !== null} />;
+  return <AdminIdleTimeoutModal session={useAdminSessionRow()} />;
 }
 
 function AdminMfaGate({ children }: { children: React.ReactNode }) {

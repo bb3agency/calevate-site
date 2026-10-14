@@ -624,6 +624,16 @@ async def set_value(
         from apps.api.agents.engine_choice import resolve_in_call_default
 
         stored = await resolve_in_call_default(session, stored)
+    # Our own model may not go on before its key, its price, its data-use attestation and
+    # the Studio minute it bills at are in place (D-764); its default must be offerable.
+    if key == "thinnest_own_model":
+        from apps.api.agents.own_model import assert_own_model_ready
+
+        await assert_own_model_ready(session, stored)
+    if key == "thinnest_own_model_default":
+        from apps.api.agents.own_model import assert_own_model_default_offerable
+
+        await assert_own_model_default_offerable(stored)
     # The lock comes FIRST — before the read whose result the precondition is checked
     # against — or the check-then-write is not atomic and the precondition is decoration.
     await _lock_key(session, key)

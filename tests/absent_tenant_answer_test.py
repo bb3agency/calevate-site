@@ -97,6 +97,10 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling": {
         "end_call_on_finish": False
     },
+    # Studio voice tuning (D-767).
+    "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning": None,
+    "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning": {"speed": "1.10"},
+    "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning/preview": {"speed": "1.10"},
     # THE TEAM ROSTER (D-602). A CAS body, so BOTH roles are required or the route answers
     # `kind=validation` before it ever looks the tenant up — which is exactly the mask this
     # census exists to strip off: a 422 there would hide whatever the route really does

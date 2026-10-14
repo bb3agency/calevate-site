@@ -31,7 +31,7 @@ from apps.api.engine.fake import FakeEngine
 from apps.api.engine.thinnest import THINNEST_CAPABILITIES
 from apps.api.engine.thinnest_workspace import current_workspace
 from apps.api.tenancy.engine_workspace import StudioWorkspace
-from calevate_shared.engine import AgentConfig, AgentSnapshot, EngineAgentRef
+from calevate_shared.engine import AgentConfig, AgentSnapshot, ByokVoiceTuning, EngineAgentRef
 from sqlalchemy import text
 
 #: The bands below match the rows migration `e5b1c8d42a07` seeds for these ids, which is what
@@ -112,6 +112,7 @@ class HostingEngine(FakeEngine):
         self.enabled_in: list[str | None] = []
         self.disabled = 0
         self.previews: list[str] = []
+        self.preview_tunings: list[ByokVoiceTuning | None] = []
         self.own_keys_listed = 0
         #: The workspace each own-key listing was read in.
         self.listed_in: list[str | None] = []
@@ -171,9 +172,15 @@ class HostingEngine(FakeEngine):
         )
 
     async def preview_own_key_voice(
-        self, *, voice_id: str, text: str | None, language: str | None
+        self,
+        *,
+        voice_id: str,
+        text: str | None,
+        language: str | None,
+        tuning: ByokVoiceTuning | None = None,
     ) -> PreviewAudio:
         self.previews.append(voice_id)
+        self.preview_tunings.append(tuning)
         return PreviewAudio(data=MP3, content_type="audio/mpeg")
 
     async def create_voice_clone(self, sample: VoiceCloneSample) -> VoiceClone:

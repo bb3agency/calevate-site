@@ -789,7 +789,7 @@ directions, and the CHECK-violating case as a regression test, are Phase B tests
   during an incident.
 - TRD §10.1's Cartesia TTS rung must land in the SAME commit as `billing/rates.py`
   (`check_docs_drift` §4b compares them); the attested figure is the Startup plan's
-  **₹5.7200 / 1,000 chars** (the vendor's Pro overage rate — ⚠ this said ₹3.4496, the retired fee-over-allotment average; D-556). Phase A owns both halves.
+  **₹6.1750 / 1,000 chars** (the vendor's Pro overage rate at ₹95, D-768 — ⚠ this said ₹3.4496, the retired fee-over-allotment average; D-556). Phase A owns both halves.
 
 ---
 

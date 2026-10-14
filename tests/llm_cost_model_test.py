@@ -50,8 +50,8 @@ from apps.api.billing.ai_quota import (
     reference_assist_cost_inr,
 )
 from apps.api.billing.rates import (
-    LIST_PRICE_USD_INR,
     MONEY_Q,
+    PLANNING_USD_INR,
     PRICED_LLM_MODELS,
     ROUNDING,
     LlmPriceAttestation,
@@ -97,26 +97,26 @@ def list_price_usd_per_mtok(model: str) -> dict[str, Decimal]:
 #: something a derivation quietly absorbs. A test that re-derived the figure would pass on
 #: any of those changes and tell nobody the published number had moved.
 PUBLISHED_CURVE: dict[str, dict[int, Decimal]] = {
-    "gpt-4o-mini": {1: Decimal("0.1021"), 5: Decimal("0.1639"), 10: Decimal("0.2411")},
-    "gpt-4.1-mini": {1: Decimal("0.2734"), 5: Decimal("0.4389"), 10: Decimal("0.6457")},
+    "gpt-4o-mini": {1: Decimal("0.1021"), 5: Decimal("0.1638"), 10: Decimal("0.2411")},
+    "gpt-4.1-mini": {1: Decimal("0.2713"), 5: Decimal("0.4355"), 10: Decimal("0.6407")},
     # The multi-provider legs. Note the ordering these three make visible and that no
     # single-vendor catalogue could: the CHEAPEST model this product offers is a Google one
     # and it is cheaper than the platform default, which is why the model surcharge had to
     # learn to floor at zero (`rates.is_surchargeable_llm_model`).
     "gemini-2.5-flash-lite": {
-        1: Decimal("0.0685"),
-        5: Decimal("0.1100"),
-        10: Decimal("0.1618"),
+        1: Decimal("0.0678"),
+        5: Decimal("0.1089"),
+        10: Decimal("0.1602"),
     },
-    "gemini-2.5-flash": {1: Decimal("0.2310"), 5: Decimal("0.3550"), 10: Decimal("0.5099")},
-    "gpt-5.4-mini": {1: Decimal("0.5385"), 5: Decimal("0.8519"), 10: Decimal("1.2437")},
+    "gemini-2.5-flash": {1: Decimal("0.2294"), 5: Decimal("0.3525"), 10: Decimal("0.5064")},
+    "gpt-5.4-mini": {1: Decimal("0.5390"), 5: Decimal("0.8470"), 10: Decimal("1.2320")},
 }
 
 #: What the retired `gemini-2.5-flash` leg cost per minute at the same three points, at
-#: the same exchange rate ($0.30 in / $2.50 out per 1M tokens). Kept as a literal so the
-#: claim D-410 was taken on — "cheaper than Gemini 2.5 Flash on both legs" — is checked
-#: rather than repeated, and so a regression that quietly restored the old prices under
-#: new identifiers would be named.
+#: the ₹95.66 rate D-410 was decided at ($0.30 in / $2.50 out per 1M tokens). Kept as a
+#: literal so the claim D-410 was taken on — "cheaper than Gemini 2.5 Flash on both
+#: legs" — is checked rather than repeated, and so a regression that quietly restored the
+#: old prices under new identifiers would be named.
 RETIRED_GEMINI_CURVE: dict[int, Decimal] = {
     1: Decimal("0.2310"),
     5: Decimal("0.3550"),
@@ -170,7 +170,7 @@ def test_the_rupee_table_derives_from_the_one_published_dollar_price() -> None:
         inr = llm_reference_inr_per_ktok(model)
         assert set(inr) == {"in", "out"}, model
         for leg, usd_per_mtok in usd.items():
-            expected = (usd_per_mtok * LIST_PRICE_USD_INR / Decimal("1000")).quantize(
+            expected = (usd_per_mtok * PLANNING_USD_INR / Decimal("1000")).quantize(
                 MONEY_Q, rounding=ROUNDING
             )
             assert inr[leg] == expected, f"{model}/{leg}"
@@ -442,7 +442,7 @@ def test_no_figure_in_the_chain_is_ever_a_float() -> None:
         values.extend(llm_cost_inr_per_minute(n, model=model) for n in (1, 5, 10))
         values.append(reference_assist_cost_inr(model))
         values.append(assist_nominal_inr(model))
-    values.append(LIST_PRICE_USD_INR)
+    values.append(PLANNING_USD_INR)
     assert all(isinstance(value, Decimal) for value in values)
     assert not any(isinstance(value, float) for value in values)
 

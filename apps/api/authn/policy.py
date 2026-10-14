@@ -1,18 +1,15 @@
 """What a string has to be before it is allowed to become somebody's password.
 
-`hashing.py` is the KDF and `credentials.py` is the store. Neither of them has an
-opinion about whether a password is a GOOD one, and until this module existed nothing
-did: the only rule in the system was `12 <= len(password) <= 128`, applied identically
-to both realms, with no comparison against anything.
+`hashing.py` is the KDF and `credentials.py` is the store. Neither has an opinion about
+whether a password is a GOOD one; this module does. The rules below follow NIST SP
+800-63B-4 §3.1.1.2, quoted from the publication's source repository — `usnistgov/800-63-4`
+at commit `4f2487bb81adecdc84ccaac6920bf0b500b379ae` (committed 2025-08-26), file
+`sp800-63b/authenticators/index.html`, read 2026-08-26 — in every respect but one.
 
-Two requirements of NIST SP 800-63B-4 §3.1.1.2 were unmet by that, and both are SHALLs.
-The text below is quoted from the publication's own source repository — `usnistgov/
-800-63-4` at commit `4f2487bb81adecdc84ccaac6920bf0b500b379ae` (committed 2025-08-26),
-file `sp800-63b/authenticators/index.html`, read 2026-08-26. It is quoted rather than
-paraphrased because the previous paraphrase in `hashing.py` was wrong in a way that
-mattered — see MINIMUM LENGTH below.
+═══ MINIMUM LENGTH: 8 ON EVERY REALM (D-765) ═══
 
-═══ MINIMUM LENGTH: 15, NOT 12, ON EVERY REALM WITHOUT A SECOND FACTOR ═══
+The founder decided on 13 Oct 2026 that eight characters is the minimum across Calevate,
+on the client and admin realms alike. That is a deliberate departure from §3.1.1.2:
 
     "Verifiers and CSPs SHALL require passwords that are used as a single-factor
     authentication mechanism to be a minimum of 15 characters in length. Verifiers and
@@ -20,28 +17,24 @@ mattered — see MINIMUM LENGTH below.
     processes to be shorter but SHALL require them to be a minimum of eight characters
     in length."
 
-`hashing.MIN_PASSWORD_CHARS` was 12 for both realms, above a comment reading "NIST SP
-800-63B-4 lowers the floor to 8 and recommends 15". That reads the sentence backwards.
-Eight is not a floor the publication offers freely — it is the concession for passwords
-"only used as part of multi-factor authentication processes" — and fifteen is not a
-recommendation, it is the SHALL for everything else.
+The admin realm's password is one factor of two (`service.MFA_REQUIRED_REALMS` is
+`{"admin"}`, D-170), so 8 is within the standard there. The client realm has no second
+factor, so its password is single-factor and 8 is under the 15 the standard requires. The
+founder accepted that. What stands between an 8-character client password and an online
+guesser is:
 
-Which of the two applies is a property of the REALM, and this repo already knows it:
-`service.MFA_REQUIRED_REALMS` is `{"admin"}` (D-170), so an admin password is one factor
-of two and a CLIENT password is the whole of the authentication. The client realm was
-therefore the single-factor case sitting three characters under a SHALL, and the admin
-realm — the one that looks stricter — was the one comfortably compliant.
+  - the blocklist in this module (SecLists' 100k most-used passwords, context words,
+    keyboard walks, repetition — see below);
+  - `throttle.PASSWORD_BUDGET`: ten consecutive failures per account per fifteen minutes;
+  - `service.SIGN_IN_FAILURE_FLOOR_S`: every failed sign-in takes at least that long.
 
-So the floor is per realm, and the table below is the only place it is written down.
-`tests/authn_password_policy_test.py` derives the requirement from
-`service.MFA_REQUIRED_REALMS` rather than restating 15, so adding a realm, or giving the
-client realm a second factor, moves the assertion with it instead of leaving a number
-here that nobody rechecks.
+None of these protects a stolen database dump; the Argon2id cost and the KEK-derived
+pepper in `hashing.py` are what do.
 
-Admin stays at 12 rather than dropping to the permitted 8: nothing requires us to spend
-the concession, and 12 is what those accounts already have.
+`min_password_chars(realm)` stays the single reader, so a realm can be given its own floor
+again without touching any caller.
 
-═══ THE BLOCKLIST: REQUIRED, AND PREVIOUSLY ABSENT ENTIRELY ═══
+═══ THE BLOCKLIST ═══
 
     "When processing a request to establish or change a password, verifiers SHALL
     compare the prospective secret against a blocklist that contains known commonly
@@ -51,49 +44,28 @@ the concession, and 12 is what those accounts already have.
     "If the chosen password is found on the blocklist, the CSP SHALL require the
     subscriber to select a different secret and SHALL provide the reason for rejection."
 
-**"The entire password SHALL be subject to comparison, not substrings"** is the sentence
-that shapes every rule in this file, and it is a constraint in BOTH directions. It
-forbids the tempting implementation — reject anything CONTAINING "calevate" or the
-user's name — because that rejects `calevate-is-where-i-work-now`, which is a fine
-passphrase, and it is the rule that makes blocklists infuriating. Every predicate below
-therefore consumes the whole normalized string and nothing less.
+**"The entire password SHALL be subject to comparison, not substrings"** constrains in
+BOTH directions. It forbids rejecting anything CONTAINING "calevate" or the user's name —
+that refuses `calevate-is-where-i-work-now`, a fine passphrase — so every predicate below
+consumes the whole normalized string and nothing less.
 
-**WHAT IS NOT HERE, SAID PLAINLY RATHER THAN IMPLIED: A BREACH CORPUS.** NIST's list of
-what a blocklist "may include" has three entries — passwords from previous breach
-corpuses, dictionary words, and context-specific words — and only the second and third
-are implemented here. The first is not, and the reason is environmental rather than a
-judgement: the two hosts that serve one are egress-blocked from this environment
-(`raw.githubusercontent.com` answers 404 for SecLists' `Common-Credentials` paths and
-`api.pwnedpasswords.com` answers `403` on CONNECT, both measured 2026-08-26), so a
-corpus could only have been TYPED, and a hand-typed list of "the most common breached
-passwords" is exactly the unverified-fact-with-an-authoritative-look that hard rule 11
-exists about. Bundling a fabricated one would be worse than bundling none, because the
-next reader would trust it.
+**THE BREACH CORPUS.** NIST's list of what a blocklist "may include" has three entries —
+passwords from previous breach corpuses, dictionary words, and context-specific words.
+Context words and the structural rules (walks, repetition) are predicates below; the
+breach corpus is SecLists' `100k-most-used-passwords-NCSC.txt`, vendored byte-exact under
+`blocklist/` and hash-pinned (`COMMON_PASSWORDS_SHA256`). It is a file in the image rather
+than HIBP's range API because a sign-up must not send any derivative of a password to a
+third party, and the online check would add a subprocessor and a network dependency to
+the one path that must never be down. The appendix notes a blocklist "only needs to
+include entries that meet that requirement", so entries shorter than the lowest realm
+floor are dropped at load; the rest are compared whole, NFC and casefolded, exactly like
+the candidate.
 
-⚠ **OPERATIONS: the breach-corpus half of this control is OPEN**, and there is
-deliberately no placeholder for it. An empty `_CORPUS: frozenset[str] = frozenset()` with
-a `candidate in _CORPUS` branch above it was written here first and then removed: it is a
-container that cannot match and a branch that cannot be taken, which reads to the next
-person as a control that exists, and to the coverage ratchet as an untestable line. A gap
-named in prose is honest; a gap wearing an implementation is not.
-
-What closes it is a list obtained from a named source — SecLists'
-`10-million-password-list-top-*.txt` at a pinned commit, or HIBP's k-anonymity range API
-— filtered to entries at or above `min_password_chars("client")`, since the appendix
-notes a blocklist "only needs to include entries that meet that requirement". It lands as
-one more predicate in `_reason_blocked`, beside the three that are there, with the same
-whole-password discipline and its provenance in the comment above it.
-
-The appendix's own limit is worth carrying too, because it is an argument against
-gold-plating this later:
+The appendix's own limit argues against gold-plating:
 
     "Excessively large blocklists are of little incremental security benefit because the
     blocklist is used to defend against online attacks, which are already limited by the
     throttling requirements described in Sec. 3.2.2."
-
-`throttle.PASSWORD_BUDGET` is that throttling: ten consecutive failures per account per
-fifteen minutes. The blocklist only has to cover what an attacker would reach inside
-that budget.
 
 ═══ NORMALIZATION ═══
 
@@ -103,61 +75,49 @@ that budget.
     [UAX15]. This process is applied before hashing the byte string that represents the
     password."
 
-**NFC, not NFKC.** The -3 revision said "either the NFKC or NFKD normalization" and
-that older wording is what most implementations carry; -4 names NFC specifically, and
--4 is the revision in force. The difference is not cosmetic for this product's
-population: NFKC is the COMPATIBILITY composition, which folds `ﬁ` to `fi` and — the one
-that matters on a Telugu-first product — rewrites characters that a person typing Indic
-script may have entered deliberately. NFC composes canonical equivalents and changes
-nothing else, which is the whole of what the requirement is for: the same keystrokes on
-an Android IME and on a desktop keyboard produce the same bytes.
+**NFC, not NFKC.** The -3 revision allowed NFKC/NFKD and most implementations still carry
+it; -4 names NFC. NFKC is the COMPATIBILITY composition, which folds `ﬁ` to `fi` and can
+rewrite characters a person typing Indic script entered deliberately. NFC only composes
+canonical equivalents, which is all the requirement is for: the same keystrokes on an
+Android IME and on a desktop keyboard produce the same bytes.
 
 It is applied in `hashing._peppered`, not here, because it must happen on the VERIFY path
 as well as the SET path and `hashing` is the only thing both go through. This module
-normalizes too, so that its own length count and its blocklist comparison see the same
-string the KDF will.
-
-NFC is the identity on pure ASCII, so no stored hash changes meaning: every password in
-this system today verifies exactly as before.
+normalizes too, so its length count and blocklist comparison see the string the KDF will.
+NFC is the identity on pure ASCII.
 
 ═══ WHERE THIS IS ENFORCED ═══
 
 `credentials.set_password` — the ONE writer of `auth_credentials.password_hash` — calls
-`assert_password_allowed` before it hashes. Enforcing at the store rather than at each of
-the four routes that reach it (invitation accept, reset confirm, admin bootstrap, the dev
-seed) is deliberate: this is precisely the class of rule the reference implementation
-applied per-endpoint by whoever remembered, which is how `subjects.py`'s enumeration
-oracle happened. There is no path to a stored password that does not pass through here.
+`assert_password_allowed` before it hashes. Enforcing at the store rather than at each
+route that reaches it (invitation accept, reset confirm, sign-up, admin bootstrap, password
+change, the dev seed) means no route can forget it.
 
-**IT IS NOT ENFORCED ON VERIFY, AND MUST NOT BE.** `credentials.authenticate_subject`
-already carries the argument in full: a rule that arrives after a password was set must
-never turn a correct sign-in into a refusal. Raising the client floor from 12 to 15
-locks nobody out — it changes what may be STORED, not what may be PRESENTED — and the
-existing re-hash guard already swallows the `ProblemError` this module can now raise on
-the upgrade path.
+**IT IS NOT ENFORCED ON VERIFY, AND MUST NOT BE.** A rule that arrives after a password
+was set must never turn a correct sign-in into a refusal (`credentials.authenticate_subject`
+carries the argument): the policy governs what may be STORED, not what may be PRESENTED.
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
 import unicodedata
+from pathlib import Path
 from typing import Final
 
 from apps.api.authn.hashing import MAX_PASSWORD_CHARS, MIN_PASSWORD_CHARS
 from apps.api.authn.models import AUTHN_REALMS
 from apps.api.core.errors import ProblemError
 
-#: The NIST single-factor floor. Applies to every realm whose password is the whole of
-#: the authentication — see the module docstring.
-SINGLE_FACTOR_MIN_CHARS: Final = 15
+#: The minimum on every realm (D-765). Below SP 800-63B-4's single-factor 15 on the client
+#: realm, by founder decision — see the module docstring for what compensates.
+PASSWORD_MIN_CHARS: Final = 8
 
-#: Per-realm minimum length. The client realm has no second factor (D-170:
-#: `service.MFA_REQUIRED_REALMS` is `{"admin"}`), so its password is single-factor and
-#: takes the 15-character SHALL. The admin realm's password is one factor of two and
-#: could take the permitted 8; it keeps 12, which is what those accounts already have.
+#: Per-realm minimum length, read only through `min_password_chars`.
 MIN_CHARS_BY_REALM: Final[dict[str, int]] = {
-    "client": SINGLE_FACTOR_MIN_CHARS,
-    "admin": 12,
+    "client": PASSWORD_MIN_CHARS,
+    "admin": PASSWORD_MIN_CHARS,
 }
 
 #: Context-specific words NIST names explicitly ("the name of the service"). Compared as
@@ -195,12 +155,36 @@ def normalize(password: str) -> str:
     return unicodedata.normalize("NFC", password)
 
 
+#: SecLists `Passwords/Common-Credentials/100k-most-used-passwords-NCSC.txt` at commit
+#: `3a5f62f0e18a1b8a36b25399aff0077f3706e5af` (MIT; `blocklist/LICENSE-SecLists-MIT.txt`),
+#: 99,840 lines, fetched 13 Oct 2026. The hash makes a truncated or edited copy fail at
+#: import, so the image cannot start with a blocklist that silently matches less.
+COMMON_PASSWORDS_PATH: Final = (
+    Path(__file__).parent / "blocklist" / "100k-most-used-passwords-NCSC.txt"
+)
+COMMON_PASSWORDS_SHA256: Final = "c2e5696882c603b76bb67a47ee970897e5a76fc4c3f5547abe3d0ca340c576e0"
+
+
+def load_common_passwords(path: Path, *, sha256: str) -> frozenset[str]:
+    """The corpus as comparable entries: NFC, casefolded, at least the lowest realm floor."""
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != sha256:
+        raise RuntimeError(f"{path.name} does not match its pinned sha256; restore it from git")
+    floor = min(MIN_CHARS_BY_REALM.values())
+    entries = (normalize(line).casefold() for line in raw.decode("utf-8").splitlines())
+    return frozenset(entry for entry in entries if len(entry) >= floor)
+
+
+COMMON_PASSWORDS: Final = load_common_passwords(
+    COMMON_PASSWORDS_PATH, sha256=COMMON_PASSWORDS_SHA256
+)
+
+
 def min_password_chars(realm: str) -> int:
     """This realm's minimum password length.
 
-    An unknown realm raises rather than defaulting, because every default here is a
-    guess about whether a second factor exists, and guessing "yes" silently exempts a new
-    realm from the SHALL that this module was written to satisfy.
+    An unknown realm raises rather than defaulting: a new realm gets a floor by decision,
+    not by inheriting one.
     """
     if realm not in AUTHN_REALMS:
         raise ValueError(f"{realm!r} is not an authentication realm ({', '.join(AUTHN_REALMS)})")
@@ -274,6 +258,8 @@ def _reason_blocked(password: str, *, email: str | None) -> str | None:
                 "It is built from your email address or the name of this service, which "
                 "is the first thing an attacker tries."
             )
+    if candidate in COMMON_PASSWORDS:
+        return "It is one of the most common passwords, so it is among the first ones guessed."
     if _is_keyboard_walk(candidate):
         return "It is a straight run of keys along the keyboard."
     if _is_repetition(candidate):
@@ -285,7 +271,7 @@ def assert_password_allowed(password: str, *, realm: str, email: str | None = No
     """The whole policy, as one refusal a person can act on. Raises `ProblemError`.
 
     Called by `credentials.set_password` and by nothing else — see the module docstring
-    on why the store and not the four routes above it.
+    on why the store and not the routes above it.
 
     Both refusals carry `remediation` naming what to do next, which §3.1.1.2 also
     requires ("Verifiers SHALL offer guidance to the subscriber to help the subscriber
@@ -331,8 +317,8 @@ def assert_password_allowed(password: str, *, realm: str, email: str | None = No
 
 __all__ = [
     "MIN_CHARS_BY_REALM",
+    "PASSWORD_MIN_CHARS",
     "SERVICE_WORDS",
-    "SINGLE_FACTOR_MIN_CHARS",
     "assert_password_allowed",
     "min_password_chars",
     "normalize",

@@ -1141,6 +1141,14 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "The edge network in front of the site is described by its role rather than "
                 "named (D-679). Non-material: what is recorded and why did not change.",
             ),
+            Revision(
+                "5",
+                False,
+                "An operator may switch 'Stay signed in' on for their own account (D-766); "
+                "their console cookie then lasts until the session's final expiry and the "
+                "session takes the client bounds (12h idle, 14d). Non-material: it "
+                "describes operator sessions, and nothing a client accepted changed.",
+            ),
         ),
         effective_date="2026-09-02",
     ),

@@ -267,7 +267,9 @@ attacker who can reset the caller-keyed limiter still cannot spend more guesses 
 code. Ten-minute validity. Two independent rate limits is what NIST SP 800-63B's
 requirement for a sub-64-bit authenticator looks like when it is taken seriously.
   Session lifetimes are enforced on the row, per realm: admin 30 min idle / 8 h absolute,
-  client 12 h idle / 14 d absolute (`authn/sessions.REALM_TIMEOUTS`).
+  client 12 h idle / 14 d absolute (`authn/sessions.REALM_TIMEOUTS`); an operator who
+  switches "Stay signed in" on for their own account gets the client bounds (D-766;
+  `/legal/cookies` revision 5 says so).
 - **RBAC asserted at boot** in four directions (`core/rbac.py::assert_policy_registry_complete`);
   realm separation is also a CHECK constraint, not only a Python convention.
 - **Impersonation needs a short-lived RFC-8693-shaped signed grant** bound to operator

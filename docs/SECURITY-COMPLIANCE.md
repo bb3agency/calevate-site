@@ -787,7 +787,15 @@ Identity & access
     It gates READS as well as writes, because it is authentication, not authorization.
   - Session lifetimes are enforced on the ROW, per realm, and differ because the blast
     radii differ: admin 30 min idle / 8 h absolute, client 12 h idle / 14 d absolute
-    (`authn/sessions.REALM_TIMEOUTS`).
+    (`authn/sessions.REALM_TIMEOUTS`). **An operator may switch "Stay signed in" on for
+    their own account (D-766)**: their second-factor-complete sessions then take the
+    client bounds (12 h / 14 d) and a persistent cookie. Switching it on needs a second
+    factor proved within `REAUTH_MAX_AGE`; switching it off needs none and shortens every
+    live session of that operator at once; a superadmin may switch it off for another
+    operator (step-up confirmed). Every change is in `audit_log`
+    (`admin.stay_signed_in_changed`). The switch is read on every verification, so OFF
+    bites on the next request. It changes session length only: the sign-in second factor
+    and the 30-minute step-up window below are unchanged.
   - *(Clerk's `fva` claim, `403 mfa_required` and `403 mfa_claim_missing` were the
     previous mechanism and are DELETED — D-177 ran AUTH-MIGRATION §5 step 6. The pair of
     codes collapsed into one `401 second_factor_required`: `mfa_claim_missing` existed
@@ -823,35 +831,42 @@ Identity & access
     whole control. Declaring the gate there would refuse the action outright rather than
     tighten it. BACKEND-PATTERNS §7 used to list raw-transcript access without saying
     which realm it meant; it now says both halves explicitly.
-- **Password policy is NIST SP 800-63B-4 §3.1.1.2, and the minimum length is PER REALM**
-  — 15 characters on the client realm, 12 on the admin realm. That looks backwards and is
-  not: §3.1.1.2 makes 15 a SHALL for a password "used as a single-factor authentication
-  mechanism" and permits as few as 8 for one "only used as part of multi-factor
-  authentication processes". `MFA_REQUIRED_REALMS` is `{"admin"}` (D-170), so the CLIENT
-  password is the whole of the authentication and the admin password is one factor of two.
-  The client realm was therefore the one sitting under the SHALL while the stricter-looking
-  admin realm was already compliant. Admin keeps 12 rather than spending the concession
-  down to 8.
+- **Password policy: the minimum length is 8 characters on every realm (D-765, founder
+  decision 13 Oct 2026); the rest is NIST SP 800-63B-4 §3.1.1.2.** On the admin realm 8 is
+  within the standard: `MFA_REQUIRED_REALMS` is `{"admin"}` (D-170), so the admin password
+  is one factor of two, and §3.1.1.2 permits as few as 8 for a password "only used as part
+  of multi-factor authentication processes". On the client realm it is a **deliberate,
+  accepted departure**: the client password is single-factor, and §3.1.1.2 makes 15 a
+  SHALL for a password "used as a single-factor authentication mechanism". What
+  compensates is online-attack control only — the blocklist below,
+  `authn/throttle.PASSWORD_BUDGET` (ten consecutive failures per account per realm per
+  fifteen minutes) and `authn/service.SIGN_IN_FAILURE_FLOOR_S` on every failed sign-in;
+  against a stolen database dump, the Argon2id cost and the KEK-derived pepper
+  (`authn/hashing.py`) are the control. `authn/policy.min_password_chars(realm)` remains
+  the single reader, so a realm can be given its own floor again without touching callers.
+  Existing passwords are unaffected.
   - **It is enforced at the STORE, not at the routes.** `credentials.set_password` is the
     only writer of `auth_credentials.password_hash`, and it calls
     `authn/policy.assert_password_allowed` before it hashes — so invitation redemption,
-    reset confirmation, admin bootstrap and the dev seed are all covered by construction
-    rather than by whoever remembered. It is deliberately NOT applied on the verify path:
-    raising a floor changes what may be STORED, never what may be PRESENTED, so nobody is
+    reset confirmation, self-serve sign-up, password change, admin bootstrap and the dev
+    seed are all covered by construction rather than by whoever remembered. It is
+    deliberately NOT applied on the verify path: a policy change alters what may be STORED, never what may be PRESENTED, so nobody is
     locked out of an account they can still sign into.
-  - **A blocklist, which §3.1.1.2 also requires and which did not exist before**: the whole
+  - **A blocklist, which §3.1.1.2 also requires**: the whole
     password is compared — never substrings, which is the same clause — against the service
     name, the account's own address and its derivatives, keyboard walks and short
     repetitions. The refusal names WHICH ("SHALL provide the reason for rejection") and the
     browser renders that reason at the field. Composition rules are absent because the
     revision forbids them ("SHALL NOT impose other composition rules").
-  - ⚠ **The breach-corpus half is OPEN and has no placeholder.** NIST names previous breach
-    corpuses first among what a blocklist may include; both hosts that serve one are
-    egress-blocked from the build environment, so a corpus could only have been typed, and
-    a hand-written "most common breached passwords" list is an unverified fact wearing an
-    authoritative look (hard rule 11). `apps/api/authn/policy.py` records what closes it —
-    a named, pinned source — and why an empty set with a branch above it was written and
-    then deleted.
+  - **The common-password corpus** is SecLists'
+    `Passwords/Common-Credentials/100k-most-used-passwords-NCSC.txt` at commit
+    `3a5f62f0e18a1b8a36b25399aff0077f3706e5af` (MIT), vendored byte-exact in
+    `apps/api/authn/blocklist/` and sha256-pinned in `policy.COMMON_PASSWORDS_SHA256`, so a
+    changed copy stops the api at import. Entries under 8 characters are dropped at load;
+    the rest are compared whole, NFC and casefolded, so `password`, `iloveyou` and
+    `Sunshine1` are refused. It is a file in the image, not the HIBP range API, so no
+    derivative of a password leaves our servers at sign-up and the check has no network
+    dependency.
   - Passwords are NFC-normalized before hashing, on the set path and the verify path alike
     (one function, `hashing._peppered`). NFC and not the -3 revision's NFKC: compatibility
     folding rewrites characters an Indic-script typist entered deliberately, which on a

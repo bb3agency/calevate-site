@@ -146,15 +146,25 @@ from apps.api.agents.models import (
     AgentDirection,
     series_for_e164,
 )
+from apps.api.agents.own_model import (
+    ensure_own_model_in,
+    own_model_for,
+    own_model_of_choice,
+    own_model_on,
+    own_model_rate_key,
+    refuse_unofferable_own_model,
+)
 from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
 from apps.api.agents.t0_block import block_of, without_block
 from apps.api.agents.verification import verify_publish
+from apps.api.agents.voice_tuning import TUNING_COLUMNS, config_tuning
 from apps.api.agents.voices import get_voice, speech_for_voice_id, voice_id_of
 from apps.api.agents.write_guard import archived_refusal, assert_agent_writable
 from apps.api.billing.engine_minutes import (
     ATTESTED_MINUTE_ENGINES,
     BYOK_VOICE_RATE_KEY,
     EngineRateKey,
+    attested_rate_keys,
     record_engine_rate_key,
 )
 from apps.api.compliance.caller_memory import recall
@@ -488,6 +498,8 @@ class AgentRow(TypedDict):
     organization_call_settings: NotRequired[CallSettings]
     #: An engine number is attached to this agent (F1).
     has_phone_number: NotRequired[bool]
+    #: The Studio voice tuning columns, in `voice_tuning.TUNING_COLUMNS` order.
+    voice_tuning: NotRequired[tuple[object, ...]]
 
 
 def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
@@ -580,7 +592,9 @@ async def _load_agent(
                 # The engine numbers bound to the agent, for `answers_on_a_number` (F1).
                 "ARRAY(SELECT n.engine_number_ref FROM phone_numbers n WHERE n.agent_id = a.id "
                 "AND n.released_at IS NULL AND n.engine_number_ref IS NOT NULL "
-                "AND n.provider = :number_provider) "
+                "AND n.provider = :number_provider), "
+                # How a Studio voice sounds on this agent (`agents/voice_tuning`).
+                f"{TUNING_COLUMNS} "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -661,6 +675,7 @@ async def _load_agent(
             engine_agent_ref=row[11],
             number_refs=list(row[47] or ()),
         ),
+        "voice_tuning": tuple(row[48:53]),
         # A restricted free trial never places a call back (D-697), so its agents must not
         # offer one (founder decision 1, 10 Oct 2026).
         "callbacks_offered": await restricting_trial(session, tenant_id=tenant_id) is None,
@@ -863,8 +878,12 @@ def _to_config(
         ),
         engine_voice_id=hosted.voice_id,
         engine_byok_voice_id=hosted.byok_voice_id,
+        engine_byok_voice_tuning=config_tuning(
+            agent.get("voice_tuning") or (None,) * 5, byok_voice_id=hosted.byok_voice_id
+        ),
         engine_own_voice_key=hosted.own_voice_key,
         engine_model_id=hosted.model_id,
+        engine_own_model=hosted.own_model,
         webhook_url=f"{settings.webhook_base_url}/hooks/v1/engine/{settings.engine}",
         # The cost-runaway guard. Resolved here rather than defaulted in the model, so
         # an agent that has never been given a cap is still published with one.
@@ -998,6 +1017,7 @@ async def _ensure_results_webhook(
     created: bool,
     session: AsyncSession,
     rate_key: EngineRateKey,
+    own_model: str | None = None,
 ) -> None:
     """Register (or confirm) the endpoint this vendor agent reports its calls to (D-678).
 
@@ -1017,7 +1037,11 @@ async def _ensure_results_webhook(
     if engine.name in ATTESTED_MINUTE_ENGINES:
         # The chosen voice's band, or the base rate (`agents/engine_choice.py`).
         await record_engine_rate_key(
-            session, engine=engine.name, engine_agent_ref=ref, rate_key=rate_key
+            session,
+            engine=engine.name,
+            engine_agent_ref=ref,
+            rate_key=rate_key,
+            own_model=own_model,
         )
 
 
@@ -2217,6 +2241,47 @@ async def _studio_in_client_workspace(
     await ensure_studio_in(session, engine, tenant_id=tenant_id, workspace=config.engine_workspace)
 
 
+def own_model_unpriced() -> ProblemError:
+    return ProblemError(
+        kind="business_rule",
+        code="own_model_minute_unpriced",
+        title="This voice has not been priced yet",
+        detail="Calls on this voice with this account's language model have no price yet, so "
+        "the agent was not published.",
+        remediation="Choose another voice, or contact us.",
+    )
+
+
+async def _own_model_in_client_workspace(
+    session: AsyncSession,
+    engine: VoiceEngine,
+    *,
+    tenant_id: UUID,
+    rate_key: EngineRateKey,
+    config: AgentConfig,
+) -> tuple[AgentConfig, EngineRateKey]:
+    """An agent on OUR model (D-764) answers on our Google key in its client's own workspace,
+    switched on there and read back before the vendor write, because the agent's `byok`
+    scope is refused with `409` in a workspace without the key (bring-your-own-keys.md:
+    92-97). Its rate key moves to the own-voice-and-model minute on a Studio voice, and must
+    be attested (hard rule 7). An agent in our developer workspace (a free trial) stays on
+    the engine's model: a key there would reach every client without keys of its own."""
+    if config.engine_own_model is None:
+        return config, rate_key
+    if config.engine_workspace is None or not isinstance(engine, HostsVoices):
+        return config.model_copy(update={"engine_own_model": None}), rate_key
+    refuse_unofferable_own_model(config.engine_own_model)
+    own_rate = own_model_rate_key(rate_key)
+    if own_rate != rate_key and own_rate not in await attested_rate_keys(
+        session, engine=engine.name, at=datetime.now(UTC)
+    ):
+        raise own_model_unpriced()
+    await ensure_own_model_in(
+        session, engine, tenant_id=tenant_id, workspace=config.engine_workspace
+    )
+    return config, own_rate
+
+
 def _moves_workspace(existing_ref: str | None, config: AgentConfig) -> bool:
     """Does the vendor agent behind `existing_ref` live outside the workspace `config` is for?
     An agent cannot move between workspaces, so it is recreated in the right one."""
@@ -2568,6 +2633,9 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     await _studio_in_client_workspace(
         session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config, trial=trial_account
     )
+    config, rate_key = await _own_model_in_client_workspace(
+        session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config
+    )
     existing_ref = agent["engine_agent_ref"]
     # AN AGENT MADE IN OUR DEVELOPER WORKSPACE BEFORE D-693 is recreated in its client's own
     # workspace on this publish, under a new vendor id. The old one keeps answering until
@@ -2686,7 +2754,13 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
             session, tenant_id=tenant_id, agent_id=agent_id, old_ref=moved_from
         )
     await _ensure_results_webhook(
-        engine, ref=ref, agent_id=agent_id, created=created, session=session, rate_key=rate_key
+        engine,
+        ref=ref,
+        agent_id=agent_id,
+        created=created,
+        session=session,
+        rate_key=rate_key,
+        own_model=config.engine_own_model,
     )
     await _publish_business_facts(
         engine, session, agent_id=agent_id, ref=ref, created=created, script=agent["prompt"]
@@ -2802,10 +2876,11 @@ def _engine_choice(agent: AgentRow, *, engine: VoiceEngine) -> tuple[str | None,
         # row and not sent (`Settings.thinnest_byok_enabled`).
         return None, None
     caps = engine.capabilities
-    return (
-        None if caps.is_ours("tts") else agent.get("engine_voice_id"),
-        None if caps.is_ours("llm") else agent.get("engine_model_id"),
-    )
+    model = None if caps.is_ours("llm") else agent.get("engine_model_id")
+    # A choice of OUR model (`byok:<id>`, D-764) is not one of the engine's models.
+    if own_model_of_choice(model) is not None:
+        model = None
+    return (None if caps.is_ours("tts") else agent.get("engine_voice_id"), model)
 
 
 @dataclass(frozen=True, slots=True)
@@ -2814,6 +2889,7 @@ class _EngineVoiceFields:
     byok_voice_id: str | None = None
     own_voice_key: bool | None = None
     model_id: str | None = None
+    own_model: str | None = None
 
 
 def _engine_voice_fields(agent: AgentRow, *, engine: VoiceEngine) -> _EngineVoiceFields:
@@ -2838,13 +2914,19 @@ def _engine_voice_fields(agent: AgentRow, *, engine: VoiceEngine) -> _EngineVoic
     ref = parse_hosted_voice_id(voice)
     states_key = not (byok_in_force(engine) or engine.capabilities.is_ours("tts"))
     own_voice_key = (ref is not None and ref.source == "byok") if states_key else None
+    # OUR model (D-764): the agent's own choice of a Google model, else the console default.
+    # A free-trial agent's config has it stripped at publish (`_own_model_for_publish`).
+    own_model = (
+        own_model_for(agent.get("engine_model_id")) if states_key and own_model_on(engine) else None
+    )
     if ref is None:
-        return _EngineVoiceFields(own_voice_key=own_voice_key, model_id=model)
+        return _EngineVoiceFields(own_voice_key=own_voice_key, model_id=model, own_model=own_model)
     return _EngineVoiceFields(
         voice_id=ref.vendor_id if ref.source == "engine" else None,
         byok_voice_id=ref.vendor_id if ref.source == "byok" else None,
         own_voice_key=own_voice_key,
         model_id=model,
+        own_model=own_model,
     )
 
 
@@ -2969,6 +3051,9 @@ async def publish_variant(
     await _studio_in_client_workspace(
         session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config, trial=False
     )
+    config, rate_key = await _own_model_in_client_workspace(
+        session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config
+    )
     # An arm made in our developer workspace is recreated in the client's own, as its agent
     # is (D-693); the old arm is deleted after this transaction commits.
     moved_from: str | None = None
@@ -3044,6 +3129,7 @@ async def publish_variant(
         created=not existing_ref,
         session=session,
         rate_key=rate_key,
+        own_model=config.engine_own_model,
     )
     # The arm's own vendor agent holds the facts its own script carries.
     await _publish_business_facts(

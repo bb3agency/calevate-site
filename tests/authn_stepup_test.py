@@ -508,7 +508,13 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # ONE MORE sets how many calls one client may have at once
     # (`tenancy/call_lines_routes.py`, `call_lines_confirmation`, bound to the client): more
     # lines is more calls billed at the same moment.
-    assert sites == 77, f"found {sites} step-up call sites, expected 77; the census went stale"
+    # ONE MORE switches another operator's "Stay signed in" off (D-766,
+    # `admin/operator_routes.py`, `operator_stay_signed_in_confirmation`, bound to the
+    # operator): it ends that person's long sessions on their devices.
+    # ONE MORE installs our Google key in one client's own voice workspace (D-764,
+    # `ops/hosted_voice_routes.py`, `OWN_MODEL_ENABLE_CONFIRMATION`): it installs a credential
+    # and switches that workspace's own keys on.
+    assert sites == 79, f"found {sites} step-up call sites, expected 79; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

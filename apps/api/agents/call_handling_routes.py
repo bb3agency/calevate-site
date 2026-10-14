@@ -351,7 +351,7 @@ def _audit_summary(changes: dict[str, object], moved: tuple[str, ...]) -> dict[s
 
 
 _AGENT_DESCRIPTION = (
-    "`turn_silence_ms` is how long the caller must be quiet before the agent replies, "
+    "`turn_silence_ms` is the silence that ends the caller's turn, after which the agent replies, "
     f"{TURN_SILENCE_MIN_MS}-{TURN_SILENCE_MAX_MS} ms; longer suits callers reading out "
     "numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent "
     "has finished; with it off a finished call stays connected, and charged, until the caller "

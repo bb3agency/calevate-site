@@ -1,8 +1,9 @@
 """The call settings a client decides per agent or for the whole account (D-751, F3, F9).
 
-- **Pause before the agent replies**: how long the caller must be quiet before their turn is
-  over and the agent answers. Too short and a caller reading out a phone number is answered
-  half way through it; too long and every reply waits.
+- **Pause before the agent replies**: the silence that ends the caller's turn, after which the
+  agent answers (sent with the platform's timer mode, so the number keeps that meaning). Too
+  short and a caller reading out a phone number is answered half way through it; too long
+  and every reply waits.
 - **Hang up when the conversation ends**: the agent releases the line when it has finished,
   rather than leaving it open, and billed, until the caller puts the phone down.
 - **If the caller goes quiet** (F3, F9, 12 Oct 2026): ask "are you still there?" after some

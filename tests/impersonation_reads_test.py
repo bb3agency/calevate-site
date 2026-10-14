@@ -104,6 +104,10 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "whether our Cartesia key is on in the voice platform workspace (D-688) — admin "
         "console, platform-wide, never impersonated"
     ),
+    "/v1/ops/voices/own-model": (
+        "whether our Google key can answer calls and which client workspaces hold it (D-764) "
+        "— admin console, platform-wide, never impersonated"
+    ),
     "/v1/admin/tenants": "the client directory — admin console, never impersonated",
     "/v1/admin/number-pricing": (
         "the operator's own attested rupee price for a number the carrier supplies — a "
@@ -147,6 +151,10 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "one agent's pause before replying and hang-up (D-751), the operator's door for an "
         "account they are not impersonating; the client's own `GET /v1/agents/{agent_id}/"
         "call-handling` is `agents:read`, which a view-as session holds"
+    ),
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning": (
+        "how a Studio voice sounds on one agent (D-767), operators only: the client realm has "
+        "no screen or route showing it, so a view-as session has nothing to read"
     ),
     "/v1/admin/organizations/{org_id}/call-handling": (
         "the account's call handling defaults (D-751), the operator's door; the client's "

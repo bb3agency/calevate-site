@@ -1069,9 +1069,9 @@ async def test_a_tenant_under_its_ceiling_is_let_through_with_its_quota() -> Non
 def test_the_reference_assist_costs_what_the_published_price_says_it_does() -> None:
     """The arithmetic under `assist_nominal_inr`, spelled out once PER MODEL.
 
-    `gpt-4o-mini` at $0.15/$0.60 per 1M tokens and ₹95.66/USD is ₹0.0143 and ₹0.0574 per
-    1,000 tokens; 5,000 in and 1,500 out is ₹0.15760. `gpt-4.1-mini` at $0.40/$1.60 is
-    ₹0.0383 and ₹0.1531, so the same assist is ₹0.42115. If the price table moves and this
+    `gpt-4o-mini` at $0.15/$0.60 per 1M tokens and ₹95/USD is ₹0.0143 and ₹0.0570 per
+    1,000 tokens; 5,000 in and 1,500 out is ₹0.15700. `gpt-4.1-mini` at $0.40/$1.60 is
+    ₹0.0380 and ₹0.1520, so the same assist is ₹0.41800. If the price table moves and this
     does not, one of the two is a typo.
 
     EQUALITIES ON THE EXACT PAISE rather than a band, because this number has now moved
@@ -1080,8 +1080,8 @@ def test_the_reference_assist_costs_what_the_published_price_says_it_does() -> N
     carried a stale nominal onto every screen. BOTH models are pinned because either can
     be live: pinning only the default is exactly the blind spot D-410 introduced.
     """
-    assert ai_quota.reference_assist_cost_inr("gpt-4o-mini") == Decimal("0.15760")
-    assert ai_quota.reference_assist_cost_inr("gpt-4.1-mini") == Decimal("0.42115")
+    assert ai_quota.reference_assist_cost_inr("gpt-4o-mini") == Decimal("0.15700")
+    assert ai_quota.reference_assist_cost_inr("gpt-4.1-mini") == Decimal("0.41800")
     for model in AZURE_OPENAI_MODELS:
         # Derived, never typed: the nominal IS the arithmetic, so a price change carries
         # the published "about N assists" with it instead of leaving it a month behind.

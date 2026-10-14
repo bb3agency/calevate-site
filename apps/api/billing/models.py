@@ -88,12 +88,12 @@ PAID_CREDIT_REASONS = ("topup",)
 # **`ktok`, NOT `tok`, and that is a MONEY decision, not a naming one.** `unit_cost_paid`
 # is NUMERIC(12,4) and every reader multiplies it by `qty`, so the smallest non-zero
 # price this ledger can express is ₹0.0001 per unit of qty. `gpt-4o-mini` input is $0.15
-# per 1M tokens — ₹0.0000143 a token at ₹95.66/USD — which stores as 0.0000, so a
+# per 1M tokens — ₹0.00001425 a token at ₹95/USD — which stores as 0.0000, so a
 # per-TOKEN qty would meter the input leg of every dashboard assist at exactly zero
 # rupees. The OUTPUT leg is the one worth spelling out because it looks survivable and is
-# not: ₹0.0000574 a token stores as 0.0001, which is not zero and is the price WRONG BY
-# 74% — over-stated here rather than discarded, which is no better on a ledger. Per
-# THOUSAND tokens the two are ₹0.0143 and ₹0.0574, which the column holds with digits to
+# not: ₹0.000057 a token stores as 0.0001, which is not zero and is the price WRONG BY
+# 75% — over-stated here rather than discarded, which is no better on a ledger. Per
+# THOUSAND tokens the two are ₹0.0143 and ₹0.0570, which the column holds with digits to
 # spare. What the ₹0.0001/1k quantum costs is stated where it lands: it bounds the error
 # on OUR OWN absorbed cost at 0.7% of the input rung, and no client-visible rupee is ever
 # derived from it — past the quota a client is charged a FIXED block

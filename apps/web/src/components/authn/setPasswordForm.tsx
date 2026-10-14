@@ -42,6 +42,7 @@
  * here and there is no attacker to time.
  */
 
+import Link from "next/link";
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import { useMutation } from "@tanstack/react-query";
@@ -56,7 +57,7 @@ import {
   passwordRule,
   type AuthnRealm,
 } from "@/lib/authn/password";
-import { passwordFieldMessage } from "@/lib/authn/problems";
+import { codeOf, passwordFieldMessage } from "@/lib/authn/problems";
 import { useLinkToken } from "@/lib/authn/useLinkToken";
 
 export interface SetPasswordSubmission {
@@ -70,12 +71,10 @@ export interface SetPasswordFormProps<T> {
   /**
    * WHICH REALM this password is for, and it is required rather than defaulted.
    *
-   * The minimum length differs between the two (`@/lib/authn/password`), because a
-   * client password is single-factor and an admin password is one factor of two. A
-   * default here would silently show one realm's floor on the other realm's form, and
-   * showing the SMALLER of the two on a client form is the exact defect
-   * `lib/authn/password.ts` exists to prevent: a validator looser than the server's,
-   * which accepts a password the submit then refuses.
+   * The minimum length is looked up per realm (`@/lib/authn/password`) because the API
+   * keeps a per-realm seam (both are 8 today, D-765). A default here would show one
+   * realm's floor on the other realm's form the day they differ — a validator looser
+   * than the server's accepts a password the submit then refuses.
    */
   realm: AuthnRealm;
   /** What the button says, and what the heading above the fields says. */
@@ -89,6 +88,12 @@ export interface SetPasswordFormProps<T> {
   renderSuccess: (result: T) => ReactNode;
   /** What to render when the link carried no token at all. */
   renderMissingToken: ReactNode;
+  /**
+   * Where to get a new link when the server refuses this one as used or expired. The form
+   * is replaced by the refusal and this way out, because re-submitting a dead link can
+   * only fail again.
+   */
+  deadLink?: { code: string; href: string; label: string };
   onSubmit: (submission: SetPasswordSubmission) => Promise<T>;
 }
 
@@ -99,6 +104,7 @@ export function SetPasswordForm<T>({
   askForName = false,
   renderSuccess,
   renderMissingToken,
+  deadLink,
   onSubmit,
 }: SetPasswordFormProps<T>) {
   const { token, ready } = useLinkToken();
@@ -141,6 +147,18 @@ export function SetPasswordForm<T>({
   // `ready` gates this so a server render and the first client paint do not both claim the
   // link is broken before anything has looked at it.
   if (ready && token === "") return <>{renderMissingToken}</>;
+  if (deadLink && submit.isError && codeOf(submit.error) === deadLink.code) {
+    return (
+      <Card>
+        <div className="space-y-3">
+          <AuthProblemNotice error={submit.error} />
+          <Link href={deadLink.href} className={PRIMARY_BUTTON}>
+            {deadLink.label}
+          </Link>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -222,7 +240,7 @@ export function SetPasswordForm<T>({
 }
 
 /** The panel every one of the three shows when its link arrived without its code. */
-export function MissingLinkCode({ what, remedy }: { what: string; remedy: string }) {
+export function MissingLinkCode({ what, remedy }: { what: string; remedy: ReactNode }) {
   return (
     <Card>
       <div className="space-y-3 text-sm text-ink-muted">

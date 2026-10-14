@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
 import { ENGINE_CATALOGUE_PATH, type EngineCatalogue } from "@/lib/api/engineCatalogue";
 import type { AgentVoice, AgentVoiceState } from "@/lib/api/publishing";
+import type { VoiceTuning } from "@/lib/api/voiceTuning";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, type Routes } from "./harness";
@@ -52,6 +53,33 @@ const HISTORY_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/prompt`;
 const PENDING_PATH = `/v1/agents/${AGENT}/pending`;
 const LANES_PATH = "/v1/agents/lanes";
 const EXPERIMENT_PATH = `/v1/agents/${AGENT}/experiment`;
+const TUNING_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/voice-tuning`;
+
+const TUNING_OPTIONS: VoiceTuning["options"] = {
+  speed_min: "0.6",
+  speed_max: "1.5",
+  volume_min: "0.5",
+  volume_max: "2.0",
+  emotions: ["neutral", "calm", "happy"],
+  models: ["sonic-3.6", "sonic-3.5", "sonic-2"],
+  old_model: "sonic-2",
+  dictionary_id_pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{2,79}$",
+  preview_text_max_chars: 200,
+};
+
+function tuning(over: Partial<VoiceTuning> = {}): VoiceTuning {
+  return {
+    agent_id: AGENT,
+    studio: false,
+    speed: null,
+    volume: null,
+    emotion: null,
+    model: null,
+    dictionary_id: null,
+    options: TUNING_OPTIONS,
+    ...over,
+  };
+}
 
 /** A platform that speaks its own voices: one voice priced, one not. */
 const ENGINE_CATALOGUE: EngineCatalogue = {
@@ -193,6 +221,7 @@ function render(over: Partial<Routes> = {}) {
         experiment: null,
       },
       [ENGINE_CATALOGUE_PATH]: ENGINE_CATALOGUE,
+      [TUNING_PATH]: tuning(),
       ...over,
     },
   );
@@ -389,3 +418,74 @@ describe("the voice panel", () => {
 function radios(container: HTMLElement): HTMLInputElement[] {
   return Array.from(container.querySelectorAll("input[type=radio]"));
 }
+
+describe("how a Studio voice sounds (operators only)", () => {
+  beforeEach(() => {
+    nav.params = new URLSearchParams("section=voice");
+  });
+
+  it("says the settings are for Studio voices on an agent that speaks none", async () => {
+    const { calls } = await render();
+    await screen.findByText(/can be set for a Studio voice/);
+    expect(screen.queryByRole("button", { name: "Save settings" })).toBeNull();
+    // Read through the operator's own session, never the tenant's view-as one.
+    const read = calls.find((call) => call.path === TUNING_PATH)!;
+    expect(read.headers["X-Impersonate-Org"]).toBeUndefined();
+  });
+
+  it("saves every field as shown, an empty one as null, through the operator's door", async () => {
+    const { calls } = await render({
+      [TUNING_PATH]: tuning({ studio: true, speed: "0.95", emotion: "calm" }),
+      [`PATCH ${TUNING_PATH}`]: tuning({ studio: true, speed: "0.95", volume: "1.40" }),
+    });
+    const volume = await screen.findByLabelText("Volume");
+    expect((screen.getByLabelText("Speed") as HTMLInputElement).value).toBe("0.95");
+    fireEvent.change(volume, { target: { value: "1.4" } });
+    fireEvent.change(screen.getByLabelText("Emotion"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.path === TUNING_PATH && c.method === "PATCH")).toBe(true),
+    );
+    const write = calls.find((c) => c.path === TUNING_PATH && c.method === "PATCH")!;
+    expect(JSON.parse(write.body!)).toEqual({
+      speed: 0.95,
+      volume: 1.4,
+      emotion: null,
+      model: null,
+      dictionary_id: null,
+    });
+    await screen.findByText(/A live agent uses them from its next call/);
+  });
+
+  it("speaks the settings in the form before they are saved", async () => {
+    Object.assign(URL, { createObjectURL: vi.fn(() => "blob:tuned"), revokeObjectURL: vi.fn() });
+    Object.defineProperty(HTMLMediaElement.prototype, "play", {
+      configurable: true,
+      value: vi.fn(() => Promise.resolve()),
+    });
+    const preview = `POST ${TUNING_PATH}/preview`;
+    const { calls } = await render({
+      [TUNING_PATH]: tuning({ studio: true }),
+      [preview]: () =>
+        new Response(new Blob(["ID3"], { type: "audio/mpeg" }), {
+          status: 200,
+          headers: { "content-type": "audio/mpeg" },
+        }),
+    });
+    fireEvent.change(await screen.findByLabelText("Speed"), { target: { value: "1.1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Hear it" }));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.path === `${TUNING_PATH}/preview`)).toBe(true),
+    );
+    const heard = calls.find((c) => c.path === `${TUNING_PATH}/preview`)!;
+    expect(JSON.parse(heard.body!)).toMatchObject({ speed: 1.1, volume: null });
+    expect(calls.some((c) => c.path === TUNING_PATH && c.method === "PATCH")).toBe(false);
+  });
+
+  it("says the older model takes no speed, volume or emotion", async () => {
+    await render({ [TUNING_PATH]: tuning({ studio: true, model: "sonic-2" }) });
+    await screen.findByText(/sonic-2 takes no speed, volume or emotion/);
+  });
+});

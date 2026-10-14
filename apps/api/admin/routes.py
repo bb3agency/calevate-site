@@ -46,6 +46,7 @@ from apps.api.billing import service as billing
 from apps.api.billing import terms as billing_terms
 from apps.api.billing.attribution import month_trial_cost_inr, paid_margin
 from apps.api.billing.cap_routes import MAX_CLIENT_CAP_MIN, MAX_CLIENT_CAP_SPEND_INR
+from apps.api.billing.own_model_prompt import PromptBasis, floor_prompt_basis, tokens_of
 from apps.api.billing.plans import IST, ist_billing_month, ist_month_window, parse_billing_month
 from apps.api.billing.trials import trial_overlaps
 from apps.api.campaigns import engine_numbers
@@ -3122,15 +3123,20 @@ def _ratio(value: Decimal | None) -> str | None:
     return None if value is None else str(value.quantize(_MARGIN_Q, rounding=ROUND_HALF_UP))
 
 
-def _bundle_cost_floor() -> Decimal:
+def _bundle_cost_floor(own_model: PromptBasis | None) -> Decimal:
     """The Clear floor a committed bundle is judged at: the engine this deployment runs
-    (D-681), the same floors the prepaid card is sold at."""
+    (D-681), the same floors the prepaid card is sold at, our model's half struck at
+    `own_model` (`billing/own_model_prompt.floor_prompt_basis`)."""
     return billing_rates.cost_floor_inr_per_min(
-        billing_rates.VALUE_VOICE_TIER, engine=credit_packs.deployment_engine()
+        billing_rates.VALUE_VOICE_TIER,
+        engine=credit_packs.deployment_engine(),
+        own_model_prompt_tokens=tokens_of(own_model),
     )
 
 
-def _margin_out(terms: billing_terms.CommercialTerms) -> PlanMarginOut:
+def _margin_out(
+    terms: billing_terms.CommercialTerms, *, own_model: PromptBasis | None
+) -> PlanMarginOut:
     """The margin verdict on one set of commercial terms (D-469).
 
     Built from `rates.committed_plan_margin`, which owns the arithmetic and the two
@@ -3144,7 +3150,7 @@ def _margin_out(terms: billing_terms.CommercialTerms) -> PlanMarginOut:
         monthly_fee=terms.monthly_fee,
         included_min=terms.included_min,
         overage_rate=terms.overage_rate,
-        cost=_bundle_cost_floor(),
+        cost=_bundle_cost_floor(own_model),
     )
     rate = verdict.effective_committed_rate
     return PlanMarginOut(
@@ -3156,15 +3162,16 @@ def _margin_out(terms: billing_terms.CommercialTerms) -> PlanMarginOut:
         overage_gross_margin=_ratio(verdict.overage.margin if verdict.overage else None),
         below_target_margin=list(verdict.below_target()),
         min_gross_margin=str(billing_rates.MIN_GROSS_MARGIN),
-        cost_floor_inr_per_min=str(_bundle_cost_floor()),
-        cost_floor_basis=billing_rates.ASSUMED_SPEAKING_RATE.label,
+        cost_floor_inr_per_min=str(_bundle_cost_floor(own_model)),
+        cost_floor_basis=billing_rates.ASSUMED_SPEAKING_RATE.label
+        + ("" if own_model is None else f"; our model at {own_model.label}"),
     )
 
 
-def _plan_out(record: billing_terms.PlanRecord) -> PlanRowOut:
+def _plan_out(record: billing_terms.PlanRecord, *, own_model: PromptBasis | None) -> PlanRowOut:
     terms = record.terms
     return PlanRowOut(
-        margin=_margin_out(terms),
+        margin=_margin_out(terms, own_model=own_model),
         id=record.id,
         setup_fee_inr=_amount(terms.setup_fee),
         monthly_fee_inr=_amount(terms.monthly_fee),
@@ -3252,11 +3259,12 @@ async def read_commercial_terms(
         await record_admin_tenant_read(
             scoped, request=request, principal=principal, tenant_id=tenant_id
         )
+    own_model = await floor_prompt_basis()
     return CommercialTermsOut(
         tenant_id=tenant_id,
         state=view.state,
-        in_effect=_plan_out(view.in_effect) if view.in_effect else None,
-        history=[_plan_out(record) for record in view.history],
+        in_effect=_plan_out(view.in_effect, own_model=own_model) if view.in_effect else None,
+        history=[_plan_out(record, own_model=own_model) for record in view.history],
         loosening_confirmation=spend_ceiling_confirmation(tenant_id),
     )
 
@@ -3396,7 +3404,7 @@ async def record_commercial_terms(
         # The terms as SUBMITTED, which is what the operator is looking at. On an
         # idempotent no-op (`changed=False`) these are also the terms in effect, so the
         # figure is right either way.
-        margin=_margin_out(terms),
+        margin=_margin_out(terms, own_model=await floor_prompt_basis()),
     )
 
 

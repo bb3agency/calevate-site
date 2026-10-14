@@ -169,7 +169,9 @@ async def test_the_approved_card_is_written_and_every_margin_is_previewed(
         if verdict.below_target
     }
     assert {(r.pack_id, r.voice_tier) for r in thin} == expected_thin
-    assert len(expected_thin) == 0, "no cell of the D-728 card is under target"
+    # At the D-768 planning rate every Studio cell of the D-728 card is under target and
+    # every Clear cell clears it; the warnings are what an operator sees.
+    assert expected_thin == {(pack.pack_id, "studio") for pack in PACK_CATALOGUE}
     # Money in a log line is a STRING (hard rule 7): a float here is a float somebody
     # quotes back.
     assert all(isinstance(r.inr_per_min, str) for r in previews)

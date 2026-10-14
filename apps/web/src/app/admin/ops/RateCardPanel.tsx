@@ -195,6 +195,12 @@ function RateCardTable({ card }: { card: RateCard }) {
 
       <CartesiaVolumeNotice volume={volume} />
       {speakingRate !== null ? <SpeakingRateNotice rate={speakingRate} /> : null}
+      {card.own_model_prompt_basis ? (
+        <p className="border-l-2 border-line py-1 pl-3 text-meta text-ink-muted">
+          Calls answer on our own model, so every cost floor above adds the model&apos;s cost
+          per minute at {card.own_model_prompt_basis}.
+        </p>
+      ) : null}
 
       <ScrollRegion label="The rate card, by pack and voice">
         <table className="w-full min-w-[640px] text-body">
@@ -481,7 +487,7 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
         <MonoValue>{volume.plans[volume.plans.length - 1]?.plan_id ?? "—"}</MonoValue> plan
         becomes the cheaper one. A card is refused below{" "}
         <span className="tabular-nums">{formatRupeeRate(volume.refusal_floor_inr_per_min)}</span>
-        , which is deliberately frozen at ₹88 to the dollar so a currency tick can never make
+        , which is deliberately frozen at ₹95 to the dollar so a currency tick can never make
         the card that is on sale un-recordable.
       </p>
 

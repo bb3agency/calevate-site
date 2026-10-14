@@ -927,6 +927,15 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:a5ce994ffd4e54fcbab9b43be47f1c3e99bcf03a10e2d6a1bf99954f88de25ce",
       },
+      // D-766: an operator may switch "Stay signed in" on for their own account, and the
+      // admin cookie then persists like the client one. Describes operator sessions only;
+      // nothing a client accepted changes, so `material: false`.
+      {
+        revision: "5",
+        material: false,
+        contentHash:
+          "sha256:e82ec50aa55fb674639c98a3c553e267559c8c484e8ed00ffcc1c06520a867d6",
+      },
     ],
     effectiveDate: "2026-09-02",
   },

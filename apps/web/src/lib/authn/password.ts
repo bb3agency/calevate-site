@@ -7,58 +7,33 @@
  * validator that is more permissive than the hasher is a security bug, not a cosmetic
  * mismatch** — every character past the truncation point is theatre.
  *
- * Ours does not truncate: `apps/api/authn/hashing.py` is Argon2id, and its own bound is
- * `MIN_PASSWORD_CHARS = 12` / `MAX_PASSWORD_CHARS = 128`, enforced twice on the way in
- * (Pydantic's `Field(min_length=…, max_length=…)` on every wire model, then
- * `_refuse_unusable` at the hash itself). So the honest client bound is the SAME two
- * numbers, and `tests/authnSourceGuards.test.ts` reads them back out of
- * `apps/api/authn/hashing.py` and fails if these drift from it. Pinning to the source
- * rather than to a comment is the whole lesson of the defect: the reference's 128 was
- * true when it was written.
+ * Ours does not truncate: `apps/api/authn/hashing.py` is Argon2id, its absolute bound is
+ * `MIN_PASSWORD_CHARS` / `MAX_PASSWORD_CHARS`, and `apps/api/authn/policy.py` holds each
+ * realm's floor (`MIN_CHARS_BY_REALM`, read through `min_password_chars`). The numbers
+ * here are the same ones, and `tests/authnSourceGuards.test.ts` reads them back out of
+ * those two files and fails if they drift. A validator looser than the server tells a
+ * person their password is fine and then the submit is refused.
+ *
+ * The floor is 8 characters on every realm (D-765, founder decision 13 Oct 2026). It is
+ * still looked up per realm because the API keeps that seam.
  *
  * NIST SP 800-63B-4 §3.1.1.2 is where the shape comes from — a length floor and no
  * composition rules, because forced character classes push people to predictable
  * substitutions. The API's own refusal sentence says the same ("There are no other rules
  * — no required …"), so the two halves tell one story.
- *
- * ## THE FLOOR IS PER REALM, AND THAT IS THE SAME DEFECT ONE LEVEL UP
- *
- * §3.1.1.2 requires 15 characters when the password is "used as a single-factor
- * authentication mechanism" and permits fewer only for a password "only used as part of
- * multi-factor authentication processes". The client realm has no second factor and the
- * admin realm does (D-170), so the two realms have DIFFERENT floors —
- * `apps/api/authn/policy.py::MIN_CHARS_BY_REALM` is the API's single copy of that fact.
- *
- * A single client-side `MIN_PASSWORD_CHARS = 12` shown on a client-realm form is
- * precisely the defect this file was written about, one level up from the truncation
- * case: a validator advertising a bound looser than the one the server enforces, so the
- * person types twelve characters, is told it is fine, submits, and is refused. So the
- * bound here takes a realm, and `tests/authnSourceGuards.test.ts` reads the whole table
- * back out of `policy.py` rather than one number out of `hashing.py`.
- *
- * `MIN_PASSWORD_CHARS` remains exported as the ABSOLUTE floor — the smallest value any
- * realm allows, and the only honest bound for a form that does not know its realm. No
- * form is in that position today; it exists so that a future one cannot silently pick
- * the client's 15 for an admin or the admin's 12 for a client.
  */
 
 /** The realms the API authenticates in — `apps/api/authn/models.py::AUTHN_REALMS`. */
 export type AuthnRealm = "client" | "admin";
 
-/**
- * Each realm's minimum, mirrored from `apps/api/authn/policy.py::MIN_CHARS_BY_REALM`.
- *
- * `client` is 15 because a client password is the whole of the authentication;
- * `admin` is 12 because an admin password is one factor of two (the emailed OTP is the
- * other) and NIST permits as few as 8 in that case — 12 is what those accounts have.
- */
+/** Each realm's minimum, mirrored from `apps/api/authn/policy.py::MIN_CHARS_BY_REALM`. */
 export const MIN_PASSWORD_CHARS_BY_REALM: Record<AuthnRealm, number> = {
-  client: 15,
-  admin: 12,
+  client: 8,
+  admin: 8,
 };
 
-/** The smallest floor any realm imposes. See the note above on why this is not the one
- * to show on a form that knows which realm it is in. */
+/** The smallest floor any realm imposes — the hasher's absolute bound. A form that knows
+ * its realm shows that realm's floor instead. */
 export const MIN_PASSWORD_CHARS = Math.min(...Object.values(MIN_PASSWORD_CHARS_BY_REALM));
 
 /** Argon2id has no truncation point; this is the API's declared ceiling, not a hasher's. */

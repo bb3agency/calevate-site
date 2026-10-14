@@ -325,6 +325,9 @@ async def test_secret(
 #: the voice platform (`apps/workers/settings.FUNCTIONS`; `check_job_wiring` holds the name).
 STUDIO_VOICE_SECRET = "cartesia_api_key"
 PUSH_STUDIO_VOICE_KEY_JOB = "push_studio_voice_key"
+#: The credential agents on our own model answer with (D-764), and its rotation job.
+OWN_MODEL_SECRET = "gemini_api_key"
+PUSH_OWN_MODEL_KEY_JOB = "push_own_model_key"
 
 
 @router.put(
@@ -408,6 +411,15 @@ async def set_secret_route(
             job=PUSH_STUDIO_VOICE_KEY_JOB,
             payload={"version": record.version},
             dedupe_key=f"studio-voice-key:{record.version}",
+        )
+    if key == OWN_MODEL_SECRET:
+        # The voice platform holds a copy of our Google key in each client workspace on our
+        # model (D-764); the rotation reaches each through the outbox, in this transaction.
+        await enqueue_outbox_once(
+            session,
+            job=PUSH_OWN_MODEL_KEY_JOB,
+            payload={"version": record.version},
+            dedupe_key=f"own-model-key:{record.version}",
         )
     tasks.add_task(propagate)
     # Which LLM legs hold a key decides which models are offered; refresh it here rather

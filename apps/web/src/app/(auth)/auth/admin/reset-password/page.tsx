@@ -16,6 +16,7 @@ import { AuthPageFrame } from "@/components/authPage";
 import { MissingLinkCode, SetPasswordForm } from "@/components/authn/setPasswordForm";
 import { Card, NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
 import { ADMIN_FORGOT_PATH, ADMIN_SIGN_IN_PATH, adminAuthn } from "@/lib/authn/adminAuthn";
+import { AUTHN_CODES } from "@/lib/authn/problems";
 import { useIdempotencyKey } from "@/lib/authn/useIdempotencyKey";
 import { useLinkToken } from "@/lib/authn/useLinkToken";
 
@@ -52,6 +53,11 @@ function AdminResetBody() {
           </p>
         </>
       }
+      deadLink={{
+        code: AUTHN_CODES.invalidResetToken,
+        href: ADMIN_FORGOT_PATH,
+        label: "Ask for a new reset link",
+      }}
       onSubmit={({ token: linkToken, password }) =>
         adminAuthn.confirmPasswordReset({ token: linkToken, password }, idempotencyKey)
       }
@@ -71,7 +77,15 @@ function AdminResetBody() {
       renderMissingToken={
         <MissingLinkCode
           what="reset"
-          remedy={`If that does not work, ask for a fresh link from ${ADMIN_FORGOT_PATH}.`}
+          remedy={
+            <>
+              If that does not work,{" "}
+              <Link href={ADMIN_FORGOT_PATH} className="text-brand-strong underline underline-offset-2 dark:text-brand-bright">
+                ask for a new reset link
+              </Link>
+              .
+            </>
+          }
         />
       }
     />

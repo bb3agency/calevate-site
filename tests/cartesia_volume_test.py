@@ -25,8 +25,8 @@ import pytest
 from apps.api.billing.credit_packs import PACK_CATALOGUE
 from apps.api.billing.rates import (
     ASSUMED_SPEAKING_RATE,
-    CARTESIA_EVIDENCE_USD_INR,
     CARTESIA_VOLUME_LADDER_CALL_MINUTES,
+    PLANNING_USD_INR,
     clear_cost_floor_at,
 )
 from apps.api.billing.spend_routes import _CHARS_PER_KCHAR
@@ -156,9 +156,7 @@ def test_the_wire_carries_the_volume_the_fx_and_a_breakeven_for_every_studio_run
     point of pinning a screen's honesty in a test rather than trusting a reviewer to notice
     a missing column.
     """
-    fx = UsdInrRate(
-        rate=CARTESIA_EVIDENCE_USD_INR, source="frankfurter:FBIL", as_of=None, basis="published"
-    )
+    fx = UsdInrRate(rate=PLANNING_USD_INR, source="frankfurter:FBIL", as_of=None, basis="published")
     # The Clear column is struck at a speaking-rate BASIS since D-557; the assumed one is
     # what is in force until twenty calls with a transcript exist, and it is what this case
     # is about — the Studio assertions below must not move with it either way.
@@ -167,6 +165,7 @@ def test_the_wire_carries_the_volume_the_fx_and_a_breakeven_for_every_studio_run
         measured_cost=Decimal("6.9011"),
         fx=fx,
         clear=clear_cost_floor_at(ASSUMED_SPEAKING_RATE),
+        own_model_prompt_tokens=None,
     )
     studio = [cell for cell in cells if cell.voice_tier == "studio"]
     assert len(studio) == len(PACK_CATALOGUE)
@@ -222,14 +221,10 @@ def test_the_volume_block_names_its_fx_rate_and_its_fallback() -> None:
     assert published.fx_usd_inr == "95.66"
     assert published.fx_source == "frankfurter:FBIL"
     assert published.fx_as_of is not None
-    # ⚠ **BOTH FLOORS ARE NOW UNDER THE CHEAPEST STUDIO RUNG, AND THE SPLIT STILL MATTERS.**
-    # The live floor at ₹95.66 used to sit ABOVE the founder's ₹6.00 rung (₹6.0120) while the
-    # frozen bound sat under it, which is the crossing D-556 published two numbers for.
-    # D-592 halved the engine leg and pulled the live floor to ₹5.0554, so the crossing is
-    # gone at today's numbers — the two are still published separately because the reason is
-    # structural: a currency feed must never get a veto over a card that is on sale.
+    # The live floor and the frozen refusal bound are published separately: a currency feed
+    # must never get a veto over a card that is on sale.
     assert published.floor_inr_per_min == "5.0554"
-    assert published.refusal_floor_inr_per_min == "4.7099"
+    assert published.refusal_floor_inr_per_min == "5.0256"
     assert Decimal(published.floor_inr_per_min) > Decimal(published.refusal_floor_inr_per_min)
     assert Decimal(published.refusal_floor_inr_per_min) < min(
         pack.studio_inr_per_min for pack in PACK_CATALOGUE
@@ -238,7 +233,7 @@ def test_the_volume_block_names_its_fx_rate_and_its_fallback() -> None:
     fallback = config_routes._cartesia_volume_out(
         volume,
         fx=UsdInrRate(
-            rate=Decimal("88"),
+            rate=Decimal("95"),
             source="configured:usd_inr_rate",
             as_of=None,
             basis="manual_no_quote",
@@ -246,15 +241,15 @@ def test_the_volume_block_names_its_fx_rate_and_its_fallback() -> None:
     )
     assert fallback.fx_as_of is None
     assert fallback.fx_source == "configured:usd_inr_rate"
-    assert fallback.floor_inr_per_min == "4.7099"
+    assert fallback.floor_inr_per_min == "5.0256"
 
     # The ladder is the curve, at the volumes the console prints, and it always contains a
     # point at which some Studio rung is under water.
     assert [point.call_minutes for point in fallback.ladder] == [
         str(minutes) for minutes in CARTESIA_VOLUME_LADDER_CALL_MINUTES
     ]
-    assert fallback.ladder[0].cost_inr_per_min == "6.0211"
-    assert fallback.cost_inr_per_min == "4.0499"
+    assert fallback.ladder[0].cost_inr_per_min == "6.4411"
+    assert fallback.cost_inr_per_min == "4.3131"
     assert fallback.plan_id == "pro"
 
 

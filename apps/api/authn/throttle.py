@@ -93,8 +93,9 @@ class Budget:
 #:
 #: Ten rather than five because the population is SMB owners on phones and a floor that
 #: bites on a genuine typo run is a floor that generates support calls; ten rather than
-#: NIST's ceiling of 100 because 100 online guesses against a 12-character minimum is
-#: already meaningless to an attacker and 10 is meaningless to a person. Fifteen minutes
+#: NIST's ceiling of 100 because ten is meaningless to a person, and with an 8-character
+#: floor on a single-factor client password (D-765) this budget is one of the controls
+#: compensating for the departure from NIST's 15 (`policy.py`). Fifteen minutes
 #: is the observation window AND the penalty: long enough that grinding costs an attacker
 #: 40 guesses an hour, short enough that a locked-out owner is not phoning anybody.
 PASSWORD_BUDGET: Final = Budget("password", threshold=10, window_s=900)

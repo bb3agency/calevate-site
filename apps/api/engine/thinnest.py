@@ -58,6 +58,7 @@ from calevate_shared.engine import (
     AgentConfig,
     AgentSnapshot,
     AvailableNumber,
+    ByokVoiceTuning,
     CallContext,
     CallHandle,
     EngineAgentRef,
@@ -82,10 +83,12 @@ from calevate_shared.engine_scope import raw_of, scoped_handle
 from calevate_shared.events import (
     CallDirection,
     CallEvent,
+    CallLlmUsage,
     CallQuality,
     CallStatus,
     EngineNotice,
     EngineNoticeKind,
+    EngineOptOut,
     EngineProblem,
     EngineProblemKind,
     Speaker,
@@ -253,6 +256,8 @@ CALL_SECONDS_MAX: Final = 1200
 #: default (`voice.ringSeconds`, 10-60, default 30; docs.thinnest.ai api-reference/agents/
 #: update-agent, read 10 Oct 2026) and stated on every publish so a console edit is repaired.
 RING_SECONDS: Final = 30
+#: `voice.turnDetection` on every agent: a stretch of silence ends the caller's turn.
+TURN_DETECTION: Final = "timer"
 #: Where an agent answers besides the phone (`voice.surfaces`), as the drift panel names
 #: each place. We send phone only (`_agent_body`), so any of these is drift and is repaired
 #: (founder decision F1, 12 Oct 2026, superseding D-720's "information only").
@@ -563,6 +568,20 @@ def parse_quality(value: Any) -> CallQuality | None:
         interruptions=_whole(value.get("interruptions")),
         model_errors=_whole(value.get("modelErrors")),
         backup_answers=_whole(value.get("rescues")),
+    )
+
+
+def parse_llm_usage(value: Any) -> CallLlmUsage | None:
+    """The call's `usage` block in our names, or None when the engine sent none: `inputTokens`,
+    `outputTokens` and `cachedInputTokens`, each null when not recorded, our own model key's
+    tokens included (`thinnest-findings/mirror/snapshots/2026-10-13/pages/api-reference/
+    calls/get-call.md:1105-1135`; `call.analysed` carries the same object, :322-325)."""
+    if not isinstance(value, dict):
+        return None
+    return CallLlmUsage(
+        input_tokens=_whole(value.get("inputTokens")),
+        output_tokens=_whole(value.get("outputTokens")),
+        cached_input_tokens=_whole(value.get("cachedInputTokens")),
     )
 
 
@@ -877,29 +896,44 @@ def _key_state(data: dict[str, Any]) -> OwnVoiceKeyState:
     if using not in {"own", "developer", "none"}:
         raise _bad_response("The voice platform did not say whose keys it is using.")
     credentials = data.get("credentials")
-    voice_provider = next(
-        (
-            _str(row.get("provider"))
-            for row in (credentials if isinstance(credentials, list) else [])
-            if isinstance(row, dict) and row.get("kind") == "tts"
-        ),
-        None,
-    )
+    listed = credentials if isinstance(credentials, list) else []
+    rows = [row for row in listed if isinstance(row, dict)]
+    voice = next((row for row in rows if row.get("kind") == "tts"), {})
+    # `kind: llm` with its `model` and `verifiedAt` (bring-your-own-keys.md:196-222 in the
+    # 2026-10-13 snapshot).
+    llm = next((row for row in rows if row.get("kind") == "llm"), {})
     return OwnVoiceKeyState(
         enabled=data.get("enabled") is True,
         scope=_str(data.get("scope")),
         complete=data.get("complete") is True,
         using=using,
-        voice_provider=voice_provider,
+        voice_provider=_str(voice.get("provider")),
+        llm_provider=_str(llm.get("provider")),
+        llm_model=_str(llm.get("model")),
+        llm_verified=_str(llm.get("verifiedAt")) is not None,
     )
 
 
-def _byok_value(on: bool) -> str:
-    """Our "speaks on our own voice key" as the agent's `byok`: `workspace` follows the
-    workspace's voice-only BYOK (our Cartesia key), `off` keeps the agent on ThinnestAI's own
-    voices and models at their normal rate (LIVE-DOCS `docs.thinnest.ai/api-reference/
-    agents/update-agent`, 8 Oct 2026)."""
+def _byok_value(on: bool, own_model: str | None = None) -> str:
+    """The agent's `byok` for our two switches. Without our model: `workspace` follows the
+    workspace's voice-only BYOK (our Cartesia key, Studio) and `off` keeps the agent on
+    ThinnestAI's own voices and models at their normal rate. With our model (D-764) the scope
+    is named outright, whatever the workspace default: `llm_voice` (our model and our voice)
+    or `llm` (our model, their voice) (`thinnest-findings/mirror/snapshots/2026-10-13/pages/
+    api-reference/agents/update-agent.md:746-768`; bring-your-own-keys.md:80-90)."""
+    if own_model:
+        return "llm_voice" if on else "llm"
     return "workspace" if on else "off"
+
+
+#: An agent's `byok` read back as (speaks on our voice key, answers on our model key).
+#: `all` is the three-key mode `engine_choice` refuses to sell, so it reads as unknown.
+_BYOK_SCOPES: Final[dict[str, tuple[bool, bool]]] = {
+    "workspace": (True, False),
+    "off": (False, False),
+    "llm": (False, True),
+    "llm_voice": (True, True),
+}
 
 
 def _tools_not_pinned() -> ProblemError:
@@ -1001,7 +1035,8 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "caller_memory": ("voice.pastConversations",),
     "machine_detection": ("voice.detectMachines",),
     "end_call_on_finish": ("voice.endCallOnFinish",),
-    "turn_silence": ("voice.turnSilenceSeconds",),
+    "turn_silence": ("voice.turnSilenceSeconds", "voice.turnDetection"),
+    "do_not_call_tool": ("voice.recordDoNotCall",),
     "ring_seconds": ("voice.ringSeconds",),
     "call_summaries": ("voice.summariseCalls",),
     "escalation": ("escalation",),
@@ -1185,6 +1220,86 @@ def _same_hundredths(wanted: Any, held: Any) -> bool:
     return round(held * 100) == round(float(wanted) * 100)
 
 
+#: Our tuning field -> the `byok-voice` request field (set-agent-byok-voice.md:587-627). The
+#: agent's own model reads back as `agentModel`, because `model` there is the key's.
+_TUNING_WIRE: Final[tuple[tuple[str, str, str], ...]] = (
+    ("speed", "speed", "speed"),
+    ("volume", "volume", "volume"),
+    ("emotion", "emotion", "emotion"),
+    ("model", "model", "agentModel"),
+    ("dictionary_id", "pronunciationDictId", "pronunciationDictId"),
+)
+_TUNING_NUMBERS: Final = frozenset({"speed", "volume"})
+
+
+def _tuning_wanted(tuning: ByokVoiceTuning | None) -> dict[str, Any]:
+    """Every tuning field as the request names it, None where the provider's default is
+    wanted. Numbers go as JSON numbers in hundredths; the stored value is NUMERIC(3,2)."""
+    held = tuning or ByokVoiceTuning()
+    out: dict[str, Any] = {}
+    for ours, wire, _read in _TUNING_WIRE:
+        value = getattr(held, ours)
+        out[wire] = float(value) if isinstance(value, Decimal) else value
+    return out
+
+
+def _tuning_mismatches(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
+    """The request fields whose value in `held` (a `byok-voice` answer) is not `wanted`'s.
+    A field the answer leaves out is a mismatch only when we want a value there: the docs
+    give each as null while unset (bring-your-own-keys.md:390-392)."""
+    out: list[str] = []
+    for _ours, wire, read in _TUNING_WIRE:
+        want = wanted[wire]
+        if read not in held:
+            if want is not None:
+                out.append(wire)
+            continue
+        have = held[read]
+        if wire in _TUNING_NUMBERS:
+            same = (have is None) if want is None else _same_hundredths(want, have)
+        else:
+            same = have == want
+        if not same:
+            out.append(wire)
+    return out
+
+
+def _tuning_refusal(exc: EngineRejectedError) -> ProblemError | None:
+    """A `400 validation_failed` naming one of the tuning fields, in our words, or None.
+    Speed is refused on a voice cloned from a long recording (a Professional Voice Clone
+    keeps its recorded pace), and speed, volume and emotion on the older voice model,
+    which is the key's own when the agent names none (bring-your-own-keys.md:396-403)."""
+    field = exc.vendor_field
+    if exc.vendor_status != 400 or field not in {wire for _o, wire, _r in _TUNING_WIRE}:
+        return None
+    if field == "speed":
+        return _business_refusal(
+            "voice_speed_not_for_this_voice",
+            title="This voice's speed cannot be changed",
+            detail="The voice platform refused the agent's speed setting: this voice keeps "
+            "the pace it was recorded at, or the voice model in use takes no speed.",
+            remediation="Clear the speed in the agent's voice settings (How it sounds), or "
+            "change the volume instead, then publish again. If you cannot, contact us.",
+        )
+    if field in ("volume", "emotion"):
+        return _business_refusal(
+            "voice_tuning_not_for_this_model",
+            title="This voice model takes no volume or emotion setting",
+            detail=f"The voice platform refused the agent's {field} setting for the voice "
+            "model in use.",
+            remediation="Clear it, or choose a newer voice model in the agent's voice "
+            "settings (How it sounds), then publish again. If you cannot, contact us.",
+        )
+    return _business_refusal(
+        "voice_tuning_refused",
+        title="The voice platform refused this agent's voice settings",
+        detail="The voice model or pronunciation dictionary chosen for this agent is not "
+        "one the voice account can use.",
+        remediation="Correct or clear it in the agent's voice settings (How it sounds), then "
+        "publish again. If you cannot, contact us.",
+    )
+
+
 def other_surfaces(agent: dict[str, Any]) -> list[str]:
     """The places besides the phone a `GET /agents/{id}` answer says the agent answers, by
     our name for each; a value we have no name for is shown as the vendor wrote it."""
@@ -1246,7 +1361,15 @@ def _handover_destinations(tools: dict[str, Any]) -> tuple[tuple[str, ...], bool
 def _own_voice_key_of(agent: dict[str, Any]) -> bool | None:
     """An Agent's `byok` read back as ours; None when absent or not a documented value."""
     value = agent.get("byok")
-    return {"workspace": True, "off": False}.get(value) if isinstance(value, str) else None
+    scope = _BYOK_SCOPES.get(value) if isinstance(value, str) else None
+    return None if scope is None else scope[0]
+
+
+def _own_model_scope_of(agent: dict[str, Any]) -> bool | None:
+    """Does the agent's `byok` put it on our language-model key? None when unreported."""
+    value = agent.get("byok")
+    scope = _BYOK_SCOPES.get(value) if isinstance(value, str) else None
+    return None if scope is None else scope[1]
 
 
 def _name_tag(cfg: AgentConfig) -> str:
@@ -1554,6 +1677,18 @@ class ThinnestEngine:
             # stated, so a console reset to null reads as drift. Whole milliseconds on our
             # side (`agents/call_handling`), divided only here.
             "turnSilenceSeconds": cfg.turn_silence_ms / 1000,
+            # The mode that makes that number "the silence that ends a turn": `timer`, the
+            # platform's own choice today, stated so a change of their default cannot change
+            # what the client's pause means (`null` follows the platform, and `smart` turns
+            # the same number into a ceiling; snapshots/2026-10-13/pages/api-reference/agents/
+            # update-agent.md:1349-1381, channels/voice.md:871-895).
+            "turnDetection": TURN_DETECTION,
+            # The platform's own do-not-call tool stays on beside our opt-out action (founder
+            # decision, 13 Oct 2026): a missed opt-out costs more than a false one. Stated,
+            # because it is a boolean defaulting to true (update-agent.md:1168-1175) and a
+            # console switch-off would otherwise go unnoticed. Its additions reach our list
+            # through `contact.opted_out`.
+            "recordDoNotCall": True,
             # Phone only (founder decision F1, 12 Oct 2026): never the website call button or
             # WhatsApp, which a new agent answers on unless told otherwise. `phone` only once
             # a number is attached, because adding it to an agent that answers calls and has
@@ -1637,7 +1772,7 @@ class ThinnestEngine:
                 ),
                 remediation="Publish the agent again. If it keeps failing, contact us.",
             )
-        body["byok"] = _byok_value(cfg.engine_own_voice_key)
+        body["byok"] = _byok_value(cfg.engine_own_voice_key, cfg.engine_own_model)
         # A choice that was cleared is sent as `null`, which puts the agent back on the
         # vendor's default (voice Kavya, model Prana [Voice]) (update-agent.md:536-545,
         # :951-961). Kavya bills at the Premium band; publish refuses an agent with no voice
@@ -1929,23 +2064,64 @@ class ThinnestEngine:
                 raise
 
     async def _apply_own_key_voice(self, raw: str, workspace: str | None, cfg: AgentConfig) -> None:
-        """`PUT /agents/{id}/byok-voice` for an agent speaking a voice of our own voice key
-        (snapshots/2026-10-07b/pages/api-reference/agents/set-agent-byok-voice.md:322-460).
-        A `409` is the workspace not on its own keys, or the agent with no voice channel."""
+        """`PUT /agents/{id}/byok-voice` for an agent speaking a voice of our own voice key,
+        with how it sounds (`cfg.engine_byok_voice_tuning`), then the answer read back.
+
+        The route is a partial PUT: a field left out keeps what is saved, `null` resets it
+        (snapshots/2026-10-13/pages/api-reference/bring-your-own-keys.md:388-395). So the
+        first request names the voice and every setting we hold, and a second resets only
+        what the answer still holds that we cleared; nulls are never sent for settings the
+        platform does not hold, which keeps an untuned agent's write what it always was. A
+        setting read back different from what was sent refuses the publish rather than leave
+        a voice live that sounds unlike what was chosen. A `409` is the workspace not on its
+        own keys, or the agent with no voice channel."""
         if not cfg.engine_byok_voice_id:
             return
+        wanted = _tuning_wanted(cfg.engine_byok_voice_tuning)
+        saved = await self._put_own_key_voice(
+            raw,
+            workspace,
+            {
+                "voice": cfg.engine_byok_voice_id,
+                **{k: v for k, v in wanted.items() if v is not None},
+            },
+        )
+        held_reads = {wire: read for _o, wire, read in _TUNING_WIRE}
+        stale = {
+            wire: None
+            for wire, value in wanted.items()
+            if value is None and saved.get(held_reads[wire]) is not None
+        }
+        if stale:
+            saved = await self._put_own_key_voice(raw, workspace, stale)
+        if _tuning_mismatches(wanted, saved):
+            log.warning("thinnest_voice_tuning_not_saved")
+            raise _business_refusal(
+                "engine_voice_tuning_not_saved",
+                title="The voice platform did not save this agent's voice settings",
+                detail="The voice settings read back from the voice platform differ from the "
+                "ones sent.",
+                remediation="Publish again. If it keeps happening, contact us.",
+            )
+
+    async def _put_own_key_voice(
+        self, raw: str, workspace: str | None, body: dict[str, Any]
+    ) -> dict[str, Any]:
         try:
-            await self._request(
+            return await self._request(
                 "PUT",
                 f"/agents/{raw}/byok-voice",
                 route="/agents/{ref}/byok-voice",
                 workspace=workspace,
-                json={"voice": cfg.engine_byok_voice_id},
+                json=body,
                 extra_refused_statuses=frozenset({409}),
             )
         except EngineRejectedError as exc:
             if exc.vendor_status not in (400, 409):
                 raise
+            tuning = _tuning_refusal(exc)
+            if tuning is not None:
+                raise tuning from exc
             raise _business_refusal(
                 "engine_byok_voice_unavailable",
                 title="This voice cannot be set on the voice platform",
@@ -1956,6 +2132,67 @@ class ThinnestEngine:
                 ),
                 remediation="Choose another voice. If it keeps failing, contact us.",
             ) from exc
+
+    async def _apply_own_model(self, raw: str, workspace: str | None, cfg: AgentConfig) -> None:
+        """`PUT /agents/{id}/byok-model` for an agent answering on our model key (D-764): the
+        model must be one the key reaches, and the agent then runs it rather than the key's
+        own (`thinnest-findings/mirror/snapshots/2026-10-13/pages/api-reference/agents/
+        set-agent-byok-model.md:410-480`). Always sent, so the agent never silently follows
+        the workspace key's model. The vendor documents its `409` as "not using its own voice
+        key" (:471-478) on a route about the model key; read as the workspace not holding our
+        model key, which a publish switches on before this write."""
+        if not cfg.engine_own_model:
+            return
+        try:
+            await self._request(
+                "PUT",
+                f"/agents/{raw}/byok-model",
+                route="/agents/{ref}/byok-model",
+                workspace=workspace,
+                json={"model": cfg.engine_own_model},
+                extra_refused_statuses=frozenset({409}),
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_status not in (400, 409):
+                raise
+            raise _business_refusal(
+                "engine_own_model_unavailable",
+                title="This language model cannot be set on the voice platform",
+                detail=(
+                    "The voice platform would not put this agent on the chosen language "
+                    "model: our model key does not reach it, or the workspace is not "
+                    "running on our model key."
+                ),
+                remediation="Choose another model. If it keeps failing, contact us.",
+            ) from exc
+
+    async def _held_own_model(
+        self, raw: str, workspace: str | None, agent: dict[str, Any]
+    ) -> tuple[str | None, bool]:
+        """The model of our key the agent runs, and whether that was read. `GET
+        /agents/{id}/byok-model` answers `model` (null: the key's own); an agent whose `byok`
+        uses no model key has none (set-agent-byok-model.md:399-418, bring-your-own-keys.md:
+        328-330)."""
+        on_own_model = _own_model_scope_of(agent)
+        if on_own_model is None:
+            return None, False
+        if not on_own_model:
+            return None, True
+        try:
+            data = await self._request(
+                "GET",
+                f"/agents/{raw}/byok-model",
+                route="/agents/{ref}/byok-model",
+                workspace=workspace,
+                extra_refused_statuses=frozenset({409}),
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_status != 409:
+                raise
+            # On our model key yet the platform will not say which model: read as no model
+            # of ours, so the drift sweep puts the one we publish back.
+            return "", True
+        return _str(data.get("model")) or "", True
 
     async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef:
         """A new agent in the client's OWN workspace (`cfg.engine_workspace`, D-693). Never
@@ -1981,6 +2218,7 @@ class ThinnestEngine:
                 raise _bad_response("The voice platform did not return an agent id.")
         _refuse_unsaved_steps(body, data)
         await self._apply_own_key_voice(raw, workspace, cfg)
+        await self._apply_own_model(raw, workspace, cfg)
         await self._apply_built_in_tools(raw, workspace, cfg)
         return scoped_handle(raw, workspace)
 
@@ -1991,6 +2229,7 @@ class ThinnestEngine:
         saved = await self._write_agent("PATCH", f"/agents/{raw}", "/agents/{ref}", workspace, body)
         _refuse_unsaved_steps(body, saved)
         await self._apply_own_key_voice(raw, workspace, cfg)
+        await self._apply_own_model(raw, workspace, cfg)
         await self._apply_built_in_tools(raw, workspace, cfg)
 
     async def override_call_script(
@@ -2057,6 +2296,7 @@ class ThinnestEngine:
                 "GET", f"/agents/{raw}/tools", route="/agents/{ref}/tools", workspace=workspace
             )
         )
+        own_model, own_model_readable = await self._held_own_model(raw, workspace, data)
         return AgentSnapshot(
             engine_agent_ref=ref,
             name=_our_name(_str(data.get("name"))),
@@ -2067,6 +2307,8 @@ class ThinnestEngine:
             knowledge_base_refs=await self.list_kb(ref),
             knowledge_base_refs_readable=True,
             engine_own_voice_key=_own_voice_key_of(data),
+            engine_own_model=own_model,
+            engine_own_model_readable=own_model_readable,
             handoff_destinations=destinations,
             handoff_destinations_readable=destinations_readable,
             engine=self.name,
@@ -2074,7 +2316,8 @@ class ThinnestEngine:
 
     async def settings_drift(self, ref: EngineAgentRef, cfg: AgentConfig) -> list[str]:
         """The call settings `GET /agents/{id}` and `GET /agents/{id}/tools` hold that differ
-        from what a publish of `cfg` sends (`apps/api/agents/engine_settings.py`).
+        from what a publish of `cfg` sends (`apps/api/agents/engine_settings.py`), and for a
+        Studio voice the settings `GET /agents/{id}/byok-voice` holds.
 
         Not compared: the script and greeting (`verify_publish` scores them), `byok` (the
         sweep's own-voice-key leg repairs it), and `answersCalls` / `unavailableMessage`,
@@ -2093,6 +2336,17 @@ class ThinnestEngine:
             drifted.append("built_in_tools")
         if any(name.startswith("handOver.") for name in tool_drift):
             drifted.append("hand_over")
+        if cfg.engine_byok_voice_id:
+            # A Studio voice's settings live on their own route (`GET` returns each, null
+            # while unset; bring-your-own-keys.md:390-392).
+            held = await self._request(
+                "GET",
+                f"/agents/{raw}/byok-voice",
+                route="/agents/{ref}/byok-voice",
+                workspace=workspace,
+            )
+            if _tuning_mismatches(_tuning_wanted(cfg.engine_byok_voice_tuning), held):
+                drifted.append("voice_tuning")
         return drifted
 
     async def answer_surfaces(self, ref: EngineAgentRef) -> list[str]:
@@ -2129,6 +2383,8 @@ class ThinnestEngine:
             await self._write_agent("PATCH", f"/agents/{raw}", "/agents/{ref}", workspace, body)
         if {"built_in_tools", "hand_over"} & set(drifted):
             await self._apply_built_in_tools(raw, workspace, cfg)
+        if "voice_tuning" in drifted:
+            await self._apply_own_key_voice(raw, workspace, cfg)
 
     async def delete_agent(self, ref: EngineAgentRef) -> None:
         """`DELETE /agents/{id}`, 204; it takes the agent's knowledge with it (agents.md:82)."""
@@ -2661,7 +2917,12 @@ class ThinnestEngine:
         )
 
     async def preview_own_key_voice(
-        self, *, voice_id: str, text: str | None, language: str | None
+        self,
+        *,
+        voice_id: str,
+        text: str | None,
+        language: str | None,
+        tuning: ByokVoiceTuning | None = None,
     ) -> PreviewAudio:
         """`POST /byok/voices/preview`: one spoken line as audio, charged by the provider per
         character, so `text` is capped at 200 (snapshots/2026-10-07b/pages/api-reference/
@@ -2677,15 +2938,25 @@ class ThinnestEngine:
             )
         if language:
             body["language"] = language
-        audio, content_type = await vendor_audio_request(
-            self._http(),
-            "POST",
-            "/byok/voices/preview",
-            engine=self.name,
-            route="/byok/voices/preview",
-            headers=workspace_headers("POST", "/byok/voices/preview", workspace_of(None)),
-            json=body,
-        )
+        # How the voice should sound, heard before it is saved: only the fields sent are
+        # spoken and the agent's saved settings are not read (snapshots/2026-10-13/pages/
+        # api-reference/bring-your-own-keys.md:409-419).
+        body.update({k: v for k, v in _tuning_wanted(tuning).items() if v is not None})
+        try:
+            audio, content_type = await vendor_audio_request(
+                self._http(),
+                "POST",
+                "/byok/voices/preview",
+                engine=self.name,
+                route="/byok/voices/preview",
+                headers=workspace_headers("POST", "/byok/voices/preview", workspace_of(None)),
+                json=body,
+            )
+        except EngineRejectedError as exc:
+            refusal = _tuning_refusal(exc)
+            if refusal is None:
+                raise
+            raise refusal from exc
         return PreviewAudio(data=audio, content_type=content_type)
 
     @staticmethod
@@ -2873,6 +3144,83 @@ class ThinnestEngine:
             ) from exc
         return await self.own_key_state()
 
+    async def install_own_model_key(self, *, provider: str, api_key: str, model: str) -> None:
+        """`PUT /byok/credentials` with `kind: llm` and the model the key runs by default
+        (`thinnest-findings/mirror/snapshots/2026-10-13/pages/api-reference/
+        bring-your-own-keys.md:224-245`). `400` is a key or model the provider rejected,
+        `502` a provider the platform could not reach. Replacing a key of the same provider
+        keeps its model (:239). The key is never logged."""
+        try:
+            await self._request(
+                "PUT",
+                "/byok/credentials",
+                route="/byok/credentials",
+                workspace=workspace_of(None),
+                json={
+                    "kind": "llm",
+                    "provider": provider,
+                    "credentials": {"apiKey": api_key, "model": model},
+                },
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_status != 400:
+                raise
+            raise _business_refusal(
+                "engine_model_key_rejected",
+                title="The model provider rejected our key",
+                detail="The voice platform checked the language-model key with the provider, "
+                "which refused it or does not offer the chosen model on it.",
+                remediation="Check the Google key and the model, then try again.",
+            ) from exc
+
+    async def enable_own_model_key(self) -> OwnVoiceKeyState:
+        """`PATCH /byok {enabled: true, scope: "llm"}` in a workspace whose own keys are off,
+        then the state as read back. `409` until the model key is added, checked and has a
+        model (bring-your-own-keys.md:261-274). The default scope matters only to an agent
+        that follows the workspace; every agent we publish names its own (`_byok_value`)."""
+        try:
+            await self._request(
+                "PATCH",
+                "/byok",
+                route="/byok",
+                workspace=workspace_of(None),
+                json={"enabled": True, "scope": "llm"},
+                extra_refused_statuses=frozenset({409}),
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_status != 409:
+                raise
+            raise _business_refusal(
+                "engine_model_key_not_ready",
+                title="The model key is not ready yet",
+                detail="The voice platform will not switch on our own model key until it is "
+                "added, checked and has a model.",
+                remediation="Install the Google key first, then switch it on.",
+            ) from exc
+        return await self.own_key_state()
+
+    async def set_agent_own_keys(
+        self, ref: EngineAgentRef, *, own_voice: bool, own_model: str | None
+    ) -> None:
+        """`PATCH /agents/{id} {byok}` and, on our model key, `PUT /agents/{id}/byok-model`:
+        the agent's two key switches put back without touching any other field."""
+        raw, workspace = self._at(ref)
+        await self._request(
+            "PATCH",
+            f"/agents/{raw}",
+            route="/agents/{ref}",
+            workspace=workspace,
+            json={"byok": _byok_value(own_voice, own_model)},
+        )
+        if own_model:
+            await self._request(
+                "PUT",
+                f"/agents/{raw}/byok-model",
+                route="/agents/{ref}/byok-model",
+                workspace=workspace,
+                json={"model": own_model},
+            )
+
     async def disable_own_voice_key(self) -> OwnVoiceKeyState:
         """`PATCH /byok {enabled: false}`, then the state as read back. Every agent on
         `byok: workspace` returns to the platform's own voices at their next call
@@ -3033,6 +3381,7 @@ class ThinnestEngine:
             if analysed
             else None,
             quality=parse_quality(payload.get("quality")),
+            llm_usage=parse_llm_usage(payload.get("usage")),
             # `forwardedTo` is the phone a number forward put the call through to, absent or
             # null otherwise (api-reference/webhooks "call.completed", read 11 Oct 2026).
             forwarded=bool(_str(payload.get("forwardedTo"))),
@@ -3219,6 +3568,25 @@ class ThinnestEngine:
             ),
             engine_call_id=_scoped(_str(body.get("callId")), workspace_of(None)),
             occurred_at=_parse_dt(payload.get("sentAt")),
+            engine=self.name,
+        )
+
+    def parse_opt_out(self, payload: dict[str, Any]) -> EngineOptOut | None:
+        """A VERIFIED `contact.opted_out` delivery as our opt-out, or None for any other event.
+
+        `data` is `{phone, callId, source, optedOutAt, reason}`; `reason` is what the caller
+        said, up to 160 characters in their language, or null when the agent kept no words
+        (snapshots/2026-10-13/pages/api-reference/webhooks.md:85, :496-513). A missing phone
+        stays None so the receiver can say the opt-out could not be filed."""
+        if payload.get("event") != "contact.opted_out":
+            return None
+        data = payload.get("data")
+        body: dict[str, Any] = data if isinstance(data, dict) else {}
+        reason = body.get("reason")
+        return EngineOptOut(
+            phone=_str(body.get("phone")),
+            engine_call_id=_scoped(_str(body.get("callId")), workspace_of(None)),
+            reason=reason.strip() or None if isinstance(reason, str) else None,
             engine=self.name,
         )
 

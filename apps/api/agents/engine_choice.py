@@ -42,6 +42,7 @@ from apps.api.agents.hosted_voices import (
     hosted_voice_unofferable_reason,
     read_hosted_voice,
 )
+from apps.api.agents.own_model import own_model_of_choice
 from apps.api.agents.voice_offer import tts_price_is_billable
 from apps.api.billing.engine_minutes import BASE_RATE_KEY, EngineRateKey, attested_rate_keys
 from apps.api.core.errors import ProblemError
@@ -274,6 +275,10 @@ async def require_engine_choice(
     """
     caps = engine.capabilities
     refuse_choice_under_byok(engine, voice_id=voice_id, model_id=model_id)
+    if own_model_of_choice(model_id) is not None:
+        # A model of OUR key (D-764), checked by `own_model.refuse_own_model_choice`; the
+        # engine's own catalogue does not hold it.
+        model_id = None
     hosts = isinstance(engine, HostsVoices) and not caps.is_ours("tts")
     if for_publish and hosts:
         await _require_keys_mode_matches(engine)

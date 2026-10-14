@@ -75,13 +75,12 @@ import { isSessionGone, needsSecondFactor } from "./problems";
 /** The two realms, spelled once. Never a variable at a call site — always a literal. */
 export type AuthnRealm = "admin" | "client";
 
-/** `SessionOut` — deliberately ids and state, with NO email address (routes.py). */
-export interface AuthnSession {
-  realm: string;
-  subject_id: string;
-  mfa_complete: boolean;
-  email_verified: boolean;
-}
+/**
+ * `SessionOut` — deliberately ids and state, with NO email address (routes.py). The
+ * generated type, so a field the server adds (D-766's `idle_timeout_seconds` and
+ * `stay_signed_in`) reaches every screen without a hand-kept copy.
+ */
+export type AuthnSession = components["schemas"]["SessionOut"];
 
 /** `PasswordChangeOut` — how many OTHER sessions the change ended. */
 type PasswordChangeOut = components["schemas"]["PasswordChangeOut"];

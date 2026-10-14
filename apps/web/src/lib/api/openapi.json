@@ -4265,7 +4265,7 @@
         "properties": {
           "password": {
             "maxLength": 128,
-            "minLength": 12,
+            "minLength": 8,
             "title": "Password",
             "type": "string"
           },
@@ -19784,7 +19784,7 @@
           },
           "password": {
             "maxLength": 128,
-            "minLength": 12,
+            "minLength": 8,
             "title": "Password",
             "type": "string"
           },
@@ -24261,7 +24261,7 @@
           },
           "password": {
             "maxLength": 128,
-            "minLength": 12,
+            "minLength": 8,
             "title": "Password",
             "type": "string"
           }
@@ -26165,6 +26165,10 @@
           "role": {
             "title": "Role",
             "type": "string"
+          },
+          "stay_signed_in": {
+            "title": "Stay Signed In",
+            "type": "boolean"
           }
         },
         "required": [
@@ -26173,14 +26177,15 @@
           "name",
           "role",
           "created_at",
-          "activated"
+          "activated",
+          "stay_signed_in"
         ],
         "title": "OperatorOut",
         "type": "object"
       },
       "OperatorReasonIn": {
         "additionalProperties": false,
-        "description": "The stated reason every mutation here carries.\n\nA NAMED, PUBLIC model rather than a private base, because two routes take it as their\nwhole body \u2014 a leading underscore would put `_Reasoned` in the OpenAPI schema and in\nthe generated TypeScript client.\n\nREQUIRED WITH CONTENT, and the bounds are copied from `ConfigSetIn` rather than\nre-argued: whoever reads this ledger row later has to be able to decide whether the\ndecision still holds, and \"\" tells them nothing. One base class so four routes cannot\ndisagree about what a reason is.",
+        "description": "The stated reason every mutation here carries.\n\nA NAMED, PUBLIC model rather than a private base, because two routes take it as their\nwhole body \u2014 a leading underscore would put `_Reasoned` in the OpenAPI schema and in\nthe generated TypeScript client.\n\nREQUIRED WITH CONTENT, and the bounds are copied from `ConfigSetIn` rather than\nre-argued: whoever reads this ledger row later has to be able to decide whether the\ndecision still holds, and \"\" tells them nothing. One base class so the routes cannot\ndisagree about what a reason is.",
         "properties": {
           "reason": {
             "maxLength": 500,
@@ -26815,6 +26820,143 @@
         "title": "OverridePackOut",
         "type": "object"
       },
+      "OwnModelEnableIn": {
+        "additionalProperties": false,
+        "properties": {
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id"
+        ],
+        "title": "OwnModelEnableIn",
+        "type": "object"
+      },
+      "OwnModelOut": {
+        "additionalProperties": false,
+        "properties": {
+          "data_use_attested": {
+            "title": "Data Use Attested",
+            "type": "boolean"
+          },
+          "default_model": {
+            "title": "Default Model",
+            "type": "string"
+          },
+          "default_offerable": {
+            "title": "Default Offerable",
+            "type": "boolean"
+          },
+          "default_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Reason"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "floor_model_inr_per_min": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floor Model Inr Per Min"
+          },
+          "floor_prompt_basis": {
+            "title": "Floor Prompt Basis",
+            "type": "string"
+          },
+          "floor_prompt_source": {
+            "enum": [
+              "measured",
+              "published",
+              "ceiling"
+            ],
+            "title": "Floor Prompt Source",
+            "type": "string"
+          },
+          "floor_prompt_tokens": {
+            "title": "Floor Prompt Tokens",
+            "type": "integer"
+          },
+          "google_key_configured": {
+            "title": "Google Key Configured",
+            "type": "boolean"
+          },
+          "llm_voice_minute_attested": {
+            "title": "Llm Voice Minute Attested",
+            "type": "boolean"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "offerable_models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Offerable Models",
+            "type": "array"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "switched_on": {
+            "title": "Switched On",
+            "type": "boolean"
+          },
+          "workspaces": {
+            "items": {
+              "$ref": "#/components/schemas/StudioWorkspaceOut"
+            },
+            "title": "Workspaces",
+            "type": "array"
+          }
+        },
+        "required": [
+          "switched_on",
+          "ready",
+          "default_model",
+          "google_key_configured",
+          "default_offerable",
+          "default_reason",
+          "data_use_attested",
+          "llm_voice_minute_attested",
+          "offerable_models",
+          "missing",
+          "workspaces",
+          "floor_prompt_tokens",
+          "floor_prompt_source",
+          "floor_prompt_basis",
+          "floor_model_inr_per_min",
+          "explanation",
+          "note"
+        ],
+        "title": "OwnModelOut",
+        "type": "object"
+      },
       "OwnNumbersStatusOut": {
         "additionalProperties": false,
         "description": "Where this account stands on the way to buying a number, in the screen's order.",
@@ -27174,13 +27316,13 @@
         "properties": {
           "current_password": {
             "maxLength": 128,
-            "minLength": 12,
+            "minLength": 8,
             "title": "Current Password",
             "type": "string"
           },
           "new_password": {
             "maxLength": 128,
-            "minLength": 12,
+            "minLength": 8,
             "title": "New Password",
             "type": "string"
           }
@@ -30168,6 +30310,17 @@
             "title": "Notice Recipients",
             "type": "integer"
           },
+          "own_model_prompt_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Model Prompt Basis"
+          },
           "pending": {
             "items": {
               "$ref": "#/components/schemas/PendingCardOut"
@@ -30192,7 +30345,8 @@
           "earliest_effective_from",
           "cartesia_volume",
           "speaking_rate",
-          "notice_recipients"
+          "notice_recipients",
+          "own_model_prompt_basis"
         ],
         "title": "RateCardOut",
         "type": "object"
@@ -31473,7 +31627,7 @@
         "properties": {
           "password": {
             "maxLength": 128,
-            "minLength": 12,
+            "minLength": 8,
             "title": "Password",
             "type": "string"
           },
@@ -33199,6 +33353,10 @@
             "title": "Email Verified",
             "type": "boolean"
           },
+          "idle_timeout_seconds": {
+            "title": "Idle Timeout Seconds",
+            "type": "integer"
+          },
           "mfa_complete": {
             "title": "Mfa Complete",
             "type": "boolean"
@@ -33206,6 +33364,10 @@
           "realm": {
             "title": "Realm",
             "type": "string"
+          },
+          "stay_signed_in": {
+            "title": "Stay Signed In",
+            "type": "boolean"
           },
           "subject_id": {
             "format": "uuid",
@@ -33217,7 +33379,9 @@
           "realm",
           "subject_id",
           "mfa_complete",
-          "email_verified"
+          "email_verified",
+          "idle_timeout_seconds",
+          "stay_signed_in"
         ],
         "title": "SessionOut",
         "type": "object"
@@ -34740,6 +34904,20 @@
           "title"
         ],
         "title": "StatusPostIn",
+        "type": "object"
+      },
+      "StaySignedInIn": {
+        "additionalProperties": false,
+        "properties": {
+          "stay_signed_in": {
+            "title": "Stay Signed In",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "stay_signed_in"
+        ],
+        "title": "StaySignedInIn",
         "type": "object"
       },
       "StepUpVerifyIn": {
@@ -41472,6 +41650,316 @@
         "title": "VoiceTierRateOut",
         "type": "object"
       },
+      "VoiceTuningIn": {
+        "additionalProperties": false,
+        "description": "Every field optional: a field left out is kept, null clears it.",
+        "properties": {
+          "dictionary_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dictionary Id"
+          },
+          "emotion": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emotion"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,2}|(?=[\\d.]{1,5}0*$)\\d{0,2}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,2}|(?=[\\d.]{1,5}0*$)\\d{0,2}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
+          }
+        },
+        "title": "VoiceTuningIn",
+        "type": "object"
+      },
+      "VoiceTuningOptionsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "dictionary_id_pattern": {
+            "title": "Dictionary Id Pattern",
+            "type": "string"
+          },
+          "emotions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Emotions",
+            "type": "array"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "old_model": {
+            "title": "Old Model",
+            "type": "string"
+          },
+          "preview_text_max_chars": {
+            "title": "Preview Text Max Chars",
+            "type": "integer"
+          },
+          "speed_max": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Speed Max",
+            "type": "string"
+          },
+          "speed_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Speed Min",
+            "type": "string"
+          },
+          "volume_max": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Volume Max",
+            "type": "string"
+          },
+          "volume_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Volume Min",
+            "type": "string"
+          }
+        },
+        "required": [
+          "speed_min",
+          "speed_max",
+          "volume_min",
+          "volume_max",
+          "emotions",
+          "models",
+          "old_model",
+          "dictionary_id_pattern",
+          "preview_text_max_chars"
+        ],
+        "title": "VoiceTuningOptionsOut",
+        "type": "object"
+      },
+      "VoiceTuningOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "dictionary_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dictionary Id"
+          },
+          "emotion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emotion"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "options": {
+            "$ref": "#/components/schemas/VoiceTuningOptionsOut"
+          },
+          "speed": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed"
+          },
+          "studio": {
+            "title": "Studio",
+            "type": "boolean"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
+          }
+        },
+        "required": [
+          "agent_id",
+          "studio",
+          "speed",
+          "volume",
+          "emotion",
+          "model",
+          "dictionary_id",
+          "options"
+        ],
+        "title": "VoiceTuningOut",
+        "type": "object"
+      },
+      "VoiceTuningPreviewIn": {
+        "additionalProperties": false,
+        "description": "The settings to hear, whatever is saved; `text` is the line (a short greeting in the\nagent's language when left out).",
+        "properties": {
+          "dictionary_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dictionary Id"
+          },
+          "emotion": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emotion"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,2}|(?=[\\d.]{1,5}0*$)\\d{0,2}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,2}|(?=[\\d.]{1,5}0*$)\\d{0,2}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
+          }
+        },
+        "title": "VoiceTuningPreviewIn",
+        "type": "object"
+      },
       "WaiverIn": {
         "additionalProperties": false,
         "properties": {
@@ -45286,6 +45774,75 @@
         "x-calevate-permission": "admin:operators"
       }
     },
+    "/v1/admin/operators/{operator_id}/stay-signed-in/revocation": {
+      "post": {
+        "description": "Switches the operator's own 'Stay signed in' setting off and cuts their live sessions back to 30 minutes idle and 8 hours from sign-in; a session already past those ends. Only the operator can switch it on. Requires `X-Confirm-Action: end_stay_signed_in:<operator_id>`.",
+        "operationId": "end_operator_stay_signed_in_v1_admin_operators__operator_id__stay_signed_in_revocation_post",
+        "parameters": [
+          {
+            "description": "The operator account's `admin_users.id`.",
+            "in": "path",
+            "name": "operator_id",
+            "required": true,
+            "schema": {
+              "description": "The operator account's `admin_users.id`.",
+              "format": "uuid",
+              "title": "Operator Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorReasonIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Switch off an operator's 'Stay signed in' (step-up confirmed, audited)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:operators"
+      }
+    },
     "/v1/admin/organizations/{org_id}/call-handling": {
       "get": {
         "description": "The account defaults every agent without a value of its own follows. `null` follows Calevate's. `turn_silence_ms` and `end_call_on_finish` are always stated; any other setting left out of a PUT is kept. A change reaches every live agent that inherits it, from its next call.",
@@ -46601,7 +47158,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling": {
       "get": {
-        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\nEach resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
+        "description": "`turn_silence_ms` is the silence that ends the caller's turn, after which the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\nEach resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "admin_get_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_get",
         "parameters": [
           {
@@ -46650,7 +47207,7 @@
         "x-calevate-permission": "admin:tenants"
       },
       "patch": {
-        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\nEach resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
+        "description": "`turn_silence_ms` is the silence that ends the caller's turn, after which the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\nEach resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "admin_set_agent_call_handling_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_patch",
         "parameters": [
           {
@@ -47178,6 +47735,184 @@
         "summary": "Discard the staged script; the draft returns to what callers hear",
         "tags": [
           "agents",
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning": {
+      "get": {
+        "description": "How a Studio voice sounds on this agent. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion` (English calls only); `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a voice cloned from a long recording keeps its own pace (refused at publish or preview). They apply only while the agent's voice is a Studio one.",
+        "operationId": "admin_get_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceTuningOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How a Studio voice sounds on one client agent",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
+      "patch": {
+        "description": "How a Studio voice sounds on this agent. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion` (English calls only); `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a voice cloned from a long recording keeps its own pace (refused at publish or preview). They apply only while the agent's voice is a Studio one.",
+        "operationId": "admin_set_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceTuningIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceTuningOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set how a Studio voice sounds on one client agent (audited)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning/preview": {
+      "post": {
+        "description": "Speaks one short line in the agent's Studio voice with the settings sent (the saved ones are not read), on our voice key, which the provider charges per character. Refused while the agent's voice is not a Studio one, or while no workspace runs Studio.",
+        "operationId": "admin_preview_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceTuningPreviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "audio/mpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "audio/wav": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The preview audio."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Hear a Studio voice on one client agent with these settings, unsaved",
+        "tags": [
           "admin"
         ],
         "x-calevate-permission": "agents:write"
@@ -51693,7 +52428,7 @@
     },
     "/v1/agents/{agent_id}/call-handling": {
       "get": {
-        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\nEach resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
+        "description": "`turn_silence_ms` is the silence that ends the caller's turn, after which the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\nEach resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "get_agent_call_handling_v1_agents__agent_id__call_handling_get",
         "parameters": [
           {
@@ -51732,7 +52467,7 @@
         "x-calevate-permission": "agents:read"
       },
       "patch": {
-        "description": "`turn_silence_ms` is how long the caller must be quiet before the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\nEach resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
+        "description": "`turn_silence_ms` is the silence that ends the caller's turn, after which the agent replies, 200-3000 ms; longer suits callers reading out numbers, shorter answers sooner. `end_call_on_finish` releases the line when the agent has finished; with it off a finished call stays connected, and charged, until the caller hangs up.\n\nIf the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, \"\" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).\n\nEach resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.\n\nA change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.",
         "operationId": "set_agent_call_handling_v1_agents__agent_id__call_handling_patch",
         "parameters": [
           {
@@ -53743,6 +54478,44 @@
           }
         },
         "summary": "Exchange a live session for a fresh token, keeping its lifetime",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/stay-signed-in": {
+      "post": {
+        "description": "On: this operator's sessions may sit idle for 12 hours and last 14 days, and this browser keeps its cookie when it closes. Switching it on needs a second factor proved in the last 30 minutes (`reauthentication_required` otherwise). Off: every session of this operator goes back to 30 minutes idle and 8 hours from sign-in, and one already past those ends. Every change is audited.",
+        "operationId": "set_stay_signed_in_v1_auth_admin_stay_signed_in_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaySignedInIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Switch 'Stay signed in' on or off for your own operator account",
         "tags": [
           "auth-admin"
         ]
@@ -67948,6 +68721,91 @@
           }
         },
         "summary": "Store the voice platform's own preview of one hosted voice (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voices/own-model": {
+      "get": {
+        "operationId": "own_model_status_v1_ops_voices_own_model_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnModelOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether agents can answer on our own model, and which client workspaces do",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voices/own-model/enable": {
+      "post": {
+        "description": "Installs our Google key in the named paying client's own workspace and switches its own keys on there when they are off, every agent that would follow them confirmed off first, then reads it back; the same idempotent steps a publish on our model runs. Requires `X-Confirm-Action: enable_own_model_workspace`.",
+        "operationId": "enable_own_model_workspace_v1_ops_voices_own_model_enable_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnModelEnableIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnModelOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Install our Google key in one client's own workspace (step-up)",
         "tags": [
           "ops"
         ],

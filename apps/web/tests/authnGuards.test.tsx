@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AdminIdleTimeoutModal,
   ADMIN_IDLE_LOGOUT_MS,
-  ADMIN_IDLE_WARNING_MS,
+  idleWarningAfterMs,
 } from "@/components/authn/adminIdleTimeoutModal";
 import { adminAuthn } from "@/lib/authn/adminAuthn";
 import {
@@ -34,6 +34,8 @@ const ADMIN_SESSION = {
   subject_id: "0192f0aa-0000-7000-8000-000000000001",
   mfa_complete: true,
   email_verified: true,
+  idle_timeout_seconds: 30 * 60,
+  stay_signed_in: false,
 };
 
 const unauthorized = () =>
@@ -227,7 +229,7 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
    */
   const warn = async (): Promise<void> => {
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(ADMIN_IDLE_WARNING_MS + 10);
+      await vi.advanceTimersByTimeAsync(idleWarningAfterMs(ADMIN_SESSION.idle_timeout_seconds) + 10);
     });
   };
 
@@ -235,7 +237,7 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
     // 25 + 5 = 30 minutes = `REALM_TIMEOUTS["admin"].idle`. The equality is the
     // justification: the polling console keeps sliding the server's window, so this is
     // what makes the 30 minutes mean what it says.
-    expect(ADMIN_IDLE_WARNING_MS + ADMIN_IDLE_LOGOUT_MS).toBe(30 * 60 * 1000);
+    expect(idleWarningAfterMs(30 * 60) + ADMIN_IDLE_LOGOUT_MS).toBe(30 * 60 * 1000);
   });
 
   it("extends when the refreshed session is still a complete admin session", async () => {
@@ -243,7 +245,7 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
     const calls = stubApi({
       "POST /v1/auth/admin/session/refresh": ADMIN_SESSION,
     });
-    const view = render(<AdminIdleTimeoutModal enabled />);
+    const view = render(<AdminIdleTimeoutModal session={ADMIN_SESSION} />);
 
     await warn();
     expect(view.container.textContent).toContain("Still there?");
@@ -269,7 +271,7 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
       },
       "POST /v1/auth/admin/logout": { revoked: 1 },
     });
-    render(<AdminIdleTimeoutModal enabled />);
+    render(<AdminIdleTimeoutModal session={ADMIN_SESSION} />);
 
     await warn();
     await act(async () => {
@@ -294,7 +296,7 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
       }),
       "POST /v1/auth/admin/logout": { revoked: 1 },
     });
-    const view = render(<AdminIdleTimeoutModal enabled />);
+    const view = render(<AdminIdleTimeoutModal session={ADMIN_SESSION} />);
 
     await warn();
     await act(async () => {
@@ -341,7 +343,7 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
       }),
       "POST /v1/auth/admin/logout": { revoked: 0 },
     });
-    const view = render(<AdminIdleTimeoutModal enabled />);
+    const view = render(<AdminIdleTimeoutModal session={ADMIN_SESSION} />);
 
     await warn();
     await act(async () => {
@@ -371,7 +373,7 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
   it("is not dismissed by activity underneath it — only an extension reopens the clock", async () => {
     vi.useFakeTimers();
     stubApi({});
-    const view = render(<AdminIdleTimeoutModal enabled />);
+    const view = render(<AdminIdleTimeoutModal session={ADMIN_SESSION} />);
 
     await warn();
     expect(view.container.textContent).toContain("Still there?");
@@ -398,7 +400,7 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
         kind: "internal",
       }),
     });
-    const view = render(<AdminIdleTimeoutModal enabled />);
+    const view = render(<AdminIdleTimeoutModal session={ADMIN_SESSION} />);
 
     await warn();
     await act(async () => {
@@ -416,7 +418,7 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
   it("restarts the idle clock after an extension the server agreed to", async () => {
     vi.useFakeTimers();
     stubApi({ "POST /v1/auth/admin/session/refresh": ADMIN_SESSION });
-    const view = render(<AdminIdleTimeoutModal enabled />);
+    const view = render(<AdminIdleTimeoutModal session={ADMIN_SESSION} />);
 
     await warn();
     await act(async () => {
@@ -441,7 +443,7 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
   it("runs no timers at all when there is no session to protect", () => {
     vi.useFakeTimers();
     stubApi({});
-    render(<AdminIdleTimeoutModal enabled={false} />);
+    render(<AdminIdleTimeoutModal session={null} />);
     expect(vi.getTimerCount()).toBe(0);
   });
 });

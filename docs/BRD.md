@@ -244,8 +244,8 @@ Both margins are before ThinnestAI Pro's ₹2,499 a month (needed for the Studio
 than three customer workspaces, OPERATIONS T-8) and before GST. A Studio rung's cost is a curve
 in volume, not a number: Cartesia sells monthly plans, so a Studio minute is dearest just after
 each plan upgrade. Cartesia bills in dollars; the floor converts at the live USD→INR rate the
-platform already publishes, while the hard refusal stays frozen at a fixed rate so a currency
-tick can never make the card on sale un-recordable.
+platform already publishes, while the hard refusal stays frozen at the founder's planning rate,
+₹95 to the dollar (D-768), so a currency tick can never make the card on sale un-recordable.
 
 ### 6.3 What a client calls the two voices
 

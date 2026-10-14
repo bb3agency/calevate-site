@@ -111,6 +111,15 @@ describe("organisation call handling", () => {
     expect(container.textContent).not.toMatch(/thinnest/i);
   });
 
+  it("says the pause is the silence that ends the caller's turn", async () => {
+    await renderClientPage(<ClientCallHandlingPage />, {
+      "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
+    });
+    await press(/About Pause before/);
+    await screen.findByText(/The silence that ends the caller.s turn/);
+  });
+
   it("saves a preset with the other setting unchanged", async () => {
     const { calls } = await renderClientPage(<ClientCallHandlingPage />, {
       "/v1/me": OWNER,

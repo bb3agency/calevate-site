@@ -405,3 +405,52 @@ Studio uses "Only my voice".
    11 Oct.
 2. The choice set per agent, not only per workspace.
 3. Questions 3, 4 and 6 of §11.5.
+
+### 11.7 Their console now offers our two set-ups (founder, 13 Oct 2026, later the same day)
+
+The founder relayed a fresh screenshot of the console's "Which keys your agents use by
+default" and reported that the feature is built. It now offers four choices:
+
+| Choice | What is ours | Price shown |
+|---|---|---|
+| All three of my keys | speech-to-text, LLM and voice | ₹1/min all-in |
+| Only my voice | voice (their speech-to-text, model and telephony) | ₹1.50/min |
+| **My voice and my language model** | LLM and voice; they keep the speech recogniser | **₹1.00/min** |
+| Only my language model | LLM (e.g. Gemini or OpenAI); their speech-to-text and voice | the per-minute voice plan of the call: Standard, Premium or Studio |
+
+So both founder set-ups (§11.6) exist: **Clear = "Only my language model"** (scope `llm`),
+**Studio = "My voice and my language model"** (scope `llm_voice`; ₹1.00/min with their speech-to-text and phone line included,
+`bring-your-own-keys.md:18-20, :25-28`). §11.6's first ask is answered; D-764 is
+built on exactly these two scopes and stays switched off until the founder turns it on.
+The prices are as shown in their console (VENDOR-PUBLISHED, founder-relayed); D-764 still
+bills the ₹1 minute only at an operator-attested figure.
+
+Their screen and the docs (`bring-your-own-keys.md:22-24, :27`) name a **"Standard"** voice
+plan beside Premium and Studio. Our code knows the Premium and Studio bands only
+(`thinnest_clear_voice_band`). Ask what Standard is and what it costs before offering it. The
+same table bills a chat reply at ₹0.02 on both own-model scopes (:28), so test chats on our model
+cost per reply.
+
+**Founder decisions, 13 Oct 2026:** the model picker stays admin-only for now (clients choose
+no model, D-750 stands); the own-model cost floor is to use our real prompt sizes, not the
+900-token reference prompt.
+
+### 11.8 For the next email (documented 13 Oct 2026; the founder will send it later)
+
+1. **Setting one agent's model when only the LLM is ours.** `PUT /agents/{id}/byok-model`
+   is described two ways in the 13 Oct snapshot. The page text says it is refused with `409`
+   "when the workspace is not using its own keys, or when this agent is set to
+   `byok: "off"`" (`api-reference/agents/set-agent-byok-model.md:7`). The response table
+   says `409` means the workspace "is not using its own voice key (it brings no keys, or only
+   its language model)" (same file, :471-480). Read literally, the second means a Clear agent
+   (scope `llm`, no voice key) cannot be given its own model and always runs the key's model.
+   Which is right? D-764 currently treats the `409` as "not using its own model key" and
+   sends the model on every Clear and Studio publish; if the second reading holds, Clear
+   agents run the model stored on the key (`thinnest_own_model_default`) and the per-agent
+   choice applies to Studio only.
+2. **The "Standard" voice plan** in the console (§11.7): what it is, which voices, and the
+   per-minute price.
+3. Still open from §11.5: tokens per call on our own Google key beyond `usage` on Get Call
+   and `call.analysed` (is `cachedInputTokens` billed by Google at the cached rate through
+   their call?), and whether `maxReplyTokens` applies on calls.
+4. The text of the speaking rules `callInstructions` replaces (§11.5 item 5).

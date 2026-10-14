@@ -764,10 +764,10 @@ async def confirm_password_reset(
     already spent, which is correct: a token naming a dead account should not stay live.
 
     THE BURN AND THE NEW PASSWORD SHARE ONE TRANSACTION, so a password the policy refuses
-    rolls the burn back. `ResetConfirmIn` admits `hashing.MIN_PASSWORD_CHARS` while the
-    client realm's floor is higher and the blocklist applies at any length, so a request can
-    pass the schema and fail `set_password`; the refusal tells the person to choose another
-    password, and the link they hold has to still work when they do. The refusals that are
+    rolls the burn back. `ResetConfirmIn` bounds only the shape while the blocklist applies
+    at any length, so a request can pass the schema and fail `set_password`; the refusal
+    tells the person to choose another password, and the link they hold has to still work
+    when they do. The refusals that are
     about the TOKEN (wrong realm, dead subject) are raised after the transaction commits,
     so those burns stand.
     """

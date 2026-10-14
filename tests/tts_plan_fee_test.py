@@ -45,8 +45,8 @@ from apps.api.agents.voices import voice_tier_of_provider
 from apps.api.billing import spend_routes
 from apps.api.billing.plans import ist_month_window
 from apps.api.billing.rates import (
-    CARTESIA_EVIDENCE_USD_INR,
     CARTESIA_PRO_PLAN,
+    PLANNING_USD_INR,
     VOICE_TIERS,
 )
 from apps.api.billing.spend_routes import (
@@ -139,10 +139,8 @@ def test_the_reference_fee_is_the_form_prefill_and_nothing_else() -> None:
     ⚠ It was Startup's ₹4,312 until 9 Sep 2026, when the vendor stated that the smallest
     paid path is Pro at $5/month (Tinmaz correspondence). A pre-fill an order of magnitude
     out is a pre-fill an operator confirms without reading."""
-    assert CARTESIA_PRO_PLAN.fee_inr(CARTESIA_EVIDENCE_USD_INR) == Decimal("440")
-    assert reference_tts_plan_fee("cartesia") == CARTESIA_PRO_PLAN.fee_inr(
-        CARTESIA_EVIDENCE_USD_INR
-    )
+    assert CARTESIA_PRO_PLAN.fee_inr(PLANNING_USD_INR) == Decimal("475")
+    assert reference_tts_plan_fee("cartesia") == CARTESIA_PRO_PLAN.fee_inr(PLANNING_USD_INR)
 
 
 #: A provider the price store knows and that is NOT billed as a monthly plan. Every vendor
@@ -484,7 +482,7 @@ async def test_the_route_records_the_fee_and_writes_an_audit_row() -> None:
     assert body["month"] == month
     # The pre-fill travels back so the console can render it greyed beside the form; it is
     # never the stored value (hard rule 7).
-    assert body["reference_plan_inr"] == str(CARTESIA_PRO_PLAN.fee_inr(CARTESIA_EVIDENCE_USD_INR))
+    assert body["reference_plan_inr"] == str(CARTESIA_PRO_PLAN.fee_inr(PLANNING_USD_INR))
 
     async with untenanted_session() as session:
         row = (
@@ -809,7 +807,7 @@ async def test_the_read_lists_every_plan_billed_vendor_with_nothing_attested() -
     assert [slot["provider"] for slot in body["fees"]] == sorted(PLAN_BILLED_TTS_PROVIDERS)
     slot = body["fees"][0]
     assert slot["attested"] is None
-    assert slot["reference_plan_inr"] == str(CARTESIA_PRO_PLAN.fee_inr(CARTESIA_EVIDENCE_USD_INR))
+    assert slot["reference_plan_inr"] == str(CARTESIA_PRO_PLAN.fee_inr(PLANNING_USD_INR))
 
 
 async def test_the_read_returns_what_the_write_recorded() -> None:

@@ -50,12 +50,19 @@ from apps.api.agents.hosted_voices import (
 )
 from apps.api.agents.llm_models import LlmReasonAudience
 from apps.api.agents.llm_tiers import engine_model_token
+from apps.api.agents.own_model import (
+    offerable_own_models,
+    own_model_choice_id,
+    own_model_label,
+    own_model_on,
+)
 from apps.api.agents.voice_offer import tts_price_is_billable
 from apps.api.billing.engine_minutes import attested_rate_keys
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.settings import get_settings
 from apps.api.db.session import untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.catalogue import EngineCatalogue, HoldsCatalogue, HostsVoices
@@ -254,6 +261,11 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
         if is_client
         else next((m.label for m in catalogue.models if m.model_id == default_model), None)
     )
+    own_model = own_model_on(engine)
+    if own_model and not is_client:
+        # OUR model is on (D-764): an agent runs a Google model of our key, chosen per agent
+        # by an operator, so the engine's own models are not the choice here.
+        default_label = own_model_label(get_settings().thinnest_own_model_default)
     return EngineCatalogueOut(
         available=True,
         complete=catalogue.complete,
@@ -268,7 +280,9 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
             else "No voices have been made available yet."
         ),
         voices=voices,
-        models=[
+        models=_own_model_rows()
+        if own_model and not is_client
+        else [
             EngineCatalogueModelOut(
                 model_id=engine_model_token(m.model.model_id),
                 label=m.model.label,
@@ -287,6 +301,25 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
             for m in models
         ],
     )
+
+
+def _own_model_rows() -> list[EngineCatalogueModelOut]:
+    """The Google models of our key an operator may put an agent on (D-764): selectable, our
+    key installed and the price attested. Their cost is ours; the client's minute price is
+    the voice's, so each is offered with no band."""
+    return [
+        EngineCatalogueModelOut(
+            model_id=engine_model_token(own_model_choice_id(model)),
+            label=own_model_label(model),
+            call_capable=True,
+            plan_allows=True,
+            usable_with_studio_voice=True,
+            price_band="none",
+            offerable=True,
+            reason=None,
+        )
+        for model in offerable_own_models()
+    ]
 
 
 @router.get(

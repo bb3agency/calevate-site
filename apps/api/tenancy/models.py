@@ -569,6 +569,10 @@ class AdminUser(PKMixin, TimestampMixin, Base):
     #: deactivated alike and no caller can tell which. It is the same shape `users` has
     #: carried since 769a9152cb06, which is what makes the two realms readable side by side.
     deactivated_at: Mapped[datetime | None]
+    #: The operator's own "Stay signed in" switch (D-766). On, their second-factor-complete
+    #: sessions take the client realm's bounds and a persistent cookie
+    #: (`authn/sessions.session_policy`). Written only by `authn/stay_signed_in.py`.
+    stay_signed_in: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
 
 
 class TenantEngineWorkspace(PKMixin, TimestampMixin, Base):
@@ -614,6 +618,10 @@ class TenantEngineWorkspace(PKMixin, TimestampMixin, Base):
             "studio_error_code IS NULL OR char_length(studio_error_code) <= 64",
             name="studio_error_code_bounded",
         ),
+        CheckConstraint(
+            "own_model_error_code IS NULL OR char_length(own_model_error_code) <= 64",
+            name="own_model_error_code_bounded",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -638,3 +646,7 @@ class TenantEngineWorkspace(PKMixin, TimestampMixin, Base):
     studio_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     studio_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     studio_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The same three for our Google (LLM) key, D-764, migration a4c8e1f6b2d9.
+    own_model_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    own_model_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    own_model_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)

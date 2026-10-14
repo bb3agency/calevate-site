@@ -578,7 +578,9 @@ async def test_a_successful_assist_is_metered_in_ktok_at_the_published_price(
     # written out of, so an arithmetic error anywhere in the chain still fails here.
     from_vendor_usd = LLM_MODELS[get_settings().azure_openai_model].price
     per_ktok = {
-        leg: (usd * rates.LIST_PRICE_USD_INR / 1000).quantize(Decimal("0.0001"))
+        leg: (usd * rates.PLANNING_USD_INR / 1000).quantize(
+            Decimal("0.0001"), rounding=rates.ROUNDING
+        )
         for leg, usd in (
             ("in", from_vendor_usd.input_usd_per_mtok),
             ("out", from_vendor_usd.output_usd_per_mtok),

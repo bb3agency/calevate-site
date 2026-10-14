@@ -120,12 +120,14 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.routes import router as agents_router
     from apps.api.agents.script_routes import router as script_router
     from apps.api.agents.trial_call_routes import router as trial_calls_router
+    from apps.api.agents.voice_tuning_routes import admin_router as voice_tuning_admin_router
     from apps.api.authn.routes import (
         admin_auth_router,
         client_auth_router,
         invite_router,
     )
     from apps.api.authn.self_serve_routes import router as self_serve_auth_router
+    from apps.api.authn.stay_signed_in_routes import router as stay_signed_in_router
     from apps.api.billing.ai_quota_routes import router as ai_quota_router
     from apps.api.billing.auto_recharge_routes import router as auto_recharge_router
     from apps.api.billing.cap_routes import router as caps_router
@@ -252,6 +254,8 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(invite_router)
     # D-703: self-serve account creation and Google sign-in, client realm only.
     application.include_router(self_serve_auth_router)
+    # D-766: an operator's own "Stay signed in" switch, admin realm only.
+    application.include_router(stay_signed_in_router)
     application.include_router(admin_router)
     # The ops hold queue. Its own `/v1/admin/compliance/...` prefix rather than a path
     # under `admin_router`: `/v1/admin/tenants/{tenant_id}` would swallow any literal
@@ -315,6 +319,7 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/organization/...`, so mount order is not load-bearing.
     application.include_router(call_handling_router)
     application.include_router(call_handling_admin_router)
+    application.include_router(voice_tuning_admin_router)
     # A client's calls at once (F7): `/v1/admin/organizations/{id}/call-lines`.
     application.include_router(call_lines_router)
     # Editing an agent's extraction VARIABLES (D-460). The client router's

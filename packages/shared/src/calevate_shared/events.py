@@ -93,6 +93,21 @@ class EngineNotice(BaseModel):
     engine: str
 
 
+class EngineOptOut(BaseModel):
+    """A caller asked the engine's own agent not to be called again, and it recorded them.
+
+    `reason` is the caller's own words when the engine kept them. It is personal data: the
+    receiver redacts it before it is stored and never logs it.
+    """
+
+    #: The number as the engine wrote it; None when the delivery named none.
+    phone: str | None = None
+    #: The call it was heard on, when the engine names one.
+    engine_call_id: str | None = None
+    reason: str | None = None
+    engine: str
+
+
 EngineProblemKind = Literal["no_answer_from_model", "own_key_failed", "slow_reply", "voice_failed"]
 #: The problems a caller heard as silence, an apology or a cut-off, rather than a wait.
 CALLER_HEARD_FAILURE: frozenset[EngineProblemKind] = frozenset(
@@ -139,6 +154,18 @@ class CallQuality(BaseModel):
     backup_answers: int | None = None
 
 
+class CallLlmUsage(BaseModel):
+    """The language-model tokens a call's replies used, as the engine counted them, our own
+    model key's included. Each is None when the engine did not record it. The engine may
+    estimate the input count from the prompt's length where the provider reports none, so it
+    is a close guide rather than an invoice."""
+
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    #: How many of `input_tokens` the provider served from its cache.
+    cached_input_tokens: int | None = None
+
+
 class TranscriptTurn(BaseModel):
     """One turn of a conversation.
 
@@ -166,10 +193,12 @@ __all__ = [
     "TERMINAL_STATUSES",
     "CallDirection",
     "CallEvent",
+    "CallLlmUsage",
     "CallQuality",
     "CallStatus",
     "EngineNotice",
     "EngineNoticeKind",
+    "EngineOptOut",
     "EngineProblem",
     "EngineProblemKind",
     "Speaker",

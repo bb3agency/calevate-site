@@ -406,7 +406,9 @@ async def _admin_voices(
     operator added, with the live count `voice_curation` keeps beside them."""
     del context, args
     from apps.api.agents.hosted_voices import list_hosted_voices
+    from apps.api.agents.own_model import own_model_readiness
     from apps.api.agents.voice_curation import count_live_agents_by_engine_voice
+    from apps.api.core.settings import get_settings
 
     rows = await list_hosted_voices(session, scope="added")
     live = await count_live_agents_by_engine_voice()
@@ -415,8 +417,19 @@ async def _admin_voices(
         + f" [voice_id {row.voice_id}]"
         for row in rows[:MAX_ROWS]
     ]
-    return _listing(
-        lines, total=len(rows), shown_of="voices", nothing="No voice has been added yet."
+    # The Voices screen's "Our own model" card (D-764), so a question about which model the
+    # agents answer with is answered from the same readiness the card shows.
+    own = await own_model_readiness(session, engine=get_settings().engine)
+    own_line = _clean(
+        f"Our own model (Gemini on our Google key): {'on' if own.switched_on else 'off'}, "
+        f"{'ready' if own.ready else 'not ready'}, default {own.default_model}, "
+        f"{len(own.workspaces)} client workspace(s) on our key."
+        + (" Missing: " + " ".join(own.missing()) if not own.ready else "")
+    )
+    return (
+        _listing(lines, total=len(rows), shown_of="voices", nothing="No voice has been added yet.")
+        + "\n"
+        + own_line
     )
 
 

@@ -435,6 +435,8 @@ const ADMIN_SESSION_ROW = {
   subject_id: "0192f0aa-0000-7000-8000-0000000000a1",
   mfa_complete: true,
   email_verified: true,
+  idle_timeout_seconds: 30 * 60,
+  stay_signed_in: false,
 };
 
 const CLIENT_SESSION_ROW = {
@@ -442,6 +444,8 @@ const CLIENT_SESSION_ROW = {
   subject_id: "0192f0aa-0000-7000-8000-0000000000c1",
   mfa_complete: true,
   email_verified: true,
+  idle_timeout_seconds: 12 * 60 * 60,
+  stay_signed_in: false,
 };
 
 /** The one refusal that means "there is no session here" — never `invalid_credentials`. */
@@ -4448,6 +4452,21 @@ const ADMIN_SCREENS: Screen[] = [
         bands: { standard: 3, premium: 1, studio: 2 },
         plan_note: null,
       },
+      "/v1/ops/voices/own-model": {
+        switched_on: false,
+        ready: false,
+        default_model: "gemini-2.5-flash-lite",
+        google_key_configured: true,
+        default_offerable: false,
+        default_reason: "nobody has recorded what this model costs",
+        data_use_attested: false,
+        llm_voice_minute_attested: false,
+        offerable_models: [],
+        missing: ["Attest the own-voice-and-model (byok_llm_voice) per-minute rate."],
+        workspaces: [],
+        explanation: "Agents answer on our Google key.",
+        note: "Not ready: Attest the own-voice-and-model (byok_llm_voice) per-minute rate.",
+      },
       "/v1/ops/voices/studio-voices": {
         ready: false,
         cartesia_key_configured: true,
@@ -4975,6 +4994,27 @@ const ADMIN_SCREENS: Screen[] = [
       "/v1/agents": [AGENT],
       "/v1/admin/me": ADMIN_ME,
       "/v1/admin/tenants/t1": TENANT_SUMMARY,
+      // A Studio voice, so the sweep reads the whole "How it sounds" form.
+      "/v1/admin/tenants/t1/agents/agent-1/voice-tuning": {
+        agent_id: "agent-1",
+        studio: true,
+        speed: "0.95",
+        volume: null,
+        emotion: "calm",
+        model: "sonic-2",
+        dictionary_id: null,
+        options: {
+          speed_min: "0.6",
+          speed_max: "1.5",
+          volume_min: "0.5",
+          volume_max: "2.0",
+          emotions: ["neutral", "calm"],
+          models: ["sonic-3.6", "sonic-2"],
+          old_model: "sonic-2",
+          dictionary_id_pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{2,79}$",
+          preview_text_max_chars: 200,
+        },
+      },
       "/v1/admin/tenants/t1/agents/agent-1/prompt": [
         {
           id: "v2",

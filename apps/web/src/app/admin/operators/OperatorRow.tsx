@@ -14,7 +14,7 @@ import {
 } from "@/lib/api/adminOperators";
 import { lookup } from "@/lib/lookup";
 
-import { ResendPanel, RevokePanel, RoleChangePanel } from "./rowConfirmations";
+import { EndStaySignedInPanel, ResendPanel, RevokePanel, RoleChangePanel } from "./rowConfirmations";
 
 /** A tier as a badge, from the wire string, never from a guess about seniority. */
 function RoleBadge({ role }: { role: string }) {
@@ -35,7 +35,7 @@ function RoleBadge({ role }: { role: string }) {
 }
 
 /** Which inline confirmation, if any, this row has open. */
-type RowAction = "role" | "revoke" | "resend";
+type RowAction = "role" | "revoke" | "resend" | "stay";
 
 function LockLine({ children }: { children: string }) {
   return (
@@ -82,6 +82,10 @@ export function OperatorRow({
     ...(!operator.activated
       ? [{ id: "resend", label: "Resend setup link", onSelect: () => setOpen("resend") }]
       : []),
+    // D-766: only offered while it is on, and only in the off direction.
+    ...(operator.stay_signed_in
+      ? [{ id: "stay", label: 'Switch off "Stay signed in"', onSelect: () => setOpen("stay") }]
+      : []),
     { id: "revoke", label: "Revoke access", tone: "danger", onSelect: () => setOpen("revoke") },
   ];
 
@@ -98,6 +102,11 @@ export function OperatorRow({
             {!operator.activated && (
               <span className="inline-flex items-center rounded-full border border-warn-line bg-warn-soft px-2 py-0.5 text-meta font-medium text-warn">
                 Setup link outstanding
+              </span>
+            )}
+            {operator.stay_signed_in && (
+              <span className="inline-flex items-center rounded-full bg-ink/[0.06] px-2 py-0.5 text-meta font-medium text-ink-muted">
+                Stays signed in
               </span>
             )}
           </div>
@@ -131,6 +140,7 @@ export function OperatorRow({
       )}
       {open === "revoke" && <RevokePanel operator={operator} onClose={close} />}
       {open === "resend" && <ResendPanel operator={operator} onClose={close} />}
+      {open === "stay" && <EndStaySignedInPanel operator={operator} onClose={close} />}
     </li>
   );
 }

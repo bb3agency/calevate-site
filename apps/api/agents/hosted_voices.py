@@ -56,6 +56,7 @@ from apps.api.agents.voices import (
 )
 from apps.api.billing.engine_minutes import (
     BYOK_VOICE_RATE_KEY,
+    OWN_VOICE_RATE_KEYS,
     EngineRateKey,
     client_voice_tier,
 )
@@ -262,7 +263,7 @@ _STUDIO_VOICES_LISTED_SQL: Final = (
 
 _LIVE_STUDIO_ROUTES_SQL: Final = (
     "SELECT count(*) FROM engine_agent_routes WHERE active AND engine = :engine "
-    "AND engine_rate_key = :studio_key"
+    "AND engine_rate_key = ANY(:studio_keys)"
 )
 
 
@@ -273,7 +274,7 @@ async def live_studio_agents(session: AsyncSession, *, engine: str) -> int:
         (
             await session.execute(
                 text(_LIVE_STUDIO_ROUTES_SQL),
-                {"engine": engine, "studio_key": BYOK_VOICE_RATE_KEY},
+                {"engine": engine, "studio_keys": sorted(OWN_VOICE_RATE_KEYS)},
             )
         ).scalar_one()
     )

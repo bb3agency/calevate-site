@@ -75,8 +75,15 @@ hours later whether or not the cookie is still on disk. The ADMIN realm is 30 mi
 and 8 hours absolute, holds operator powers over every tenant, and is used on a laptop. A
 persistent cookie there could survive at most the remainder of one shift, which is not a
 usability problem anybody reported, and it would put an operator credential on disk across
-a browser restart on whatever machine is to hand. So `admin` stays a session cookie. The
-split is data (`COOKIE_PERSISTENCE`), not a conditional at a call site.
+a browser restart on whatever machine is to hand. So `admin` stays a session cookie by
+default. The split is data (`COOKIE_PERSISTENCE`), not a conditional at a call site.
+
+The exception is an operator who switched "Stay signed in" on for their own account
+(D-766): their second-factor-complete sessions take the client realm's bounds, and with them
+a persistent cookie, because a phone browser that drops session cookies was the founder's
+reason for asking. The session decides that (`sessions.SessionPolicy.stay_signed_in`) and
+passes it here; the `Max-Age` is still the distance to the row's absolute bound and nothing
+else.
 
 **WHAT THE BROWSER ACTUALLY GUARANTEES: LESS THAN THE HEADER ASKS FOR, AND THE PRODUCT IS
 CORRECT EITHER WAY.** `Max-Age` is a request. Reported (web search, 5 Sep 2026, secondary
@@ -257,7 +264,11 @@ def read_token(request: Request, realm: str) -> str | None:
 
 
 def session_cookie_max_age(
-    realm: str, *, absolute_expires_at: datetime, now: datetime | None = None
+    realm: str,
+    *,
+    absolute_expires_at: datetime,
+    now: datetime | None = None,
+    stay_signed_in: bool = False,
 ) -> int | None:
     """How long the browser is asked to keep this realm's cookie, or `None` for "until it closes".
 
@@ -266,7 +277,7 @@ def session_cookie_max_age(
     reports the distance to that instant and nothing else. See the module docstring.
 
     `None` for a realm `COOKIE_PERSISTENCE` says does not persist — a session cookie, as
-    before.
+    before — unless the session is one of an operator's with "Stay signed in" on (D-766).
 
     A non-positive result is returned AS ZERO rather than clamped up. Zero tells the
     browser to drop the cookie immediately, which is the truth: the row it names is already
@@ -275,7 +286,7 @@ def session_cookie_max_age(
     would turn a clock skew into a failed sign-in.
     """
     _refuse_unknown_realm(realm)
-    if not COOKIE_PERSISTENCE[realm]:
+    if not (COOKIE_PERSISTENCE[realm] or stay_signed_in):
         return None
     at = now or datetime.now(UTC)
     return max(0, int((absolute_expires_at - at).total_seconds()))
@@ -289,6 +300,7 @@ def set_session_cookie(
     request: Request,
     absolute_expires_at: datetime,
     now: datetime | None = None,
+    stay_signed_in: bool = False,
 ) -> None:
     """Attach a freshly issued session token.
 
@@ -297,7 +309,9 @@ def set_session_cookie(
     the bound it must not outlive.
     """
     secure = _is_secure(request)
-    max_age = session_cookie_max_age(realm, absolute_expires_at=absolute_expires_at, now=now)
+    max_age = session_cookie_max_age(
+        realm, absolute_expires_at=absolute_expires_at, now=now, stay_signed_in=stay_signed_in
+    )
     response.set_cookie(
         key=cookie_name(realm, secure=secure),
         value=token,
@@ -306,7 +320,8 @@ def set_session_cookie(
         samesite="strict",
         path="/",
         # `None` leaves the header without `Max-Age` — a browser-session cookie, which is
-        # what the admin realm still gets. See the module docstring for both halves.
+        # what the admin realm gets unless the operator has "Stay signed in" on. See the
+        # module docstring for both halves.
         max_age=max_age,
     )
 

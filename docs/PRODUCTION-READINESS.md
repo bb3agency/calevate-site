@@ -371,6 +371,12 @@ rate beside the attested prices, quoted from the FX store this repository alread
 and says why it is the founder's call and not a code change. That is the successor to this
 entry; it is not this entry's FIX.
 
+**DECIDED BY D-768 (founder, 14 Oct 2026).** Every frozen conversion is struck at one founder
+planning rate, ₹95 = US$1.00 (`rates.PLANNING_USD_INR`, a founder decision rather than a market
+reading), which replaces `LIST_PRICE_USD_INR`, `COST_MODEL_USD_INR` and
+`CARTESIA_EVIDENCE_USD_INR`; the `usd_inr_rate` fallback default is ₹95.00. The live published
+rate still converts a call's engine cost.
+
 ### P1.5 — The INR branch of the cost adapter divides by 100 on a silent premise · SERIOUS · OURS to mark, EXTERNAL to settle (gate 7)
 
 `bolna.py:196` computes `cents / 100 * rate` and `bolna.py:1041` hands a stated-INR payload

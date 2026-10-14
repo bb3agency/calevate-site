@@ -637,11 +637,24 @@ export function settledPending(over: Record<string, unknown> = {}) {
     call_cap_is_platform_default: true,
     worst_case_call_cost_inr: "12.50",
     precedence_rule: "Script decides content.",
-    voice: { configured: clear, live: clear, headline: "Callers hear Anika.", unnamed_note: null },
+    voice: {
+      configured: clear,
+      live: clear,
+      republish_required: false,
+      headline: "Callers hear Anika.",
+      unnamed_note: null,
+    },
     voice_tier_rates: [
       { voice_tier: "clear", label: "Clear", inr_per_min: "2.50", further_open_lots: 0 },
       { voice_tier: "studio", label: "Studio", inr_per_min: "4.00", further_open_lots: 0 },
     ],
+    engine_verification: {
+      state: "applied",
+      confirmed: true,
+      publishable: true,
+      verified_at: "2026-10-13T09:20:00Z",
+      headline: "The voice platform was read back and is running this script and voice.",
+    },
     ...over,
   };
 }

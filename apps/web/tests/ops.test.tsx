@@ -2759,7 +2759,7 @@ describe("the platform configuration panel", () => {
     expect(disclosure?.open).toBe(false);
     // The closed state carries the fact: how many, and which engine is in force.
     expect(disclosure?.textContent).toContain("1 setting only another engine reads");
-    expect(disclosure?.textContent).toContain("The engine in force is Our own runtime");
+    expect(disclosure?.textContent).toContain("The engine in force is Test engine");
     // Still there, still editable: an operator prepares an engine switch here.
     expect(within(disclosure as HTMLElement).getByText("thinnest_byok_enabled")).toBeTruthy();
   });

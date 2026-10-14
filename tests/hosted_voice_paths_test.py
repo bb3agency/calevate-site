@@ -106,6 +106,7 @@ async def test_the_drift_sweep_alarms_on_a_withdrawn_voice(
             truthful_answer_applied=True,
             own_voice_key_applied=True,
             own_voice_key_expected=None,
+            own_model_expected=None,
         )
 
     async def _recorded(*a: Any, **kw: Any) -> bool:
@@ -182,6 +183,7 @@ async def test_the_drift_sweep_puts_an_agents_own_voice_key_switch_back(
         truthful_answer_applied=True,
         own_voice_key_applied=False,
         own_voice_key_expected=expected,
+        own_model_expected=None,
     )
     _sweep_doubles(monkeypatch, drift, raised)
     engine = HostingEngine()
@@ -201,6 +203,7 @@ async def test_a_switch_repair_the_platform_refuses_is_left_to_the_next_tick(
         truthful_answer_applied=True,
         own_voice_key_applied=False,
         own_voice_key_expected=False,
+        own_model_expected=None,
     )
     _sweep_doubles(monkeypatch, drift, raised)
     engine = HostingEngine()

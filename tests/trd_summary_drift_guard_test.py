@@ -40,7 +40,7 @@ def test_the_per_call_minute_column_parses_to_the_priced_rung() -> None:
     not-finding as a fact.
     """
     assert doc_tts_per_minute_bands(TRD_TEXT) == {
-        "sonic-3.5": (Decimal("2.06"), Decimal("3.09")),
+        "sonic-3.5": (Decimal("2.22"), Decimal("3.33")),
     }
 
 
@@ -52,7 +52,7 @@ def test_the_cartesia_rows_own_correction_note_is_not_read_as_the_current_band()
     current and then certify a summary quoting them.
     """
     band = doc_tts_per_minute_bands(TRD_TEXT)["sonic-3.5"]
-    assert band == (Decimal("2.06"), Decimal("3.09"))
+    assert band == (Decimal("2.22"), Decimal("3.33"))
     assert Decimal("1.24") not in band
     assert Decimal("1.86") not in band
 
@@ -80,7 +80,7 @@ def test_the_retired_price_fails_and_names_both_sides() -> None:
     assert failures, "the pre-fix summary must not pass"
     assert any("1.8628" in line for line in failures), failures
     # And the other direction: a rung on the card that the summary no longer quotes.
-    assert any("2.06" in line and "does not quote" in line for line in failures), failures
+    assert any("2.22" in line and "does not quote" in line for line in failures), failures
 
 
 def test_the_nonexistent_symbol_fails_section_4g() -> None:
@@ -91,7 +91,7 @@ def test_the_nonexistent_symbol_fails_section_4g() -> None:
 def test_a_price_that_moves_in_the_card_alone_fails() -> None:
     """The commoner future defect: somebody reprices §10.1 and forgets the paragraph."""
     row = next(line for line in TRD_TEXT.splitlines() if line.startswith("| TTS — Cartesia"))
-    repriced = TRD_TEXT.replace(row, row.replace("**₹2.06–3.09**", "**₹2.50–3.60**"), 1)
+    repriced = TRD_TEXT.replace(row, row.replace("**₹2.22–3.33**", "**₹2.50–3.60**"), 1)
     assert repriced != TRD_TEXT
     assert doc_tts_per_minute_bands(repriced)["sonic-3.5"] == (
         Decimal("2.50"),
@@ -108,7 +108,7 @@ def test_rewording_the_leg_changes_nothing() -> None:
     """Same two figures, entirely different sentence."""
     assert (
         tts_summary_drift(
-            _with_leg("**TTS: the Studio voice (Cartesia) costs 2.06–3.09, per agent since D-547**")
+            _with_leg("**TTS: the Studio voice (Cartesia) costs 2.22–3.33, per agent since D-547**")
         )
         == []
     )
@@ -118,7 +118,7 @@ def test_a_model_name_that_looks_like_a_price_is_not_read_as_one() -> None:
     """`Sonic 3.5` must never be read as ₹3.50, and `gpt-4.1-mini` never as ₹4.10."""
     assert (
         tts_summary_drift(
-            _with_leg("**TTS 2.06–3.09 (Sonic 3.5, Sonic 3.5 again, D-547, TRD §10.1)**")
+            _with_leg("**TTS 2.22–3.33 (Sonic 3.5, Sonic 3.5 again, D-547, TRD §10.1)**")
         )
         == []
     )
@@ -129,7 +129,7 @@ def test_symbol_citations_are_never_read_as_prices() -> None:
     assert (
         tts_summary_drift(
             _with_leg(
-                "**TTS 2.06–3.09 "
+                "**TTS 2.22–3.33 "
                 "(`billing/rates.py::CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`, "
                 "`billing/rates.py::cartesia_cost_inr_per_call_minute`, "
                 "`apps/api/billing/rates.py:1823`)**"

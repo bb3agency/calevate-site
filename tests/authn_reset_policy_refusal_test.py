@@ -1,12 +1,9 @@
 """A reset link survives a password the policy refuses.
 
-`ResetConfirmIn` bounds the password at `hashing.MIN_PASSWORD_CHARS` (12), the absolute
-floor, while `authn/policy.py` holds the client realm to 15 and refuses blocklisted
-passwords whatever their length. So a request can pass the schema and still be refused by
-`set_password`. The refusal tells the person to choose a longer passphrase; the link they
-are holding must still work when they do. It did not: the token was burned in its own
-committed transaction before the policy ran, so the retry answered
-`invalid_reset_token` and sent them back to their mailbox.
+`credentials.set_password` applies the policy (length floor and blocklist) inside the
+reset transaction, so a refused password must leave the link usable for the retry. It did
+not: the token was burned in its own committed transaction before the policy ran, so the
+retry answered `invalid_reset_token` and sent the person back to their mailbox.
 
 SHARED DATABASE DISCIPLINE: every row hangs off an id this module mints and the fixture
 deletes exactly those.
@@ -30,8 +27,8 @@ from sqlalchemy import text
 REALM = "client"
 OLD_PASSWORD = "vijayawada-clinic-front-desk"
 NEW_PASSWORD = "guntur-dental-evening-shift"
-#: 12 characters: passes `ResetConfirmIn`, below the client realm's floor of 15.
-TOO_SHORT = "tenali-rice1"
+#: Seven characters: one under the realm floor (`policy.min_password_chars`).
+TOO_SHORT = "tenali7"
 #: Long enough, but the service's own name wearing decoration — refused by the blocklist.
 BLOCKLISTED = "calevate2026!!!!!"
 

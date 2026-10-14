@@ -100,6 +100,19 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "PUT /v1/admin/organizations/{org_id}/call-handling",
         )
     },
+    # --- Studio voice tuning (D-767): the choices offered ------------------------------------
+    **{
+        key: BoundedByConstruction(
+            by=(
+                "the emotions and voice models offered are `agents.models.STUDIO_VOICE_EMOTIONS` "
+                "and `STUDIO_VOICE_MODELS`, eight and five values declared in code."
+            )
+        )
+        for key in (
+            "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning",
+            "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning",
+        )
+    },
     # --- do-not-call: the evidence shown before an opt-out is restored ---------------------
     "GET /v1/dnc/{entry_id}/evidence": BoundedByConstruction(
         by="`compliance.dnc.MAX_OPTOUT_EVIDENCE` in the LIMIT, and the schema's `max_length`."
@@ -714,6 +727,16 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/ops/voices/studio-voices/enable": BoundedByConstruction(
         by="the same `StudioVoicesOut` as `GET /v1/ops/voices/studio-voices`, re-read after "
         "the switch."
+    ),
+    "GET /v1/ops/voices/own-model": BoundedByConstruction(
+        by="`missing` is at most the four readiness steps in `OwnModelReadiness.missing`; "
+        "`offerable_models` is a subset of the Google models `calevate_shared.engine."
+        "GoogleDirectModel` declares; `workspaces` is one row per signed client on our model "
+        "(`tenancy.engine_workspace.own_model_workspaces`, LIMIT 1000), bounded by the clients "
+        "we provision."
+    ),
+    "POST /v1/ops/voices/own-model/enable": BoundedByConstruction(
+        by="the same `OwnModelOut` as `GET /v1/ops/voices/own-model`, re-read after the act."
     ),
     "GET /v1/billing/topups/packs": BoundedByConstruction(
         by="`packs` is one row per member of `billing.credit_packs.PACK_CATALOGUE`, a static "

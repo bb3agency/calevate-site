@@ -5,6 +5,8 @@
     PATCH  /v1/admin/operators/{id}               promote or demote
     POST   /v1/admin/operators/{id}/revocation    end the account, the password, the sessions
     POST   /v1/admin/operators/{id}/setup-link    re-send the setup link
+    POST   /v1/admin/operators/{id}/stay-signed-in/revocation
+                                                  switch their "Stay signed in" off (D-766)
 
 **EVERY ROUTE HERE IS `admin:operators`, WHICH ONLY `superadmin` HOLDS.** That single fact
 is what makes the two admin tiers real rather than cosmetic: a normal admin cannot reach
@@ -20,7 +22,7 @@ is what ends it (migration f2c74b81a9d3). A `DELETE` verb would promise an erasu
 surface must not perform — and it would have nowhere to carry the required reason, since a
 request body on `DELETE` is the one shape HTTP intermediaries feel free to drop.
 
-**STEP-UP ON ALL FOUR MUTATIONS** (BACKEND-PATTERNS §7). The list of high-risk admin
+**STEP-UP ON EVERY MUTATION** (BACKEND-PATTERNS §7). The list of high-risk admin
 actions there — the big red switch, cap raises, tenant erasure, entry into a client's
 account — is a list of things one compromised console session should not be able to do
 silently, and handing somebody an administrator account belongs on it: it is the only act
@@ -44,6 +46,7 @@ from apps.api.authn.operators import (
     reissue_setup_link,
     revoke_operator,
     set_operator_role,
+    switch_off_stay_signed_in,
 )
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -92,6 +95,10 @@ def operator_setup_link_confirmation(operator_id: UUID) -> str:
     return f"reissue_operator_setup_link:{operator_id}"
 
 
+def operator_stay_signed_in_confirmation(operator_id: UUID) -> str:
+    return f"end_stay_signed_in:{operator_id}"
+
+
 class OperatorOut(BaseModel):
     """One operator account. No credential, no token, no setup link — see below."""
 
@@ -109,6 +116,8 @@ class OperatorOut(BaseModel):
     #: invited mailbox and nowhere else (D-190: a token visible to the inviter is an
     #: account squat, and it cost a whole decision entry on the client realm).
     activated: bool
+    #: Their own "Stay signed in" switch (D-766). Only they can switch it on.
+    stay_signed_in: bool
 
 
 class OperatorsOut(BaseModel):
@@ -126,7 +135,7 @@ class OperatorReasonIn(BaseModel):
 
     REQUIRED WITH CONTENT, and the bounds are copied from `ConfigSetIn` rather than
     re-argued: whoever reads this ledger row later has to be able to decide whether the
-    decision still holds, and "" tells them nothing. One base class so four routes cannot
+    decision still holds, and "" tells them nothing. One base class so the routes cannot
     disagree about what a reason is.
     """
 
@@ -166,6 +175,7 @@ def _out(account: OperatorAccount) -> OperatorOut:
         role=account.role,
         created_at=account.created_at.isoformat(),
         activated=account.activated,
+        stay_signed_in=account.stay_signed_in,
     )
 
 
@@ -320,10 +330,42 @@ async def resend_operator_setup_link(
     )
 
 
+@router.post(
+    "/{operator_id}/stay-signed-in/revocation",
+    response_model=OperatorOut,
+    openapi_extra=permission_meta("admin:operators"),
+    summary="Switch off an operator's 'Stay signed in' (step-up confirmed, audited)",
+    description=(
+        "Switches the operator's own 'Stay signed in' setting off and cuts their live "
+        "sessions back to 30 minutes idle and 8 hours from sign-in; a session already past "
+        "those ends. Only the operator can switch it on. Requires "
+        "`X-Confirm-Action: end_stay_signed_in:<operator_id>`."
+    ),
+)
+async def end_operator_stay_signed_in(
+    payload: OperatorReasonIn,
+    request: Request,
+    principal: SuperAdmin,
+    step_up: StepUpGate,
+    operator_id: OperatorId,
+    x_confirm_action: Annotated[str | None, Header()] = None,
+) -> OperatorOut:
+    step_up.require(x_confirm_action, operator_stay_signed_in_confirmation(operator_id))
+    return _out(
+        await switch_off_stay_signed_in(
+            actor=principal,
+            operator_id=operator_id,
+            reason=payload.reason,
+            ip=client_request_ip(request),
+        )
+    )
+
+
 __all__ = [
     "add_operator_confirmation",
     "operator_revocation_confirmation",
     "operator_role_confirmation",
     "operator_setup_link_confirmation",
+    "operator_stay_signed_in_confirmation",
     "router",
 ]

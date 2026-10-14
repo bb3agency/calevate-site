@@ -1061,7 +1061,7 @@ def reference_tts_price(provider: str) -> Decimal | None:
     believes and is not helped by having it entered for them.
 
     Cartesia's is the vendor's OVERAGE rate on the dearest plan we can be on,
-    ₹57.20/10,000 characters (`rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`,
+    ₹61.75/10,000 characters (`rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`,
     VENDOR-PUBLISHED — Tinmaz correspondence, 9 Sep 2026): a MARGINAL rate is true at every
     volume past the allotment, and it is the one an operator can sanity-check a line on an
     invoice against. It is still not a price anybody read off ours, which is why hard rule 7
@@ -1327,27 +1327,27 @@ def reference_tts_plan_fee(provider: str) -> Decimal:
     `reference_tts_price`'s job for a whole month, and it carries that function's warning
     unchanged: hard rule 7 gives a catalogue figure NO path to a cost we report as paid.
 
-    ⚠ **THE PRE-FILL IS THE ENTRY PLAN'S FEE AND IT USED TO BE STARTUP'S ₹4,312.** The
+    ⚠ **THE PRE-FILL IS THE ENTRY PLAN'S FEE AND IT USED TO BE STARTUP'S ₹4,655.** The
     vendor states that the smallest paid path is **Pro at $5/month** (Tinmaz correspondence,
-    9 Sep 2026), not the $49 Startup plan this tree assumed was the entry point — so ₹440 is
-    what a first invoice most plausibly says, and pre-filling ₹4,312 would have had an
+    9 Sep 2026), not the $49 Startup plan this tree assumed was the entry point — so ₹475 is
+    what a first invoice most plausibly says, and pre-filling ₹4,655 would have had an
     operator confirming a figure an order of magnitude out. Which plan we are ACTUALLY on is
     a fact no code in this repository holds: it is on a card statement, which is exactly
     what the attestation captures. Rendered GREYED beside the form and labelled "confirm
     against your vendor invoice".
 
-    **THE PRE-FILL CONVERTS AT THE FROZEN ₹88, NOT AT THE LIVE RATE, AND THAT IS DELIBERATE
-    EVEN THOUGH THE COST FLOOR NOW DOES THE OPPOSITE** (founder, 9 Sep 2026). The floor is a
+    **THE PRE-FILL CONVERTS AT THE FROZEN PLANNING RATE (₹95, D-768), NOT AT THE LIVE RATE, AND
+    THAT IS DELIBERATE** (founder, 9 Sep 2026). The live cost floor is a
     number we reason about; this is a number an operator is about to overwrite from a card
     statement. A pre-fill that changed every five minutes would make two operators
     confirming the same invoice see two different greyed figures, which is a worse form of
-    the same confusion. `rates.CARTESIA_EVIDENCE_USD_INR` is named at the call so the
+    the same confusion. `rates.PLANNING_USD_INR` is named at the call so the
     conversion is visible rather than defaulted.
 
     Raises for a provider that is not billed as a monthly plan, like the writer does.
     """
     _require_plan_billed_provider(provider)
-    return rates.CARTESIA_PRO_PLAN.fee_inr(rates.CARTESIA_EVIDENCE_USD_INR)
+    return rates.CARTESIA_PRO_PLAN.fee_inr(rates.PLANNING_USD_INR)
 
 
 async def attest_tts_plan_fee(

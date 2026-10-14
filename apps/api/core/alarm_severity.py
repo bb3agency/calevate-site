@@ -346,6 +346,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "studio_call_voice_failed": "attention",
     "engine_call_voice_failed": "attention",
     "engine_call_model_unanswered": "attention",
+    # One of our own keys on the voice platform failed on a call: there is no backup on our
+    # own keys, so the remedy is the key or its provider account.
+    "engine_call_own_key_failed": "attention",
     # The platform's own status says its records are degraded while calls work: results
     # arrive late and the sweeps catch up. A platform that says calls are down opens the
     # outage incident, which pages through `engine_platform_outage`.
@@ -567,6 +570,22 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # D-688: a rotated Cartesia key did not reach the voice platform. If the old key was
     # revoked, every Studio call stops speaking, with no fallback, so it pages.
     "studio_voice_key_push_failed": "page",
+    # D-764: a rotated Google key did not reach a client workspace on our model. If the old
+    # key was revoked, every call there hears an apology instead of an answer: pages.
+    "own_model_key_push_failed": "page",
+    # D-764: a client workspace was found off our Google key and switched back on. Nothing is
+    # broken now; somebody changed it.
+    "own_model_workspace_repaired": "attention",
+    # D-764: a client workspace is off our Google key and could not be switched back on, so
+    # its agents on our model run on another stack at another price. Pages.
+    "own_model_workspace_drift": "page",
+    # D-764: a refused switch-on of our Google key is a refusal to one publish; the hourly
+    # check and `own_model_workspace_drift` carry it when it persists.
+    "own_model_account_not_ready": "record",
+    "own_model_workspace_not_ready": "record",
+    # D-764: a call on our model with no attested price for the model. The tokens are on the
+    # ledger with no cost, never ₹0, and the model should not have been offerable.
+    "own_model_tokens_unpriced": "page",
     # D-687, D-688: the voice platform listed voices but none in the band sold as Clear (the
     # setting, or a plan below Pro for the Studio band). Not paged: the account answered,
     # nothing a live call speaks broke this hour, and the fix is an operator's daylight act.

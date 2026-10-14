@@ -543,6 +543,18 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         LIVE_AGENTS,
         f"saving it moves every live Clear agent with no model of its own onto it{_NOW}",
     ),
+    # Our own model on ThinnestAI calls (D-764): the agent's own-key scope, its model and its
+    # rate key are all stamped at publish, so saving either republishes every live agent.
+    "thinnest_own_model": AppliesRule(
+        LIVE_AGENTS,
+        "saving it republishes every live agent of a paying client onto our model (on) or "
+        f"back onto the voice platform's own (off){_NOW}",
+    ),
+    "thinnest_own_model_default": AppliesRule(
+        LIVE_AGENTS,
+        "saving it moves every live agent with no model of its own onto it while our own "
+        f"model is switched on{_NOW}",
+    ),
     # Read inside every ThinnestAI dial's intent transaction (`agents/service.dispatch_call`)
     # and once per dispatch tick for the outbound pool, like `carrier_concurrency`.
     "thinnest_max_concurrent_calls": AppliesRule(LIVE),
@@ -612,39 +624,12 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # once per dispatch tick for the outbound pool, on an engine with no ceiling of its own.
     "carrier_concurrency": AppliesRule(LIVE),
     "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
-    # ⚠ THIS COMMENT SAID "nothing sends it anywhere" AND THAT HAS BEEN FALSE SINCE D-456.
-    # It described the state D-127/D-410 left — the AI Studio Developer API disqualified,
-    # no Google LLM leg — and D-456/D-459 then reopened exactly that leg: `LlmProvider`
-    # carries `"google"`, `gemini-2.5-flash` and `-flash-lite` are SELECTABLE for the
-    # IN-CALL leg, and `ops/model_pricing.py:65` maps that provider to THIS key. So this
-    # is the credential a client-selected Gemini agent runs on, and an operator who
-    # installed it was being told by this file that it reached nothing.
-    #
-    # ⚠ **AND `live` WAS THE FLATTERING HALF OF A TWO-SURFACE ANSWER, WHICH IS THE ERROR
-    # THIS FILE'S HEADER CALLS THE EXPENSIVE ONE.** Two surfaces read this key and they do
-    # not agree. `assist_capability()` and `offerable_models()` read it through
-    # `get_settings()` within one poll interval — that half really is `live`. The IN-CALL
-    # leg does not read it from this process AT ALL: a client-selected Gemini agent
-    # authenticates from the ENGINE's own credential store (`agents/service.py`, and
-    # `VoiceEngine.set_llm_credential` is what installs it), so a rotation here does not
-    # reach a live phone call until that install happens. Exactly `azure_openai_api_key`'s
-    # situation, classified the opposite way for no stated reason.
-    #
-    # Same answer as that row, for its reason: the table states the WEAKER of the two
-    # truths, because `live` is the one that costs an outage. Republishing is not the fix
-    # here either — the caveat says so rather than implying it.
-    #
-    # What is NOT reopened, and is the half worth keeping: Gemini serves no DASHBOARD
-    # assist and no extraction pass. D-127 G-2 forbids raw PII on that leg and
-    # `GEMINI_EXTRACTION_DEFAULT is False` is the greppable form of it.
-    "gemini_api_key": AppliesRule(
-        OPERATOR_STEP,
-        "the model picker and the dashboard AI pick up the new key within seconds, but "
-        "the in-call phone leg does not: a Gemini agent authenticates from the voice "
-        "platform's own credential store, so a rotation here does not reach a live call "
-        "until the new key is re-installed there. Re-publishing an agent does not do "
-        "that — an operator must re-install the credential.",
-    ),
+    # Our Google key. The model picker, the dashboard AI and document OCR read it per use.
+    # On ThinnestAI the in-call leg (D-764) holds its own copy in each client workspace on our
+    # model; a save enqueues `push_own_model_key`, which replaces it there through the outbox
+    # (`apps/workers/own_model_key.py`), as `cartesia_api_key` is pushed for Studio.
+    # Gemini still serves no extraction pass: `GEMINI_EXTRACTION_DEFAULT is False`.
+    "gemini_api_key": AppliesRule(LIVE),
     # OpenAI direct (D-456's third declared leg), and the row above's answer for the row
     # above's reason — the in-call leg authenticates from the ENGINE's credential store,
     # not from this process.

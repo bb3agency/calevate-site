@@ -86,6 +86,24 @@ def test_whole_seconds_read_back_as_an_integer_match() -> None:
     assert thinnest._settings_drift(body, live) == []
 
 
+@pytest.mark.parametrize("held", [None, "smart", "ear"])
+def test_a_turn_mode_other_than_timer_is_drift_on_the_pause(held: object) -> None:
+    """Under `smart` the same seconds are a ceiling, not the silence that ends a turn, and
+    `null` follows whatever the platform chooses next (update-agent.md:1349-1381)."""
+    body = ThinnestEngine(api_key="ta_live_test")._agent_body(_cfg(turn_silence_ms=700))
+    assert body["voice"]["turnDetection"] == "timer"
+    live = {**body, "voice": {**body["voice"], "turnDetection": held}}
+    assert thinnest._settings_drift(body, live) == ["turn_silence"]
+
+
+@pytest.mark.parametrize("held", [False, None])
+def test_the_platforms_do_not_call_tool_switched_off_is_drift(held: object) -> None:
+    body = ThinnestEngine(api_key="ta_live_test")._agent_body(_cfg())
+    assert body["voice"]["recordDoNotCall"] is True
+    live = {**body, "voice": {**body["voice"], "recordDoNotCall": held}}
+    assert thinnest._settings_drift(body, live) == ["do_not_call_tool"]
+
+
 def test_a_hang_up_switched_in_the_vendor_console_is_drift() -> None:
     body = ThinnestEngine(api_key="ta_live_test")._agent_body(_cfg(end_call_on_finish=False))
     live = {**body, "voice": {**body["voice"], "endCallOnFinish": True}}
@@ -99,7 +117,7 @@ async def test_a_repair_rewrites_only_the_drifted_voice_fields() -> None:
     await engine.repair_settings(f"ag_1@{WS}", cfg, ["turn_silence", "end_call_on_finish"])
     patch = next(r for r in seen if r.method == "PATCH")
     assert json.loads(patch.content) == {
-        "voice": {"turnSilenceSeconds": 0.7, "endCallOnFinish": False}
+        "voice": {"turnSilenceSeconds": 0.7, "turnDetection": "timer", "endCallOnFinish": False}
     }
 
 

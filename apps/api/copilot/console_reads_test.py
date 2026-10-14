@@ -66,6 +66,23 @@ async def test_agent_detail_names_the_notices_and_the_truthful_answer() -> None:
     assert f"[agent_id {agent_id}]" in result
 
 
+async def test_an_operator_reads_how_a_studio_voice_is_tuned_and_a_client_does_not() -> None:
+    tenant_id, _slug, _token = await _make_tenant()
+    agent_id = await _first(tenant_id, "agents")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE agents SET engine_voice_id = 'byok:cv-1', studio_voice_volume = 1.40, "
+                "studio_voice_emotion = 'calm' WHERE id = :aid"
+            ),
+            {"aid": agent_id},
+        )
+    operator = await _read("agent_detail", tenant_id, role="superadmin", agent_id=agent_id)
+    assert "How it sounds (Studio voice, operators only): volume 1.40, emotion calm." in operator
+    owner = await _read("agent_detail", tenant_id, agent_id=agent_id)
+    assert "How it sounds" not in owner
+
+
 async def test_a_neighbours_object_is_not_found_from_every_detail_read() -> None:
     tenant_id, _slug, _token = await _make_tenant()
     other_id, _s, _t = await _make_tenant()

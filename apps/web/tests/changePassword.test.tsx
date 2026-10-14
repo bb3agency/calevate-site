@@ -12,6 +12,7 @@ import ClientAccountPage from "@/app/(auth)/auth/account/page";
 import AdminSessionPage from "@/app/(auth)/auth/admin/page";
 import { revokedSentence } from "@/components/authn/passwordRow";
 import { adminAuthn } from "@/lib/authn/adminAuthn";
+import { MIN_PASSWORD_CHARS_BY_REALM } from "@/lib/authn/password";
 import { clientAuthn } from "@/lib/authn/clientAuthn";
 import { createRealmAuthn } from "@/lib/authn/realm";
 
@@ -28,7 +29,7 @@ import { problem, stubApi, type ApiCall, type Routes } from "./harness";
  */
 
 const CURRENT = "the-one-i-have-today";
-/** Comfortably past the client realm's 15-character floor, so both realms accept it. */
+/** Comfortably past every realm's floor, so both realms accept it. */
 const NEXT = "seven league boots wander";
 
 const AUTH = "That did not work";
@@ -228,10 +229,8 @@ describe("the client realm's account screen", () => {
 
   it("refuses a password below THIS realm's floor without asking the server", async () => {
     const calls = await renderPage(<ClientAccountPage />, {});
-    // Fourteen characters: legal on the admin realm, one short on this one. The floor is
-    // per realm (NIST SP 800-63B-4 §3.1.1.2, `authn/policy.MIN_CHARS_BY_REALM`), and a
-    // form showing the wrong realm's number is the §5.7 defect 8 shape one level up.
-    await fillAndSave("fourteen chars");
+    // One short of the realm's floor (`authn/policy.MIN_CHARS_BY_REALM`).
+    await fillAndSave("x".repeat(MIN_PASSWORD_CHARS_BY_REALM.client - 1));
     expect(
       (
         screen.getByRole("button", {
@@ -240,7 +239,9 @@ describe("the client realm's account screen", () => {
       ).disabled,
     ).toBe(true);
     expect(calls.some((c) => c.path.endsWith("/password/change"))).toBe(false);
-    expect(screen.getByText(/At least 15 characters/)).toBeTruthy();
+    expect(
+      screen.getByText(new RegExp(`At least ${MIN_PASSWORD_CHARS_BY_REALM.client} characters`)),
+    ).toBeTruthy();
   });
 
   it("says too many attempts in the notice, where a 429 belongs", async () => {
@@ -309,13 +310,12 @@ describe("the admin realm's account screen", () => {
     expect(await screen.findByText("ops@calevate.example")).toBeTruthy();
   });
 
-  it("advertises THIS realm's floor, which is not the client's", async () => {
+  it("advertises THIS realm's floor", async () => {
     await renderPage(<AdminSessionPage />, {});
     await openPasswordForm();
-    // 12 here and 15 on the client realm (`authn/policy.MIN_CHARS_BY_REALM`): the shared
-    // row takes the realm, and a form showing the other realm's number is the §5.7
-    // defect 8 shape one level up.
-    expect(screen.getByText(/At least 12 characters/)).toBeTruthy();
+    expect(
+      screen.getByText(new RegExp(`At least ${MIN_PASSWORD_CHARS_BY_REALM.admin} characters`)),
+    ).toBeTruthy();
   });
 
 

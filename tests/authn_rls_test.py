@@ -238,7 +238,7 @@ async def test_a_rule_that_arrived_after_a_password_cannot_lock_it_out(
     by writing the row under weaker Argon2 parameters, so the upgrade path is genuinely
     entered rather than skipped.
     """
-    short = "short-one"
+    short = "short-7"
     assert len(short) < MIN_PASSWORD_CHARS
     weak = PasswordHasher(
         time_cost=1, memory_cost=8192, parallelism=1, hash_len=32, salt_len=16, type=Type.ID

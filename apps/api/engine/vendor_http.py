@@ -377,6 +377,7 @@ class EngineRejectedError(ProblemError):
         refused_statuses: frozenset[int] = REQUEST_REFUSED_STATUSES,
         vendor_code: str | None = None,
         vendor_reason: str | None = None,
+        vendor_field: str | None = None,
     ) -> None:
         super().__init__(
             kind="dependency",
@@ -393,6 +394,9 @@ class EngineRejectedError(ProblemError):
         #: The vendor's own reason word on a refusal that carries one, from a closed set
         #: (`_vendor_reason`), so it is never free text.
         self.vendor_reason = vendor_reason
+        #: The request field a `validation_failed` refusal names (`_vendor_error_field`), an
+        #: identifier and never free text.
+        self.vendor_field = vendor_field
         self._refused_statuses = refused_statuses
 
     @property
@@ -496,6 +500,8 @@ def _vendor_error_code(envelope: dict[str, Any] | None) -> int | None:
 #: A vendor refusal code is admitted only in this shape: lower-case words and underscores,
 #: which structurally cannot carry a phone number, a name or a sentence.
 _VENDOR_CODE_RE: Final = re.compile(r"[a-z][a-z0-9_]{0,63}")
+#: A request field name as a refusal names it (`speed`, `pronunciationDictId`, `voice.surfaces`).
+_VENDOR_FIELD_RE: Final = re.compile(r"[A-Za-z][A-Za-z0-9_.]{0,63}")
 
 #: The `reason` words ThinnestAI documents on a `402 insufficient_balance` from `POST /calls`
 #: (thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/errors.md:56-59). Any
@@ -523,6 +529,13 @@ def _vendor_error_name(envelope: dict[str, Any] | None) -> str | None:
         return None
     code = envelope.get("code")
     return code if isinstance(code, str) and _VENDOR_CODE_RE.fullmatch(code) else None
+
+
+def _vendor_error_field(envelope: dict[str, Any] | None) -> str | None:
+    """The `field` a ThinnestAI `validation_failed` refusal names (snapshots/2026-10-13/
+    pages/api-reference/bring-your-own-keys.md:390-391), when it is a short identifier."""
+    field = envelope.get("field") if envelope is not None else None
+    return field if isinstance(field, str) and _VENDOR_FIELD_RE.fullmatch(field) else None
 
 
 def _vendor_reason(envelope: dict[str, Any] | None) -> str | None:
@@ -903,6 +916,7 @@ async def _vendor_response(
             refused_statuses=REQUEST_REFUSED_STATUSES | extra_refused_statuses,
             vendor_code=vendor_code,
             vendor_reason=vendor_reason,
+            vendor_field=_vendor_error_field(envelope),
         )
     return response
 

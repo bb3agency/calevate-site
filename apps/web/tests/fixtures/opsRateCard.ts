@@ -17,6 +17,7 @@ export const OPS_RATE_CARD = {
   notice_days: 30,
   notice_recipients: 3,
   earliest_effective_from: "2026-10-08T09:44:00Z",
+  own_model_prompt_basis: null,
   // The Clear column's cost floor, struck at the assumed speaking rate until enough calls
   // are measured.
   speaking_rate: {

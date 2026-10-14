@@ -15,6 +15,7 @@
  * browser half mirrors that by having no client-realm spelling of it either.
  */
 
+import type { components } from "@/lib/api/schema";
 import { adminConsoleUrl } from "@/lib/consoleOrigin";
 
 import { nextFromLocation } from "./nextPath";
@@ -126,6 +127,31 @@ export async function changeAdminPassword(input: {
     const proved = await requireStepUp("Changing your operator password.");
     if (!proved) throw error;
     return await adminAuthn.changePassword(input);
+  }
+}
+
+/**
+ * Switch "Stay signed in" for this operator's own account (D-766), answering the step-up
+ * prompt when switching ON finds the second factor stale.
+ *
+ * `POST /v1/auth/admin/stay-signed-in` checks freshness before it writes anything, so a
+ * `403 reauthentication_required` means nothing changed and one retry after the prompt is
+ * safe — the same proof `changeAdminPassword` rests on. It does not rotate (the route
+ * re-sets the SAME token with a new lifetime), so it waits on the barrier through
+ * `adminAuthn.request` rather than holding it. Answers the server's `SessionOut` under the
+ * new bounds, which is what the idle warning counts down from.
+ */
+export async function setAdminStaySignedIn(on: boolean): Promise<AuthnSession> {
+  const body: components["schemas"]["StaySignedInIn"] = { stay_signed_in: on };
+  const send = () =>
+    adminAuthn.request<AuthnSession>("/stay-signed-in", { method: "POST", body });
+  try {
+    return await send();
+  } catch (error) {
+    if (!needsReauthentication(error)) throw error;
+    const proved = await requireStepUp("Keeping you signed in on this device.");
+    if (!proved) throw error;
+    return await send();
   }
 }
 

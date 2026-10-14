@@ -407,6 +407,15 @@ Admin realm (`/admin/…`)
   publishing one is refused (`agent_has_no_script`) rather than filled in with a
   placeholder. The panel states that it publishes and signs nothing off: FLOWS §1 step 7's
   test call and regression run are pilot-gated.
+- **How it sounds** (D-767), on that same page's Voice section, operators only: for an agent
+  whose voice is a Studio one, speed, volume, emotion (English calls), the voice model and a
+  pronunciation dictionary id, each empty for the voice's own default
+  (`GET`/`PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning`, audited).
+  "Hear it" speaks a short line with the form's settings, unsaved
+  (`POST …/voice-tuning/preview`, charged per character on our voice key, so on a press
+  only); "Save settings" stores them and a live agent takes them from its next call (live
+  apply). An agent on a Clear voice is told the settings are for Studio voices. Clients
+  never see this panel.
 - **Pending invitations for a client** (on the wizard's invite step;
   `GET`/`DELETE /v1/admin/tenants/{tenant_id}/invitations[/{invitation_id}]`) — the live
   keys to a client's account, with a cancel. The address is shown in full (D-436) — one

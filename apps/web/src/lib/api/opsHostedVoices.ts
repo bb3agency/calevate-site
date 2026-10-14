@@ -19,6 +19,8 @@
  *   POST   /v1/ops/voices/hosted/preview/fetch     store the platform's own preview
  *   GET    /v1/ops/voices/studio-voices           Studio readiness and its client workspaces
  *   POST   /v1/ops/voices/studio-voices/enable    Studio ready: switch our key on (step-up, D-727)
+ *   GET    /v1/ops/voices/own-model               our own model: readiness, workspaces (D-764)
+ *   POST   /v1/ops/voices/own-model/enable        our Google key into one client workspace (step-up)
  *
  * The Voices page reads the hosted list and branches on `available`: an engine that hosts no
  * voices of its own (the fake engine in tests) answers `available: false`, and the server, not
@@ -51,6 +53,8 @@ export type CloneOut = Schemas["CloneOut"];
 export type DeleteCloneOut = Schemas["DeleteCloneOut"];
 export type StudioVoices = Schemas["StudioVoicesOut"];
 export type StudioEnableIn = Schemas["StudioEnableIn"];
+export type OwnModel = Schemas["OwnModelOut"];
+export type OwnModelEnableIn = Schemas["OwnModelEnableIn"];
 export type FetchPreviewIn = Schemas["FetchPreviewIn"];
 export type HostedVoiceAgents = Schemas["HostedVoiceAgentsOut"];
 export type CloneConsentRecord = Schemas["CloneConsentOut"];
@@ -70,6 +74,9 @@ export const OPS_STUDIO_ENABLE_PATH = "/v1/ops/voices/studio-voices/enable";
 /** The confirmations the API names for its step-up writes. */
 export const CLONE_CONFIRMATION = "clone_voice";
 export const STUDIO_ENABLE_CONFIRMATION = "enable_studio_voices";
+export const OPS_OWN_MODEL_PATH = "/v1/ops/voices/own-model";
+export const OPS_OWN_MODEL_ENABLE_PATH = "/v1/ops/voices/own-model/enable";
+export const OWN_MODEL_ENABLE_CONFIRMATION = "enable_own_model_workspace";
 export const deleteCloneConfirmation = (voiceId: string) => `delete_voice_clone:${voiceId}`;
 export const consentConfirmation = (voiceId: string) => `record_voice_consent:${voiceId}`;
 export const personCloneConfirmation = (voiceId: string) => `set_voice_person_clone:${voiceId}`;
@@ -85,6 +92,7 @@ export const hostedVoiceKeys = {
   all: ["admin", "ops", "voices", "hosted"] as const,
   scoped: (scope: HostedScope) => ["admin", "ops", "voices", "hosted", scope] as const,
   studio: ["admin", "ops", "voices", "studio-voices"] as const,
+  ownModel: ["admin", "ops", "voices", "own-model"] as const,
   agents: (voiceId: string) => ["admin", "ops", "voices", "hosted", "agents", voiceId] as const,
 };
 
@@ -364,3 +372,28 @@ export const BAND_LABEL: Record<string, string> = {
   premium: "ThinnestAI Premium band",
   studio: "ThinnestAI Studio band",
 };
+
+/** Our own model (D-764): whether agents can answer on our Google key, and where it is on. */
+export function useOwnModel(enabled: boolean): UseQueryResult<OwnModel> {
+  return useQuery({
+    queryKey: hostedVoiceKeys.ownModel,
+    queryFn: () => apiRequest<OwnModel>(adminSession(), OPS_OWN_MODEL_PATH),
+    enabled,
+  });
+}
+
+/** Installs our Google key in one paying client's own workspace now (step-up). */
+export function useEnableOwnModelWorkspace(): UseMutationResult<OwnModel, Error, OwnModelEnableIn> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body) =>
+      apiRequest<OwnModel>(adminSession(), OPS_OWN_MODEL_ENABLE_PATH, {
+        method: "POST",
+        body,
+        confirmAction: OWN_MODEL_ENABLE_CONFIRMATION,
+      }),
+    onSuccess: (data) => {
+      client.setQueryData(hostedVoiceKeys.ownModel, data);
+    },
+  });
+}

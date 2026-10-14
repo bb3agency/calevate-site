@@ -16,6 +16,10 @@
     POST   /v1/ops/voices/hosted/preview      upload a preview clip for a voice (audited)
     POST   /v1/ops/voices/hosted/preview/fetch  store the platform's own preview (audited)
     GET    /v1/ops/voices/studio-voices       Studio readiness and the client workspaces on it
+    GET    /v1/ops/voices/own-model           our own model: readiness and the client workspaces
+                                              on our Google key (D-764)
+    POST   /v1/ops/voices/own-model/enable    our Google key into one client workspace now
+                                              (step-up, audited)
     POST   /v1/ops/voices/studio-voices/enable   Studio ready: switch our key on in the developer
                                               workspace, optionally one client too
                                               (step-up, audited; D-727)
@@ -90,6 +94,7 @@ from apps.api.agents.hosted_voices import (
     sync_hosted_voices,
     withdraw_hosted_voice,
 )
+from apps.api.agents.own_model import ensure_own_model_workspace, own_model_readiness
 from apps.api.agents.studio_voices import (
     StudioReadiness,
     prepare_studio,
@@ -102,7 +107,9 @@ from apps.api.agents.voice_consent import (
 )
 from apps.api.agents.voice_curation import count_live_agents_by_engine_voice
 from apps.api.agents.voices import CurationState
+from apps.api.billing.own_model_prompt import PromptSource, current_prompt_basis
 from apps.api.billing.plans import IST
+from apps.api.billing.rates import own_model_floor_inr_per_min
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -112,7 +119,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import StepUpGate
-from apps.api.db.session import admin_session
+from apps.api.db.session import admin_session, joined_tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.catalogue import (
     HostedVoiceBand,
@@ -121,6 +128,7 @@ from apps.api.engine.catalogue import (
     VoiceCloneSample,
 )
 from apps.api.engine.thinnest_workspace import in_workspace
+from apps.api.tenancy.engine_workspace import resolve_workspace
 
 log = get_logger(__name__)
 
@@ -1458,8 +1466,170 @@ async def enable_studio(
     return await _studio_out(session, engine, readiness, state)
 
 
+# --- our own model (D-764) ------------------------------------------------------------
+
+#: The step-up string for switching our Google key on in one client's workspace.
+OWN_MODEL_ENABLE_CONFIRMATION: Final = "enable_own_model_workspace"
+
+OWN_MODEL_EXPLAINED: Final = (
+    "With our own model on, a paying client's Clear agents keep ThinnestAI's speech and voice "
+    "and answer on our Google key (billed at the voice band's minute), and its Studio agents "
+    "keep our Cartesia voice and answer on our Google key (billed at the attested "
+    "own-voice-and-model minute). Our key goes into each client's own workspace at its first "
+    "publish, never into our developer workspace, so free-trial agents stay on ThinnestAI's "
+    "model. Every agent names its own key scope; a workspace's default is left as it is."
+)
+
+
+class OwnModelOut(Strict):
+    #: The console switch (`thinnest_own_model`) is on.
+    switched_on: bool
+    #: Every condition below holds, so the switch may be turned on.
+    ready: bool
+    #: The model an agent with none of its own runs (`thinnest_own_model_default`).
+    default_model: str
+    google_key_configured: bool
+    #: The default model is selectable, its key installed and its price attested.
+    default_offerable: bool
+    #: Why it is not, for an operator; null when it is.
+    default_reason: str | None
+    #: Our Google project is attested paid-tier with log sharing off (gate 41).
+    data_use_attested: bool
+    #: The `byok_llm_voice` per-minute rate is attested.
+    llm_voice_minute_attested: bool
+    #: The Google models an agent may run on our key now.
+    offerable_models: list[str]
+    #: What an operator still has to do, in order.
+    missing: list[str]
+    #: Client workspaces where our Google key is on.
+    workspaces: list[StudioWorkspaceOut]
+    #: The prompt size the cost floor adds our model's cost at (`billing/own_model_prompt`),
+    #: where it came from, and that model half for the default model. Admin only.
+    floor_prompt_tokens: int
+    floor_prompt_source: PromptSource
+    floor_prompt_basis: str
+    #: Null when the default model has no catalogue reference price to strike it at.
+    floor_model_inr_per_min: str | None
+    explanation: str
+    note: str
+
+
+class OwnModelEnableIn(Strict):
+    #: The paying client whose own workspace gets our Google key now, ahead of its next
+    #: publish.
+    tenant_id: UUID
+
+
+def _model_half(model: str, prompt_tokens: int) -> str | None:
+    try:
+        return str(own_model_floor_inr_per_min(model, prompt_tokens=prompt_tokens))
+    except ValueError:
+        return None
+
+
+async def _own_model_out(session: AsyncSession, engine: HostsVoices) -> OwnModelOut:
+    readiness = await own_model_readiness(session, engine=engine.name)
+    names = await _tenant_names([w.tenant_id for w in readiness.workspaces])
+    basis = await current_prompt_basis()
+    if not readiness.ready:
+        note = "Not ready: " + " ".join(readiness.missing())
+    elif readiness.switched_on:
+        note = (
+            f"On: {len(readiness.workspaces)} client workspace(s) answer on our Google key, "
+            "and a paying client's workspace gets it at its next publish."
+        )
+    else:
+        note = "Ready to switch on (ops config: thinnest_own_model)."
+    return OwnModelOut(
+        switched_on=readiness.switched_on,
+        ready=readiness.ready,
+        default_model=readiness.default_model,
+        google_key_configured=readiness.google_key,
+        default_offerable=readiness.default_offerable,
+        default_reason=readiness.default_reason,
+        data_use_attested=readiness.data_use_attested,
+        llm_voice_minute_attested=readiness.llm_voice_minute_attested,
+        offerable_models=list(readiness.offerable_models),
+        missing=readiness.missing(),
+        workspaces=[
+            StudioWorkspaceOut(
+                tenant_id=str(w.tenant_id),
+                tenant_name=names.get(w.tenant_id),
+                enabled_at=w.enabled_at,
+                checked_at=w.checked_at,
+                error_code=w.error_code,
+            )
+            for w in readiness.workspaces
+        ],
+        floor_prompt_tokens=basis.prompt_tokens,
+        floor_prompt_source=basis.source,
+        floor_prompt_basis=basis.label,
+        floor_model_inr_per_min=_model_half(readiness.default_model, basis.prompt_tokens),
+        explanation=OWN_MODEL_EXPLAINED,
+        note=note,
+    )
+
+
+@router.get(
+    "/own-model",
+    response_model=OwnModelOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Whether agents can answer on our own model, and which client workspaces do",
+)
+async def own_model_status(session: GlobalSession, _: VoiceCurator) -> OwnModelOut:
+    return await _own_model_out(session, _hosting_engine())
+
+
+@router.post(
+    "/own-model/enable",
+    response_model=OwnModelOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Install our Google key in one client's own workspace (step-up)",
+    description=(
+        "Installs our Google key in the named paying client's own workspace and switches its "
+        "own keys on there when they are off, every agent that would follow them confirmed "
+        "off first, then reads it back; the same idempotent steps a publish on our model "
+        "runs. Requires `X-Confirm-Action: enable_own_model_workspace`."
+    ),
+)
+async def enable_own_model_workspace(
+    payload: OwnModelEnableIn,
+    session: GlobalSession,
+    request: Request,
+    principal: VoiceCurator,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
+) -> OwnModelOut:
+    step_up.require(x_confirm_action, OWN_MODEL_ENABLE_CONFIRMATION)
+    engine = _hosting_engine()
+    async with joined_tenant_session(payload.tenant_id) as tenant:
+        workspace = await resolve_workspace(tenant, payload.tenant_id)
+    if workspace is None:
+        raise ProblemError(
+            kind="business_rule",
+            code="engine_workspace_not_provisioned",
+            title="That client has no voice workspace yet",
+            detail="Our Google key goes into a paying client's own workspace, and this client "
+            "has none that is active.",
+            remediation="Choose a client whose workspace is active.",
+        )
+    await ensure_own_model_workspace(
+        engine, tenant_id=payload.tenant_id, workspace=workspace, audience="operator"
+    )
+    await _audit(
+        session,
+        request,
+        principal,
+        action="ops.own_model_workspace_enabled",
+        voice_id=None,
+        summary={"tenant_id": str(payload.tenant_id)},
+    )
+    return await _own_model_out(session, engine)
+
+
 __all__ = [
     "CLONE_CONFIRMATION",
+    "OWN_MODEL_ENABLE_CONFIRMATION",
     "STUDIO_ENABLE_CONFIRMATION",
     "consent_confirmation",
     "delete_clone_confirmation",

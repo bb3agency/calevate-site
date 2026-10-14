@@ -104,6 +104,11 @@ unattended browser stops being a credential, and an absolute bound so a stolen c
 stops being one even while the victim keeps working. The two realms get different numbers
 because their blast radii differ by an order of magnitude — see `REALM_TIMEOUTS`.
 
+An operator may switch "Stay signed in" on for their own account (D-766), and then their
+second-factor-complete sessions take the client realm's numbers. The switch is read on
+every verification, not copied into the row at issue, so switching it off shortens every
+live session on that operator's next request — see `session_policy` and `_verify_within`.
+
 ═══ WHO OWNS THE TRANSACTION ═══
 
 Everything here takes an `AsyncSession` — a sign-in is a credential check, a session
@@ -172,13 +177,82 @@ class RealmTimeouts:
 #: stolen cookie expire on its own, and it is meaningful precisely because revocation
 #: (`revoke_subject_sessions`) can end every one of them the instant we learn something.
 #:
-#: These are constants, not console config: a per-tenant idle timeout is a knob whose only
-#: use is turning the control off, and `core/platform_config.py`'s doctrine is that a
-#: security posture invertible from a web form at 3am is not a posture.
+#: These are constants, not platform config: a console-wide idle timeout is a knob whose
+#: only use is turning the control off for everyone, and `core/platform_config.py`'s
+#: doctrine is that a security posture invertible from a web form at 3am is not a posture.
+#:
+#: The one exception is per operator and narrower (D-766, founder 13 Oct 2026): an operator
+#: may switch "Stay signed in" on for THEIR OWN account, behind a fresh second factor, and
+#: their sessions then take `STAY_SIGNED_IN_TIMEOUTS` — the client realm's numbers — and a
+#: persistent cookie. The founder asked for it because re-signing in every 30 minutes, and
+#: on every visit from a phone whose browser drops session cookies, made testing the
+#: console impractical. It changes session length only: sign-in still needs the second
+#: factor, and `stepup.REAUTH_MAX_AGE` still gates dangerous actions at 30 minutes.
 REALM_TIMEOUTS: Final[dict[str, RealmTimeouts]] = {
     "admin": RealmTimeouts(idle=timedelta(minutes=30), absolute=timedelta(hours=8)),
     "client": RealmTimeouts(idle=timedelta(hours=12), absolute=timedelta(days=14)),
 }
+
+#: The realm whose accounts carry the "Stay signed in" switch (`admin_users.stay_signed_in`).
+STAY_SIGNED_IN_REALM: Final = "admin"
+
+#: What an operator with the switch on gets. Derived, not retyped: the switch means "treat
+#: me like a client session", and a client-realm change should move both together.
+STAY_SIGNED_IN_TIMEOUTS: Final = REALM_TIMEOUTS["client"]
+
+
+@dataclass(frozen=True, slots=True)
+class SessionPolicy:
+    """The bounds that apply to one session now, and whether its cookie should persist."""
+
+    timeouts: RealmTimeouts
+    #: True only for an admin-realm session that has proved its second factor and whose
+    #: operator has the switch on. A session waiting on its code stays short whatever the
+    #: switch says: a password alone must not buy fourteen days.
+    stay_signed_in: bool
+
+
+def session_policy(realm: str, *, switch_on: bool, second_factor_proved: bool) -> SessionPolicy:
+    """The policy for a session of `realm`, given its account's switch and its MFA state."""
+    _refuse_unknown_realm(realm)
+    if realm == STAY_SIGNED_IN_REALM and switch_on and second_factor_proved:
+        return SessionPolicy(timeouts=STAY_SIGNED_IN_TIMEOUTS, stay_signed_in=True)
+    return SessionPolicy(timeouts=REALM_TIMEOUTS[realm], stay_signed_in=False)
+
+
+def _absolute_ceiling(realm: str, *, switch_on: bool) -> timedelta:
+    """The absolute bound a row is BORN with, which may exceed what its policy allows today.
+
+    A session issued while the switch is on is stamped with the long bound even before its
+    second factor is proved, because rotation carries the bound forward and the row that
+    completes the code is a rotation of it. `_verify_within` is what keeps the pre-code
+    session short: it applies `min(stored, family start + policy bound)` on every request.
+    """
+    if realm == STAY_SIGNED_IN_REALM and switch_on:
+        return STAY_SIGNED_IN_TIMEOUTS.absolute
+    return REALM_TIMEOUTS[realm].absolute
+
+
+async def _switch_on(session: AsyncSession, *, realm: str, subject_id: UUID) -> bool:
+    """The operator's switch, read now. Always False on a realm that has no switch.
+
+    A second statement rather than a join to `auth_sessions`: `subjects.py`'s rule is that
+    the identity tables and the credential tables are never joined in one statement. An
+    absent or deactivated operator reads as off, which is the short direction; the request
+    is refused by `core/auth` for the deactivation anyway.
+    """
+    if realm != STAY_SIGNED_IN_REALM:
+        return False
+    on = (
+        await session.execute(
+            text(
+                "SELECT stay_signed_in FROM admin_users WHERE id = :sub AND deactivated_at IS NULL"
+            ),
+            {"sub": subject_id},
+        )
+    ).scalar()
+    return on is True
+
 
 #: How stale `last_seen_at` may get before a verification pays for a write.
 #:
@@ -204,6 +278,9 @@ class IssuedSession:
     family_id: UUID
     token: str
     absolute_expires_at: datetime
+    #: Decides the cookie's persistence (`cookies.set_session_cookie`) and the idle bound
+    #: the console is told about (`routes.SessionOut.idle_timeout_seconds`).
+    policy: SessionPolicy
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,8 +296,13 @@ class VerifiedSession:
     family_id: UUID
     realm: str
     subject_id: UUID
+    #: As stored, which is what `rotate_session` carries forward. The bound actually
+    #: enforced may be earlier — see `_verify_within`.
     absolute_expires_at: datetime
     mfa_verified_at: datetime | None
+    #: The account's "Stay signed in" switch as read by this verification (D-766).
+    switch_on: bool
+    policy: SessionPolicy
 
 
 #: Why `verify_session` said no. STABLE CODES FOR US, never for the wire — every one of
@@ -328,10 +410,14 @@ async def issue_session(
     """
     _refuse_unknown_realm(realm)
     issued_at = now or datetime.now(UTC)
-    timeouts = REALM_TIMEOUTS[realm]
+    switch_on = await _switch_on(session, realm=realm, subject_id=subject_id)
+    policy = session_policy(
+        realm, switch_on=switch_on, second_factor_proved=mfa_verified_at is not None
+    )
+    timeouts = policy.timeouts
     token = new_token()
     session_id, family_id = uuid7(), uuid7()
-    absolute_expires_at = issued_at + timeouts.absolute
+    absolute_expires_at = issued_at + _absolute_ceiling(realm, switch_on=switch_on)
     await session.execute(
         text(
             "INSERT INTO auth_sessions (id, family_id, realm, subject_id, token_hash, "
@@ -358,6 +444,7 @@ async def issue_session(
         family_id=family_id,
         token=token,
         absolute_expires_at=absolute_expires_at,
+        policy=policy,
     )
 
 
@@ -428,7 +515,9 @@ async def _verify_within(
         await session.execute(
             text(
                 "SELECT id, family_id, subject_id, absolute_expires_at, idle_expires_at, "
-                "last_seen_at, superseded_at, revoked_at, mfa_verified_at "
+                "last_seen_at, superseded_at, revoked_at, mfa_verified_at, "
+                "(SELECT min(f.created_at) FROM auth_sessions f "
+                "WHERE f.family_id = auth_sessions.family_id) AS family_started_at "
                 "FROM auth_sessions WHERE token_hash = :hash AND realm = :realm"
             ),
             {"hash": token_fingerprint(token, realm), "realm": realm},
@@ -448,6 +537,7 @@ async def _verify_within(
         superseded_at,
         revoked_at,
         mfa_verified_at,
+        family_started_at,
     ) = row
 
     if superseded_at is not None:
@@ -462,10 +552,23 @@ async def _verify_within(
     if revoked_at is not None:
         log.info("auth_session_not_live", extra={"realm": realm, "session_id": str(session_id)})
         return SessionOutcome(session=None, refusal="revoked")
-    if at >= absolute_expires_at:
+
+    # The bounds in force are the stored ones cut down to what the CURRENT policy allows,
+    # measured from the family's sign-in and this session's last activity. That is how an
+    # operator switching "Stay signed in" off (or a superadmin doing it for them) shortens
+    # a fourteen-day session on its next request without rewriting its row, and how a
+    # session still waiting on its code stays short although it was born with the long
+    # bound (`_absolute_ceiling`).
+    switch_on = await _switch_on(session, realm=realm, subject_id=subject_id)
+    policy = session_policy(
+        realm, switch_on=switch_on, second_factor_proved=mfa_verified_at is not None
+    )
+    absolute_bound = min(absolute_expires_at, family_started_at + policy.timeouts.absolute)
+    idle_bound = min(idle_expires_at, last_seen_at + policy.timeouts.idle)
+    if at >= absolute_bound:
         log.info("auth_session_not_live", extra={"realm": realm, "session_id": str(session_id)})
         return SessionOutcome(session=None, refusal="absolute_expired")
-    if at >= idle_expires_at:
+    if at >= idle_bound:
         log.info("auth_session_not_live", extra={"realm": realm, "session_id": str(session_id)})
         return SessionOutcome(session=None, refusal="idle_expired")
 
@@ -480,7 +583,7 @@ async def _verify_within(
                 "updated_at = :now WHERE id = :id AND revoked_at IS NULL "
                 "AND superseded_at IS NULL"
             ),
-            {"now": at, "idle": at + REALM_TIMEOUTS[realm].idle, "id": session_id},
+            {"now": at, "idle": at + policy.timeouts.idle, "id": session_id},
         )
 
     return SessionOutcome(
@@ -491,6 +594,8 @@ async def _verify_within(
             subject_id=UUID(str(subject_id)),
             absolute_expires_at=absolute_expires_at,
             mfa_verified_at=mfa_verified_at,
+            switch_on=switch_on,
+            policy=policy,
         ),
         refusal=None,
     )
@@ -544,6 +649,12 @@ async def rotate_session(
 
     token = new_token()
     session_id = uuid7()
+    mfa = mfa_verified_at if mfa_verified_at is not None else verified.mfa_verified_at
+    # The successor's policy, not the predecessor's: answering the sign-in code is the
+    # rotation that moves an operator with the switch on from the short bounds to the long.
+    policy = session_policy(
+        verified.realm, switch_on=verified.switch_on, second_factor_proved=mfa is not None
+    )
     await session.execute(
         text(
             "INSERT INTO auth_sessions (id, family_id, realm, subject_id, token_hash, "
@@ -558,9 +669,9 @@ async def rotate_session(
             "sub": verified.subject_id,
             "hash": token_fingerprint(token, verified.realm),
             "now": at,
-            "idle": at + REALM_TIMEOUTS[verified.realm].idle,
+            "idle": at + policy.timeouts.idle,
             "abs": verified.absolute_expires_at,
-            "mfa": mfa_verified_at if mfa_verified_at is not None else verified.mfa_verified_at,
+            "mfa": mfa,
         },
     )
     log.info(
@@ -572,6 +683,7 @@ async def rotate_session(
         family_id=verified.family_id,
         token=token,
         absolute_expires_at=verified.absolute_expires_at,
+        policy=policy,
     )
 
 
@@ -667,21 +779,105 @@ async def revoke_subject_sessions(
     return count
 
 
+#: When the family began: the first row's `created_at`. Rotation keeps the family and moves
+#: `created_at`, so this, not the row's own `created_at`, is "when this person signed in".
+_FAMILY_START = (
+    "(SELECT min(f.created_at) FROM auth_sessions f WHERE f.family_id = auth_sessions.family_id)"
+)
+
+
+async def lengthen_session(
+    session: AsyncSession, *, session_id: UUID, now: datetime | None = None
+) -> datetime | None:
+    """Give ONE live admin session the "Stay signed in" bounds (D-766). Its new absolute
+    expiry, or `None` if the session stopped being live since it was verified.
+
+    Only the session that switched the setting on is lengthened: "on this device" is what
+    the operator was shown. Their other sessions get the long idle window on their next
+    request and keep the absolute bound they were born with.
+
+    `GREATEST`, so a session that already has the long bounds is left as it is, and a
+    compare-and-swap on `revoked_at IS NULL AND superseded_at IS NULL`, so a sign-out or a
+    rotation that landed first is never undone.
+    """
+    at = now or datetime.now(UTC)
+    bounds = STAY_SIGNED_IN_TIMEOUTS
+    return (
+        await session.execute(
+            text(
+                "UPDATE auth_sessions SET "
+                f"absolute_expires_at = GREATEST(absolute_expires_at, {_FAMILY_START} "
+                "+ CAST(:absolute AS interval)), "
+                "idle_expires_at = GREATEST(idle_expires_at, CAST(:idle_at AS timestamptz)), "
+                "updated_at = :now "
+                "WHERE id = :id AND realm = :realm AND revoked_at IS NULL "
+                "AND superseded_at IS NULL RETURNING absolute_expires_at"
+            ),
+            {
+                "absolute": bounds.absolute,
+                "idle_at": at + bounds.idle,
+                "now": at,
+                "id": session_id,
+                "realm": STAY_SIGNED_IN_REALM,
+            },
+        )
+    ).scalar()
+
+
+async def shorten_subject_sessions(
+    session: AsyncSession, *, subject_id: UUID, now: datetime | None = None
+) -> int:
+    """Cut every live session of one operator back to the admin realm's own bounds.
+
+    Measured from each family's sign-in and each session's last activity, so a session that
+    is already past them ends here. `_verify_within` would compute the same bounds on the
+    next request anyway; writing them down as well is what stops switching the setting back
+    on from reviving a session that had already run out under the short bounds.
+    """
+    at = now or datetime.now(UTC)
+    bounds = REALM_TIMEOUTS[STAY_SIGNED_IN_REALM]
+    result = await session.execute(
+        text(
+            "UPDATE auth_sessions SET "
+            f"absolute_expires_at = LEAST(absolute_expires_at, {_FAMILY_START} "
+            "+ CAST(:absolute AS interval)), "
+            "idle_expires_at = LEAST(idle_expires_at, last_seen_at + CAST(:idle AS interval)), "
+            "updated_at = :now "
+            "WHERE realm = :realm AND subject_id = :sub AND revoked_at IS NULL "
+            "AND superseded_at IS NULL"
+        ),
+        {
+            "absolute": bounds.absolute,
+            "idle": bounds.idle,
+            "now": at,
+            "realm": STAY_SIGNED_IN_REALM,
+            "sub": subject_id,
+        },
+    )
+    return rowcount_of(result)
+
+
 __all__ = [
     "IDLE_WRITE_FLOOR",
     "REALM_TIMEOUTS",
     "REFUSALS",
+    "STAY_SIGNED_IN_REALM",
+    "STAY_SIGNED_IN_TIMEOUTS",
     "TOKEN_ENTROPY_BYTES",
     "IssuedSession",
     "RealmTimeouts",
     "SessionOutcome",
+    "SessionPolicy",
     "VerifiedSession",
     "issue_session",
+    "lengthen_session",
     "new_token",
     "revoke_family",
     "revoke_session",
     "revoke_subject_sessions",
     "rotate_session",
+    "session_policy",
+    "shorten_subject_sessions",
     "token_fingerprint",
     "verify_session",
 ]

@@ -71,7 +71,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from apps.api.billing.engine_minutes import (
-    BYOK_VOICE_RATE_KEY,
+    OWN_VOICE_RATE_KEYS,
     TOPUP_FEE_META_KEY,
     cost_with_fee,
     thinnest_topup_fee,
@@ -218,7 +218,7 @@ async def reconcile_call_charge(
     if not minute_rows:
         return "not_metered"
     outcome = "matched"
-    if rate_key == BYOK_VOICE_RATE_KEY and not tts_rows:
+    if rate_key in OWN_VOICE_RATE_KEYS and not tts_rows:
         outcome = "synthesis_cost_missing"
         alert(
             "WORKER_TERMINAL",

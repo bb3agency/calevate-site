@@ -152,29 +152,14 @@ ARGON2_SALT_BYTES = 16
 #: pepper generation rather than a silent reinterpretation of the same key material.
 PEPPER_INFO = b"calevate/password-pepper/v1"
 
-#: THE ABSOLUTE FLOOR, AND NO LONGER THE POLICY. `authn/policy.py::min_password_chars`
-#: is the policy, it is PER REALM, and the client realm's floor is 15.
-#:
-#: THE COMMENT THAT USED TO BE HERE STATED THE STANDARD BACKWARDS, which is why the
-#: number is now derived somewhere else. It read: "NIST SP 800-63B-4 lowers the floor to
-#: 8 and recommends 15". The publication says neither half of that. It says verifiers
-#: "SHALL require passwords that are used as a single-factor authentication mechanism to
-#: be a minimum of 15 characters", and MAY go as low as 8 only for passwords "only used
-#: as part of multi-factor authentication processes" (usnistgov/800-63-4 @
-#: 4f2487bb81adecdc84ccaac6920bf0b500b379ae, `sp800-63b/authenticators/index.html`, read
-#: 2026-08-26). Fifteen is a SHALL, not a recommendation; eight is a concession, not a
-#: floor. The client realm has no second factor (D-170), so it was the single-factor case
-#: sitting three characters under a SHALL — the exact hard-rule-11 shape, a paraphrase of
-#: an outside standard trusted because it was already in our own tree.
-#:
-#: What survives here is the bound `_refuse_unusable` needs at the KDF itself: this
-#: module takes a string and returns a string, it is called on the re-hash path where a
-#: realm is not in scope, and something has to stop a 10-megabyte body reaching the HMAC.
-#: It is asserted at import to be at or below every realm's floor (`policy.py`), so the
-#: two layers can never disagree about the same password. Composition rules are
-#: deliberately absent — §3.1.1.2 forbids them outright ("SHALL NOT impose other
-#: composition rules").
-MIN_PASSWORD_CHARS = 12
+#: The absolute floor at the KDF, not the policy: `authn/policy.py::min_password_chars`
+#: is the policy (8 on every realm, D-765). This bound exists because `_refuse_unusable`
+#: runs on the re-hash path where no realm is in scope, and something has to stop a
+#: 10-megabyte body reaching the HMAC. It is asserted at import to be at or below every
+#: realm's floor (`policy.py`), so the two layers can never disagree about the same
+#: password. Composition rules are deliberately absent — SP 800-63B-4 §3.1.1.2 forbids
+#: them ("SHALL NOT impose other composition rules").
+MIN_PASSWORD_CHARS = 8
 #: And an upper bound, because the HMAC below is linear in input length and an unbounded
 #: one is a free CPU sink on an unauthenticated route. 128 is the ceiling ASVS names, and
 #: is far above any passphrase a person types.

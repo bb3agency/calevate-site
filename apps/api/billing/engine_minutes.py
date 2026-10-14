@@ -31,8 +31,14 @@ door the offer and publish seams consult so a minute without a rate is not sold 
 voices-and-models.md`), each priced separately if the agent speaks on it; `byok_voice` is a
 minute spoken on our own voice key (BYOK scope `voice`, ₹1.50 a minute with their phone line,
 `thinnest-findings/mirror/snapshots/2026-10-07b/pages/api-reference/bring-your-own-keys.md:
-19-24`), whose synthesis our voice provider bills us separately. The key a vendor agent runs on
-is stamped on its route row (`engine_agent_routes.engine_rate_key`).
+19-24`), whose synthesis our voice provider bills us separately; `byok_llm_voice` is a minute
+spoken on our voice key and answered on our model key (BYOK scope `llm_voice`, a flat ₹1.00 a
+minute with their speech-to-text and phone line, `thinnest-findings/mirror/snapshots/
+2026-10-13/pages/api-reference/bring-your-own-keys.md:18-20,26-29`), whose synthesis and model
+tokens our providers bill us separately (D-764). A minute on our model key alone (scope `llm`)
+is billed at the voice band's own rate (:21-24, :31-33), so it keeps that band's key. The key a
+vendor agent runs on, and the model of our key it answers with, are stamped on its route row
+(`engine_agent_routes.engine_rate_key`, `.engine_own_model`).
 """
 
 from __future__ import annotations
@@ -53,7 +59,7 @@ from apps.api.billing import rates
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 
-EngineRateKey = Literal["platform", "standard", "premium", "studio", "byok_voice"]
+EngineRateKey = Literal["platform", "standard", "premium", "studio", "byok_voice", "byok_llm_voice"]
 ENGINE_RATE_KEYS: Final[tuple[str, ...]] = get_args(EngineRateKey)
 BASE_RATE_KEY: Final[EngineRateKey] = "platform"
 #: What a number forward's connected minute costs us (D-743).
@@ -67,6 +73,10 @@ ATTESTED_MINUTE_ENGINES: Final = frozenset(PULSE_SECONDS)
 _SIXTY: Final = Decimal(60)
 
 BYOK_VOICE_RATE_KEY: Final[EngineRateKey] = "byok_voice"
+BYOK_LLM_VOICE_RATE_KEY: Final[EngineRateKey] = "byok_llm_voice"
+#: The rate keys of a minute spoken on our own voice key: the Studio rung, with or without
+#: our model (D-764).
+OWN_VOICE_RATE_KEYS: Final[frozenset[str]] = frozenset({"byok_voice", "byok_llm_voice"})
 
 #: Engines whose own voices are sold by band (D-687), keyed by the client rung map below.
 BAND_SOLD_ENGINES: Final = frozenset({"thinnest"})
@@ -114,19 +124,31 @@ def client_rungs(engine: str) -> Mapping[str, rates.VoiceTier] | None:
     """
     if engine not in BAND_SOLD_ENGINES:
         return None
-    return MappingProxyType(
-        {
-            get_settings().thinnest_clear_voice_band: rates.VALUE_VOICE_TIER,
-            BYOK_VOICE_RATE_KEY: rates.PREMIUM_VOICE_TIER,
-        }
-    )
+    settings = get_settings()
+    sold: dict[str, rates.VoiceTier] = {
+        settings.thinnest_clear_voice_band: rates.VALUE_VOICE_TIER,
+        BYOK_VOICE_RATE_KEY: rates.PREMIUM_VOICE_TIER,
+    }
+    # The Studio minute on our own model is sold only while that set-up is switched on
+    # (D-764), so a deploy changes nothing a client is offered until the founder turns it on.
+    if settings.thinnest_own_model:
+        sold[BYOK_LLM_VOICE_RATE_KEY] = rates.PREMIUM_VOICE_TIER
+    return MappingProxyType(sold)
 
 
 def client_voice_tier(engine: str, rate_key: str) -> rates.VoiceTier | None:
     """The client price rung a minute on this engine and rate key bills on; None when the
-    key is not sold (or the engine has no rule, so the agent's own voice decides)."""
+    key is not sold (or the engine has no rule, so the agent's own voice decides).
+
+    A minute that RAN on our own voice key bills on Studio whether or not that key is on sale
+    today: a call placed on our model just before the switch went off is still a Studio call,
+    and billing it at Clear would undercharge a minute we paid Cartesia for."""
     rungs = client_rungs(engine)
-    return None if rungs is None else rungs.get(rate_key)
+    if rungs is None:
+        return None
+    if rate_key in OWN_VOICE_RATE_KEYS:
+        return rates.PREMIUM_VOICE_TIER
+    return rungs.get(rate_key)
 
 
 def billed_minutes(seconds: Decimal, *, pulse_s: int) -> Decimal:
@@ -296,17 +318,23 @@ async def attest_engine_minute_price(
 
 
 async def record_engine_rate_key(
-    session: AsyncSession, *, engine: str, engine_agent_ref: str, rate_key: EngineRateKey
+    session: AsyncSession,
+    *,
+    engine: str,
+    engine_agent_ref: str,
+    rate_key: EngineRateKey,
+    own_model: str | None = None,
 ) -> None:
-    """Stamp which rate a vendor agent's minutes are metered at. For the publish path, in
-    the tenant session that wrote the route row."""
+    """Stamp which rate a vendor agent's minutes are metered at, and the model of our own
+    key it answers with (None: the engine's own model). For the publish path, in the tenant
+    session that wrote the route row."""
     _require_rate_key(rate_key)
     await session.execute(
         text(
-            "UPDATE engine_agent_routes SET engine_rate_key = :k, updated_at = now() "
-            "WHERE engine = :e AND engine_agent_ref = :ref"
+            "UPDATE engine_agent_routes SET engine_rate_key = :k, engine_own_model = :m, "
+            "updated_at = now() WHERE engine = :e AND engine_agent_ref = :ref"
         ),
-        {"k": rate_key, "e": engine, "ref": engine_agent_ref},
+        {"k": rate_key, "m": own_model, "e": engine, "ref": engine_agent_ref},
     )
 
 
@@ -322,6 +350,8 @@ class MinuteCost:
     cost: CostBreakdown
     #: The rate key the CLIENT rung is read from: the agent's own, also on a forwarded call.
     client_rate_key: str = ""
+    #: The model of our own key the call answered with (D-764); None on the engine's own.
+    own_model: str | None = None
 
     @property
     def priced(self) -> bool:
@@ -351,15 +381,17 @@ async def engine_minute_cost(
     stamped = (
         await session.execute(
             text(
-                "SELECT r.engine_rate_key FROM calls c JOIN engine_agent_routes r "
+                "SELECT r.engine_rate_key, r.engine_own_model FROM calls c "
+                "JOIN engine_agent_routes r "
                 "ON r.agent_id = c.agent_id AND r.tenant_id = c.tenant_id AND r.engine = :e "
                 "WHERE c.id = :cid AND c.tenant_id = :tid "
                 "ORDER BY r.active DESC, r.updated_at DESC LIMIT 1"
             ),
             {"e": engine, "cid": call_id, "tid": tenant_id},
         )
-    ).scalar()
-    route_key = str(stamped) if stamped else BASE_RATE_KEY
+    ).first()
+    route_key = str(stamped[0]) if stamped is not None and stamped[0] else BASE_RATE_KEY
+    own_model = str(stamped[1]) if stamped is not None and stamped[1] else None
     # A forwarded call is billed to us per connected minute "at the standard voice rate"
     # whatever the agent speaks (docs.thinnest.ai channels/phone-numbers "Forwarding a whole
     # line", read 11 Oct 2026); the client's rung stays the agent's.
@@ -371,6 +403,7 @@ async def engine_minute_cost(
         return MinuteCost(
             rate_key=rate_key,
             client_rate_key=route_key,
+            own_model=own_model,
             billed_minutes=minutes,
             inr_per_min=None,
             topup_fee=fee,
@@ -380,6 +413,7 @@ async def engine_minute_cost(
     return MinuteCost(
         rate_key=rate_key,
         client_rate_key=route_key,
+        own_model=own_model,
         billed_minutes=minutes,
         inr_per_min=price.inr_per_min,
         topup_fee=fee,
@@ -393,9 +427,11 @@ __all__ = [
     "ATTESTED_MINUTE_ENGINES",
     "BAND_SOLD_ENGINES",
     "BASE_RATE_KEY",
+    "BYOK_LLM_VOICE_RATE_KEY",
     "BYOK_VOICE_RATE_KEY",
     "ENGINE_RATE_KEYS",
     "FORWARDED_RATE_KEY",
+    "OWN_VOICE_RATE_KEYS",
     "PULSE_SECONDS",
     "TOPUP_FEE_META_KEY",
     "TOPUP_FEE_PLAN_LABELS",

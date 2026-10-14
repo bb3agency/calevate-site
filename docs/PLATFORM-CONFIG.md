@@ -170,7 +170,11 @@ model choices; not Studio),
 `engine_actions_base_url` (applies to live agents; the public API origin its in-call actions call)
 and `thinnest_clear_voice_band` (added by D-688, 8 Oct 2026, applies to live agents, default
 `premium`: the ThinnestAI voice band sold as Clear, `premium` or `studio`; Studio voices and
-clones need ThinnestAI Pro). D-687's `thinnest_studio_workspace_id` is removed; each agent
+clones need ThinnestAI Pro). D-764 (13 Oct 2026) adds `thinnest_own_model` (applies to live
+agents, typed step-up, default off: agents answer on our Gemini model through our Google key,
+Clear on scope `llm` and Studio on `llm_voice`, refused until it is ready) and
+`thinnest_own_model_default` (applies to live agents, default `gemini-2.5-flash-lite`, must be
+offerable). D-687's `thinnest_studio_workspace_id` is removed; each agent
 says whether it speaks on our voice key (its `byok`). Since D-693 every client has its own
 ThinnestAI customer workspace, and two settings support that, both applying live:
 `thinnest_customer_plan` (`payg` default, `pro`, `scale` or `enterprise`) is the plan our

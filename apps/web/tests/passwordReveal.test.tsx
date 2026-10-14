@@ -21,7 +21,7 @@ import { PasswordInput } from "@/components/passwordInput";
  *    A test that only asserted the name would pass on the pattern this component
  *    deliberately rejects; asserting the name is CONSTANT is what pins the decision.
  * 3. **Focus and caret survive.** The failure this control exists to avoid is a person
- *    losing their place in a fifteen-character password, and it is invisible in jsdom
+ *    losing their place in a long passphrase, and it is invisible in jsdom
  *    unless it is asserted.
  * 4. **Hidden is the default, on every mount.** Including the remount a navigation or a
  *    re-rendered refusal produces.
@@ -218,7 +218,7 @@ describe("the field-level refusal wiring is untouched by the toggle", () => {
           type="password"
           reveals="new password"
           autoComplete="new-password"
-          hint="At least 15 characters."
+          hint="At least 8 characters."
           error="That password is on a list of common passwords."
           value=""
           onChange={() => {}}

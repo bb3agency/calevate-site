@@ -7,6 +7,8 @@ import type { useAdminAccess } from "@/app/admin/access";
 import type { Agent } from "@/lib/api/agents";
 import type { AgentVoice, AgentVoiceState, PendingState } from "@/lib/api/publishing";
 
+import { VoiceTuningPanel } from "./voiceTuning";
+
 /**
  * Which voice this agent speaks in: the voice platform's own voices, grouped by rung (Clear,
  * Studio), chosen and saved through `TenantEngineVoices`.
@@ -18,12 +20,16 @@ import type { AgentVoice, AgentVoiceState, PendingState } from "@/lib/api/publis
  * pairs cannot be read the wrong way round; a sentence can.
  */
 export function VoicePanel({
+  tenantId,
+  agentId,
   slug,
   agent,
   pending,
   tenantLoading,
   write,
 }: {
+  tenantId: string;
+  agentId: string;
   slug: string;
   /** The roster row, for the engine-catalogue picker's saved choice. */
   agent: Agent | undefined;
@@ -61,6 +67,7 @@ export function VoicePanel({
           </>
         )}
       </div>
+      {!tenantLoading && <VoiceTuningPanel tenantId={tenantId} agentId={agentId} write={write} />}
     </div>
   );
 }

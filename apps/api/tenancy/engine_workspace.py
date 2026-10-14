@@ -238,7 +238,8 @@ async def active_workspaces(*, limit: int = 1000) -> list[WorkspaceRow]:
 
 @dataclass(frozen=True, slots=True)
 class StudioWorkspace:
-    """A client workspace where our Cartesia key was confirmed on (D-717)."""
+    """A client workspace where one of our keys was confirmed on: Cartesia (D-717) or our
+    Google model key (D-764)."""
 
     tenant_id: UUID
     workspace_id: str
@@ -313,6 +314,60 @@ async def record_studio_check(
     )
 
 
+async def own_model_workspaces(*, limit: int = 1000) -> list[StudioWorkspace]:
+    """Every ACTIVE client workspace where our Google (model) key was confirmed on (D-764),
+    the earliest first. A rotation of the key reaches each and the hourly check verifies
+    each, as for Studio."""
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT tenant_id, workspace_id, own_model_enabled_at, own_model_checked_at, "
+                    "own_model_error_code FROM tenant_engine_workspaces WHERE status = 'active' "
+                    "AND own_model_enabled_at IS NOT NULL ORDER BY own_model_enabled_at, "
+                    "tenant_id LIMIT :limit"
+                ),
+                {"limit": limit},
+            )
+        ).all()
+    return [
+        StudioWorkspace(
+            tenant_id=UUID(str(r[0])),
+            workspace_id=str(r[1]),
+            enabled_at=r[2],
+            checked_at=r[3],
+            error_code=r[4],
+        )
+        for r in rows
+        if is_own_workspace(r[1])
+    ]
+
+
+async def record_own_model_check(
+    session: AsyncSession, tenant_id: UUID, *, error_code: str | None
+) -> None:
+    """`record_studio_check` for our Google key: a pass stamps `own_model_checked_at` (and
+    `own_model_enabled_at` the first time) and clears the error; a failure records only the
+    error."""
+    if error_code is None:
+        await session.execute(
+            text(
+                "UPDATE tenant_engine_workspaces SET own_model_enabled_at = "
+                "COALESCE(own_model_enabled_at, now()), own_model_checked_at = now(), "
+                "own_model_error_code = NULL, updated_at = now() WHERE tenant_id = :tid"
+            ),
+            {"tid": tenant_id},
+        )
+        return
+    await session.execute(
+        text(
+            "UPDATE tenant_engine_workspaces SET own_model_error_code = :code, "
+            "updated_at = now() WHERE tenant_id = :tid"
+        ),
+        {"tid": tenant_id, "code": error_code[:64]},
+    )
+
+
 async def workspaces_in_review(*, limit: int = 1000) -> list[WorkspaceRow]:
     """Active client workspaces whose business-details application is being checked, by the
     status last read from the voice platform, ordered by tenant."""
@@ -349,10 +404,12 @@ __all__ = [
     "engine_has_workspaces",
     "external_ref_for",
     "is_own_workspace",
+    "own_model_workspaces",
     "own_workspace",
     "queue_workspace_offboarding",
     "queue_workspace_provisioning",
     "read_workspace_state",
+    "record_own_model_check",
     "record_studio_check",
     "resolve_workspace",
     "studio_enabled",

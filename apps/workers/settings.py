@@ -215,6 +215,11 @@ from apps.workers.onboarding_completion import (
 )
 from apps.workers.onboarding_completion import complete_finished_onboardings
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
+from apps.workers.own_model_key import (
+    push_own_model_key,
+    push_own_model_key_to_workspace,
+    sweep_own_model_workspaces,
+)
 from apps.workers.pinned_facts import recompile_pinned_facts
 from apps.workers.pipeline import (
     ingest_engine_event,
@@ -412,6 +417,10 @@ FUNCTIONS: list[Any] = [
         # the platform.
         push_studio_voice_key,
         push_studio_voice_key_to_workspace,
+        # D-764. A rotated Google key, fanned out to every client workspace on our model,
+        # one outbox job each; published by `ops/secret_routes.set_secret_route`.
+        push_own_model_key,
+        push_own_model_key_to_workspace,
         # D-551. THE CREDIT CUTOVER ON THE INBOUND LEG. Published by
         # `billing.service.record_entry` on BOTH crossings of zero, in the same transaction
         # as the ledger row that earned them, and by the post-call meter as its backstop.
@@ -921,6 +930,15 @@ CRON_JOBS = [
         traced_job(sweep_studio_workspaces),
         walk=bounded("one directory read, then one vendor GET per Studio workspace"),
         minute={37},
+        second={20},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-764. Every client workspace on our model verified on our Google key, repaired when
+    # not. One directory read, then one GET per such workspace (at most the customer cap).
+    _cron(
+        traced_job(sweep_own_model_workspaces),
+        walk=bounded("one directory read, then one vendor GET per own-model workspace"),
+        minute={41},
         second={20},
         max_tries=WORKER_MAX_TRIES,
     ),

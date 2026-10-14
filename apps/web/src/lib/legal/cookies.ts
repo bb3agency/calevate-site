@@ -148,10 +148,14 @@ export const COOKIE_NOTICE: LegalDocument = {
               "Exactly the same cookie for the operator console, under a different name. " +
                 "The two are separate cookies backed by separate session logic, so being " +
                 "signed in to one grants nothing in the other.",
-              "This one carries no expiry date of its own, so your browser drops it " +
-                "when you close it — deliberately shorter-lived than the client cookie, " +
-                "because it opens an operator console. Our server ends an operator " +
-                "session after 30 minutes of inactivity, and after 8 hours regardless.",
+              "By default this one carries no expiry date of its own, so your browser " +
+                "drops it when you close it — deliberately shorter-lived than the client " +
+                "cookie, because it opens an operator console. Our server ends an " +
+                "operator session after 30 minutes of inactivity, and after 8 hours " +
+                "regardless. An operator who switches on \"Stay signed in\" for their own " +
+                "account gets the client cookie's lifetime instead: the cookie is kept " +
+                "until the session's final expiry, and the session ends after 12 hours " +
+                "of inactivity, and after 14 days regardless.",
             ],
           ],
         },

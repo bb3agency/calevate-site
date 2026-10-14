@@ -40,7 +40,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import roster
+from apps.api.agents import roster, voice_tuning
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import plan_tier_of
 from apps.api.billing.wallet import read_wallet
@@ -63,7 +63,7 @@ from apps.api.copilot.tools import (
 )
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
-from apps.api.core.rbac import role_has
+from apps.api.core.rbac import ADMIN_ROLES, role_has
 from apps.api.crm import service as crm_service
 from apps.api.crm.attention import attention_queue, failed_deliveries
 from apps.api.ingest.service import list_lead_sources
@@ -117,8 +117,9 @@ async def _agent_detail(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
 ) -> str:
     """`roster.agent_by_id` — `GET /v1/agents/{id}`'s reader — plus whether a script edit
-    is waiting to be put live (the two prompt pointers differ)."""
-    del context
+    is waiting to be put live (the two prompt pointers differ). An operator also reads how
+    the agent's Studio voice is tuned (the admin agent screen's "How it sounds"), which a
+    client never sees."""
     agent_id = _uuid_arg(args, "agent_id")
     if agent_id is None:
         return _missing_id("agent_id", "an `agents_list` lookup")
@@ -160,7 +161,30 @@ async def _agent_detail(
             "A script change is saved but NOT live yet: callers still hear the previous "
             "script until it is applied (`agent_changes_apply`)."
         )
+    if context.role in ADMIN_ROLES:
+        lines.append(await _voice_tuning_line(session, agent_id))
     return _clean("\n".join(lines)) + f"\n[agent_id {agent_id}]"
+
+
+async def _voice_tuning_line(session: AsyncSession, agent_id: UUID) -> str:
+    state = await voice_tuning.read_voice_tuning(session, agent_id)
+    if not state.studio:
+        return "How it sounds: not a Studio voice, so no speed, volume or emotion settings."
+    tuning = state.tuning
+    held = [
+        f"{name} {value}"
+        for name, value in (
+            ("speed", tuning.speed),
+            ("volume", tuning.volume),
+            ("emotion", tuning.emotion),
+            ("voice model", tuning.model),
+            ("pronunciation dictionary", tuning.dictionary_id),
+        )
+        if value is not None
+    ]
+    return "How it sounds (Studio voice, operators only): " + (
+        ", ".join(held) + "." if held else "the voice's own defaults."
+    )
 
 
 # --- lead_detail -----------------------------------------------------------------------

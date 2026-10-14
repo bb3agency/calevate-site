@@ -91,6 +91,8 @@ export interface Operator {
   created_at: string;
   /** False while the setup link is outstanding: the account exists and cannot sign in. */
   activated: boolean;
+  /** Their own "Stay signed in" switch (D-766). Only they can switch it on. */
+  stay_signed_in: boolean;
 }
 
 export interface OperatorList {
@@ -128,6 +130,11 @@ export function operatorRevocationConfirmation(operatorId: string): string {
 
 export function operatorSetupLinkConfirmation(operatorId: string): string {
   return `reissue_operator_setup_link:${operatorId}`;
+}
+
+/** D-766: switching ANOTHER operator's "Stay signed in" off. Bound to the operator. */
+export function operatorStaySignedInConfirmation(operatorId: string): string {
+  return `end_stay_signed_in:${operatorId}`;
 }
 
 /**
@@ -257,6 +264,24 @@ export function useResendOperatorSetupLink() {
           confirmAction: operatorSetupLinkConfirmation(operatorId),
         },
       ),
+    onSuccess: () => invalidate(client),
+  });
+}
+
+/**
+ * Switch ANOTHER operator's "Stay signed in" off (D-766). The revocation direction only:
+ * nobody can switch it on for someone else, and the operator switches their own on their
+ * account page. Their live sessions are cut back to 30 minutes idle / 8 hours at once.
+ */
+export function useEndOperatorStaySignedIn() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ operatorId, reason }: { operatorId: string; reason: string }) =>
+      apiRequest<Operator>(adminSession(), operatorPath(operatorId, "/stay-signed-in/revocation"), {
+        method: "POST",
+        body: { reason },
+        confirmAction: operatorStaySignedInConfirmation(operatorId),
+      }),
     onSuccess: () => invalidate(client),
   });
 }

@@ -27,6 +27,7 @@ from calevate_shared.engine import (
     COPILOT_PLANNING_MODEL_DEFAULT,
     PLATFORM_DEFAULT_LLM_MODEL,
     SARVAM_DEFAULT_STT,
+    THINNEST_OWN_MODEL_DEFAULT,
     AzureOpenAIModel,
     GoogleDirectModel,
     LlmModelName,
@@ -445,6 +446,22 @@ class Settings(BaseSettings):
     #: `bring-your-own-keys.md:44-58`). In-call leg only: the platform's own model
     #: (`platform_llm_model`) is a different setting.
     thinnest_in_call_default_model: str | None = Field(default=None, min_length=1, max_length=128)
+    #: OUR language model on ThinnestAI calls (D-764, founder's target set-ups, 13 Oct 2026).
+    #: On, a paying client's Clear agents answer on our Google key with ThinnestAI's
+    #: speech-to-text and voice (BYOK scope `llm`, billed at the voice band's own minute) and
+    #: its Studio agents answer on our Google key and speak on our Cartesia key (scope
+    #: `llm_voice`, a flat minute an operator attests as `byok_llm_voice`)
+    #: (`thinnest-findings/mirror/snapshots/2026-10-13/pages/api-reference/
+    #: bring-your-own-keys.md:13-29,80-103`). Off, every agent answers on ThinnestAI's own
+    #: model, as before. Free-trial agents (our developer workspace) stay on ThinnestAI's
+    #: model either way. Turning it on is refused until `agents/own_model.own_model_readiness`
+    #: answers ready; saving it republishes every live agent.
+    thinnest_own_model: bool = False
+    #: The model of our Google key an agent runs when the switch is on and the agent names
+    #: none of its own. One of the Google models `agents/llm_models.offerable_models` offers
+    #: (selectable, key installed, price attested). Gemini 2.5 Flash-Lite can switch thinking
+    #: off; a Gemini 3 model cannot (`calevate_shared.engine.GoogleDirectModel`).
+    thinnest_own_model_default: GoogleDirectModel = THINNEST_OWN_MODEL_DEFAULT
     #: The public `https://` origin of `apps/api` (e.g. `https://api.calevate.tech`) that
     #: ThinnestAI's custom actions call for our in-call tools (`reliability/engine_actions.py`).
     #: Not `webhook_base_url`: that is voice-runtime's face, which may not write the DNC list
@@ -539,7 +556,7 @@ class Settings(BaseSettings):
     # orders of magnitude above any plausible USD/INR rate: a fat-fingered `8800`
     # would overcharge every client by 100x, and an ops console is exactly where that
     # keystroke happens.
-    usd_inr_rate: Decimal = Field(default=Decimal("88.00"), gt=0, le=1000)
+    usd_inr_rate: Decimal = Field(default=Decimal("95.00"), gt=0, le=1000)
     # An operator's explicit decision to convert at `usd_inr_rate` even while a published
     # rate exists — for the day a published source is believed wrong. A separate switch
     # rather than "the typed value wins whenever somebody set one", because the typed value

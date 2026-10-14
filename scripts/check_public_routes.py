@@ -336,6 +336,17 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="verify_session",
     ),
+    "POST /v1/auth/admin/stay-signed-in": PublicRoute(
+        why=(
+            "An operator's own 'Stay signed in' switch (D-766). It is not open: it takes an "
+            "admin session cookie that has completed the second factor (`_authenticated`), "
+            "switching ON also needs a second factor proved inside REAUTH_MAX_AGE, and it "
+            "names no account — it can only change the one whose session sent it. Here "
+            "rather than behind a permission for the reason /password/change is: a person "
+            "changing their own session length holds no role that is relevant to it."
+        ),
+        credential="_authenticated",
+    ),
     "POST /v1/auth/admin/otp/request": PublicRoute(
         why=(
             "Issues a code to an already-authenticated subject for a step-up. The cookie is the "

@@ -185,6 +185,71 @@ AMBIENCE_VOLUME_MIN_PCT = 5
 AMBIENCE_VOLUME_MAX_PCT = 100
 
 
+# How a Studio voice sounds on one agent (`agents/voice_tuning`): the ranges and values
+# ThinnestAI's `PUT /agents/{id}/byok-voice` accepts for a Cartesia voice (snapshots/
+# 2026-10-13/pages/api-reference/agents/set-agent-byok-voice.md:587-627).
+STUDIO_VOICE_SPEED_MIN = Decimal("0.6")
+STUDIO_VOICE_SPEED_MAX = Decimal("1.5")
+STUDIO_VOICE_VOLUME_MIN = Decimal("0.5")
+STUDIO_VOICE_VOLUME_MAX = Decimal("2.0")
+#: The emotions the docs name (bring-your-own-keys.md:384, "such as").
+STUDIO_VOICE_EMOTIONS: tuple[str, ...] = (
+    "neutral",
+    "calm",
+    "content",
+    "sad",
+    "angry",
+    "scared",
+    "happy",
+    "excited",
+)
+STUDIO_VOICE_MODELS: tuple[str, ...] = (
+    "sonic-3.6",
+    "sonic-3.6-2026-08-27",
+    "sonic-3.5",
+    "sonic-3",
+    "sonic-2",
+)
+#: The one model that takes no speed, volume or emotion.
+STUDIO_VOICE_OLD_MODEL = "sonic-2"
+STUDIO_VOICE_DICTIONARY_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{2,79}$"
+
+
+def studio_voice_checks() -> tuple[CheckConstraint, ...]:
+    """The CHECKs of the Studio voice columns, named as migration f3b8d1c6a7e2 names them."""
+    return (
+        CheckConstraint(
+            f"studio_voice_speed IS NULL OR (studio_voice_speed >= {STUDIO_VOICE_SPEED_MIN} "
+            f"AND studio_voice_speed <= {STUDIO_VOICE_SPEED_MAX})",
+            name="studio_voice_speed_range",
+        ),
+        CheckConstraint(
+            f"studio_voice_volume IS NULL OR (studio_voice_volume >= {STUDIO_VOICE_VOLUME_MIN} "
+            f"AND studio_voice_volume <= {STUDIO_VOICE_VOLUME_MAX})",
+            name="studio_voice_volume_range",
+        ),
+        CheckConstraint(
+            f"studio_voice_emotion IS NULL OR studio_voice_emotion IN {STUDIO_VOICE_EMOTIONS!r}",
+            name="studio_voice_emotion_enum",
+        ),
+        CheckConstraint(
+            f"studio_voice_model IS NULL OR studio_voice_model IN {STUDIO_VOICE_MODELS!r}",
+            name="studio_voice_model_enum",
+        ),
+        CheckConstraint(
+            "studio_voice_dictionary_id IS NULL OR "
+            f"studio_voice_dictionary_id ~ '{STUDIO_VOICE_DICTIONARY_ID_PATTERN}'",
+            name="studio_voice_dictionary_id_shape",
+        ),
+        CheckConstraint(
+            f"studio_voice_model IS DISTINCT FROM '{STUDIO_VOICE_OLD_MODEL}' OR "
+            "(studio_voice_speed IS NULL AND studio_voice_volume IS NULL "
+            "AND studio_voice_emotion IS NULL)",
+            name="studio_voice_old_model_untuned",
+        ),
+    )
+
+
 def call_setting_checks(prefix: str = "") -> tuple[CheckConstraint, ...]:
     """The CHECKs of the F3/F9 columns, for `agents` (no prefix) and `organizations`
     (`default_`), named as migration e7c3a1f9d2b4 names them."""
@@ -318,6 +383,7 @@ class Agent(PKMixin, TimestampMixin, Base):
             name="turn_silence_range",
         ),
         *call_setting_checks(),
+        *studio_voice_checks(),
         # A floor, not the offer (migration b7e2d94f1a30): which ids may be chosen is a
         # live catalogue read decided at publish by `agents/engine_choice.py`.
         CheckConstraint(
@@ -423,6 +489,13 @@ class Agent(PKMixin, TimestampMixin, Base):
     filler_lines: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     ambience: Mapped[str | None] = mapped_column(Text)
     ambience_volume_pct: Mapped[int | None] = mapped_column(Integer)
+    # How a Studio voice sounds on this agent (`agents/voice_tuning`); NULL is the voice
+    # provider's own default. Sent only while the agent's voice is a Studio one.
+    studio_voice_speed: Mapped[Decimal | None] = mapped_column(Numeric(3, 2))
+    studio_voice_volume: Mapped[Decimal | None] = mapped_column(Numeric(3, 2))
+    studio_voice_emotion: Mapped[str | None] = mapped_column(Text)
+    studio_voice_model: Mapped[str | None] = mapped_column(Text)
+    studio_voice_dictionary_id: Mapped[str | None] = mapped_column(Text)
     business_hours: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     escalation_config: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     # THE PER-AGENT MASTER SWITCH for in-call Actions/tools (migration

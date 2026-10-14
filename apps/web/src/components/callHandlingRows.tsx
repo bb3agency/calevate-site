@@ -129,10 +129,10 @@ export function PauseRow({
         hint={sourceHint ?? sourceLabel(source)}
         info={
           <p>
-            How long the caller must be quiet before the agent decides they have finished
-            and replies. A short pause answers quickly but can cut in while someone is
-            reading out a phone number. A longer one waits for them, and every reply comes
-            that much later.
+            The silence that ends the caller&apos;s turn: once they have been quiet this long,
+            the agent takes it that they have finished and replies. A short pause answers
+            quickly but can cut in while someone is reading out a phone number. A longer one
+            waits for them, and every reply comes that much later.
           </p>
         }
         value={pauseLabel(effective)}

@@ -159,6 +159,10 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         "endCallOnFinish": True,
         # Always stated: 0.25 s, Calevate's default (D-751).
         "turnSilenceSeconds": 0.25,
+        # Silence ends the turn, stated rather than left to the platform's default.
+        "turnDetection": "timer",
+        # The platform's own do-not-call tool stays on (13 Oct 2026).
+        "recordDoNotCall": True,
         # No number attached yet: nowhere, never the website button or WhatsApp (F1).
         "surfaces": [],
         # The client's call settings at Calevate's defaults (F3, F9).

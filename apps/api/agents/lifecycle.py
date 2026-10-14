@@ -74,6 +74,7 @@ from apps.api.agents.engine_choice import (
     require_engine_choice,
 )
 from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection, AgentStatus
+from apps.api.agents.own_model import refuse_own_model_choice
 from apps.api.agents.service import (
     INBOUND_SILENCE_TRUTHFUL_ANSWER,
     publish_agent,
@@ -411,6 +412,10 @@ async def _check_engine_choice(
         voice_id=voice[1] if voice[0] else None,
         model_id=model[1] if model[0] else None,
     )
+    if model[0] and model[1] is not None:
+        # A model of OUR key (D-764) is checked here even on a live agent: its republish
+        # would otherwise fall back to the default without saying so.
+        refuse_own_model_choice(get_engine(), model[1])
     if republish or not any(sent and value is not None for sent, value in (voice, model)):
         return
     await require_engine_choice(

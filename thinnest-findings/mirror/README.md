@@ -1,6 +1,6 @@
 # ThinnestAI documentation mirror (read-only)
 
-This is a byte-exact snapshot of the ThinnestAI developer documentation. ThinnestAI is being evaluated as a second voice engine beside our own Pipecat runtime (D-678).
+This is a byte-exact snapshot of the ThinnestAI developer documentation. ThinnestAI is our voice engine (D-678; the only one since D-763).
 
 This mirror is the **VERIFIED-VENDOR-DOCS** evidence class for every ThinnestAI claim in this repository. Cite it as `thinnest-findings/mirror/pages/<path>.md:<line>`.
 
@@ -78,3 +78,9 @@ What moved, by topic (paths are under `snapshots/2026-10-08/pages/`):
 - **Business details.** India number rental now has an API (the new pages above; `channels/phone-numbers.md`, "Doing it from the API"). It needs a full key and a paid plan.
 - **Contacts delete.** It now says recordings are erased too: stored audio, the carrier's copy on a rented number, and any training copy. A failed deletion is retried nightly, and a `200 {recordingsPending}` is returned when some remain. A `503` means nothing was deleted. Do-not-call entries are deliberately kept (`api-reference/contacts/delete-contact.md:9-11`, `:345-414`; `workspace/data-and-erasure.md`). The new page also says that on pay-as-you-go a copy of recordings and transcripts "may be kept to improve our speech and language models" unless the workspace asks to be excluded (`workspace/data-and-erasure.md:67-77`).
 - **Unchanged in substance:** `do-not-call/*`, `recordings/*`, `calls/get-call*`, `calls/cancel-call` (`DELETE /calls/{id}` still only cancels; an ended call answers `409`), and `pastConversations` (`fresh | quiet | recap`). No endpoint deletes a single call, recording or conversation.
+
+## Snapshot of 13 Oct 2026 (`snapshots/2026-10-13/`)
+
+A full re-fetch on 13 Oct 2026 (UTC run 15:17–15:22, `generated_at` in its `MANIFEST.json`): 282 of 282 pages, 0 failures, every page served as `text/markdown`, with its own `llms.txt` and `MANIFEST.json`. The example account id of the form `AC` + 32 hex was masked at fetch time (one file, `api-reference/phone-numbers/save-carrier-account.md`, lines 430 and 534, same byte length), and the manifest hashes are of the masked file. Against `2026-10-08/`: 11 pages added, 0 removed, 212 changed. Cite this snapshot for anything current.
+
+What it settles, claim by claim against Ashutosh's 13 Oct email, is in `docs/evidence/thinnest-docs-snapshot-2026-10-13.md`. The facts Calevate builds on: the own-key scopes `all | voice | llm_voice | llm` with their prices (`api-reference/bring-your-own-keys.md:16-28`), the LLM key on `PUT /byok/credentials` with `kind: "llm"`, the per-agent `byok` scope and `byok-model`, `usage` token counts on Get Call and `call.analysed`, own-key failures as `call.problem` kind `byok_failed` (there is no `byok.failed` webhook), `voice.turnDetection`, `voice.recordDoNotCall`, the `contact.opted_out` `data.reason`, and the own-voice tuning fields. Open questions against it are in `docs/vendor/thinnest-replies-2026-10-12.md` §11.8.

@@ -118,7 +118,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.authn import tokens
+from apps.api.authn import stay_signed_in, tokens
 from apps.api.authn.bootstrap import ADMIN_REALM
 from apps.api.authn.credentials import delete_password, subjects_with_password
 from apps.api.authn.service import enqueue_admin_setup_email
@@ -164,6 +164,8 @@ class OperatorAccount:
     #: False while the setup link is still outstanding — the account exists and cannot
     #: sign in yet.
     activated: bool
+    #: Their own "Stay signed in" switch (D-766), shown so a superadmin can switch it off.
+    stay_signed_in: bool
 
 
 def _refuse_self(actor: Principal, operator_id: UUID, *, act: str) -> None:
@@ -215,7 +217,7 @@ async def _account(session: AsyncSession, operator_id: UUID, *, live_only: bool)
             # ASSEMBLED FROM TEXT TYPED IN THIS FILE — the two predicates are literals
             # above, not caller input, which is what `scripts/check_raw_sql.py` reads for.
             text(
-                "SELECT id, email, name, role, created_at FROM admin_users "
+                "SELECT id, email, name, role, created_at, stay_signed_in FROM admin_users "
                 "WHERE id = :id" + predicate
             ),
             {"id": operator_id},
@@ -231,6 +233,7 @@ async def _account(session: AsyncSession, operator_id: UUID, *, live_only: bool)
         role=str(row[3]),
         created_at=row[4],
         activated=operator_id in activated,
+        stay_signed_in=bool(row[5]),
     )
 
 
@@ -252,7 +255,7 @@ async def list_operators() -> list[OperatorAccount]:
         rows = (
             await session.execute(
                 text(
-                    "SELECT id, email, name, role, created_at FROM admin_users "
+                    "SELECT id, email, name, role, created_at, stay_signed_in FROM admin_users "
                     "WHERE deactivated_at IS NULL ORDER BY created_at, id"
                 )
             )
@@ -268,6 +271,7 @@ async def list_operators() -> list[OperatorAccount]:
             role=str(row[3]),
             created_at=row[4],
             activated=UUID(str(row[0])) in activated,
+            stay_signed_in=bool(row[5]),
         )
         for row in rows
     ]
@@ -345,7 +349,13 @@ async def create_operator(
         extra={"operator_id": str(operator_id), "role": role, "actor_id": str(actor.user_id)},
     )
     return OperatorAccount(
-        id=operator_id, email=address, name=name, role=role, created_at=at, activated=False
+        id=operator_id,
+        email=address,
+        name=name,
+        role=role,
+        created_at=at,
+        activated=False,
+        stay_signed_in=False,
     )
 
 
@@ -474,6 +484,28 @@ async def revoke_operator(
     return account
 
 
+async def switch_off_stay_signed_in(
+    *,
+    actor: Principal,
+    operator_id: UUID,
+    reason: str,
+    ip: str | None,
+    now: datetime | None = None,
+) -> OperatorAccount:
+    """Switch another operator's "Stay signed in" OFF and shorten their sessions (D-766).
+
+    The revocation direction only; `stay_signed_in.py` says why there is no other. Not
+    refused on the actor's own account, unlike a role change: switching your own setting off
+    from here does exactly what the account page does, and nothing is gained by a refusal.
+    """
+    async with credential_session() as session:
+        await _account(session, operator_id, live_only=True)
+        await stay_signed_in.switch_off_for(
+            session, actor=actor, operator_id=operator_id, reason=reason, ip=ip, now=now
+        )
+        return await _account(session, operator_id, live_only=True)
+
+
 async def reissue_setup_link(
     *,
     actor: Principal,
@@ -558,4 +590,5 @@ __all__ = [
     "reissue_setup_link",
     "revoke_operator",
     "set_operator_role",
+    "switch_off_stay_signed_in",
 ]

@@ -21,6 +21,8 @@ def test_the_band_set_as_clear_is_sold_as_clear_and_the_own_voice_minute_as_stud
         "premium": "Clear",
         "studio": None,
         "byok_voice": "Studio",
+        # Sold only while our own model is switched on (D-764), off by default.
+        "byok_llm_voice": None,
     }
 
 

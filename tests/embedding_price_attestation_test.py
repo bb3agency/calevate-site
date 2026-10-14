@@ -360,7 +360,7 @@ async def test_a_second_attestation_at_the_same_instant_is_refused() -> None:
             await attest_embedding_price(
                 session,
                 model=DASHBOARD_ENCODER,
-                input_usd_per_mtok=Decimal("0.025"),
+                input_usd_per_mtok=Decimal("0.04"),
                 effective_from=now,
                 source_note="second reading",
                 actor_id=admin_id,

@@ -46,7 +46,7 @@ from calevate_shared.engine import (
     ListingIncompleteReason,
     VoiceEngine,
 )
-from calevate_shared.events import TERMINAL_STATUSES
+from calevate_shared.events import TERMINAL_STATUSES, CallLlmUsage
 from calevate_shared.extraction import (
     ExtractionOutput,
     ExtractionSchemaSpec,
@@ -95,6 +95,7 @@ from apps.api.billing.rates import (
     VoiceTier,
     client_billed_minutes,
     client_billed_seconds,
+    llm_inr_per_ktok,
     llm_price_is_billable,
     llm_surcharge_applies,
     llm_surcharge_billed_inr,
@@ -3245,6 +3246,42 @@ async def _engine_minute_cost(
     return priced
 
 
+_THOUSAND: Final = Decimal(1000)
+
+
+def _own_model_rows(
+    model: str, usage: CallLlmUsage | None, *, tenant_id: UUID, call_id: UUID
+) -> list[tuple[str, Decimal, Decimal | None]]:
+    """OUR model's cost on a call that answered on our own key (D-764): the call's tokens
+    (`ExecutionSnapshot.llm_usage`, which the engine counts for our own key too) per
+    thousand, at the model's billable price. Google bills us directly, so nothing of this is
+    in the engine's minute.
+
+    Cached input tokens are priced as ordinary input: no cached-input price is attested, and
+    the dearer figure keeps the margin honest (hard rule 7). A model with no billable price
+    meters its tokens with no cost and alarms, as an unattested minute does; a call the
+    engine counted no tokens for (a missed call, a forward) writes nothing."""
+    if usage is None or (usage.input_tokens is None and usage.output_tokens is None):
+        return []
+    tokens_in = Decimal(usage.input_tokens or 0) / _THOUSAND
+    tokens_out = Decimal(usage.output_tokens or 0) / _THOUSAND
+    if not llm_price_is_billable(model):
+        alert(
+            "WORKER_TERMINAL",
+            "own_model_tokens_unpriced",
+            detail=(
+                f"model={model}: this call answered on our own model key and the model has no "
+                "attested price, so its tokens were metered with no cost. Attest the price in "
+                "the ops model-pricing panel; the margin on this call reads better than it is."
+            ),
+            call_id=str(call_id),
+            tenant_id=str(tenant_id),
+        )
+        return [("llm_ktok_in", tokens_in, None), ("llm_ktok_out", tokens_out, None)]
+    price = llm_inr_per_ktok(model)
+    return [("llm_ktok_in", tokens_in, price["in"]), ("llm_ktok_out", tokens_out, price["out"])]
+
+
 def _engine_minute_voice_tier(
     engine: str, rate_key: str, *, tenant_id: UUID, call_id: UUID
 ) -> VoiceTier:
@@ -3557,6 +3594,23 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                     if minute_cost is not None
                     else {}
                 ),
+                # OUR model on this call (D-764), and the tokens the engine counted for it.
+                **(
+                    {
+                        "own_model": minute_cost.own_model,
+                        "llm_input_tokens": snapshot.llm_usage.input_tokens
+                        if snapshot.llm_usage
+                        else None,
+                        "llm_output_tokens": snapshot.llm_usage.output_tokens
+                        if snapshot.llm_usage
+                        else None,
+                        "llm_cached_input_tokens": snapshot.llm_usage.cached_input_tokens
+                        if snapshot.llm_usage
+                        else None,
+                    }
+                    if minute_cost is not None and minute_cost.own_model is not None
+                    else {}
+                ),
             }
         )
         # `unit_cost_paid` is a PRICE PER UNIT OF `qty`, because that is what every
@@ -3605,6 +3659,12 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         )
         if cost.llm_inr is not None:
             rows.append(("llm_tok_out", Decimal(1), cost.llm_inr))
+        if minute_cost is not None and minute_cost.own_model is not None:
+            rows.extend(
+                _own_model_rows(
+                    minute_cost.own_model, snapshot.llm_usage, tenant_id=tenant_id, call_id=call_id
+                )
+            )
         spoken_kchars = sum(
             (qty for unit_type, qty, _ in rows if unit_type == "tts_kchars"), Decimal("0")
         )

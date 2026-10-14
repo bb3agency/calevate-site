@@ -35,6 +35,7 @@ import { AuthPageFrame } from "@/components/authPage";
 import { BACK_LINK, EmailRow, SessionsSection } from "@/components/authn/accountSections";
 import { AdminIdleTimeoutModal } from "@/components/authn/adminIdleTimeoutModal";
 import { PasswordRow } from "@/components/authn/passwordRow";
+import { sessionLifetime, StaySignedInRow } from "@/components/authn/staySignedInRow";
 import { AccountPageSkeleton } from "@/components/authn/skeletons";
 import { StepUpPrompt } from "@/components/authn/stepUpPrompt";
 import { Section } from "@/components/console/section";
@@ -85,7 +86,7 @@ function AdminGate({ children }: { children: ReactNode }) {
 }
 
 function AdminSessionBody() {
-  const { session, retry } = useAdminSession();
+  const { session, retry, adopt } = useAdminSession();
   // The address on file, for "which account is this". Asked only once the second factor is
   // done: before that the identity route refuses the session, and the row still says
   // whether the address is verified.
@@ -95,7 +96,7 @@ function AdminSessionBody() {
     <>
       {/* Enabled only while there is a session to protect: no listeners and no timers on
           a signed-out page. */}
-      <AdminIdleTimeoutModal enabled={session !== null} />
+      <AdminIdleTimeoutModal session={session} />
       {/* The step-up prompt has to be mounted on this page, which is outside
           `app/admin/layout.tsx`: without it `requireStepUp` returns a promise nobody can
           settle, and the password change hangs on a stale second factor. */}
@@ -120,13 +121,14 @@ function AdminSessionBody() {
                 also requires a second factor proved in the last 30 minutes, and the
                 wrapper turns that refusal into the step-up prompt instead of a dead end. */}
             <PasswordRow realm="admin" changePassword={changeAdminPassword} />
+            {session?.mfa_complete ? <StaySignedInRow session={session} adopt={adopt} /> : null}
           </SettingRows>
         </Section>
 
         <SessionsSection
           authn={adminAuthn}
           signInPath={ADMIN_SIGN_IN_PATH}
-          lifetime="A session ends after 30 minutes without activity, and after 8 hours regardless. You are warned a few minutes before an idle session ends."
+          lifetime={sessionLifetime(session)}
           everywhereHint="Use it if a laptop or phone has gone missing."
           everywhereConsequence="Every operator session on this account ends, on every device, including this one. You will need your password and an emailed code to sign in again."
         />

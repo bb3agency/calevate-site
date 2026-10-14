@@ -20,7 +20,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Literal, Protocol, runtime_checkable
 
-from calevate_shared.engine import LlmTier
+from calevate_shared.engine import ByokVoiceTuning, LlmTier
 from pydantic import BaseModel, ConfigDict, Field
 
 HostedVoiceSource = Literal["engine", "byok"]
@@ -164,6 +164,12 @@ class OwnVoiceKeyState(BaseModel):
     using: str
     #: The voice provider installed, when there is one.
     voice_provider: str | None = None
+    #: The language-model provider installed (`kind: llm`), when there is one (D-764).
+    llm_provider: str | None = None
+    #: The model that key runs by default, when one is set.
+    llm_model: str | None = None
+    #: The provider checked that key (`verifiedAt` present).
+    llm_verified: bool = False
 
     @property
     def speaks_on_own_voice(self) -> bool:
@@ -198,7 +204,12 @@ class HostsVoices(Protocol):
     async def list_own_key_voices(self) -> HostedVoiceListing: ...
 
     async def preview_own_key_voice(
-        self, *, voice_id: str, text: str | None, language: str | None
+        self,
+        *,
+        voice_id: str,
+        text: str | None,
+        language: str | None,
+        tuning: ByokVoiceTuning | None = None,
     ) -> PreviewAudio: ...
 
     async def create_voice_clone(self, sample: VoiceCloneSample) -> VoiceClone: ...
@@ -223,6 +234,24 @@ class HostsVoices(Protocol):
 
 
 @runtime_checkable
+class RunsOwnModel(Protocol):
+    """An adapter whose agents can each answer on the account's OWN language-model key
+    (BYOK scopes `llm` and `llm_voice`, D-764), with a model of that key chosen per agent."""
+
+    name: str
+
+    async def own_key_state(self) -> OwnVoiceKeyState: ...
+
+    async def install_own_model_key(self, *, provider: str, api_key: str, model: str) -> None: ...
+
+    async def enable_own_model_key(self) -> OwnVoiceKeyState: ...
+
+    async def set_agent_own_keys(
+        self, ref: str, *, own_voice: bool, own_model: str | None
+    ) -> None: ...
+
+
+@runtime_checkable
 class ListsVoiceClones(Protocol):
     """An adapter that can list the clones of the workspace it is acting in (D-693), so a
     clone made again in a client's workspace is found by its name rather than made twice."""
@@ -243,6 +272,7 @@ __all__ = [
     "OwnVoiceKeyState",
     "PreviewAudio",
     "ReportsOwnKeys",
+    "RunsOwnModel",
     "VoiceClone",
     "VoiceCloneSample",
 ]

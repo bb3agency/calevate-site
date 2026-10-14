@@ -300,16 +300,17 @@ client every one of these must be TRUE, not merely recorded:
 - **No call in the call list after five minutes.** Check the webhook is enabled in their
   console (Webhooks), then wait for the reconciliation sweep, which settles a missed call
   from their call list.
-- **Studio has no fallback (`studio_call_voice_failed`).** A Studio call speaks on our own
-  Cartesia key through ThinnestAI's voice-only BYOK, and a call on our own keys never falls
-  back to ThinnestAI's voices, so when that key fails the caller hears silence or an
-  apology. Open ops console → Voices: check the Cartesia key is installed and **Studio
+- **Studio has no fallback (`studio_call_voice_failed`, `engine_call_own_key_failed`).** A
+  Studio call speaks on our own Cartesia key through ThinnestAI's voice-only BYOK, and a call
+  on our own keys never falls back to ThinnestAI's providers, so when that key fails the
+  agent does not speak (and when our model key fails, the caller hears their apology). Open ops console → Voices: check the Cartesia key is installed and **Studio
   ready** reads it back, and check the Cartesia account balance. Then place a test call on
   the agent. Until it is fixed, moving the agent to a Clear voice and republishing keeps its
   callers answered.
 - **A call that went badly.** Open the call in the client console as the admin: "How the
   call went" shows the reply times, silences, backup answers and any problem ThinnestAI
-  reported while it was live (`engine_call_voice_failed`, `engine_call_model_unanswered`).
+  reported while it was live (`engine_call_voice_failed`, `engine_call_model_unanswered`,
+  `engine_call_own_key_failed`).
   If several clients report problems at once, the healer reads ThinnestAI's own status
   (`engine_platform_status_degraded`, `engine_platform_outage`).
 - **Roll back.** There is no second engine to switch to (D-763). A bad release is rolled

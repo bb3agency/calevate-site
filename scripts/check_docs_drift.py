@@ -1301,8 +1301,8 @@ def stale_deferrals(root: Path | None = None, deferrals: dict[str, str] | None =
 # the cost model went on pricing the model we had stopped calling.
 #
 # THE DOC STATES THE SAME RATE TWICE, and both spellings are checked. §10.1's vendor card
-# quotes the vendor's own unit ("₹57.20 / 10,000 chars"); the per-call-minute table below it
-# re-expresses the same rate per 1,000 ("₹5.7200 / 1,000 chars"). A doc that disagrees with
+# quotes the vendor's own unit ("₹61.75 / 10,000 chars"); the per-call-minute table below it
+# re-expresses the same rate per 1,000 ("₹6.1750 / 1,000 chars"). A doc that disagrees with
 # ITSELF about a price is the cheapest possible version of this failure and the one most
 # likely to survive review, because each table reads fine alone.
 
@@ -1312,7 +1312,7 @@ TTS_RATE_HEADING = "### 10.1 Stack cost, computed from published rates"
 
 #: The product name a §10.1 TTS row is a claim about, however the row bolds it.
 _TTS_PRODUCT = r"Sonic\s*\*{0,2}3\.5"
-#: `| Text-to-Speech **Sonic 3.5** | ... | ₹57.20 / 10,000 chars |` — the vendor's own unit.
+#: `| Text-to-Speech **Sonic 3.5** | ... | ₹61.75 / 10,000 chars |` — the vendor's own unit.
 #: The rate may sit in ANY later cell of the row, not only the next one: the Cartesia card
 #: carries the plan terms in between (`$49 / month, 1,250,000 credits`), and a pattern that
 #: demanded the adjacent cell would have silently read that row as stating no rate — the
@@ -1321,7 +1321,7 @@ _DOC_TTS_10K = re.compile(
     rf"\|[^|\n]*({_TTS_PRODUCT})\*{{0,2}}[^|\n]*\|[^\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*10,?000\s*chars",
     re.IGNORECASE,
 )
-#: `| TTS — Cartesia **Sonic 3.5** | ₹5.7200 / 1,000 chars | ... |` — the same rate, per 1,000.
+#: `| TTS — Cartesia **Sonic 3.5** | ₹6.1750 / 1,000 chars | ... |` — the same rate, per 1,000.
 _DOC_TTS_1K = re.compile(
     rf"\|[^|\n]*({_TTS_PRODUCT})\*{{0,2}}[^|\n]*\|[^\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*1,?000\s*chars",
     re.IGNORECASE,

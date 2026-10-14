@@ -22,10 +22,6 @@ endpoint.** It needs no API key, adds no deployable, and removes one party whose
 availability, terms and reading of the source were all things we had to trust without
 being able to check.
 
-`billing/rates.LIST_PRICE_USD_INR` already states this repo's convention that the rate a
-figure is struck at is a published Indian reference rate; this rung is the first one that
-gets it from the publisher.
-
 **REJECTED: SELF-HOSTING FRANKFURTER.** It is the escape hatch this module's own evidence
 block used to name, and reading the software closed it. At pinned commit
 `45e1b89ab0a725aedecdd1fa678a22eff5908a48` it is a **Ruby 4.0.6** service (puma, a

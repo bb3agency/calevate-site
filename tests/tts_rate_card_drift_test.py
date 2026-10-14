@@ -35,7 +35,7 @@ pays, so demanding a rate-card row for it would be manufacturing the drift this 
 to catch. The clauses below moved onto the Cartesia rung, which is the one still billed.
 
 EVIDENCE FOR THE RATE ITSELF. **The billed rung is Cartesia Sonic 3.5
-(D-547), and since D-556 (9 Sep 2026) it is VENDOR-PUBLISHED**: ₹57.20 / 10,000 chars,
+(D-547), and since D-556 (9 Sep 2026) it is VENDOR-PUBLISHED**: ₹61.75 / 10,000 chars at ₹95,
 DERIVED in code from the vendor's own **Pro overage rate** of $65 per 1,000,000 credits
 (direct correspondence — Ege Tinmaz, Product Support Engineer, Cartesia — relayed by the
 founder, `docs/evidence/cartesia-tts-verification-2026-09-06.md` ADDENDUM 3; `cartesia.ai`
@@ -75,7 +75,7 @@ def test_a_vendor_price_move_recorded_only_in_the_doc_is_named() -> None:
     ⚠ Mutated on the CARTESIA row since 18 Sep 2026 — the Sarvam rung this used to move is
     withdrawn, and the module docstring carries why its scalar left `code_tts_rates`."""
     offenders = guard.tts_rate_card_drift(
-        _mutated("₹57.20 / 10,000 chars", "₹36.00 / 10,000 chars")
+        _mutated("₹61.75 / 10,000 chars", "₹36.00 / 10,000 chars")
     )
     assert offenders, "a doc-side price move was not detected"
     assert any("sonic-3.5" in line and "36" in line for line in offenders), offenders
@@ -85,20 +85,20 @@ def test_the_doc_disagreeing_with_its_own_second_table_is_named() -> None:
     """Both tables state the same rate. Changing one is the cheapest version of this
     failure and the likeliest to pass review, because each table reads fine alone."""
     offenders = guard.tts_rate_card_drift(
-        _mutated("| ₹5.7200 / 1,000 chars |", "| ₹5.9900 / 1,000 chars |")
+        _mutated("| ₹6.1750 / 1,000 chars |", "| ₹5.9900 / 1,000 chars |")
     )
     assert any("stated twice, disagreeing" in line for line in offenders), offenders
 
 
 def test_the_cartesia_rung_moving_in_the_doc_alone_is_named() -> None:
     """THE SECOND RUNG (D-547, re-struck by D-556). §10.1 states the Cartesia marginal rate
-    twice — ₹57.20 per 10,000 in the Cartesia card and ₹5.7200 per 1,000 in the
+    twice — ₹61.75 per 10,000 in the Cartesia card and ₹6.1750 per 1,000 in the
     per-call-minute table (⚠ both read ₹34.496 / ₹3.4496 until 9 Sep 2026) — and the
     code DERIVES it from the plan fee over the allotment. So there are three ways for it to
     drift and this asserts each is named: the doc disagreeing with the code, and the doc
     disagreeing with itself.
     """
-    moved = _mutated("₹57.20 / 10,000 chars", "₹40.00 / 10,000 chars")
+    moved = _mutated("₹61.75 / 10,000 chars", "₹40.00 / 10,000 chars")
     offenders = guard.tts_rate_card_drift(moved)
     # One spelling moved, so BOTH directions fire: the doc contradicts itself, and the
     # figure it now leads with contradicts the code.
@@ -115,7 +115,7 @@ def test_the_cartesia_rung_moving_in_the_doc_alone_is_named() -> None:
     # which made the "both spellings moved" fixture a doc that really does contradict
     # itself, and the guard rightly said so. The guard was never wrong; the mutation was
     # reaching for the wrong sentence. Pipes make it the row or nothing.
-    both = moved.replace("| ₹5.7200 / 1,000 chars |", "| ₹4.00 / 1,000 chars |", 1)
+    both = moved.replace("| ₹6.1750 / 1,000 chars |", "| ₹4.00 / 1,000 chars |", 1)
     assert "| ₹4.00 / 1,000 chars |" in both, "the rate-card row moved or changed shape"
     offenders = guard.tts_rate_card_drift(both)
     assert not any("stated twice, disagreeing" in line for line in offenders), offenders
@@ -170,9 +170,9 @@ def test_prose_about_a_rate_is_not_read_as_a_rate() -> None:
         "Sonic 3.5 was once quoted at ₹99.00 / 10,000 chars by a secondary source, which "
         "was wrong. The card below is the first-party read.\n\n"
         "| Cartesia API | Published rate |\n|---|---|\n"
-        "| Text-to-Speech **Sonic 3.5** | ₹57.20 / 10,000 chars |\n"
+        "| Text-to-Speech **Sonic 3.5** | ₹61.75 / 10,000 chars |\n"
     )
-    assert guard.doc_tts_rates(prose) == {"sonic-3.5": Decimal("57.20")}
+    assert guard.doc_tts_rates(prose) == {"sonic-3.5": Decimal("61.75")}
     # What this asserts is that the SENTENCE quoting ₹99.00 produced no rate claim at all:
     # the only sonic-3.5 figure the parse found is the table row's, which agrees with code.
     assert not guard.tts_rate_card_drift(prose)
@@ -183,11 +183,11 @@ def test_a_thousands_separator_is_not_a_different_price() -> None:
     wrong on a doc an editor merely reformatted, which is how a guardrail earns the
     reputation that gets it deleted."""
     heading = "### 10.1 Stack cost, computed from published rates\n\n"
-    assert guard.doc_tts_rates(heading + "| TTS **Sonic 3.5** | ₹57.20 / 10,000 chars |\n") == {
-        "sonic-3.5": Decimal("57.20")
+    assert guard.doc_tts_rates(heading + "| TTS **Sonic 3.5** | ₹61.75 / 10,000 chars |\n") == {
+        "sonic-3.5": Decimal("61.75")
     }
-    assert guard.doc_tts_rates(heading + "| TTS **Sonic 3.5** | ₹57.20 / 10000 chars |\n") == {
-        "sonic-3.5": Decimal("57.20")
+    assert guard.doc_tts_rates(heading + "| TTS **Sonic 3.5** | ₹61.75 / 10000 chars |\n") == {
+        "sonic-3.5": Decimal("61.75")
     }
 
 
@@ -195,7 +195,7 @@ def test_a_rate_outside_section_10_1_is_not_read() -> None:
     """§10's headline paragraph and §10.3's Outpero reconstruction both quote TTS money,
     and neither is the rate card. Bounding the parse to §10.1 is what keeps a discussion
     of somebody else's pricing from being read as a claim about ours."""
-    assert not guard.doc_tts_rates("Sonic 3.5 costs ₹57.20 / 10,000 chars, they say.\n")
+    assert not guard.doc_tts_rates("Sonic 3.5 costs ₹61.75 / 10,000 chars, they say.\n")
 
 
 # --- 4c: the in-call LLM cost curves (D-400, two of them since D-410) ----------

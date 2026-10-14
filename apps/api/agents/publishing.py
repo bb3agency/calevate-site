@@ -91,6 +91,7 @@ from calevate_shared.engine import (
     VoiceEngine,
     compose_opening_line,
 )
+from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1104,6 +1105,9 @@ async def _drift_of(
     second rendering would be a second place for the `not_applied` sentence and the
     hard-rule-6 log line to be got wrong.
     """
+    if config.engine_own_model is not None and scope_of(ref) is None:
+        # An agent in our developer workspace (a free trial) never runs on our model (D-764).
+        config = config.model_copy(update={"engine_own_model": None})
     verdict = await verify_publish(engine, ref, config)
     log.info(
         "agent_engine_drift_checked",
@@ -1133,6 +1137,7 @@ async def _drift_of(
         detail=_drift_detail(verdict),
         own_voice_key_applied=verdict.own_voice_key_applied,
         own_voice_key_expected=config.engine_own_voice_key,
+        own_model_expected=config.engine_own_model,
     )
 
 

@@ -274,6 +274,7 @@ function card(
     notice_days: 30,
     notice_recipients: 3,
     earliest_effective_from: "2026-10-08T09:44:00Z",
+    own_model_prompt_basis: null,
     ...over,
   };
 }
@@ -506,6 +507,15 @@ describe("the rate card an operator is about to date", () => {
     expect(container.textContent).toContain("₹5.0000");
     expect(container.textContent).toContain("₹4.1211");
     expect(container.textContent).toContain("₹5.5899");
+  });
+
+  it("names the prompt size the floors add our own model at while it answers calls", async () => {
+    const basis = "20,000 prompt tokens: the engine's 20,000-character prompt ceiling";
+    const { container } = renderOps(
+      routes({ [OPS_RATE_CARD_PATH]: card(undefined, { own_model_prompt_basis: basis }) }),
+    );
+    await screen.findByText("17.60%");
+    expect(container.textContent).toContain(`adds the model's cost per minute at ${basis}.`);
   });
 
   it("leads the thin count with the honest one at this month's volume", async () => {

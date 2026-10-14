@@ -538,8 +538,8 @@ def is_restorable(*, scope: str, source: str | None) -> bool:
 @dataclass(frozen=True, slots=True)
 class OptOutEvidence:
     """One recorded opt-out for the number: when, on which call, who heard it, and the
-    caller's words as stored (already redacted, `optout.detect_opt_out`). `matched` is None
-    when the platform's own agent recorded it: it reports that it did, not what was said."""
+    caller's words as stored (already redacted: `optout.detect_opt_out`, or the platform agent's
+    `reason`, `workers/engine_signals`). `matched` is None when no words were kept."""
 
     id: UUID
     recorded_at: Any

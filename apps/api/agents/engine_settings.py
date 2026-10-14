@@ -47,8 +47,12 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         # The line is released when the agent ends the call (D-749), unless the client
         # switched it off (D-751).
         "end_call_on_finish",
-        # The pause before the agent replies (D-751).
+        # The silence that ends the caller's turn (D-751), and the turn mode that makes it so.
         "turn_silence",
+        # The platform's own do-not-call tool, kept on beside our opt-out action.
+        "do_not_call_tool",
+        # How a Studio voice sounds: speed, volume, emotion, model, pronunciation dictionary.
+        "voice_tuning",
         # Fixed at 30 seconds on every agent (D-716).
         "ring_seconds",
         "call_summaries",

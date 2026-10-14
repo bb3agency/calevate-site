@@ -107,7 +107,13 @@ invitations(id, tenant_id, email, role, token_hash UNIQUE, expires_at DEFAULT no
   -- `email_verify` round trip is still what proves a mailbox. It is only reachable while
   -- `used_at IS NULL` — after redemption the address is a login identity.
 admin_users(id, clerk_user_id UNIQUE, email, name, role ENUM[superadmin,operator],
-  deactivated_at)                                                     -- separate realm
+  deactivated_at, stay_signed_in BOOL NOT NULL DEFAULT false)         -- separate realm
+  -- stay_signed_in (D-766, migration b6d2f8a41c97): the operator's own "Stay signed in"
+  -- switch. On, their second-factor-complete sessions take the client realm's bounds
+  -- (12 h idle / 14 d) and a persistent cookie; read on every session verification.
+  -- Only the operator may switch it on (fresh second factor); a superadmin may switch it
+  -- off. Written only by `authn/stay_signed_in.py`, audited as
+  -- `admin.stay_signed_in_changed`. No RLS, like the rest of this table.
   -- Same two-step deprecation on its clerk_user_id, and the same DROP owed. This table is
   -- an ops-managed allowlist reconciled from nothing; `scripts/bootstrap_admin.py` writes
   -- the first row (D-171) and the console writes every later one
@@ -126,7 +132,13 @@ tenant_engine_workspaces(id, tenant_id → organizations RESTRICT UNIQUE, engine
   last_error_code, attempts INT DEFAULT 0, provisioned_at, deleted_at,
   business_status ENUM[none,draft,submitted,accepted,rejected,suspended,expired,unknown] NULL,
   business_can_rent BOOL, business_review_note, business_submitted_at, business_checked_at,
-  business_document_id NULL, created_at, updated_at)
+  business_document_id NULL,
+  studio_enabled_at, studio_checked_at, studio_error_code (e9b2c7d4a1f3, D-717),
+  own_model_enabled_at, own_model_checked_at, own_model_error_code (a4c8e1f6b2d9, D-764),
+  created_at, updated_at)
+  -- studio_* / own_model_*: where our Cartesia key / our Google (LLM) key was confirmed on in
+  -- this workspace, the last matching `GET /byok`, and our code for the last failure
+  -- (each error code CHECK <= 64 chars).
   -- D-693, migration d93b6f2a4c18. Each client's own ThinnestAI customer workspace
   -- (`POST /customers`, reached with `Thinnest-Workspace: org_…`,
   -- `thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/customers.md:18-91`).
@@ -198,6 +210,13 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
     -- offer (catalogue membership, call-capable, plan, attested band rate) is decided at
     -- publish by `agents/engine_choice.py`. The chosen voice's band is stamped as
     -- `engine_agent_routes.engine_rate_key`.
+  studio_voice_speed NUMERIC(3,2), studio_voice_volume NUMERIC(3,2),  -- f3b8d1c6a7e2, D-767.
+  studio_voice_emotion TEXT, studio_voice_model TEXT, studio_voice_dictionary_id TEXT,
+    -- How a Studio voice (our own Cartesia key) sounds on this agent; set by operators only.
+    -- NULL is the provider's default. CHECKs: speed 0.6-1.5, volume 0.5-2.0, emotion one of
+    -- eight, model one of five Sonic ids, dictionary id `^[A-Za-z0-9][A-Za-z0-9_-]{2,79}$`,
+    -- and `sonic-2` with speed, volume and emotion NULL (ThinnestAI `byok-voice`). Sent only
+    -- while `engine_voice_id` is a Studio voice (`agents/voice_tuning.py`).
   system_prompt_id → prompt_versions, extraction_schema_id → extraction_schemas,
   business_hours JSONB, escalation_config JSONB,   -- business_hours: unread since D-695 (the profile)
   -- THE OPENING NOTICES (D-163, migration f4a1d0b6e29c). SEC-COMP §2 states two
@@ -1556,6 +1575,10 @@ engine_agent_routes(engine, engine_agent_ref, tenant_id, agent_id, active,
   -- agent's business facts on an engine that keeps them out of the prompt
   -- (`agents/engine_facts.py`), with the sha256 of its text; both or neither (CHECK
   -- `ck_engine_agent_routes_facts_whole`). Counted as ours by the KB reconciliation.
+  -- engine_own_model TEXT NULL (a4c8e1f6b2d9, D-764, CHECK `^[^[:space:]]{1,128}$`): the
+  -- model of OUR language-model key the vendor agent was published on, NULL on the engine's
+  -- own model; the meter costs the call's tokens at its attested price. engine_rate_key
+  -- admits `platform, standard, premium, studio, byok_voice, byok_llm_voice`.
   -- The inbound routing table: (vendor engine, vendor agent id) → (tenant, agent).
   -- WHY IT IS EXEMPT: an engine webhook arrives carrying only the VENDOR's agent id —
   -- no session, no tenant, no GUC — so resolving it is inherently a cross-tenant read.

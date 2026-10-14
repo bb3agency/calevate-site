@@ -111,7 +111,12 @@ from apps.api.authn.cookies import (
 )
 from apps.api.authn.hashing import MAX_PASSWORD_CHARS, MIN_PASSWORD_CHARS
 from apps.api.authn.models import AUTHN_REALMS
-from apps.api.authn.sessions import IssuedSession, VerifiedSession, verify_session
+from apps.api.authn.sessions import (
+    IssuedSession,
+    SessionPolicy,
+    VerifiedSession,
+    verify_session,
+)
 from apps.api.core.auth import client_request_ip
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -131,14 +136,12 @@ class LoginIn(BaseModel):
     # same constants rather than two numbers that could drift. Pydantic refuses an
     # over-long body before it reaches the HMAC, which is the point: an unbounded password
     # on an unauthenticated route is a free CPU sink.
-    # `MIN_PASSWORD_CHARS` IS THE ABSOLUTE FLOOR, NOT THE POLICY. The real minimum is per
-    # realm (`authn/policy.py`: 15 for the client realm, which has no second factor, per
-    # SP 800-63B-4 §3.1.1.2), and it cannot be expressed here because these models are
-    # shared by both realm routers — the realm is a closure constant of `_realm_router`,
-    # not a field. So Pydantic bounds the SHAPE and `credentials.set_password` enforces
-    # the POLICY, which is also the placement that catches the routes nobody remembered.
-    # The refusal a caller meets for 13 characters on the client realm is therefore
-    # `password_length` from `policy`, with the right number in it, rather than a bare 422.
+    # `MIN_PASSWORD_CHARS` is the absolute floor, not the policy. The policy is per realm
+    # (`authn/policy.min_password_chars`) and cannot be expressed here because these
+    # models are shared by both realm routers — the realm is a closure constant of
+    # `_realm_router`, not a field. So Pydantic bounds the SHAPE and
+    # `credentials.set_password` enforces the POLICY (length and blocklist), which is
+    # also the placement that catches the routes nobody remembered.
     password: str = Field(min_length=MIN_PASSWORD_CHARS, max_length=MAX_PASSWORD_CHARS)
 
 
@@ -193,6 +196,13 @@ class SessionOut(BaseModel):
     #: this False can reach exactly one route.
     mfa_complete: bool
     email_verified: bool
+    #: How long this session may sit idle before the server ends it. The admin console's
+    #: idle warning counts down from this rather than from a copy of the number, so it
+    #: follows "Stay signed in" (D-766).
+    idle_timeout_seconds: int
+    #: Admin realm: this session has the "Stay signed in" bounds — the operator's switch is
+    #: on and the second factor is proved. Always false on the client realm.
+    stay_signed_in: bool
 
 
 class ResetRequestIn(BaseModel):
@@ -375,6 +385,7 @@ def _set_cookie(response: Response, request: Request, realm: str, issued: Issued
         token=issued.token,
         request=request,
         absolute_expires_at=issued.absolute_expires_at,
+        stay_signed_in=issued.policy.stay_signed_in,
     )
 
 
@@ -446,7 +457,9 @@ def _realm_router(realm: str) -> APIRouter:
             verified=verified, code=payload.code, ip=client_request_ip(request)
         )
         _set_cookie(response, request, realm, rotated)
-        return await _session_out(realm, verified.subject_id, mfa_complete=True)
+        return await _session_out(
+            realm, verified.subject_id, mfa_complete=True, policy=rotated.policy
+        )
 
     @router.post(
         "/login/otp/resend",
@@ -481,7 +494,10 @@ def _realm_router(realm: str) -> APIRouter:
         takes effect on the next request (BACKEND-PATTERNS §7)."""
         _require_enabled()
         return await _session_out(
-            realm, verified.subject_id, mfa_complete=verified.mfa_verified_at is not None
+            realm,
+            verified.subject_id,
+            mfa_complete=verified.mfa_verified_at is not None,
+            policy=verified.policy,
         )
 
     @router.post(
@@ -497,7 +513,10 @@ def _realm_router(realm: str) -> APIRouter:
         rotated = await service.refresh(verified=verified)
         _set_cookie(response, request, realm, rotated)
         return await _session_out(
-            realm, verified.subject_id, mfa_complete=verified.mfa_verified_at is not None
+            realm,
+            verified.subject_id,
+            mfa_complete=verified.mfa_verified_at is not None,
+            policy=rotated.policy,
         )
 
     @router.post("/logout", response_model=RevokedOut, summary="End this session")
@@ -705,16 +724,18 @@ def _realm_router(realm: str) -> APIRouter:
         _require_enabled()
         enforce_same_origin(request)
         ip = client_request_ip(request)
+        policy = verified.policy
         if realm == stepup.STEP_UP_REALM:
             rotated = await service.complete_step_up(verified=verified, code=payload.code, ip=ip)
             _set_cookie(response, request, realm, rotated)
+            policy = rotated.policy
         else:
             await service.answer_action_code(verified=verified, code=payload.code, ip=ip)
         if payload.action is not None:
             await stepup.record_action_proof(
                 realm=realm, subject_id=verified.subject_id, action=payload.action
             )
-        return await _session_out(realm, verified.subject_id, mfa_complete=True)
+        return await _session_out(realm, verified.subject_id, mfa_complete=True, policy=policy)
 
     if realm == bootstrap.ADMIN_REALM:
 
@@ -750,8 +771,13 @@ def _realm_router(realm: str) -> APIRouter:
     return router
 
 
-async def _session_out(realm: str, subject_id: UUID, *, mfa_complete: bool) -> SessionOut:
-    """The bootstrap payload, built from a FRESH read of the subject."""
+async def _session_out(
+    realm: str, subject_id: UUID, *, mfa_complete: bool, policy: SessionPolicy
+) -> SessionOut:
+    """The bootstrap payload, built from a FRESH read of the subject.
+
+    `policy` is the session's as the server enforces it — after a rotation, the successor's.
+    """
     subject = await service.find_subject_for_session(realm, subject_id)
     if subject is None:
         # The account went away between the session check and here. Same refusal as a dead
@@ -762,6 +788,8 @@ async def _session_out(realm: str, subject_id: UUID, *, mfa_complete: bool) -> S
         subject_id=subject.subject_id,
         mfa_complete=mfa_complete,
         email_verified=subject.email_verified_at is not None,
+        idle_timeout_seconds=int(policy.timeouts.idle.total_seconds()),
+        stay_signed_in=policy.stay_signed_in,
     )
 
 

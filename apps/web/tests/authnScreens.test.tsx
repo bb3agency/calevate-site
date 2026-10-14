@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import AdminResetPasswordPage from "@/app/(auth)/auth/admin/reset-password/page";
 import AdminSignInPage from "@/app/(auth)/auth/admin/sign-in/page";
 import ClientForgotPasswordPage from "@/app/(auth)/auth/forgot-password/page";
 import ClientResetPasswordPage from "@/app/(auth)/auth/reset-password/page";
@@ -23,7 +24,7 @@ import {
 } from "@/lib/authn/problems";
 import { useCountdown } from "@/lib/authn/useCountdown";
 
-import { problem, stubApi, type Routes } from "./harness";
+import { noContent, problem, stubApi, type Routes } from "./harness";
 
 /**
  * The first-party auth screens, end to end through the real transport (D-174).
@@ -552,16 +553,10 @@ describe("the set-password forms carry the hasher's real bounds", () => {
     );
     const view = await renderPage(<ClientResetPasswordPage />, {});
     await screen.findByLabelText("New password");
-    // DERIVED, NOT RETYPED. This asserted "At least 12 characters" and went red when the
-    // client realm's floor moved to 15 — which is the right failure, and also the reason
-    // the number does not belong in the assertion. This page is the CLIENT realm's reset
-    // form, so what it must show is the client realm's floor; a literal here says nothing
-    // about whether the page picked the right one.
+    // Derived, not retyped: this is the client realm's reset form, so it shows that
+    // realm's floor.
     expect(view.container.textContent).toContain(
       `At least ${MIN_PASSWORD_CHARS_BY_REALM.client} characters`,
-    );
-    expect(view.container.textContent).not.toContain(
-      `At least ${MIN_PASSWORD_CHARS_BY_REALM.admin} characters`,
     );
     // And the token is out of the URL by the time anything can read it back.
     expect(window.location.search).toBe("");
@@ -678,3 +673,63 @@ function problemFor(code: string): ApiProblem {
     detail: "no",
   });
 }
+
+describe("a reset link, end to end on each realm", () => {
+  const REALMS = [
+    {
+      realm: "client" as const,
+      page: () => <ClientResetPasswordPage />,
+      path: "/auth/reset-password",
+      forgot: "/auth/forgot-password",
+      signIn: "/auth/sign-in",
+    },
+    {
+      realm: "admin" as const,
+      page: () => <AdminResetPasswordPage />,
+      path: "/auth/admin/reset-password",
+      forgot: "/auth/admin/forgot-password",
+      signIn: "/auth/admin/sign-in",
+    },
+  ];
+
+  const SPENT = problem(422, {
+    type: "urn:calevate:auth/invalid_reset_token",
+    title: "That link is no longer usable",
+    detail: "This link has already been used or has expired.",
+    kind: "business_rule",
+  });
+
+  async function submit(entry: (typeof REALMS)[number], answer: Routes[string]) {
+    window.history.replaceState(null, "", `${entry.path}?token=${"t".repeat(40)}`);
+    const view = await renderPage(entry.page(), {
+      ...SIGNED_OUT,
+      [`POST /v1/auth/${entry.realm}/password/reset/confirm`]: answer,
+    });
+    const password = "x".repeat(MIN_PASSWORD_CHARS_BY_REALM[entry.realm]);
+    fireEvent.change(await screen.findByLabelText("New password"), {
+      target: { value: password },
+    });
+    fireEvent.change(screen.getByLabelText("Type it again"), { target: { value: password } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Set my new password" }));
+    });
+    return view;
+  }
+
+  it.each(REALMS)("$realm: a used or expired link offers a new one", async (entry) => {
+    await submit(entry, SPENT);
+    expect(await screen.findByText(/This reset link cannot be used/)).toBeTruthy();
+    const link = screen.getByRole("link", { name: "Ask for a new reset link" });
+    expect(link.getAttribute("href")).toBe(entry.forgot);
+    // The dead link's form is gone: submitting it again could only fail again.
+    expect(screen.queryByLabelText("New password")).toBeNull();
+  });
+
+  it.each(REALMS)("$realm: success sends you to this realm's sign-in", async (entry) => {
+    await submit(entry, noContent());
+    expect(await screen.findByText("Your password has been changed")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Go to sign-in" }).getAttribute("href")).toBe(
+      entry.signIn,
+    );
+  });
+});

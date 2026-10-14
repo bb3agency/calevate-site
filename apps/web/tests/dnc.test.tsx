@@ -310,6 +310,21 @@ describe("restoring a person's opt-out", () => {
     });
   });
 
+  it("shows the caller's own words when the agent that recorded it kept them", async () => {
+    const { calls } = await renderClientPage(<DoNotCallPage />, {
+      ...POLICY,
+      "/v1/me": ME,
+      [LIST_PATH]: [optOut()],
+      [EVIDENCE_PATH]: {
+        ...evidence,
+        records: [{ ...evidence.records[0], matched_redacted: "please don't call me again" }],
+      },
+    });
+    const dialog = await openRestore(calls);
+    expect(within(dialog).getByText("please don't call me again")).toBeTruthy();
+    expect(dialog.textContent).not.toContain("No words were kept");
+  });
+
   it("asks how and when for a person who has since asked to be called", async () => {
     const { calls } = await renderClientPage(<DoNotCallPage />, {
       ...POLICY,

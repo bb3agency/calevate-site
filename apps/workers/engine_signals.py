@@ -3,8 +3,10 @@ and its notices that it took a lead or handed a conversation to a person.
 
 ThinnestAI's agent puts a caller who asks not to be called again on the WORKSPACE's
 do-not-call list and sends `contact.opted_out` with `data.phone`, `data.callId`,
-`data.source` (always `"call"`) and `data.optedOutAt` (VERIFIED-VENDOR-DOCS,
-`thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/webhooks.md:85`).
+`data.source` (always `"call"`), `data.optedOutAt` and `data.reason`, the caller's own words up to
+160 characters or null (VERIFIED-VENDOR-DOCS, `thinnest-findings/mirror/snapshots/2026-10-13/
+pages/api-reference/webhooks.md:85`, `:496-513`). The adapter reads it (`parse_opt_out`); the
+words are redacted and kept as the consent ledger's evidence, and never logged (hard rule 6).
 
 OUR list decides who is dialled, per client (founder decision, 8 Oct 2026). So the number is
 filed on the list of the client whose agent heard the request — the tenant of the route the
@@ -27,10 +29,10 @@ from uuid import UUID
 
 from arq import Retry
 from calevate_shared.engine_scope import scope_of
-from calevate_shared.events import EngineNotice, EngineProblem
+from calevate_shared.events import EngineNotice, EngineOptOut, EngineProblem
 from sqlalchemy import text
 
-from apps.api.billing.engine_minutes import BYOK_VOICE_RATE_KEY
+from apps.api.billing.engine_minutes import OWN_VOICE_RATE_KEYS
 from apps.api.compliance.optout import DETECTED_BY_ENGINE, OptOutSignal, record_call_optout
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -42,6 +44,7 @@ from apps.api.engine import get_engine
 from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.reliability.engine_intake_keys import open_delivery
 from apps.api.reliability.service import mark_inbox_failed, mark_inbox_processed
+from apps.workers.redaction import redact
 
 log = get_logger(__name__)
 
@@ -51,6 +54,10 @@ ENGINE_OPT_OUT_JOB: Final = "ingest_engine_opt_out"
 #: The evidence rule written to `consent_ledger`: the vendor's agent judged it, not a phrase
 #: of ours, and the ledger has to say which.
 ENGINE_OPT_OUT_RULE: Final = "engine_contact_opted_out"
+
+#: The longest the caller's words are kept as evidence: the engine's own cap on `reason`
+#: (160 characters, webhooks.md:496-513), measured after redaction.
+OPT_OUT_REASON_MAX_CHARS: Final = 160
 
 _RETRY_AFTER_S: Final = (30.0, 120.0)
 
@@ -69,14 +76,35 @@ def _unreadable(detail: str) -> ProblemError:
     )
 
 
-def _phone_of(document: bytes) -> str | None:
+@runtime_checkable
+class ReadsOptOuts(Protocol):
+    """An adapter that turns a verified opt-out delivery into OUR `EngineOptOut`."""
+
+    def parse_opt_out(self, payload: dict[str, Any]) -> EngineOptOut | None: ...
+
+
+def _opt_out_of(document: bytes, *, ref: str) -> EngineOptOut:
     try:
         payload = json.loads(document)
     except ValueError as exc:
         raise _unreadable("the delivered document is not JSON") from exc
-    data = payload.get("data") if isinstance(payload, dict) else None
-    phone = data.get("phone") if isinstance(data, dict) else None
-    return phone if isinstance(phone, str) and phone else None
+    engine = get_engine()
+    if not isinstance(engine, ReadsOptOuts) or not isinstance(payload, dict):
+        raise _unreadable(f"the {engine.name} adapter cannot read an opt-out")
+    with in_workspace(scope_of(ref)):
+        opt_out = engine.parse_opt_out(payload)
+    if opt_out is None:
+        raise _unreadable("the delivered document is not an opt-out")
+    return opt_out
+
+
+def _evidence_words(reason: str | None) -> str:
+    """The caller's words as the consent ledger keeps them: through the transcript redactor
+    first, then capped, as `optout.detect_opt_out` keeps its matched phrase. Empty when the
+    engine kept none, which the evidence read shows as "no words were kept"."""
+    if not reason:
+        return ""
+    return redact(reason).text[:OPT_OUT_REASON_MAX_CHARS]
 
 
 async def _tenant_of(engine: str, ref: str) -> UUID | None:
@@ -111,7 +139,10 @@ async def _record(payload: dict[str, Any]) -> str:
     delivery = payload.get("delivery")
     if not isinstance(delivery, dict):
         raise _unreadable("the job carried no delivery")
-    phone = _phone_of(open_delivery(delivery, engine=engine, execution_id=engine_call_id))
+    opt_out = _opt_out_of(
+        open_delivery(delivery, engine=engine, execution_id=engine_call_id), ref=ref
+    )
+    phone = opt_out.phone
     tenant_id = await _tenant_of(engine, ref)
     if tenant_id is None:
         _unattributable(ground="no_route", engine_call_id=engine_call_id, tenant_id=None)
@@ -129,7 +160,10 @@ async def _record(payload: dict[str, Any]) -> str:
                 call_id=UUID(str(call_id)) if call_id is not None else None,
                 detected_by=DETECTED_BY_ENGINE,
                 signal=OptOutSignal(
-                    rule=ENGINE_OPT_OUT_RULE, language="unknown", turn_idx=None, matched=""
+                    rule=ENGINE_OPT_OUT_RULE,
+                    language="unknown",
+                    turn_idx=None,
+                    matched=_evidence_words(opt_out.reason),
                 ),
             )
         except ProblemError as exc:
@@ -284,7 +318,7 @@ async def _abandon_notice(payload: dict[str, Any], exc: Exception, attempt: int)
 class _Route:
     tenant_id: UUID
     agent_id: UUID
-    #: The rate the agent was last published on; `byok_voice` is a Studio agent.
+    #: The rate the agent was last published on; `byok_voice` or `byok_llm_voice` is Studio.
     rate_key: str | None
 
 
@@ -347,20 +381,35 @@ class ReadsProblems(Protocol):
     def parse_problem(self, payload: dict[str, Any]) -> EngineProblem | None: ...
 
 
-#: A Studio call speaks on our own voice key, and a call on our own keys never falls back to
-#: the platform's own (THINNEST-INTEGRATION §4a), so a failure there is ours to fix.
-STUDIO_NO_FALLBACK_KINDS: Final = frozenset({"own_key_failed", "voice_failed"})
-
-
 def _alarm_problem(problem: EngineProblem, route: _Route) -> None:
     ids = {"tenant_id": str(route.tenant_id), "agent_id": str(route.agent_id)}
-    if route.rate_key == BYOK_VOICE_RATE_KEY and problem.kind in STUDIO_NO_FALLBACK_KINDS:
+    if problem.kind == "own_key_failed":
+        # The platform never answers on its own providers for a job one of our keys holds:
+        # no backup model, no backup voice (thinnest-findings/mirror/snapshots/2026-10-13/
+        # pages/api-reference/bring-your-own-keys.md:171-178). Our keys there are the
+        # Cartesia voice key (Studio) and, where it is switched on, our model key.
+        alert(
+            "WORKER_DELIVERY",
+            "engine_call_own_key_failed",
+            detail=(
+                "the voice platform reported that one of our own keys failed on a live call "
+                "(own_key_failed). There is no backup on our own keys: if the model key "
+                "failed the caller heard the platform's apology instead of an answer, and if "
+                "the voice key failed the agent did not speak. Check the keys the voice "
+                "platform holds for us (ops Voices: Studio ready reads the voice key back) "
+                "and the provider accounts behind them for quota, billing or a revoked key, "
+                "then place a test call on this agent."
+            ),
+            episode=str(route.agent_id),
+            **ids,
+        )
+    elif route.rate_key in OWN_VOICE_RATE_KEYS and problem.kind == "voice_failed":
         alert(
             "WORKER_DELIVERY",
             "studio_call_voice_failed",
             detail=(
-                f"a Studio call reported {problem.kind}: the caller may have heard silence or "
-                "an apology. Studio speaks on our own voice key and has no fallback voice. "
+                "a Studio call reported voice_failed: the caller may have heard silence or "
+                "been cut off. Studio speaks on our own voice key and has no fallback voice. "
                 "Check the Cartesia key and its balance in ops Voices (Studio ready reads the "
                 "key back), then place a test call on this agent."
             ),
@@ -379,13 +428,14 @@ def _alarm_problem(problem: EngineProblem, route: _Route) -> None:
             episode=str(route.agent_id),
             **ids,
         )
-    elif problem.kind in ("no_answer_from_model", "own_key_failed"):
+    elif problem.kind == "no_answer_from_model":
         alert(
             "WORKER_DELIVERY",
             "engine_call_model_unanswered",
             detail=(
-                f"the voice platform reported {problem.kind} on a live call: the agent could "
-                "not get an answer, even from its backup model, and apologised to the caller. "
+                "the voice platform reported no_answer_from_model on a live call: the agent "
+                "could not get an answer from the platform's model, even from its backup, and "
+                "apologised to the caller. "
                 "If it repeats, check the agent's model choice and the platform's status."
             ),
             episode=str(route.agent_id),
@@ -453,7 +503,6 @@ __all__ = [
     "ENGINE_OPT_OUT_JOB",
     "ENGINE_OPT_OUT_RULE",
     "ENGINE_PROBLEM_JOB",
-    "STUDIO_NO_FALLBACK_KINDS",
     "ReadsNotices",
     "ReadsProblems",
     "ingest_engine_notice",

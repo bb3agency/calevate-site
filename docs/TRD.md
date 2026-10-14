@@ -72,9 +72,12 @@ crm, analytics, billing, kb, integrations, compliance, audit.
     authenticator app, no shared secret, no recovery codes (D-170; the trade is in
     AUTH-MIGRATION §2.3 and §7). Passwords are Argon2id with a KEK-derived pepper.
   - **Session lifetimes are enforced on the ROW, per realm** (`authn/sessions.REALM_TIMEOUTS`):
-    admin 30 min idle / 8 h absolute, client 12 h idle / 14 d absolute. **The row is the
+    admin 30 min idle / 8 h absolute, client 12 h idle / 14 d absolute; an operator who
+    switches "Stay signed in" on for their own account gets the client bounds and a
+    persistent cookie (D-766, `sessions.session_policy`). **The row is the
     authority either way, so a revoke bites immediately** — `verify_session` re-reads it on
-    every request. The COOKIE is a browser-session cookie on the admin realm and, since
+    every request. The COOKIE is a browser-session cookie on the admin realm (unless "Stay
+    signed in" is on, D-766) and, since
     D-539, carries a `max_age` on the client realm derived from that row's own
     `absolute_expires_at` (`cookies.session_cookie_max_age`) so a fourteen-day session is
     no longer ended by closing a tab. It can never ask for more time than the row has left,
@@ -1367,13 +1370,13 @@ Razorpay for collection (phase 1 can invoice manually; ledger from day 1 is non-
 > call; Sarvam's first post-call extraction pass) and the model rates the code still holds.
 
 Per-minute variable (₹), the own-stack summary: platform 1.5–2.0 (the Bolna BYOK fee, never
-verified) · STT 0.50 · **TTS 2.06–3.09 on the Studio voice (Cartesia Sonic 3.5 — a MONTHLY
+verified) · STT 0.50 · **TTS 2.22–3.33 on the Studio voice (Cartesia Sonic 3.5 — a MONTHLY
 PLAN whose MARGINAL per-character rate past the included allotment is what this band is struck
 at, `billing/rates.py::CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`; it is also the one synthesis
 leg a ThinnestAI call still buys from a vendor of ours, §10.0)**
 · **LLM 0.10–0.24 (`gpt-4o-mini` on Azure OpenAI East US 2 — the band is the one- to
 ten-minute curve, not a rate; supersedes D-400's 0.23–0.51 Gemini band and D-36's ₹0.00.
-On the `gpt-4.1-mini` switch it is 0.27–0.65 — 2.67x, see §10.1)**
+On the `gpt-4.1-mini` switch it is 0.27–0.64 — 2.67x, see §10.1)**
 · telephony 0.40–0.90 inbound / 0.60–1.80 outbound. **Blended all-in ≈ 3.3–3.8 (launch)
 → 1.9–2.6 (phase 2)** — derived rather than adjusted. Launch is **D-36's ≈₹3.1–3.6 plus the
 LLM leg at the five-minute reference (₹0.16)** = 3.26–3.76. Phase 2 is that minus the ₹1.50
@@ -1395,8 +1398,8 @@ estimates of a stack we no longer run.
 > input price, which is where it lands because voice is input-dominated. On the reference
 > conversation stated at `rates.REFERENCE_CALL`, on the DEFAULT model: **₹0.10/min on a
 > one-minute call, ₹0.16/min at five minutes, ₹0.24/min at ten** — **less than half what
-> the Gemini leg cost at every duration** (₹0.23 / ₹0.36 / ₹0.51). **The switch is not a
-> free upgrade and the figures say so**: `gpt-4.1-mini` is **₹0.27 / ₹0.44 / ₹0.65**, which
+> the Gemini leg cost at every duration** (₹0.23 / ₹0.35 / ₹0.51). **The switch is not a
+> free upgrade and the figures say so**: `gpt-4.1-mini` is **₹0.27 / ₹0.44 / ₹0.64**, which
 > is **2.67x the default at every duration** (it is exactly 2⅔x on both the input and the
 > output leg, so the ratio cannot vary with call length) and **19% to 27% MORE than the
 > Gemini leg we just left**, widening with duration. `llm_cost_inr_per_minute` takes
@@ -1554,7 +1557,7 @@ rate past the included allotment.
 
 | Cartesia API | Published rate | Marginal rate |
 |---|---|---|
-| Text-to-Speech **Sonic 3.5**, Pro plan (the plan we are on) | $5 / month, 100,000 credits (1 credit = 1 character), then **$65 / 1,000,000 credits** | ₹57.20 / 10,000 chars |
+| Text-to-Speech **Sonic 3.5**, Pro plan (the plan we are on) | $5 / month, 100,000 credits (1 credit = 1 character), then **$65 / 1,000,000 credits** | ₹61.75 / 10,000 chars |
 
 > **The overage rates are $65 / $45 / $38 per 1,000,000 credits on Pro / Startup / Scale**,
 > and the smallest paid path is **Pro at $5/month**.
@@ -1569,8 +1572,9 @@ rate past the included allotment.
 > on no public page — third-party sources say to contact sales — so this correspondence is
 > the ONLY source for them, which is what makes it authoritative rather than corroborative.
 >
-> **Conversion: this row is struck at ₹88 = US$1.00, the evidence file's own assumption; the
-> COST FLOOR is not.** Since 9 Sep 2026 the floor converts at the LIVE published USD→INR rate
+> **Conversion: this row is struck at ₹95 = US$1.00, the founder's planning rate for every frozen
+> USD→INR conversion (`rates.PLANNING_USD_INR`, D-768: a founder decision, not a market reading);
+> the live COST FLOOR is not.** Since 9 Sep 2026 the live floor converts at the published USD→INR rate
 > (`core/fx.usd_inr_rate_now`), because Cartesia bills in dollars — see §10.3. **Below the
 > allotment the real per-minute cost is higher** (the fee does not shrink and is paid
 > whether or not it is spoken). The constants live at
@@ -1579,24 +1583,24 @@ rate past the included allotment.
 > them in both directions.
 
 **Cost per call-minute.** At the band above (360–540 characters a call-minute), the Studio
-synthesis leg is **₹2.06–3.09** at the Pro overage rate. That is the worst MARGINAL cost — what
+synthesis leg is **₹2.22–3.33** at the Pro overage rate. That is the worst MARGINAL cost — what
 one more minute costs on the plan we are on — and only the refusal bound: below the allotment a
 minute costs more, because the fee is paid whether or not it is spoken, so the honest cost is a
 curve in the month's platform volume and the ops console prints it with the volume named
 (D-556). THINNEST-INTEGRATION §5 prices the Cartesia leg of a ThinnestAI Studio call at
 ₹2.06–3.42 per call-minute at 571 characters a minute, by plan and volume (cartesia.ai/pricing
-read 11 Oct 2026). The refusal stays frozen at ₹88 so a currency tick cannot make a live card
+read 11 Oct 2026). The refusal stays frozen at ₹95 (D-768) so a currency tick cannot make a live card
 un-recordable; the live-rate figure is published beside it as a warning.
 
 | Leg | Rate | Per call-minute |
 |---|---|---|
 | STT — Saaras (STT+Translate) | ₹30/hr | **₹0.50** |
-| TTS — Cartesia **Sonic 3.5** *(the Studio voice; the vendor's **Pro overage rate**, VENDOR-PUBLISHED — see the card above)* | ₹5.7200 / 1,000 chars | **₹2.06–3.09** |
+| TTS — Cartesia **Sonic 3.5** *(the Studio voice; the vendor's **Pro overage rate**, VENDOR-PUBLISHED — see the card above)* | ₹6.1750 / 1,000 chars | **₹2.22–3.33** |
 | LLM — `gpt-4o-mini` on Azure OpenAI `eastus2` *(D-410's default and still the **base-rate** model `billing/rates.BASE_RATE_LLM_MODEL` freezes the plan rate against — no longer the platform default; region per D-449)* | $0.15/$0.60 per 1M tok | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |
-| LLM — `gpt-4.1-mini` on Azure OpenAI `eastus2` *(the live switch, `azure_openai_model`; both allow-listed models are on the Regional-Standard matrix for this region — gate 20b reads the quota)* | $0.40/$1.60 per 1M tok | **₹0.27 (1 min) / ₹0.44 (5 min) / ₹0.65 (10 min)** |
+| LLM — `gpt-4.1-mini` on Azure OpenAI `eastus2` *(the live switch, `azure_openai_model`; both allow-listed models are on the Regional-Standard matrix for this region — gate 20b reads the quota)* | $0.40/$1.60 per 1M tok | **₹0.27 (1 min) / ₹0.44 (5 min) / ₹0.64 (10 min)** |
 | LLM — **`gemini-2.5-flash-lite` on Google Gemini Developer API** *(the cheapest leg we offer, and since 4 Sep 2026 the **platform default** — `Settings.platform_llm_model`. Cheaper than the base-rate model, so it carries **no** model surcharge)* | $0.10/$0.40 per 1M tok | **₹0.07 (1 min) / ₹0.11 (5 min) / ₹0.16 (10 min)** |
-| LLM — `gemini-2.5-flash` on Google Gemini Developer API *(the vendor's own production recommendation; thinking budget zeroed by the engine)* | $0.30/$2.50 per 1M tok | **₹0.23 (1 min) / ₹0.36 (5 min) / ₹0.51 (10 min)** |
-| LLM — `gpt-5.4-mini` on OpenAI direct `us` *(the engine's own voice recommendation, and the dearest thing we offer)* | $0.75/$4.50 per 1M tok | **₹0.54 (1 min) / ₹0.85 (5 min) / ₹1.24 (10 min)** |
+| LLM — `gemini-2.5-flash` on Google Gemini Developer API *(the vendor's own production recommendation; thinking budget zeroed by the engine)* | $0.30/$2.50 per 1M tok | **₹0.23 (1 min) / ₹0.35 (5 min) / ₹0.51 (10 min)** |
+| LLM — `gpt-5.4-mini` on OpenAI direct `us` *(the engine's own voice recommendation, and the dearest thing we offer)* | $0.75/$4.50 per 1M tok | **₹0.54 (1 min) / ₹0.85 (5 min) / ₹1.23 (10 min)** |
 | LLM — Sarvam 105B *(what D-400 superseded; the disclosed dashboard fallback and the extraction pass — **not an in-call leg**, so no per-minute curve is derived for it)* | ₹29.28/₹10.98/₹73.20 per 1M in/cached-in/out | **not ₹0.00 — see the correction note** |
 
 > ⚠⚠ **CORRECTION (27 Aug 2026): THE SARVAM CHAT LEG IS NOT FREE, AND THIS DOCUMENT

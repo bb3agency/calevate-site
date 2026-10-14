@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { MailCheck, UserCog, UserMinus } from "lucide-react";
+import { MailCheck, TimerOff, UserCog, UserMinus } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
@@ -16,6 +16,7 @@ import {
   ROLE_COPY,
   operatorConfirmPhrase,
   operatorLabel,
+  useEndOperatorStaySignedIn,
   useResendOperatorSetupLink,
   useRevokeOperator,
   useSetOperatorRole,
@@ -264,6 +265,41 @@ export function ResendPanel({ operator, onClose }: { operator: Operator; onClose
       onConfirm={(reason) =>
         resend.mutate({ operatorId: operator.id, reason }, { onSuccess: onClose })
       }
+      onClose={onClose}
+    />
+  );
+}
+
+/** D-766: switch another operator's "Stay signed in" off. The revocation direction only. */
+export function EndStaySignedInPanel({
+  operator,
+  onClose,
+}: {
+  operator: Operator;
+  onClose: () => void;
+}) {
+  const end = useEndOperatorStaySignedIn();
+  const label = operatorLabel(operator);
+
+  return (
+    <ConfirmBlock
+      heading={`Switching off "Stay signed in" for ${label}`}
+      consequence={
+        <p>
+          Their sessions go back to ending after 30 minutes without activity and 8 hours
+          after sign-in; any session already past those ends now. Only they can switch it on
+          again, from their own account page.
+        </p>
+      }
+      confirmPhrase={operatorConfirmPhrase(operator)}
+      reasonLabel={`Why you are switching off ${label}'s "Stay signed in"`}
+      actionLabel={'Switch off "Stay signed in"'}
+      pendingLabel="Switching off…"
+      danger={false}
+      icon={<TimerOff aria-hidden className="h-4 w-4" />}
+      pending={end.isPending}
+      error={end.error}
+      onConfirm={(reason) => end.mutate({ operatorId: operator.id, reason }, { onSuccess: onClose })}
       onClose={onClose}
     />
   );

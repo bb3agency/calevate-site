@@ -14,6 +14,7 @@ import { AuthPageFrame } from "@/components/authPage";
 import { MissingLinkCode, SetPasswordForm } from "@/components/authn/setPasswordForm";
 import { Card, NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
 import { CLIENT_FORGOT_PATH, CLIENT_SIGN_IN_PATH, clientAuthn } from "@/lib/authn/clientAuthn";
+import { AUTHN_CODES } from "@/lib/authn/problems";
 import { useIdempotencyKey } from "@/lib/authn/useIdempotencyKey";
 import { useLinkToken } from "@/lib/authn/useLinkToken";
 
@@ -46,6 +47,11 @@ function ClientResetBody() {
           here also signs you out everywhere else, on every device.
         </p>
       }
+      deadLink={{
+        code: AUTHN_CODES.invalidResetToken,
+        href: CLIENT_FORGOT_PATH,
+        label: "Ask for a new reset link",
+      }}
       onSubmit={({ token: linkToken, password }) =>
         clientAuthn.confirmPasswordReset({ token: linkToken, password }, idempotencyKey)
       }
@@ -67,7 +73,15 @@ function ClientResetBody() {
       renderMissingToken={
         <MissingLinkCode
           what="reset"
-          remedy={`If that does not work, ask for a fresh link from ${CLIENT_FORGOT_PATH}.`}
+          remedy={
+            <>
+              If that does not work,{" "}
+              <Link href={CLIENT_FORGOT_PATH} className="text-brand-strong underline underline-offset-2 dark:text-brand-bright">
+                ask for a new reset link
+              </Link>
+              .
+            </>
+          }
         />
       }
     />

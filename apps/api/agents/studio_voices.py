@@ -46,7 +46,11 @@ from apps.api.agents.hosted_voices import (
     studio_voices_ready,
 )
 from apps.api.agents.voice_offer import tts_price_is_billable
-from apps.api.billing.engine_minutes import BYOK_VOICE_RATE_KEY, attested_rate_keys
+from apps.api.billing.engine_minutes import (
+    BYOK_VOICE_RATE_KEY,
+    OWN_VOICE_RATE_KEYS,
+    attested_rate_keys,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -62,11 +66,11 @@ from apps.api.tenancy.engine_workspace import (
 
 log = get_logger(__name__)
 
-#: Published vendor agents on this engine, and whether each was published on a Studio voice
-#: (its route carries the own-voice-key rate key). Arms of a running experiment included.
+#: Published vendor agents on this engine, their rate key and the model of our key each
+#: answers with. Arms of a running experiment included.
 _PUBLISHED_ROUTES_SQL: Final = (
-    "SELECT engine_agent_ref, engine_rate_key = :studio_key, tenant_id FROM engine_agent_routes "
-    "WHERE active AND engine = :engine ORDER BY engine_agent_ref"
+    "SELECT engine_agent_ref, engine_rate_key, tenant_id, engine_own_model "
+    "FROM engine_agent_routes WHERE active AND engine = :engine ORDER BY engine_agent_ref"
 )
 
 
@@ -75,21 +79,21 @@ class PublishedRoute:
     engine_agent_ref: str
     on_studio_voice: bool
     tenant_id: UUID | None = None
+    #: The model of our key it answers with (D-764); None on the engine's own model. Such an
+    #: agent names its own `byok` scope and follows no workspace switch.
+    own_model: str | None = None
 
 
 async def published_routes(session: AsyncSession, *, engine: str) -> list[PublishedRoute]:
-    rows = (
-        await session.execute(
-            text(_PUBLISHED_ROUTES_SQL), {"engine": engine, "studio_key": BYOK_VOICE_RATE_KEY}
-        )
-    ).all()
+    rows = (await session.execute(text(_PUBLISHED_ROUTES_SQL), {"engine": engine})).all()
     return [
         PublishedRoute(
             engine_agent_ref=str(ref),
-            on_studio_voice=bool(on),
+            on_studio_voice=key in OWN_VOICE_RATE_KEYS,
             tenant_id=UUID(str(tid)) if tid is not None else None,
+            own_model=str(model) if model else None,
         )
-        for ref, on, tid in rows
+        for ref, key, tid, model in rows
     ]
 
 
@@ -155,14 +159,15 @@ async def _set_off_and_confirm(engine: HostsVoices, route: PublishedRoute) -> bo
     return held is False
 
 
-async def _keep_clear_agents_off(
+async def keep_clear_agents_off(
     session: AsyncSession, engine: HostsVoices, *, tenant_id: UUID, workspace: str
 ) -> int:
-    """Set every published non-Studio agent of `tenant_id` living in `workspace` to `byok:
-    off` and read each back. Answers how many could not be confirmed."""
+    """Set every published non-Studio agent of `tenant_id` living in `workspace` that would
+    follow the workspace's switch to `byok: off` and read each back. An agent on our model
+    names its own scope (`llm`) and is left alone. Answers how many could not be confirmed."""
     unconfirmed = 0
     for route in await published_routes(session, engine=engine.name):
-        if route.on_studio_voice or route.tenant_id != tenant_id:
+        if route.on_studio_voice or route.own_model or route.tenant_id != tenant_id:
             continue
         if scope_of(route.engine_agent_ref) != workspace:
             continue
@@ -179,7 +184,7 @@ async def _keep_inheriting_agents_off(session: AsyncSession, engine: HostsVoices
     on_own_key: dict[str, bool] = {}
     unconfirmed = 0
     for route in await published_routes(session, engine=engine.name):
-        if route.on_studio_voice:
+        if route.on_studio_voice or route.own_model:
             continue
         workspace = scope_of(route.engine_agent_ref)
         if workspace is not None:
@@ -211,7 +216,7 @@ async def _switch_on(
         state = await engine.own_key_state()
         if own_voice_key_ready(state):
             return state
-        unconfirmed = await _keep_clear_agents_off(
+        unconfirmed = await keep_clear_agents_off(
             session, engine, tenant_id=tenant_id, workspace=workspace
         )
         if unconfirmed:
@@ -493,6 +498,7 @@ __all__ = [
     "ensure_developer_studio",
     "ensure_studio_in",
     "ensure_studio_workspace",
+    "keep_clear_agents_off",
     "prepare_studio",
     "published_routes",
     "require_developer_studio",

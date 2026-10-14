@@ -1608,6 +1608,13 @@ _VENDOR_ONLY_KEYS = frozenset(
         "unavailableMessage",
         "unavailableMessageNote",
         "voiceEngine",
+        # D-764: the call's `usage` token counts and a BYOK credential's check instant; ours
+        # are `CallLlmUsage.input_tokens`/`output_tokens`/`cached_input_tokens`, `llm_usage`
+        # and `OwnVoiceKeyState.llm_verified`.
+        "cachedInputTokens",
+        "inputTokens",
+        "outputTokens",
+        "verifiedAt",
     }
 )
 
@@ -1624,6 +1631,11 @@ _VENDOR_ONLY_KEYS = frozenset(
 #: vocabulary is a guard somebody switches off.
 _SHARED_PAYLOAD_KEYS = frozenset(
     {
+        # `contact.opted_out` `data.reason` (D-767), the caller's words; `reason` is also our
+        # own field across this tree (a live apply's reason, an offer's refusal reason).
+        "reason",
+        # D-764: a call's token `usage`, our own word for metered usage too.
+        "usage",
         # A phone number's display name on ThinnestAI, and a word this product uses for
         # its own form fields and connections (D-704 shows it in the trial-number picker).
         "label",

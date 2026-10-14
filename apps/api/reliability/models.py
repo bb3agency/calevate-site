@@ -193,6 +193,10 @@ class EngineAgentRoute(Base):
     #: Which attested per-minute price (`platform_engine_minute_prices.rate_key`) a call on
     #: this vendor agent is metered at. NULL means the engine's `platform` rate.
     engine_rate_key: Mapped[str | None] = mapped_column(Text)
+    #: The model of OUR language-model key the vendor agent was published on (D-764,
+    #: migration a4c8e1f6b2d9); NULL when it answers on the engine's own model. The meter
+    #: costs the call's tokens at this model's attested price.
+    engine_own_model: Mapped[str | None] = mapped_column(Text)
     #: The agent's "Business facts" knowledge document at the vendor (D-678) and the digest of
     #: the facts it holds, so a republish with unchanged facts sends nothing. Both or neither.
     facts_kb_ref: Mapped[str | None] = mapped_column(Text)

@@ -24,6 +24,7 @@ import { lookup } from "@/lib/lookup";
 import { AddVoicesDrawer } from "./AddVoicesDrawer";
 import { CloneVoiceDrawer } from "./CloneVoiceDrawer";
 import { FILTER_SELECT, HostedVoiceList } from "./HostedVoiceList";
+import { OwnModelCard } from "./OwnModelCard";
 import { StudioVoicesCard } from "./StudioVoicesCard";
 import { VoiceDrawer } from "./VoiceDrawer";
 import {
@@ -241,6 +242,8 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
       </section>
 
       <StudioVoicesCard />
+
+      <OwnModelCard />
 
       {adding && <AddVoicesDrawer onClose={() => setAdding(false)} />}
       {cloning && <CloneVoiceDrawer onClose={() => setCloning(false)} />}

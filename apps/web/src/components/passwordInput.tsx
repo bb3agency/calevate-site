@@ -13,11 +13,10 @@
  *
  * ## Why it exists at all
  *
- * `authn/policy.py::MIN_CHARS_BY_REALM` requires FIFTEEN characters on the client realm,
- * because that password is single-factor (NIST SP 800-63B-4 §3.1.1.2). A person typing
- * fifteen characters on a phone keyboard into a field they cannot read has no way to find
- * the one wrong character, and their only recovery is the whole string again. We wrote
- * the floor; the reveal is the other half of it.
+ * We ask for passphrases (`lib/authn/password.ts::passwordRule`: three or four unrelated
+ * words). A person typing a long passphrase on a phone keyboard into a field they cannot
+ * read has no way to find the one wrong character, and their only recovery is the whole
+ * string again. The reveal is the other half of asking for length.
  *
  * ## The a11y decision: a STATIC accessible name plus a toggling `aria-pressed`
  *

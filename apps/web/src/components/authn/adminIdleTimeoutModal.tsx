@@ -36,11 +36,15 @@ import { ADMIN_SIGN_IN_PATH, adminAuthn } from "@/lib/authn/adminAuthn";
 import { isSessionGone, isUnreachable } from "@/lib/authn/problems";
 import { markSignedOut } from "@/lib/authn/signedOutNotice";
 import { useCountdown } from "@/lib/authn/useCountdown";
+import type { AuthnSession } from "@/lib/authn/realm";
 import { useIdleTimeout } from "@/lib/authn/useIdleTimeout";
 
 /**
- * 25 minutes to the warning, 5 more to the sign-out — 30 in total, which is exactly
- * `REALM_TIMEOUTS["admin"].idle` in `apps/api/authn/sessions.py`.
+ * The warning shows 5 minutes before the session's own idle bound, and the sign-out lands
+ * exactly on it. The bound is the SERVER'S, read off this session's `SessionOut`
+ * (`idle_timeout_seconds`): 30 minutes normally, 12 hours for an operator who switched
+ * "Stay signed in" on (D-766). A copy of the 30 here would keep warning at 25 minutes on a
+ * session the server allows to idle for twelve hours.
  *
  * The equality is the justification, not a coincidence: see `useIdleTimeout.ts` for why
  * the server's own bound never fires under a polling console, and why this is what makes
@@ -48,10 +52,30 @@ import { useIdleTimeout } from "@/lib/authn/useIdleTimeout";
  * positive is an operator mid-way through a KYC review, and because a warning short enough
  * to miss while making tea is a warning that only ever loses work.
  */
-export const ADMIN_IDLE_WARNING_MS = 25 * 60 * 1000;
 export const ADMIN_IDLE_LOGOUT_MS = 5 * 60 * 1000;
 
-export function AdminIdleTimeoutModal({ enabled }: { enabled: boolean }) {
+/** "30 minutes", "12 hours", "1 hour": an idle bound in words, from the server's seconds. */
+export function idleDurationLabel(idleTimeoutSeconds: number): string {
+  if (idleTimeoutSeconds % 3600 === 0) {
+    const hours = idleTimeoutSeconds / 3600;
+    return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  }
+  const minutes = Math.round(idleTimeoutSeconds / 60);
+  return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+}
+
+/** Idle time before the warning, for a session the server lets idle `idleTimeoutSeconds`. */
+export function idleWarningAfterMs(idleTimeoutSeconds: number): number {
+  return idleTimeoutSeconds * 1000 - ADMIN_IDLE_LOGOUT_MS;
+}
+
+/**
+ * `session` is the realm's restored `SessionOut`, or `null` when there is none — then no
+ * listeners and no timers run, and the idle bound is never read.
+ */
+export function AdminIdleTimeoutModal({ session }: { session: AuthnSession | null }) {
+  const enabled = session !== null;
+  const idleTimeoutSeconds = session?.idle_timeout_seconds ?? 0;
   const [deadline, setDeadline] = useState<number | null>(null);
   const [extending, setExtending] = useState(false);
   /**
@@ -93,7 +117,7 @@ export function AdminIdleTimeoutModal({ enabled }: { enabled: boolean }) {
   }, []);
 
   const { resume } = useIdleTimeout({
-    warningAfterMs: ADMIN_IDLE_WARNING_MS,
+    warningAfterMs: idleWarningAfterMs(idleTimeoutSeconds),
     logoutAfterWarningMs: ADMIN_IDLE_LOGOUT_MS,
     onWarning: () => {
       setFailure(null);
@@ -168,7 +192,8 @@ export function AdminIdleTimeoutModal({ enabled }: { enabled: boolean }) {
         </h2>
         <div id="admin-idle-body" className="mt-3 space-y-3 text-sm text-ink-muted">
           <p>
-            This operator console signs itself out after 30 minutes without activity.{" "}
+            This operator console signs itself out after {idleDurationLabel(idleTimeoutSeconds)}{" "}
+            without activity.{" "}
             {/* `role="timer"` with a polite live region: a countdown that only changes
                 visually is a deadline a screen-reader user cannot see coming. */}
             <span role="timer" aria-live="polite" className="font-semibold tabular-nums text-ink">

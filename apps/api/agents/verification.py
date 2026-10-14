@@ -256,13 +256,19 @@ def _voice_verdict(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapsho
 
 
 def _own_voice_key_verdict(cfg: AgentConfig, snapshot: AgentSnapshot) -> bool | None:
-    """Does the engine hold the agent on our own voice key exactly when we asked (D-688)?
-    True when we asked nothing; None when the engine did not report it."""
+    """Does the engine hold the agent on our own keys exactly as we asked: our voice key
+    (D-688) and our model key with its model (D-764)? True when we asked nothing; None when
+    the engine did not report it."""
     if cfg.engine_own_voice_key is None:
         return True
     if snapshot.engine_own_voice_key is None:
         return None
-    return snapshot.engine_own_voice_key == cfg.engine_own_voice_key
+    if snapshot.engine_own_voice_key != cfg.engine_own_voice_key:
+        return False
+    if not snapshot.engine_own_model_readable:
+        # An engine that reports no model key leaves only the voice key to compare.
+        return None if cfg.engine_own_model else True
+    return snapshot.engine_own_model == cfg.engine_own_model
 
 
 def _greeting_verdict(
@@ -548,6 +554,8 @@ class EngineDrift:
     #: sweep can put it back (`engine_reconciliation`). None where the engine has no switch.
     own_voice_key_applied: bool | None = None
     own_voice_key_expected: bool | None = None
+    #: The model of our own key the agent's settings require (D-764), for the same repair.
+    own_model_expected: str | None = None
 
     @property
     def in_sync(self) -> bool:

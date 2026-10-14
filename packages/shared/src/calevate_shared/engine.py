@@ -28,6 +28,7 @@ from calevate_shared.call_script import NativeStep, opening_line_of
 from calevate_shared.events import (
     CallDirection,
     CallEvent,
+    CallLlmUsage,
     CallQuality,
     CallStatus,
     TranscriptTurn,
@@ -1166,6 +1167,10 @@ DOCUMENT_OCR_MODEL: Final[LlmModelName] = "gemini-2.5-flash"
 #: things up, the planning one takes multi-step requests. Live settings default to these.
 COPILOT_FAST_MODEL_DEFAULT: Final[GoogleDirectModel] = "gemini-2.5-flash-lite"
 COPILOT_PLANNING_MODEL_DEFAULT: Final[GoogleDirectModel] = "gemini-2.5-flash"
+
+#: The model our own Google key runs on ThinnestAI when an agent names none (D-764): one that
+#: can switch thinking off, which no Gemini 3 model can.
+THINNEST_OWN_MODEL_DEFAULT: Final[GoogleDirectModel] = "gemini-2.5-flash-lite"
 
 
 @dataclass(frozen=True, slots=True)
@@ -3146,6 +3151,29 @@ class HandoffSpec(BaseModel):
     brief_url: str | None = None
 
 
+class ByokVoiceTuning(BaseModel):
+    """How a voice of the engine account's OWN voice provider sounds on one agent: speed,
+    volume, emotion, the provider's model and a pronunciation dictionary. Each None leaves the
+    provider's own default. Chosen by an operator (`apps/api/agents/voice_tuning`), checked
+    there against the provider's ranges, and sent only with `AgentConfig.engine_byok_voice_id`.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    speed: Decimal | None = None
+    volume: Decimal | None = None
+    emotion: str | None = None
+    model: str | None = None
+    dictionary_id: str | None = None
+
+    @property
+    def is_empty(self) -> bool:
+        return all(
+            value is None
+            for value in (self.speed, self.volume, self.emotion, self.model, self.dictionary_id)
+        )
+
+
 class AgentConfig(BaseModel):
     """What an agent IS, in our terms. The adapter renders this into the vendor's
     agent object."""
@@ -3192,10 +3220,18 @@ class AgentConfig(BaseModel):
     #: A voice of the engine account's OWN voice provider (bring-your-own-key), set instead
     #: of `engine_voice_id` when the agent speaks on that provider. The two are exclusive.
     engine_byok_voice_id: str | None = None
+    #: How that voice sounds on this agent (`ByokVoiceTuning`); None with no own-key voice.
+    #: Excluded from every dump for `detect_machines`' reason.
+    engine_byok_voice_tuning: ByokVoiceTuning | None = Field(default=None, exclude=True)
     #: Does the agent speak on the engine account's OWN voice key (bring-your-own-key, voice
     #: only)? True for a voice of that key, False for the engine's own voices; None on an
     #: engine with no per-agent switch, which sends nothing (D-688).
     engine_own_voice_key: bool | None = None
+    #: The model of the engine account's OWN language-model key the agent answers with
+    #: (D-764): set, the agent runs on that key (with `engine_own_voice_key`, on our voice key
+    #: too); None, on the engine's own model. Kept off `ModelConfig` for `engine_model_id`'s
+    #: reason.
+    engine_own_model: str | None = None
     #: The client's own engine workspace a NEW vendor agent is created in (`org_…`, D-693),
     #: resolved by `tenancy/engine_workspace.workspace_for_tenant`. None on every engine
     #: without customer workspaces. Excluded from every dump, so every digest over the
@@ -3683,6 +3719,11 @@ class AgentSnapshot(BaseModel):
     #: Whether the engine holds the agent on its account's own voice key (D-688), as read
     #: back; None when the engine has no such switch or did not report it.
     engine_own_voice_key: bool | None = None
+    #: The model of the account's own language-model key the engine holds the agent on
+    #: (D-764); None when it answers on the engine's own model. Meaningful only when
+    #: `engine_own_model_readable`.
+    engine_own_model: str | None = None
+    engine_own_model_readable: bool = False
     #: The speech/model selections THE ENGINE HOLDS, in our own `ModelConfig` vocabulary —
     #: the read half of the BYOK claim in `EngineCapabilities`. Same type going in and
     #: coming out on purpose: a separate "snapshot of models" shape would be a second way
@@ -4776,6 +4817,9 @@ class ExecutionSnapshot(BaseModel):
     #: reported nothing (yet): a call it did not measure, one that never connected, or the
     #: moment a call ends before its figures are ready.
     quality: CallQuality | None = None
+    #: The language-model tokens the call's replies used (D-764), our own model key's
+    #: included. None when the engine reported nothing.
+    llm_usage: CallLlmUsage | None = None
     #: The engine put this call through to a phone rather than an agent answering it (a
     #: number forward): no transcript, and its minutes are priced as forwarded minutes.
     forwarded: bool = False
@@ -5779,6 +5823,7 @@ __all__ = [
     "AgentHosting",
     "AgentSnapshot",
     "AvailableNumber",
+    "ByokVoiceTuning",
     "CallContext",
     "CallHandle",
     "CostBreakdown",
