@@ -146,13 +146,17 @@ describe("the trial chip in the top bar", () => {
     expect(within(panel).getByRole("link", { name: "Add credit" }).getAttribute("href")).toBe(CREDITS);
   });
 
-  it("says the trial has ended once a test-calls trial runs out unpaid", () => {
+  it("says the trial has ended once a test-calls trial runs out unpaid, and goes straight to credits", () => {
     const view = trialView(
       prepaidWallet({ trial: activeTrialBlock({ active: false, status: "expired", days_remaining: null, test_calls_only: true }) }),
     );
     if (view === null) throw new Error("expected an ended trial");
     render(<TrialChipView view={view} creditsHref={CREDITS} />);
-    expect(screen.getByRole("button", { name: /Trial ended/ })).toBeTruthy();
+    // One next step, so the bar item is that step: a link straight to credits, no panel.
+    const chip = screen.getByRole("link", { name: "Free trial ended. Add credit" });
+    expect(chip.getAttribute("href")).toBe(CREDITS);
+    expect(chip.textContent).toContain("Trial ended");
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("never names a supplier or a cost", () => {

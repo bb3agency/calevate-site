@@ -1,9 +1,6 @@
 "use client";
 
 import { Section } from "@/components/console/section";
-import { BadgeIndianRupee, Phone, PhoneCall, Sparkles, SlidersHorizontal } from "lucide-react";
-import type { ReactNode } from "react";
-
 import { formatINR, hasNonZeroDigit } from "@/components/ui";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
@@ -36,33 +33,29 @@ export function WhereItWent({
   drawdown: Drawdown;
   windowDays: number;
 }) {
-  const rows: { key: string; label: string; value: string; icon: ReactNode; hint: string }[] = [
+  const rows: { key: string; label: string; value: string; hint: string }[] = [
     {
       key: "calls",
       label: "Calls",
       value: drawdown.calls_inr,
-      icon: <PhoneCall className="h-4 w-4" aria-hidden />,
       hint: "Outgoing and incoming calls your agents handled",
     },
     {
       key: "number_rental",
       label: "Phone number rental",
       value: drawdown.number_rental_inr,
-      icon: <Phone className="h-4 w-4" aria-hidden />,
       hint: "The monthly rent for your phone numbers",
     },
     {
       key: "ai",
       label: "Extra AI help",
       value: drawdown.ai_assist_inr,
-      icon: <Sparkles className="h-4 w-4" aria-hidden />,
       hint: "Extra dashboard AI you chose to buy",
     },
     {
       key: "adjustments",
       label: "Corrections",
       value: drawdown.adjustments_inr,
-      icon: <SlidersHorizontal className="h-4 w-4" aria-hidden />,
       hint: "Credit we took back to correct an earlier mistake",
     },
   ].filter((row) => hasNonZeroDigit(row.value));
@@ -81,21 +74,15 @@ export function WhereItWent({
         <dl className="space-y-3 text-body">
           {rows.map((row) => (
             <div key={row.key} className="flex items-start justify-between gap-4">
-              <dt className="flex min-w-0 items-start gap-2 text-ink-muted">
-                <span className="mt-0.5 text-brand" aria-hidden>
-                  {row.icon}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-ink">{row.label}</span>
-                  <span className="block text-meta text-ink-faint">{row.hint}</span>
-                </span>
+              <dt className="min-w-0">
+                <span className="block text-ink">{row.label}</span>
+                <span className="block text-meta text-ink-faint">{row.hint}</span>
               </dt>
               <dd className="shrink-0 tabular-nums text-ink">{formatINR(row.value)}</dd>
             </div>
           ))}
           <div className="flex items-start justify-between gap-4 border-t border-line pt-3">
-            <dt className="flex items-center gap-2 font-semibold text-ink">
-              <BadgeIndianRupee className="h-4 w-4 text-brand" aria-hidden />
+            <dt className="font-semibold text-ink">
               Spent in total
             </dt>
             <dd className="shrink-0 font-semibold tabular-nums text-ink">

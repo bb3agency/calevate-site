@@ -21,6 +21,7 @@ import type { Agent } from "@/lib/api/agents";
 import type { CampaignNumber, DltTemplate, useCreateCampaign } from "@/lib/api/campaigns";
 
 import { ConsentProvenanceFields } from "./ConsentProvenance";
+import { LeadPicker } from "./LeadPicker";
 import { ContactEditor } from "./ContactEditor";
 import type { CampaignFormState, ScheduleFormState } from "./campaignForm";
 import { BasicsStep, PaceRows, StartChoice, type ListQuery } from "./NewCampaignSteps";
@@ -76,7 +77,7 @@ export function NewCampaignFlow({
   function firstProblem(): string | null {
     if (form.name.trim().length < 2) return "Give this campaign a name.";
     if (!selectedAgentId) return "Choose the agent that makes these calls.";
-    if (counts.ready === 0) return "Add at least one number we can call.";
+    if (counts.ready === 0 && !form.fromLeads) return "Add at least one number we can call, or choose people from your leads.";
     if (refusal) return refusal;
     if (!form.provenanceAnswered) {
       return "Answer both questions about your list — a campaign without them can't be launched.";
@@ -125,6 +126,7 @@ export function NewCampaignFlow({
       >
         <div className="space-y-6">
           <ContactEditor entries={form.contacts} onChange={form.setContacts} />
+          <LeadsChoice form={form} />
           <ConsentProvenanceFields
             validation={valid}
             idPrefix="new"
@@ -165,5 +167,27 @@ export function NewCampaignFlow({
         ) : null}
       </div>
     </form>
+  );
+}
+
+/**
+ * "From your leads" on the create page. The filter is kept on the form and sent once the
+ * draft exists (`POST …/contacts/from-leads`), beside any pasted list.
+ */
+function LeadsChoice({ form }: { form: CampaignFormState }) {
+  const on = form.fromLeads !== null;
+  return (
+    <div className="space-y-3 border-t border-line pt-4">
+      <label className="flex items-center gap-2 touch:min-h-11">
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(e) => form.setFromLeads(e.target.checked ? { statuses: [], sources: [] } : null)}
+          className="h-4 w-4 rounded border-line accent-brand"
+        />
+        <span className="text-body text-ink">Also call people from your leads</span>
+      </label>
+      {form.fromLeads && <LeadPicker value={form.fromLeads} onChange={form.setFromLeads} />}
+    </div>
   );
 }

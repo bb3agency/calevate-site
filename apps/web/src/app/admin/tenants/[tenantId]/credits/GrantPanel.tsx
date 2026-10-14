@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Gift } from "lucide-react";
 
 import {
   FIELD,
@@ -266,7 +265,6 @@ function Granted({ result, clientName }: { result: GrantResult; clientName: stri
       className="mt-4"
     >
       <p className="mt-1 text-meta opacity-90">
-        <Gift aria-hidden className="mr-1 inline h-3.5 w-3.5" />
         Balance is now {formatINR(result.balance_inr)}. Lifetime: paid{" "}
         {formatINR(result.paid_inr)}, given {formatINR(result.granted_inr)}. The entry is
         on the ledger under its own reason, and the audit row carries your words.

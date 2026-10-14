@@ -562,7 +562,7 @@ describe("the panel", () => {
       // person can act on lives.
       expect(
         screen.getAllByText(
-          "The connection closed before the assistant finished answering.",
+          "The connection closed before Pip finished answering.",
         ).length,
       ).toBe(1),
     );
@@ -830,7 +830,7 @@ describe("a proposal", () => {
 
     expect(
       await screen.findByText(
-        "This suggestion has expired. Ask the assistant again — nothing was changed.",
+        "This suggestion has expired. Ask Pip again — nothing was changed.",
       ),
     ).toBeTruthy();
     expect(
@@ -990,10 +990,10 @@ describe("a proposal", () => {
     stubCopilot({ chunks: proposalChunks() });
     const view = renderPanel();
     await ask("stop the campaign");
-    // Pausing a campaign stops live dialling — UX-DOCTRINE §4's rose, never the brand
+    // Pausing a campaign stops live dialling — UX-DOCTRINE §4's danger token, never the brand
     // green, so an eye scanning the panel cannot mistake it for an ordinary save.
     const stop = await screen.findByRole("button", { name: /^Confirm — / });
-    expect(stop.className).toContain("bg-rose-600");
+    expect(stop.className).toContain("bg-danger");
     view.unmount();
 
     stubCopilot({
@@ -1113,7 +1113,7 @@ describe("the fallback surface", () => {
   async function openDock() {
     await act(async () => {
       fireEvent.click(
-        screen.getByRole("button", { name: "Ask about this screen" }),
+        screen.getByRole("button", { name: "Ask Pip" }),
       );
     });
   }
@@ -1162,7 +1162,7 @@ describe("the fallback surface", () => {
     // The header names the screen — "I can see you're on the billing screen".
     expect(screen.getAllByText("Billing").length).toBe(1);
     expect(
-      screen.getByText(/hasn't told the assistant what it shows/),
+      screen.getByText(/hasn't told me what it shows/),
     ).toBeTruthy();
 
     // THE POINT OF THE WHOLE CHANGE: a read-tool question is asked and answered from a
@@ -1762,7 +1762,7 @@ describe("the assistant inside a view-as session", () => {
     );
     await act(async () => {
       fireEvent.click(
-        screen.getByRole("button", { name: "Ask about this screen" }),
+        screen.getByRole("button", { name: "Ask Pip" }),
       );
     });
   }
@@ -1815,11 +1815,11 @@ describe("the assistant inside a view-as session", () => {
     await openDockFor(VIEW_AS);
     await act(async () => {
       fireEvent.click(
-        screen.getByRole("button", { name: "Close the assistant" }),
+        screen.getByRole("button", { name: "Close Pip" }),
       );
     });
     expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Ask about this screen" }),
+      screen.getByRole("button", { name: "Ask Pip" }),
     );
   });
 });
@@ -1972,7 +1972,7 @@ describe("telling the two realms apart", () => {
     stubCopilot({ chunks: [] });
     const { unmount } = dock("admin");
     const adminLauncher = screen.getByRole("button", {
-      name: "Ask about this screen",
+      name: "Ask Pip",
     });
     expect(adminLauncher.className).toContain("bg-slate-900");
     expect(adminLauncher.className).not.toContain("bg-brand-strong");
@@ -1980,7 +1980,7 @@ describe("telling the two realms apart", () => {
 
     dock("client");
     const clientLauncher = screen.getByRole("button", {
-      name: "Ask about this screen",
+      name: "Ask Pip",
     });
     expect(clientLauncher.className).toContain("bg-brand-strong");
     expect(clientLauncher.className).not.toContain("bg-slate-900");
@@ -1991,14 +1991,14 @@ describe("telling the two realms apart", () => {
     dock("admin");
     await act(async () => {
       fireEvent.click(
-        screen.getByRole("button", { name: "Ask about this screen" }),
+        screen.getByRole("button", { name: "Ask Pip" }),
       );
     });
     // FAILS IF: the panel heading is shared between the realms again — a screen-reader
     // user then has nothing at all, because the slate is `aria-hidden` by nature.
     expect(
       await screen.findByRole("heading", {
-        name: "Ask about this admin screen",
+        name: "Pip · admin console",
       }),
     ).toBeTruthy();
   });

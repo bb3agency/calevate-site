@@ -135,6 +135,7 @@ source_modules = [
     "apps.api.integrations",
     "apps.api.kb",
     "apps.api.legal",
+    "apps.api.live",
     "apps.api.ops",
     "apps.api.quality",
     "apps.api.reliability",

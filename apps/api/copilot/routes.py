@@ -63,6 +63,7 @@ from apps.api.copilot import (
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot.context import live_state_block, viewer_for
 from apps.api.copilot.fair_use import require_copilot_fair_use
+from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.copilot.sanitize import assert_redacted
 from apps.api.copilot.schemas import (
     CopilotActionOut,
@@ -706,8 +707,8 @@ async def ask_copilot(
             ProblemError(
                 kind="dependency",
                 code="copilot_interrupted",
-                title="The assistant stopped part-way",
-                detail="The assistant did not finish answering.",
+                title=f"{ASSISTANT_NAME} stopped part-way",
+                detail=f"{ASSISTANT_NAME} did not finish answering.",
                 remediation="Ask again — nothing on your screen was changed.",
             )
         )
@@ -904,9 +905,9 @@ async def load_copilot_conversation(
         raise ProblemError(
             kind="permission",
             code="copilot_conversation_not_yours",
-            title="The assistant's conversation belongs to a person",
+            title=f"{ASSISTANT_NAME}'s conversation belongs to a person",
             detail="This credential is not a client-realm user, so it has no conversation.",
-            remediation="Sign in to your own dashboard and open the assistant there.",
+            remediation=f"Sign in to your own dashboard and open {ASSISTANT_NAME} there.",
         )
     run_started_at = await session_run.current_run_start(
         realm="client", subject_id=principal.user_id
@@ -961,9 +962,9 @@ async def clear_copilot_conversation(
         raise ProblemError(
             kind="permission",
             code="copilot_conversation_not_yours",
-            title="The assistant's conversation belongs to a person",
+            title=f"{ASSISTANT_NAME}'s conversation belongs to a person",
             detail="This credential is not a client-realm user, so it has no conversation.",
-            remediation="Sign in to your own dashboard and open the assistant there.",
+            remediation=f"Sign in to your own dashboard and open {ASSISTANT_NAME} there.",
         )
     cleared = await transcript.clear(session, realm=transcript.CLIENT, owner_id=principal.user_id)
     return CopilotConversationClearedOut(cleared=cleared)
@@ -981,8 +982,8 @@ def _client_ids(principal: Principal) -> tuple[UUID, UUID]:
             kind="permission",
             code="copilot_activity_not_yours",
             title="This belongs to someone else",
-            detail="Only the person who used the assistant can see what it did for them.",
-            remediation="Sign in to your own dashboard and open the assistant there.",
+            detail=f"Only the person who used {ASSISTANT_NAME} can see what it did for them.",
+            remediation=f"Sign in to your own dashboard and open {ASSISTANT_NAME} there.",
         )
     return principal.tenant_id, principal.client_user_id
 

@@ -166,7 +166,6 @@ function PledgeCard({
       <blockquote className="whitespace-pre-line rounded-md bg-surface-muted p-4 text-sm text-ink">
         {pledge.pledge_text}
       </blockquote>
-      <p className={FIELD_HINT}>Version {pledge.version}.</p>
       {pledge.is_current ? (
         <p className="mt-3 text-sm text-ink">
           Accepted

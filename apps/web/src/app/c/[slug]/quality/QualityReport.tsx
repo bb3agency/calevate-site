@@ -6,6 +6,7 @@ import { Metric } from "@/components/console/metric";
 import { Section } from "@/components/console/section";
 import { Disclosure } from "@/components/ui";
 import { BASIS_NOTE, renderMeasurement, type QaReport } from "@/lib/api/quality";
+import { StatusPill } from "@/components/console/statusPill";
 
 type ScenarioRow = NonNullable<QaReport["scenario_classes"]>[number];
 type LimitRow = NonNullable<QaReport["known_limits"]>[number];
@@ -19,17 +20,11 @@ type LimitRow = NonNullable<QaReport["known_limits"]>[number];
 export function VerdictPill({ report }: { report: QaReport }) {
   const clean = report.defects === 0;
   return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-meta font-medium ${
-        clean
-          ? "border-brand/30 bg-brand-soft text-brand-strong"
-          : "border-danger-line bg-danger-soft text-danger"
-      }`}
-    >
+    <StatusPill tone={clean ? "ok" : "stop"}>
       {clean
         ? `No defects found across ${report.scenarios_total} scenarios`
         : `${report.defects} of ${report.scenarios_total} scenarios found a defect`}
-    </span>
+    </StatusPill>
   );
 }
 

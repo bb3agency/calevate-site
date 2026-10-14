@@ -106,7 +106,7 @@ export function SuppressedList({
           {entry.scope === "global" && (
             // Shown, never removable: it is not this account's entry, and hiding it would
             // leave a client wondering why a number they can't find is never dialled.
-            <span className="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-muted">
+            <span className="text-meta text-ink-muted">
               platform-wide
             </span>
           )}

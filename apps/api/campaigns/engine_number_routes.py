@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.first_payment import has_paid
 from apps.api.billing.number_rental import RentalOutcome
 from apps.api.campaigns import engine_numbers
 from apps.api.campaigns.engine_business_details import (
@@ -37,6 +38,7 @@ from apps.api.campaigns.engine_number_purchase import (
 )
 from apps.api.campaigns.number_catalog import NumberDirection
 from apps.api.compliance.audit import write_audit
+from apps.api.compliance.trial_access import read_trial_access
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
@@ -61,14 +63,34 @@ def _off() -> ProblemError:
     return ProblemError.not_found("Number purchase")
 
 
+TrialStage = Literal["running", "ended"]
+
+
+async def _trial_stage(session: AsyncSession, tenant_id: UUID) -> TrialStage | None:
+    """The restricting trial (D-697), judged by the same rule that stops its test calls."""
+    access = await read_trial_access(session, tenant_id=tenant_id)
+    if access is None:
+        return None
+    return "ended" if access.ended is not None else "running"
+
+
 class OwnNumbersStatusOut(BaseModel):
     """Where this account stands on the way to buying a number, in the screen's order."""
 
     model_config = ConfigDict(extra="forbid")
 
-    #: False on a deployment where numbers are not bought here; every other field is empty.
+    #: False on a deployment where numbers are not bought here; every journey field is empty.
     available: bool
-    #: `workspace` (being set up), `verify_business`, `business_details`, `price`, `ready`.
+    #: The account has made its first payment (`billing/first_payment.has_paid`). Its own
+    #: calling account is set up on that payment, so an unpaid account that never had a trial
+    #: is waiting on credit, not on us.
+    paid: bool
+    #: The free trial that restricts this account to test calls (`trial_access.
+    #: restricting_trial`): `running` while test calls may still be placed, `ended` once its
+    #: days or free minutes are used. None when nothing restricts the account.
+    trial: TrialStage | None
+    #: `add_credit` (on a trial), `workspace` (being set up), `verify_business`,
+    #: `business_details`, `price`, `ready`.
     step: PurchaseStep | None
     blocker: str | None
     #: `pending`, `active`, `plan_limit`, `failed`, ... — `active` means set up.
@@ -94,9 +116,13 @@ class OwnNumbersStatusOut(BaseModel):
 )
 async def own_numbers_status(session: Session, principal: NumberViewer) -> OwnNumbersStatusOut:
     assert principal.tenant_id is not None
+    paid = await has_paid(session, tenant_id=principal.tenant_id)
+    trial = await _trial_stage(session, principal.tenant_id)
     if not engine_has_workspaces():
         return OwnNumbersStatusOut(
             available=False,
+            paid=paid,
+            trial=trial,
             step=None,
             blocker=None,
             account_setup=None,
@@ -113,6 +139,8 @@ async def own_numbers_status(session: Session, principal: NumberViewer) -> OwnNu
     state = await read_workspace_state(session, principal.tenant_id)
     return OwnNumbersStatusOut(
         available=True,
+        paid=paid,
+        trial=trial,
         step=readiness.step,
         blocker=readiness.blocker,
         account_setup=readiness.workspace_status,

@@ -172,7 +172,7 @@ Models (per-agent config, BYOK):
   gate 4). **(b)** Microsoft's Standard (regional) matrix does not offer `gpt-4o-mini` in
   `southindia` at all, so the residency posture and the shipped default model were in
   direct conflict (gate 20b). The recovered ocean hop is an ESTIMATE — this repo's own
-  figure is ~180–230 ms (`apps/api/ops/engine_latency.py`) — measured against a budget
+  figure was ~180–230 ms, an internet estimate never measured — set against a budget
   nobody has measured, so the upside is unproved in both terms. **The cost is not**: the
   client-facing India warranty is WITHDRAWN (SECURITY-COMPLIANCE §4), the caller's words
   now leave India as they are spoken rather than only in an archived recording, and
@@ -305,10 +305,34 @@ future second adapter cheap to add (BRD R-02).
 
 ## 4. Latency Budget (the governing constraint)
 
-> **On ThinnestAI every stage below runs inside the vendor.** We configure the agent and
-> receive results; ThinnestAI reports no stage timings, so no call on this engine writes
-> `call_engine_latency`. The budget below is the vendor-floor arithmetic, unmeasured on a
-> real call (A-5 in BRD §10).
+> **WHAT IS MEASURED NOW (D-770, 14 Oct 2026).** ThinnestAI hosts the whole call and reports
+> no per-stage timings, so the stage budget below cannot be checked against anything and
+> its code is gone: `LatencyBudget`, the per-stage constants and `GET /v1/ops/engine-latency`
+> were removed with the Pipecat loop that fed them (D-763), and `call_engine_latency` has no
+> writer (it stays until its drop migration, hard rule 8). What the platform DOES report,
+> once per call, is `quality` on `call.completed`, `call.analysed` and Get Call:
+> `responseMs` (caller falls silent → the agent's first audio) and `firstTokenMs` (the
+> model's share), each as median/p90/max, plus long silences, interruptions, model errors
+> and rescues; and a live `call.problem` of kind `slow_reply` when a reply takes more than
+> 5 s to start (VERIFIED-VENDOR-DOCS, `thinnest-findings/mirror/snapshots/2026-10-13/pages/
+> api-reference/calls/get-call.md:300-307,327-335,984-1080`). We store it on
+> `calls.engine_quality` (D-736) and `call_engine_signals`.
+>
+> **The one target is `reply_time_target_ms`** (console setting, default **500 ms**, the
+> founder's end-to-end goal of 27 Aug 2026), judged against each call's p90 `responseMs`: a
+> call is over target when more than one reply in ten kept the caller waiting longer. The
+> admin **Voice response time** screen (`/admin/ops/reply-times`, `GET /v1/ops/reply-times`,
+> `apps/api/ops/reply_times.py`) reports it across every client: per window (1/7/30/90
+> days) the calls measured, the median of the calls' own median reply, the 90th percentile
+> of the calls' own p90 (withheld below ten calls), the model's share, calls over target,
+> slow-reply problems, model errors, rescues, interruptions and long silences, broken down
+> by client, agent, Clear/Studio rung and IST day, with the slowest calls listed. The
+> healer counts a call as slow when its p90 reply passes 2.5 s or it raised `slow_reply`.
+> `responseMs` is measured inside the platform, not in the caller's ear, so it is still not
+> the stopwatch figure gate 4 asks for.
+>
+> Everything from here to §5 is the **Bolna/Pipecat-era stage budget**, kept as the record
+> of the reasoning behind the 500 ms goal; it describes no code that still exists.
 
 **Voice-to-voice target: p50 ≤ 500ms** — from the caller finishing their sentence to
 hearing the reply begin. Set by the founder on 27 Aug 2026; it replaces "p50 ≤ 1.1s, p95 ≤
@@ -321,9 +345,9 @@ reachable.** What is true after this change is narrower and is the whole of §4:
 > PRETENDS OTHERWISE.** Allocating every stage at the FASTEST figure its own vendor
 > publishes, the pipeline floors at **600ms** against a 500ms target — a **100ms shortfall
 > before any stage misses its own best case**. `calevate_shared.engine.
-> latency_budget_composes()` returns **False**, `voice_to_voice_gap_ms()` is **+100**, and
-> `GET /v1/ops/engine-latency` ships the shortfall on every report so an operator sees it
-> on the console rather than in a CI log. §4b lists what would have to change; the target
+> latency_budget_composes()` returned **False** and `voice_to_voice_gap_ms()` **+100**, and
+> the former `GET /v1/ops/engine-latency` shipped the shortfall on every report (both
+> removed by D-770). §4b lists what would have to change; the target
 > was NOT relaxed to make the arithmetic work, which is the one response the founder ruled
 > out.
 
@@ -421,11 +445,10 @@ Checked in the code this session rather than recalled:
   `default: 250` (`create.md:654-657`) against *"A buffer of 100–150 characters is typical"*
   and *"Smaller buffers start audio sooner"* (`latency.md:89`).
 
-**The measurement mechanism exists for three of the stages.** `stt_ms`, `llm_ttft_ms` and
-`tts_ttfa_ms` are captured per TURN in `call_engine_latency.turns`, with
-`time_to_first_audio_ms` and the engine's `region` code per call, and
-`GET /v1/ops/engine-latency` reports p50/p95/max/breach grouped by (engine, region) — which
-turns the geography question into a `GROUP BY` instead of an argument. **No mechanism exists
+**The measurement mechanism existed for three of the stages until D-770.** `stt_ms`,
+`llm_ttft_ms` and `tts_ttfa_ms` were captured per TURN in `call_engine_latency.turns` and
+reported by the former `GET /v1/ops/engine-latency`; nothing has written that table since
+Pipecat left (D-763), and the per-call reply time above replaced the report. **No mechanism exists
 for endpointing or retrieval**: the engine reports no endpointing figure (the wait is inside
 `time_to_first_audio` and outside `audio_to_text_latency`, which starts at audio in), and the
 in-call RAG endpoint is ours and uninstrumented. `calls.latency` was DROPPED (migration
@@ -1312,6 +1335,51 @@ DLQ on repeated failure; pipeline lag is a monitored SLO
 terminal on the first attempt, so a worker earns the ladder above only by raising
 `arq.Retry`. Full note and the incident it caused:
 FLOWS §6.
+
+## 8a. Live updates in the consoles (D-774)
+
+D-24 chose polling for freshness and named server-sent events as the upgrade; D-774 is the
+upgrade, with polling kept underneath as the floor.
+
+- **Capture at commit, not at each write site.** `apps/api/live/capture.py` listens on the
+  engine (`after_cursor_execute`) for INSERT/UPDATE/DELETE targets that touched a row, keeps
+  their TOPICS on the session, and hands them over in `after_commit`; a rollback discards
+  them. `apps/api/live/topics.TABLE_TOPICS` maps every table to a topic (calls, leads,
+  campaigns, callbacks, knowledge_gaps, knowledge, wallet, agents, numbers, dnc, account,
+  integrations, assistant, quality, healer, alerts, platform) or lists it in `QUIET_TABLES`
+  with a reason; `tests/live_updates_test.py` holds that against the migrated database.
+  Installed by the API and the workers at startup, never by voice-runtime (hard rule 3).
+- **Publish after commit, as a hint.** `live/publish.py` sends one pipeline of Redis
+  `PUBLISH`es: the tenant's channel gets `{topic, at}`, the operator channel gets
+  `{topic, at, tenant_id}`. No row ids, names, numbers, amounts or text (hard rule 6). A
+  failed publish is logged (`live_publish_failed`, recorder `live_publish_failed`) and
+  swallowed; the write has already committed. Redis pub/sub is not a broker here: nothing
+  depends on delivery.
+- **Serve one stream per realm.** `GET /v1/live` (`org:read`, any realm, so a view-as
+  operator hears the viewed account) subscribes to `calevate:live:tenant:<id>` only;
+  `GET /v1/admin/live` (`org:read`, admin realm) to the operator channel. One pattern
+  subscription per process (`live/hub.py`) fans out to bounded per-stream queues; an
+  overflow or a lost subscription becomes `resync`. Every 20 s the stream re-checks its
+  caller with `core.auth.still_entitled`, which reads the session row without sliding the
+  idle window or treating a rotated cookie as a replay (`authn.sessions.session_still_live`)
+  and re-reads membership, role and grant; it ends after 30 minutes and on SIGTERM
+  (`core.bootstrap.on_exit_signal`) so a deploy's drain is not held open. At most eight
+  streams per person per process. FastAPI's SSE response sends `X-Accel-Buffering: no` and a
+  keep-alive comment every 15 s, inside nginx's 60 s read timeout.
+- **Refetch in the browser.** `apps/web/src/lib/live/` opens the stream once per shell
+  (`components/live/LiveUpdates.tsx`), maps topics to TanStack query families
+  (`topics.ts`, the one map; `tests/liveTopics.test.ts` fails on a query family with no
+  topic and pins the topic list to the server's) and invalidates them, coalesced over
+  400 ms (1.5 s on the operator stream). `ready` and `resync` refetch everything on screen;
+  drops reconnect with full-jitter backoff (1 s to 30 s); a hidden tab lets go after 30 s.
+  While the stream is healthy `livePoll` stretches feed intervals to a 5-minute safety
+  poll; when it is down they return to their own.
+- **Motion.** A row or item that arrives live enters with `live-enter` (220 ms fade and
+  4 px drop) and a table row also takes the `value-flash` tint; removed table rows fade
+  out over 150 ms; a `StatusPill` and a `Metric` mark a changed value; nothing moves on
+  first load or when a page is replaced rather than continued; reduced motion makes every
+  update instant. A reader scrolled away from a table's top gets the `NewItemsPill`
+  instead of moved content.
 
 ## 9. Metering & Billing
 

@@ -368,6 +368,37 @@
 }
 
 /*
+ * SOMETHING THAT ARRIVED LIVE (D-774): a row, a list item or a notice the change stream
+ * brought, never one that was there when the screen opened (`components/live/arrivals.ts`
+ * decides). A 220 ms fade with a 4px drop, ease-out. Reduced motion: no animation at all,
+ * the item is simply there. `live-arrive` adds the value-flash tint for a table row.
+ */
+@keyframes live-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@utility live-enter {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: live-enter 220ms var(--ease-out-strong) both;
+  }
+}
+
+@utility live-arrive {
+  @media (prefers-reduced-motion: no-preference) {
+    animation:
+      live-enter 220ms var(--ease-out-strong) both,
+      value-flash 1200ms var(--ease-out-strong);
+  }
+}
+
+/*
  * THE ASSISTANT'S ANSWER ARRIVING (`components/copilot/answerText.tsx`). Each new block
  * fades in once: opacity with a 2px blur and lift, 200 ms. Only under no-preference, so
  * reduced motion shows the text at once; `both` keeps a delayed block hidden until its turn.
@@ -730,7 +761,7 @@ html:has([data-marketing-root]) body {
  * ADDITIVE and SCOPED. Every rule below is under `[data-marketing-root]`, the marker
  * only the marketing homepage renders, so none of it can reach the /c or /admin app
  * shells — the same containment the scrollbar rules above rely on. It defines NO new
- * design token and hardcodes NO ink or surface colour: the decorative glow, grid and
+ * design token and hardcodes NO ink or surface colour: the decorative grid and
  * ring tints are DERIVED from the brand tokens with `color-mix`, so a rebrand moves
  * them too, and they are declared once per theme so both light and dark stay correct.
  *
@@ -740,30 +771,6 @@ html:has([data-marketing-root]) body {
  * page is complete and good-looking with every animation frozen at rest.
  */
 [data-marketing-root] {
-  /*
-   * ⚠ THESE TWO WERE 26% AND 20% AND WERE NEVER ONCE RENDERED, WHICH IS WHY THEY WERE
-   * TOO STRONG. The layer that carries them sat below the text (`z-below`) inside a section that was not
-   * a stacking context, so it escaped to the root and painted BEHIND the marketing
-   * root's own `bg-app` — the hero's whole decorative layer, grid and glows alike, has
-   * been invisible for as long as it has existed. `isolate` on the three call sites
-   * fixes that; these values are what the fix exposed.
-   *
-   * The numbers are a MEASURED bound, not taste. Composited over `--app` at their old
-   * strength, where the two blobs overlap, the ground goes to #9ed2b3 — on which
-   * `--text-muted` is 4.45:1 (below WCAG 1.4.3 AA's 4.5:1) and `--text-faint` is
-   * 2.79:1. At 18%/13% the worst overlap is #badfc9: `--text-muted` 5.23:1 and
-   * `--text` 12.06:1, both clear. `--text-faint` is 3.28:1 there and CANNOT be made to
-   * pass by dimming — it is 4.56:1 on flat `--app` to begin with, so any tint at all
-   * takes it under; the answer is that faint ink does not sit on a tinted ground, which
-   * is why the hero's audience line moved up a level (`hero.tsx`).
-   *
-   * None of this is reachable by the browser axe gate: the glow is a SIBLING layer, not
-   * an ancestor of the text, so axe resolves the background to `--app` and reports a
-   * pass. That is the same blind spot the gate's own header describes from the other
-   * side, and it is why the bound is computed here rather than waited for.
-   */
-  --mk-glow-a: color-mix(in oklab, var(--brand-bright) 18%, transparent);
-  --mk-glow-b: color-mix(in oklab, var(--brand-strong) 13%, transparent);
   /*
    * THE GRID'S LINE COLOUR IS THE PAGE'S OWN HAIRLINE, THINNED.
    *
@@ -784,30 +791,11 @@ html:has([data-marketing-root]) body {
 }
 
 .dark [data-marketing-root] {
-  --mk-glow-a: color-mix(in oklab, var(--brand-bright) 20%, transparent);
-  --mk-glow-b: color-mix(in oklab, var(--brand) 16%, transparent);
   /* Lifted against the dark ground. `--line` (#1e293b) sits much closer to `--app`
      (#020617) than it does to #fafafa in light, so the light palette's 62% leaves a
      lattice that is present in the pixels and not visible on a screen; 88% is what the
      dark screenshot of the hero actually showed a grid at. */
   --mk-grid-line: color-mix(in oklab, var(--line) 88%, transparent);
-}
-
-/* A soft out-of-focus colour field. Position and size come from Tailwind utilities at
-   the call site; this class only paints and blurs it. `pointer-events: none` so it can
-   never intercept a click meant for the content it sits behind. */
-[data-marketing-root] .mk-blob {
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(64px);
-  pointer-events: none;
-  z-index: var(--z-base);
-}
-[data-marketing-root] .mk-blob--a {
-  background: var(--mk-glow-a);
-}
-[data-marketing-root] .mk-blob--b {
-  background: var(--mk-glow-b);
 }
 
 /*
@@ -889,18 +877,6 @@ html:has([data-marketing-root]) body {
 @keyframes mk-bar {
   0%, 100% { transform: scaleY(0.3); }
   50% { transform: scaleY(1); }
-}
-
-/* Slow vertical drift for the decorative blobs. Two speeds so paired blobs do not move
-   in lockstep. The ambient loops below keep the keyword `ease-in-out`, not the strong
-   token: a strong curve dwells at each extreme and turns a breathing oscillation into a
-   stop-start jerk, whereas the gentle curve is close to a sine. */
-[data-marketing-root] .mk-float { animation: mk-float 11s ease-in-out infinite; }
-[data-marketing-root] .mk-float--slow { animation: mk-float 16s ease-in-out infinite; }
-
-@keyframes mk-float {
-  0%, 100% { transform: translate3d(0, 0, 0); }
-  50% { transform: translate3d(0, -16px, 0); }
 }
 
 /* The live pip on the "answering" panel — a soft expanding ring. */

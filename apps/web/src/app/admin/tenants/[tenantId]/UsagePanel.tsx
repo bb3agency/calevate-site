@@ -1,5 +1,6 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import Link from "next/link";
 
 import { MetricRow } from "@/components/admin/kit";
@@ -53,7 +54,7 @@ export function UsagePanel({ tenantId }: { tenantId: string }) {
               hint="Calls and the AI we absorb"
             />
             <Metric
-              label="AI assistant"
+              label={ASSISTANT_NAME}
               value={all ? formatINR(all.assistant_inr) : "—"}
               hint={all ? formatCountOf(all.assistant_requests, "action") : undefined}
             />

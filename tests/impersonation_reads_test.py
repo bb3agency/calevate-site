@@ -298,16 +298,14 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "many of them fire with no tenant in scope to write down. So there is no "
         "client-realm counterpart for a support person to be looking at alongside it, and "
         "a view-as session loses nothing by never reaching it. The same argument as "
-        "/v1/ops/engine-latency below, one step stronger: that board at least aggregates "
+        "/v1/ops/reply-times below, one step stronger: that board at least aggregates "
         "tenants' calls, and this one has no tenant axis to aggregate."
     ),
-    "/v1/ops/engine-latency": (
-        "the fleet-wide engine latency board (D-445) — superadmin surface. It aggregates "
-        "every tenant's calls to answer one question about OUR infrastructure (what the "
-        "US-hosted orchestrator costs a South-India model in time-to-first-token), so it "
-        "is not a view of any one client and there is nothing here for a support person "
-        "to be looking at ALONGSIDE a client. Impersonation shows a client's own screen; "
-        "this screen has no client-realm counterpart to show."
+    "/v1/ops/reply-times": (
+        "reply times across every client (D-770) — admin console, cross-client. It ranks "
+        "clients and agents against each other, so it is not a view of any one client; "
+        "a support person opens one listed call through view-as, which is that client's "
+        "own call screen."
     ),
     "/v1/ops/secrets": (
         "installed credentials — superadmin surface, and the one list a view-as session "

@@ -17,6 +17,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Final
 
+from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.copilot.navigation import OPEN_SCREEN_TOOL_NAME, NavigationRefusedError
 from apps.api.copilot.prompt import function_tool
 from apps.api.copilot.schemas import CopilotNavigateEvent
@@ -65,9 +66,9 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
     ),
     AdminScreen(
         "/admin/assistant",
-        "Assistant",
+        ASSISTANT_NAME,
         None,
-        "This assistant's conversation and everything it did, with Undo.",
+        f"{ASSISTANT_NAME}'s conversation (the assistant) and everything it did, with Undo.",
         "copilot:admin",
     ),
     AdminScreen(
@@ -120,10 +121,10 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "ops:manage",
     ),
     AdminScreen(
-        "/admin/ops/engine-latency",
+        "/admin/ops/reply-times",
         "Voice response time",
         "Platform",
-        "The voice response-time report.",
+        "How long callers waited for replies, by client, agent, voice and day.",
         "ops:manage",
     ),
     AdminScreen(

@@ -1,5 +1,6 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 
@@ -18,7 +19,7 @@ import { useAdminAccess } from "../access";
 export default function AdminAssistantPage() {
   const session = useMemo(() => adminSession(), []);
   const router = useRouter();
-  const access = useAdminAccess("copilot:admin", "use the assistant");
+  const access = useAdminAccess("copilot:admin", `use ${ASSISTANT_NAME}`);
   const onNavigate = useCallback(
     (destination: Destination) => {
       const path = resolveAdminDestination(destination.route);

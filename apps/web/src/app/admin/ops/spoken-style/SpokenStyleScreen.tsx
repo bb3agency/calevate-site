@@ -35,6 +35,8 @@ import {
   type StyleEntry,
   type StyleValue,
 } from "@/lib/api/spokenStyle";
+import { StatusPill } from "@/components/console/statusPill";
+import type { NoticeTone } from "@/components/ui";
 
 /** The language the screen opens on: Telugu is the product's first language. */
 const FIRST_LANGUAGE = "te-IN";
@@ -45,11 +47,10 @@ const STATUS_LABELS: Record<StyleEntry["status"], string> = {
   retired: "Retired",
 };
 
-const CHIP = "inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-xs font-medium";
-const CHIP_TONE: Record<StyleEntry["status"], string> = {
-  approved: "border-brand text-ink",
-  needs_review: "border-warn text-ink",
-  retired: "border-line text-ink-muted",
+const STATUS_TONES: Record<StyleEntry["status"], NoticeTone> = {
+  approved: "ok",
+  needs_review: "warn",
+  retired: "neutral",
 };
 
 /** "Caller: ..." / "Agent: ..." lines, as an example is edited, to and from turns. */
@@ -265,9 +266,9 @@ function EntryRow({
             <span className="ml-2 text-meta text-ink-muted">· in every agent&apos;s instructions</span>
           ) : null}
         </p>
-        <span className={`${CHIP} ${lookup(CHIP_TONE, entry.status) ?? ""}`}>
+        <StatusPill tone={lookup(STATUS_TONES, entry.status) ?? "neutral"}>
           {lookup(STATUS_LABELS, entry.status) ?? entry.status}
-        </span>
+        </StatusPill>
         {entry.unpublished ? <span className="text-meta text-ink-muted">Not published yet</span> : null}
       </div>
       {entry.status !== "retired" && !editing && (

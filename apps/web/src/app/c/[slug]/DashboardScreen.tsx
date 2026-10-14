@@ -7,7 +7,8 @@ import { Section } from "@/components/console/section";
 import { Metric, MetricRow } from "@/components/console/metric";
 import { useAgentStats, useAgents } from "@/lib/api/agents";
 import { useAttention } from "@/lib/api/attention";
-import { useCalls, useDashboard, useUsage } from "@/lib/api/hooks";
+import { useCampaigns } from "@/lib/api/campaigns";
+import { useCalls, useDashboard, useUsage, useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { activeTrial, trialEndsAt, useWallet } from "@/lib/api/wallet";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -78,6 +79,11 @@ export function DashboardScreen({ slug }: { slug: string }) {
   const attention = useAttention(session);
   const agents = useAgents(session);
   const agentStats = useAgentStats(session);
+  // "This week" offers only the actions this reader may take; the endpoints still refuse.
+  const campaigns = useCampaigns(session);
+  const creditAccess = useWriteAccess(session, "org:manage", "add credit");
+  const agentAccess = useWriteAccess(session, "org:manage", "create an agent");
+  const campaignAccess = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
 
   /*
    * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
@@ -239,13 +245,17 @@ export function DashboardScreen({ slug }: { slug: string }) {
         href={(path) => href(`/c/${slug}${path}`)}
       />
 
-      {/* The week read as sentences: how busy, who was missed, how much was handled,
-          whether the agents are on, how long the credit lasts. */}
+      {/* The week in three figures, whether the agents are on, and what to do next. */}
       <WeekRecap
         data={data}
-        usage={usage}
         agents={agents.data}
-        wallet={wallet}
+        wallet={wallet.data}
+        campaigns={campaigns.data}
+        access={{
+          addCredit: creditAccess.allowed,
+          createAgent: agentAccess.allowed,
+          runCampaigns: campaignAccess.allowed,
+        }}
         href={(path) => href(`/c/${slug}${path}`)}
       />
 
@@ -289,8 +299,8 @@ export function DashboardScreen({ slug }: { slug: string }) {
       </MetricRow>
 
       {/* An unanswered question recurs on every future call until it is taught, so it
-          sits high, across ALL the org's agents. It renders its own empty state. */}
-      <KnowledgeGaps />
+          sits high, across ALL the org's agents — and only when there is one to teach. */}
+      <KnowledgeGaps hideWhenClear />
 
       <div className="grid items-start gap-10 lg:grid-cols-12 lg:gap-12">
         <div className="space-y-10 lg:col-span-8">

@@ -8,7 +8,8 @@ import type { LegalReadiness, ReadinessBlocker } from "@/lib/api/agreements";
 import { useClientRealm } from "@/lib/api/session";
 
 import { AcceptPanel } from "./AcceptPanel";
-import { DocumentRows, TonePill } from "./documents";
+import { DocumentRows } from "./documents";
+import { StatusPill } from "@/components/console/statusPill";
 
 /** Whose move a blocker is, in the two words its status pill says. */
 const ACTOR_LABEL = { client: "Your move", calevate: "Ours to do" } as const;
@@ -62,10 +63,9 @@ export function Readiness({ readiness }: { readiness: LegalReadiness }) {
     <div className="max-w-2xl space-y-10 pb-12">
       <PageHeader
         status={
-          <TonePill
-            tone={readiness.may_operate ? "ok" : "stop"}
-            label={readiness.may_operate ? "This account is ready to make calls." : "Outgoing calls are blocked."}
-          />
+          <StatusPill tone={readiness.may_operate ? "ok" : "stop"}>
+            {readiness.may_operate ? "This account is ready to make calls." : "Outgoing calls are blocked."}
+          </StatusPill>
         }
         description={readiness.verdict}
       />

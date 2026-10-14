@@ -1,5 +1,6 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useState } from "react";
 
 import {
@@ -281,7 +282,7 @@ function SpendBoard({ data }: { data: TenantSpend }) {
       {data.ai_assist && (
         <section className="border-y border-line py-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 className="text-meta font-semibold text-ink">AI assistant — cost we absorb</h3>
+            <h3 className="text-meta font-semibold text-ink">{ASSISTANT_NAME} — cost we absorb</h3>
             <p className="text-heading tabular-nums text-ink">
               {formatINR(data.ai_assist.used_inr)}
             </p>

@@ -2,10 +2,19 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Gift, X } from "lucide-react";
+import { X } from "lucide-react";
 
+import { TEXT_ACTION } from "@/components/console/section";
+import { BAR_STATUS } from "@/components/console/statusPill";
+import { TrialMeter, trialShareLeft } from "@/components/illustration/trialMeter";
 import { Popover } from "@/components/interior/popover";
-import { FIELD_LABEL, NOTICE_TONES, PRIMARY_BUTTON, SHELL_RAIL_CLASS, istDateStamp } from "@/components/ui";
+import {
+  FIELD_LABEL,
+  NOTICE_DOT,
+  PRIMARY_BUTTON,
+  SHELL_RAIL_CLASS,
+  istDateStamp,
+} from "@/components/ui";
 import { useClientRealm } from "@/lib/api/session";
 import { useTrialPanel } from "@/lib/api/trialCalls";
 import {
@@ -144,8 +153,10 @@ export function TrialStrip({
     : "After that, calls go on your monthly invoice.";
 
   return (
-    <div role="status" className={`border-b px-4 lg:px-8 ${NOTICE_TONES.warn}`}>
+    // A site strip, not a tinted band (D-771): white under a hairline, ink text, a warn dot.
+    <div role="status" className="border-b border-line bg-surface px-4 text-ink lg:px-8">
       <div className={`${SHELL_RAIL_CLASS} flex items-center gap-3 py-1 text-sm`}>
+        <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${NOTICE_DOT.warn}`} />
         {/* Two lines at most on a 375px phone: the headline is short, and the second
             sentence only joins it from `sm`, where the line has room. */}
         <p className="line-clamp-2 min-w-0 flex-1">
@@ -155,7 +166,7 @@ export function TrialStrip({
         {asksForCredit && (
           <Link
             href={creditsHref}
-            className="inline-flex shrink-0 items-center rounded-sm font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn focus-visible:ring-offset-2 touch:min-h-11"
+            className={`${TEXT_ACTION} shrink-0`}
           >
             Add credit
           </Link>
@@ -167,7 +178,7 @@ export function TrialStrip({
             writeClosed(key);
             setClosed(true);
           }}
-          className="press -mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-ink/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn touch:h-11 touch:w-11"
+          className="press -mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-ink/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:h-11 touch:w-11"
         >
           <X aria-hidden className="h-4 w-4" />
         </button>
@@ -226,16 +237,25 @@ export function TrialChipView({
   callsToday?: { used: number; cap: number } | "loading" | null;
   now?: Date;
 }) {
-  const running = view.kind === "running" ? view : null;
-  const labels = running ? timeLeftLabels(running.trial, now) : null;
-  const minutes = running?.trial.minutes_left;
-  const long = running
-    ? ["Trial", labels?.long, minutes === null || minutes === undefined ? null : `${minutes} min`]
-        .filter(Boolean)
-        .join(" · ")
-    : "Trial ended";
-  const short = running ? `Trial · ${labels?.short}` : "Trial ended";
-  const asksForCredit = running === null || running.testCallsOnly || running.prepaid;
+  // An ended trial has one next step, so the bar item IS that step: one tap to credits,
+  // not a panel to open first.
+  if (view.kind === "ended") {
+    return (
+      <Link href={creditsHref} aria-label="Free trial ended. Add credit" className={`${BAR_STATUS} text-ink`}>
+        <TrialMeter left={0} className="h-4 w-4" />
+        <span>Trial ended</span>
+        <span className="hidden text-brand-strong sm:inline">Add credit</span>
+      </Link>
+    );
+  }
+  const running = view;
+  const labels = timeLeftLabels(running.trial, now);
+  const minutes = running.trial.minutes_left;
+  const long = ["Trial", labels.long, minutes === null || minutes === undefined ? null : `${minutes} min`]
+    .filter(Boolean)
+    .join(" · ");
+  const short = `Trial · ${labels.short}`;
+  const asksForCredit = running.testCallsOnly || running.prepaid;
 
   return (
     <Popover
@@ -249,44 +269,40 @@ export function TrialChipView({
           type="button"
           {...props}
           aria-label={`Free trial: ${long}. Show details`}
-          className={`press inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 ${
-            running ? "border-brand/25 bg-brand-soft text-brand-deep" : "border-warn-line bg-warn-soft text-warn"
-          }`}
+          className={`${BAR_STATUS} text-ink-muted hover:text-ink`}
         >
-          <Gift aria-hidden className="hidden h-3.5 w-3.5 sm:block" />
+          <TrialMeter left={trialShareLeft(running.trial)} className="h-4 w-4" />
           <span className="sm:hidden">{short}</span>
           <span className="hidden sm:inline">{long}</span>
         </button>
       )}
     >
       <div className="space-y-3 text-sm">
-        <p className="font-semibold text-ink">{running ? "Your free trial" : "Your free trial has ended"}</p>
-        {running && (
-          <dl className="space-y-2">
+        <p className="font-semibold text-ink">Your free trial</p>
+        <dl className="space-y-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className={FIELD_LABEL}>Ends</dt>
+            <dd className="text-right text-ink">{trialEndsAt(running.trial)}</dd>
+          </div>
+          {running.trial.free_minutes !== null && running.trial.free_minutes !== undefined && (
             <div className="flex items-baseline justify-between gap-3">
-              <dt className={FIELD_LABEL}>Ends</dt>
-              <dd className="text-right text-ink">{trialEndsAt(running.trial)}</dd>
+              <dt className={FIELD_LABEL}>Free minutes left</dt>
+              <dd className="text-right text-ink">
+                {running.trial.minutes_left ?? running.trial.free_minutes} of {running.trial.free_minutes}
+              </dd>
             </div>
-            {running.trial.free_minutes !== null && running.trial.free_minutes !== undefined && (
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className={FIELD_LABEL}>Free minutes left</dt>
-                <dd className="text-right text-ink">
-                  {running.trial.minutes_left ?? running.trial.free_minutes} of {running.trial.free_minutes}
-                </dd>
-              </div>
-            )}
-            {running.testCallsOnly && callsToday !== null && callsToday !== undefined && (
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className={FIELD_LABEL}>Test calls today</dt>
-                <dd className="text-right text-ink">
-                  {callsToday === "loading" ? "Checking…" : `${callsToday.used} of ${callsToday.cap}`}
-                </dd>
-              </div>
-            )}
-          </dl>
-        )}
+          )}
+          {running.testCallsOnly && callsToday !== null && callsToday !== undefined && (
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className={FIELD_LABEL}>Test calls today</dt>
+              <dd className="text-right text-ink">
+                {callsToday === "loading" ? "Checking…" : `${callsToday.used} of ${callsToday.cap}`}
+              </dd>
+            </div>
+          )}
+        </dl>
         <p className="text-ink-muted">
-          {running && !running.testCallsOnly
+          {!running.testCallsOnly
             ? "Calls are on us until then: nothing is taken from your calling credit, and an empty balance does not stop your agents."
             : "Answering calls, campaigns, your own number and business verification open once you add credit."}
         </p>

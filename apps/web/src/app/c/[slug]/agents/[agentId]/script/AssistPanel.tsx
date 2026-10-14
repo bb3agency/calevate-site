@@ -14,7 +14,6 @@
  */
 
 import { useState } from "react";
-import { Sparkles } from "lucide-react";
 
 import { FIELD, FIELD_LABEL, PRIMARY_BUTTON_SM, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { TEXT_ACTION } from "@/components/console/section";
@@ -167,7 +166,6 @@ export function AssistPanel({
         title={write.reason ?? (written < 10 ? "Write a little more first." : undefined)}
         onClick={ask}
       >
-        <Sparkles aria-hidden className="h-3.5 w-3.5" />
         {assist.isPending ? "Thinking…" : fromQuestions ? "Draft my script" : "Suggest the change"}
       </button>
       {assist.isPending && (

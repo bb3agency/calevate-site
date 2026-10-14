@@ -426,18 +426,18 @@ async def test_a_tenant_ceiling_can_never_exceed_the_pool_that_exists() -> None:
     """A per-tenant ceiling larger than the outbound pool is not a ceiling.
 
     The default ceiling IS the pool (a tenant with no `plans` row gets the pool, D-663),
-    and `_tenant_ceiling` clamps, so a `plans` row selling 50 lines on a 2-line account
+    and `tenant_line_ceiling` clamps, so a `plans` row selling 50 lines on a 2-line account
     narrows to the pool rather than granting a tenant the switchboard.
     """
     pool = campaign_dispatch._outbound_pool()
     assert pool > 0, "the fixture depends on a non-empty pool"
     for configured in (None, 0, 1, pool, pool + 1, 50, 10_000):
-        effective = campaign_dispatch._tenant_ceiling(configured, pool)
+        effective = campaigns.tenant_line_ceiling(configured, pool)
         assert 0 <= effective <= pool, (configured, effective, pool)
-    assert campaign_dispatch._tenant_ceiling(None, pool) == pool, (
+    assert campaigns.tenant_line_ceiling(None, pool) == pool, (
         "a tenant with no plans row gets the pool, not a number typed beside it"
     )
-    assert campaign_dispatch._tenant_ceiling(2, pool) == 2, "the clamp narrows, never widens"
+    assert campaigns.tenant_line_ceiling(2, pool) == 2, "the clamp narrows, never widens"
 
 
 async def test_a_ceiling_above_the_pool_does_not_let_one_tenant_claim_lines_that_do_not_exist(

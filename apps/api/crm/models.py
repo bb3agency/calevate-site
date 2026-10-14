@@ -568,43 +568,14 @@ class LeadEvent(PKMixin, TimestampMixin, Base):
 
 
 class CallEngineLatency(PKMixin, TimestampMixin, Base):
-    """What the ENGINE says its own pipeline cost on one call, per turn.
+    """Per-turn STT/LLM/TTS timings our former Pipecat loop reported for one call.
 
-    **THIS IS NOT `calls.latency` COMING BACK** (migration `f1a7c39d5be2` dropped that
-    column). That column promised
-    `turn_p50`/`turn_p95` — VOICE-TO-VOICE numbers, the interval between the caller
-    finishing a word and the caller hearing audio. Both ends of that interval exist on the
-    PSTN leg, our stack is not in the audio path (D-25/D-33), and nothing could ever have
-    written it honestly. That is still true and this table does not change it.
-
-    What this table holds is a different and genuinely observed quantity: the engine's own
-    per-component timings, which it publishes per execution and which we used to throw
-    away. It is a SEPARATE TABLE rather than columns on `calls` for exactly that reason —
-    the name of the thing is "what the engine reported", and putting it on the call row
-    would let the next reader read it as the call's latency.
-
-    **WHY IT IS WORTH A TABLE NOW.** D-410 pinned the language model to South India while
-    the engine's orchestrator stayed US-hosted
-    (`bolna-findings/mirror/pages/concepts/security.md:29`), so every conversational turn
-    paid a US->India->US round trip inside a 350ms budget (TRD §4). D-449 moved the
-    deployment to `eastus2`, beside the orchestrator, on an argument rather than on a
-    measurement — and gave up the India residency claim to do it. `llm_ttft_ms` per turn,
-    grouped by `region`, is the measurement that was missing then and is still missing:
-    two pilot calls, one on each geography, settle OPERATIONS §2 gate 4 by arithmetic
-    instead of by argument. A trade made on an estimate is one that gets made twice.
-
-    **ONE REPRESENTATION, NO AGGREGATES.** No stored p50, p95, breach count or turn count:
-    every one of them is `jsonb_array_elements(turns)` away, and a denormalized statistic
-    beside the samples it summarizes is a number that can disagree with its own evidence
-    (the argument `quality.QaReport` makes about not storing rendered Markdown beside the
-    computation). `apps/api/ops/engine_latency.py` is the one place the arithmetic lives.
-
-    **NOTHING HERE IS PERSONAL DATA and the schema is what guarantees it** (hard rule 6).
-    The vendor reports recognised caller speech beside these timings; `CallLatency` has no
-    field for text, `turns` accepts only the four numeric keys, and the CHECK constraint in
-    the migration refuses an array element that is not an object of numbers. A DPDP erasure
-    still reaches this row the ordinary way — `call_id` is `ON DELETE CASCADE`, so the row
-    cannot outlive the call it describes.
+    **NOTHING WRITES OR READS THIS TABLE ANY MORE (D-770).** D-763 removed the Pipecat
+    loop, the only producer; ThinnestAI reports per-call reply times instead, kept on
+    `calls.engine_quality` and read by `apps/api/ops/reply_times.py`. The table and this
+    model stay until a later release drops them (hard rule 8: never drop in the release
+    that stops writing). Its rows are numbers only (the CHECK in `b7d3e91c4a05`), and
+    `call_id` is `ON DELETE CASCADE`, so an erased call takes its row with it.
     """
 
     __tablename__ = "call_engine_latency"
@@ -632,7 +603,7 @@ class CallEngineLatency(PKMixin, TimestampMixin, Base):
     #: keep two numeric habits.
     time_to_first_audio_ms: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     #: `[{"turn": 1, "stt_ms": ..., "llm_ttft_ms": ..., "tts_ttfa_ms": ...}, ...]` —
-    #: `calevate_shared.engine.TurnLatency`, dumped. An empty array is legitimate and
+    #: One object per turn, numbers only. An empty array is legitimate and
     #: means the engine returned a latency object with no readable turns in it;
     #: `parse_warnings` then says why, which is a different fact from "no object at all"
     #: (that writes no row).

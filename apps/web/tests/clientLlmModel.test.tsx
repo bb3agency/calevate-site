@@ -178,7 +178,8 @@ describe("the account's default model tier", () => {
       expect(wrapper?.tagName).toBe("SPAN");
       expect(wrapper?.textContent).toContain(rest);
       expect(wrapper?.parentElement?.tagName).toBe("LI");
-      expect(wrapper?.parentElement?.childElementCount).toBe(2);
+      // The sentence is the item's only child: no glyph beside it (D-771).
+      expect(wrapper?.parentElement?.childElementCount).toBe(1);
     }
   });
 

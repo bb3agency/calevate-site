@@ -82,7 +82,7 @@ export default function IndustriesPage() {
         >
           <div className={`${SHELL} ${HOME.chapter}`}>
             <Reveal>
-              <Eyebrow index={String(index + 1).padStart(2, "0")}>{industry.name}</Eyebrow>
+              <Eyebrow>{industry.name}</Eyebrow>
               <h2 className="mt-5 max-w-4xl text-[1.875rem] leading-[1.12] font-semibold tracking-tight text-balance text-ink sm:text-[2.5rem] sm:leading-[1.08]">
                 {industry.problem}
               </h2>

@@ -1,13 +1,23 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Undo2 } from "lucide-react";
 
 import { EmptySketch } from "@/components/console/emptySketch";
+import { StatusPill } from "@/components/console/statusPill";
 import { EmptyState } from "@/components/console/emptyState";
 import { NewItemsPill, useNewItems } from "@/components/interior/new-items-pill";
-import { ProblemNotice, SECONDARY_BUTTON, SECONDARY_BUTTON_SM, Skeleton, formatIST } from "@/components/ui";
+import { useEnterClass } from "@/components/live/arrivals";
+import {
+  ProblemNotice,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_SM,
+  Skeleton,
+  formatIST,
+  type NoticeTone,
+} from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { useUndoAction } from "@/lib/api/copilot";
 import { lookup } from "@/lib/lookup";
@@ -18,13 +28,13 @@ import {
   type Realm,
 } from "@/lib/copilot/workspace";
 
-const STATUS: Record<CopilotActionOut["status"], { words: string; tone: string }> = {
-  done: { words: "Done", tone: "bg-brand-soft text-brand-strong" },
-  undone: { words: "Undone", tone: "bg-ink/[0.06] text-ink-muted" },
-  refused: { words: "Not allowed", tone: "border border-warn-line bg-warn-soft text-warn" },
-  pending_approval: { words: "Waiting for you", tone: "border border-line bg-surface text-ink" },
-  rejected: { words: "Declined", tone: "bg-ink/[0.06] text-ink-muted" },
-  expired: { words: "Expired", tone: "bg-ink/[0.06] text-ink-muted" },
+const STATUS: Record<CopilotActionOut["status"], { words: string; tone: NoticeTone }> = {
+  done: { words: "Done", tone: "ok" },
+  undone: { words: "Undone", tone: "neutral" },
+  refused: { words: "Not allowed", tone: "warn" },
+  pending_approval: { words: "Waiting for you", tone: "warn" },
+  rejected: { words: "Declined", tone: "neutral" },
+  expired: { words: "Expired", tone: "neutral" },
 };
 
 /**
@@ -49,8 +59,10 @@ export function ActivityLog({ session, realm }: { session: Session; realm: Realm
   }, [activity.data, older]);
   const scroller = useNewItems<HTMLDivElement>({
     itemCount: rows.length,
-    label: "What the assistant did",
+    label: `What ${ASSISTANT_NAME} did`,
   });
+  // An action taken while the log is open enters softly (D-774); the log on load does not.
+  const enter = useEnterClass(activity.data ? rows.map((row) => row.id) : null);
 
   if (activity.error != null) {
     return <ProblemNotice error={activity.error} onRetry={() => void activity.refetch()} />;
@@ -60,7 +72,7 @@ export function ActivityLog({ session, realm }: { session: Session; realm: Realm
     return (
       <EmptyState
         illustration={<EmptySketch kind="chat" />}
-        message="The assistant hasn't done anything yet."
+        message={`${ASSISTANT_NAME} hasn't done anything yet.`}
         hint="Every change it makes appears here, with an Undo while one is possible."
       />
     );
@@ -97,7 +109,7 @@ export function ActivityLog({ session, realm }: { session: Session; realm: Realm
         >
           <ul className="divide-y divide-line">
             {rows.map((row) => (
-              <ActivityRow key={row.id} row={row} session={session} realm={realm} />
+              <ActivityRow key={row.id} row={row} session={session} realm={realm} enterClass={enter(row.id)} />
             ))}
           </ul>
         </div>
@@ -118,10 +130,12 @@ export function ActivityLog({ session, realm }: { session: Session; realm: Realm
 }
 
 function ActivityRow({
+  enterClass,
   row,
   session,
   realm,
 }: {
+  enterClass: string;
   row: CopilotActionOut;
   session: Session;
   realm: Realm;
@@ -131,23 +145,19 @@ function ActivityRow({
   const status = lookup(STATUS, row.status) ?? STATUS.done;
   const undone = undo.data !== undefined;
   return (
-    <li className="flex min-w-0 flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start">
+    <li className={`flex min-w-0 flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start ${enterClass}`}>
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span
-            className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${
-              undone ? STATUS.undone.tone : status.tone
-            }`}
-          >
+          <StatusPill tone={undone ? STATUS.undone.tone : status.tone}>
             {undone ? STATUS.undone.words : status.words}
-          </span>
+          </StatusPill>
           <span className="text-xs text-ink-faint">
             {formatIST(row.created_at)}
             {row.source === "job" ? " · background task" : ""}
           </span>
         </p>
         <p className="mt-1 break-words text-sm text-ink [overflow-wrap:anywhere]">
-          {undo.data?.detail ?? row.summary ?? row.refusal_reason ?? "A change by the assistant"}
+          {undo.data?.detail ?? row.summary ?? row.refusal_reason ?? `A change by ${ASSISTANT_NAME}`}
         </p>
         {row.status === "refused" && row.refusal_reason && row.summary && (
           <p className="mt-0.5 text-xs text-ink-muted">{row.refusal_reason}</p>

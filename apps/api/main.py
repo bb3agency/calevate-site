@@ -10,16 +10,20 @@ The bootstrap order is locked in `core/bootstrap.py` (BACKEND-PATTERNS §2) — 
 file only declares WHICH routers the monolith mounts.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import suppress
 
 from fastapi import FastAPI
 
-from apps.api.core.bootstrap import create_app
+from apps.api.core.bootstrap import create_app, on_exit_signal
 from apps.api.core.errors import install_error_handlers
 from apps.api.core.platform_config import start_config_refresher, stop_config_refresher
 from apps.api.core.rbac import assert_policy_registry_complete
+from apps.api.db.session import get_engine
 from apps.api.flags.registry import assert_flag_registry_wellformed
+from apps.api.live.capture import LIVE_DRAIN_S, drain_in_flight, install_change_capture
+from apps.api.live.hub import end_live_streams, stop_hub
 from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
 from apps.api.ops.pricing_snapshot import start_pricing_refresher, stop_pricing_refresher
 
@@ -62,9 +66,19 @@ async def _startup() -> AsyncIterator[None]:
     start_config_refresher()
     start_pricing_refresher()
     start_fx_refresher()
+    install_change_capture(get_engine())
+    # Open live streams end the moment SIGTERM arrives, so they do not hold uvicorn's drain
+    # (and the deploy) for `--timeout-graceful-shutdown`.
+    loop = asyncio.get_running_loop()
+
+    def _end_live_streams() -> None:
+        loop.call_soon_threadsafe(end_live_streams)
+
+    forget_exit = on_exit_signal(_end_live_streams)
     try:
         yield
     finally:
+        forget_exit()
         # AND THEY ARE STOPPED, WHICH THEY WERE NOT: this hook ended at the bare `yield`
         # above and `create_app` consumed it to that point and abandoned it, so every one
         # of these polls outlived the drain that was meant to end it. What an operator saw
@@ -79,6 +93,12 @@ async def _startup() -> AsyncIterator[None]:
         # (FX and pricing both read through the session pool `_shutdown` is about to tear
         # down), config last, and each independently — a stop that raises must not keep
         # the next task alive.
+        # The live-stream subscription first: it holds a Redis connection of its own and
+        # nothing else depends on it.
+        with suppress(Exception):
+            await stop_hub()
+        with suppress(Exception):
+            await asyncio.wait_for(drain_in_flight(), timeout=LIVE_DRAIN_S)
         with suppress(Exception):
             await stop_fx_refresher()
         with suppress(Exception):
@@ -155,9 +175,6 @@ def _mount_routers(application: FastAPI) -> None:
     )
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
-    from apps.api.campaigns.sender_attestation_routes import (
-        router as sender_attestation_router,
-    )
     from apps.api.compliance.caller_notice_routes import router as caller_notice_router
     from apps.api.compliance.consent_routes import call_router as call_consent_router
     from apps.api.compliance.consent_routes import router as messaging_consent_router
@@ -201,6 +218,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.integrations.routes import router as integrations_router
     from apps.api.kb.routes import router as kb_router
     from apps.api.legal.routes import router as legal_readiness_router
+    from apps.api.live.routes import router as live_router
     from apps.api.ops.config_routes import rate_card_router as ops_rate_card_router
     from apps.api.ops.config_routes import router as ops_config_router
     from apps.api.ops.config_sources import router as ops_config_sources_router
@@ -339,7 +357,6 @@ def _mount_routers(application: FastAPI) -> None:
     # campaigns package because that module owns `phone_numbers`.
     application.include_router(own_numbers_router)
     application.include_router(numbers_router)
-    application.include_router(sender_attestation_router)
     # What a number-month costs a client, attested by an operator. Admin realm, its own
     # `/v1/admin/number-pricing` prefix rather than a path under `admin_router`, which owns
     # `/v1/admin/tenants/{tenant_id}` and would swallow a literal segment beside it.
@@ -374,6 +391,7 @@ def _mount_routers(application: FastAPI) -> None:
     # not load-bearing here.
     application.include_router(knowledge_gaps_router)
     application.include_router(kb_router)
+    application.include_router(live_router)
     application.include_router(teach_router)
     application.include_router(ingest_router)
     application.include_router(lead_sources_router)

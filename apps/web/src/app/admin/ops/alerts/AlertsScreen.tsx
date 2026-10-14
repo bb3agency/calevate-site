@@ -27,7 +27,7 @@ import {
   WINDOW_CHOICES,
   openCounts,
   severityLabel,
-  severityStyle,
+  severityTone,
   useAlerts,
   type AlertEpisode,
   type AlertReport,
@@ -35,6 +35,7 @@ import {
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
+import { StatusPill } from "@/components/console/statusPill";
 
 /**
  * Everything the platform has raised an alarm about, and whether any of it is still
@@ -319,13 +320,7 @@ function openLine(episode: AlertEpisode): string {
 }
 
 function SeverityPill({ severity }: { severity: string }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-meta font-medium ${severityStyle(severity)}`}
-    >
-      {severityLabel(severity)}
-    </span>
-  );
+  return <StatusPill tone={severityTone(severity)}>{severityLabel(severity)}</StatusPill>;
 }
 
 /**

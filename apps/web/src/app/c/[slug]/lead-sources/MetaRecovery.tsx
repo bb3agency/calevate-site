@@ -3,7 +3,8 @@
 import { RotateCcw } from "lucide-react";
 
 import {
-  NOTICE_TONES,
+  NOTICE_BAR,
+  NOTICE_BASE,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -89,7 +90,7 @@ export function MetaRecovery({
         </div>
       )}
       {result && (
-        <div className={`mt-3 rounded-md border px-3 py-2 text-body ${NOTICE_TONES.ok}`}>
+        <div className={`mt-3 ${NOTICE_BASE} ${NOTICE_BAR.ok}`}>
           <p className="font-medium">
             {formatCount(result.accepted)} of {formatCount(result.candidates)} recovered.
           </p>

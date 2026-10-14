@@ -173,6 +173,28 @@ def _with_local_dev(origins: list[str]) -> list[str]:
     return widened
 
 
+#: Called, in order, when SIGTERM/SIGINT arrives, before uvicorn begins its drain.
+_exit_callbacks: list[Callable[[], None]] = []
+
+
+def on_exit_signal(callback: Callable[[], None]) -> Callable[[], None]:
+    """Run `callback` when this process is told to stop; returns the undo.
+
+    For work that would otherwise hold the drain open: uvicorn waits for every open
+    connection before shutting down, so a long-lived response (the live change stream,
+    D-774) has to be told to end, or each deploy waits out `--timeout-graceful-shutdown`.
+    The callback runs inside the signal handler: it must only schedule work
+    (`loop.call_soon_threadsafe`), never await or block.
+    """
+    _exit_callbacks.append(callback)
+
+    def _undo() -> None:
+        with suppress(ValueError):
+            _exit_callbacks.remove(callback)
+
+    return _undo
+
+
 def _install_signal_handlers() -> None:
     """Add the restart ALERT to whatever the server already does about SIGTERM/SIGINT.
 
@@ -209,6 +231,9 @@ def _install_signal_handlers() -> None:
     def _chain(previous: _Handler) -> _Handler:
         def _handler(signum: int, frame: FrameType | None) -> None:
             alert("PROCESS_RESTART", "signal_received", detail=signal.Signals(signum).name)
+            for callback in list(_exit_callbacks):
+                with suppress(Exception):
+                    callback()
             if callable(previous):
                 # Uvicorn's `handle_exit`: sets `should_exit`, and the main loop then
                 # closes the sockets and waits for in-flight requests.
@@ -552,5 +577,6 @@ __all__ = [
     "cors_origins_for_env",
     "create_app",
     "credentialed_origins_for_path",
+    "on_exit_signal",
     "view_as_origins_for_env",
 ]

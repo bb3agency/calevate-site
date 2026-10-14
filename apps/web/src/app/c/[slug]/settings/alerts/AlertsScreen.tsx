@@ -9,7 +9,6 @@ import { ServiceLogo } from "@/components/console/serviceLogo";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
   Disclosure,
-  MonoValue,
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
@@ -115,11 +114,6 @@ export function AlertsScreen() {
             { key: "opt_in_status", label: "Recorded consent status", value: current.status },
             { key: "channel", label: "Channel the consent was given on", value: current.channel ?? "none recorded" },
             { key: "captured_at", label: "When it was recorded (IST)", value: formatISTStamp(current.captured_at, "never") },
-            {
-              key: "notice_version",
-              label: "Notice version consented to, against the current one",
-              value: `${current.notice_version ?? "none"} vs current ${current.current_notice_version}`,
-            },
             {
               key: "delivery_available",
               label: "Can we deliver WhatsApp at all right now?",
@@ -257,16 +251,6 @@ export function AlertsScreen() {
                 anyone asking exactly what was on when.
               </li>
             </ul>
-            <p className="mb-3 mt-3 text-meta text-ink-faint">
-              Wording in force: <MonoValue>{current.current_notice_version}</MonoValue>
-              {current.notice_version &&
-                current.notice_version !== current.current_notice_version && (
-                  <>
-                    {" "}
-                    · you agreed to <MonoValue>{current.notice_version}</MonoValue>
-                  </>
-                )}
-            </p>
           </Disclosure>
         </>
       )}

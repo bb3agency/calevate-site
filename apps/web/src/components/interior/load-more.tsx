@@ -311,7 +311,7 @@ export function LoadMore({
           }
           load();
         }}
-        className={`group relative inline-flex h-8 touch:h-11 select-none items-center justify-center rounded-[9px] px-3 text-[12.5px] font-medium outline-none transition-[background-color,box-shadow,transform] duration-150 focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_#16a05d] dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_#22c55e] ${
+        className={`group relative inline-flex h-8 touch:h-11 select-none items-center justify-center rounded-[9px] px-3 text-[12.5px] font-medium outline-none transition-[background-color,box-shadow,transform] duration-150 focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_var(--brand)] dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_var(--brand-bright)] ${
           inert
             ? "cursor-default"
             : "cursor-pointer hover:bg-ink/[0.04] active:translate-y-px"

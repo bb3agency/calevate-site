@@ -194,8 +194,8 @@ function SectionSummary({
     <span className="block space-y-1.5">
       <span className="flex items-center gap-2">
         <span className="truncate text-body font-semibold text-ink">{s.name.trim() || "Untitled step"}</span>
-        {index === 0 && <span className="shrink-0 rounded-full bg-ink/[0.06] px-2 text-[11px] font-medium text-ink-muted">Start</span>}
-        {s.mode === "say" && <span className="shrink-0 rounded-full bg-ink/[0.06] px-2 text-[11px] font-medium text-ink-muted">Exact words</span>}
+        {index === 0 && <span className="shrink-0 text-meta text-ink-muted">Start</span>}
+        {s.mode === "say" && <span className="shrink-0 text-meta text-ink-muted">Exact words</span>}
       </span>
       <span className="block truncate text-meta text-ink-muted">
         {s.instruction.trim() || "Nothing written yet."}

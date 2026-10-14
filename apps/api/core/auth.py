@@ -68,7 +68,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.write_guard import guard_agent_write
 from apps.api.authn.cookies import read_token
-from apps.api.authn.sessions import verify_session
+from apps.api.authn.sessions import session_still_live, verify_session
 from apps.api.authn.subjects import load_subject
 from apps.api.compliance.audit import write_audit
 from apps.api.core.context import (
@@ -1171,6 +1171,59 @@ async def tenant_of(principal: Principal = Depends(current_any)) -> UUID:
     return principal.tenant_id
 
 
+async def still_entitled(request: Request, principal: Principal, permission: Permission) -> bool:
+    """Whether the caller of a long-lived response may STILL receive it (D-774).
+
+    The ordinary dependencies run once, when the request arrives. A response that stays
+    open for minutes has to ask again, or a signed-out, deactivated, removed or demoted
+    person keeps receiving it until they close the tab. This replays the same decision
+    against the request's own credential with two differences, both required:
+
+    - the session is read with `session_still_live`, never `verify_session`, so the check
+      neither slides the idle window nor mistakes a legitimately rotated cookie for a
+      replay (that function says why each would be wrong);
+    - nothing is memoised, so a membership, role or grant that changed since the stream
+      opened is read as it is now.
+
+    False on every refusal; the caller closes the stream and the browser reopens it
+    through the normal dependencies, which give the real answer.
+    """
+    try:
+        token = _credential(request, principal.realm)
+        if token.startswith("dev:"):
+            verified = _verify_dev_token(token, principal.realm)
+            if verified is None:
+                return False
+        else:
+            live = await session_still_live(token=token, realm=principal.realm)
+            if live is None:
+                return False
+            verified = VerifiedCaller(
+                realm=principal.realm,
+                subject_id=live.subject_id,
+                mfa_verified_at=live.mfa_verified_at,
+            )
+            _require_second_factor(principal.realm, verified.mfa_verified_at)
+        if principal.realm == "admin":
+            current = await _load_admin_principal(
+                verified,
+                _impersonation_slug(request),
+                impersonation_grant=request.headers.get(IMPERSONATION_GRANT_HEADER),
+                ip=client_request_ip(request),
+                route=_route_template(request),
+            )
+        else:
+            current = await _load_client_principal(verified, request.headers.get(ORG_HEADER))
+    except ProblemError:
+        return False
+    return (
+        current.user_id == principal.user_id
+        and current.tenant_id == principal.tenant_id
+        and current.role is not None
+        and role_has(current.role, permission)
+    )
+
+
 __all__ = [
     "DEV_TOKEN_NO_MFA_SUFFIX",
     "IMPERSONATE_HEADER",
@@ -1194,6 +1247,7 @@ __all__ = [
     "dev_tokens_permitted",
     "enforce_write_rules",
     "requires",
+    "still_entitled",
     "tenant_of",
     "verify_token",
 ]

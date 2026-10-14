@@ -228,8 +228,8 @@ describe("which of my agents is on the dearer voice", () => {
 
     await screen.findByText("Front desk");
     const working = roster();
-    expect(within(working).getByLabelText("Studio voice")).toBeTruthy();
-    expect(within(working).getByLabelText("Clear voice")).toBeTruthy();
+    expect(within(working).getByText("Studio voice")).toBeTruthy();
+    expect(within(working).getByText("Clear voice")).toBeTruthy();
     // The QUALITY, never the vendor that synthesises it.
     expect(working.textContent).not.toMatch(/sarvam|cartesia/i);
   });

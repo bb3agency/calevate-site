@@ -17,6 +17,7 @@
  * teach seeds a draft into.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import {
   useMutation,
   useMutationState,
@@ -68,7 +69,7 @@ export function useKnowledgeGaps(
       apiRequest<KnowledgeGapList>(session, `/v1/knowledge-gaps${qs ? `?${qs}` : ""}`),
     // A work queue someone keeps open in a tab; a minute keeps it honest without hammering
     // the count query behind it — the cadence `useAttention` uses.
-    refetchInterval: 60_000,
+    refetchInterval: livePoll(60_000),
   });
 }
 

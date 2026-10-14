@@ -8,12 +8,11 @@ raised for one bad call: a window needs `MIN_WINDOW_CALLS`, a deviation must hol
 `SUSTAINED_WINDOWS` windows in a row, and a broken line needs `BROKEN_MIN_CALLS` calls.
 
 What each signal can see, honestly: failed and sub-ten-second calls, escalations and the
-knowledge-gap occurrences work on every engine. Slow starts (time to first audio) and
-caller-language mismatches come from the engine's recorded timings and turns where it
-reports them, and a live-call problem the platform reports
-(`call_engine_signals`) counts too: a slow reply as a slow start, and silence, an apology
-or a cut-off the caller heard as a failed call. In-call action failures come from
-`action_invocations`.
+knowledge-gap occurrences work on every engine. A slow call is one whose p90 reply time
+(`calls.engine_quality`) passed `SLOW_REPLY_MS`, or on which the platform reported a
+`slow_reply` problem (`call_engine_signals`); silence, an apology or a cut-off the caller
+heard counts as a failed call. Caller-language mismatches come from the recorded turns, and
+in-call action failures from `action_invocations`.
 """
 
 from __future__ import annotations
@@ -46,8 +45,10 @@ ABSOLUTE_FLOOR: Final = Decimal("60")
 DEVIATION_CEILING: Final = Decimal("80")
 #: A call shorter than this that "completed" is a caller giving up, not a conversation.
 SHORT_CALL_S: Final = 10
-#: Time to the agent's first audio beyond which a start counts as dead air.
-SLOW_START_MS: Final = 2500
+#: A call counts as slow when its p90 reply (caller falls silent -> agent's first audio, as
+#: the voice platform measures it) is longer than this: more than one reply in ten left
+#: the caller in dead air.
+SLOW_REPLY_MS: Final = 2500
 #: Broken line: at least this many calls across the last two windows...
 BROKEN_MIN_CALLS: Final = 5
 #: ...of which at least this share failed or ended inside ten seconds.
@@ -129,15 +130,15 @@ def window_start(at: datetime) -> datetime:
 
 _COUNTS = text(
     "WITH c AS ("
-    " SELECT c.id, c.agent_id, c.engine_call_id, c.status, c.duration_s, c.outcome_tag"
+    " SELECT c.id, c.agent_id, c.engine_call_id, c.status, c.duration_s, c.outcome_tag,"
+    " c.engine_quality"
     " FROM calls c WHERE c.created_at >= :start AND c.created_at < :end"
     " AND NOT c.trial_call AND c.status IN ('completed', 'failed'))"
     " SELECT a.id, count(c.id),"
     " count(c.id) FILTER (WHERE c.status = 'completed' AND coalesce(c.duration_s, 0) < :short),"
     " count(c.id) FILTER (WHERE c.status = 'failed' OR EXISTS (SELECT 1 FROM call_engine_signals s"
     "   WHERE s.engine_call_id = c.engine_call_id AND s.kind = ANY(CAST(:heard AS text[])))),"
-    " count(c.id) FILTER (WHERE EXISTS (SELECT 1 FROM call_engine_latency l"
-    "   WHERE l.call_id = c.id AND l.time_to_first_audio_ms > :slow)"
+    " count(c.id) FILTER (WHERE (c.engine_quality ->> 'reply_ms_p90')::float8 > :slow"
     "   OR EXISTS (SELECT 1 FROM call_engine_signals s WHERE s.engine_call_id = c.engine_call_id"
     "   AND s.kind = 'slow_reply')),"
     " count(c.id) FILTER (WHERE c.outcome_tag = 'transferred'),"
@@ -188,7 +189,7 @@ async def count_window(session: AsyncSession, *, start: datetime) -> list[Window
             {
                 **params,
                 "short": SHORT_CALL_S,
-                "slow": SLOW_START_MS,
+                "slow": SLOW_REPLY_MS,
                 "heard": sorted(CALLER_HEARD_FAILURE),
             },
         )

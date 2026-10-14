@@ -50,6 +50,7 @@ import {
   usePurchaseOwnNumber,
   useReleaseOwnNumber,
   useSendOwnBusinessDetails,
+  numberStage,
   type FirstPeriod,
   type OwnAvailableNumber,
   type OwnNumberDirection,
@@ -60,6 +61,8 @@ import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
 import { DIRECTIONS } from "./direction";
+import { StatusPill } from "@/components/console/statusPill";
+import type { NoticeTone } from "@/components/ui";
 
 /** The refusals this journey can meet, each in the words of what to do next. */
 const REFUSALS: Record<string, string> = {
@@ -121,7 +124,18 @@ export function firstPeriodSentence(period: FirstPeriod, inrPerMonth: string | n
   }
 }
 
-type StepState = "done" | "now" | "waiting";
+/**
+ * "later" is a step that opens only after the account adds credit: it carries no badge,
+ * because nothing in it can be done yet and "Waiting" would read as if we were the ones
+ * holding it up.
+ */
+type StepState = "done" | "now" | "waiting" | "later";
+
+const STEP_BADGE: Record<Exclude<StepState, "later">, { text: string; tone: NoticeTone }> = {
+  done: { text: "Done", tone: "ok" },
+  now: { text: "Next step", tone: "warn" },
+  waiting: { text: "Waiting", tone: "neutral" },
+};
 
 function StepRow({
   index,
@@ -134,19 +148,16 @@ function StepRow({
   state: StepState;
   children: ReactNode;
 }) {
-  const badge =
-    state === "done"
-      ? { text: "Done", tone: "bg-brand-soft text-brand-strong" }
-      : state === "now"
-        ? { text: "Next step", tone: "bg-ink/[0.06] text-ink" }
-        : { text: "Waiting", tone: "border border-line text-ink-muted" };
+  const badge = state === "later" ? null : STEP_BADGE[state];
   return (
     <li className="py-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-body font-semibold text-ink">
+        <h3 className={`text-body font-semibold ${state === "later" ? "text-ink-muted" : "text-ink"}`}>
           {index}. {title}
         </h3>
-        <span className={`rounded-full px-2 py-0.5 text-meta font-medium ${badge.tone}`}>{badge.text}</span>
+        {badge && (
+          <StatusPill tone={badge.tone}>{badge.text}</StatusPill>
+        )}
       </div>
       <div className="mt-2 space-y-2 text-body text-ink-muted">{children}</div>
     </li>
@@ -174,8 +185,74 @@ const DETAILS_COPY: Record<string, string> = {
   unknown: "We could not read where this stands. We keep checking.",
 };
 
+/**
+ * Before the first payment: say where the account stands, offer the one action that moves
+ * it (adding credit), and list the three steps as what comes after, with no step marked
+ * next. Work already done (a verified business) is said, so it does not read as lost.
+ */
+function CreditFirst({ status, stage }: { status: OwnNumbersStatus; stage: "trial" | "needs_credit" }) {
+  const { session, href } = useClientRealm();
+  const kycDone = status.kyc_status === "verified";
+  const kycInReview = status.kyc_status === "submitted" || status.kyc_status === "in_review";
+  const lead =
+    stage === "trial"
+      ? "During your free trial, test calls ring from a shared Calevate number. Add credit, and you can get a phone number in your business's name."
+      : status.trial === "ended"
+        ? "Your free trial has ended. To get a phone number in your business's name, add credit to your account first."
+        : "To get a phone number in your business's name, add credit to your account first.";
+
+  return (
+    <Section
+      title={
+        stage === "trial"
+          ? "Your own phone number comes after the trial"
+          : "Add credit to get your own phone number"
+      }
+    >
+      <div className="space-y-4 p-4">
+        <p className="text-body text-ink">{lead}</p>
+        {kycDone && <p className="text-body text-ink-muted">Your business is already verified, so that step is done.</p>}
+        <Link href={href(`/c/${session.orgSlug}/billing?tab=credits`)} className={PRIMARY_BUTTON_SM}>
+          Add credit
+        </Link>
+
+        <div className="border-t border-line pt-4">
+          <h3 className="text-body font-semibold text-ink">After you add credit</h3>
+          <ol>
+            <StepRow index={1} title="Verify your business" state={kycDone ? "done" : "later"}>
+              {!kycDone && (
+                <p>
+                  {kycInReview
+                    ? KYC_COPY.submitted
+                    : "Verify your business with its certificate and the owner's ID."}
+                </p>
+              )}
+            </StepRow>
+            <StepRow index={2} title="Business details for phone numbers" state="later">
+              <p>Your verified business details are sent for approval for phone numbers.</p>
+            </StepRow>
+            <StepRow index={3} title="Buy a number" state="later">
+              <p>
+                {status.inr_per_month !== null
+                  ? `Choose a number. It costs ${formatINR(status.inr_per_month)} a month, for as long as you keep it.`
+                  : "Choose a number in your business's name."}
+              </p>
+            </StepRow>
+          </ol>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 /** The three steps, and the purchase once the server says the account is ready. */
 export function OwnNumbersJourney({ status }: { status: OwnNumbersStatus }) {
+  const stage = numberStage(status);
+  if (stage !== "journey") return <CreditFirst status={status} stage={stage} />;
+  return <Journey status={status} />;
+}
+
+function Journey({ status }: { status: OwnNumbersStatus }) {
   const { session, href } = useClientRealm();
   const send = useSendOwnBusinessDetails(session);
   const write = useWriteAccess(session, "org:manage", "get a phone number");
@@ -193,13 +270,6 @@ export function OwnNumbersJourney({ status }: { status: OwnNumbersStatus }) {
           Your phone numbers are registered in your business&apos;s own name. Three steps get you
           there, and this shows where each one stands.
         </p>
-
-        {status.step === "add_credit" && (
-          <NoticeBox tone="neutral" title="Add credit to get started">
-            Test calls ring from a shared Calevate number during the trial. After you add credit,
-            these three steps get you a number in your business&apos;s name.
-          </NoticeBox>
-        )}
 
         {status.step === "workspace" && (
           <NoticeBox tone="neutral" title="Your calling account is being set up">
@@ -220,7 +290,7 @@ export function OwnNumbersJourney({ status }: { status: OwnNumbersStatus }) {
           <StepRow
             index={2}
             title="Business details for phone numbers"
-            state={detailsDone ? "done" : kycDone ? "now" : "waiting"}
+            state={detailsDone ? "done" : status.step === "business_details" ? "now" : "waiting"}
           >
             {!kycDone ? (
               <p>Once your business is verified, we send its details for approval for phone numbers.</p>

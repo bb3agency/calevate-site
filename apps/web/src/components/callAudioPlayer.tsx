@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 import {
-  AlertTriangle,
   Gauge,
   Pause,
   Play,
@@ -252,9 +251,8 @@ export function CallAudioPlayer({
       {failed && (
         <p
           role="alert"
-          className="flex items-start gap-2 rounded-md bg-warn-soft px-3 py-2 text-xs text-warn"
+          className="border-l-2 border-chart-warn bg-surface py-1 pl-3 text-xs text-ink"
         >
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span>
             This recording stopped playing and could not be reloaded. Reload the page to try
             again — the audio itself is still stored.

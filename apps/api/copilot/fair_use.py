@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing import ai_quota
 from apps.api.billing.models import AI_ASSIST_UNIT_TYPES, FREE_ASSIST_FEATURES
+from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -155,12 +156,12 @@ async def require_copilot_fair_use(session: AsyncSession, *, tenant_id: UUID) ->
         raise ProblemError.business_rule(
             "copilot_daily_limit_reached",
             (
-                "You have used the assistant a lot today and reached today's limit. It is "
+                f"You have used {ASSISTANT_NAME} a lot today and reached today's limit. It is "
                 "free, and the limit resets at midnight."
             ),
             remediation=(
                 "Your calls, campaigns and leads keep working as normal. You can still do "
-                "everything yourself from the screens, and the assistant is back tomorrow."
+                f"everything yourself from the screens, and {ASSISTANT_NAME} is back tomorrow."
             ),
         )
     return usage

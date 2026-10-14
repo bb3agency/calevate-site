@@ -363,6 +363,33 @@ lost release leaks a line until a TTL. A `429` from ThinnestAI holds every dial 
 `Retry-After` (`start_dial_backoff`, at most 15 minutes), account-wide, rather than being
 re-asked once per claimed contact.
 
+**The client's campaign controls, results and reasoned pauses (D-773).** The Campaigns page
+lives at real addresses: `/c/{slug}/campaigns` (paged list, status filter, search),
+`/campaigns/new`, `/campaigns/{id}` and `/campaigns/{id}/edit`.
+
+- **Controls.** A draft is edited (`PATCH`), has never-tried people removed, or is deleted
+  (kept as `cancelled` when calls or evidence rows name it). Stop moves running, paused or
+  scheduled to `cancelled` and drops the repeat; nobody else on the list is called.
+  Duplicate makes a new draft from the settings, optionally with the people never reached
+  (finished or stopped campaigns only). People come from a CSV or paste, or from CRM leads
+  picked by stage, source and date; the server reads the numbers.
+- **Results.** Each person's outcome is read from the contact and its last call (connected,
+  no answer, busy, voicemail, failed, do not call, calling, not called), with tries used and
+  the next try. The totals are pickup rate, average connected call, outcome tags,
+  sentiment, leads and hot leads, opt-outs and the credit the calls took.
+- **Retries.** 1–5 tries per person and the gap before each, chosen per campaign.
+- **Automatic pauses say why.** A paused campaign carries `pause_reason`: a person,
+  maintenance, the healer, a complaint spike, out of credit, or the spending cap. The
+  dispatcher pauses a running campaign at the spending cap or out of credit before it
+  claims anyone. A top-up that crosses zero resumes `out_of_credit` campaigns by itself;
+  a spending-cap pause waits for the client to press Resume. A complaint-spike pause
+  shows the opt-outs in the ledger's redacted words, and Resume is refused until the
+  client confirms they reviewed them.
+- **Running but not calling.** A running campaign the gate would refuse shows "Not
+  calling" with each reason and its fix (`campaigns.service.not_calling_reasons`), and one
+  outside its hours says it is waiting for them. "Up to N at once" is the slider under the
+  plan ceiling and the line pool (`effective_concurrency`).
+
 ## 6. Post-Call Pipeline (worker jobs, keyed by call_id, idempotent)
 
 fetch_recording → redact_transcript → extract(schema) → upsert_lead(+repeat-caller flag on

@@ -3348,7 +3348,7 @@ describe("removing a credential", () => {
 
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain(
-      "The assistant and anything using Google models will stop using Google until a new key is added.",
+      "Pip and anything using Google models will stop using Google until a new key is added.",
     );
     const confirm = within(dialog).getByRole("button", { name: "Remove key" });
     expect((confirm as HTMLButtonElement).disabled).toBe(true);

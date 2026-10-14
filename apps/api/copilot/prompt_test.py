@@ -500,7 +500,7 @@ def test_the_identity_answer_names_the_product_affirms_the_ai_and_declines_the_v
     of them."""
     identity = prompt_module.ASSISTANT_IDENTITY
     # 1. the product.
-    assert "You are the Calevate assistant." in identity
+    assert "You are Pip, the Calevate assistant." in identity
     # 2. it is an AI, in the words the voice leg is held to (see the parity test below).
     assert "say plainly that you are an AI assistant" in identity
     assert "Never claim to be a human being" in identity
@@ -513,8 +513,10 @@ def test_the_identity_answer_names_the_product_affirms_the_ai_and_declines_the_v
     # "subprocessors"`, `apps/web/src/app/legal/[slug]/page.tsx`) and its rows name
     # Microsoft — Azure OpenAI, OpenAI and Google — Gemini API (read 2 Sep 2026).
     assert "/legal/subprocessors" in identity
-    # And the name question, which got "I do not have a name."
-    assert "ASKED YOUR NAME, you are the Calevate assistant" in identity
+    # And the name question, which got "I do not have a name." The answer is Pip (D-772),
+    # said together with being an AI.
+    named = "ASKED YOUR NAME, your name is Pip and you are the Calevate assistant, an AI."
+    assert named in identity
 
 
 def test_the_identity_block_is_never_evasive_about_being_an_ai() -> None:

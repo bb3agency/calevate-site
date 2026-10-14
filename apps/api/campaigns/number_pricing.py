@@ -61,8 +61,7 @@ async def attested_price_inr(session: AsyncSession) -> AttestedNumberPrice | Non
     """The newest attested rate, or None when nobody has recorded one.
 
     Ordered by `id` after `created_at` because two rows written in one transaction share
-    `now()` and uuid7 is time-ordered, so the tiebreak is still chronological — the same
-    reasoning `sender_attestation.latest_attestation` gives.
+    `now()` and uuid7 is time-ordered, so the tiebreak is still chronological.
 
     NOT CACHED. It is read on a purchase, which is a rare, money-spending request, and a
     snapshot refreshed on a poll would let a number be sold at a rate an operator changed

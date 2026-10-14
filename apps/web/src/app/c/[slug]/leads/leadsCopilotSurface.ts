@@ -1,5 +1,6 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { selectionFact } from "@/lib/copilot/selection";
 import { asText } from "@/lib/copilot/types";
@@ -97,7 +98,7 @@ export function useLeadsCopilotSurface({
         value: search,
         writable: false,
         personal: "text",
-        help: "What the reader typed. It usually names a customer, so the assistant is told there is a search rather than what it says.",
+        help: `What the reader typed. It usually names a customer, so ${ASSISTANT_NAME} is told there is a search rather than what it says.`,
       },
     ],
     facts: [

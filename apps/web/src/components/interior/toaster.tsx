@@ -402,7 +402,7 @@ export function ToastProvider({
                   type="button"
                   onClick={() => dismiss(t.id)}
                   aria-label={dismissLabel}
-                  className="-mr-0.5 grid size-[26px] shrink-0 place-items-center rounded-[7px] text-ink-faint transition-colors duration-150 hover:bg-ink/[0.06] hover:text-ink focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_#16a05d] focus-visible:outline-none dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_#22c55e]"
+                  className="-mr-0.5 grid size-[26px] shrink-0 place-items-center rounded-[7px] text-ink-faint transition-colors duration-150 hover:bg-ink/[0.06] hover:text-ink focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_var(--brand)] focus-visible:outline-none dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_var(--brand-bright)]"
                 >
                   {CLOSE}
                 </button>

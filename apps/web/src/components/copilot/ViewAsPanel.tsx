@@ -1,5 +1,6 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { panelFrame, type PanelPlacement } from "./CopilotPanel";
@@ -77,12 +78,12 @@ export function ViewAsPanel({
     >
       <div className="flex items-start justify-between gap-2 border-b border-line px-4 py-3">
         <h2 id={labelledBy} className="text-sm font-semibold text-ink">
-          Assistant unavailable in view-as
+          {ASSISTANT_NAME} is unavailable in view-as
         </h2>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close the assistant"
+          aria-label={`Close ${ASSISTANT_NAME}`}
           className="-mr-1 rounded-md p-1 text-ink-muted hover:bg-black/5 hover:text-ink dark:hover:bg-white/10"
         >
           <X aria-hidden className="h-4 w-4" />
@@ -95,12 +96,12 @@ export function ViewAsPanel({
             cannot do — so the sentence had to stop saying "read-only", which is no longer
             true and would have read as a fault rather than as a rule. */}
         <p className="text-xs text-ink-muted">
-          Asking the assistant would spend this client&apos;s own AI allowance, so it is
+          Asking {ASSISTANT_NAME} would spend this client&apos;s own AI allowance, so it is
           refused inside a view-as session even though the rest of this console works.
         </p>
         <p className="text-xs text-ink-muted">
           The client can use it normally on this screen. To ask about platform state, use
-          the assistant in the admin console.
+          {ASSISTANT_NAME} in the admin console.
         </p>
       </div>
     </div>

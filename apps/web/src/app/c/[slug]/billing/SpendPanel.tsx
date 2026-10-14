@@ -5,7 +5,8 @@ import Link from "next/link";
 import { Metric } from "@/components/console/metric";
 import { Section } from "@/components/console/section";
 import {
-  NOTICE_TONES,
+  NOTICE_BAR,
+  NOTICE_BASE,
   ProblemNotice,
   ScrollRegion,
   Skeleton,
@@ -230,7 +231,7 @@ function Residual({ data }: { data: Spend }) {
     lookup(RESIDUAL_REASON_COPY, data.residual_reason) ??
     `We can explain this month's breakdown (${data.residual_reason}).`;
   return (
-    <div className={`rounded-md border px-4 py-3 text-body ${NOTICE_TONES.neutral}`}>
+    <div className={`${NOTICE_BASE} ${NOTICE_BAR.neutral}`}>
       <p className="font-semibold">
         The calls below add up to {formatINR(data.itemised_charge_inr)} of{" "}
         {formatINR(data.period_charge_inr)}

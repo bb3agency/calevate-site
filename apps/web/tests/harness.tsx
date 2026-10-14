@@ -292,6 +292,12 @@ export function stubApi(routes: Routes): ApiCall[] {
         if (Object.hasOwn(DEFAULT_SESSIONS, scoped)) {
           return jsonResponse(DEFAULT_SESSIONS[scoped]);
         }
+        // BOTH SHELLS' LIVE CHANGE STREAM (D-774), held open and silent by default: every
+        // `/admin` and `/c/<slug>` screen mounts it, and a stream that says nothing is what
+        // a quiet account looks like. A test about live updates names the route itself.
+        if (scoped === "GET /v1/live" || scoped === "GET /v1/admin/live") {
+          return neverAnswers(init?.signal);
+        }
         recordUnanswered(scoped);
         throw new Error(
           `test stub has no route for ${scoped} — add it to the routes table, ` +

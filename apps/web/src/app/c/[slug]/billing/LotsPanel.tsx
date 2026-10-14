@@ -1,7 +1,7 @@
 "use client";
 
 import { Section } from "@/components/console/section";
-import { NOTICE_TONES, ScrollRegion, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
+import { NOTICE_BAR, NOTICE_BASE, ScrollRegion, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
 
 import { formatWhole, isVoiceTier, lotRate, type WalletLots } from "./lots";
 
@@ -60,7 +60,7 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
       description="Each purchase keeps the per-minute rates it was bought at, and your calls are charged against the oldest one first."
     >
       {owed && (
-        <p role="status" className={`mb-4 rounded-md border px-4 py-3 text-body ${NOTICE_TONES.warn}`}>
+        <p role="status" className={`mb-4 ${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
           Your calls have run {formatINR(lots.overdraft_inr)} past the credit on the account.
           Your next top-up clears that first, and whatever is left opens as new credit at
           that purchase&rsquo;s rates.

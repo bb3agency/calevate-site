@@ -25,14 +25,9 @@ than waived (`campaigns/provisioning.py`). What this module does is make the flo
 day that reference exists.
 
 **`direction` IS A PURCHASE INTENT AND IS NOT A COMPLIANCE ANSWER.** A client buys a
-number for inbound, outbound or both, and that is recorded. What the number may LAWFULLY
-carry is decided elsewhere and stays decided elsewhere:
-`campaigns.service.SERIES_FOR_CLASSIFICATION` allows only 140 and 160 for commercial voice,
-and an ordinary DID reaches service/transactional dialling only through a client's own
-attestation in `campaigns/sender_attestation.py`. Nothing here widens either. A client who
-buys a `standard` number "for outbound" gets exactly the same refusal at launch as before,
-which is the point: a purchase intent that could authorise a call would be a second,
-disagreeing answer to a question those two modules already answer.
+number for inbound, outbound or both, and that is recorded. Who may dial out is the
+campaign launch gate's question (KYC and the no-cold-calls pledge, D-692), and no gate
+matches a number's series to a campaign since D-775.
 """
 
 from __future__ import annotations

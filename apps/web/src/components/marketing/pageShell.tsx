@@ -123,49 +123,25 @@ export const INLINE_LINK =
   "rounded-sm font-semibold text-brand-strong underline underline-offset-2 transition-colors duration-(--duration-fast) ease-out hover:text-brand-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong dark:text-brand-bright dark:hover:text-brand-bright";
 
 /**
- * The small editorial label above a band: an optional index, a hairline, a word.
- *
- * `index` is OPTIONAL because a running number tells the reader the page is a DOCUMENT to
- * be read in order. That is true of the interior pages — `/roi` is an argument in four
- * steps, `/why-calevate` answers three objections in sequence — and false of the landing
- * page, which is scanned: numbered chapters of identical weight are the "everything equal
- * means nothing primary" defect of UX-DOCTRINE §1, expressed in typography.
- *
- * So the four interior callers pass indices and the homepage passes none. The
- * primitive stays ONE primitive (§7): a variant is a prop, never a second component.
+ * The small label above a band, in sentence case and the brand ink, with no rule, number or
+ * letter-spacing. We do not number sections because a running "01 / 02" turns a page that
+ * is scanned into one that pretends to be read in order (D-771), and the tracked capitals
+ * and hairline were a second and third way of saying "label" that the size already said.
  */
 export function Eyebrow({
-  index,
   tone = "default",
   children,
 }: {
-  index?: string;
   /**
    * `inverse` is for the one band that sits on a dark ground (`brand-deep`). The default
-   * `text-brand-strong` is 1.24:1 there — invisible, not merely dim — so the inverted
-   * treatment is part of the primitive rather than a second eyebrow written at the call
-   * site. `text-white/80` on `--brand-deep` is 6.03:1 (WCAG 1.4.3 AA is 4.5:1 for 12px).
+   * `text-brand-strong` is 1.24:1 there, so the inverted treatment is part of the primitive.
+   * `text-white/80` on `--brand-deep` is 6.03:1.
    */
   tone?: "default" | "inverse";
   children: ReactNode;
 }) {
-  const label =
-    tone === "inverse"
-      ? "text-white/80"
-      : "text-brand-strong dark:text-brand-bright";
-  const rule = tone === "inverse" ? "bg-white/35" : "bg-brand/50";
-  const number = tone === "inverse" ? "text-white/55" : "text-ink-faint";
-  return (
-    <p
-      className={`flex items-center gap-3 text-xs font-semibold tracking-[0.18em] uppercase ${label}`}
-    >
-      {index !== undefined && (
-        <span className={`font-mono ${number}`}>{index}</span>
-      )}
-      <span aria-hidden className={`h-px w-6 ${rule}`} />
-      {children}
-    </p>
-  );
+  const label = tone === "inverse" ? "text-white/80" : "text-brand-strong dark:text-brand-bright";
+  return <p className={`text-sm font-semibold ${label}`}>{children}</p>;
 }
 
 /**
@@ -188,12 +164,9 @@ export function PageIntro({
     <section className="relative isolate overflow-hidden border-b border-line">
       <div aria-hidden className="pointer-events-none absolute inset-0 z-below">
         <div className="mk-grid-lines absolute inset-0" />
-        <div className="mk-blob mk-blob--a mk-float absolute -top-24 -left-24 h-72 w-72" />
       </div>
       <div className={`${SHELL} pt-10 pb-12 sm:pt-16 sm:pb-20 lg:pt-20 lg:pb-24`}>
-        <p className="text-xs font-semibold tracking-[0.18em] text-brand-strong uppercase dark:text-brand-bright">
-          {eyebrow}
-        </p>
+        <Eyebrow>{eyebrow}</Eyebrow>
         <h1 className="mt-4 max-w-4xl text-[2.25rem] leading-[1.08] font-semibold tracking-tight text-balance text-ink sm:text-5xl sm:leading-[1.05] lg:text-[3.5rem] lg:leading-[1.03]">
           {title}
         </h1>

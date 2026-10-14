@@ -33,7 +33,6 @@ from calevate_shared.engine import (
     AvailableNumber,
     CallContext,
     CallHandle,
-    CallLatency,
     CostBreakdown,
     EngineAgentRef,
     EngineCapabilities,
@@ -50,7 +49,6 @@ from calevate_shared.engine import (
     NumberSpec,
     ProvisionedNumber,
     RecallOutcome,
-    TurnLatency,
     WebhookAuthMethod,
     WebhookVerdict,
     compose_engine_prompt,
@@ -61,6 +59,7 @@ from calevate_shared.events import (
     TERMINAL_STATUSES,
     CallDirection,
     CallEvent,
+    CallQuality,
     CallStatus,
     Speaker,
     TranscriptTurn,
@@ -141,32 +140,22 @@ SAMPLE_TURNS: tuple[tuple[Speaker, str], ...] = (
     ("agent", "Thank you Ravi garu, mee appointment 6 PM ki book chesanu."),
 )
 
-#: What this engine says its own pipeline cost, per turn. A fake vendor still has to answer
-#: the questions the real one answers, and the post-call pipeline's latency stage would
-#: otherwise be exercised only against a transport stub — the same argument `raw_document`
-#: makes below.
-#:
-#: THE NUMBERS ARE DELIBERATELY BELOW THE ALARM AND DELIBERATELY SPREAD. Below the alarm
-#: (`_LLM_TTFT_ALARM_MS` is the vendor's 1000ms) because a fake that pages on every offline
-#: call teaches developers to ignore the alarm. They are NOT inside our own budget any more
-#: and were not adjusted to be: `LLM_TTFT_BUDGET_MS` fell from 350ms to 150ms with the
-#: 500ms voice-to-voice target (TRD §4), and a fixture edited to sit under a target it has
-#: no way of meeting would teach the opposite lesson — that the pipeline comfortably makes
-#: it. Spread because a distribution over identical samples
-#: hides every statistic that reads it — break the median and nothing moves. Turn 1 is the
-#: slowest, which is what a real payload does (connection setup rides on it).
-#:
-#: `region="in"` is a CLAIM ABOUT THE FAKE, not about Bolna: this engine runs in the same
-#: process as its caller. It is populated so the grouping the gate-4 report does has two
-#: sides to group by offline.
-_SAMPLE_LATENCY: Final[CallLatency] = CallLatency(
-    region="in",
-    time_to_first_audio_ms=910.0,
-    turns=[
-        TurnLatency(turn=1, stt_ms=210.0, llm_ttft_ms=340.0, tts_ttfa_ms=280.0),
-        TurnLatency(turn=2, stt_ms=190.0, llm_ttft_ms=260.0, tts_ttfa_ms=250.0),
-        TurnLatency(turn=3, stt_ms=205.0, llm_ttft_ms=295.0, tts_ttfa_ms=265.0),
-    ],
+#: How the call went, in the shape the real engine reports it (`CallQuality`), so the
+#: post-call pipeline and the Voice response time report have figures offline. Spread
+#: rather than flat, so a statistic that reads them moves when its arithmetic breaks.
+_SAMPLE_QUALITY: Final[CallQuality] = CallQuality(
+    turns=3,
+    reply_ms_median=820,
+    reply_ms_p90=1140,
+    reply_ms_max=1310,
+    first_token_ms_median=310,
+    first_token_ms_p90=420,
+    first_token_ms_max=455,
+    long_silences=0,
+    longest_silence_s=2.5,
+    interruptions=1,
+    model_errors=0,
+    backup_answers=0,
 )
 
 # Per-minute INR from the verified rate card (TRD §10.1, D-35/D-36): all-Sarvam BYOK.
@@ -1213,7 +1202,7 @@ class FakeEngine:
             ],
             cost=self._cost_for(duration) if status == "completed" else None,
             engine_extracted={},
-            latency=_SAMPLE_LATENCY if status == "completed" else None,
+            quality=_SAMPLE_QUALITY if status == "completed" else None,
             engine=self.name,
         )
 

@@ -40,7 +40,7 @@ import {
  *
  * ## Why this panel exists
  *
- * The in-app AI assistant prefers the provider a client's own agents run on, and whether it
+ * Pip, the in-app AI assistant, prefers the provider a client's own agents run on, and whether it
  * MAY is a question about that vendor's terms for OUR account — not a model's merit, not a
  * credential being present. Every Google-owned host is egress-blocked from this deployment,
  * so no primary source about any vendor's data-use position can be read from the server. The
@@ -107,7 +107,7 @@ export function DashboardDataUsePanel({
           state.said ??
           "The API refused this read: your admin account may not manage platform configuration."
         }
-        subject="This panel would list every LLM provider the in-app AI assistant could run on, whether it may today, and the latest data-use attestation for each."
+        subject="This panel would list every LLM provider Pip, the in-app AI assistant, could run on, whether it may today, and the latest data-use attestation for each."
       />
     );
   }
@@ -116,10 +116,10 @@ export function DashboardDataUsePanel({
     <Section title="Dashboard AI data-use">
       <div className="space-y-4">
         <p className="text-body text-ink-muted">
-          The in-app AI assistant prefers the provider a client&apos;s own agents run on.
+          Pip, the in-app AI assistant, prefers the provider a client&apos;s own agents run on.
           Whether it may is a question about that vendor&apos;s terms for our account, which
           no page reachable from here can answer — so you read it in the vendor&apos;s own
-          console and record it here. This governs only the assistant&apos;s redacted screen
+          console and record it here. This governs only Pip&apos;s redacted screen
           text; it does not govern the in-call leg, which sends raw caller speech and is not
           gated here.
         </p>
@@ -136,7 +136,7 @@ export function DashboardDataUsePanel({
           >
             <p className="mt-1">
               This panel will not show invented eligibility when it could not read the real
-              answer. An assistant routed on a guessed data-use position is the mistake that
+              answer. Pip routed on a guessed data-use position is the mistake that
               would cause. The error above says what stopped the read.
             </p>
           </NoticeBox>
@@ -197,13 +197,13 @@ function DataUseRow({
           ) : (
             <TriangleAlert aria-hidden className="h-3.5 w-3.5" />
           )}
-          {leg.eligible ? "Assistant may run here" : "Not eligible"}
+          {leg.eligible ? "Pip may run here" : "Not eligible"}
         </span>
       </div>
 
       {/* WHAT STILL BLOCKS THE LEG, in the server's own words. Rendered whenever the leg is
           not eligible — including after a perfectly valid attestation, when the reason the
-          assistant still cannot run is that this platform cannot build a dashboard request
+          Pip still cannot run is that this platform cannot build a dashboard request
           for the provider at all (`dashboard_leg_built`). An operator who attested and saw
           nothing change would reasonably conclude their write did not land; this is why the
           panel states the ground rather than only the verdict, and never paraphrases it. */}
@@ -212,8 +212,8 @@ function DataUseRow({
           tone="warn"
           title={
             attested
-              ? "Attested, but the assistant still cannot run on this leg"
-              : "The assistant cannot run on this leg yet"
+              ? "Attested, but Pip still cannot run on this leg"
+              : "Pip cannot run on this leg yet"
           }
         >
           <p className="mt-1">{leg.blocked_reason}</p>
@@ -223,7 +223,7 @@ function DataUseRow({
       {leg.eligible && (
         <NoticeBox
           tone="ok"
-          title="The assistant may run on this leg"
+          title="Pip may run on this leg"
         >
           <p className="mt-1">
             Both are true: this data-use position is attested, and this platform can build a

@@ -35,6 +35,7 @@
  * that wants to skip the question anyway declares `unsaved: false` and means it.
  */
 
+import { ASSISTANT_NAME } from "./assistantName";
 import type { CopilotSurface } from "./types";
 
 /** Whether to ask before leaving, and the sentence saying what is at stake. */
@@ -62,7 +63,7 @@ export function unsavedWork(surface: CopilotSurface, filledCount: number): Unsav
   if (filledCount > 0) {
     return {
       ask: true,
-      reason: `The assistant filled in ${filledCount} ${
+      reason: `${ASSISTANT_NAME} filled in ${filledCount} ${
         filledCount === 1 ? "field" : "fields"
       } on this screen that you haven't saved yet. Leaving will discard them.`,
     };
@@ -81,7 +82,7 @@ export function unsavedWork(surface: CopilotSurface, filledCount: number): Unsav
     return {
       ask: true,
       reason:
-        "This screen hasn't told the assistant what it holds, so anything you've typed here can't be ruled out. Leaving will discard unsaved changes.",
+        `This screen hasn't told ${ASSISTANT_NAME} what it holds, so anything you've typed here can't be ruled out. Leaving will discard unsaved changes.`,
     };
   }
   if (surface.fields.some((field) => field.writable !== false)) {

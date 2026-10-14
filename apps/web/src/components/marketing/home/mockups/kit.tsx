@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { StatusPill as ConsoleStatusPill } from "@/components/console/statusPill";
+import type { NoticeTone } from "@/components/ui";
 
 /**
  * THE PARTS EVERY HOMEPAGE MOCKUP IS DRAWN FROM.
@@ -67,54 +69,51 @@ export function Avatar({
 }
 
 /**
- * The six lead stages, in the console's own colours (`components/ui.tsx`
- * `LEAD_STATUS_STYLES`) and its own casing: the leads table prints the raw lowercase value.
+ * The six lead stages, drawn by the console's own `StatusPill` at mockup scale and in its
+ * own casing: the leads table prints the raw lowercase value.
  */
 export type LeadStatus = "new" | "contacted" | "interested" | "hot" | "won" | "lost";
 
-const STATUS_TONE: Record<LeadStatus, string> = {
-  new: "bg-slate-100 dark:bg-white/[0.06] text-slate-700 dark:text-slate-300",
-  contacted: "bg-sky-100 text-sky-800",
-  interested: "bg-violet-100 text-violet-800",
-  hot: "bg-amber-100 text-amber-900",
-  won: "bg-emerald-100 text-emerald-800",
-  lost: "bg-rose-100 text-rose-800",
+const LEAD_TONE: Record<LeadStatus, NoticeTone> = {
+  new: "neutral",
+  contacted: "neutral",
+  interested: "ok",
+  hot: "warn",
+  won: "ok",
+  lost: "neutral",
 };
 
 export function StatusPill({ status, className = "" }: { status: LeadStatus; className?: string }) {
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] leading-4 font-medium whitespace-nowrap ${STATUS_TONE[status]} ${className}`}
-    >
+    <ConsoleStatusPill tone={LEAD_TONE[status]} size="mini" className={className}>
       {status}
-    </span>
+    </ConsoleStatusPill>
   );
 }
 
-/** A call's status or outcome pill, same shape as the console's. */
+const TAG_TONE = {
+  slate: "neutral",
+  sky: "neutral",
+  violet: "neutral",
+  emerald: "ok",
+  brand: "ok",
+  amber: "warn",
+} as const satisfies Record<string, NoticeTone>;
+
+/** A call's status or outcome, the console's state mark at mockup scale. */
 export function Tag({
   children,
   tone = "slate",
   className = "",
 }: {
   children: ReactNode;
-  tone?: "slate" | "emerald" | "sky" | "amber" | "violet" | "brand";
+  tone?: keyof typeof TAG_TONE;
   className?: string;
 }) {
-  const fill = {
-    slate: "bg-slate-100 dark:bg-white/[0.06] text-slate-700 dark:text-slate-300",
-    emerald: "bg-emerald-100 text-emerald-800",
-    sky: "bg-sky-100 text-sky-800",
-    amber: "bg-amber-100 text-amber-900",
-    violet: "bg-violet-100 text-violet-800",
-    brand: "bg-brand-soft dark:bg-brand-strong/20 text-brand-strong dark:text-brand-bright",
-  }[tone];
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] leading-4 font-medium whitespace-nowrap ${fill} ${className}`}
-    >
+    <ConsoleStatusPill tone={TAG_TONE[tone]} size="mini" className={className}>
       {children}
-    </span>
+    </ConsoleStatusPill>
   );
 }
 

@@ -1833,10 +1833,8 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "summaries",
         "stt",
         "system_prompt",
-        # OURS ENTIRELY, and they are here because the scanner cannot tell a payload read
-        # from any other subscript: `parse_latency_data` builds an intermediate
-        # `{our_field_name: value}` dict and reads its own keys back out of it. No vendor
-        # spells any of these three — they are `TurnLatency`'s field names.
+        # OURS ENTIRELY: the per-turn keys of `call_engine_latency` (`crm.CallEngineLatency`),
+        # a table of ours that no vendor spells.
         "llm_ttft_ms",
         "region",
         # THE NUMBER SEARCH'S TWO SHARED WORDS (D-537). `pattern` is the vendor's query
@@ -1859,7 +1857,7 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "transcript",
         "tts_ttfa_ms",
         # A conversational TURN is our word as much as theirs — `TranscriptTurn`,
-        # `TurnLatency`, `transcript_turns`, and the whole of `parse_transcript`. Finding
+        # `transcript_turns`, and the whole of `parse_transcript`. Finding
         # either spelling outside the adapter proves nothing.
         "turn",
         "turns",

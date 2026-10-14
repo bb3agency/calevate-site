@@ -165,7 +165,7 @@ const CELL = "flex min-w-0 flex-col rounded-2xl border border-line bg-surface p-
 
 /** The soft ground a mockup sits on inside a cell, so the drawn UI reads as a screen. */
 const MOCK_GROUND =
-  "min-w-0 rounded-xl bg-[radial-gradient(circle_at_50%_0%,var(--brand-soft),transparent_75%)] p-3 sm:p-5";
+  "min-w-0 rounded-xl bg-surface-muted p-3 sm:p-5";
 
 export default async function PricingPage() {
   // The one request this page makes. `fetchPublicRateCard` never throws — it logs and
@@ -224,7 +224,7 @@ export default async function PricingPage() {
       {/* --- Self-serve rate card (D-545) --------------------------------------- */}
       <section id="self-serve" className="scroll-mt-20">
         <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="00">Rate card</Eyebrow>
+          <Eyebrow>Rate card</Eyebrow>
           <h2 className={H2}>
             {/* NO FIGURE HERE, DELIBERATELY: the band is overhead in the h1 and every rung
                 is in the table below, so a heading re-quoting one end of the ladder is a
@@ -301,7 +301,7 @@ export default async function PricingPage() {
       <section id="controls" className="scroll-mt-20 border-t border-line bg-surface/40">
         <div className={`${SHELL} ${SECTION}`}>
           <Reveal>
-            <Eyebrow index="01">Paying, and not overpaying</Eyebrow>
+            <Eyebrow>Paying, and not overpaying</Eyebrow>
             <h2 className={H2}>A phone bill that cannot surprise you</h2>
           </Reveal>
           {/* Every cell carries its span at BOTH layouts (`col-span-full` below `lg`), and the
@@ -383,7 +383,7 @@ export default async function PricingPage() {
       <section id="metered" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Reveal>
-            <Eyebrow index="02">What you pay for</Eyebrow>
+            <Eyebrow>What you pay for</Eyebrow>
             <h2 className={H2}>
               Three things are metered, and all three are things that happened
             </h2>
@@ -417,7 +417,7 @@ export default async function PricingPage() {
       <section id="platform-fee" className="scroll-mt-20 border-t border-line bg-surface/40">
         <div className={`${SHELL} ${SECTION}`}>
           <Reveal>
-            <Eyebrow index="03">The monthly platform fee</Eyebrow>
+            <Eyebrow>The monthly platform fee</Eyebrow>
             <h2 className={H2}>
               {fee === null
                 ? "There is no monthly fee today"
@@ -441,7 +441,7 @@ export default async function PricingPage() {
       <section className="border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Reveal>
-            <Eyebrow index="04">What the money buys</Eyebrow>
+            <Eyebrow>What the money buys</Eyebrow>
             <h2 className={H2}>The same product, whatever you pay</h2>
           </Reveal>
           <div className="mt-6 grid max-w-5xl grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-10">

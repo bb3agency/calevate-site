@@ -62,11 +62,14 @@ a campaign that dialled four people and lost one. The pair is the standard shape
 alerting on a ratio — a significance floor under a rate — and it is the same shape
 `ai_quota` uses for the platform AI brake.
 
-RESUMING IS ALLOWED AND WILL RE-PAUSE while the window still holds the spike, and that is
-the intended behaviour rather than a rough edge: nothing about a campaign changes in the
-ten minutes after somebody presses resume, so a resume that dialled on would be the pause
-not meaning anything. What clears it is time (the window rolls) or a new campaign built
-on a scrubbed list. The runbook says this in the operator's words.
+RESUMING NEEDS A REVIEW (D-773, founder 14 Oct 2026). The pause records
+`auto_pause_reason = 'complaint_spike'`, and `controls.assert_resumable` refuses Resume
+until the client has confirmed they read the opt-outs (`complaint_reviewed_at`, audited).
+Both windows then start from that confirmation, so the opt-outs already reviewed do not
+pause the campaign again the moment it resumes, while new ones are counted from zero:
+three more at the same rate pause it again and ask for another review. Without the reset a
+reviewed campaign would re-pause on the next tick for the whole ten-day sender window, and
+the review would decide nothing.
 
 WHY IT PAUSES RATHER THAN ONLY ALERTING. FLOWS §5 says "pause + notify" and the order is
 the point: an alert that arrives while the campaign keeps dialling is an alert that
@@ -109,6 +112,13 @@ SENDER_WINDOW_DAYS = 10
 #: about a CAMPAIGN, not about a person, and it must never settle a contact terminally.
 BLOCK_RULE = "complaint_spike"
 
+#: Where the measurement starts once the client has reviewed a spike (D-773): the opt-outs
+#: they already read do not pause the campaign a second time. Before any review it is
+#: `-infinity`, so the window alone decides.
+_REVIEWED_SINCE = (
+    "coalesce((SELECT complaint_reviewed_at FROM campaigns WHERE id = :cid), '-infinity')"
+)
+
 #: Connected calls, and how many of them ended in a recorded opt-out. `status =
 #: 'completed'` is the denominator because only somebody who had a conversation can ask
 #: to be left alone — counting unanswered dials would dilute the rate with the one
@@ -124,7 +134,8 @@ _WINDOW_SQL = text(
     "  SELECT 1 FROM consent_ledger cl WHERE cl.call_id = c.id "
     "  AND cl.status = 'withdrawn' AND cl.purpose = :purpose)) AS optouts "
     "FROM calls c WHERE c.campaign_id = :cid AND c.status = 'completed' "
-    "AND coalesce(c.started_at, c.created_at) >= now() - make_interval(hours => :hours)"
+    "AND coalesce(c.started_at, c.created_at) >= GREATEST(now() - make_interval(hours => :hours), "
+    f"{_REVIEWED_SINCE})"
 )
 
 #: The same measurement over the whole account's OUTBOUND calls. Under RLS like the one
@@ -134,7 +145,8 @@ _SENDER_WINDOW_SQL = text(
     "  SELECT 1 FROM consent_ledger cl WHERE cl.call_id = c.id "
     "  AND cl.status = 'withdrawn' AND cl.purpose = :purpose)) AS optouts "
     "FROM calls c WHERE c.direction = 'outbound' AND c.status = 'completed' "
-    "AND coalesce(c.started_at, c.created_at) >= now() - make_interval(days => :days)"
+    "AND coalesce(c.started_at, c.created_at) >= GREATEST(now() - make_interval(days => :days), "
+    f"{_REVIEWED_SINCE})"
 )
 
 SpikeScope = Literal["campaign", "sender"]
@@ -172,7 +184,8 @@ async def check_complaint_spike(
     if not _spiked(optouts=optouts, connected=connected):
         sender_row = (
             await session.execute(
-                _SENDER_WINDOW_SQL, {"purpose": OPTOUT_PURPOSE, "days": SENDER_WINDOW_DAYS}
+                _SENDER_WINDOW_SQL,
+                {"cid": campaign_id, "purpose": OPTOUT_PURPOSE, "days": SENDER_WINDOW_DAYS},
             )
         ).one()
         scope = "sender"
@@ -188,6 +201,7 @@ async def check_complaint_spike(
             campaign_id=campaign_id,
             to_status="paused",
             from_statuses=("running",),
+            auto_pause_reason=BLOCK_RULE,
         )
     except ProblemError:
         # The campaign moved out of `running` between the tick's read and this CAS —

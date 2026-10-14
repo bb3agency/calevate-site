@@ -4,15 +4,26 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { canDialOut } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
-import type { CampaignNumber, DltTemplate } from "@/lib/api/campaigns";
+import { istDateToInstant } from "@/components/ui";
+import { RETRY_GAP_CHOICES, type CampaignNumber, type DltTemplate } from "@/lib/api/campaigns";
+import type { LeadStatus } from "@/lib/api/leads";
 
-import { CLASSIFICATIONS, CONSENT_SOURCES } from "./choices";
-import type { CampaignFormState, ScheduleFormState } from "./campaignForm";
+import { STATUSES } from "../leads/StatusSelect";
+
+import { CLASSIFICATIONS, CONSENT_SOURCES, WEEKDAYS } from "./choices";
+import type { CampaignFormState, ScheduleFormState, StartMode } from "./campaignForm";
+
+const START_MODE_VALUES: StartMode[] = ["review", "later", "weekly"];
+const START_MODE_WORDS: Record<StartMode, string> = {
+  review: "The client launches it from its checklist",
+  later: "Once, at a set date and time",
+  weekly: "Every week, on chosen days",
+};
 
 /**
  * WHAT THE SCREEN ASSISTANT IS TOLD ABOUT THIS SCREEN.
  *
- * Extracted from `CampaignsScreen.tsx` (UX-DOCTRINE §6). One subject, and it is a
+ * The create page's surface (UX-DOCTRINE §6). One subject, and it is a
  * REDACTION boundary as much as a declaration: the contact list leaves as a single
  * «PRIVATE_1» placeholder and the number picker's labels carry no E.164 (hard rule 6 /
  * D-127 G-2). Keeping it in one file is what makes that boundary reviewable.
@@ -39,7 +50,7 @@ export function useCampaignsCopilotSurface({
     name, classification, numberId, templateId, concurrency,
     consentSource, consentDate, restrictHours, windowStart, windowEnd, checked,
   } = form;
-  const { startDate, startTime, repeatTime, repeatEnds } = scheduleForm;
+  const { startDate, startTime, repeatTime, repeatEnds, startMode, repeatDays } = scheduleForm;
 
   /*
    * THE CAMPAIGN BUILD FORM, DECLARED TO THE SCREEN ASSISTANT.
@@ -65,11 +76,12 @@ export function useCampaignsCopilotSurface({
    * assistant can transcribe an answer a person gave; it has no way to invent one,
    * because it cannot see the list.
    *
-   * `repeatDays` is absent: it is a set of weekday toggles rather than a value, and a
-   * half-registered control is worse than an unregistered one.
+   * The repeat days are declared as a comma list of ISO weekday numbers, the vocabulary the
+   * server stores, and the start mode as a select, so a sentence like "every Tuesday at 11"
+   * can be filled. Calls at once are accepted only from 1 to 10, the server's bound.
    */
   useCopilotSurface({
-    route: "/c/{slug}/campaigns",
+    route: "/c/{slug}/campaigns/new",
     title: "Build a calling campaign",
     realm: "client",
     fields: [
@@ -99,7 +111,7 @@ export function useCampaignsCopilotSurface({
           value: option.value,
           label: option.label,
         })),
-        help: "Decides which number series may dial. Promotional needs a 140-series number.",
+        help: "promotional = offers and marketing; service = reminders and updates to the client's own customers.",
       },
       {
         id: "campaign-number",
@@ -166,6 +178,49 @@ export function useCampaignsCopilotSurface({
       { id: "campaign-start-time", label: "Scheduled start time", type: "text", value: startTime },
       { id: "campaign-repeat-time", label: "Repeat at", type: "text", value: repeatTime },
       { id: "campaign-repeat-ends", label: "Repeat until", type: "date", value: repeatEnds },
+      {
+        id: "campaign-start-mode",
+        label: "How it starts",
+        type: "select",
+        value: startMode,
+        options: START_MODE_VALUES.map((value) => ({ value, label: START_MODE_WORDS[value] })),
+        help: "review = the client launches it after checking; later = once at the start date and time; weekly = on the repeat days.",
+      },
+      {
+        id: "campaign-repeat-days",
+        label: "Repeat on which days",
+        type: "text",
+        value: repeatDays.join(","),
+        help: "ISO weekday numbers, 1 = Monday, comma-separated. e.g. 2,4 for Tuesday and Thursday.",
+      },
+      {
+        id: "campaign-retry-attempts",
+        label: "Tries per person",
+        type: "number",
+        value: String(form.retry.max_attempts),
+        help: "1 to 5.",
+      },
+      {
+        id: "campaign-retry-gaps",
+        label: "Minutes to wait before each retry",
+        type: "text",
+        value: (form.retry.gaps_minutes ?? []).join(","),
+        help: `One per retry, each one of ${RETRY_GAP_CHOICES.join(", ")}.`,
+      },
+      {
+        id: "campaign-leads-statuses",
+        label: "Also call leads at these stages",
+        type: "text",
+        value: (form.fromLeads?.statuses ?? []).join(","),
+        help: `Comma-separated, from ${STATUSES.join(", ")}. Empty means no leads are added.`,
+      },
+      {
+        id: "campaign-leads-since",
+        label: "Only leads added on or after",
+        type: "date",
+        value: form.fromLeads?.created_since ? form.fromLeads.created_since.slice(0, 10) : "",
+        help: "YYYY-MM-DD, India time. Needs a stage above.",
+      },
     ],
     facts: [
       { key: "contacts_ready", label: "Contacts ready to call", value: String(checked.counts.ready) },
@@ -208,7 +263,7 @@ export function useCampaignsCopilotSurface({
             // integer is accepted; anything else leaves the control alone.
             const parsedConcurrency =
               typeof item.value === "number" ? item.value : Number.parseInt(text, 10);
-            if (Number.isFinite(parsedConcurrency) && parsedConcurrency > 0) {
+            if (Number.isFinite(parsedConcurrency) && parsedConcurrency >= 1 && parsedConcurrency <= 10) {
               form.setConcurrency(parsedConcurrency);
             }
             break;
@@ -241,6 +296,46 @@ export function useCampaignsCopilotSurface({
             break;
           case "campaign-repeat-ends":
             scheduleForm.setRepeatEnds(text);
+            break;
+          case "campaign-start-mode":
+            if (START_MODE_VALUES.includes(text as StartMode)) scheduleForm.setStartMode(text as StartMode);
+            break;
+          case "campaign-repeat-days": {
+            // "2,4" or "Tue, Thu": ISO weekday numbers (1 = Monday) or the short names.
+            const days = text
+              .split(/[s,]+/)
+              .map((part) => WEEKDAYS.find((d) => String(d.value) === part || d.short.toLowerCase() === part.toLowerCase().slice(0, 3))?.value)
+              .filter((day): day is number => day !== undefined);
+            scheduleForm.setRepeatDays([...new Set(days)].sort());
+            break;
+          }
+          case "campaign-retry-attempts": {
+            const attempts = Number.parseInt(text, 10);
+            if (attempts >= 1 && attempts <= 5) {
+              const gaps = (form.retry.gaps_minutes ?? []).slice(0, attempts - 1);
+              while (gaps.length < attempts - 1) gaps.push(gaps[gaps.length - 1] ?? 30);
+              form.setRetry({ max_attempts: attempts, gaps_minutes: gaps });
+            }
+            break;
+          }
+          case "campaign-retry-gaps": {
+            const gaps = text.split(/[s,]+/).map((part) => Number.parseInt(part, 10));
+            const wanted = form.retry.max_attempts - 1;
+            if (gaps.length === wanted && gaps.every((gap) => (RETRY_GAP_CHOICES as readonly number[]).includes(gap))) {
+              form.setRetry({ ...form.retry, gaps_minutes: gaps });
+            }
+            break;
+          }
+          case "campaign-leads-statuses": {
+            const statuses = text
+              .split(/[s,]+/)
+              .map((part) => part.toLowerCase())
+              .filter((part): part is LeadStatus => (STATUSES as string[]).includes(part));
+            form.setFromLeads(statuses.length ? { ...(form.fromLeads ?? {}), statuses } : null);
+            break;
+          }
+          case "campaign-leads-since":
+            if (form.fromLeads) form.setFromLeads({ ...form.fromLeads, created_since: istDateToInstant(text) });
             break;
           default:
             break;

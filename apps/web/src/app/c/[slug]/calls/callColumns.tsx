@@ -35,7 +35,7 @@ export function CallResult({
 /** A free-trial test call, said once beside the caller so it is never mistaken for a lead. */
 export function TestCallTag() {
   return (
-    <span className="shrink-0 whitespace-nowrap rounded-full bg-ink/[0.05] px-2 py-px text-meta text-ink-muted">
+    <span className="shrink-0 whitespace-nowrap text-meta text-ink-muted">
       Test call
     </span>
   );

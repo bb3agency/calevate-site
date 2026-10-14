@@ -233,7 +233,7 @@ export function CollapsibleBanner({
                 }}
                 aria-expanded={open}
                 aria-controls={bodyId}
-                className="group flex min-w-0 flex-1 items-center gap-2 rounded-[7px] text-left outline-none focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_#16a05d] dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_#22c55e]"
+                className="group flex min-w-0 flex-1 items-center gap-2 rounded-[7px] text-left outline-none focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_var(--brand)] dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_var(--brand-bright)]"
               >
                 <span
                   id={titleId}
@@ -265,7 +265,7 @@ export function CollapsibleBanner({
                 type="button"
                 onClick={dismiss}
                 aria-label={dismissLabel}
-                className="grid size-[26px] shrink-0 place-items-center rounded-[7px] text-ink-faint transition-colors duration-150 hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_#16a05d] dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_#22c55e]"
+                className="grid size-[26px] shrink-0 place-items-center rounded-[7px] text-ink-faint transition-colors duration-150 hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_var(--brand)] dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_var(--brand-bright)]"
               >
                 {CLOSE}
               </button>

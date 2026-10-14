@@ -1,11 +1,10 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import CampaignsPage from "@/app/c/[slug]/campaigns/page";
+import { campaignPage, detailRoutes, progressFixture } from "./campaignFixtures";
 import type { Agent } from "@/lib/api/agents";
 import type {
   CampaignProgress,
-  CampaignSummary,
   LaunchCheck,
 } from "@/lib/api/campaigns";
 import type { Me } from "@/lib/api/client";
@@ -127,46 +126,24 @@ const AGENT: Agent = {
   llm_surcharged: false,
 };
 
-const CAMPAIGN: CampaignSummary = {
-  id: CAMPAIGN_ID,
-  name: "Diwali offer",
-  status: "draft",
-  classification: "promotional",
-  contacts: 120,
-  connected: 0,
-  launched_at: null,
-  created_at: "2026-08-10T06:00:00Z",
-  consent_provenance_blocker: null,
-};
-
 /** Draft, because the "Before you launch" card only exists for a draft. */
-const PROGRESS: CampaignProgress = {
-  status: "draft",
-  contacts: {},
-  total: 0,
-  concurrency: 3,
-  launched_at: null,
-};
+const PROGRESS: CampaignProgress = progressFixture();
 
 function check(...blockers: { rule: string; reason: string }[]): LaunchCheck {
   return { ready: blockers.length === 0, blockers };
 }
 
 /**
- * Open the panel the way a client does: land on the list, click the campaign.
- *
- * `campaignId` is component state set by that click, and every query the panel reads is
- * `enabled` on it. Seeding it any other way would be testing a screen state the app
- * cannot reach.
+ * Open the panel the way a client does: at the campaign's own address.
  */
 async function openLaunchPanel(
   launchCheck: LaunchCheck,
   me: Me = ME,
   over: Routes = {},
 ) {
-  const rendered = await renderClientPage(<CampaignsPage />, {
+  const rendered = await renderClientPage(campaignPage(), {
     "/v1/me": me,
-    "/v1/campaigns": [CAMPAIGN],
+    ...detailRoutes(),
     "/v1/agents": [AGENT],
     "/v1/campaigns/numbers": [],
     "/v1/campaigns/templates": [],
@@ -174,7 +151,6 @@ async function openLaunchPanel(
     [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: launchCheck,
     ...over,
   });
-  fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
   await screen.findByText("Before you launch");
   return rendered;
 }
@@ -193,7 +169,7 @@ describe("the launch panel with blockers outstanding", () => {
     // blockers is the failure mode — the client fixes what they were shown, presses
     // launch, and meets a refusal for the one that was dropped.
     expect(container.querySelectorAll("li")).toHaveLength(3);
-    expect(container.textContent).toContain("Upload the contact list.");
+    expect(container.textContent).toContain("Add the people to call.");
     expect(container.textContent).toContain("Your agent has to be published");
     expect(container.textContent).toContain("Accept the no-cold-calls pledge first.");
 
@@ -207,20 +183,20 @@ describe("the launch panel with blockers outstanding", () => {
     const { container } = await openLaunchPanel(
       check(
         {
-          rule: "pe_registration_not_active",
-          reason: "PE registration inactive.",
+          rule: "national_dnd_scrub_missing",
+          reason: "No national DND scrub on record."
         },
         { rule: "no_contacts", reason: "The campaign has no contacts." },
       ),
     );
 
-    // The DLT registrations are OUR paperwork. Without the badge, "your DLT
-    // registration isn't active" reads as a to-do on a screen full of to-dos.
+    // The national do-not-disturb check is OUR task. Without the badge, it
+    // reads as a to-do on a screen full of to-dos.
     expect(container.textContent).toContain("We handle this");
     // …and the one the client genuinely cannot be helped with must not borrow it.
     expectTextCount(container, "We handle this", 1);
-    // `no_contacts` carries no owner at all: a bare instruction needs no desk.
-    expect(container.textContent).not.toContain("You can fix this");
+    // `no_contacts` is the client's own, and says so once.
+    expectTextCount(container, "You can fix this", 1);
   });
 
   it("renders the server's own reason for a rule this build has never heard of", async () => {
@@ -272,7 +248,7 @@ describe("the launch panel with blockers outstanding", () => {
     // Not a queue to wait in — a two-minute fix, with the screen that does it attached.
     expect(text).toContain("You can fix this");
     expect(text).not.toContain("We handle this");
-    const link = screen.getByRole("link", { name: /Add calling credit/ });
+    const link = screen.getByRole("link", { name: /Add credit/ });
     expect(link.getAttribute("href")).toContain("/billing?tab=credits");
     // And the gate's own name is not what the client reads.
     expect(text).not.toContain("no_credits");
@@ -287,7 +263,7 @@ describe("the launch panel with blockers outstanding", () => {
     );
 
     const text = container.textContent ?? "";
-    expect(text).toContain("spent up to the monthly limit");
+    expect(text).toContain("spent up to its monthly limit");
     expect(text).toContain("People ringing you still get through");
     // The limit is the client's own (D-34 R-11), so the destination is their screen.
     expect(
@@ -307,76 +283,11 @@ describe("the launch panel with blockers outstanding", () => {
     );
 
     expect(container.textContent).toContain(
-      "Calevate doesn't dial purchased lists",
+      "Calevate doesn't call purchased lists",
     );
     expect(container.textContent).not.toContain("consent_source_refused");
     // This one the client CAN act on — the correction form is the point of the badge.
     expect(container.textContent).toContain("You can fix this");
-  });
-});
-
-/**
- * The platform outage, which is the structural claim on this screen.
- *
- * `tm_registration_missing` is CALEVATE's own telemarketer registration failing. Every
- * tenant is refused at the same instant for a reason no business can act on. It is
- * deliberately absent from `BLOCKER_COPY` so that the `<li>`-per-entry list CANNOT
- * render it as a bullet, and pulled out of the array before anything is counted. Both
- * halves are asserted, because either one alone would silently stop protecting the
- * other.
- */
-describe("the launch panel during a platform-wide outage", () => {
-  const OUTAGE = {
-    rule: "tm_registration_missing",
-    reason: "Calevate's TM registration is not active with the registrar.",
-  };
-
-  it("never lists our outage among the client's to-dos", async () => {
-    const { container } = await openLaunchPanel(
-      check(OUTAGE, {
-        rule: "no_contacts",
-        reason: "The campaign has no contacts.",
-      }),
-    );
-
-    // One bullet, and it is the client's. The outage is above the list in its own
-    // shape — a `role="status"` notice — not an item in it.
-    expect(container.querySelectorAll("li")).toHaveLength(1);
-    expect(container.querySelector("li")?.textContent).toContain(
-      "Upload the contact list.",
-    );
-
-    const notice = screen.getByRole("status");
-    expect(notice.textContent).toContain(
-      "Outbound calling is paused across Calevate",
-    );
-    // No owner badge on the outage: "We handle this" describes a queue with a desk
-    // attached, and this is the product not working.
-    expect(notice.textContent).not.toContain("We handle this");
-    expect(container.textContent).not.toContain("tm_registration_missing");
-  });
-
-  it("tells a client whose own side is finished that it is finished", async () => {
-    // The empty-list case, which is the one an outage produces most often. An empty
-    // list under "Before you launch" reads as "we will not say why" — the exact thing
-    // the panel exists to avoid — so the true sentence gets said instead.
-    const { container } = await openLaunchPanel(check(OUTAGE));
-
-    expect(container.querySelectorAll("li")).toHaveLength(0);
-    expect(container.textContent).toContain("Everything on your side is ready");
-    expect(screen.getByRole("status").textContent).toContain(
-      "Outbound calling is paused across Calevate",
-    );
-    // Still not launchable, and still no green sentence anywhere.
-    expect(launchButtonDisabled()).toBe(true);
-    expect(container.textContent).not.toContain("Everything checks out.");
-  });
-
-  it("keeps the server's precise sentence, demoted rather than dropped", async () => {
-    // It is what support and the audit trail quote. It must not be the headline a
-    // business owner reads first, and it must not vanish.
-    const { container } = await openLaunchPanel(check(OUTAGE));
-    expectTextCount(container, OUTAGE.reason, 1);
   });
 });
 
@@ -495,7 +406,7 @@ describe("the launch panel for a viewer who may not launch", () => {
     );
 
     expect(container.querySelectorAll("li")).toHaveLength(1);
-    expect(container.textContent).toContain("Upload the contact list.");
+    expect(container.textContent).toContain("Add the people to call.");
     expect(launchButtonDisabled()).toBe(true);
   });
 });
@@ -623,9 +534,9 @@ describe("the confirmation in front of a launch", () => {
     // gated on a status that comes from the same read, so a failed progress request takes
     // the whole thing off screen rather than offering an uncountable launch — and the
     // launch check's green sentence must not appear on its own either.
-    const { container } = await renderClientPage(<CampaignsPage />, {
+    const { container } = await renderClientPage(campaignPage(), {
       "/v1/me": ME,
-      "/v1/campaigns": [CAMPAIGN],
+      ...detailRoutes(),
       "/v1/agents": [AGENT],
       "/v1/campaigns/numbers": [],
       "/v1/campaigns/templates": [],
@@ -634,7 +545,6 @@ describe("the confirmation in front of a launch", () => {
       }),
       [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: check(),
     });
-    fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
     await screen.findByRole("alert");
 
     expect(

@@ -17,9 +17,6 @@
  * sentence to show a clinic owner.
  */
 
-import type { ReactNode } from "react";
-import { CircleAlert, Hourglass, Layers, Zap } from "lucide-react";
-
 import {
   Disclosure,
   ProblemNotice,
@@ -38,7 +35,6 @@ export function HowChangesTakeEffect({ session }: { session: Session }) {
     <Disclosure
       title="How changes take effect"
       subtitle="What waits to be applied, and what is in force on the next call."
-      icon={<Layers className="h-4 w-4" />}
     >
       <LaneBody lanes={lanes} />
     </Disclosure>
@@ -89,17 +85,14 @@ function LaneBody({ lanes }: { lanes: ReturnType<typeof useLanes> }) {
             hint, because "Ask us" does not say on its own what the
             column is or why a setting is in it. */}
         <LaneList
-          icon={<Hourglass className="h-3.5 w-3.5" />}
           title="Waits to be applied"
           lanes={waits}
         />
         <LaneList
-          icon={<Zap className="h-3.5 w-3.5" />}
           title="Applies straight away"
           lanes={immediate}
         />
         <LaneList
-          icon={<CircleAlert className="h-3.5 w-3.5" />}
           title="Ask us"
           hint="We cannot tell you when these take effect from here."
           lanes={unclassified}
@@ -135,12 +128,10 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 function LaneList({
-  icon,
   title,
   hint,
   lanes,
 }: {
-  icon: ReactNode;
   title: string;
   /** Absent where the heading already says it — see the call sites. */
   hint?: string;
@@ -149,12 +140,7 @@ function LaneList({
   if (lanes.length === 0) return null;
   return (
     <div>
-      <h3 className="flex items-center gap-2 text-body font-semibold text-ink">
-        <span aria-hidden className="shrink-0 text-ink-muted">
-          {icon}
-        </span>
-        {title}
-      </h3>
+      <h3 className="text-body font-semibold text-ink">{title}</h3>
       {hint && <p className="mt-1 text-xs text-ink-muted">{hint}</p>}
       <ul className="mt-3 space-y-3">
         {lanes.map((lane) => (

@@ -117,9 +117,8 @@ def test_the_series_is_read_out_of_the_prefix_and_not_guessed() -> None:
 
 
 async def test_a_mobile_cannot_be_filed_as_a_140_number() -> None:
-    """The defect exactly as it stood: an operator types `140` over a mobile, the row is
-    written, and `campaigns.service.SERIES_FOR_CLASSIFICATION` then lets a PROMOTIONAL
-    campaign dial from a number that is not a telemarketing header."""
+    """The defect exactly as it stood: an operator types `140` over a mobile and the row
+    is written, recording a mobile as a telemarketing header."""
     tenant_id = await _tenant("series-a")
     async with tenant_session(tenant_id) as session:
         with pytest.raises(ProblemError) as excinfo:
@@ -449,15 +448,10 @@ def test_zero_turns_the_age_check_off(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.asyncio
 async def test_a_non_indian_number_cannot_be_declared_a_140_or_160_connection() -> None:
-    """The dial-path arm, and it is the one the 140/160 gate actually stands on.
-
-    `campaigns.service.SERIES_FOR_CLASSIFICATION` decides whether a promotional campaign
-    may dial by reading `phone_numbers.series` — an operator's typed word. Validating it
-    against the E.164 prefix is what stops that word being a wish, and this arm is the half
-    that catches the direction nobody expects: a foreign number labelled as an Indian
-    regulated series would put a foreign header on Indian traffic, which is a resource
-    misuse rather than a data-entry slip. The 140 and 160 series exist only within +91
-    (DoT/PIB PRID 2022249).
+    """`phone_numbers.series` is an operator's typed word; validating it against the E.164
+    prefix is what stops that word being a wish. This arm catches the direction nobody
+    expects: a foreign number labelled as an Indian regulated series. The 140 and 160
+    series exist only within +91 (DoT/PIB PRID 2022249).
     """
     tenant_id = await _tenant("foreign")
     async with tenant_session(tenant_id) as session:

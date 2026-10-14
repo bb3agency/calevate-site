@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { useCalls } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
+import { BAR_STATUS } from "@/components/console/statusPill";
 
 /** The wire value of a call that is happening now (`calls.status`). */
 export const LIVE_STATUS = "in_progress";
@@ -49,7 +50,7 @@ export function LiveCallsPill({ slug }: { slug: string }) {
         href={href(`/c/${slug}/calls`)}
         aria-label="Live calls: we could not check just now"
         title="We could not check for calls in progress. Open the call log to try again."
-        className="press inline-flex h-9 items-center gap-1.5 rounded-full border border-line bg-surface px-3 text-[13px] font-medium text-ink-muted hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11"
+        className={`${BAR_STATUS} text-ink-muted`}
       >
         <span aria-hidden className="h-2 w-2 rounded-full bg-ink-faint" />
         live ?
@@ -70,7 +71,7 @@ export function LiveCallsPill({ slug }: { slug: string }) {
     <Link
       href={href(target)}
       aria-label={`${label} ${noun} in progress now`}
-      className="press inline-flex h-9 items-center gap-2 rounded-full border border-line bg-surface px-3 text-[13px] font-medium text-ink hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11"
+      className={`${BAR_STATUS} text-ink`}
     >
       <LiveDot />
       <span>

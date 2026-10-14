@@ -6,7 +6,8 @@ import { Drawer } from "@/components/console/drawer";
 import {
   Disclosure,
   FIELD,
-  NOTICE_TONES,
+  NOTICE_BAR,
+  NOTICE_BASE,
   PRIMARY_BUTTON,
   ProblemNotice,
   Skeleton,
@@ -65,7 +66,7 @@ export function TestLeadDrawer({
             {/* Present tense: the gate reads the do-not-call list live, so this is what
                 would happen NOW — not a property of the source. */}
             <div
-              className={`rounded-md border px-3 py-2 text-body ${result.would_call ? NOTICE_TONES.ok : NOTICE_TONES.warn}`}
+              className={`${NOTICE_BASE} ${NOTICE_BAR[result.would_call ? "ok" : "warn"]}`}
             >
               <p className="font-medium">
                 {result.would_call

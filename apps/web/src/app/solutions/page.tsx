@@ -347,7 +347,7 @@ function SolutionSection({
       <div className={`${SHELL} ${HOME.chapter}`}>
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-16">
           <Reveal>
-            <Eyebrow index={String(index + 1).padStart(2, "0")}>{solution.kicker}</Eyebrow>
+            <Eyebrow>{solution.kicker}</Eyebrow>
             <h2 className="mt-5 max-w-3xl text-[1.875rem] leading-[1.12] font-semibold tracking-tight text-balance text-ink sm:text-[2.5rem] sm:leading-[1.08]">
               {solution.title}
             </h2>

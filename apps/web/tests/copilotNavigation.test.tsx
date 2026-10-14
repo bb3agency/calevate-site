@@ -145,7 +145,7 @@ const HAS_A_FORM: CopilotSurface = {
 async function openDock() {
   await act(async () => {
     fireEvent.click(
-      screen.getByRole("button", { name: "Ask about this screen" }),
+      screen.getByRole("button", { name: "Ask Pip" }),
     );
   });
 }

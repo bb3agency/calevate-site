@@ -1,16 +1,15 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import CampaignsPage from "@/app/c/[slug]/campaigns/page";
+import { campaignPage, detailRoutes, progressFixture } from "./campaignFixtures";
 import type { Agent } from "@/lib/api/agents";
 import type {
   CampaignProgress,
-  CampaignSummary,
   LaunchCheck,
 } from "@/lib/api/campaigns";
 import type { Me } from "@/lib/api/client";
 
-import { problem, renderClientPage, type Routes } from "./harness";
+import { problem, renderClientPage, stillLoading, type Routes } from "./harness";
 
 /**
  * The repeat, on the screen a client decides from.
@@ -93,24 +92,12 @@ const AGENT: Agent = {
   llm_surcharged: false,
 };
 
-const CAMPAIGN: CampaignSummary = {
-  id: CAMPAIGN_ID,
-  name: "Weekly follow-up",
-  status: "scheduled",
-  classification: "promotional",
-  contacts: 120,
-  connected: 0,
-  launched_at: null,
-  created_at: "2026-08-10T06:00:00Z",
-  consent_provenance_blocker: null,
-};
-
 /** 10:00 IST on Tuesday 18 August 2026 is 04:30Z — the instant, not the digits. */
 const NEXT_TUESDAY = "2026-08-18T04:30:00+00:00";
 /** The Tuesday before it: the run that was missed. */
 const LAST_TUESDAY = "2026-08-11T04:30:00+00:00";
 
-const REPEATING: CampaignProgress = {
+const REPEATING: CampaignProgress = progressFixture({
   status: "scheduled",
   contacts: {},
   total: 0,
@@ -124,15 +111,15 @@ const REPEATING: CampaignProgress = {
     last_skipped_at: null,
     last_skipped_reason: null,
   },
-};
+});
 
-const DRAFT: CampaignProgress = {
+const DRAFT: CampaignProgress = progressFixture({
   status: "draft",
   contacts: {},
   total: 0,
   concurrency: 3,
   launched_at: null,
-};
+});
 
 const READY: LaunchCheck = { ready: true, blockers: [] };
 
@@ -140,7 +127,7 @@ function routes(progress: unknown, extra: Routes = {}): Routes {
   return {
     "/v1/me": ME,
     "/v1/agents": [AGENT],
-    "/v1/campaigns": [CAMPAIGN],
+    ...detailRoutes(CAMPAIGN_ID),
     "/v1/campaigns/numbers": [],
     "/v1/campaigns/templates": [],
     [`/v1/campaigns/${CAMPAIGN_ID}`]: progress,
@@ -151,10 +138,9 @@ function routes(progress: unknown, extra: Routes = {}): Routes {
 
 async function openCampaign(progress: unknown, extra: Routes = {}) {
   const rendered = await renderClientPage(
-    <CampaignsPage />,
+    campaignPage(CAMPAIGN_ID),
     routes(progress, extra),
   );
-  fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
   return rendered;
 }
 
@@ -250,11 +236,12 @@ describe("a repeat the screen could not read", () => {
   });
 
   it("shows no repeat while the request is still in flight", async () => {
-    const { container } = await openCampaign(REPEATING);
-    // Asserted in the same tick as the click, before the stubbed fetch resolves.
-    expect(container.textContent).not.toContain("Next: Tuesday, 18 Aug");
-    // …and it appears once the answer lands, so the guard is not hiding it for good.
-    await screen.findByText("Repeats");
+    // HELD, not raced: the progress read never answers, so the in-flight frame is a state
+    // this test owns. That the repeat appears once it lands is the first test in this file.
+    const { container } = await openCampaign(stillLoading());
+    expect(container.querySelector(".animate-pulse")).not.toBeNull();
+    expect(container.textContent).not.toContain("Repeats");
+    expect(container.textContent).not.toContain("Next:");
   });
 });
 

@@ -56,7 +56,7 @@ export function HowItWorks() {
               {/* Subgrid at lg: the three figures share one row height and the three captions
                   another, so every step's number and title start on the same line however tall
                   its mockup is. */}
-              <MockStage className="flex items-center justify-center bg-[radial-gradient(circle_at_50%_0%,var(--brand-soft),transparent_70%)] p-4 sm:p-8 lg:min-h-80">
+              <MockStage className="flex items-center justify-center p-4 sm:p-8 lg:min-h-80">
                 <div className="w-full max-w-xs">{figure}</div>
               </MockStage>
               <div className="border-t border-line bg-surface p-5 sm:p-7">

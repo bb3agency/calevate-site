@@ -39,6 +39,8 @@ const NUMBER_ID = "0192f0aa-7777-7000-8000-000000000abc";
 function status(over: Partial<OwnNumbersStatus> = {}): OwnNumbersStatus {
   return {
     available: true,
+    paid: true,
+    trial: null,
     step: "ready",
     blocker: null,
     account_setup: "active",
@@ -95,6 +97,105 @@ async function search() {
   await enabledButton("Buy +91 80123 45671");
 }
 
+/** An unpaid account on a free trial: the server refuses numbers with the add-credit step. */
+function onTrial(over: Partial<OwnNumbersStatus> = {}): OwnNumbersStatus {
+  return status({
+    paid: false,
+    trial: "running",
+    step: "add_credit",
+    blocker: "trial_numbers_unavailable",
+    account_setup: "not_provisioned",
+    business_status: null,
+    business_submitted_at: null,
+    ...over,
+  });
+}
+
+const CREDITS_HREF = "/c/acme/billing?tab=credits";
+
+describe("what the page shows for the account's state", () => {
+  it("on a trial: says calls use the shared number, offers credit, and marks no step next", async () => {
+    await renderClientPage(<PhoneNumberPage />, routes(onTrial()));
+    expect(await screen.findByRole("heading", { name: "Your own phone number comes after the trial" })).toBeTruthy();
+    expect(screen.getByText(/test calls ring from a shared Calevate number/)).toBeTruthy();
+    const credit = screen.getAllByRole("link", { name: "Add credit" });
+    expect(credit).toHaveLength(1);
+    expect(credit[0].getAttribute("href")).toContain(CREDITS_HREF);
+    // The verification already done is said, so it does not read as lost.
+    expect(screen.getByText("Your business is already verified, so that step is done.")).toBeTruthy();
+    expect(screen.getByText("After you add credit")).toBeTruthy();
+    expect(screen.getByText("Done")).toBeTruthy();
+    expect(screen.queryByText("Next step")).toBeNull();
+    expect(screen.queryByText("Waiting")).toBeNull();
+    expect(screen.queryByText("Not sent yet.")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Send/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show numbers" })).toBeNull();
+    // The flow says the trial itself, so the generic trial notice is not repeated above it.
+    expect(screen.queryByText("Add credit to go live")).toBeNull();
+  });
+
+  it("on a trial with the business unverified: offers no verification, which opens after credit", async () => {
+    await renderClientPage(<PhoneNumberPage />, routes(onTrial({ kyc_status: "not_started" })));
+    await screen.findByRole("heading", { name: "Your own phone number comes after the trial" });
+    // The server refuses every verification write on a trial (`trial_kyc_unavailable`).
+    expect(screen.queryByRole("link", { name: "Verify your business" })).toBeNull();
+    expect(screen.queryByText(/already verified/)).toBeNull();
+    expect(screen.getByText("Verify your business with its certificate and the owner's ID.")).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "Add credit" })).toHaveLength(1);
+    expect(screen.queryByText("Next step")).toBeNull();
+  });
+
+  it("after a trial that ended unpaid: says credit comes first, with credit the one action", async () => {
+    await renderClientPage(<PhoneNumberPage />, routes(onTrial({ trial: "ended" })));
+    expect(await screen.findByRole("heading", { name: "Add credit to get your own phone number" })).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Your free trial has ended. To get a phone number in your business's name, add credit to your account first.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "Add credit" })[0].getAttribute("href")).toContain(CREDITS_HREF);
+    expect(screen.queryByText("Next step")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Send/ })).toBeNull();
+  });
+
+  it("with no trial and nothing paid: asks for credit, since the calling account comes with it", async () => {
+    await renderClientPage(
+      <PhoneNumberPage />,
+      routes(
+        status({
+          paid: false,
+          trial: null,
+          step: "workspace",
+          blocker: "engine_workspace_not_provisioned",
+          account_setup: "not_provisioned",
+          business_status: null,
+        }),
+      ),
+    );
+    expect(await screen.findByRole("heading", { name: "Add credit to get your own phone number" })).toBeTruthy();
+    expect(screen.getByText("To get a phone number in your business's name, add credit to your account first.")).toBeTruthy();
+    expect(screen.queryByText("Your calling account is being set up")).toBeNull();
+    expect(screen.queryByText(/trial/)).toBeNull();
+  });
+
+  it("once paid: shows the three steps with the server's step marked next", async () => {
+    await renderClientPage(
+      <PhoneNumberPage />,
+      routes(status({ step: "business_details", business_status: null, can_send_business_details: true })),
+    );
+    const next = await screen.findByText("Next step");
+    expect(next.closest("li")?.textContent).toContain("Business details for phone numbers");
+    expect(screen.getAllByText("Next step")).toHaveLength(1);
+    expect(screen.queryByRole("link", { name: "Add credit" })).toBeNull();
+  });
+
+  it("has no violations on a trial", async () => {
+    const { container } = await renderClientPage(<PhoneNumberPage />, routes(onTrial()));
+    await screen.findByRole("heading", { name: "Your own phone number comes after the trial" });
+    await expectNoA11yViolations(container, "phone-number: on a trial");
+  });
+});
+
 describe("the three steps, as the server names them", () => {
   it("says the calling account is being set up, and asks nothing of the client", async () => {
     await renderClientPage(
@@ -104,6 +205,9 @@ describe("the three steps, as the server names them", () => {
     expect(await screen.findByText("Your calling account is being set up")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Send business details/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Show numbers" })).toBeNull();
+    // A verified business with the account still being set up has nothing to do next: the
+    // details cannot be sent until the calling account exists.
+    expect(screen.queryByText("Next step")).toBeNull();
   });
 
   it("sends an unverified business to verify first, with the later steps waiting", async () => {
@@ -389,21 +493,11 @@ describe("releasing a number", () => {
     },
   ];
 
-  const attestation = {
-    [`/v1/numbers/${NUMBER_ID}/sender-attestation`]: {
-      attested: false,
-      applicable: true,
-      statement: "I confirm that my business is the sender of these calls.",
-      statement_version: "2026-09-20",
-    },
-  };
-
   it("offers no Release on a number the server will not let this account release", async () => {
     await renderClientPage(
       <PhoneNumberPage />,
       routes(status(), {
         "/v1/campaigns/numbers": [{ ...held[0], releasable: false }],
-        ...attestation,
       }),
     );
     expect(await screen.findByText("+91 80123 45671")).toBeTruthy();
@@ -415,12 +509,6 @@ describe("releasing a number", () => {
       <PhoneNumberPage />,
       routes(status(), {
         "/v1/campaigns/numbers": held,
-        [`/v1/numbers/${NUMBER_ID}/sender-attestation`]: {
-          attested: false,
-          applicable: true,
-          statement: "I confirm that my business is the sender of these calls.",
-          statement_version: "2026-09-20",
-        },
         [`POST ${OWN_NUMBERS_PATHS.release(NUMBER_ID)}`]: { number_id: NUMBER_ID, released: true },
       }),
     );
@@ -515,5 +603,23 @@ describe("the step card on Verify your business", () => {
       "/c/acme/phone-number",
     );
     expect(document.body.textContent ?? "").not.toMatch(/thinnest/i);
+  });
+
+  it("says the number comes after credit on a trial", async () => {
+    await renderClientPage(<VerifyBusinessPage />, {
+      "/v1/me": OWNER,
+      ...NO_FORWARDING_ROUTES,
+      "/v1/compliance/kyc": KYC_NOT_STARTED,
+      "/v1/compliance/outbound-pledge": {
+        version: 1,
+        pledge_text: "We do not cold-call.",
+        text_sha256: "0".repeat(64),
+        is_current: true,
+        accepted_version: 1,
+        accepted_at: "2026-10-01T00:00:00Z",
+      },
+      [OWN_NUMBERS_PATHS.status]: onTrial(),
+    });
+    expect(await screen.findByText("Your own phone number comes after you add credit.")).toBeTruthy();
   });
 });

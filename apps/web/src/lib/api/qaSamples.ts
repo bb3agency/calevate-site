@@ -33,6 +33,7 @@
  * entry for, and the screen would render nothing for it rather than failing to compile.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { adminSession } from "./admin";
@@ -76,7 +77,7 @@ export function useQaSamples(pending: boolean): UseQueryResult<QaSample[]> {
     // A shared work list two reviewers can be in at once — a row a colleague has just
     // reviewed should stop being offered. Same reason and same interval as the hold
     // queue, and the server does the same per-tenant walk, so not harder than that.
-    refetchInterval: 60_000,
+    refetchInterval: livePoll(60_000),
   });
 }
 

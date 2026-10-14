@@ -167,7 +167,7 @@ export default async function RoiPage() {
       {/* --- The calculator ------------------------------------------------------ */}
       <section id="calculator" className="scroll-mt-20">
         <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="01">The comparison</Eyebrow>
+          <Eyebrow>The comparison</Eyebrow>
           <h2 className={H2}>Put your own volumes in</h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
             Nothing here is submitted anywhere — the page makes no request and stores
@@ -183,7 +183,7 @@ export default async function RoiPage() {
       <section id="against" className="scroll-mt-20 border-t border-line bg-surface/40">
         <div className={`${SHELL} ${SECTION}`}>
           <Reveal>
-            <Eyebrow index="02">Where it goes against us</Eyebrow>
+            <Eyebrow>Where it goes against us</Eyebrow>
             <h2 className={H2}>A calculator that cannot lose is a brochure</h2>
             <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
               Three branches in this tool say plainly that we are not the answer, on ordinary
@@ -213,7 +213,7 @@ export default async function RoiPage() {
       <section id="console" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
           <Reveal>
-            <Eyebrow index="03">Once it is running</Eyebrow>
+            <Eyebrow>Once it is running</Eyebrow>
             <h2 className={H2}>The minutes on one screen, the leads they produced on the next</h2>
             <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
               The calculator works from your estimates. In the console the same month is
@@ -221,7 +221,7 @@ export default async function RoiPage() {
               a lead your team can work through.
             </p>
           </Reveal>
-          <div className="mt-10 rounded-2xl bg-[radial-gradient(circle_at_50%_0%,var(--brand-soft),transparent_70%)] p-3 sm:mt-12 sm:p-6">
+          <div className="mt-10 rounded-2xl bg-surface-muted p-3 sm:mt-12 sm:p-6">
             <RoiConsoleMock voiceLabel={offeredVoice} />
           </div>
         </div>
@@ -231,7 +231,7 @@ export default async function RoiPage() {
       <section className="border-t border-line bg-surface/40">
         <div className={`${SHELL} ${SECTION}`}>
           <Reveal>
-            <Eyebrow index="04">What no calculator can price</Eyebrow>
+            <Eyebrow>What no calculator can price</Eyebrow>
             <h2 className={H2}>The rupees are the smaller half of the answer</h2>
           </Reveal>
           <div className="mt-6 grid max-w-5xl grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-10">

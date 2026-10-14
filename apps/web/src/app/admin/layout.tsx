@@ -40,12 +40,14 @@ import { currentNavItem } from "@/lib/nav";
 import { AdminIdleTimeoutModal } from "@/components/authn/adminIdleTimeoutModal";
 import { SidebarSignOut } from "@/components/authn/sidebarSignOut";
 import { StepUpPrompt } from "@/components/authn/stepUpPrompt";
+import { AdminLiveUpdates } from "@/components/live/LiveUpdates";
 import { adminAuthn, ADMIN_SIGN_IN_PATH } from "@/lib/authn/adminAuthn";
 import {
   AdminSessionGate,
   AdminSessionProvider,
   useAdminSessionRow,
 } from "@/lib/authn/adminSession";
+import { StatusPill } from "@/components/console/statusPill";
 
 /**
  * Admin realm shell — `admin.calevate.tech`.
@@ -490,9 +492,9 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
           <AdminCommandPalette />
           {/* The marker, at every route. Not a `NoticeBox`: that component is a verdict about
               something the reader must act on, and this is a standing statement about the
-              session. It takes the warn tone, softly, so it reads as a standing fact rather than an alarm. */}
-          <span className="hidden rounded-full bg-warn-soft px-2.5 py-1 text-xs font-medium text-warn sm:inline-block">
-            Cross-client · every action is audited
+              session, so it is a warn dot and a muted line rather than a tinted capsule. */}
+          <span className="hidden sm:inline-flex">
+            <StatusPill tone="warn">Cross-client · every action is audited</StatusPill>
           </span>
           <HeldCount />
         </div>
@@ -627,6 +629,10 @@ export default function AdminLayout({
               nothing until something asks. */}
           <StepUpPrompt />
           <AdminMfaGate>
+            {/* Every feed on the console refetches when the change stream says it moved
+                (D-774). Inside the MFA gate: a session that has not finished its second
+                factor is refused the stream like everything else. */}
+            <AdminLiveUpdates />
             {/* `ToastProvider` app-wide for this realm, so `useToast()` works on any admin
                 screen the shell renders. Its notifications region is `fixed` bottom-right,
                 renders AFTER the shell subtree and is `pointer-events-none` with an empty

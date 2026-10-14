@@ -1,10 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { AlertTriangle, PhoneOff } from "lucide-react";
 
 import { FlashValue } from "@/components/console/valueFlash";
-import { NOTICE_TONES, formatINR, hasNonZeroDigit } from "@/components/ui";
+import { NOTICE_BAR, NOTICE_BASE, formatINR, hasNonZeroDigit } from "@/components/ui";
 import {
   activeTrial,
   creditLeftPhrase,
@@ -105,12 +104,9 @@ export function WalletHero({
              account that was running, and nothing has on a new one — so the day-one
              variant is polite and the run-out is not. */
           role={dayOne ? "status" : "alert"}
-          className={`rounded-md border px-4 py-3 text-body ${
-            dayOne ? NOTICE_TONES.neutral : NOTICE_TONES.stop
-          }`}
+          className={`${NOTICE_BASE} ${NOTICE_BAR[dayOne ? "neutral" : "stop"]}`}
         >
-          <p className="flex items-start gap-2 font-semibold">
-            <PhoneOff className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p className="font-semibold">
             {/* THE HEADLINE FACT ON BOTH VARIANTS IS THE PHONE, not the campaigns: an
                 owner whose agents have gone quiet is about to be asked by their own
                 customers, and that is the sentence they must not have to hunt for. Day one
@@ -148,9 +144,8 @@ export function WalletHero({
         </div>
       )}
       {state === "low" && (
-        <div role="status" className={`rounded-md border px-4 py-3 text-body ${NOTICE_TONES.warn}`}>
-          <p className="flex items-start gap-2 font-semibold">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+        <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
+          <p className="font-semibold">
             Your calling credit is running low.
           </p>
           <p className="mt-2">

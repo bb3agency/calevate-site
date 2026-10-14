@@ -821,7 +821,7 @@ describe("the operator's half", () => {
       ...TENANT_PAGE_READS,
       [TENANT_ROUTE]: TENANT_SPEND,
     });
-    await screen.findByText("AI assistant — cost we absorb");
+    await screen.findByText("Pip — cost we absorb");
     const text = container.textContent ?? "";
     expect(text).toContain("₹412.50");
     expect(text).toContain("87 assists");
@@ -836,7 +836,7 @@ describe("the operator's half", () => {
     });
     await screen.findByText("₹7,20,899.00");
     expect(container.textContent).not.toContain(
-      "AI assistant — cost we absorb",
+      "Pip — cost we absorb",
     );
   });
 

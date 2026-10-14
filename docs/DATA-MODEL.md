@@ -330,10 +330,8 @@ phone_numbers(id, tenant_id, agent_id, e164 UNIQUE, series ENUM[140,160,standard
   -- debit (`meta.kind = number_rental`, ref `number_rental:<number_id>:<YYYY-MM>`) for a
   -- prepaid account, or a `one_time_charges` row of kind `number_rental` for an invoiced
   -- one, decided in `billing/number_rental.collect_number_rental` (§8).
-  -- `direction` is what the client bought the number FOR and AUTHORISES NOTHING: what it
-  -- may lawfully carry is still `campaigns.service.SERIES_FOR_CLASSIFICATION` plus, for an
-  -- ordinary DID, `outbound_sender_attestations` below. Two answers to one question is the
-  -- defect this column is written not to become.
+  -- `direction` is what the client bought the number FOR and AUTHORISES NOTHING. No gate
+  -- matches `series` to a campaign's classification (D-692, D-775).
   -- `activated_at` NULL means the holder's identity is unverified, and the ONE thing such
   -- a number cannot do is be bound to an agent — which, by D-420, is the only way any
   -- number reaches a handset. So KYC gates activation rather than the sale: a client may
@@ -490,6 +488,15 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
 --   the hold, so nothing has to release a line.
 -- FUNCTION queued_dial_scan — the big red switch's recall scan — reaches `ringing` dials as
 --   well as `queued` ones since migration b7e4c0a63f29 (D-663).
+-- calls.engine_quality JSONB (migration a5d1c7e93f28, D-736): the voice platform's per-call
+--   `quality`, as `CallQuality` (reply_ms_*/first_token_ms_* median/p90/max, turns, long
+--   silences, interruptions, model errors, backup answers); numbers-or-null by CHECK.
+-- FUNCTION call_reply_scan(since) (migration d3f8b2c6a417, D-770): SECURITY INVOKER loop over
+--   live organizations that binds `app.tenant_id` per tenant and returns each completed call
+--   since `since` with its quality, `slow_reply` signal and metered voice tier; the admin
+--   Voice response time report reads it from an `admin_session()`.
+-- TABLE call_engine_latency (migration b7d3e91c4a05): NO LONGER WRITTEN OR READ (D-770; its
+--   only producer was the Pipecat loop, D-763); dropped in a later release (hard rule 8).
 -- INDEX ix_calls_tenant_started (tenant_id, started_at DESC NULLS LAST, id DESC)
 --   (migration c9e2a7b41d63). The calls list and the polled dashboard tiles order by exactly
 --   this key; without it page 1 was a top-N heapsort of every call the tenant has
@@ -529,16 +536,27 @@ lead_events(id, tenant_id, lead_id, type ENUM[status_change,note,call,notificati
 
 ```
 campaigns(id, tenant_id, agent_id, name, classification ENUM[promotional,transactional,service] NOT NULL,
+    -- `transactional` stays in the CHECK for old rows; clients may file only promotional or
+    -- service (D-773) and the launch gate refuses transactional (`classification_not_campaignable`).
   number_id → phone_numbers, dlt_template_id → dlt_templates,
   status ENUM[draft,scheduled,running,paused,completed,cancelled],
-  schedule JSONB,   -- a ONE-TIME future start: {kind: 'one_time', start_at: <UTC ISO-8601>}
+  schedule JSONB,   -- a pending start: {kind: 'one_time', start_at: <UTC ISO-8601>} or a weekly
+    -- repeat {kind: 'recurring', start_at: <next occurrence>, rule: {...}}
     -- plus an optional {last_blocked: {at, rules[]}} when the gate refused that start.
-    -- `kind` is a discriminator, not decoration: recurrence is NOT built, and the
-    -- dispatcher refuses any other value rather than firing it once (FLOWS §5).
-    -- NULL = no pending start. Read only by apps/api/campaigns/scheduling.py.
+    -- `kind` is a discriminator: the dispatcher refuses any value it does not know
+    -- rather than firing it once (FLOWS §5). Stop (D-773) sets it NULL.
+    -- NULL = no pending start or repeat. Read only by apps/api/campaigns/scheduling.py.
   concurrency INT CHECK (1..10), retry_policy JSONB,   -- shipped default:
     -- {max_attempts: 3, backoff_minutes: [30, 120]} — this per-CONTACT ladder is the one
-    -- place backoff actually exists; the ARQ job ladder is flat (FLOWS §6)
+    -- place backoff actually exists; the ARQ job ladder is flat (FLOWS §6). The client
+    -- chooses it per campaign since D-773: 1–5 tries, each gap one of 15, 30, 60, 120,
+    -- 240 or 1440 minutes (`campaigns.service.validated_retry_policy`).
+  auto_pause_reason TEXT NULL CHECK (IN complaint_spike, out_of_credit, spend_cap),
+    -- which automatic safety paused it (migration e7a3c5d9b1f4, D-773); maintenance and
+    -- the healer have their own marker columns. Cleared by any move a person makes.
+  complaint_reviewed_at NULL,
+    -- the client confirmed they read the opt-outs behind a complaint-spike pause; Resume
+    -- is refused until it is set, and both spike windows restart from it.
   calling_hours JSONB, engine_campaign_ref TEXT, launched_at,
   consent_source TEXT NULL CHECK (consent_source IS NULL OR consent_source IN
     ('existing_customer','inbound_enquiry','web_form_optin','offline_form_optin',
@@ -555,8 +573,9 @@ campaigns(id, tenant_id, agent_id, name, classification ENUM[promotional,transac
   -- defaulted into a consent nobody gave. Answered afterwards through
   -- `POST /v1/campaigns/{id}/consent-provenance`, drafts only. Source and date travel
   -- together or not at all — a date with no source names nothing.
-  -- launch is BLOCKED unless: entity DLT-registered, template approved, number series
-  -- matches classification (140⇔promotional / 160|standard⇔service-transactional), DNC scrub done.
+  -- launch is BLOCKED (`launch_blockers`) by named rules: the agent, the account (KYC, the
+  -- no-cold-calls pledge, agreements, money; D-692), consent provenance, the number's
+  -- binding and carrier, the national DND scrub for promotional, and an empty or all-DNC list.
   -- dnc_scrubbed_at (migration a1c8e40f27b9): WHEN the tenant-list scrub ran, stamped by
   -- `launch_campaign` in the SAME statement as the transition to `running` — a second
   -- UPDATE would survive a CAS that lost its race and claim a scrub for a launch that
@@ -1424,38 +1443,13 @@ outbound_sender_attestations(id, tenant_id → organizations ON DELETE RESTRICT,
   state ENUM[attested,withdrawn], statement_version TEXT,
   attested_by → users ON DELETE RESTRICT, created_at,
   CHECK (length(btrim(statement_version)) > 0))
-  -- The client's own exception to the ordinary-DID refusal (migration b7e4c02fa519).
-  -- TRAI direction RG-25/(18)/2023-QoS (E-10291), 18 Jun 2024 forbids a SENDER from
-  -- making promotional/service/transactional voice calls from any other 10-digit fixed
-  -- line or mobile number, "either directly or through their employees or channel
-  -- partners, DSAs, BPO partner, in-house or outsourced Call Centre"
-  -- (docs/evidence/primary-legal-findings-2026-09-20.md §1). The direction names the
-  -- delegation chain, so the obligation cannot be handed to a vendor; under Model B
-  -- (D-474) the client holds the carrier account and IS the sender. So the refusal is the
-  -- DEFAULT (`campaigns.service.SERIES_FOR_CLASSIFICATION` allows only 140 and 160) and
-  -- this table is the client's recorded exception to it — never ours: there is no admin
-  -- route that writes a row here, because an attestation Calevate recorded would evidence
-  -- nothing about what the client accepted.
-  -- Read by `launch_blockers` as `number_series_mismatch`, whose reason then names both
-  -- ways out. PROMOTIONAL IS NOT REACHABLE THROUGH IT and must not become so: 140 is the
-  -- only series that may carry a marketing call, and `ATTESTABLE_CLASSIFICATIONS` is
-  -- {service, transactional} for that reason.
-  -- `statement_version` is which WORDING was accepted (`SENDER_STATEMENT_VERSION`), and it
-  -- is half the evidence: a row against an older version does NOT satisfy the gate, the
-  -- client is asked again, and a POST carrying a stale version is refused
-  -- (`sender_statement_not_current`) rather than recorded against words nobody showed.
-  -- `attested_by` is a `users.id` — the account's own person, never an admin (D-587), which
-  -- is what `rbac.VIEW_AS_WITHHELD_ACTS["compliance.outbound_sender_attestation"]` enforces
-  -- one layer up. WITHDRAWAL is exempt from the version check: refusing a retraction
-  -- because a page is stale would hold someone to an obligation they are leaving.
-  -- Append-only (hard rule 4, `APPEND_ONLY_TABLES` + the `calevate_forbid_mutation`
-  -- trigger): a withdrawal is a NEW row superseding the last, never an UPDATE or DELETE,
-  -- and the whole value of the record is that the earlier state cannot be erased.
-  -- The read is latest-row-wins, ordered `created_at DESC, id DESC` — two rows written in
-  -- one transaction share `now()`, and a withdrawal sorting before the attestation it
-  -- revokes would report the opposite of the truth; uuid_v7 keeps the tiebreak
-  -- chronological. INDEX ix_outbound_sender_attestations_latest_for_number
-  --   (phone_number_id, created_at DESC) serves exactly that lookup.
+  -- UNWRITTEN AND UNREAD SINCE D-775 (14 Oct 2026): the outbound sender attestation, its
+  -- routes and its panel were removed, so no route, gate or screen touches this table.
+  -- Kept with its rows, FORCEd RLS and append-only triggers; dropped in a later release
+  -- (hard rule 8). It held a client's per-number confirmation that it was the sender of
+  -- calls from an ordinary (non-140/160) number (migration b7e4c02fa519), latest row
+  -- winning (INDEX ix_outbound_sender_attestations_latest_for_number), a withdrawal a new
+  -- row, `statement_version` the wording accepted, `attested_by` the client's own user.
   -- Standard §1 RLS, FORCEd, created with the table.
 retention_policies(id, tenant_id,
   data_category ENUM[recording,transcript,lead,consent_log,engine_payload,kb,copilot_memory,

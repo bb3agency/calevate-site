@@ -67,12 +67,22 @@ const BLOCKER_COPY_MODULE = resolve(
   "src/app/c/[slug]/campaigns/blockerCopy.tsx",
 );
 
-/** The two API packages a launch blocker can be constructed in. */
-const RULE_SOURCES = ["apps/api/campaigns", "apps/api/compliance"];
+/**
+ * The API packages a blocker can be constructed in. `agents`, `billing` and `legal` hold
+ * the rules the gate imports as named constants (`NUMBER_INBOUND_ONLY_RULE`,
+ * `PLATFORM_FEE_RULE`, `AGREEMENTS_RULE`).
+ */
+const RULE_SOURCES = [
+  "apps/api/campaigns",
+  "apps/api/compliance",
+  "apps/api/agents",
+  "apps/api/billing",
+  "apps/api/legal",
+];
 
 /** Every shape `compliance` names a rule with. See the header on why this over-matches. */
 const RULE_PATTERN =
-  /(?:LaunchBlocker\(|DispatchDecision\(|return \(|\.append\(\(|rule=)\s*"([a-z0-9_]+)"/g;
+  /(?:LaunchBlocker\(|DispatchDecision\(|return \(|\.append\(\(|rule=|_RULE(?::\s*Final(?:\[str\])?)?\s*=)\s*"([a-z0-9_]+)"/g;
 
 function pythonFiles(directory: string): string[] {
   const found: string[] = [];
@@ -150,12 +160,12 @@ describe("the launch panel's blocker copy is keyed to rules that still exist", (
       20,
     );
     // Three controls: one blocker from each of the modules this correspondence spans.
-    for (const known of ["no_contacts", "pe_registration_missing", "consent_source_refused"]) {
+    for (const known of ["no_contacts", "number_inbound_only", "consent_source_refused"]) {
       expect(rules, `the scan cannot see ${known}`).toContain(known);
     }
     // …and it is a scan, not a sponge: an invented rule must not appear to be live, or a
     // stale key would pass by accident and this whole file would prove nothing.
-    expect(rules).not.toContain("pe_registration_not_active_v2");
+    expect(rules).not.toContain("number_inbound_only_v2");
   });
 
   it("has no entry naming a rule the API cannot emit", () => {
@@ -168,8 +178,8 @@ describe("the launch panel's blocker copy is keyed to rules that still exist", (
       keys.filter((key) => !rules.has(key)),
       "these BLOCKER_COPY keys name no rule the compliance gate emits, so the client " +
         "copy for them is dead: the launch panel will fall through to the server's own " +
-        "terse `reason` and the owner badge, the DLT explanation and the 'incoming calls " +
-        "are unaffected' line all disappear with nothing failing. Rename the key to " +
+        "terse `reason` and the owner badge and the way to the fix disappear with " +
+        "nothing failing. Rename the key to " +
         "match the rule, or delete the entry. (`apps/api/campaigns/service.py` and " +
         "`apps/api/compliance/` are where the names live.)",
     ).toEqual([]);

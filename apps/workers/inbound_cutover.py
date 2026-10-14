@@ -1,5 +1,8 @@
 """Answering stops when the calling credit runs out, and starts again the moment it lands.
 
+The same edge restarts the campaigns an empty wallet paused (D-773,
+`campaigns.controls.resume_campaigns_after_credit`); the dispatcher is what paused them.
+
 The founder's decision of 8 Sep 2026. `compliance.check_dispatch` has always refused
 OUTBOUND at a balance of zero or below; inbound passes through none of it, so a client
 whose top-up lapsed went on having their phone answered and `workers/pipeline.py` went on
@@ -49,6 +52,7 @@ from uuid import UUID
 from arq import Retry
 
 from apps.api.agents.service import reconcile_inbound_answering
+from apps.api.campaigns.controls import resume_campaigns_after_credit
 from apps.api.compliance.service import credits_exhausted
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
@@ -89,6 +93,13 @@ async def apply_inbound_credit_state(ctx: dict[str, Any], payload: dict[str, Any
     """
     tenant_id = UUID(str(payload["tenant_id"]))
     engine = get_engine()
+    # THE CAMPAIGNS FIRST, IN THEIR OWN TRANSACTION (D-773). The same crossing that brings
+    # the phone back restarts every campaign an empty wallet paused. Separate from the agent
+    # reconcile below so a retry for an unreachable engine cannot roll the resume back; the
+    # resume is a CAS, so the retry finds nothing left to do.
+    async with tenant_session(tenant_id) as session:
+        if not await credits_exhausted(session, tenant_id=tenant_id):
+            await resume_campaigns_after_credit(session, tenant_id=tenant_id)
     async with tenant_session(tenant_id) as session:
         exhausted = await credits_exhausted(session, tenant_id=tenant_id)
         outcome = await reconcile_inbound_answering(

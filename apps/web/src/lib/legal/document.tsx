@@ -17,7 +17,6 @@ import {
   resolvePlaceholders,
 } from "./placeholders";
 import type { LegalBlock, LegalDocument, LegalSection } from "./types";
-import { documentVersionLabel } from "./versions";
 
 /**
  * ONE renderer for all eight documents.
@@ -467,7 +466,7 @@ export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
                 which revision. One hairline row rather than three boxes, so it reads as
                 the document's masthead and not as a feature grid. */}
             <div className="mt-8 flex flex-col gap-6 border-t border-line pt-6 sm:mt-10 lg:flex-row lg:items-end lg:justify-between">
-              <dl className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:gap-x-10">
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-x-10">
                 <div className="col-span-2 max-w-[52ch] sm:col-span-1">
                   <dt className={META_TERM}>Who it applies to</dt>
                   <dd className="mt-1 text-base leading-7 text-ink">{doc.appliesTo}</dd>
@@ -479,21 +478,7 @@ export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
                         in tests/legal.test.tsx counts it as used rather than as a dead entry. */}
                     <Prose text={CHROME_TOKENS.join(" ")} />
                   </dd>
-                </div>
-                {/* THE VERSION IS ON THE PAGE BECAUSE IT IS ON THE CONTRACT. A client's owner
-                    accepts this document by version, and `apps/api/legal/` records that
-                    version in an append-only ledger; a reader who cannot see which version
-                    they are reading cannot tell whether it is the one they agreed to. The
-                    string comes from `versions.ts`, which the docs-drift guard holds equal
-                    to the API's catalogue — so this cell can never show a version the
-                    ledger does not use. */}
-                <div>
-                  <dt className={META_TERM}>Version</dt>
-                  <dd className="mt-1 text-base leading-7 font-medium text-ink tabular-nums">
-                    {documentVersionLabel(doc.slug) ?? "Unversioned"}
-                  </dd>
-                </div>
-              </dl>
+                </div>              </dl>
               <div className="shrink-0 print:hidden">
                 <PrintButton className={PILL_LINK} />
               </div>

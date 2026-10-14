@@ -74,7 +74,14 @@ export const WEEKDAYS: { value: number; label: string; short: string }[] = [
   { value: 7, label: "Sunday", short: "Sun" },
 ];
 
-
+/**
+ * What a campaign may be filed as. Transactional is not offered (D-773): a call is
+ * transactional only within thirty minutes of the customer's own action, which a list
+ * dialled over hours cannot be, and the launch gate refuses it.
+ *
+ * The series named in each hint is TRAI's expectation for that kind of call (direction of
+ * 18 Jun 2024); no gate enforces it since D-692 and D-775.
+ */
 export const CLASSIFICATIONS: {
   value: Classification;
   label: string;
@@ -85,8 +92,7 @@ export const CLASSIFICATIONS: {
     label: "Promotional",
     hint: (
       <>
-        Offers and marketing — dials from a{" "}
-        <Term id="series140" /> number
+        Offers and marketing. TRAI expects these from a <Term id="series140" /> number.
       </>
     ),
   },
@@ -95,20 +101,9 @@ export const CLASSIFICATIONS: {
     label: "Service",
     hint: (
       <>
-        Updates to existing customers —{" "}
-        <Term id="series160" /> or standard
-      </>
-    ),
-  },
-  {
-    value: "transactional",
-    label: "Transactional",
-    hint: (
-      <>
-        Order and booking updates —{" "}
-        <Term id="series160" /> or standard
+        Reminders and updates to your own customers. TRAI expects these from a{" "}
+        <Term id="series160" /> number.
       </>
     ),
   },
 ];
-

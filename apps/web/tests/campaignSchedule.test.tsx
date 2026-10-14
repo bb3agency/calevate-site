@@ -1,11 +1,10 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import CampaignsPage from "@/app/c/[slug]/campaigns/page";
+import { campaignPage, detailRoutes, progressFixture } from "./campaignFixtures";
 import type { Agent } from "@/lib/api/agents";
 import type {
   CampaignProgress,
-  CampaignSummary,
   LaunchCheck,
 } from "@/lib/api/campaigns";
 import { scheduleStartAt } from "@/lib/api/campaigns";
@@ -93,18 +92,6 @@ const AGENT: Agent = {
   llm_surcharged: false,
 };
 
-const CAMPAIGN: CampaignSummary = {
-  id: CAMPAIGN_ID,
-  name: "Diwali offer",
-  status: "draft",
-  classification: "promotional",
-  contacts: 120,
-  connected: 0,
-  launched_at: null,
-  created_at: "2026-08-10T06:00:00Z",
-  consent_provenance_blocker: null,
-};
-
 const READY: LaunchCheck = { ready: true, blockers: [] };
 
 /**
@@ -118,8 +105,8 @@ const BLOCKED: LaunchCheck = {
   blockers: [
     { rule: "no_contacts", reason: "The campaign has no contacts." },
     {
-      rule: "pe_registration_not_active",
-      reason: "PE registration is not active.",
+      rule: "national_dnd_scrub_missing",
+      reason: "No national DND scrub on record.",
     },
   ],
 };
@@ -131,31 +118,23 @@ const BLOCKED: LaunchCheck = {
  * what `as unknown as CampaignProgress` used to hide: `status` and `launched_at` were
  * supplied by no caller and demanded by nobody.
  */
-function progress(extra: Record<string, unknown>): CampaignProgress {
-  return {
-    status: "draft",
-    contacts: {},
-    total: 0,
-    concurrency: 3,
-    launched_at: null,
-    ...extra,
-  };
+function progress(extra: Partial<CampaignProgress>): CampaignProgress {
+  return progressFixture(extra);
 }
 
 async function openCampaign(
   routes: Record<string, unknown>,
   waitFor: string,
 ): Promise<Awaited<ReturnType<typeof renderClientPage>>> {
-  const rendered = await renderClientPage(<CampaignsPage />, {
+  const rendered = await renderClientPage(campaignPage(CAMPAIGN_ID), {
     "/v1/me": ME,
-    "/v1/campaigns": [CAMPAIGN],
+    ...detailRoutes(CAMPAIGN_ID),
     "/v1/agents": [AGENT],
     "/v1/campaigns/numbers": [],
     "/v1/campaigns/templates": [],
     [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: READY,
     ...routes,
   });
-  fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
   // The panel's heading, not any text: the header's status pill prints the same word
   // ("Scheduled") since the round-2 redesign.
   await screen.findByRole("heading", { name: waitFor });
@@ -303,9 +282,9 @@ describe("a campaign waiting for its start", () => {
     // The card is reached through the campaign LIST, which already carries the status;
     // the date comes from a second request. Rendering "Starts —" in the gap is a
     // sentence about a campaign that is not true yet.
-    const rendered = await renderClientPage(<CampaignsPage />, {
+    const rendered = await renderClientPage(campaignPage(CAMPAIGN_ID), {
       "/v1/me": ME,
-      "/v1/campaigns": [{ ...CAMPAIGN, status: "scheduled" }],
+      ...detailRoutes(CAMPAIGN_ID),
       "/v1/agents": [AGENT],
       "/v1/campaigns/numbers": [],
       "/v1/campaigns/templates": [],
@@ -317,7 +296,6 @@ describe("a campaign waiting for its start", () => {
         schedule_blocked_rules: [],
       }),
     });
-    fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
     await screen.findByRole("heading", { name: "Scheduled" });
     expect(rendered.container.textContent).toContain("10:00");
   });
@@ -365,7 +343,7 @@ describe("a campaign waiting for its start", () => {
  * `campaign_recurrence_test.py::test_every_path_from_a_recurrence_to_running_goes_through_the_launch_gate`)
  * pin that there is no second route into a dialling campaign.
  *
- * So a client whose DLT registration is with the registrar today may set next Tuesday.
+ * So a client whose list has not been checked against the national register today may set next Tuesday.
  * Which makes the DANGEROUS version of this fix the thing these tests are really for:
  * a reachable form with the blockers HIDDEN would be worse than the defect it replaced —
  * a schedule that looks armed and produces a silent nothing on Tuesday morning. Every
@@ -417,9 +395,9 @@ describe("arming a schedule while the gate is refusing", () => {
     // AND the blockers are still there, both of them, in the client's words. This is the
     // half that must never be traded for the half above.
     expect(container.querySelectorAll("li")).toHaveLength(2);
-    expect(container.textContent).toContain("Upload the contact list.");
+    expect(container.textContent).toContain("Add the people to call.");
     expect(container.textContent).toContain(
-      "Your business's DLT registration isn't active",
+      "checked against the national do-not-disturb register",
     );
     // The desk it lands on survives too: this one is ours, and a client told only "your
     // registration is not active" goes hunting for a setting they do not have.
@@ -468,7 +446,7 @@ describe("arming a schedule while the gate is refusing", () => {
     );
     expect(container.textContent).toContain("the repeat itself carries on.");
     // The rule names stay the gate's vocabulary.
-    expect(container.textContent).not.toContain("pe_registration_not_active");
+    expect(container.textContent).not.toContain("national_dnd_scrub_missing");
   });
 
   it("actually sends the start, rather than rendering a form the click does nothing to", async () => {
@@ -566,7 +544,7 @@ describe("cancelling a schedule that has since acquired a blocker", () => {
           status: "scheduled",
           launched_at: null,
           scheduled_start_at: "2026-08-17T04:30:00+00:00",
-          schedule_blocked_rules: ["pe_registration_not_active"],
+          schedule_blocked_rules: ["national_dnd_scrub_missing"],
         }),
         [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
       },
@@ -581,7 +559,7 @@ describe("cancelling a schedule that has since acquired a blocker", () => {
     expect(container.textContent).toContain(
       "We tried to start this campaign and could not",
     );
-    expect(container.textContent).toContain("Upload the contact list.");
+    expect(container.textContent).toContain("Add the people to call.");
   });
 
   it("still offers the way out of a repeat", async () => {
@@ -607,7 +585,7 @@ describe("cancelling a schedule that has since acquired a blocker", () => {
     const stop = screen.getByRole("button", { name: "Stop repeating" });
     expect((stop as HTMLButtonElement).disabled).toBe(false);
     expect(container.textContent).toContain("Next: Tuesday, 18 Aug");
-    expect(container.textContent).toContain("Upload the contact list.");
+    expect(container.textContent).toContain("Add the people to call.");
   });
 });
 
@@ -671,7 +649,7 @@ describe("an armed schedule the gate would refuse today", () => {
     const { container } = await openCampaign(
       {
         [`/v1/campaigns/${CAMPAIGN_ID}`]: scheduledAt({
-          schedule_blocked_rules: ["pe_registration_not_active"],
+          schedule_blocked_rules: ["national_dnd_scrub_missing"],
         }),
         [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
       },

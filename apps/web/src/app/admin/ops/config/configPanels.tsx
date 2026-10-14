@@ -82,7 +82,7 @@ export function WithheldSettings({ reason }: { reason: string | null }) {
       <WithheldPanel
         title="Dashboard AI data-use"
         reason={why}
-        subject="This panel would list every LLM provider the in-app AI assistant could run on, whether it may today, and the latest data-use attestation for each."
+        subject="This panel would list every LLM provider Pip, the in-app AI assistant, could run on, whether it may today, and the latest data-use attestation for each."
       />
       <WithheldPanel
         title="Exchange rate"

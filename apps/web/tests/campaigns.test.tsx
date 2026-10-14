@@ -1,62 +1,44 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import CampaignsPage from "@/app/c/[slug]/campaigns/page";
+import EditCampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/edit/page";
 import type { Agent } from "@/lib/api/agents";
-import type {
-  CampaignProgress,
-  CampaignSummary,
-  LaunchCheck,
-} from "@/lib/api/campaigns";
+import type { CampaignSummary, LaunchCheck } from "@/lib/api/campaigns";
 import type { Me } from "@/lib/api/client";
 
 import {
-  problem,
-  renderClientPage,
-  stillLoading,
-  type Routes,
-} from "./harness";
+  FIXTURE_AGENT_ID as AGENT_ID,
+  FIXTURE_CAMPAIGN_ID as CAMPAIGN_ID,
+  LIST_PATH,
+  campaignPage,
+  contactsFixture,
+  contactsPath,
+  detailRoutes,
+  listPage,
+  newCampaignPage,
+  pageFixture,
+  progressFixture,
+  resultsFixture,
+} from "./campaignFixtures";
+import { problem, renderClientPage, stillLoading, type Routes } from "./harness";
 
 /**
- * The campaigns screen either side of the launch panel.
- *
- * `campaignLaunch.test.tsx` covers the panel that authorises the dial. This file covers
- * the two surfaces that lead into it and the one that reports on it — the list, the
- * create form and the progress tiles — because each carries a claim of its own that a
- * wrong render turns into a lie a client acts on:
- *
- * 1. **The create form states, on the record, where a contact list's consent came from.**
- *    It is a compliance artefact (SEC-COMP §3): the answer is audited and is what a
- *    complaint would later be answered with. An answer this screen supplies on the
- *    client's behalf — including by leaving the previous campaign's answer selected — is
- *    an assertion nobody made, and it is the one defect on this page that survives into a
- *    legal record rather than being corrected at the next refetch.
- * 2. **The tiles describe a campaign that may be mid-dial.** A fabricated `0` under
- *    "Connected" while the request is in flight or has failed tells an owner their
- *    campaign reached nobody. Loading is a skeleton, failure is the notice, neither is a
- *    number.
- * 3. **The list decides what a client opens next.** The gate's rule names are not
- *    sentences anyone can act on, and a control rendered from a copy table that does not
- *    own the key is how an unlabelled button appeared on a compliance row once already
- *    (see `LIST_PROVENANCE_COPY`).
- *
- * Mostly negative assertions, because every one of these bugs is something being SHOWN
- * that should not have been.
+ * The campaign screens at their own addresses (D-773): the list, the create page and one
+ * campaign. Mostly negative assertions, because each bug here is something SHOWN that
+ * should not have been: an assertion nobody made in the consent record, a zero over a
+ * campaign we could not read, a control the server refuses, a rule name in the DOM.
  */
-
-const CAMPAIGN_ID = "0192f0aa-2222-7000-8000-000000000001";
-const REFUSED_ID = "0192f0aa-2222-7000-8000-000000000009";
-const AGENT_ID = "0192f0aa-3333-7000-8000-000000000002";
 
 const ME: Me = {
   impersonating: false,
   withheld_acts: [],
-  permissions: ["leads:read", "leads:dispatch"],
+  permissions: ["leads:read", "leads:dispatch", "billing:read"],
   realm: "client",
   role: "owner",
   user_id: "user_1",
   organization: null,
 };
+
 
 const AGENT: Agent = {
   id: AGENT_ID,
@@ -115,22 +97,7 @@ const CAMPAIGN: CampaignSummary = {
   launched_at: null,
   created_at: "2026-08-10T06:00:00Z",
   consent_provenance_blocker: null,
-};
-
-/** The row the gate has already refused: bought list, recorded, unfixable. */
-const REFUSED: CampaignSummary = {
-  ...CAMPAIGN,
-  id: REFUSED_ID,
-  name: "Bought list pilot",
-  consent_provenance_blocker: "consent_source_refused",
-};
-
-const PROGRESS: CampaignProgress = {
-  status: "draft",
-  contacts: {},
-  total: 0,
-  concurrency: 3,
-  launched_at: null,
+  pause_reason: null,
 };
 
 const BLOCKED: LaunchCheck = {
@@ -138,28 +105,31 @@ const BLOCKED: LaunchCheck = {
   blockers: [{ rule: "no_contacts", reason: "The campaign has no contacts." }],
 };
 
-/** Everything the screen asks for before a campaign is opened. */
-function landingRoutes(
-  campaigns: CampaignSummary[],
-  extra: Routes = {},
-): Routes {
+/** The reads the create page is built from. */
+function newRoutes(extra: Routes = {}): Routes {
   return {
     "/v1/me": ME,
     "/v1/agents": [AGENT],
-    "/v1/campaigns": campaigns,
     "/v1/campaigns/numbers": [],
     "/v1/campaigns/templates": [],
+    "/v1/campaigns/lead-pool": { matching: 0, limit: 5000 },
     ...extra,
   };
 }
 
-/** The consent radios on the CREATE form — `idPrefix="new"` names them. */
+/** One campaign's page, with `progress` and the launch check answered as given. */
+function detail(progress: unknown, extra: Routes = {}): Routes {
+  return {
+    "/v1/me": ME,
+    ...detailRoutes(),
+    [`/v1/campaigns/${CAMPAIGN_ID}`]: progress,
+    [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
+    ...extra,
+  };
+}
+
 function consentRadios(container: HTMLElement): HTMLInputElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLInputElement>(
-      'input[name="new-consent-source"]',
-    ),
-  );
+  return Array.from(container.querySelectorAll<HTMLInputElement>('input[name="new-consent-source"]'));
 }
 
 function consentDateInput(container: HTMLElement): HTMLInputElement {
@@ -168,223 +138,134 @@ function consentDateInput(container: HTMLElement): HTMLInputElement {
   return input!;
 }
 
-/**
- * The create form sits behind "New campaign" (a list first, then ONE page since
- * REDESIGN-2): the basics (name, agent, call type, number, template), who to call (the
- * contact editor and the consent questions) and when, with one "Create campaign".
- */
-async function openNewCampaign(): Promise<void> {
-  fireEvent.click(await screen.findByRole("button", { name: "New campaign" }));
-  await screen.findByRole("heading", { name: "The basics" });
-}
-
-/** Name the campaign; the contact list is on the same page. */
-async function reachWhoStep(name = "Diwali reminder"): Promise<void> {
-  await openNewCampaign();
-  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: name } });
-  await screen.findByRole("heading", { name: "Who should we call?" });
-}
-
-/** Paste rows into the contact editor, the way a client pastes from a spreadsheet. */
 function pasteContacts(text: string): void {
   fireEvent.click(screen.getByRole("button", { name: "Paste" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Paste rows" }), { target: { value: text } });
   fireEvent.click(screen.getByRole("button", { name: "Add these rows" }));
 }
 
-function answerConsent(container: HTMLElement): void {
+async function fillNew(container: HTMLElement, name = "Diwali reminder"): Promise<void> {
+  await screen.findByRole("heading", { name: "The basics" });
+  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: name } });
+  pasteContacts("9876543210,Priya");
   fireEvent.click(consentRadios(container)[0]);
   fireEvent.change(consentDateInput(container), { target: { value: "2026-08-01" } });
 }
 
-describe("the create form's consent declaration", () => {
-  it("does not carry one campaign's declaration into the next one", async () => {
-    /**
-     * The defect, in the order a client meets it: answer "where did this list come
-     * from" for campaign A, open something else, come back — and campaign B's form is
-     * already answered, with `Create campaign` live. Clicking through then records, in
-     * an audited table, that a list nobody has described came from the same place on the
-     * same date as the last one. That is precisely the "assertion nobody made" the
-     * `consentSource` initialiser forbids, and unlike every other stale field on this
-     * screen it does not get corrected by the next refetch — it becomes the answer we
-     * would give a regulator.
-     */
-    const { container } = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([CAMPAIGN], {
-        [`/v1/campaigns/${CAMPAIGN_ID}`]: PROGRESS,
-        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
-      }),
-    );
-
-    await reachWhoStep();
-    const before = consentRadios(container);
-    expect(before).toHaveLength(5);
-
-    fireEvent.click(before[0]);
-    fireEvent.change(consentDateInput(container), {
-      target: { value: "2026-08-01" },
-    });
-    expect(consentRadios(container).some((r) => r.checked)).toBe(true);
-    expect(consentDateInput(container).value).toBe("2026-08-01");
-
-    // Leave the flow, open a campaign, come back, and start again.
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
-    await screen.findByText("Before you launch");
-    fireEvent.click(screen.getByRole("button", { name: "All campaigns" }));
-    await reachWhoStep("Second list");
-
+describe("the create page's consent declaration", () => {
+  it("opens unanswered and will not create a campaign without it", async () => {
+    // Where the list came from is an audited statement. A pre-selected answer would be an
+    // assertion nobody made, so the page opens empty and refuses to create without one.
+    const { container } = await renderClientPage(newCampaignPage(), newRoutes());
+    await screen.findByRole("heading", { name: "The basics" });
+    expect(consentRadios(container)).toHaveLength(5);
     expect(consentRadios(container).some((r) => r.checked)).toBe(false);
     expect(consentDateInput(container).value).toBe("");
-    // And the form will not create a campaign with an unanswered declaration.
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "List" } });
     pasteContacts("9876543210");
     fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
-    expect((await screen.findByRole("alert")).textContent).toContain(
-      "Answer both questions about your list",
-    );
-    expect(screen.queryByText("Before you launch")).toBeNull();
+    expect((await screen.findByRole("alert")).textContent).toContain("Answer both questions about your list");
+  });
+
+  it("offers Promotional and Service and never Transactional", async () => {
+    await renderClientPage(newCampaignPage(), newRoutes());
+    await screen.findByRole("heading", { name: "The basics" });
+    expect(screen.getByRole("radio", { name: /Promotional/ })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /Service/ })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: /Transactional/ })).toBeNull();
   });
 });
 
-describe("a campaign whose progress the screen could not read", () => {
+describe("a campaign whose progress could not be read", () => {
   it("reports the failure and invents no counts", async () => {
-    /**
-     * The tiles used to render unconditionally with `?? 0` (and `?? parsed.length` for
-     * the contact count), so a failed `GET /v1/campaigns/{id}` painted "Contacts 0 ·
-     * Connected 0 · Not called 0" over a campaign that might be halfway through dialling
-     * a list. On a screen a client opens BECAUSE something looks wrong, three confident
-     * zeroes are worse than a blank: they answer the question the client came to ask,
-     * incorrectly.
-     */
     const { container } = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([CAMPAIGN], {
-        [`/v1/campaigns/${CAMPAIGN_ID}`]: problem(503, {
+      campaignPage(),
+      detail(
+        problem(503, {
           title: "Upstream unavailable",
           detail: "We could not read this campaign just now.",
           retryable: true,
         }),
-        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
-      }),
+      ),
     );
-
-    fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
-    // The failure is stated, once, as a problem+json notice — not as a blank panel.
     await screen.findByRole("alert");
-
-    // None of the four tiles exists. Asserted on the labels rather than on the digits,
-    // because "0" is a substring of half the ids and timestamps on this page.
-    expect(container.textContent).not.toContain("Connected");
-    expect(container.textContent).not.toContain("Not called");
-    expect(container.textContent).not.toContain("calls answered");
-    // The launch panel is keyed on a status we do not have, so it must not appear at
-    // all: a campaign we cannot read is not a campaign we can say anything about.
-    expect(
-      screen.queryByRole("button", { name: "Launch campaign" }),
-    ).toBeNull();
+    expect(container.textContent).toContain("We could not read this campaign just now.");
+    expect(container.textContent).not.toContain("Picked up");
+    expect(screen.queryByRole("button", { name: "Launch campaign" })).toBeNull();
     expect(container.textContent).not.toContain("Everything checks out.");
   });
 
-  it("shows a skeleton rather than a zero while the request is still in flight", async () => {
-    // The loading state is a real state a client sees on a bad connection, and it is
-    // the one where a default `0` is most convincing and most wrong. It is reached by
-    // asserting in the same tick as the click, before the stubbed fetch resolves —
-    // cheaper and less brittle than a route that never answers, and it exercises the
-    // identical branch.
-    const { container } = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([CAMPAIGN], {
-        [`/v1/campaigns/${CAMPAIGN_ID}`]: PROGRESS,
-        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
-      }),
-    );
-
-    // Click and assert SYNCHRONOUSLY, before the query resolves: this is the frame the
-    // old code filled with zeroes.
-    fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
-    expect(container.textContent).not.toContain("Connected");
-    expect(container.textContent).not.toContain("calls answered");
+  it("shows a skeleton rather than a zero while the request is in flight", async () => {
+    const { container } = await renderClientPage(campaignPage(), detail(stillLoading()));
     expect(container.querySelector(".animate-pulse")).not.toBeNull();
-
-    // …and once it lands, the server's numbers do appear, so the guard above is not
-    // simply hiding the tiles for good.
-    // The header's facts line arrives with the read, and only then.
-    await screen.findByText(/^0 contacts · /);
+    expect(container.textContent).not.toContain("0 people");
   });
 });
 
 describe("the campaign list", () => {
-  it("keeps the gate's rule names out of the list and labels every control it renders", async () => {
-    const { container } = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([CAMPAIGN, REFUSED]),
-    );
-
-    await screen.findByRole("button", { name: CAMPAIGN.name });
-    const rows = container.querySelectorAll("tbody tr");
-    expect(rows).toHaveLength(2);
-
-    // `consent_source_refused` is the launch gate's vocabulary. A client reading this
-    // list can act on "Can't be launched"; they cannot act on an enum member.
-    expect(container.textContent).not.toContain("consent_source_refused");
-    expect(container.textContent).not.toContain("consent_provenance_missing");
+  it("links every campaign to its own address and keeps rule names out of the DOM", async () => {
+    const refused: CampaignSummary = {
+      ...CAMPAIGN,
+      id: "0192f0aa-2222-7000-8000-000000000009",
+      name: "Bought list pilot",
+      consent_provenance_blocker: "consent_source_refused",
+    };
+    const { container } = await renderClientPage(listPage(), {
+      "/v1/me": ME,
+      [LIST_PATH]: pageFixture([CAMPAIGN, refused]),
+    });
+    const link = await screen.findByRole("link", { name: CAMPAIGN.name });
+    expect(link.getAttribute("href")).toBe(`/c/acme/campaigns/${CAMPAIGN_ID}`);
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(2);
     expect(container.textContent).toContain("Can't be launched");
-
-    // A row with nothing wrong says nothing: one control, which is the campaign name.
-    // The refused row adds exactly one more, the correction link.
-    // Rows are table rows since the round-2 redesign. A plain draft: name + "Launch…". The
-    // refused list: name + its correction link, and NO Launch… (it cannot launch).
-    expect(rows[0].querySelectorAll("button")).toHaveLength(2);
-    expect(rows[1].querySelectorAll("button")).toHaveLength(2);
-
-    // NO EMPTY CONTROLS. The bug `lookup` closed rendered a badge with no text and a
-    // clickable button with no label onto a compliance row, because the copy table
-    // resolved a key it does not own to `Object`. An unlabelled button on this row is
-    // unreachable by a screen reader and meaningless to everyone else.
-    for (const button of container.querySelectorAll("button")) {
-      expect(
-        button.textContent?.trim(),
-        "a control was rendered with no label",
-      ).not.toBe("");
-    }
+    expect(container.textContent).not.toContain("consent_source_refused");
+    expect(container.querySelector("h1")).toBeNull();
+    expect(screen.getByRole("link", { name: "New campaign" }).getAttribute("href")).toBe(
+      "/c/acme/campaigns/new",
+    );
   });
 
-  it("renders no page title of its own", async () => {
-    // The app shell prints "Campaigns" from the nav list (layout.tsx). A second one on
-    // the page is a duplicate today and a contradiction the day the nav entry is
-    // renamed — the screen would keep arguing with the header above it.
-    const { container } = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([CAMPAIGN]),
-    );
+  it("names an automatic pause and offers no Resume the server would refuse", async () => {
+    const paused: CampaignSummary = { ...CAMPAIGN, status: "paused", pause_reason: "out_of_credit" };
+    const { container } = await renderClientPage(listPage(), {
+      "/v1/me": ME,
+      [LIST_PATH]: pageFixture([paused]),
+    });
+    await screen.findByRole("link", { name: CAMPAIGN.name });
+    expect(container.textContent).toContain("Paused: out of credit");
+    expect(screen.queryByRole("button", { name: /Resume/ })).toBeNull();
+  });
 
-    await screen.findByRole("button", { name: CAMPAIGN.name });
-    expect(container.querySelector("h1")).toBeNull();
+  it("counts every status and asks the server for the one chosen", async () => {
+    const rendered = await renderClientPage(listPage(), {
+      "/v1/me": ME,
+      [LIST_PATH]: pageFixture([CAMPAIGN]),
+      "/v1/campaigns/page?limit=25&offset=0&status=draft": pageFixture([CAMPAIGN]),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Drafts 1" }));
+    await vi.waitFor(() =>
+      expect(rendered.calls.some((c) => c.path.endsWith("status=draft"))).toBe(true),
+    );
+  });
+
+  it("says there are none only when the server answered with none", async () => {
+    const { container } = await renderClientPage(listPage(), {
+      "/v1/me": ME,
+      [LIST_PATH]: pageFixture([]),
+    });
+    await screen.findByText("No campaigns yet.");
+    expect(container.textContent).not.toContain("No campaign matches");
   });
 });
 
 describe("choosing which agent makes the calls (D-440)", () => {
-  /**
-   * The campaign form binds an agent, and two of the four agent states must be treated
-   * differently — a rule the SERVER owns and this screen only previews.
-   *
-   * `lifecycle.ASSIGNABLE_STATUSES` is every state except `archived`: a draft agent is a
-   * legitimate choice while its script is being written, and `launch_blockers` refuses
-   * the LAUNCH with `agent_not_live` until it is published. Archived is different in
-   * kind — there is no state of the world in which that campaign becomes launchable — so
-   * binding one is a dead end the client cannot diagnose.
-   */
+  const agentIn = (over: Partial<Agent>): Agent => ({ ...AGENT, ...over });
 
-  /** The same agent, in another state. `AGENT` above is live, published and outbound. */
-  function agentIn(over: Partial<Agent>): Agent {
-    return { ...AGENT, ...over };
-  }
-
-  it("never offers an archived agent, because no campaign bound to one can ever launch", async () => {
+  it("never offers an archived agent", async () => {
     const { container } = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([], {
+      newCampaignPage(),
+      newRoutes({
         "/v1/agents": [
           agentIn({ id: "a-live", name: "Follow-ups" }),
           agentIn({
@@ -397,233 +278,96 @@ describe("choosing which agent makes the calls (D-440)", () => {
         ],
       }),
     );
-
-    await openNewCampaign();
-    const picker = container.querySelector<HTMLSelectElement>("select");
-    expect(picker, "the create form has no agent picker").not.toBeNull();
-    const options = Array.from(picker!.options).map(
-      (option) => option.textContent,
-    );
-    expect(options.join(" | ")).toContain("Follow-ups");
-    expect(options.join(" | ")).not.toContain("Retired dialler");
-  });
-
-  it("asks which agent even when there is only one, and names the one it will bind", async () => {
-    // It used to ask only when there was more than one, which silently bound `agents[0]`
-    // — a campaign whose caller nobody chose. With an agents console that can mint a
-    // second agent in a minute, "there is only one" stopped being a safe assumption the
-    // moment the form rendered.
-    const { container } = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([], { "/v1/agents": [agentIn({ name: "Follow-ups" })] }),
-    );
-
-    await openNewCampaign();
     await screen.findByText("Which agent makes these calls");
-    const picker = container.querySelector<HTMLSelectElement>("select");
-    expect(
-      Array.from(picker!.options).map((option) => option.textContent),
-    ).toEqual(["Follow-ups"]);
+    const picker = container.querySelector<HTMLSelectElement>("select")!;
+    const options = Array.from(picker.options)
+      .map((o) => o.textContent)
+      .join(" | ");
+    expect(options).toContain("Follow-ups");
+    expect(options).not.toContain("Retired dialler");
   });
 
-  it("marks an agent that cannot dial yet, rather than letting launch be the first news", async () => {
-    // A draft agent IS assignable and is NOT launchable. Saying so at the point of
-    // choosing turns an `agent_not_live` refusal nobody expected into a wait somebody
-    // planned for.
+  it("marks an agent that cannot dial yet", async () => {
     const { container } = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([], {
-        "/v1/agents": [
-          agentIn({
-            id: "a-draft",
-            name: "Half built",
-            status: "draft",
-            published: false,
-          }),
+      newCampaignPage(),
+      newRoutes({
+        "/v1/agents": [agentIn({ id: "a-draft", name: "Half built", status: "draft", published: false })],
+      }),
+    );
+    await screen.findByText("Which agent makes these calls");
+    expect(container.querySelector("select")!.options[0].textContent).toContain(
+      "not able to call out yet",
+    );
+  });
+
+  it("does not claim there is no agent when /v1/agents failed", async () => {
+    const { container } = await renderClientPage(
+      newCampaignPage(),
+      newRoutes({
+        "/v1/agents": problem(503, {
+          title: "Upstream unavailable",
+          detail: "We could not read that just now.",
+          retryable: true,
+        }),
+      }),
+    );
+    await screen.findByRole("alert");
+    expect(container.textContent).not.toContain("No agent is set up yet");
+  });
+
+  it("says so when the server really answered with no agents", async () => {
+    await renderClientPage(newCampaignPage(), newRoutes({ "/v1/agents": [] }));
+    await screen.findByText(/No agent is set up yet/);
+  });
+});
+
+describe("the number picker", () => {
+  it("offers only numbers that can make this agent's calls", async () => {
+    const base = {
+      series: "standard",
+      dlt_status: "unregistered",
+      supplied_by_us: true,
+      answerable: true,
+      direction: "both" as const,
+      inr_per_month: null,
+      activated: true,
+      releasable: false,
+    };
+    const { container } = await renderClientPage(
+      newCampaignPage(),
+      newRoutes({
+        "/v1/campaigns/numbers": [
+          { ...base, id: "n-ok", e164: "+918041000001", agent_id: AGENT_ID, places_calls: true },
+          {
+            ...base,
+            id: "n-in",
+            e164: "+918041000002",
+            agent_id: AGENT_ID,
+            places_calls: false,
+            direction: "inbound" as const,
+          },
+          { ...base, id: "n-other", e164: "+918041000003", agent_id: "someone-else", places_calls: true },
         ],
       }),
     );
-
-    await openNewCampaign();
-    const picker = container.querySelector<HTMLSelectElement>("select");
-    expect(picker!.options[0].textContent).toContain(
-      "not able to call out yet",
-    );
-    expect(container.textContent).toContain(
-      "it will not launch until the agent is switched on",
-    );
-  });
-
-  it("offers no picker at all while the agent list is still in flight", async () => {
-    // §52 on a control: a `<select>` built from an empty list is a campaign form that
-    // looks answerable and binds nothing.
-    const { container } = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([], { "/v1/agents": stillLoading() }),
-    );
-
-    expect(container.textContent).toContain("New campaign");
-    expect(container.textContent).not.toContain(
-      "Which agent makes these calls",
-    );
+    await screen.findByText("Calling from");
+    const picker = screen.getByRole("combobox", { name: /^Calling from/ }) as HTMLSelectElement;
+    expect(Array.from(picker.options).map((o) => o.value)).toEqual(["", "n-ok"]);
+    expect(container.textContent).toContain("Only numbers this agent can make calls from are listed.");
   });
 });
 
-describe("the three reads the create form is built from", () => {
-  /**
-   * §52, on the screen where a client decides whether their campaigns can run.
-   *
-   * `campaigns`, `progress`, `check` and `create` all surfaced their refusals from the
-   * start. The three lists BEHIND the create form did not, and each failure then
-   * degraded into something the screen stated as a fact about this business:
-   *
-   *  - `/v1/agents` failing left `agentOptions` empty, which is the exact shape of
-   *    "this account has no agent" — and the sentence gated on it sends an owner to
-   *    their account manager to have one built. They have one. The request failed.
-   *  - `/v1/campaigns/numbers` and `/v1/campaigns/templates` failing left two pickers
-   *    holding only their placeholder, with no refusal anywhere on the page: a dead
-   *    form and no explanation.
-   *
-   * The fix is the spelling `/c/<slug>/knowledge` already uses — `Boolean(agents.data)`
-   * for the empty state, `ProblemNotice` for the failure — rather than a fourth one.
-   */
-
-  /** A 503 in the shape `apiRequest` turns into a retryable `ApiProblem`. */
-  const OUTAGE = problem(503, {
-    type: "urn:calevate:internal/upstream_unavailable",
-    kind: "internal",
-    title: "Upstream unavailable",
-    detail: "We could not read that just now.",
-    retryable: true,
-  });
-
-  /** The claim that must never be made on the strength of a request that failed. */
-  const NO_AGENT_CLAIM = "No agent is set up yet";
-
-  it("does not tell a client they have no agent when /v1/agents failed", async () => {
-    const { container } = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([], { "/v1/agents": OUTAGE }),
-    );
-
-    // The refusal is on screen, once, with the server's own sentence.
-    await screen.findByRole("alert");
-    expect(container.textContent).toContain("We could not read that just now.");
-    // …and the empty-state claim is NOT, because nothing answered the question it
-    // purports to answer. `!agents.isLoading` was true here — a settled-and-failed
-    // query is not loading — which is exactly why the old gate let this through.
-    expect(container.textContent).not.toContain(NO_AGENT_CLAIM);
-  });
-
-  it("still makes that claim when the server actually answered with no agents", async () => {
-    // The other direction, so the fix cannot be "delete the sentence": a client with a
-    // genuinely empty agent list needs to know why the form will not submit.
-    const { container } = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([], { "/v1/agents": [] }),
-    );
-
-    await openNewCampaign();
-    expect(container.textContent).toContain(NO_AGENT_CLAIM);
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it("makes no claim while /v1/agents is still in flight", async () => {
-    // The third state §52 names, and the one an empty list is most convincing in.
-    //
-    // IN FLIGHT IS HELD, NOT RACED. This used to assert immediately after the render and
-    // trust that the stubbed fetch had not resolved yet — which is not a property of the
-    // code under test, it is a property of how fast the box is. It held locally and lost
-    // in CI, where the sentence had already appeared by the assertion. `stillLoading()`
-    // hands back a promise that never settles, so the in-flight frame is a state the test
-    // OWNS rather than a window it hopes to hit. No amount of waiting could have fixed
-    // this one: the failure is the query resolving too EARLY.
-    const { container } = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([], { "/v1/agents": stillLoading() }),
-    );
-
-    // A premise check: the form really is on screen, so the absence below is the gate
-    // holding and not simply an unrendered card.
-    expect(container.textContent).toContain("New campaign");
-    expect(container.textContent).not.toContain(NO_AGENT_CLAIM);
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it("makes the claim once the empty list actually lands", async () => {
-    // The other half of the test above, which used to be its last two lines: with the
-    // in-flight frame now held open forever, the "and then it appears" half needs its own
-    // render — otherwise the guard could be suppressing the sentence for good and this
-    // suite would not notice.
-    await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([], { "/v1/agents": [] }),
-    );
-
-    await openNewCampaign();
-    await screen.findByText(new RegExp(NO_AGENT_CLAIM));
-  });
-
-  it("says so when the number and template lists could not be read", async () => {
-    /**
-     * Two `<select>`s that can never be filled, and — before this — nothing on the page
-     * admitting it. A client reading "Choose a number…" over an empty list concludes
-     * their account has no numbers, which on this screen is a conclusion about whether
-     * they can dial at all.
-     */
-    const { container } = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([], {
-        "/v1/campaigns/numbers": OUTAGE,
-        "/v1/campaigns/templates": OUTAGE,
-      }),
-    );
-
-    await screen.findByText("New campaign");
-    // One refusal per failed read: two failures, two notices.
-    const alerts = await screen.findAllByRole("alert");
-    expect(alerts).toHaveLength(2);
-    // And neither failure is dressed as an empty list — those hints are the answer to
-    // "the server said you have none", which the server did not say.
-    expect(container.textContent).not.toContain("No numbers yet");
-    expect(container.textContent).not.toContain("None registered yet");
-  });
-
-  it("keeps the empty-list hints for lists the server really answered as empty", async () => {
-    const { container } = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([]),
-    );
-
-    await openNewCampaign();
-    expect(container.textContent).toContain("No numbers yet");
-    expect(container.textContent).toContain("None registered. You do not need one to make calls.");
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-});
-
-describe("creating a campaign is two calls: the draft, then its list", () => {
-  /** Fill the one page with a one-row list, and press Create. */
-  async function createWithOneRow(container: HTMLElement): Promise<void> {
-    await reachWhoStep();
-    pasteContacts("9876543210,Priya");
-    answerConsent(container);
-    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
-  }
-
-  it("sends the list to the draft the create returned, and lands on that draft", async () => {
+describe("creating a campaign", () => {
+  it("creates the draft, then sends its list and its retry choice", async () => {
     const rendered = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([], {
+      newCampaignPage(),
+      newRoutes({
         "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0 },
-        [`/v1/campaigns/${CAMPAIGN_ID}`]: PROGRESS,
-        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0, foreign: 0 },
       }),
     );
-    await createWithOneRow(rendered.container);
-
-    await screen.findByText("Before you launch");
+    await fillNew(rendered.container);
+    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
     const upload = await vi.waitFor(() => {
       const call = rendered.calls.find(
         (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/contacts`,
@@ -631,72 +375,49 @@ describe("creating a campaign is two calls: the draft, then its list", () => {
       expect(call).toBeDefined();
       return call!;
     });
-    // The number the editor checked, in the E.164 form the server stores.
-    expect(JSON.parse(upload.body ?? "{}").contacts).toEqual([
-      { phone: "+919876543210", name: "Priya" },
-    ]);
+    expect(JSON.parse(upload.body ?? "{}").contacts).toEqual([{ phone: "+919876543210", name: "Priya" }]);
+    const created = rendered.calls.find((c) => c.method === "POST" && c.path === "/v1/campaigns")!;
+    expect(JSON.parse(created.body ?? "{}").retry_policy).toEqual({ max_attempts: 3, gaps_minutes: [30, 120] });
   });
 
-  it("keeps the list and offers the retry when the upload is refused", async () => {
+  it("says the draft exists and links to it when the list upload is refused", async () => {
     const rendered = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([], {
+      newCampaignPage(),
+      newRoutes({
         "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
         [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: problem(503, {
           title: "Upstream unavailable",
           detail: "We could not save those contacts just now.",
           retryable: true,
         }),
-        [`/v1/campaigns/${CAMPAIGN_ID}`]: PROGRESS,
-        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
       }),
     );
-    await createWithOneRow(rendered.container);
-
+    await fillNew(rendered.container);
+    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
     await screen.findByText("We could not save those contacts just now.");
-    // The draft exists, so the screen is on it, with the list still in the editor…
-    expect(screen.getByText("Before you launch")).toBeTruthy();
-    expect(screen.getByText("+91 98765 43210")).toBeTruthy();
-    // …and one press sends it again.
-    const retry = screen.getByRole("button", { name: "Add contacts" }) as HTMLButtonElement;
-    expect(retry.disabled).toBe(false);
-    fireEvent.click(retry);
-    await vi.waitFor(() =>
-      expect(
-        rendered.calls.filter(
-          (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/contacts`,
-        ),
-      ).toHaveLength(2),
+    expect(screen.getByRole("link", { name: "Open it" }).getAttribute("href")).toBe(
+      `/c/acme/campaigns/${CAMPAIGN_ID}`,
     );
   });
-});
 
-describe("starting it later, chosen in the flow", () => {
-  it("arms the start the When step asked for, after the draft exists", async () => {
+  it("arms a chosen start after the draft exists, with its IST offset", async () => {
     const rendered = await renderClientPage(
-      <CampaignsPage />,
-      landingRoutes([], {
+      newCampaignPage(),
+      newRoutes({
         "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0 },
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0, foreign: 0 },
         [`POST /v1/campaigns/${CAMPAIGN_ID}/schedule`]: {
-          campaign_id: CAMPAIGN_ID,
-          status: "scheduled",
-          scheduled_start_at: "2030-01-15T04:30:00+00:00",
+          start_at: "2030-01-15T04:30:00+00:00",
+          first_dial_not_before: "2030-01-15T04:30:00+00:00",
         },
-        [`/v1/campaigns/${CAMPAIGN_ID}`]: PROGRESS,
-        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
       }),
     );
-    await reachWhoStep();
-    pasteContacts("9876543210,Priya");
-    answerConsent(rendered.container);
+    await fillNew(rendered.container);
     fireEvent.click(screen.getByRole("radio", { name: /At a set time/ }));
-    // Refused until the date is chosen: a start nobody picked is never armed.
     fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Choose the date and time");
     fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2030-01-15" } });
     fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
-
     const armed = await vi.waitFor(() => {
       const call = rendered.calls.find(
         (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/schedule`,
@@ -704,7 +425,182 @@ describe("starting it later, chosen in the flow", () => {
       expect(call).toBeDefined();
       return call!;
     });
-    // 10:00 IST, the default start time, with its offset attached.
     expect(JSON.parse(armed.body ?? "{}").start_at).toBe("2030-01-15T10:00:00+05:30");
+  });
+});
+
+describe("one campaign's page", () => {
+  it("offers Edit and Delete on a draft, and Delete restates what it does before it acts", async () => {
+    const rendered = await renderClientPage(campaignPage(), detail(progressFixture()));
+    expect((await screen.findByRole("link", { name: "Edit" })).getAttribute("href")).toBe(
+      `/c/acme/campaigns/${CAMPAIGN_ID}/edit`,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete…" }));
+    expect(screen.getByText("Delete this draft?")).toBeTruthy();
+    expect(rendered.calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  it("says Not calling, with the reason, for a running campaign the gate refuses", async () => {
+    const { container } = await renderClientPage(
+      campaignPage(),
+      detail(
+        progressFixture({
+          status: "running",
+          launched_at: "2026-10-14T04:30:00Z",
+          not_calling: [{ rule: "national_dnd_scrub_expired", reason: "The scrub expired." }],
+        }),
+      ),
+    );
+    await screen.findByText("Not calling anyone right now");
+    expect(container.textContent).not.toContain("Running");
+    expect(container.textContent).toContain("national do-not-disturb register");
+  });
+
+  it("holds Resume after a complaint spike until the review is confirmed", async () => {
+    const rendered = await renderClientPage(
+      campaignPage(),
+      detail(
+        progressFixture({
+          status: "paused",
+          launched_at: "2026-10-14T04:30:00Z",
+          pause_reason: "complaint_spike",
+          complaint_review_required: true,
+        }),
+        {
+          [`/v1/campaigns/${CAMPAIGN_ID}/opt-outs`]: [
+            {
+              call_id: "call-1",
+              at: "2026-10-14T05:00:00Z",
+              words_redacted: "stop calling me",
+              contact_name: "Priya",
+            },
+          ],
+          [`POST /v1/campaigns/${CAMPAIGN_ID}/complaint-review`]: new Response(null, { status: 204 }),
+        },
+      ),
+    );
+    await screen.findByText("stop calling me");
+    expect((screen.getByRole("button", { name: /Resume/ }) as HTMLButtonElement).disabled).toBe(true);
+    const confirm = screen.getByRole("button", { name: "Confirm I've reviewed them" }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(confirm);
+    await vi.waitFor(() =>
+      expect(
+        rendered.calls.some((c) => c.method === "POST" && c.path.endsWith("/complaint-review")),
+      ).toBe(true),
+    );
+  });
+
+  it("names an out-of-credit pause and links to adding credit", async () => {
+    await renderClientPage(
+      campaignPage(),
+      detail(
+        progressFixture({ status: "paused", launched_at: "2026-10-14T04:30:00Z", pause_reason: "out_of_credit" }),
+      ),
+    );
+    expect((await screen.findAllByText("Paused: out of credit")).length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Add credit" }).getAttribute("href")).toBe(
+      "/c/acme/billing?tab=credits",
+    );
+  });
+
+  it("shows each person's outcome with their next try and a link to the call", async () => {
+    const { container } = await renderClientPage(
+      campaignPage(),
+      detail(progressFixture({ status: "running", launched_at: "2026-10-14T04:30:00Z", total: 1 }), {
+        [contactsPath()]: contactsFixture({
+          total: 1,
+          counts: { ...contactsFixture().counts, busy: 1 },
+          items: [
+            {
+              id: "cc-1",
+              name: "Priya",
+              phone_e164: "+919876543210",
+              outcome: "busy",
+              attempts: 1,
+              last_attempt_at: "2026-10-14T05:00:00Z",
+              will_retry: true,
+              next_attempt_at: "2026-10-14T05:30:00Z",
+              call_id: "call-9",
+            },
+          ],
+        }),
+        [`/v1/campaigns/${CAMPAIGN_ID}/results`]: resultsFixture({
+          contacts: 1,
+          tried: 1,
+          pickup_rate: 0,
+          credits_spent_inr: "12.50",
+        }),
+      }),
+    );
+    await screen.findByText("Priya");
+    expect(container.textContent).toContain("Next try");
+    expect(container.textContent).toContain("1 of 3");
+    expect(screen.getByRole("link", { name: "Open call" }).getAttribute("href")).toBe("/c/acme/calls/call-9");
+    expect(container.textContent).toContain("₹12.50");
+  });
+
+  it("offers Call the unreached again only once the campaign has finished", async () => {
+    await renderClientPage(
+      campaignPage(),
+      detail(progressFixture({ status: "completed", launched_at: "2026-10-14T04:30:00Z" })),
+    );
+    await screen.findByRole("button", { name: "Call the unreached again" });
+    expect(screen.queryByRole("button", { name: /Stop for good/ })).toBeNull();
+  });
+});
+
+describe("editing a draft", () => {
+  it("reads the draft's settings back and sends only the edit the server takes", async () => {
+    const rendered = await renderClientPage(
+      <EditCampaignPage params={Promise.resolve({ slug: "acme", campaignId: CAMPAIGN_ID })} />,
+      newRoutes({
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: progressFixture({
+          name: "Autumn",
+          retry_policy: { max_attempts: 2, gaps_minutes: [60] },
+        }),
+        [`PATCH /v1/campaigns/${CAMPAIGN_ID}`]: new Response(null, { status: 204 }),
+      }),
+    );
+    const name = (await screen.findByRole("textbox", { name: "Name" })) as HTMLInputElement;
+    expect(name.value).toBe("Autumn");
+    expect(rendered.container.textContent).toContain("2 tries, 1 hour apart");
+    fireEvent.change(name, { target: { value: "Autumn recall" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    const sent = await vi.waitFor(() => {
+      const call = rendered.calls.find((c) => c.method === "PATCH");
+      expect(call).toBeDefined();
+      return JSON.parse(call!.body ?? "{}");
+    });
+    expect(sent.name).toBe("Autumn recall");
+    expect(sent.retry_policy).toEqual({ max_attempts: 2, gaps_minutes: [60] });
+    expect(sent).not.toHaveProperty("consent_provenance");
+  });
+
+  it("offers no form for a campaign that has started", async () => {
+    await renderClientPage(
+      <EditCampaignPage params={Promise.resolve({ slug: "acme", campaignId: CAMPAIGN_ID })} />,
+      newRoutes({ [`/v1/campaigns/${CAMPAIGN_ID}`]: progressFixture({ status: "running" }) }),
+    );
+    await screen.findByText(/Only a draft can be changed/);
+    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
+  });
+});
+
+describe("Pip on the campaign pages", () => {
+  it("offers to build the campaign on the create page, prefilled and never sent", async () => {
+    const rendered = await renderClientPage(newCampaignPage(), newRoutes());
+    const button = await screen.findByRole("button", { name: /^Build a campaign with Pip/ });
+    expect(button.textContent).toContain("Build a campaign with Pip");
+    expect(rendered.calls.some((c) => c.path.startsWith("/v1/copilot"))).toBe(false);
+  });
+
+  it("offers to answer questions about a launched campaign", async () => {
+    await renderClientPage(
+      campaignPage(),
+      detail(progressFixture({ status: "completed", launched_at: "2026-10-14T04:30:00Z" })),
+    );
+    await screen.findByRole("button", { name: /^Ask Pip about this campaign/ });
   });
 });

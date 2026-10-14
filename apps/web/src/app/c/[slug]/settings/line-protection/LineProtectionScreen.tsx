@@ -36,6 +36,7 @@ import {
 } from "@/lib/api/healer";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
+import { StatusPill } from "@/components/console/statusPill";
 
 /**
  * What callers get when an agent cannot take calls properly, and what went wrong lately.
@@ -241,15 +242,7 @@ function Sentence({ term, text }: { term: string; text: string }) {
 }
 
 function StatePill({ open }: { open: boolean }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-meta font-medium ${
-        open ? "border-warn-line bg-warn-soft text-warn" : "border-line bg-ink/[0.04] text-ink-muted"
-      }`}
-    >
-      {open ? "Ongoing" : "Fixed"}
-    </span>
-  );
+  return <StatusPill tone={open ? "warn" : "neutral"}>{open ? "Ongoing" : "Fixed"}</StatusPill>;
 }
 
 function Suggestions({

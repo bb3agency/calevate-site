@@ -1,9 +1,9 @@
 "use client";
 
-import type { ComponentType } from "react";
-import { Archive, CheckCircle2, CircleHelp, Clock, Type, XCircle } from "lucide-react";
+import { Type } from "lucide-react";
 
-import { ProblemNotice, Skeleton, formatCount, formatIST } from "@/components/ui";
+import { StatusPill } from "@/components/console/statusPill";
+import { ProblemNotice, type NoticeTone, Skeleton, formatCount, formatIST } from "@/components/ui";
 import type { useKbChunks, useKbSources } from "@/lib/api/kb";
 import { lookup } from "@/lib/lookup";
 
@@ -12,13 +12,9 @@ type Chunks = ReturnType<typeof useKbChunks>;
 
 interface StatusCopy {
   label: string;
-  /** Badge palette. Semantic rather than branded — this is a verdict, not navigation. */
-  tone: string;
-  icon: ComponentType<{ className?: string }>;
+  /** A verdict, not navigation: semantic tone, never the brand. */
+  tone: NoticeTone;
 }
-
-/** A state we cannot name, and the archived state, share the quietest treatment. */
-const NEUTRAL_BADGE = "bg-ink/[0.05] text-ink-muted";
 
 /**
  * What a typed fact's status means to the person who typed it. Since D-658 an account
@@ -26,10 +22,10 @@ const NEUTRAL_BADGE = "bg-ink/[0.05] text-ink-muted";
  * an operator added or a view-as session submitted.
  */
 const STATUS_COPY: Record<string, StatusCopy> = {
-  pending_approval: { label: "In review", tone: "bg-warn-soft text-warn", icon: Clock },
-  approved: { label: "Approved, not live yet", tone: NEUTRAL_BADGE, icon: CheckCircle2 },
-  rejected: { label: "Not accepted", tone: "bg-danger-soft text-danger", icon: XCircle },
-  archived: { label: "Replaced by a newer version", tone: NEUTRAL_BADGE, icon: Archive },
+  pending_approval: { label: "In review", tone: "warn" },
+  approved: { label: "Approved, not live yet", tone: "neutral" },
+  rejected: { label: "Not accepted", tone: "stop" },
+  archived: { label: "Replaced by a newer version", tone: "neutral" },
 };
 
 /**
@@ -121,29 +117,10 @@ export function FactRow({
 }
 
 function SourceBadge({ source }: { source: { status: string; is_active: boolean } }) {
-  if (source.is_active) {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2 py-0.5 text-xs font-semibold text-brand-strong">
-        {/* `is_active` is the publish, not the review: only a published source is live. */}
-        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-brand-bright" />
-        Live
-      </span>
-    );
-  }
+  // `is_active` is the publish, not the review: only a published source is live.
+  if (source.is_active) return <StatusPill tone="ok">Live</StatusPill>;
   // A status this build cannot name fails VISIBLE, with the server's own word.
   // `lookup()`: a wire string indexing a literal walks the prototype chain (lib/lookup.ts).
-  const copy = lookup(STATUS_COPY, source.status) ?? {
-    label: source.status,
-    tone: NEUTRAL_BADGE,
-    icon: CircleHelp,
-  };
-  const Icon = copy.icon;
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${copy.tone}`}
-    >
-      <Icon aria-hidden className="h-3 w-3" />
-      {copy.label}
-    </span>
-  );
+  const copy = lookup(STATUS_COPY, source.status) ?? { label: source.status, tone: "neutral" };
+  return <StatusPill tone={copy.tone}>{copy.label}</StatusPill>;
 }

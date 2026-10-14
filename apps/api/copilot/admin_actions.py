@@ -42,6 +42,7 @@ from apps.api.copilot.actions import (
     action_schema,
     parse_args,
 )
+from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.schemas import CopilotConfirmOut, CopilotProposalEvent
 from apps.api.core.context import Principal
@@ -783,7 +784,7 @@ def _refused(detail: str) -> ProblemError:
         code="copilot_proposal_invalid",
         title="That change could not be confirmed",
         detail=detail,
-        remediation="Ask the assistant again — nothing has been changed.",
+        remediation=f"Ask {ASSISTANT_NAME} again — nothing has been changed.",
     )
 
 
@@ -838,7 +839,7 @@ async def confirm_admin(
     tool = _BY_NAME.get(str(claims.get("tool")))
     act = claims.get(write_tools.ACTOR_CLAIM)
     if tool is None or claims.get("sub") != PLATFORM_SUBJECT:
-        raise _refused("This suggestion refers to something the assistant can no longer do.")
+        raise _refused(f"This suggestion refers to something {ASSISTANT_NAME} can no longer do.")
     viewing_raw = claims.get("viewing")
     viewing = UUID(viewing_raw) if isinstance(viewing_raw, str) else None
     actor = admin_actor_for(principal, viewing_tenant_id=viewing)

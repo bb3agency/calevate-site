@@ -119,9 +119,12 @@ async def get_calls(
     since: datetime | None = Query(None, description="Calls started at or after this instant"),
     until: datetime | None = Query(None, description="Calls started before this instant"),
     test_calls: bool = Query(True, description="False leaves out free-trial test calls"),
+    campaign_id: UUID | None = Query(None, description="Only the calls one campaign placed"),
     principal: Principal = Depends(requires("calls:read")),
 ) -> list[CallSummaryOut]:
-    filters = _call_filters(status, agent_id, outcome, direction, since, until, test_calls)
+    filters = _call_filters(
+        status, agent_id, outcome, direction, since, until, test_calls, campaign_id
+    )
     return await service.list_calls(
         session,
         limit=limit,
@@ -142,6 +145,7 @@ def _call_filters(
     since: datetime | None,
     until: datetime | None,
     test_calls: bool = True,
+    campaign_id: UUID | None = None,
 ) -> service.CallFilters:
     for instant in (since, until):
         if instant is not None and instant.tzinfo is None:
@@ -160,6 +164,7 @@ def _call_filters(
         since=since,
         until=until,
         test_calls=test_calls,
+        campaign_id=campaign_id,
     )
 
 
@@ -202,10 +207,13 @@ async def export_calls(
     since: datetime | None = None,
     until: datetime | None = None,
     test_calls: bool = True,
+    campaign_id: UUID | None = None,
     x_confirm_action: ConfirmAction = None,
 ) -> Response:
     await _require_export_code(code, principal, request, x_confirm_action, "export_calls")
-    filters = _call_filters(status, agent_id, outcome, direction, since, until, test_calls)
+    filters = _call_filters(
+        status, agent_id, outcome, direction, since, until, test_calls, campaign_id
+    )
     export = await service.export_calls_csv(session, filters)
     await write_audit(
         session,

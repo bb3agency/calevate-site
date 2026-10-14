@@ -1,5 +1,6 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useId, useState } from "react";
 import { Plus } from "lucide-react";
 
@@ -248,13 +249,13 @@ function RoutineEditor({
       steps={[
         {
           id: "what",
-          title: "What should the assistant do?",
+          title: `What should ${ASSISTANT_NAME} do?`,
           hint: "Write it the way you'd ask it. It replies in the language you write in.",
           validate: () =>
             name.trim() === ""
               ? "Give the routine a name."
               : instruction.trim() === ""
-                ? "Say what the assistant should do each time."
+                ? `Say what ${ASSISTANT_NAME} should do each time.`
                 : null,
           content: (
             <div className="space-y-4">

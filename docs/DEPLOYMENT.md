@@ -956,6 +956,29 @@ Calevate adaptations:
    older than 180 days** — a stale allowlist does not degrade gracefully, it either blocks
    live traffic or trusts an address Cloudflare has released.
 
+7. **The live change streams need no nginx change (D-774).** `GET /v1/live` and
+   `GET /v1/admin/live` are long-lived `text/event-stream` responses through the api
+   vhost's existing locations (`location /` on `client_api`, `^~ /v1/admin/` on
+   `admin_api`), exactly as the copilot stream is. They fit the config as it is because
+   (a) FastAPI's SSE response sets `X-Accel-Buffering: no`, which nginx honours, so nothing
+   is buffered; (b) it writes a keep-alive comment on every 15 s of silence and the stream
+   re-checks its caller every 20 s, both well inside the vhost's `proxy_read_timeout 60s`
+   and Cloudflare's default Proxy Read Timeout of 125 s (VERIFIED-VENDOR-DOCS,
+   developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-524/,
+   read 14 Oct 2026; the page does not say whether it applies between chunks of a stream,
+   so that is UNKNOWN, and a 15 s keep-alive is far inside it either way); (c) each stream
+   is ONE request, so the per-IP rate
+   zones see one request per tab per 30 minutes (the stream's own lifetime) plus
+   reconnects, which back off with jitter. No `limit_conn` is set anywhere, and the app
+   caps one person at eight streams per process. There is therefore no deploy step for
+   nginx and no `sudo install` line to run. **What a deploy does change:** the api
+   process holds one extra Redis connection (the pub/sub subscription, `live/hub.py`)
+   and one open HTTP connection per console tab; on SIGTERM the streams end at once
+   (`closed: shutting_down`, `core.bootstrap.on_exit_signal`) so uvicorn's 25 s graceful
+   drain is not spent waiting on them, and browsers reconnect to the new container with
+   backoff. If a future change does add a dedicated location, it must keep both
+   properties: no buffering and a read timeout above 20 s.
+
 Cloudflare per zone: A records → VPS IP, proxied (orange); **Full (strict)** only
 (Flexible = redirect loop with our port-80 301); no stray AAAA; origin locked to CF
 ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
@@ -1711,6 +1734,7 @@ facts cite `thinnest-findings/mirror/pages/` (VERIFIED-VENDOR-DOCS).
 | `THINNEST_OWN_MODEL` | api, workers | ops console (applies to live agents; typed step-up confirmation), added by D-764 (13 Oct 2026), default `false` | Agents answer on our Gemini model through our Google key: Clear on ThinnestAI scope `llm`, Studio on `llm_voice`. Saving it on is refused until `GEMINI_API_KEY` is installed, the default model is priced, the Google data-use attestation exists and the `byok_llm_voice` minute is attested; `runbooks/thinnest-own-model.md`. |
 | `THINNEST_OWN_MODEL_DEFAULT` | api, workers | ops console (applies to live agents), added by D-764, default `gemini-2.5-flash-lite` | The Gemini model an agent with none of its own answers with while `THINNEST_OWN_MODEL` is on; must be offerable (key installed, price attested). |
 | `THINNEST_REPLY_LENGTH` | api, workers | ops console (applies to live agents), added by D-769 (14 Oct 2026), default 300 | The reply ceiling, in tokens (100-800), every agent with none of its own is published with as ThinnestAI `maxReplyTokens`; a reply that reaches it is cut off there (`snapshots/2026-10-13/pages/api-reference/agents/update-agent.md:839-845`). 300 is the vendor's own default. An operator sets one agent's own on the admin agent page (Call handling, "Reply length"). |
+| `REPLY_TIME_TARGET_MS` | api | ops console (applies live), added by D-770 (14 Oct 2026), default 500 | How long a caller should wait for the agent to start answering, in milliseconds (100-10000). The admin Voice response time screen counts a call over target when its p90 reply time (ThinnestAI `quality.responseMs`, `snapshots/2026-10-13/pages/api-reference/calls/get-call.md:327-335`) exceeds it. 500 is the founder's end-to-end goal of 27 Aug 2026. |
 | `THINNEST_CUSTOMER_PLAN` | api, workers | ops console (applies live), added by D-693 (9 Oct 2026), default `payg` | The ThinnestAI plan our account is on: `payg`, `pro`, `scale` or `enterprise`. Every client gets its own customer workspace, and the plan caps how many we may hold — 3, 100, 1,000, 10,000, a deleted one counting until it is erased (`snapshots/2026-10-08/pages/api-reference/customers.md:191-200`). Read for the ops headroom and the `engine_workspace_plan_limit` alarm; the vendor's 402 enforces the cap. Set it after the plan changes (OPERATIONS §2 gate T-8). |
 | `THINNEST_DEVELOPER_WORKSPACE_ID` | api, workers | ops console (applies live), added by D-693, optional | Our own ThinnestAI workspace's id, `org_…` (`GET /workspace`, `api-reference/workspace/get-workspace.md:327-351`). Never accepted as a client's workspace; provisioning also reads it from the API (gate T-16). |
 | `TRIAL_CALLER_NUMBER` | api | ops console (applies live), added by D-697 (9 Oct 2026), optional | The shared +91 number every free-trial test call rings from, held in our developer workspace and recorded against no client. Unset, trial calling is shown as not available yet (OPERATIONS §2 gate T-22). |

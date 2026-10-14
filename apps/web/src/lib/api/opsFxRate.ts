@@ -30,6 +30,7 @@
  * has been published or while the override is on.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { adminSession } from "./admin";
@@ -56,6 +57,6 @@ export function useFxRate(): UseQueryResult<FxRate> {
     // business day, so a faster poll would re-render the same number. Two minutes means an
     // operator watching this screen during an incident sees a recovered feed without
     // reaching for reload, and nothing more often than that is information.
-    refetchInterval: 120_000,
+    refetchInterval: livePoll(120_000),
   });
 }

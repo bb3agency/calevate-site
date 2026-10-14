@@ -15,6 +15,7 @@
  * and there is one source of truth again.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import {
   useMutation,
   useQuery,
@@ -66,7 +67,7 @@ export function useIngestActivity(session: Session): UseQueryResult<IngestActivi
     // Deliveries land on the form vendor's schedule, and this screen is usually
     // open precisely because someone just submitted a test form and is waiting
     // to see it appear. 30s keeps that loop tight without hammering the inbox.
-    refetchInterval: 30_000,
+    refetchInterval: livePoll(30_000),
   });
 }
 

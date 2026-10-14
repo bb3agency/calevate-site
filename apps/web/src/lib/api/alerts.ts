@@ -9,7 +9,7 @@
  * "failures in admin panel only, high priority things only through mail"; the mail half is
  * `apps/api/core/alarm_severity.py`, and this is the panel half.
  *
- * ## WHAT THIS MODULE REFUSES TO COMPUTE, and it is the same doctrine as `engineLatency.ts`
+ * ## WHAT THIS MODULE REFUSES TO COMPUTE, and it is the same doctrine as `replyTimes.ts`
  *
  * 1. **Whether an episode is OPEN.** `cleared_at` is the server's field and `null` is the
  *    answer; a browser deciding "last seen more than an hour ago, so it must be over"
@@ -24,6 +24,7 @@
  *    broken" may not have an answer that depends on the row limit.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { lookup } from "@/lib/lookup";
@@ -31,6 +32,7 @@ import { lookup } from "@/lib/lookup";
 import { adminSession } from "./admin";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
+import type { NoticeTone } from "@/components/ui";
 
 type Schemas = components["schemas"];
 
@@ -67,7 +69,7 @@ export const alertKeys = {
 /**
  * The report for one window.
  *
- * **IT POLLS, unlike `useEngineLatency`, and the difference is the subject.** That report
+ * **IT POLLS, unlike `useReplyTimes`, and the difference is the subject.** That report
  * is a distribution over days that cannot change inside a minute; this one is "what is
  * happening now", opened by somebody who has just been paged and is watching for the next
  * occurrence — the same judgement `useClientHealth` makes the other way round. Sixty
@@ -87,7 +89,7 @@ export function useAlerts(days: number, enabled = true): UseQueryResult<AlertRep
     queryKey: alertKeys.report(days),
     queryFn: () => apiRequest<AlertReport>(adminSession(), `${ALERTS_PATH}?days=${days}`),
     enabled,
-    refetchInterval: enabled ? ALERTS_POLL_MS : false,
+    refetchInterval: livePoll(enabled ? ALERTS_POLL_MS : false),
   });
 }
 
@@ -116,18 +118,18 @@ export const SEVERITY_MEANINGS: Record<string, string> = {
  * wire string and the table is an object literal, which is the prototype-chain read
  * `lib/lookup.ts` exists to make unrepeatable (`tests/wireLookupGuard.test.ts`).
  */
-export const SEVERITY_STYLES: Record<string, string> = {
-  page: "bg-danger-soft text-danger",
-  attention: "bg-warn-soft text-warn",
-  record: "bg-ink/[0.06] text-ink-muted",
+export const SEVERITY_TONES: Record<string, NoticeTone> = {
+  page: "stop",
+  attention: "warn",
+  record: "neutral",
 };
 
 export function severityLabel(severity: string): string {
   return lookup(SEVERITY_LABELS, severity) ?? severity;
 }
 
-export function severityStyle(severity: string): string {
-  return lookup(SEVERITY_STYLES, severity) ?? "bg-ink/[0.06] text-ink-muted";
+export function severityTone(severity: string): NoticeTone {
+  return lookup(SEVERITY_TONES, severity) ?? "neutral";
 }
 
 /**

@@ -58,10 +58,6 @@ export function Closing({ devSlug }: { devSlug?: string }) {
             aria-hidden
             className="mk-grid-lines mk-grid-lines--vignette pointer-events-none absolute inset-0 z-below"
           />
-          <div
-            aria-hidden
-            className="mk-blob mk-blob--b pointer-events-none absolute -top-16 right-0 h-56 w-56"
-          />
           <h2 className="max-w-4xl text-[2rem] leading-[1.1] font-semibold tracking-tight text-balance text-ink sm:text-5xl">
             Your next customer could already be trying to reach you
           </h2>

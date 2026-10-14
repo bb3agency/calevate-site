@@ -13,7 +13,7 @@
  * A person cannot act on a word they have to be an engineer to read.
  *
  * So the translation from internal vocabulary to human language lives HERE, not inlined
- * per panel, for the same reason `NOTICE_TONES` and `formatINR` do: five panels each
+ * per panel, for the same reason `NOTICE_BAR` and `formatINR` do: five panels each
  * describing the same five load-shed modes, or the same five "when does it take effect"
  * timings, is where the wording drifts — one screen gets the friendlier phrasing and the
  * next keeps the enum. One table, one voice, and `tests/opsLanguage.test.tsx` pins it.
@@ -134,24 +134,13 @@ export function timingCopy(applies: string): TimingCopy {
 }
 
 /**
- * A small rounded label in one of the four notice tones: the ops console's one badge, so
+ * A state in one of the four notice tones: the ops console's one badge, so
  * a setting's state, its timing and its source read alike. Wraps rather than overflowing
  * at 320px.
  */
-export function ToneBadge({
-  tone,
-  icon,
-  children,
-}: {
-  tone: NoticeTone;
-  icon?: ReactNode;
-  children: ReactNode;
-}) {
+export function ToneBadge({ tone, children }: { tone: NoticeTone; children: ReactNode }) {
   return (
-    // The admin console's one pill (`components/admin/kit`), allowed to wrap: a setting's
-    // state can be a phrase, and at 320px it must not overflow its row.
-    <StatusPill tone={tone} className="max-w-full gap-1 whitespace-normal [overflow-wrap:anywhere]">
-      {icon}
+    <StatusPill tone={tone} wrap>
       {children}
     </StatusPill>
   );

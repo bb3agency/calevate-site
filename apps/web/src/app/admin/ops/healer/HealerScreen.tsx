@@ -42,7 +42,7 @@ const COMPONENTS: { value: StatusComponentKey; label: string }[] = [
   { value: "calls", label: "Phone calls" },
   { value: "numbers", label: "Phone numbers" },
   { value: "dashboard", label: "Dashboard" },
-  { value: "assistant", label: "Assistant" },
+  { value: "assistant", label: "Pip" },
 ];
 
 /**

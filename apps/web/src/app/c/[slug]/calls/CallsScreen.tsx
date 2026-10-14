@@ -71,6 +71,7 @@ export function CallsScreen({ slug }: { slug: string }) {
   const params = useSearchParams();
   const [status, setStatus] = useState<string | undefined>(() => initialStatus(params.get("status")));
   const [agentId, setAgentId] = useState<string | undefined>(() => params.get("agent_id") || undefined);
+  const [campaignId, setCampaignId] = useState<string | undefined>(() => params.get("campaign_id") || undefined);
   const [outcome, setOutcome] = useState<CallOutcome | undefined>();
   const [direction, setDirection] = useState<CallDirection | undefined>();
   const [range, setRange] = useState<CallRange>("all");
@@ -83,6 +84,7 @@ export function CallsScreen({ slug }: { slug: string }) {
   const filters: CallsLogFilters = {
     status,
     agentId,
+    campaignId,
     outcome,
     direction,
     testCalls,
@@ -91,7 +93,7 @@ export function CallsScreen({ slug }: { slug: string }) {
   const calls = useCallsLog(session, { ...filters, pageSize: CALLS_PAGE_SIZE });
   const exportCalls = useExportCalls(session);
   const exportAccess = useWriteAccess(session, "calls:read_raw", "export your calls");
-  const filtered = Boolean(status || agentId || outcome || direction || range !== "all" || !testCalls);
+  const filtered = Boolean(status || agentId || campaignId || outcome || direction || range !== "all" || !testCalls);
 
   // Flattened across the loaded pages, deduped by id: a call landing mid-read shifts
   // rows across an offset boundary, and a duplicate React key would crash the log.
@@ -150,6 +152,7 @@ export function CallsScreen({ slug }: { slug: string }) {
       },
       { key: "status_link", label: "Status chosen by a link", value: status ? (lookup(STATUS_WORDS, status) ?? status) : "none" },
       { key: "agent_link", label: "Agent chosen by a link", value: agentId ? (agentName ?? agentId) : "none" },
+      { key: "campaign_link", label: "Only one campaign's calls?", value: campaignId ? "yes, chosen by a link from that campaign" : "no" },
       { key: "test_calls", label: "Are free-trial test calls included?", value: testCalls ? "yes" : "no" },
       { key: "rows_loaded", label: "Call rows loaded so far", value: String(rows.length) },
       {
@@ -186,6 +189,7 @@ export function CallsScreen({ slug }: { slug: string }) {
   const clearAll = () => {
     setStatus(undefined);
     setAgentId(undefined);
+    setCampaignId(undefined);
     setOutcome(undefined);
     setDirection(undefined);
     setRange("all");
@@ -268,6 +272,12 @@ export function CallsScreen({ slug }: { slug: string }) {
               onClick={() => setAgentId(undefined)}
             />
             <span className="text-meta text-ink-muted">Press it to show every agent&rsquo;s calls.</span>
+          </div>
+        )}
+        {campaignId && (
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterChip label="One campaign's calls" active onClick={() => setCampaignId(undefined)} />
+            <span className="text-meta text-ink-muted">Press it to show calls from everywhere.</span>
           </div>
         )}
         {status && (

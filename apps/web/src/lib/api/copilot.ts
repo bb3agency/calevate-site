@@ -32,6 +32,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { needsReauthentication } from "@/lib/authn/problems";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { withActionCode } from "@/lib/authn/stepUpPrompt";
 import { lookup } from "@/lib/lookup";
 
@@ -164,7 +165,7 @@ export function useUndoAction(session: Session, realm: "client" | "admin") {
       const confirmAction = undoCopilotConfirmation(actionId);
       return withActionCode(
         confirmAction,
-        "Undoing something the assistant did.",
+        `Undoing something ${ASSISTANT_NAME} did.`,
         () =>
           apiRequest<CopilotUndoOut>(session, undoPath(realm, actionId), {
             method: "POST",

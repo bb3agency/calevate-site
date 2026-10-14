@@ -991,6 +991,13 @@ class DashboardOut(Strict):
     # rolling definition as `calls_7d`/`leads_new_7d`, one week earlier.
     calls_prev_7d: int
     leads_new_prev_7d: int
+    # How `calls_7d` ended, over the SAME rolling window and in the chart's classes
+    # (`service.DAILY_CALL_CLASSES`): connected is `completed`; not connected is the
+    # `no_answer` and `failed` classes. Calls still in flight are in neither, so the two do
+    # not always sum to `calls_7d`. Summing `daily_7d` instead would mix the rolling window
+    # with seven IST calendar days and could show more connected calls than calls.
+    calls_connected_7d: int
+    calls_not_connected_7d: int
     # THE WINDOW IS IN THE NAME, like every other bounded number on this model (D-215).
     #
     # This shipped as `avg_duration_s` and was the only tile here with no time bound at

@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Eye, EyeOff, Inbox, ShieldAlert } from "lucide-react";
+import { Eye, EyeOff, Inbox } from "lucide-react";
 
 import { CopyButton } from "@/components/interior/copy-button";
-import { NOTICE_TONES } from "@/components/ui";
+import { NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
 import { API_BASE } from "@/lib/api/client";
 import type { MetaSetup } from "@/lib/api/leadSources";
 
@@ -44,7 +44,7 @@ export function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
   return (
     <div className="mt-4 space-y-4">
       {setup.lead_retrieval_available ? (
-        <div className={`rounded-md border px-3 py-2 text-body ${NOTICE_TONES.ok}`}>
+        <div className={`${NOTICE_BASE} ${NOTICE_BAR.ok}`}>
           <p className="font-medium">Lead answers will be collected.</p>
           <p className="mt-1">
             Once Meta accepts the details below, each verified delivery becomes a lead
@@ -52,9 +52,8 @@ export function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
           </p>
         </div>
       ) : (
-        <div className={`rounded-md border px-3 py-2 text-body ${NOTICE_TONES.warn}`}>
-          <p className="flex items-center gap-1.5 font-medium">
-            <ShieldAlert className="h-4 w-4 shrink-0" aria-hidden />
+        <div className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
+          <p className="font-medium">
             Read this first: lead answers are not collected yet.
           </p>
           <p className="mt-1">

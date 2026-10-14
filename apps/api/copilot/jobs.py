@@ -29,6 +29,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.copilot.memory import redacted_content
 from apps.api.copilot.models import MAX_CONTENT_CHARS, MAX_JOB_PROGRESS
 from apps.api.copilot.sanitize import strip_invisible
@@ -115,7 +116,7 @@ async def create_job(
     ).scalar_one()
     if int(active) >= MAX_ACTIVE_JOBS_PER_USER:
         raise TooManyJobsError
-    cleaned = redacted_content(goal) or "A task the assistant was asked to do."
+    cleaned = redacted_content(goal) or f"A task {ASSISTANT_NAME} was asked to do."
     job_id = uuid7()
     record = (
         await session.execute(

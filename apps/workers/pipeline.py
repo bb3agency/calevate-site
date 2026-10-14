@@ -56,7 +56,6 @@ from calevate_shared.extraction import (
 )
 from calevate_shared.lead_fields import with_core
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
@@ -157,7 +156,6 @@ from apps.api.insights import detection as gap_detection
 from apps.api.insights import service as gap_service
 from apps.api.integrations import service as integrations
 from apps.api.integrations.service import subscribed_endpoint_sql
-from apps.api.ops.engine_latency import upsert_call_engine_latency
 from apps.api.ops.model_pricing import attested_tts_prices
 from apps.api.reliability.service import (
     enqueue_outbox_once,
@@ -1164,59 +1162,6 @@ async def _archive_engine_document(
     return "archived" if stored is not None else "put_refused"
 
 
-async def _record_engine_latency(
-    tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot
-) -> str:
-    """Store what the engine said its own pipeline cost, per turn. Returns the outcome.
-
-    **THE ONLY MEASUREMENT THIS SYSTEM HAS.** TRD §4a records that every latency figure in
-    this repo is a target with zero measurements behind it, and D-410 made that expensive:
-    it pinned the language model to South India while the engine's orchestrator is US-hosted
-    (`bolna-findings/mirror/pages/concepts/security.md:29`), so every turn's LLM call was a
-    US->India->US round trip inside a 350ms budget. D-449 then removed that round trip
-    (`eastus2`) on an argument, paying for it with the India residency claim — still with
-    zero measurements behind it. This stage is what turns the whole question from an
-    argument into a `GROUP BY region` (OPERATIONS §2 gate 4).
-
-    **UPSERT, and the unique constraint is load-bearing.** This pipeline re-runs on every
-    re-drive and the reconciliation poller can drive it again. An INSERT would append a
-    second copy of every turn and double-weight that call in the distribution — the one
-    failure a measurement table cannot survive, because it corrupts the answer silently and
-    only in the calls that had trouble.
-
-    **NEVER RAISES.** A missing measurement is a gap in evidence; a failed pipeline is a
-    lead the client does not get. `_meter` and the extraction are what this call is for.
-
-    NOTHING PERSONAL CROSSES THIS FUNCTION (hard rule 6): `CallLatency` carries turn
-    indices, milliseconds and a region code, and there is no field on it text could be in.
-    The log line is ids and counts for the same reason.
-    """
-    latency = snapshot.latency
-    if latency is None:
-        # The engine reported no timings at all. Legitimate — a listing row carries none,
-        # and an engine may publish none — so it is an outcome on the span, not a warning.
-        return "none_reported"
-    try:
-        async with tenant_session(tenant_id) as session:
-            await upsert_call_engine_latency(
-                session,
-                tenant_id=tenant_id,
-                call_id=call_id,
-                engine=snapshot.engine,
-                latency=latency,
-            )
-    except SQLAlchemyError as exc:
-        # Includes the CHECK that refuses anything but numbers in `turns` — which is the
-        # one failure here worth a log line an operator can act on, because it means a
-        # writer got past the adapter with a shape the schema forbids.
-        log.warning(
-            "engine_latency_not_recorded",
-            extra={"call_id": str(call_id), "reason": type(exc).__name__},
-        )
-        return "refused"
-    return "recorded"
-
-
 async def _post_call_stages(
     tenant_id: UUID,
     call_id: UUID,
@@ -1260,14 +1205,6 @@ async def _post_call_stages(
                 stage,
                 outcome=await _archive_engine_document(tenant_id, call_id, execution_id, snapshot),
             )
-
-    # STEP 1c — what the engine says its own pipeline cost, per turn (gate 4). Before the
-    # transcript because it is a small write of numbers already in hand, and after the
-    # archive because the archive is what a later re-derivation would read.
-    with span("pipeline.engine_latency", call_id=str(call_id)) as stage:
-        set_span_attributes(
-            stage, outcome=await _record_engine_latency(tenant_id, call_id, snapshot)
-        )
 
     # STEP 1d — the HUMAN LEG, if this call had one (D-533). Before the transcript because
     # it is a single indexed lookup that usually finds nothing, and because when it DOES

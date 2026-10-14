@@ -102,11 +102,8 @@ DLT_STATUSES = ("pending", "registered", "blocked")
 #: dials out and a number bought only to dial out are the same distinction, and a second
 #: vocabulary for it would make the two comparable only by translation.
 #:
-#: **IT IS NOT A SECOND ANSWER TO THE SERIES QUESTION AND MAY NEVER BECOME ONE.**
-#: `campaigns.service.SERIES_FOR_CLASSIFICATION` decides which series may carry a
-#: promotional, service or transactional call, and `campaigns/sender_attestation.py` holds
-#: the client's own exception for an ordinary DID. Both read `series`, which is derived from
-#: the number's own prefix. This column is a purchase intent; it widens nothing.
+#: It is a purchase intent, not a statement of what series the number is: `series` is
+#: derived from the number's own prefix (`series_for_e164`).
 NUMBER_DIRECTIONS = ("inbound", "outbound", "both")
 
 #: The India country code, and the two regulated national prefixes the series names.
@@ -132,15 +129,11 @@ def series_for_e164(e164: str) -> str | None:
     Every `+91` number gets an answer: `140`, `160`, or `standard` (i.e. "an ordinary
     number, not a regulated series").
 
-    WHY THIS IS A FACT AND NOT A PREFERENCE. `phone_numbers.series` is what the campaign
-    launch gate matches against the campaign's classification
-    (`campaigns.service.SERIES_FOR_CLASSIFICATION`: 140 dials promotions, 160 dials
-    service and transactional), so it decides whether a promotional campaign may
-    run — and it was an operator's typed word, never checked against the number sitting
-    in the same INSERT. A `+91 98…` mobile typed `"140"` opened promotional dialling from
-    a number that is not a telemarketing header, and a real 140 number typed
-    `"standard"` opened service/transactional dialling from one that is. The prefix was
-    in the row the whole time.
+    WHY THIS IS A FACT AND NOT A PREFERENCE. `phone_numbers.series` was an operator's typed
+    word, never checked against the number sitting in the same INSERT, so a `+91 98…`
+    mobile could be filed as a 140 telemarketing header. The prefix is in the row, so the
+    series is read from it rather than taken on trust (`number_series_mismatch`). No
+    launch or dial gate matches the series to a campaign's classification since D-692.
     """
     if not e164.startswith(_INDIA_CC):
         return None
@@ -1441,33 +1434,14 @@ SENDER_ATTESTATION_STATES = ("attested", "withdrawn")
 
 
 class OutboundSenderAttestation(PKMixin, Base):
-    """A client's recorded decision to run outbound commercial calls from an ordinary DID.
+    """A client's recorded confirmation that it was the sender of outbound calls placed
+    from one ordinary (non-140/160) number, per number, with the wording's version.
 
-    TRAI direction RG-25/(18)/2023-QoS (E-10291), 18 Jun 2024: *"Senders shall not use any
-    other 10-digit fixed line/ mobile number for making Promotional/ Service/ Transactional
-    voice calls to their customers, either directly or through their employees or channel
-    partners, DSAs, BPO partner, in-house or outsourced Call Centre, etc."* The direction
-    binds the SENDER and names the delegation chain so the obligation cannot be handed to a
-    vendor. Under Model B the client holds the carrier account and is that sender.
-
-    So the refusal stays the default and this row is the client's own recorded exception to
-    it. Without one, `campaigns.service.SERIES_FOR_CLASSIFICATION` allows only 140 and 160
-    and a `standard` number cannot launch a campaign at all.
-
-    **PER NUMBER, NOT PER TENANT.** The declaration is about dialling from one ordinary DID.
-    A client with a registered 160 header and one ordinary line has made a decision about
-    the second and nothing about the first, and a tenant-wide flag would silently extend it
-    to every number they add later.
-
-    **`statement_version` IS HALF THE EVIDENCE.** What the person agreed to is the sentence
-    they were shown, so an attestation carries the version of that wording. When the wording
-    changes the old rows stop satisfying the gate and the client is asked again, which is the
-    same rule `legal.service.record_acceptance` applies to a document version.
-
-    Promotional is deliberately NOT reachable through this: 140 is the only series that may
-    carry it, no attestation widens that, and `SERIES_FOR_CLASSIFICATION["promotional"]`
-    stays a one-tuple. A promotional call from an ordinary number is the case the DLT trail
-    exists to catch, and no client declaration makes it lawful.
+    UNWRITTEN AND UNREAD SINCE D-775 (founder, 14 Oct 2026): no gate had read it since
+    D-692 stopped matching a number's series to a campaign's classification, so the
+    confirmation and its routes were removed. The model, the table, its rows, FORCEd RLS
+    and the append-only triggers stay until the release whose migration drops the table
+    (hard rule 8); `scripts/restore_drill.py` still writes one fixture row to probe them.
     """
 
     __tablename__ = "outbound_sender_attestations"

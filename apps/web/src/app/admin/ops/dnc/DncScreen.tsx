@@ -129,7 +129,7 @@ export function DncScreen() {
           {
             key: "numbers_withheld",
             label: "The numbers themselves",
-            value: "not sent to the assistant — see the comment above this declaration",
+            value: "not sent to Pip — see the comment above this declaration",
           },
         ]
       : [

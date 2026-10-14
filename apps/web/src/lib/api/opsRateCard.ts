@@ -46,6 +46,7 @@
  * and `below_target` is a number an operator should read and act on, not a blocked save.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import {
   useMutation,
   useQuery,
@@ -253,7 +254,7 @@ export function useOpsRateCard(): UseQueryResult<RateCard> {
   return useQuery({
     queryKey: OPS_RATE_CARD_QUERY_KEY,
     queryFn: () => apiRequest<RateCard>(adminSession(), OPS_RATE_CARD_PATH),
-    refetchInterval: 300_000,
+    refetchInterval: livePoll(300_000),
   });
 }
 

@@ -26,12 +26,14 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstrai
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.campaigns import engine_numbers, scheduling, service
+from apps.api.campaigns import controls, engine_numbers, results, scheduling, service
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
-from apps.api.core.rbac import permission_meta
+from apps.api.core.errors import ProblemError
+from apps.api.core.rbac import permission_meta, role_has
+from apps.api.crm.schemas import LeadSource, LeadStatus
 from apps.api.tenancy.engine_workspace import engine_has_workspaces, read_workspace_state
 
 router = APIRouter(prefix="/v1/campaigns", tags=["campaigns"])
@@ -74,10 +76,38 @@ class ConsentProvenanceIn(Strict):
     collected_at: datetime
 
 
+#: What a client may file a campaign as. `transactional` is not offered (D-773): a campaign
+#: can never be one (`service.TRANSACTIONAL_CAMPAIGN_REASON`), and the launch gate still
+#: refuses any older row that says it is.
+ClientClassification = Literal["promotional", "service"]
+
+
+class RetryPolicyIn(Strict):
+    """How many times to try each person, and how long to wait between tries (D-773).
+
+    `gaps_minutes` has one entry per retry (`max_attempts - 1`), each one of
+    `service.RETRY_GAP_CHOICES`; the service refuses anything else by name.
+    """
+
+    max_attempts: int = Field(ge=1, le=5)
+    gaps_minutes: list[int] = Field(default_factory=list, max_length=4)
+
+
+class RetryPolicyOut(Strict):
+    max_attempts: int
+    gaps_minutes: list[int]
+
+
+def _retry_policy(payload: RetryPolicyIn | None) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    return service.validated_retry_policy(payload.max_attempts, payload.gaps_minutes)
+
+
 class CreateCampaignIn(Strict):
     agent_id: UUID
     name: str = Field(min_length=2, max_length=120)
-    classification: Literal["promotional", "transactional", "service"]
+    classification: ClientClassification
     number_id: UUID | None = None
     dlt_template_id: UUID | None = None
     concurrency: int = Field(default=3, ge=1, le=10)
@@ -87,11 +117,153 @@ class CreateCampaignIn(Strict):
     # campaign; nothing it drafts can dial until the provenance question is answered,
     # because the gate — not this schema — is where the requirement is enforced.
     consent_provenance: ConsentProvenanceIn | None = None
+    # None = three tries, 30 then 120 minutes apart (`service.DEFAULT_RETRY_POLICY`).
+    retry_policy: RetryPolicyIn | None = None
 
 
 class CreateCampaignOut(Strict):
     id: UUID
     status: str
+
+
+class UpdateCampaignIn(Strict):
+    """A draft's settings, each optional. An absent field is left alone; `number_id` and
+    `calling_hours` may be sent as null to clear them. Consent provenance has its own route,
+    because it is a declaration with its own audit row."""
+
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    agent_id: UUID | None = None
+    number_id: UUID | None = None
+    classification: ClientClassification | None = None
+    concurrency: int | None = Field(default=None, ge=1, le=10)
+    calling_hours: CallingHoursIn | None = None
+    retry_policy: RetryPolicyIn | None = None
+
+
+#: Fields that cannot be cleared: sending null for one is a 422, not an erase.
+_REQUIRED_ON_EDIT = ("name", "agent_id", "classification", "concurrency", "retry_policy")
+
+
+class DeleteCampaignOut(Strict):
+    """`deleted` when the draft is gone; `stopped` when it was kept as a stopped campaign
+    because calls or compliance records already name it."""
+
+    outcome: Literal["deleted", "stopped"]
+
+
+class DuplicateCampaignIn(Strict):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    #: Also copy the people the source never reached. Needs the source finished or stopped.
+    with_unreached: bool = False
+
+
+class DuplicateCampaignOut(Strict):
+    id: UUID
+    status: str
+    contacts_added: int
+
+
+class LeadFilterIn(Strict):
+    """Which of the account's leads to add. Every field narrows; none means every lead."""
+
+    statuses: list[LeadStatus] = Field(default_factory=list, max_length=6)
+    sources: list[LeadSource] = Field(default_factory=list, max_length=6)
+    agent_id: UUID | None = None
+    created_since: AwareDatetime | None = None
+    created_until: AwareDatetime | None = None
+
+
+class AddLeadsIn(Strict):
+    """Either named leads (a selection) or a filter. Exactly one."""
+
+    lead_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=5000)
+    filter: LeadFilterIn | None = None
+
+
+class LeadPoolOut(Strict):
+    matching: int
+    #: The most one request adds; a larger match is refused rather than cut short.
+    limit: int
+
+
+class RemoveContactsIn(Strict):
+    contact_ids: list[UUID] = Field(min_length=1, max_length=1000)
+
+
+class RemoveContactsOut(Strict):
+    removed: int
+
+
+class ComplaintReviewIn(Strict):
+    """The client's confirmation that they read the opt-outs. A literal `true`, so the
+    request states the act rather than toggling a flag."""
+
+    reviewed: Literal[True]
+
+
+class ContactResultOut(Strict):
+    id: UUID
+    name: str | None
+    phone_e164: str
+    outcome: results.ContactOutcome
+    attempts: int
+    last_attempt_at: datetime | None
+    will_retry: bool
+    next_attempt_at: datetime | None
+    #: The last call to this person, for the link to the call's own page.
+    call_id: UUID | None
+
+
+class ContactResultsOut(Strict):
+    items: list[ContactResultOut]
+    total: int
+    #: Every outcome's count for the whole campaign, whatever the filter.
+    counts: dict[str, int]
+
+
+class CampaignLeadOut(Strict):
+    id: UUID
+    name: str | None
+    status: str
+    updated_at: datetime
+
+
+class CampaignResultsOut(Strict):
+    """A campaign's totals (FLOWS §5): reach, conversations, leads, spend."""
+
+    contacts: int
+    outcomes: dict[str, int]
+    tried: int
+    #: Connected people over people tried at least once; None before anyone was tried.
+    pickup_rate: float | None
+    calls: int
+    connected_calls: int
+    average_call_s: int | None
+    talk_seconds: int
+    outcome_tags: dict[str, int]
+    sentiment: dict[str, int]
+    leads: int
+    hot_leads: int
+    recent_leads: list[CampaignLeadOut]
+    opt_outs: int
+    #: What these calls took from the credit balance, in rupees (NUMERIC). None for a role
+    #: that may not see billing.
+    credits_spent_inr: Decimal | None
+
+
+class OptOutOut(Strict):
+    call_id: UUID | None
+    at: datetime
+    #: What the caller said, as the consent ledger stored it: redacted at capture.
+    words_redacted: str | None
+    contact_name: str | None
+
+
+class CampaignPageOut(Strict):
+    items: list[CampaignSummaryOut]
+    total: int
+    #: Every status's count under the same search, whatever the status filter.
+    status_counts: dict[str, int]
 
 
 #: How much per-contact variable text one row may carry, and why there is a number
@@ -275,7 +447,35 @@ class NationalDndScrubOut(Strict):
     is_current: bool
 
 
+PauseReason = Literal[
+    "person", "maintenance", "healer", "complaint_spike", "out_of_credit", "spend_cap"
+]
+
+
 class ProgressOut(Strict):
+    id: UUID
+    name: str
+    classification: str
+    agent_id: UUID
+    agent_name: str
+    number_id: UUID | None
+    consent_source: str | None
+    consent_collected_at: datetime | None
+    created_at: datetime
+    retry_policy: RetryPolicyOut
+    #: Why a paused campaign is paused (`service.PAUSE_REASON_SQL`); None unless paused.
+    pause_reason: PauseReason | None
+    #: True while Resume is refused until the client confirms they read the opt-outs.
+    complaint_review_required: bool
+    complaint_reviewed_at: datetime | None
+    #: Why a RUNNING campaign is ringing nobody, by the gate's rule names
+    #: (`service.not_calling_reasons`). Empty when it can call, and for every other status.
+    not_calling: list[BlockerOut]
+    #: A running campaign outside the platform's or its own calling hours.
+    waiting_for_calling_hours: bool
+    #: The most calls at once this campaign can have now: its setting, under the plan's
+    #: ceiling and the shared line pool (`service.effective_concurrency`).
+    effective_concurrency: int
     status: str
     launched_at: datetime | None
     concurrency: int
@@ -344,6 +544,7 @@ class CampaignSummaryOut(Strict):
     consent_provenance_blocker: (
         Literal["consent_provenance_missing", "consent_source_refused"] | None
     ) = None
+    pause_reason: PauseReason | None = None
 
 
 class NumberOut(Strict):
@@ -385,8 +586,7 @@ class NumberOut(Strict):
     #: (D-420), so a panel that cannot show it can only report its own last action.
     agent_id: UUID | None = None
     #: What the number is FOR (`phone_numbers.direction`). It records an intent and
-    #: authorises nothing — which series may carry which campaign is still
-    #: `SERIES_FOR_CLASSIFICATION` plus, for an ordinary DID, the sender attestation.
+    #: authorises nothing.
     direction: Literal["inbound", "outbound", "both"] = "inbound"
     #: What this client pays for this number each month, frozen at purchase. None for a
     #: connection they brought themselves — we charge nothing for a line we did not supply.
@@ -401,6 +601,10 @@ class NumberOut(Strict):
     #: rented in this account's own calling account; one we lent it for testing, or a line
     #: on another carrier, is not the client's to give up.
     releasable: bool = False
+    #: Can this number carry the platform's outgoing calls? The launch gate's own predicate
+    #: (`service.number_dial_refusal`), so the campaign picker offers only numbers a launch
+    #: will accept — with the agent binding, which the picker checks against its agent.
+    places_calls: bool = False
 
 
 class TemplateOut(Strict):
@@ -427,6 +631,64 @@ async def list_campaigns(
 ) -> list[CampaignSummaryOut]:
     rows = await service.list_campaigns(session, limit=limit)
     return [CampaignSummaryOut.model_validate(row) for row in rows]
+
+
+CampaignStatus = Literal["draft", "scheduled", "running", "paused", "completed", "cancelled"]
+
+
+@router.get(
+    "/page",
+    response_model=CampaignPageOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="One page of campaigns, filtered by status and searched by name, with counts",
+)
+async def campaign_page(
+    session: Session,
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    status: CampaignStatus | None = None,
+    q: str | None = Query(None, max_length=120),
+    _: Principal = Depends(requires("leads:read")),
+) -> CampaignPageOut:
+    """The Campaigns screen's list. `GET /v1/campaigns` stays the plain newest-first list the
+    dashboard and the copilot read; both run `service.list_campaigns`."""
+    search = q.strip() if q else None
+    counts = await service.campaign_status_counts(session, search=search)
+    rows = await service.list_campaigns(
+        session, limit=limit, offset=offset, status=status, search=search
+    )
+    return CampaignPageOut(
+        items=[CampaignSummaryOut.model_validate(row) for row in rows],
+        total=counts[status] if status else sum(counts.values()),
+        status_counts=counts,
+    )
+
+
+@router.get(
+    "/lead-pool",
+    response_model=LeadPoolOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="How many of your leads a filter selects, before adding them to a campaign",
+)
+async def lead_pool(
+    session: Session,
+    statuses: Annotated[list[LeadStatus], Query()] = [],  # noqa: B006 - FastAPI query list
+    sources: Annotated[list[LeadSource], Query()] = [],  # noqa: B006 - FastAPI query list
+    agent_id: UUID | None = None,
+    created_since: AwareDatetime | None = None,
+    created_until: AwareDatetime | None = None,
+    _: Principal = Depends(requires("leads:read")),
+) -> LeadPoolOut:
+    _ids, total = await controls.leads_matching(
+        session,
+        statuses=list(statuses),
+        sources=list(sources),
+        agent_id=agent_id,
+        created_since=created_since,
+        created_until=created_until,
+        with_ids=False,
+    )
+    return LeadPoolOut(matching=total, limit=controls.MAX_LEADS_PER_ADD)
 
 
 # NOTE: these two are declared BEFORE `/{campaign_id}` on purpose — FastAPI matches in
@@ -486,6 +748,7 @@ async def list_numbers(
                 direction=r[6],
                 inr_per_month=r[7],
                 activated=r[8],
+                places_calls=service.number_dial_refusal(r[9], r[6]) is None,
                 releasable=(
                     on_engine
                     and bool(r[10])
@@ -553,6 +816,7 @@ async def create_campaign(
         consent_collected_at=(
             payload.consent_provenance.collected_at if payload.consent_provenance else None
         ),
+        retry_policy=_retry_policy(payload.retry_policy),
     )
     if payload.consent_provenance is not None:
         provenance = payload.consent_provenance
@@ -956,12 +1220,344 @@ async def resume(
     """
     assert principal.tenant_id is not None
     await service.assert_agent_still_assignable(session, campaign_id=campaign_id)
+    # After the agent lock, in the order launch takes them. Refuses while the cause of an
+    # automatic pause still holds, and a complaint-spike pause until it was reviewed.
+    await controls.assert_resumable(session, tenant_id=principal.tenant_id, campaign_id=campaign_id)
     if await service.set_campaign_status(
         session, campaign_id=campaign_id, to_status="running", from_statuses=("paused",)
     ):
         await write_audit(
             session,
             action="campaign.resumed",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="campaign",
+            object_id=str(campaign_id),
+            ip=client_request_ip(request),
+        )
+
+
+@router.patch(
+    "/{campaign_id}",
+    status_code=204,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Change a draft's settings: name, agent, number, hours, calls at once, retries",
+)
+async def update_campaign(
+    campaign_id: UUID,
+    payload: UpdateCampaignIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> None:
+    """Drafts only (`controls.update_draft`). Audited with the names of the fields changed,
+    not their values: who changed which setting is the question an audit answers."""
+    assert principal.tenant_id is not None
+    sent = payload.model_fields_set
+    cleared = [
+        field for field in _REQUIRED_ON_EDIT if field in sent and getattr(payload, field) is None
+    ]
+    if cleared:
+        raise ProblemError(
+            kind="validation",
+            code="campaign_field_required",
+            title="That setting cannot be empty",
+            detail=f"Leave out {', '.join(cleared)} to keep the current value.",
+        )
+    changes: dict[str, Any] = {}
+    for field in sent:
+        value = getattr(payload, field)
+        if field == "calling_hours":
+            changes[field] = value.model_dump() if value is not None else None
+        elif field == "retry_policy":
+            changes[field] = _retry_policy(value)
+        else:
+            changes[field] = value
+    written = await controls.update_draft(session, campaign_id=campaign_id, changes=changes)
+    if written:
+        await write_audit(
+            session,
+            action="campaign.updated",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="campaign",
+            object_id=str(campaign_id),
+            ip=client_request_ip(request),
+            summary={"fields": written},
+        )
+
+
+@router.delete(
+    "/{campaign_id}",
+    response_model=DeleteCampaignOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Delete a draft (kept as stopped when calls or compliance records name it)",
+)
+async def delete_campaign(
+    campaign_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> DeleteCampaignOut:
+    assert principal.tenant_id is not None
+    outcome = await controls.delete_draft(session, campaign_id=campaign_id)
+    await write_audit(
+        session,
+        action="campaign.deleted" if outcome == "deleted" else "campaign.stopped",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="campaign",
+        object_id=str(campaign_id),
+        ip=client_request_ip(request),
+        summary={"from": "draft"},
+    )
+    return DeleteCampaignOut(outcome=outcome)
+
+
+@router.post(
+    "/{campaign_id}/stop",
+    status_code=204,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Stop for good: nobody else on the list is called. Idempotent.",
+)
+async def stop(
+    campaign_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> None:
+    """Running, paused or scheduled → cancelled (`controls.stop_campaign`). Audited on a real
+    transition only, for `pause`'s reason."""
+    assert principal.tenant_id is not None
+    if await controls.stop_campaign(session, campaign_id=campaign_id):
+        await write_audit(
+            session,
+            action="campaign.stopped",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="campaign",
+            object_id=str(campaign_id),
+            ip=client_request_ip(request),
+        )
+
+
+@router.post(
+    "/{campaign_id}/duplicate",
+    response_model=DuplicateCampaignOut,
+    status_code=201,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="A new draft from this campaign's settings, optionally with the people it missed",
+)
+async def duplicate(
+    campaign_id: UUID,
+    payload: DuplicateCampaignIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> DuplicateCampaignOut:
+    assert principal.tenant_id is not None
+    new_id, added = await controls.duplicate_campaign(
+        session,
+        tenant_id=principal.tenant_id,
+        source_id=campaign_id,
+        name=payload.name,
+        with_unreached=payload.with_unreached,
+    )
+    await write_audit(
+        session,
+        action="campaign.created",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="campaign",
+        object_id=str(new_id),
+        ip=client_request_ip(request),
+        summary={
+            "source_campaign_id": str(campaign_id),
+            "with_unreached": payload.with_unreached,
+            "contacts": added,
+        },
+    )
+    return DuplicateCampaignOut(id=new_id, status="draft", contacts_added=added)
+
+
+@router.post(
+    "/{campaign_id}/contacts/from-leads",
+    response_model=AddContactsOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Add your CRM leads to a campaign, picked by id or by a filter",
+)
+async def add_contacts_from_leads(
+    campaign_id: UUID,
+    payload: AddLeadsIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> AddContactsOut:
+    """The numbers are read from the leads on the server (`controls.add_leads`). A filter
+    matching more than `controls.MAX_LEADS_PER_ADD` is refused rather than cut short, so
+    "add these leads" never silently means "add some of them"."""
+    assert principal.tenant_id is not None
+    if (payload.lead_ids is None) == (payload.filter is None):
+        raise ProblemError(
+            kind="validation",
+            code="campaign_leads_selection_invalid",
+            title="Choose leads one way",
+            detail="Send either the leads you picked or a filter, not both and not neither.",
+        )
+    lead_ids = payload.lead_ids
+    if payload.filter is not None:
+        chosen = payload.filter
+        lead_ids, total = await controls.leads_matching(
+            session,
+            statuses=list(chosen.statuses),
+            sources=list(chosen.sources),
+            agent_id=chosen.agent_id,
+            created_since=chosen.created_since,
+            created_until=chosen.created_until,
+        )
+        if total > controls.MAX_LEADS_PER_ADD:
+            raise ProblemError.business_rule(
+                "campaign_leads_too_many",
+                f"That filter matches {total} leads; one campaign takes up to "
+                f"{controls.MAX_LEADS_PER_ADD} at a time.",
+                remediation="Narrow it by status, source or date and add them in parts.",
+            )
+    assert lead_ids is not None
+    result = await controls.add_leads(
+        session, tenant_id=principal.tenant_id, campaign_id=campaign_id, lead_ids=lead_ids
+    )
+    await write_audit(
+        session,
+        action="campaign.contacts_added",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="campaign",
+        object_id=str(campaign_id),
+        ip=client_request_ip(request),
+        summary={"from": "leads", **{key: int(value) for key, value in result.items()}},
+    )
+    return AddContactsOut.model_validate({k: v for k, v in result.items() if k != "leads"})
+
+
+@router.post(
+    "/{campaign_id}/contacts/remove",
+    response_model=RemoveContactsOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Take people off a campaign before it starts calling",
+)
+async def remove_campaign_contacts(
+    campaign_id: UUID,
+    payload: RemoveContactsIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> RemoveContactsOut:
+    assert principal.tenant_id is not None
+    removed = await controls.remove_contacts(
+        session, campaign_id=campaign_id, contact_ids=payload.contact_ids
+    )
+    if removed:
+        await write_audit(
+            session,
+            action="campaign.contacts_removed",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="campaign",
+            object_id=str(campaign_id),
+            ip=client_request_ip(request),
+            summary={"removed": removed},
+        )
+    return RemoveContactsOut(removed=removed)
+
+
+@router.get(
+    "/{campaign_id}/contacts",
+    response_model=ContactResultsOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="Each person on the campaign with their outcome, tries and next retry",
+)
+async def contact_results(
+    campaign_id: UUID,
+    session: Session,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    outcome: results.ContactOutcome | None = None,
+    q: str | None = Query(None, max_length=60),
+    _: Principal = Depends(requires("leads:read")),
+) -> ContactResultsOut:
+    page = await results.contacts_page(
+        session,
+        campaign_id=campaign_id,
+        outcome=outcome,
+        search=q.strip() if q else None,
+        limit=limit,
+        offset=offset,
+    )
+    return ContactResultsOut(
+        items=[ContactResultOut.model_validate(item) for item in page.items],
+        total=page.total,
+        counts=page.counts,
+    )
+
+
+@router.get(
+    "/{campaign_id}/results",
+    response_model=CampaignResultsOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="Pickup rate, call length, outcomes, sentiment, leads and spend for one campaign",
+)
+async def campaign_results(
+    campaign_id: UUID,
+    session: Session,
+    principal: Principal = Depends(requires("leads:read")),
+) -> CampaignResultsOut:
+    # What the calls cost is billing information: a role without `billing:read` gets the
+    # field as null, the rule `GET /v1/calls` applies to the same figure.
+    found = await results.summary(
+        session,
+        campaign_id=campaign_id,
+        include_spend=principal.role is not None and role_has(principal.role, "billing:read"),
+    )
+    return CampaignResultsOut.model_validate(found)
+
+
+@router.get(
+    "/{campaign_id}/opt-outs",
+    response_model=list[OptOutOut],
+    openapi_extra=permission_meta("leads:read"),
+    summary="Who on this campaign asked not to be called, in their own (redacted) words",
+)
+async def campaign_opt_outs(
+    campaign_id: UUID,
+    session: Session,
+    limit: int = Query(50, ge=1, le=results.MAX_OPTOUTS_LISTED),
+    _: Principal = Depends(requires("leads:read")),
+) -> list[OptOutOut]:
+    rows = await results.opt_outs(session, campaign_id=campaign_id, limit=limit)
+    return [OptOutOut.model_validate(row) for row in rows]
+
+
+@router.post(
+    "/{campaign_id}/complaint-review",
+    status_code=204,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Confirm you reviewed the opt-outs behind a complaint-spike pause",
+)
+async def complaint_review(
+    campaign_id: UUID,
+    payload: ComplaintReviewIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> None:
+    """Resume stays refused until this is recorded (`controls.assert_resumable`). Audited
+    once: a second click is the same confirmation."""
+    assert principal.tenant_id is not None
+    del payload
+    if await controls.acknowledge_complaint_review(session, campaign_id=campaign_id):
+        await write_audit(
+            session,
+            action="campaign.complaint_review_confirmed",
             actor=principal,
             tenant_id=principal.tenant_id,
             object_type="campaign",

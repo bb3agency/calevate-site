@@ -1150,6 +1150,16 @@ _UNMODELLED_SUCCESS: dict[str, str] = {
         "`GET /v1/copilot/jobs/{job_id}` beside it, so the payload shape IS declared — on "
         "the polling twin — and `apps/api/copilot/jobs_test.py` reads it at runtime."
     ),
+    "GET /v1/live": (
+        "an SSE stream (D-774), exempt for `POST /v1/copilot/ask`'s reason. Its four "
+        'payloads are `apps/api/live/schemas.py` (`extra="forbid"`), and the property this '
+        "walk protects — no personal data leaves — is asserted at runtime by "
+        "`tests/live_updates_test.py`, which pins `LiveChange` to topic, instant and tenant id."
+    ),
+    "GET /v1/admin/live": (
+        "the operator twin of `GET /v1/live`, exempt for the same reason; listed by name so "
+        "a pattern cannot exempt the next route somebody calls `live`."
+    ),
 }
 
 

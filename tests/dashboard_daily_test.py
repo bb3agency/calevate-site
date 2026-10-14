@@ -274,3 +274,27 @@ async def test_the_week_before_is_counted_separately_for_the_comparison() -> Non
     assert out.calls_7d == 2
     assert out.calls_prev_7d == 1
     assert out.leads_new_prev_7d == 0
+
+
+async def test_the_week_says_how_its_calls_ended_over_the_same_window() -> None:
+    """`calls_connected_7d` and `calls_not_connected_7d` use the rolling window of
+    `calls_7d` and the chart's classes. A call still ringing is in neither count, and a
+    call 10 days ago is in neither, so the parts never exceed the headline."""
+    tenant_id, agent_id = await _tenant()
+    now = datetime.now(UTC)
+    async with tenant_session(tenant_id) as session:
+        for status in (
+            "completed",
+            "completed",
+            "no_answer",
+            "busy",
+            "voicemail",
+            "failed",
+            "ringing",
+        ):
+            await _call(session, tenant_id, agent_id, at=now - timedelta(hours=3), status=status)
+        await _call(session, tenant_id, agent_id, at=now - timedelta(days=10), status="completed")
+        out = await dashboard(session)
+    assert out.calls_7d == 7
+    assert out.calls_connected_7d == 2
+    assert out.calls_not_connected_7d == 4

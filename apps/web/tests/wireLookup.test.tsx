@@ -215,7 +215,7 @@ describe("kyc lookups off the wire", () => {
  * `StatusBadge` is the most-reached lookup in the app — every leads table and every
  * calls table — and its failure is the quiet one: no crash, just a `className` of
  * `function Object() { [native code] }`, which is a handful of nonsense CSS classes
- * that happen to include none of the ones that colour the badge.
+ * that happen to include none of the ones that set the badge's tone.
  */
 describe("StatusBadge with a status off the wire", () => {
   it("falls back to neutral styling instead of stringifying Object into the class list", () => {
@@ -225,7 +225,7 @@ describe("StatusBadge with a status off the wire", () => {
 
       expect(span?.className, inherited).not.toContain("function");
       expect(span?.className, inherited).not.toContain("native code");
-      expect(span?.className, inherited).toContain("bg-slate-100");
+      expect(span?.getAttribute("data-tone"), inherited).toBe("neutral");
       // The status itself is still printed: a value we have no colour for is exactly
       // the one worth reading.
       expect(span?.textContent, inherited).toBe(inherited.replace(/_/g, " "));
@@ -235,6 +235,6 @@ describe("StatusBadge with a status off the wire", () => {
 
   it("still colours a status it knows", () => {
     const { container } = render(<StatusBadge value="won" />);
-    expect(container.querySelector("span")?.className).toContain("emerald");
+    expect(container.querySelector("span")?.getAttribute("data-tone")).toBe("ok");
   });
 });

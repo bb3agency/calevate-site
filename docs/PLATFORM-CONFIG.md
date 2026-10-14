@@ -177,7 +177,7 @@ Clear on scope `llm` and Studio on `llm_voice`, refused until it is ready) and
 offerable). D-769 (14 Oct 2026) adds `thinnest_reply_length` (applies to live agents,
 default 300, bounds 100-800: the reply ceiling every agent without its own is published with
 as ThinnestAI `maxReplyTokens`; a reply that reaches it is cut off; an operator sets one
-agent's own on the admin agent page, which clients never see). D-687's `thinnest_studio_workspace_id` is removed; each agent
+agent's own on the admin agent page, which clients never see). D-770 (14 Oct 2026) adds `reply_time_target_ms` (live, default 500, bounds 100-10000): how long a caller should wait for a reply; the admin Voice response time screen counts a call over target when its p90 reply time exceeds it. D-687's `thinnest_studio_workspace_id` is removed; each agent
 says whether it speaks on our voice key (its `byok`). Since D-693 every client has its own
 ThinnestAI customer workspace, and two settings support that, both applying live:
 `thinnest_customer_plan` (`payg` default, `pro`, `scale` or `enterprise`) is the plan our

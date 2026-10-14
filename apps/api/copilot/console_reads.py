@@ -45,6 +45,7 @@ from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import plan_tier_of
 from apps.api.billing.wallet import read_wallet
 from apps.api.callbacks import service as callbacks_service
+from apps.api.campaigns import results as campaign_results
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance.kyc import kyc_not_verified_reason, read_kyc
 from apps.api.compliance.kyc_documents import current_documents
@@ -681,6 +682,33 @@ async def _campaign_detail(
     if progress["calling_hours"]:
         hours = progress["calling_hours"]
         lines.append(f"Calls only between {hours['start']} and {hours['end']} IST.")
+    if progress["pause_reason"]:
+        lines.append(f"Paused because: {progress['pause_reason']}.")
+        if progress["complaint_review_required"]:
+            lines.append("Resume waits for the client to confirm they reviewed the opt-outs.")
+    if progress["not_calling"]:
+        lines.append(
+            "Running but calling nobody: "
+            + "; ".join(f"{b['rule']}: {b['reason']}" for b in progress["not_calling"])
+        )
+    if progress["status"] not in ("draft", "scheduled"):
+        found = await campaign_results.summary(
+            session, campaign_id=campaign_id, include_spend=False
+        )
+        outcomes = ", ".join(f"{k} {v}" for k, v in found["outcomes"].items() if v)
+        lines.append(f"People by outcome: {outcomes or 'none yet'}.")
+        if found["pickup_rate"] is not None:
+            lines.append(
+                f"Picked up {round(found['pickup_rate'] * 100)}% of the {found['tried']} tried; "
+                f"average connected call {found['average_call_s'] or 0}s."
+            )
+        if found["outcome_tags"]:
+            tags = ", ".join(f"{k} {v}" for k, v in found["outcome_tags"].items())
+            lines.append(f"What the conversations came to: {tags}.")
+        lines.append(
+            f"Leads from this campaign: {found['leads']} ({found['hot_leads']} hot); "
+            f"opt-outs {found['opt_outs']}."
+        )
     if progress["status"] in ("draft", "scheduled"):
         blockers = await campaigns_service.launch_blockers(
             session, tenant_id=context.tenant_id, campaign_id=campaign_id

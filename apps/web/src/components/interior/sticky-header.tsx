@@ -104,7 +104,7 @@ export function StickyHeader({
         role="region"
         aria-label={title}
         style={{ maxHeight, scrollPaddingTop: short + 10 }}
-        className="overflow-y-auto overscroll-y-contain outline-none [scrollbar-gutter:stable] focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_#16a05d] dark:focus-visible:bg-brand-bright/[0.06] dark:focus-visible:shadow-[inset_0_0_0_1px_#22c55e]"
+        className="overflow-y-auto overscroll-y-contain outline-none [scrollbar-gutter:stable] focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_var(--brand)] dark:focus-visible:bg-brand-bright/[0.06] dark:focus-visible:shadow-[inset_0_0_0_1px_var(--brand-bright)]"
       >
         <div aria-hidden style={{ height: tall }} />
         {children}

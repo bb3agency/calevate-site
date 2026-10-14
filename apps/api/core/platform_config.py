@@ -564,6 +564,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # Read inside every ThinnestAI dial's intent transaction (`agents/service.dispatch_call`)
     # and once per dispatch tick for the outbound pool, like `carrier_concurrency`.
     "thinnest_max_concurrent_calls": AppliesRule(LIVE),
+    # Read on every load of the Voice response time report (D-770).
+    "reply_time_target_ms": AppliesRule(LIVE),
     # Read by the ops dashboard and the provisioning alarm each time (D-693).
     "thinnest_customer_plan": AppliesRule(LIVE),
     "thinnest_action_source_ips": AppliesRule(LIVE),

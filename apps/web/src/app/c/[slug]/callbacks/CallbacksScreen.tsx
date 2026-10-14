@@ -24,6 +24,8 @@ import { useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
+import { StatusPill } from "@/components/console/statusPill";
+import type { NoticeTone } from "@/components/ui";
 
 /**
  * THE CALL-BACKS YOUR AGENTS PROMISED (D-514).
@@ -51,13 +53,13 @@ const HEADINGS: Record<string, string> = {
   failed: "Could not be placed",
 };
 
-const TONE: Record<string, string> = {
-  scheduled: "bg-ink/[0.06] text-ink",
-  dialing: "bg-brand-soft text-brand-strong",
-  completed: "bg-ink/[0.06] text-ink-muted",
-  refused: "border border-danger-line bg-danger-soft text-danger",
-  missed: "border border-warn-line bg-warn-soft text-warn",
-  failed: "border border-warn-line bg-warn-soft text-warn",
+const TONE: Record<string, NoticeTone> = {
+  scheduled: "neutral",
+  dialing: "ok",
+  completed: "neutral",
+  refused: "stop",
+  missed: "warn",
+  failed: "warn",
 };
 
 /** Peer views of one list (D-655): the live promises, or every one. */
@@ -158,13 +160,9 @@ export function CallbacksScreen() {
       flash: (row) => row.status,
       cell: (row) => (
         <div className="max-w-md space-y-1">
-          <span
-            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-              lookup(TONE, row.status) ?? TONE.completed
-            }`}
-          >
+          <StatusPill tone={lookup(TONE, row.status) ?? "neutral"}>
             {lookup(HEADINGS, row.status) ?? row.status}
-          </span>
+          </StatusPill>
           {row.explanation && <p className="text-meta text-ink-muted">{row.explanation}</p>}
           {row.note && <p className="text-meta text-ink-muted">They said: {row.note}</p>}
         </div>

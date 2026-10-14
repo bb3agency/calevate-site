@@ -1,4 +1,9 @@
+import { StatusPill } from "@/components/console/statusPill";
+import type { NoticeTone } from "@/components/ui";
+import type { PauseReason } from "@/lib/api/campaigns";
 import { lookup } from "@/lib/lookup";
+
+import { PAUSE_COPY } from "./blockerCopy";
 
 /**
  * A campaign's status as a pill, and the slim progress bar its row carries.
@@ -7,25 +12,42 @@ import { lookup } from "@/lib/lookup";
  * value prints as it came rather than vanishing (`lookup`), because a status this build has
  * not heard of is still a fact about the campaign.
  */
-const TONE: Record<string, string> = {
-  draft: "border border-line bg-surface text-ink-muted",
-  scheduled: "bg-ink/[0.06] text-ink",
-  running: "bg-brand-soft text-brand-strong",
-  paused: "border border-warn-line bg-warn-soft text-warn",
-  completed: "bg-ink/[0.06] text-ink-muted",
-  cancelled: "bg-ink/[0.06] text-ink-muted",
+const TONE: Record<string, NoticeTone> = {
+  draft: "neutral",
+  scheduled: "neutral",
+  running: "ok",
+  paused: "warn",
+  completed: "neutral",
+  cancelled: "neutral",
 };
 
-export function CampaignStatusPill({ status }: { status: string }) {
-  const label = status.replace(/_/g, " ");
+/** The words a status is shown in. `cancelled` is what Stop does, so it reads Stopped. */
+const WORDS: Record<string, string> = { cancelled: "Stopped" };
+
+/**
+ * The state of a campaign in one mark. A paused campaign names why when an automatic
+ * safety paused it (`PAUSE_COPY`), and a running campaign that will ring nobody says
+ * "Not calling" in the stop tone rather than "Running" (`notCalling`, from
+ * `ProgressOut.not_calling`).
+ */
+export function CampaignStatusPill({
+  status,
+  pauseReason,
+  notCalling = false,
+}: {
+  status: string;
+  pauseReason?: PauseReason | null;
+  notCalling?: boolean;
+}) {
+  if (status === "running" && notCalling) return <StatusPill tone="stop">Not calling</StatusPill>;
+  if (status === "paused" && pauseReason && pauseReason !== "person") {
+    return <StatusPill tone="warn">{lookup(PAUSE_COPY, pauseReason)?.title ?? "Paused"}</StatusPill>;
+  }
+  const label = lookup(WORDS, status) ?? status.replace(/_/g, " ");
   return (
-    <span
-      className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${
-        lookup(TONE, status) ?? TONE.draft
-      }`}
-    >
+    <StatusPill tone={lookup(TONE, status) ?? "neutral"}>
       {label.charAt(0).toUpperCase() + label.slice(1)}
-    </span>
+    </StatusPill>
   );
 }
 

@@ -5,6 +5,7 @@ import { CheckCircle2 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Section, TEXT_ACTION } from "@/components/console/section";
+import { useEnterClass } from "@/components/live/arrivals";
 import { formatCount } from "@/components/ui";
 import type { Dashboard } from "@/lib/api/client";
 import type { useAttention } from "@/lib/api/attention";
@@ -56,7 +57,13 @@ export function WhatNeedsYou({
 
   const today = data.daily_7d.at(-1);
   const missed = today ? today.failed + today.no_answer : 0;
-  if (missed > 0) {
+  if (today && missed > 0) {
+    // The calls list filters on one status, so link to the one that holds every missed call,
+    // and to the unfiltered list when they are split between failed and no answer.
+    const missedHref =
+      today.no_answer === 0 ? "/calls?status=failed"
+      : today.failed === 0 ? "/calls?status=no_answer"
+      : "/calls";
     rows.push({
       key: "missed",
       text: (
@@ -66,7 +73,7 @@ export function WhatNeedsYou({
         </>
       ),
       action: (
-        <Link href={href("/calls?status=failed")} className={TEXT_ACTION}>
+        <Link href={href(missedHref)} className={TEXT_ACTION}>
           See calls
         </Link>
       ),
@@ -92,6 +99,9 @@ export function WhatNeedsYou({
     }
   }
 
+  // A row that appears while the dashboard is open (a lead turned hot, credit ran low)
+  // enters softly (D-774); the rows present on load do not.
+  const enter = useEnterClass(rows.map((row) => row.key));
   const queueWaiting = attention.data !== undefined && attention.data.total > 0;
   const allClear = rows.length === 0 && attention.data !== undefined && !queueWaiting;
 
@@ -103,7 +113,10 @@ export function WhatNeedsYou({
         {rows.length > 0 ? (
           <ul className="divide-y divide-line border-y border-line">
             {rows.map((row) => (
-              <li key={row.key} className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 py-3.5">
+              <li
+                key={row.key}
+                className={`flex flex-wrap items-center justify-between gap-x-6 gap-y-1 py-3.5 ${enter(row.key)}`}
+              >
                 <span className="text-body text-ink">{row.text}</span>
                 {row.action}
               </li>

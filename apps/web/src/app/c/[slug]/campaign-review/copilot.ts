@@ -1,5 +1,6 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import type { UseQueryResult } from "@tanstack/react-query";
 
 import { firstCampaignState, type FirstCampaignHold } from "@/lib/api/firstCampaign";
@@ -63,7 +64,7 @@ export function useCampaignReviewCopilot(hold: UseQueryResult<FirstCampaignHold>
             {
               key: "has_reviewer_note",
               label: "Is there a reviewer's note on screen?",
-              value: hold.data.decision_note ? "yes — the reader can see it; it is not sent to the assistant" : "no",
+              value: hold.data.decision_note ? `yes — the reader can see it; it is not sent to ${ASSISTANT_NAME}` : "no",
             },
           ]
         : []),

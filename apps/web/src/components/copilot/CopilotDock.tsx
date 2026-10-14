@@ -2,14 +2,15 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { BotMessageSquare, MessageCircleQuestion } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { createPortal } from "react-dom";
 
+import { PipMark } from "@/components/illustration/pip";
 import { MAIN_CONTENT_ID } from "@/components/ui";
 import { adminSession } from "@/lib/api/admin";
 import type { Session } from "@/lib/api/client";
 import { useClientRealm } from "@/lib/api/session";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { fallbackSurface } from "@/lib/copilot/fallback";
 import { useAssistantRequests } from "@/lib/copilot/launcher";
 import { resolveAdminDestination, resolveDestination } from "@/lib/copilot/navigate";
@@ -211,13 +212,14 @@ export function CopilotDock({
         ref={launcher}
         type="button"
         aria-expanded={isOpen}
-        aria-label={isOpen ? "Close the screen assistant" : "Ask about this screen"}
+        // One name in both states; `aria-expanded` says whether the panel is open.
+        aria-label={`Ask ${ASSISTANT_NAME}`}
         onClick={() => {
           shouldRestoreFocus.current = isOpen;
           setIsOpen((open) => !open);
         }}
-        // THE CLIENT'S LAUNCHER IS A QUIET HEADER BUTTON (REDESIGN-2): bordered, ink, a
-        // question bubble and the word "Ask". It sits beside the bell as one of the header's
+        // THE CLIENT'S LAUNCHER IS A QUIET HEADER BUTTON (REDESIGN-2): bordered, ink,
+        // Pip's face and "Ask Pip" (D-772). It sits beside the bell as one of the header's
         // tools; a filled green robot tile was the loudest thing on every screen and
         // competed with each screen's own primary action. The admin realm keeps its slate
         // tile, the same signal its shell carries (`components/realmChrome.tsx`), so the
@@ -238,13 +240,11 @@ export function CopilotDock({
       >
         {realm === "client" && placement === "header" ? (
           <>
-            {/* A question bubble rather than a robot: it says "ask here", which is the job,
-                and `Bot` is already this console's word for a voice agent. */}
-            <MessageCircleQuestion aria-hidden className="h-4 w-4 text-ink-muted" />
-            <span className="hidden sm:inline">Ask</span>
+            <PipMark size={20} />
+            <span className="hidden sm:inline">Ask {ASSISTANT_NAME}</span>
           </>
         ) : (
-          <BotMessageSquare aria-hidden className="h-5 w-5" />
+          <PipMark size={24} />
         )}
       </button>
       )}

@@ -5,8 +5,11 @@ import { useMemo, useState } from "react";
 import {
   consentCollectedAt,
   scheduleStartAt,
+  DEFAULT_RETRY,
   type Classification,
   type ConsentSource,
+  type LeadFilter,
+  type RetryPolicy,
 } from "@/lib/api/campaigns";
 
 import { checkContacts, type CheckedList, type ContactEntry } from "./contactList";
@@ -51,6 +54,12 @@ export interface CampaignFormState {
   setWindowStart: (value: string) => void;
   windowEnd: string;
   setWindowEnd: (value: string) => void;
+  /** How many tries per person and the gaps between them (`RetryPolicyIn`). */
+  retry: RetryPolicy;
+  setRetry: (value: RetryPolicy) => void;
+  /** CRM leads to add once the draft exists, chosen by filter; null when none. */
+  fromLeads: LeadFilter | null;
+  setFromLeads: (value: LeadFilter | null) => void;
   /** Each row's verdict, the counts, and the request the ready rows become. */
   checked: CheckedList;
   /** The consent date as the API takes it, or `null` when it is unusable. */
@@ -69,6 +78,8 @@ export function useCampaignForm(): CampaignFormState {
   const [numberId, setNumberId] = useState("");
   const [templateId, setTemplateId] = useState("");
   const [contacts, setContacts] = useState<ContactEntry[]>([]);
+  const [retry, setRetry] = useState<RetryPolicy>(DEFAULT_RETRY);
+  const [fromLeads, setFromLeads] = useState<LeadFilter | null>(null);
   // Asked at creation, not deferred to the launch check: the client is holding the
   // list in their hand at this moment, which is the only moment they can answer
   // cheaply. Empty string, never a default source — there is no sensible default for
@@ -107,6 +118,7 @@ export function useCampaignForm(): CampaignFormState {
   const reset = () => {
     setName("");
     setContacts([]);
+    setFromLeads(null);
     setConsentSource("");
     setConsentDate("");
   };
@@ -119,6 +131,8 @@ export function useCampaignForm(): CampaignFormState {
     numberId, setNumberId,
     templateId, setTemplateId,
     contacts, setContacts,
+    retry, setRetry,
+    fromLeads, setFromLeads,
     consentSource, setConsentSource,
     consentDate, setConsentDate,
     restrictHours, setRestrictHours,

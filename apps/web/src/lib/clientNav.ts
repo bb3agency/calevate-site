@@ -26,7 +26,6 @@ import type { ComponentType } from "react";
 import {
   BadgeCheck,
   BarChart3,
-  BotMessageSquare,
   BellRing,
   Blocks,
   BookLock,
@@ -55,6 +54,8 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
+
+import { PipIcon } from "@/components/illustration/pip";
 
 export interface NavItem {
   href: string;
@@ -103,7 +104,7 @@ export function clientNavigation(slug: string): NavGroup[] {
         { href: `/c/${slug}/knowledge`, label: "Knowledge base", icon: BookOpen },
         { href: `/c/${slug}/phone-number`, label: "Your phone number", icon: PhoneForwarded },
         { href: `/c/${slug}/performance`, label: "Performance", icon: BarChart3 },
-        { href: `/c/${slug}/assistant`, label: "Assistant", icon: BotMessageSquare },
+        { href: `/c/${slug}/assistant`, label: "Pip", icon: PipIcon },
       ],
     },
     {

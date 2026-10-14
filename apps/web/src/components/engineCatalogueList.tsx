@@ -20,6 +20,7 @@ import {
   type EngineCatalogueModel,
 } from "@/lib/api/engineCatalogue";
 import { CLIENT_PREVIEW_PATH } from "@/lib/api/voicePreview";
+import { StatusPill } from "@/components/console/statusPill";
 
 /**
  * THE VOICE PLATFORM'S OWN VOICES, AND (FOR AN OPERATOR) ITS MODELS (D-678, D-687).
@@ -424,9 +425,7 @@ function ChoiceCard({
         <span className="text-sm font-semibold text-ink">{label}</span>
         {suffix && <span className="text-xs text-ink-muted">{suffix}</span>}
         {current && (
-          <span className="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-muted">
-            In use
-          </span>
+          <StatusPill tone="ok">In use</StatusPill>
         )}
       </span>
       {detail && <span className="mt-0.5 block text-xs text-ink-muted">{detail}</span>}

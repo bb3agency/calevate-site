@@ -17,6 +17,7 @@ import type { ReactNode } from "react";
 
 import { lookup } from "@/lib/lookup";
 import { InfoTip } from "@/components/console/infoTip";
+import { NOTICE_DOT, StatusPill } from "@/components/console/statusPill";
 import { TEXT_ACTION } from "@/components/console/section";
 
 import { ApiProblem } from "@/lib/api/client";
@@ -493,27 +494,27 @@ export function Avatar({
   );
 }
 
-const LEAD_STATUS_STYLES: Record<string, string> = {
-  new: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-  contacted: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
-  interested:
-    "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300",
-  hot: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
-  won: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-  lost: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+// Lead and call states on the four tones (D-771). Colour only where the owner acts: a hot
+// lead or a missed connection is warn, a done or won thing is ok, a failure is stop, and
+// everything still moving or closed is neutral.
+const LEAD_STATUS_TONES: Record<string, NoticeTone> = {
+  new: "neutral",
+  contacted: "neutral",
+  interested: "ok",
+  hot: "warn",
+  won: "ok",
+  lost: "neutral",
 };
 
-// Call states on the palette's own roles (REDESIGN-2): done is brand, a missed connection
-// is a warning, a failure is danger, anything still moving is neutral ink.
-const CALL_STATUS_STYLES: Record<string, string> = {
-  completed: "bg-brand-soft text-brand-strong",
-  in_progress: "bg-ink/[0.06] text-ink",
-  queued: "bg-ink/[0.06] text-ink-muted",
-  ringing: "bg-ink/[0.06] text-ink-muted",
-  no_answer: "bg-warn-soft text-warn",
-  busy: "bg-warn-soft text-warn",
-  voicemail: "bg-warn-soft text-warn",
-  failed: "bg-danger-soft text-danger",
+const CALL_STATUS_TONES: Record<string, NoticeTone> = {
+  completed: "ok",
+  in_progress: "neutral",
+  queued: "neutral",
+  ringing: "neutral",
+  no_answer: "warn",
+  busy: "warn",
+  voicemail: "warn",
+  failed: "stop",
 };
 
 /**
@@ -525,7 +526,7 @@ const CALL_STATUS_STYLES: Record<string, string> = {
  * rather than `styles[value]`, because a status naming an `Object.prototype` member
  * resolved to the `Object` FUNCTION, which `??` does not treat as missing: `clsx`
  * stringified it and the badge rendered `function Object() { [native code] }` as its
- * class list. Fails VISIBLE — neutral slate, and `value` is still printed, because a
+ * class list. Fails VISIBLE: the neutral tone, and `value` is still printed, because a
  * status we have no colour for is exactly the one worth reading.
  */
 export function StatusBadge({
@@ -535,17 +536,11 @@ export function StatusBadge({
   value: string;
   kind?: "lead" | "call";
 }) {
-  const styles = kind === "lead" ? LEAD_STATUS_STYLES : CALL_STATUS_STYLES;
+  const tones = kind === "lead" ? LEAD_STATUS_TONES : CALL_STATUS_TONES;
   return (
-    <span
-      className={clsx(
-        "inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium",
-        lookup(styles, value) ??
-          "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-      )}
-    >
+    <StatusPill tone={lookup(tones, value) ?? "neutral"}>
       {kind === "call" ? sentenceCase(value) : value.replace(/_/g, " ")}
-    </span>
+    </StatusPill>
   );
 }
 
@@ -935,18 +930,6 @@ export function RestrictionNote({ reason }: { reason: string | null }) {
 export type NoticeTone = "ok" | "warn" | "stop" | "neutral";
 
 /**
- * Tinted classes for a SMALL status mark only: a pill, a badge, a table cell. Never for a
- * block of text. A full tinted card with every line in the tone colour made every notice
- * look equally urgent (founder, 11 Oct 2026); notices use `NoticeBox` / `NOTICE_BAR`.
- */
-export const NOTICE_TONES: Record<NoticeTone, string> = {
-  ok: "border-brand/25 bg-brand-soft text-brand-deep",
-  warn: "border-warn-line bg-warn-soft text-warn",
-  stop: "border-danger-line bg-danger-soft text-danger",
-  neutral: "border-line bg-ink/[0.03] text-ink-muted",
-};
-
-/**
  * The tone of a notice is its LEFT RULE and nothing else. Chart fills, not text tokens:
  * the rule is a mark beside words that carry the meaning, so it is not held to 4.5:1.
  */
@@ -957,13 +940,10 @@ export const NOTICE_BAR: Record<NoticeTone, string> = {
   neutral: "border-chart-neutral",
 };
 
-/** The matching status dot, for a caller that wants one beside a title. */
-export const NOTICE_DOT: Record<NoticeTone, string> = {
-  ok: "bg-brand",
-  warn: "bg-chart-warn",
-  stop: "bg-chart-danger",
-  neutral: "bg-chart-neutral",
-};
+/** The matching status dot, for a caller that wants one beside a title. Defined beside
+ *  `StatusPill`, which server components import, and a "use client" module cannot hand a
+ *  server component a plain value. */
+export { NOTICE_DOT };
 
 /**
  * The quiet notice frame: the page's own white ground, a 2px tone rule on the left, ink
@@ -1075,8 +1055,9 @@ export const PRIMARY_BUTTON_SM =
   "inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white [&:not(:disabled)]:hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-ink/[0.08] disabled:text-ink-faint touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
 export const SECONDARY_BUTTON_SM =
   "inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink [&:not(:disabled)]:hover:bg-black/5 disabled:cursor-not-allowed disabled:border-line disabled:bg-ink/[0.04] disabled:text-ink-faint dark:[&:not(:disabled)]:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
+// Both sizes label in ink: a muted label reads as disabled beside a primary button (D-771).
 export const SECONDARY_BUTTON =
-  "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted [&:not(:disabled)]:hover:bg-black/5 disabled:cursor-not-allowed disabled:border-line disabled:bg-ink/[0.04] disabled:text-ink-faint dark:[&:not(:disabled)]:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
+  "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink [&:not(:disabled)]:hover:bg-black/5 disabled:cursor-not-allowed disabled:border-line disabled:bg-ink/[0.04] disabled:text-ink-faint dark:[&:not(:disabled)]:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
 /**
  * The button that does something a person cannot undo.
  *
@@ -1094,7 +1075,7 @@ export const QUIET_ICON_BUTTON =
   "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-ink/[0.05] hover:text-ink disabled:cursor-not-allowed disabled:text-ink-faint disabled:hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:h-11 touch:w-11";
 
 export const DANGER_BUTTON =
-  "inline-flex items-center gap-2 rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white [&:not(:disabled)]:hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-ink/[0.08] disabled:text-ink-faint touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2 press";
+  "inline-flex items-center gap-2 rounded-md bg-danger px-4 py-2 text-sm font-semibold text-white [&:not(:disabled)]:hover:bg-danger/90 disabled:cursor-not-allowed disabled:bg-ink/[0.08] disabled:text-ink-faint touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger focus-visible:ring-offset-2 press";
 
 /**
  * A MODAL: a bottom sheet on a phone, a centred card from `sm`. Class strings rather than

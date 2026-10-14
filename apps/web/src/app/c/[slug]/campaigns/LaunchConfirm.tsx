@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Rocket } from "lucide-react";
 
 import {
   DANGER_BUTTON,
@@ -96,7 +95,7 @@ export function LaunchConfirm({
 }: {
   /** `ProgressOut.total` — `undefined` while it is unknown, and then there is no review. */
   contacts: number | undefined;
-  /** `ProgressOut.concurrency`, when the progress read has answered. */
+  /** `ProgressOut.effective_concurrency`: the slider under the plan ceiling and line pool. */
   concurrency: number | undefined;
   /** `ProgressOut.calling_hours` — the campaign's own narrowing, null when it has none. */
   callingHours: { start: string; end: string } | null | undefined;
@@ -142,7 +141,6 @@ export function LaunchConfirm({
           onClick={() => setConfirming(true)}
           className={PRIMARY_BUTTON}
         >
-          <Rocket aria-hidden className="h-4 w-4" />
           Review this launch
         </button>
       </div>
@@ -168,7 +166,8 @@ export function LaunchConfirm({
                 </strong>
               </>
             ) : null}
-            . Each one opens with your agent&rsquo;s recording-and-AI notice.
+            . If anyone asks whether it is an AI or whether the call is recorded, your agent
+            says so truthfully.
           </li>
           <li>
             {numberE164 ? (
@@ -176,7 +175,7 @@ export function LaunchConfirm({
                 They will show <strong>{formatPhone(numberE164)}</strong> on the handset.
               </>
             ) : (
-              "This campaign has no number of its own, so calls go out on whichever of your numbers is available."
+              "This campaign has no number of its own, so calls show the number your agent dials from."
             )}
           </li>
           {concurrency !== undefined && (
@@ -212,7 +211,6 @@ export function LaunchConfirm({
           onClick={onLaunch}
           className={DANGER_BUTTON}
         >
-          <Rocket aria-hidden className="h-4 w-4" />
           {pending ? "Launching…" : `Call ${formatCount(contacts)} ${people}`}
         </button>
         <button

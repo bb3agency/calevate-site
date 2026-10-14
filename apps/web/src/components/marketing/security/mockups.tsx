@@ -1,9 +1,8 @@
 import type { ReactNode } from "react";
 
-import { Eye, PhoneOff, ShieldCheck } from "lucide-react";
+import { Eye } from "lucide-react";
 
 import { Bar, MaskedPhone, Panel, Tag } from "@/components/marketing/home/mockups/kit";
-import { NOTICE_TONES } from "@/components/ui";
 
 /**
  * The controls `/security` talks about, drawn as the console draws them. Labels are the
@@ -61,9 +60,8 @@ export function RedactedTranscriptMock() {
         Only an account owner can open the full transcript.
       </span>
       <span
-        className={`mk-rise mk-s2 flex items-start gap-2 rounded-lg border px-3 py-2 text-[12px] leading-snug ${NOTICE_TONES.neutral}`}
+        className="mk-rise mk-s2 border-l-2 border-chart-neutral bg-surface py-1 pl-3 text-[12px] leading-snug text-ink"
       >
-        <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         Personal details — phone numbers, account numbers, dates of birth — are hidden in this
         view.
       </span>
@@ -184,9 +182,8 @@ export function DoNotCallMock() {
           </span>
         </span>
         <span
-          className={`flex items-start gap-2 rounded-md border px-2.5 py-2 text-[11px] leading-snug ${NOTICE_TONES.stop}`}
+          className="border-l-2 border-chart-danger bg-surface py-1 pl-2.5 text-[11px] leading-snug text-ink"
         >
-          <PhoneOff className="mt-0.5 h-3 w-3 shrink-0" />
           This number is suppressed — no agent will call it. It was added to your account&apos;s list.
         </span>
       </span>
@@ -230,9 +227,8 @@ export function OpeningNoticesMock() {
     <span className="flex flex-col gap-2">
       <span className="text-[12px] font-semibold text-ink">What it says at the start of every call</span>
       <span
-        className={`mk-rise mk-s1 flex items-start gap-2 rounded-lg border px-3 py-2 text-[11px] leading-snug ${NOTICE_TONES.neutral}`}
+        className="mk-rise mk-s1 border-l-2 border-chart-neutral bg-surface py-1 pl-3 text-[11px] leading-snug text-ink"
       >
-        <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         Whatever these settings say, the agent always answers honestly when a caller asks.
       </span>
       {toggles.map(({ label, on, quote }, i) => (

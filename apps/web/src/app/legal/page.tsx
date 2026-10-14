@@ -13,7 +13,6 @@ import { publicPageMetadata } from "@/lib/seo/metadata";
 
 import { LEGAL_DOCUMENTS } from "@/lib/legal";
 import { PendingReviewBanner, PRINT_WITHOUT_CHROME } from "@/lib/legal/document";
-import { documentVersionLabel } from "@/lib/legal/versions";
 
 /**
  * The index of the published legal documents.
@@ -62,7 +61,6 @@ export default function LegalIndexPage() {
         <div className={`${SHELL} py-10 sm:py-14 lg:py-16`}>
           <ul className="grid gap-4 sm:grid-cols-2 sm:gap-5">
             {LEGAL_DOCUMENTS.map((doc) => {
-              const version = documentVersionLabel(doc.slug);
               return (
                 <li key={doc.slug}>
                   <Link href={`/legal/${doc.slug}`} className={CARD_LINK}>
@@ -76,11 +74,6 @@ export default function LegalIndexPage() {
                     <p className="mt-2 flex-1 text-[15px] leading-6 text-pretty text-ink-muted sm:text-base sm:leading-7">
                       {doc.summary}
                     </p>
-                    {version !== null && (
-                      <p className="mt-4 text-sm text-ink-faint tabular-nums">
-                        Version {version}
-                      </p>
-                    )}
                   </Link>
                 </li>
               );

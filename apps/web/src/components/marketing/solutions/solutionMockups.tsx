@@ -142,7 +142,7 @@ export function AnsweringMock() {
  * Follow-up — the "New campaign" form's contact box (`campaigns/NewCampaignFlow.tsx`:
  * "Contact list", "Paste your CSV, or one number per line.", "Calls at the same time"),
  * a web enquiry becoming a first call (the homepage's `FollowUpMini`), and the running
- * campaign (`CampaignBoardMock`, `campaigns/CampaignDetail.tsx`).
+ * campaign (`CampaignBoardMock`, `campaigns/CampaignScreen.tsx`).
  */
 export function FollowUpMock() {
   const pasted = ["417", "208", "553", "731", "096"] as const;

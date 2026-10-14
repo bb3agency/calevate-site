@@ -54,6 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import lifecycle
 from apps.api.agents.languages import LANGUAGE_LABELS, PRODUCT_LANGUAGES, OfferedLanguage
+from apps.api.campaigns import controls as campaign_controls
 from apps.api.campaigns import service as campaigns_service
 from apps.api.copilot.actions import (
     DOES_IT,
@@ -69,6 +70,7 @@ from apps.api.copilot.actions import (
     action_schema,
     parse_args,
 )
+from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
@@ -425,7 +427,7 @@ async def _execute_leads_bulk(
             code="lead_bulk_set_moved",
             title="The selection changed",
             detail="Some of these leads changed since the preview, so nothing was done.",
-            remediation="Ask the assistant again to see the new count.",
+            remediation=f"Ask {ASSISTANT_NAME} again to see the new count.",
         )
     outcome = await crm_service.apply_bulk_leads(
         session,
@@ -991,11 +993,10 @@ CALLBACK_CANCEL: Final = ActionTool(
 # CAMPAIGNS
 # =========================================================================================
 
-CampaignClassification = Literal["service", "transactional", "promotional"]
+CampaignClassification = Literal["service", "promotional"]
 
 _CLASSIFICATION_WORDS: Final[dict[str, str]] = {
     "service": "service calls to existing customers",
-    "transactional": "transactional calls",
     "promotional": "promotional calls",
 }
 
@@ -1156,8 +1157,8 @@ CAMPAIGN_CREATE: Final = ActionTool(
                 "type": "string",
                 "enum": list(_CLASSIFICATION_WORDS),
                 "description": (
-                    "`service` for calls to existing customers about their own business, "
-                    "`transactional` for confirmations and reminders, `promotional` for offers."
+                    "`service` for calls to existing customers about their own business, such as "
+                    "confirmations and reminders; `promotional` for offers."
                 ),
             },
         },
@@ -1200,31 +1201,16 @@ async def _plan_campaign_clone(
 async def _execute_campaign_clone(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`create_campaign` again, fed the source's settings. The consent declaration is NOT
-    copied: it is a statement about a LIST, and the copy has none yet."""
+    """`campaigns.controls.duplicate_campaign` — the Duplicate button's call — without the
+    contacts. The consent declaration is not copied: it is a statement about a LIST."""
     parsed = parse_args(_CampaignCloneArgs, args)
-    row = (
-        await session.execute(
-            text(
-                "SELECT agent_id, classification, number_id, dlt_template_id, concurrency, "
-                "calling_hours FROM campaigns WHERE id = :cid"
-            ),
-            {"cid": parsed.source_campaign_id},
-        )
-    ).first()
-    if row is None:
-        raise ProblemError.not_found("Campaign")
     assert parsed.name is not None  # the planner always names it
-    campaign_id = await campaigns_service.create_campaign(
+    campaign_id, _ = await campaign_controls.duplicate_campaign(
         session,
         tenant_id=actor.tenant_id,
-        agent_id=UUID(str(row[0])),
+        source_id=parsed.source_campaign_id,
         name=parsed.name,
-        classification=str(row[1]),
-        number_id=None if row[2] is None else UUID(str(row[2])),
-        dlt_template_id=None if row[3] is None else UUID(str(row[3])),
-        concurrency=int(row[4]),
-        calling_hours=row[5] if isinstance(row[5], dict) else None,
+        with_unreached=False,
     )
     return Executed(
         applied=True,
@@ -1308,18 +1294,11 @@ async def _plan_campaign_add_leads(
 async def _execute_campaign_add_leads(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`campaigns_service.add_contacts` — `POST /v1/campaigns/{id}/contacts`'s call — fed
-    from the leads' own records, so no number passes through the model."""
+    """`campaigns.controls.add_leads` — `POST /v1/campaigns/{id}/contacts/from-leads`'s call —
+    fed from the leads' own records, so no number passes through the model."""
     parsed = parse_args(_CampaignLeadsArgs, args)
-    contacts = []
-    for lead_id in parsed.lead_ids:
-        try:
-            phone, name = await crm_service.lead_phone(session, lead_id)
-        except ProblemError:
-            continue
-        contacts.append({"phone": phone, "name": name})
-    result = await campaigns_service.add_contacts(
-        session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id, contacts=contacts
+    result = await campaign_controls.add_leads(
+        session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id, lead_ids=parsed.lead_ids
     )
     return Executed(
         applied=result["added"] > 0,
@@ -1545,11 +1524,13 @@ async def _plan_campaign_resume(
 async def _execute_campaign_resume(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`POST /v1/campaigns/{id}/resume`'s two calls: the archived-agent refusal, then the CAS
-    from `paused`."""
-    del actor
+    """`POST /v1/campaigns/{id}/resume`'s three calls: the archived-agent refusal, the
+    automatic-pause refusal (`controls.assert_resumable`), then the CAS from `paused`."""
     parsed = parse_args(_CampaignIdArgs, args)
     await campaigns_service.assert_agent_still_assignable(session, campaign_id=parsed.campaign_id)
+    await campaign_controls.assert_resumable(
+        session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id
+    )
     moved = await campaigns_service.set_campaign_status(
         session, campaign_id=parsed.campaign_id, to_status="running", from_statuses=("paused",)
     )

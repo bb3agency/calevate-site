@@ -1628,8 +1628,8 @@ describe("the marketing pages' decorative grid", () => {
     expect(
       hero!.className,
       "the hero lost `isolate`. Its backdrop sits at `-z-10`, and `relative` alone does " +
-        "not open a stacking context, so the grid and both glows escape to the root and " +
-        "paint behind `bg-app` — invisible, on every browser, with every test green.",
+        "not open a stacking context, so the grid escapes to the root and " +
+        "paints behind `bg-app` — invisible, on every browser, with every test green.",
     ).toMatch(/(^|\s)isolate(\s|$)/);
   });
 });

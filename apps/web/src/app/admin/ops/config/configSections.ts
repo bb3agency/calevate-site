@@ -254,8 +254,8 @@ export const PANEL_SEARCH: Record<string, { title: string; detail: string; words
   },
   dashboard_data_use: {
     title: "Dashboard AI data use",
-    detail: "Which AI providers the in-app assistant may run on, and their data-use attestations.",
-    words: ["dashboard ai", "assistant", "data use", "training", "attestation", "provider"],
+    detail: "Which AI providers Pip, the in-app assistant, may run on, and their data-use attestations.",
+    words: ["dashboard ai", "assistant", "pip", "data use", "training", "attestation", "provider"],
   },
   server_only_keys: {
     title: "Server-only keys",

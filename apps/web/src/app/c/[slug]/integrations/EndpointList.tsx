@@ -9,6 +9,7 @@ import { IconTile } from "@/components/console/iconTile";
 import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import type { WriteAccess } from "@/lib/api/hooks";
 import { SHEET_KIND, eventLabel, useEndpoints, type Endpoint } from "@/lib/api/integrations";
+import { StatusPill } from "@/components/console/statusPill";
 
 /**
  * Every destination this account has registered, and the one thing you can do to each.
@@ -40,14 +41,14 @@ export function EndpointList({
         <IconTile service={endpoint.kind === SHEET_KIND ? "google_sheets" : null} icon={Webhook} />
         <div className="min-w-0 space-y-1">
           <p className="break-all font-mono text-xs text-ink">{endpoint.url}</p>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
             {endpoint.kind === SHEET_KIND && (
-              <span className="rounded-full bg-ink/[0.06] px-2 py-0.5 text-xs text-ink-muted">
+              <span className="text-meta text-ink-muted">
                 Google Sheet
               </span>
             )}
             {!endpoint.active && (
-              <span className="rounded-full bg-ink/[0.06] px-2 py-0.5 text-xs text-ink-muted">off</span>
+              <StatusPill>Off</StatusPill>
             )}
           </div>
         </div>

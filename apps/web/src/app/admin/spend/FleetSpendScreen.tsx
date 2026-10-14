@@ -1,5 +1,6 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import Link from "next/link";
 import { useState } from "react";
 import { TriangleAlert } from "lucide-react";
@@ -197,7 +198,7 @@ function Totals({ data }: { data: FleetSpend }) {
       <Metric
         label="AI we absorb"
         value={formatINR(data.ai_absorbed_inr)}
-        hint="Assistant, AI tools, the standby model and post-call extraction. Not billed, not in the margin."
+        hint={`${ASSISTANT_NAME}, AI tools, the standby model and post-call extraction. Not billed, not in the margin.`}
       />
     </MetricRow>
   );

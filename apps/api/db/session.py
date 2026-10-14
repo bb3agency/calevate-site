@@ -35,6 +35,10 @@ from apps.api.core.settings import get_settings
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
+#: `Session.info` key naming the tenant a `tenant_session` runs under, read by the live
+#: change capture (`apps/api/live/capture.py`, D-774) to address a committed change.
+LIVE_TENANT_INFO_KEY = "calevate_tenant_id"
+
 # How long a caller may wait for a pooled connection before being told there is none.
 #
 # A constant rather than a setting, unlike `db_pool_size`: the size is a capacity
@@ -534,6 +538,9 @@ async def tenant_session(tenant_id: UUID) -> AsyncIterator[AsyncSession]:
             text(f"SELECT set_config('app.tenant_id', :tid, true), {_TIMEOUT_SQL}"),
             {"tid": str(tenant_id), **_timeout_param()},
         )
+        # Which client a committed change belongs to, for its live note (D-774). The same
+        # value as the GUC above, so a note can only ever name the tenant RLS wrote under.
+        session.info[LIVE_TENANT_INFO_KEY] = tenant_id
         token = _ambient.set(
             _Ambient(tenant_id=tenant_id, session=session, task=asyncio.current_task())
         )

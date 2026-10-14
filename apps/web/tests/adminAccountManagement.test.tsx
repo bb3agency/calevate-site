@@ -170,8 +170,8 @@ describe("closing a client account", () => {
     const button = (await screen.findByRole("button", {
       name: /Close this account/,
     })) as HTMLButtonElement;
-    // The most destructive control on the screen is rose, never brand green.
-    expect(button.className).toContain("bg-rose-600");
+    // The most destructive control on the screen is the danger token, never brand green.
+    expect(button.className).toContain("bg-danger");
     expect(button.disabled).toBe(true);
 
     fireEvent.change(screen.getByLabelText(/Why this account is closing/), {
@@ -365,8 +365,8 @@ describe("the erasure panel", () => {
       ERASE_BUTTON,
     )) as HTMLButtonElement;
     expect(button.disabled).toBe(true); // no reason typed yet
-    // The most irreversible submit in the product is rose, never brand green (F-2).
-    expect(button.className).toContain("bg-rose-600");
+    // The most irreversible submit in the product is the danger token, never brand green (F-2).
+    expect(button.className).toContain("bg-danger");
     expect(screen.getByText("Type the confirmation")).toBeDefined();
   });
 

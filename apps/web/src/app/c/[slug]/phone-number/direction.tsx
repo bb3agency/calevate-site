@@ -1,36 +1,14 @@
 "use client";
 
 /**
- * WHAT A NUMBER IS FOR — the three legs, and the one sentence about the third.
- *
- * Two screens ask this: the purchase, which records an intent, and the assignment, which
- * is what actually puts the number on an agent. They are one question and they are worded
- * here once, because the risky half is a sentence about the law and two copies of it
- * would drift apart exactly where that costs the most.
- *
- * ## Inbound and outbound are not the same kind of choice
- *
- * Answering a call on a number this account holds is unrestricted. Calling OUT is not:
- * TRAI direction RG-25/(18)/2023-QoS (E-10291), 18 Jun 2024 addresses the SENDER of
- * promotional, service and transactional voice calls and names the delegation chain, so
- * an ordinary 10-digit number reaches service and reminder calls only through the
- * confirmation `SenderAttestation.tsx` records, and reaches marketing campaigns not at
- * all (`docs/evidence/primary-legal-findings-2026-09-20.md` §1).
- *
- * Three radio buttons reading "inbound / outbound / both" with nothing beside them would
- * offer the second and third as ordinary settings. So choosing either POINTS AT the
- * confirmation that already exists on this page rather than restating it: the statement,
- * its version and its withdrawal all live in that panel, and a second wording of what a
- * client is accepting is how the two come apart.
- *
- * Shown for an ORDINARY number only. On a registered 140 or 160 header the confirmation
- * does not apply and the API refuses one, so a note pointing at it would send a client
- * looking for a control that is not there.
+ * WHAT A NUMBER IS FOR — the three legs, worded once for the two screens that ask: the
+ * purchase, which records an intent, and the assignment, which puts the number on an
+ * agent. The choice records an intent and authorises nothing. Who may call out is the
+ * campaign launch gate's question (verified business and the no-cold-calls pledge, D-692);
+ * no confirmation per number is asked since D-775.
  */
 
-import { NoticeBox } from "@/components/ui";
 import type { CallDirection } from "@/lib/api/numberProvisioning";
-import { Term } from "@/lib/glossary";
 
 /** The three legs, in the order a client meets them — answering first. */
 export const DIRECTIONS: { value: CallDirection; label: string; hint: string }[] = [
@@ -51,23 +29,3 @@ export const DIRECTIONS: { value: CallDirection; label: string; hint: string }[]
   },
 ];
 
-/** The series the sender confirmation applies to — an ordinary 10-digit connection. */
-const ORDINARY = "standard";
-
-export function OutboundRestriction({
-  direction,
-  series,
-}: {
-  direction: CallDirection;
-  /** The server's own class for this number, derived from its prefix. */
-  series: string;
-}) {
-  if (direction === "inbound" || series !== ORDINARY) return null;
-  return (
-    <NoticeBox tone="warn">
-      Your agent can call out from this number once you confirm your business sends those
-      calls, on the number&apos;s own panel. Marketing campaigns need a{" "}
-      <Term id="series140" term="140-series" /> number either way.
-    </NoticeBox>
-  );
-}

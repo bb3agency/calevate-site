@@ -2,6 +2,8 @@ import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { OPS_INR_LLM_PRICES } from "./fixtures/opsInrLlmPrices";
 import { STYLE_LIST, TELUGU_STYLE } from "./fixtures/spokenStyle";
+import { replyTimeReport } from "./fixtures/replyTimes";
+import { contactsFixture, progressFixture, resultsFixture } from "./campaignFixtures";
 import { ADMIN_FORWARDING, CODES, READY_TO_FORWARD, SETTLED_TEST, WITH_LINE } from "./fixtures/forwarding";
 
 import type { AiQuota } from "@/lib/api/aiQuota";
@@ -40,7 +42,7 @@ import GlobalDncPage from "@/app/admin/ops/dnc/page";
 import OpsAlertsPage from "@/app/admin/ops/alerts/page";
 import OpsHealerPage from "@/app/admin/ops/healer/page";
 import PaymentsPage from "@/app/admin/payments/page";
-import EngineLatencyPage from "@/app/admin/ops/engine-latency/page";
+import ReplyTimesPage from "@/app/admin/ops/reply-times/page";
 import SpokenStylePage from "@/app/admin/ops/spoken-style/page";
 import VoicesPage from "@/app/admin/ops/voices/page";
 import OperatorsPage from "@/app/admin/operators/page";
@@ -67,6 +69,9 @@ import AttentionPage from "@/app/c/[slug]/attention/page";
 import CallDetailPage from "@/app/c/[slug]/calls/[callId]/page";
 import CallsPage from "@/app/c/[slug]/calls/page";
 import CampaignReviewPage from "@/app/c/[slug]/campaign-review/page";
+import CampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/page";
+import EditCampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/edit/page";
+import NewCampaignPage from "@/app/c/[slug]/campaigns/new/page";
 import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import CallerNoticePage from "@/app/c/[slug]/caller-notice/page";
@@ -314,13 +319,6 @@ const CREDIT_PACKS = {
     },
   ],
 };
-
-/** `campaigns/sender_attestation.SENDER_STATEMENT` — rendered verbatim, never reworded. */
-const SENDER_STATEMENT =
-  "I confirm that my business is the sender of these calls, that I have been told TRAI " +
-  "requires promotional, service and transactional voice calls to be made only from a " +
-  "registered 140 or 160 series voice header, that this number is not one, and that my " +
-  "business accepts responsibility for calls made from it.";
 
 /** A shop with one agent on its standard details (founder decision 15). */
 const LEAD_FIELDS = {
@@ -1123,6 +1121,8 @@ const DASHBOARD = {
   leads_new_7d: 9,
   hot_leads_open: 2,
   calls_prev_7d: 0,
+  calls_connected_7d: 19,
+  calls_not_connected_7d: 4,
   leads_new_prev_7d: 0,
   avg_duration_s_7d: 118,
   sentiment_split: { positive: 12, neutral: 8, negative: 4 },
@@ -2129,6 +2129,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/billing/wallet": WALLET_STOPPED,
       "/v1/calls?limit=6": [CALL],
       // "Your agents" and "This week" read the roster and its activity.
+      "/v1/campaigns": [],
       "/v1/agents": [AGENT],
       "/v1/agents/stats": [{ agent_id: "agent-1", status: "live", calls_total: 12, calls_connected: 9, calls_inbound: 0, calls_outbound: 12, last_call_at: "2026-08-13T05:00:00Z", outcomes: { resolved: 6, needs_follow_up: 2, transferred: 0, dropped: 1 } }],
       // The dashboard-home `KnowledgeGaps` card (all agents). One OPEN gap so the sweep
@@ -2808,22 +2809,37 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
-    // Swept with a campaign in the list AND the create form open, because the form is
-    // where this screen's labelling risk lives: five consent radios, a date, a file
-    // input and a classification picker, none of which exist on an empty list.
+    // The list: status filters, search, rows and pagination.
     file: "c/[slug]/campaigns/page.tsx",
     realm: "client",
-    element: () => <CampaignsPage />,
+    element: () => <CampaignsPage params={Promise.resolve({ slug: "acme" })} />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/campaigns/page?limit=25&offset=0": {
+        items: [{ ...CAMPAIGN, pause_reason: null }],
+        total: 1,
+        status_counts: { draft: 1, scheduled: 0, running: 0, paused: 0, completed: 0, cancelled: 0 },
+      },
+    },
+  },
+  {
+    // The create form is where the labelling risk lives: five consent radios, a date, a
+    // file input, a classification picker, the retry choice and the leads filter.
+    file: "c/[slug]/campaigns/new/page.tsx",
+    realm: "client",
+    element: () => <NewCampaignPage params={Promise.resolve({ slug: "acme" })} />,
     routes: {
       "/v1/me": ME,
       "/v1/agents": [AGENT],
-      "/v1/campaigns": [CAMPAIGN],
+      "/v1/campaigns/lead-pool": { matching: 0, limit: 5000 },
       "/v1/campaigns/numbers": [
         {
           id: "num-1",
           e164: "+918041234567",
           series: "140",
           dlt_status: "approved",
+          agent_id: AGENT.id,
+          places_calls: true,
         },
       ],
       "/v1/campaigns/templates": [
@@ -2834,6 +2850,58 @@ const CLIENT_SCREENS: Screen[] = [
           body: "Namaskaram, Sri Clinic has an offer for you.",
         },
       ],
+    },
+  },
+  {
+    // A draft's settings, read back into the create page's fields.
+    file: "c/[slug]/campaigns/[campaignId]/edit/page.tsx",
+    realm: "client",
+    element: () => (
+      <EditCampaignPage params={Promise.resolve({ slug: "acme", campaignId: CAMPAIGN.id })} />
+    ),
+    routes: {
+      "/v1/me": ME,
+      "/v1/agents": [AGENT],
+      "/v1/campaigns/numbers": [],
+      "/v1/campaigns/templates": [],
+      [`/v1/campaigns/${CAMPAIGN.id}`]: progressFixture({ id: CAMPAIGN.id }),
+    },
+  },
+  {
+    // One running campaign with results and a person, the densest state of the page.
+    file: "c/[slug]/campaigns/[campaignId]/page.tsx",
+    realm: "client",
+    element: () => (
+      <CampaignPage params={Promise.resolve({ slug: "acme", campaignId: CAMPAIGN.id })} />
+    ),
+    routes: {
+      "/v1/me": ME,
+      [`/v1/campaigns/${CAMPAIGN.id}`]: progressFixture({
+        id: CAMPAIGN.id,
+        status: "running",
+        launched_at: "2026-10-14T04:30:00Z",
+        total: 1,
+      }),
+      [`/v1/campaigns/${CAMPAIGN.id}/launch-check`]: { ready: false, blockers: [] },
+      "/v1/campaigns/lead-pool": { matching: 0, limit: 5000 },
+      [`/v1/campaigns/${CAMPAIGN.id}/results`]: resultsFixture({ contacts: 1, tried: 1, pickup_rate: 1 }),
+      [`/v1/campaigns/${CAMPAIGN.id}/contacts?limit=50&offset=0`]: contactsFixture({
+        total: 1,
+        counts: { ...contactsFixture().counts, connected: 1 },
+        items: [
+          {
+            id: "cc-1",
+            name: "Priya",
+            phone_e164: "+919876543210",
+            outcome: "connected",
+            attempts: 1,
+            last_attempt_at: "2026-10-14T05:00:00Z",
+            will_retry: false,
+            next_attempt_at: null,
+            call_id: "call-1",
+          },
+        ],
+      }),
     },
   },
   {
@@ -3136,28 +3204,6 @@ const CLIENT_SCREENS: Screen[] = [
           answerable: true,
         },
       ],
-      // The outbound-sender confirmation, once per number and in all three of its
-      // states — unconfirmed (the statement, the checkbox and the button), confirmed
-      // (the withdraw control), and not applicable at all on a registered 160 header.
-      // A fixture with one state would sweep a third of the panel.
-      "/v1/numbers/num-1/sender-attestation": {
-        attested: false,
-        applicable: true,
-        statement: SENDER_STATEMENT,
-        statement_version: "2026-09-20",
-      },
-      "/v1/numbers/num-2/sender-attestation": {
-        attested: true,
-        applicable: true,
-        statement: SENDER_STATEMENT,
-        statement_version: "2026-09-20",
-      },
-      "/v1/numbers/num-3/sender-attestation": {
-        attested: false,
-        applicable: false,
-        statement: SENDER_STATEMENT,
-        statement_version: "2026-09-20",
-      },
       // BUYING A NUMBER, swept in the state that HAS controls: a deployment that may
       // sell, an unverified account (so the activation notice and its link render), a
       // registrant nobody has recorded yet (so the holder form is in the scan) and one
@@ -4240,150 +4286,18 @@ const ADMIN_SCREENS: Screen[] = [
     },
   },
   {
-    // TWO groups, EVERY LEG of each, and one group whose every leg is
-    // `insufficient_samples` with no percentiles and no verdict: the withheld-figure
-    // rendering is a different piece of markup from the measured one, and a fixture with
-    // only measured rows would leave the state this endpoint exists to report honestly —
-    // "not enough turns to say" — unscanned. The measured group deliberately splits its
-    // verdicts (the model leg over target, the transcriber leg within it, the composed
-    // reply over) so both paintings of the verdict cell are swept.
-    file: "admin/ops/engine-latency/page.tsx",
+    // Every breakdown populated, a call over target, a withheld slow figure (below ten
+    // calls) beside a present one, and a slowest call with both problem notes, so every
+    // painting of the figure and problem cells is swept.
+    file: "admin/ops/reply-times/page.tsx",
     realm: "admin",
-    element: () => <EngineLatencyPage />,
+    element: () => <ReplyTimesPage />,
     routes: {
-      // `ops:manage`, unlike the shared ADMIN_ME the two ops screens above use: this
-      // screen WITHHOLDS its whole report from a session the server has refused, so the
-      // shared fixture would sweep one sentence and none of the markup this entry exists
-      // for. The refused costume is covered by its own test in opsEngineLatency.test.tsx.
       "/v1/admin/me": {
         ...ADMIN_ME,
         permissions: [...ADMIN_ME.permissions, "ops:manage"],
       },
-      "/v1/ops/engine-latency?days=7": {
-        window_days: 7,
-        // The whole budget, as TRD §4 declares it and as the server sends it: five stages,
-        // the crossing to the engine's US servers, what the shipped config actually waits,
-        // two voice-to-voice targets, and the composed figures the server derives so no
-        // browser has to — `composes` among them, false since the 500ms target.
-        budget: {
-          endpointing_ms: 100,
-          stt_ms: 70,
-          llm_ttft_ms: 150,
-          tts_ttfa_ms: 80,
-          retrieval_ms: 100,
-          india_us_transit_floor_ms: 100,
-          inherited_turn_detection_ms: 650,
-          voice_to_voice_p50_ms: 500,
-          voice_to_voice_p95_ms: 800,
-          turn_ms: 300,
-          pipeline_ms: 500,
-          voice_to_voice_floor_ms: 600,
-          voice_to_voice_headroom_p50_ms: -100,
-          composes: false,
-        },
-        complete: false,
-        groups: [
-          {
-            engine: "thinnest",
-            region: "us",
-            calls: 12,
-            turns: 240,
-            legs: [
-              {
-                leg: "stt",
-                budget_ms: 300,
-                turns: 240,
-                basis: "measured",
-                p50_ms: 260,
-                p95_ms: 401.5,
-                max_ms: 612.3,
-                turns_over_budget: 22,
-                budget_breached: false,
-                // The transcriber leg's unit is unconfirmed, so this fixture also sweeps
-                // the caveat markup that renders only on such a row.
-                unit_verified: false,
-              },
-              {
-                leg: "llm_ttft",
-                budget_ms: 350,
-                turns: 240,
-                basis: "measured",
-                p50_ms: 412.5,
-                p95_ms: 980.2,
-                max_ms: 1633.04,
-                turns_over_budget: 190,
-                budget_breached: true,
-                unit_verified: true,
-              },
-              {
-                leg: "tts_ttfa",
-                budget_ms: 300,
-                turns: 238,
-                basis: "measured",
-                p50_ms: 288.1,
-                p95_ms: 455,
-                max_ms: 800,
-                turns_over_budget: 61,
-                budget_breached: false,
-                unit_verified: true,
-              },
-              {
-                leg: "turn",
-                budget_ms: 950,
-                turns: 238,
-                basis: "measured",
-                p50_ms: 981.4,
-                p95_ms: 1720,
-                max_ms: 2412,
-                turns_over_budget: 130,
-                budget_breached: true,
-                unit_verified: false,
-              },
-            ],
-          },
-          {
-            engine: "thinnest",
-            region: null,
-            calls: 1,
-            turns: 3,
-            legs: [
-              {
-                leg: "stt",
-                budget_ms: 300,
-                turns: 0,
-                basis: "insufficient_samples",
-                turns_over_budget: 0,
-                unit_verified: false,
-              },
-              {
-                leg: "llm_ttft",
-                budget_ms: 350,
-                turns: 3,
-                basis: "insufficient_samples",
-                max_ms: 288.1,
-                turns_over_budget: 0,
-                unit_verified: true,
-              },
-              {
-                leg: "tts_ttfa",
-                budget_ms: 300,
-                turns: 0,
-                basis: "insufficient_samples",
-                turns_over_budget: 0,
-                unit_verified: true,
-              },
-              {
-                leg: "turn",
-                budget_ms: 950,
-                turns: 0,
-                basis: "insufficient_samples",
-                turns_over_budget: 0,
-                unit_verified: false,
-              },
-            ],
-          },
-        ],
-      },
+      "/v1/ops/reply-times?days=7": replyTimeReport(),
     },
   },
   {

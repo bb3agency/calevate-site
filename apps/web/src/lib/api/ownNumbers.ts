@@ -36,6 +36,31 @@ export type BusinessDetailsSent = Schemas["BusinessDetailsSentOut"];
 export type FirstPeriod = PurchasedOwnNumber["first_period"];
 export type OwnNumberDirection = PurchaseOwnNumberIn["direction"];
 
+/**
+ * Which screen the number flow is, from what the server says about the account:
+ *
+ * - `trial`: on a free trial still running (`trial_access.restricting_trial`). Numbers,
+ *   business verification and the business details are all refused until it pays, so
+ *   nothing in the flow is offered; adding credit is the one action.
+ * - `needs_credit`: the trial ended unpaid, or there never was a trial and nothing has been
+ *   paid and no calling account exists. The calling account is set up on the first payment
+ *   (`billing/first_payment`), so the flow cannot start until credit is added.
+ * - `journey`: the three steps, with the server's `step` marked next.
+ *
+ * An unpaid account with no trial whose calling account an operator already set up gets the
+ * journey: that account can go on, and its purchase meets the credit check at Buy.
+ */
+export type NumberStage = "trial" | "needs_credit" | "journey";
+
+export function numberStage(status: OwnNumbersStatus): NumberStage {
+  if (status.trial === "running") return "trial";
+  if (status.trial === "ended" || status.step === "add_credit") return "needs_credit";
+  if (!status.paid && status.step === "workspace" && status.account_setup === "not_provisioned") {
+    return "needs_credit";
+  }
+  return "journey";
+}
+
 const BASE = "/v1/numbers/own";
 
 /** The number search takes up to ten digits and nothing else (`^\d{1,10}$` on the server,

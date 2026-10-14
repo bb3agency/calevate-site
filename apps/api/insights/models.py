@@ -1,7 +1,7 @@
 """Knowledge-gap tables: the aggregate a client acts on, and the per-call provenance
 that makes its counts auditable and idempotent (DATA-MODEL §1 conventions).
 
-TWO TABLES, and the split is the same one `crm.CallEngineLatency` makes about samples vs
+TWO TABLES, split as samples vs
 aggregates: `knowledge_gap_occurrences` is one row per (call, topic) — the raw evidence,
 re-derivable from the transcript — and `knowledge_gaps` is the roll-up per (agent, topic)
 that the dashboard reads. The aggregate is a pure function of the occurrences, so a

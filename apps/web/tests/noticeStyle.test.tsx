@@ -163,7 +163,7 @@ function tintedBlocks(text: string): string[] {
   const strings = text.match(/"[^"\n]*"|`[^`]*`/g) ?? [];
   return strings.filter(
     (s) =>
-      (TINT.test(s) || /NOTICE_TONES\[/.test(s)) &&
+      TINT.test(s) &&
       !/rounded-full/.test(s) &&
       /\bborder\b|\bborder-/.test(s) &&
       /\b(?:p|px|py)-\d/.test(s),

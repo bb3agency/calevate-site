@@ -300,7 +300,7 @@ export function TreeView({
               tree.focusRow(node.id);
               if (row.branch) tree.toggle(node.id);
             }}
-            className={`flex h-7 cursor-default select-none items-center gap-1 rounded-[8px] px-1.5 outline-none transition-colors duration-150 focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_#16a05d] dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_#22c55e] ${
+            className={`flex h-7 cursor-default select-none items-center gap-1 rounded-[8px] px-1.5 outline-none transition-colors duration-150 focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_var(--brand)] dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_var(--brand-bright)] ${
               isSelected
                 ? "bg-ink/[0.06] text-ink"
                 : "text-ink-muted hover:bg-ink/[0.04]"

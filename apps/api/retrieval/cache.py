@@ -5,18 +5,9 @@ you take walk-ins, what does X cost — so the same normalised question recurs a
 repeat that never reaches the store is the only headroom this design can buy without
 knowing who wins the D-28 bake-off.
 
-**THAT HEADROOM IS FOR THE DASHBOARD LEG. IT DOES NOT MAKE IN-CALL RETRIEVAL AFFORDABLE,
-AND AN EARLIER DRAFT OF THIS PARAGRAPH IMPLIED IT DID.** It cited TRD §6.2's 100ms and
-D-109's p95 1.4ms server half and concluded that what remained was "the budget to the
-network and the store". The arithmetic that matters is one level up and says the opposite:
-`calevate_shared.engine.latency_budget_composes()` is **False**, and
-`voice_to_voice_gap_ms()` is **+100.0** — the declared pipeline floor MISSES the headline
-target by 100ms — with `RETRIEVAL_BUDGET_MS = 100.0` ALREADY ALLOCATED INSIDE that floor
-(`engine.py:3040,3114-3122`; `packages/shared/tests/latency_budget_test.py:113-114` pins
-both). So there is no unspent room for an in-call retrieval to move into; the budget is
-overspent before one is added. **In-call stays T0 because there is nothing to spend, not
-because a store is slow** — which is also why no cache hit rate can rescue it, and why
-`retrieval/__init__.py` mounts no in-call route.
+**THAT HEADROOM IS FOR THE DASHBOARD LEG ONLY.** In-call retrieval is the voice engine's own
+knowledge base (ThinnestAI hosts the whole call), so nothing on the caller's audio path reads
+this cache, and `retrieval/__init__.py` mounts no in-call route.
 
 **INVALIDATION IS THE HARD PART AND IT IS SOLVED STRUCTURALLY, NOT BY AN EVENT.** A stale
 cached answer after an owner corrects their opening hours is a WRONG ANSWER ON A LIVE CALL.

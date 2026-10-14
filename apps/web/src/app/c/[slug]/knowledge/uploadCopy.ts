@@ -35,6 +35,7 @@
  */
 
 import type { KbUpload } from "@/lib/api/kb";
+import type { NoticeTone } from "@/components/ui";
 
 /** One state, as the client meets it. */
 export interface UploadState {
@@ -43,18 +44,18 @@ export interface UploadState {
   /** The sentence under the row: what is happening, or what is needed from them. */
   meaning: string;
   /** Badge palette — semantic, matching the pasted-text badges above it. */
-  tone: string;
+  tone: NoticeTone;
   /** Is the machinery still moving? Drives the "working" affordance, not the polling. */
   working: boolean;
   /** Does this row need the client to read the extracted text and confirm it? */
   awaitingConfirmation: boolean;
 }
 
-const LIVE_TONE = "bg-brand-soft text-brand-strong";
-const WAIT_TONE = "bg-warn-soft text-warn";
-const WORK_TONE = "bg-ink/[0.06] text-ink";
-const STOP_TONE = "bg-danger-soft text-danger";
-const QUIET_TONE = "bg-ink/[0.05] text-ink-muted";
+const LIVE_TONE: NoticeTone = "ok";
+const WAIT_TONE: NoticeTone = "warn";
+const WORK_TONE: NoticeTone = "neutral";
+const STOP_TONE: NoticeTone = "stop";
+const QUIET_TONE: NoticeTone = "neutral";
 
 /** Is this row's text something a model read off a photograph, rather than parsed out? */
 export function isMachineRead(upload: KbUpload): boolean {

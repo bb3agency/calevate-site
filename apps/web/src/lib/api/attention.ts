@@ -18,6 +18,7 @@
  * lives, e.g. "/leads".
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
@@ -63,6 +64,6 @@ export function useAttention(session: Session): UseQueryResult<AttentionQueue> {
     queryFn: () => apiRequest<AttentionQueue>(session, "/v1/attention"),
     // This is a work queue someone keeps open in a tab; a minute keeps it
     // honest without hammering the four count queries behind it.
-    refetchInterval: 60_000,
+    refetchInterval: livePoll(60_000),
   });
 }

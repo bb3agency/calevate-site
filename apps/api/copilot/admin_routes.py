@@ -75,6 +75,7 @@ from apps.api.copilot import (
 )
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot.context import live_state_block
+from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.copilot.routes import action_out
 from apps.api.copilot.sanitize import assert_redacted
 from apps.api.copilot.schemas import (
@@ -153,9 +154,9 @@ def _operator_id(principal: Principal) -> UUID:
         raise ProblemError(
             kind="permission",
             code="copilot_conversation_not_yours",
-            title="The assistant's conversation belongs to a person",
+            title=f"{ASSISTANT_NAME}'s conversation belongs to a person",
             detail="This credential is not an operator, so it has no conversation.",
-            remediation="Sign in to the operator console and open the assistant there.",
+            remediation=f"Sign in to the operator console and open {ASSISTANT_NAME} there.",
         )
     return principal.user_id
 
@@ -218,7 +219,7 @@ async def _viewed_tenant(principal: Principal, claimed: UUID | None) -> UUID | N
             kind="validation",
             code="admin_copilot_unknown_account",
             title="That account could not be found",
-            detail="The assistant was asked to work inside an account that does not exist.",
+            detail=f"{ASSISTANT_NAME} was asked to work inside an account that does not exist.",
             remediation="Reload the page and try again from the account's own screen.",
         )
     return claimed
@@ -564,8 +565,8 @@ async def ask_admin_copilot(
             ProblemError(
                 kind="dependency",
                 code="copilot_interrupted",
-                title="The assistant stopped part-way",
-                detail="The assistant did not finish answering.",
+                title=f"{ASSISTANT_NAME} stopped part-way",
+                detail=f"{ASSISTANT_NAME} did not finish answering.",
                 remediation="Ask again — nothing on your screen was changed.",
             )
         )

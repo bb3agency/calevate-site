@@ -1,9 +1,16 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, ShieldAlert } from "lucide-react";
 
-import { DANGER_BUTTON, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
+import {
+  DANGER_BUTTON,
+  NOTICE_BAR,
+  PRIMARY_BUTTON,
+  ProblemNotice,
+  SECONDARY_BUTTON,
+} from "@/components/ui";
 import { ApiProblem, TransportProblem, type Session } from "@/lib/api/client";
 import { useConfirmProposal, type CopilotConfirmOut } from "@/lib/api/copilot";
 import { lookup } from "@/lib/lookup";
@@ -148,8 +155,8 @@ export function ProposalCard({
       ref={card}
       tabIndex={-1}
       role="group"
-      aria-label={decided ? "What the assistant changed" : `Suggestion: ${proposal.title}`}
-      className="rounded-md bg-surface-muted px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+      aria-label={decided ? `What ${ASSISTANT_NAME} changed` : `Suggestion: ${proposal.title}`}
+      className={`border-l-2 ${NOTICE_BAR.neutral} py-1 pl-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand`}
     >
       {decided ? (
         <Outcome outcome={outcome} onDismiss={onDismiss} />
@@ -225,7 +232,7 @@ export function ProposalCard({
             </div>
           ) : expired ? (
             <p className="mt-2 text-xs text-ink-muted">
-              This suggestion has expired. Ask the assistant again — nothing was changed.
+              This suggestion has expired. Ask {ASSISTANT_NAME} again — nothing was changed.
             </p>
           ) : (
             (!confirm.isError || retryable) && (

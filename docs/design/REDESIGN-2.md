@@ -209,8 +209,8 @@ serif was taken (the brand decision wins).
   call panel and pill, the step flow). Marketing keeps `shadow-card`.
 - **`Fact`** is a plain muted label over a medium-weight value; the uppercase tracked label is
   gone.
-- **The assistant.** The client header launcher is a quiet bordered "Ask" button with a question
-  bubble (the admin realm keeps its slate tile). The panel keeps every consequence sentence
+- **The assistant.** The client header launcher is a quiet bordered button, now "Ask Pip" with
+  Pip's face (D-772; the admin realm keeps its slate tile, with the same face). The panel keeps every consequence sentence
   verbatim; the composer is one bordered field with Ask inside it; the person's words sit in a
   right-aligned bubble; fills, receipts and jobs are a left rule rather than boxes; the
   workspace's approvals, tasks and routines are divided lists. Every screen declares its

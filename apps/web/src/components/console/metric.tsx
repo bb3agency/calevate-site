@@ -33,11 +33,20 @@ export function Metric({
   tone?: keyof typeof VALUE_TONES;
   className?: string;
 }) {
+  // A figure that is plain text marks itself when it changes without the caller passing
+  // anything (D-774: every figure on a live screen updates in place). `flashValue` still
+  // wins when the shown text is formatted from a wire value that can move without it.
+  const compared =
+    flashValue !== undefined
+      ? flashValue
+      : typeof value === "string" || typeof value === "number"
+        ? String(value)
+        : undefined;
   return (
     <div className={`min-w-0 ${className}`}>
       <p className="text-[13px] font-medium text-ink-muted">{label}</p>
       <p className={`mt-1 text-figure tabular-nums [overflow-wrap:anywhere] ${VALUE_TONES[tone]}`}>
-        {flashValue === undefined ? value : <FlashValue value={flashValue}>{value}</FlashValue>}
+        {compared === undefined ? value : <FlashValue value={compared}>{value}</FlashValue>}
       </p>
       {hint && <div className="mt-1 text-[12px] leading-snug text-ink-muted">{hint}</div>}
     </div>

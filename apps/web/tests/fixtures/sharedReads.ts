@@ -518,6 +518,8 @@ export const OWN_NUMBERS_STATUS_PATH = "/v1/numbers/own/status";
  */
 export const OWN_NUMBERS_OFF = {
   available: false,
+  paid: false,
+  trial: null,
   step: null,
   blocker: null,
   account_setup: null,

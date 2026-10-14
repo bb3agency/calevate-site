@@ -1,12 +1,12 @@
 "use client";
 
-import { BotMessageSquare } from "lucide-react";
-
+import { PipMark } from "@/components/illustration/pip";
 import { SECONDARY_BUTTON_SM } from "@/components/ui";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { openAssistant } from "@/lib/copilot/launcher";
 
 /**
- * "LET THE ASSISTANT DO THIS" — a small button beside a task that opens the side panel with
+ * "LET PIP DO THIS" — a small button beside a task that opens the side panel with
  * the request already written (D-694, inline suggestions).
  *
  * It prefills and never sends: the person sees the words, can change them, and presses
@@ -16,7 +16,7 @@ import { openAssistant } from "@/lib/copilot/launcher";
  */
 export function AskAssistant({
   prompt,
-  label = "Let the assistant do this",
+  label = `Let ${ASSISTANT_NAME} do this`,
   className = "",
 }: {
   /** The request, in the client's own words, as it will appear in the ask box. */
@@ -32,7 +32,7 @@ export function AskAssistant({
       title={prompt}
       className={`${SECONDARY_BUTTON_SM} inline-flex items-center gap-1.5 whitespace-nowrap ${className}`}
     >
-      <BotMessageSquare aria-hidden className="h-3.5 w-3.5 shrink-0 text-brand" />
+      <PipMark size={16} className="shrink-0" />
       {label}
     </button>
   );

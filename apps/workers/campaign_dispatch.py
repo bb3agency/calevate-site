@@ -7,7 +7,7 @@ campaign must never starve another's inbound receptionist:
 2. minus the inbound reserve (`engine/dial_lines.inbound_line_reserve`) → the
    OUTBOUND pool (`engine/dial_lines.outbound_line_pool`)
 3. per-tenant `concurrency_ceiling` (plans row), CLAMPED to that outbound pool —
-   a ceiling above the pool is not a ceiling (`_tenant_ceiling`)
+   a ceiling above the pool is not a ceiling (`campaigns.service.tenant_line_ceiling`)
 4. per-campaign slider ≤ tenant ceiling
 
 This tick's arithmetic is the BUDGET; the ENFORCEMENT is the line check inside every
@@ -101,11 +101,13 @@ from apps.api.agents.service import (
 )
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.campaigns.complaint_spike import check_complaint_spike
+from apps.api.campaigns.controls import account_pause_reason, auto_pause
 from apps.api.campaigns.scheduling import complete_or_rearm, due_schedules, fire_schedule
 from apps.api.campaigns.service import (
     campaign_dialable_now,
     campaign_window_open,
     dispatch_blockers,
+    tenant_line_ceiling,
 )
 
 # Module import (not `from ... import ist_now`) so tests that pin the compliance
@@ -364,31 +366,6 @@ async def _tick_lease() -> AsyncIterator[bool]:
 def _outbound_pool() -> int:
     """The tick's outbound budget: the dial gate's own pool, read once per tick."""
     return outbound_line_pool()
-
-
-def _tenant_ceiling(configured: int | None, pool: int) -> int:
-    """FLOWS §5 rule 3 UNDER rules 1+2: a tenant's ceiling, clamped to the pool.
-
-    **A per-tenant ceiling larger than the whole outbound pool is not a ceiling**: the
-    first tenant in the spend order with a large slider could take every line — the
-    failure rules 1+2 exist to prevent, arriving through rule 3. A tenant with no `plans`
-    row (`configured is None`) is allowed the whole pool, which is the same clamp.
-
-    The clamp is here rather than in the SQL, and rather than as a constraint on `plans`,
-    for two reasons. The pool is not a constant — it is computed from two live settings
-    at tick time — so a CHECK constraint could only police a number that moves under it.
-    And a plans row is a commercial promise: a client sold 20 lines on a 2-line account
-    has been mis-sold, which is a conversation, not a row to reject at 3am. Clamping keeps
-    the dispatcher correct while leaving the promise visible in the plan where somebody
-    can notice it.
-
-    This is a CAP, never a floor: the vendor's model is floor + cap
-    (`bolna-findings/mirror/pages/enterprise/concurrency-management.md:42-43`) and we have
-    no floor column. `_run_tick`'s starvation alarm is what makes that absence visible;
-    see the comment there for why a floor is not being invented in this file.
-    """
-    ceiling = pool if configured is None else int(configured)
-    return max(0, min(ceiling, pool))
 
 
 # The tenant's BUDGET read, asked only of tenants `dispatch_scan()` said have a running
@@ -712,8 +689,8 @@ async def _plan_tenant(
     async with tenant_session(work.tenant_id) as session:
         row = (await session.execute(_TENANT_BUDGET_SQL, {"tid": work.tenant_id})).first()
         # Clamped to the pool: rule 3 can only ever narrow rules 1+2, never widen
-        # them. See `_tenant_ceiling` for why the clamp is not a `plans` constraint.
-        ceiling = _tenant_ceiling(row[0] if row is not None else None, pool)
+        # them. See `tenant_line_ceiling` for why the clamp is not a `plans` constraint.
+        ceiling = tenant_line_ceiling(row[0] if row is not None else None, pool)
         # The campaign may have been paused between the scan and this read — that is
         # a race the client WINS, and it costs one session, not a dial.
         campaigns: list[dict[str, Any]] = list(row[1] or []) if row is not None else []
@@ -866,6 +843,17 @@ async def _dispatch_for_campaign(
         # It is also the cheap order: a finished campaign now costs one count instead of
         # the entity/template/number/scrub reads it can no longer act on.
         if await _settle_finished_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id):
+            return {"dialled": 0, "blocked": 0, "exhausted": 0}
+
+        # OUT OF CREDIT OR AT THE SPENDING CAP: PAUSE, WITH THE REASON (D-773, FLOWS §5).
+        # `check_dispatch` would refuse every contact on these anyway, refund it and try
+        # again in thirty minutes, for ever, under a campaign that says "running". A pause
+        # says why on the client's screen, and a top-up resumes an out-of-credit pause by
+        # itself (`controls.resume_campaigns_after_credit`). Before claiming, for the
+        # standing gate's reason below: it costs no attempts.
+        money = await account_pause_reason(session, tenant_id=tenant_id)
+        if money is not None:
+            await auto_pause(session, tenant_id=tenant_id, campaign_id=campaign_id, reason=money)
             return {"dialled": 0, "blocked": 0, "exhausted": 0}
 
         # THE STANDING COMPLIANCE GATE (hard rule 5), asked in the SAME transaction

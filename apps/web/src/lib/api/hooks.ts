@@ -15,6 +15,7 @@
  * moment staleness actually matters.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import {
   useInfiniteQuery,
   useMutation,
@@ -235,7 +236,7 @@ export function useDashboard(session: Session): UseQueryResult<Dashboard> {
   return useQuery({
     queryKey: queryKeys.dashboard(session.orgSlug),
     queryFn: () => apiRequest<Dashboard>(session, "/v1/dashboard"),
-    refetchInterval: LIVE_INTERVAL_MS,
+    refetchInterval: livePoll(LIVE_INTERVAL_MS),
     refetchOnWindowFocus: true,
   });
 }
@@ -251,7 +252,7 @@ export function useCalls(
         session,
         `/v1/calls${query({ ...filters, limit: filters.limit ?? 50 })}`,
       ),
-    refetchInterval: LIVE_INTERVAL_MS,
+    refetchInterval: livePoll(LIVE_INTERVAL_MS),
     refetchOnWindowFocus: true,
   });
 }
@@ -276,16 +277,19 @@ export interface CallsLogFilters {
   direction?: string;
   since?: string;
   until?: string;
+  /** One campaign's calls (a campaign's results link here with `?campaign_id=`). */
+  campaignId?: string;
   /** `false` leaves out free-trial test calls; anything else includes them. */
   testCalls?: boolean;
 }
 
 /** The query string for the log and its export; one mapping, so the file is the table. */
 function callsLogQuery(filters: CallsLogFilters): Record<string, string | undefined> {
-  const { status, agentId, outcome, direction, since, until, testCalls } = filters;
+  const { status, agentId, campaignId, outcome, direction, since, until, testCalls } = filters;
   return {
     status,
     agent_id: agentId,
+    campaign_id: campaignId,
     outcome,
     direction,
     since,
@@ -315,7 +319,7 @@ export function useCallsLog(
     // Polling refetches every loaded page (TanStack refetches an infinite query whole),
     // so the live cadence is kept but the reader's place is too — rows are deduped by id
     // at the render because a new call landing shifts rows across page boundaries.
-    refetchInterval: LIVE_INTERVAL_MS,
+    refetchInterval: livePoll(LIVE_INTERVAL_MS),
     refetchOnWindowFocus: true,
   });
 }

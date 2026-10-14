@@ -1,20 +1,21 @@
 "use client";
 
 import { EmptySketch } from "@/components/console/emptySketch";
+import { StatusPill } from "@/components/console/statusPill";
 import { EmptyState } from "@/components/console/emptyState";
-import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatIST } from "@/components/ui";
+import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatIST, type NoticeTone } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
 import { useCancelJob, useCopilotJobs, type CopilotJobOut } from "@/lib/copilot/workspace";
 
 import { JobProgress } from "../JobProgress";
 
-const STATUS: Record<string, { words: string; tone: string }> = {
-  queued: { words: "Starting", tone: "bg-ink/[0.06] text-ink" },
-  running: { words: "Working", tone: "bg-brand-soft text-brand-strong" },
-  done: { words: "Finished", tone: "bg-ink/[0.06] text-ink-muted" },
-  failed: { words: "Stopped", tone: "border border-warn-line bg-warn-soft text-warn" },
-  cancelled: { words: "Cancelled", tone: "bg-ink/[0.06] text-ink-muted" },
+const STATUS: Record<string, { words: string; tone: NoticeTone }> = {
+  queued: { words: "Starting", tone: "neutral" },
+  running: { words: "Working", tone: "ok" },
+  done: { words: "Finished", tone: "neutral" },
+  failed: { words: "Stopped", tone: "warn" },
+  cancelled: { words: "Cancelled", tone: "neutral" },
 };
 
 /**
@@ -75,11 +76,7 @@ function TaskRow({
           </p>
           <p className="mt-0.5 text-xs text-ink-muted">Asked {formatIST(job.created_at)}</p>
         </div>
-        <span
-          className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${status.tone}`}
-        >
-          {status.words}
-        </span>
+        <StatusPill tone={status.tone}>{status.words}</StatusPill>
       </div>
       <JobProgress job={job} />
       {job.result != null && !running && (

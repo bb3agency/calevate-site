@@ -723,7 +723,7 @@ async def restore_optout(
 
 #: Every LIVE client, for the one caller that has to reach all of them at once.
 #:
-#: `deleted_at IS NULL` is the predicate `ops/engine_latency._DIRECTORY` and
+#: `deleted_at IS NULL` is the predicate `call_reply_scan` (migration d3f8b2c6a417) and
 #: `admin/health.client_health` already walk by, and it is the right one here for its own
 #: reason as well: a tenant whose erasure has completed holds no `scheduled_callbacks` row
 #: to cancel (`workers/retention._erase_scheduled_callbacks` ran inside it), so visiting it
@@ -744,9 +744,9 @@ async def live_tenant_ids(directory: AsyncSession) -> list[UUID]:
 
     A separate call from the suppression itself, rather than a session argument on it,
     because the two want different sessions and this repo has one shape for that already:
-    `ops/engine_latency.engine_latency_report` takes the directory and enters each tenant
-    itself. The difference here is that the WRITE has to stay in the suppression's own
-    transaction, so the list crosses the boundary instead of the session.
+    `ops/reply_times.reply_time_report` takes the directory and enters each tenant
+    through `call_reply_scan`. The difference here is that the WRITE has to stay in the
+    suppression's own transaction, so the list crosses the boundary instead of the session.
     """
     rows = (await directory.execute(text(_LIVE_TENANTS))).scalars().all()
     return [UUID(str(row)) for row in rows]
@@ -848,7 +848,7 @@ async def add_global_numbers(
         # this door. `session` has no tenant GUC by design, so it cannot see
         # `organizations` at all; `admin_session()` widens `USING` on that one table and
         # nothing else, and it is how every fleet walk in this repo gets its tenant list
-        # (`ops/engine_latency.engine_latency_report`). The read is outside the
+        # (`ops/reply_times.reply_time_report`). The read is outside the
         # suppression's transaction and the WRITES below are inside it, which is the right
         # way round: a directory that went stale between the two costs one un-cancelled
         # promise that the fire-time gate refuses anyway, while a cancellation outside the

@@ -1,5 +1,6 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useState } from "react";
 import { UserPlus } from "lucide-react";
 
@@ -79,7 +80,7 @@ export function OperatorsScreen({
           {
             key: "identities_withheld",
             label: "Who those accounts are",
-            value: "not sent to the assistant — see the comment above this declaration",
+            value: `not sent to ${ASSISTANT_NAME} — see the comment above this declaration`,
           },
         ]
       : [

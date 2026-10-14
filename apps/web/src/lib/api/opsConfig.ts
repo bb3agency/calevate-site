@@ -20,6 +20,7 @@
  * field that silently does nothing is worse than no field").
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { adminSession } from "./admin";
@@ -147,7 +148,7 @@ export function useOpsConfig(): UseQueryResult<ConfigList> {
     // are deliberate acts by a person at a keyboard, not a state that drifts underneath
     // one. A tighter poll would clobber a half-typed form more often than it would tell
     // anyone anything.
-    refetchInterval: 60_000,
+    refetchInterval: livePoll(60_000),
   });
 }
 

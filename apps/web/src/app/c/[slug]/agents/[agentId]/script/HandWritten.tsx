@@ -10,7 +10,6 @@
  */
 
 import { useState } from "react";
-import { Wand2 } from "lucide-react";
 
 import { FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, ProblemNotice, SECONDARY_BUTTON, formatCount } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
@@ -91,7 +90,6 @@ export function HandWritten({
               convert.mutate({ raw_text: text }, { onSuccess: setProposal });
             }}
           >
-            <Wand2 aria-hidden className="h-4 w-4" />
             {convert.isPending ? "Reading your script…" : "Turn this into steps"}
           </button>
           <p className="text-meta text-ink-muted">

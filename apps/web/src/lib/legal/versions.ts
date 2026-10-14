@@ -955,12 +955,3 @@ export function documentVersion(slug: string): string | null {
   const revision = entry.revisions[entry.revisions.length - 1].revision;
   return PENDING_LEGAL_REVIEW ? `${revision}${PRE_REVIEW_SUFFIX}` : revision;
 }
-
-/** How the version is shown to a reader — the string, plus what the suffix means. */
-export function documentVersionLabel(slug: string): string | null {
-  const version = documentVersion(slug);
-  if (version === null) return null;
-  return PENDING_LEGAL_REVIEW
-    ? `${version} (draft, not yet reviewed)`
-    : version;
-}

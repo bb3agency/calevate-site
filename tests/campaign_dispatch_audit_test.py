@@ -859,7 +859,7 @@ async def test_a_campaign_window_that_closed_before_the_dial_stops_the_batch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`calling_hours` may only NARROW the platform's 09:00-21:00 IST window
-    (`_validated_window`), so `check_dispatch` refusing outside the PLATFORM window
+    (`validated_window`), so `check_dispatch` refusing outside the PLATFORM window
     cannot honour it. The narrowed window was read once, in `_run_tick`, before any
     tenant dialled — and the dial itself is a whole dial phase later, bounded only by
     the 300s job timeout.

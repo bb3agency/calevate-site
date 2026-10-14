@@ -4,6 +4,7 @@ import { use, useState } from "react";
 
 import { Providers } from "@/app/providers";
 import { ToastProvider } from "@/components/interior/toaster";
+import { ClientLiveUpdates } from "@/components/live/LiveUpdates";
 import { MaintenanceBanner, MaintenanceGate } from "@/components/maintenance";
 import { OfflineBanner } from "@/components/offline";
 import { MAIN_CONTENT_ID, SHELL_MAIN_CLASS, SHELL_RAIL_CLASS, Skeleton, SkipLink } from "@/components/ui";
@@ -80,6 +81,9 @@ export default function ClientRealmLayout({
               </main>
             }
           >
+            {/* Every feed on every screen refetches when the change stream says it moved
+                (D-774). Inside the realm provider, so it uses this tab's session. */}
+            <ClientLiveUpdates />
             <ClientSidebar slug={slug} isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
             <div className="flex flex-1 flex-col overflow-hidden">
               {/* ABOVE the view-as banner and the header, because it is a statement about

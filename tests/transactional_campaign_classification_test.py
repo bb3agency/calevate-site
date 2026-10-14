@@ -14,10 +14,9 @@ these tests enforce: nothing in our vocabulary or our gate should let "transacti
 nobody in this repository has opened the gazette text.
 
 WHAT THIS DOES NOT CLAIM, because the overclaim is the tempting one: refusing
-`transactional` closes no escape that `service` does not equally offer — both sit on 160,
-both are outside the preference scrub, both are attestable on an ordinary DID. What stops a
-promotional list being filed under either is `dlt_template_mismatch`, which requires a
-registrar-approved template OF THE CAMPAIGN'S OWN CLASS.
+`transactional` closes no escape that `service` does not equally offer — both are outside
+the preference scrub. Since D-692 what covers a promotional list filed as `service` is the
+client's no-cold-calls pledge, not a gate.
 """
 
 from __future__ import annotations
@@ -46,12 +45,7 @@ def _facts(classification: str, **overrides: object) -> _CampaignFacts:
     defaults: dict[str, object] = {
         "status": "draft",
         "classification": classification,
-        "template_id": uuid4(),
-        "template_status": "approved",
-        "template_cls": classification,
-        "series": "160" if classification != "promotional" else "140",
         "number_id": uuid4(),
-        "number_dlt_status": "registered",
         "number_agent_id": _AGENT_ID,
         # Held where the engine places calls, for both legs, so the carrier rule is satisfied.
         "number_provider": outbound_number_provider(),
@@ -104,24 +98,10 @@ def test_the_refusal_says_what_to_file_instead() -> None:
     assert "instant-callback" in reason
 
 
-def test_a_refused_campaign_is_not_also_told_to_fix_its_template_or_its_series() -> None:
-    """Both of those advise the client to make paperwork match a classification we have
-    just refused — a to-do list that cannot end in a launchable campaign."""
-    mismatched = _facts("transactional", template_cls="promotional", series="140")
-    assert _rules(_channel_blockers(mismatched)) == {"classification_not_campaignable"}
-
-
 def test_the_rules_that_do_not_depend_on_classification_still_fire() -> None:
-    """The guard narrows the two derived checks and nothing else: a transactional campaign
-    with a missing template, an unregistered number and a number bound elsewhere is told
-    all of it, because every one of those is wrong whatever the campaign calls itself."""
-    broken = _facts(
-        "transactional",
-        template_id=None,
-        number_dlt_status="pending",
-        number_agent_id=uuid4(),
-    )
-    # D-692 retired the template and number-registration rules; binding is still asked.
+    """A transactional campaign whose number is bound elsewhere is told both, because the
+    binding is wrong whatever the campaign calls itself."""
+    broken = _facts("transactional", number_agent_id=uuid4())
     assert _rules(_channel_blockers(broken)) == {
         "classification_not_campaignable",
         "number_not_bound_to_agent",

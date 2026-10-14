@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Info, Undo2, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 
 import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { DotWave } from "@/components/console/dotWave";
+import { PipMark } from "@/components/illustration/pip";
 import { selectionSummary } from "@/lib/copilot/selection";
 import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
 import type { Session } from "@/lib/api/client";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import type { SurfaceHolder } from "@/lib/copilot/registry";
 import { unsavedWork } from "@/lib/copilot/unsaved";
 import { openingLine, suggestedQuestions } from "@/lib/copilot/suggestions";
@@ -241,19 +242,26 @@ export function CopilotPanel({
       {/* ONE HEADER FOR BOTH REALMS: ink title, muted subtitle, no tinted band. The admin
           header used to wear the admin shell's identity class with white text on top; when
           that class became a pale brand tint the white title fell to near-invisible
-          contrast. The realm is told apart by the WORDS of the title, which a screen reader
-          also gets, rather than by a colour this panel would have to keep in step with
-          another component. */}
+          contrast. The title is Pip in both realms (D-772); the admin realm adds the WORDS
+          "admin console" to it, which a screen reader also gets, rather than a colour this
+          panel would have to keep in step with another component. */}
       <div className="flex items-start justify-between gap-2 border-b border-line px-4 py-3">
         <div className="min-w-0">
-          <h2 id={labelledBy} className="text-body font-semibold text-ink">
-            {realm === "admin" ? "Ask about this admin screen" : "Assistant"}
+          <h2 id={labelledBy} className="flex items-center gap-1.5 text-body font-semibold text-ink">
+            <PipMark size={20} className="shrink-0" />
+            {ASSISTANT_NAME}
+            {realm === "admin" && (
+              <>
+                {" "}
+                <span className="font-normal text-ink-muted">· admin console</span>
+              </>
+            )}
           </h2>
           <p className="truncate text-meta text-ink-muted">{surface.title}</p>
           {/* WHAT IT WILL ACT ON. Shown only when the screen has rows ticked, so "summarise
               these" has a visible "these". */}
           {selected !== null && (
-            <p className="mt-1 inline-flex rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-brand-strong">
+            <p className="mt-1 truncate text-meta text-ink-muted">
               Using: {selected}
             </p>
           )}
@@ -285,7 +293,7 @@ export function CopilotPanel({
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close the assistant"
+              aria-label={`Close ${ASSISTANT_NAME}`}
               className="-mr-1 rounded-md p-1 text-ink-muted hover:bg-ink/[0.05] hover:text-ink touch:p-2.5"
             >
               <X aria-hidden className="h-4 w-4" />
@@ -330,7 +338,7 @@ export function CopilotPanel({
           <div className="space-y-4">
             <p className="text-body text-ink">
               {surface.undeclared === true
-                ? "This screen hasn't told the assistant what it shows yet. I can still look up your calls, leads, campaigns and agents."
+                ? "This screen hasn't told me what it shows yet. I can still look up your calls, leads, campaigns and agents."
                 : realm === "admin"
                   ? surface.fields.length > 0
                     ? "Ask me about this screen, or tell me what to fill in here."
@@ -418,12 +426,13 @@ export function CopilotPanel({
                 {turn.content}
               </p>
             ) : (
-              <AnswerText
-                key={turn.id ?? turn.localKey ?? `at-${index}`}
-                text={turn.content}
-                // Said in THIS session (a stored turn has an id): fade it in once.
-                reveal={turn.id == null && turn.localKey !== undefined}
-              />
+              <PipTurn key={turn.id ?? turn.localKey ?? `at-${index}`}>
+                <AnswerText
+                  text={turn.content}
+                  // Said in THIS session (a stored turn has an id): fade it in once.
+                  reveal={turn.id == null && turn.localKey !== undefined}
+                />
+              </PipTurn>
             ),
           )}
           {/* THE ANSWER ARRIVING — the one thing in this panel that is announced.
@@ -448,16 +457,16 @@ export function CopilotPanel({
               // long it has been going — and a spinner beside a live step list is two
               // answers to "is it still working".
               <p className="flex items-center gap-2 text-xs text-ink-muted">
-                <span aria-hidden className="text-brand">
-                  <DotWave active />
-                </span>
-                Thinking…
+                <PipMark size={20} thinking className="shrink-0" />
+                {ASSISTANT_NAME} is thinking…
               </p>
             ) : (
               conversation.streaming !== "" && (
                 // Through the SAME renderer as a finished answer, so a list does not
                 // arrive as asterisks and then reflow into bullets when the stream ends.
-                <AnswerText text={conversation.streaming} reveal />
+                <PipTurn>
+                  <AnswerText text={conversation.streaming} reveal />
+                </PipTurn>
               )
             ))}
           </div>
@@ -743,4 +752,15 @@ function enterFrom(placement: PanelPlacement, reduced: boolean) {
   return placement === "side"
     ? { opacity: 0, transform: "translateX(24px) translateY(0px)" }
     : { opacity: 0, transform: "translateX(0px) translateY(8px)" };
+}
+
+/** One of Pip's answers, with Pip's face beside it. The face is decorative: the panel is
+ *  titled Pip, and a screen reader hears the answer without a name read before every turn. */
+function PipTurn({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-2">
+      <PipMark size={20} className="mt-px shrink-0" />
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
 }

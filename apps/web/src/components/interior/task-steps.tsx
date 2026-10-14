@@ -135,7 +135,7 @@ export function TaskSteps({
               : row.status === "active"
                 ? "font-medium text-ink"
                 : row.status === "error"
-                  ? "font-medium text-red-600 dark:text-red-400"
+                  ? "font-medium text-danger"
                   : "text-ink-faint";
 
           return (
@@ -160,7 +160,7 @@ export function TaskSteps({
                   ) : row.status === "error" ? (
                     <motion.span
                       key="error"
-                      className="col-start-1 row-start-1 grid size-4 place-items-center rounded-[5px] bg-red-500/[0.12] text-red-600 dark:bg-red-400/[0.14] dark:text-red-400"
+                      className="col-start-1 row-start-1 grid size-4 place-items-center rounded-[5px] bg-danger-soft text-danger"
                       initial={reduced ? { opacity: 0 } : { opacity: 0, scale: 0.4 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, transition: STILL }}
@@ -192,21 +192,11 @@ export function TaskSteps({
                 </AnimatePresence>
               </span>
 
-              {row.status === "active" && !reduced ? (
-                <motion.span
-                  className="min-w-0 flex-1 truncate bg-[linear-gradient(90deg,#475569_38%,#171a1c_50%,#475569_62%)] bg-clip-text text-[12.5px] font-medium text-transparent [background-size:220%_100%] dark:bg-[linear-gradient(90deg,#a8a29e_38%,#fafaf9_50%,#a8a29e_62%)]"
-                  animate={{ backgroundPosition: ["120% 0", "-120% 0"] }}
-                  transition={{ duration: 1.6, ease: "linear", repeat: Infinity }}
-                >
-                  {row.label}
-                </motion.span>
-              ) : (
-                <span
-                  className={`min-w-0 flex-1 truncate text-[12.5px] transition-colors duration-200 ${tone}`}
-                >
-                  {row.label}
-                </span>
-              )}
+              {/* A still label: the arc beside it already says the step is working, and a
+                  shimmer sweeping the words forever only made them harder to read. */}
+              <span className={`min-w-0 flex-1 truncate text-[12.5px] transition-colors duration-200 ${tone}`}>
+                {row.label}
+              </span>
 
               {row.meta ? (
                 <span

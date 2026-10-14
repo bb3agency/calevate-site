@@ -332,6 +332,15 @@ Client realm (`/c/<slug>/…`)
   taken back reads "Pack bonus taken back after a refund" on the ledger (D-672).
 - **`call.recording_ready`** — a webhook-only event carrying a signed link to OUR copy of
   the recording, for endpoints opted into `include_recording_url` (D-670, WEBHOOKS §1).
+- **Pip, the in-app assistant** (D-772; the copilot of D-694), in both realms. The client
+  header button reads "Ask Pip" with Pip's face (`components/illustration/pip.tsx`); the
+  admin realm's floating slate tile carries the same face. The side panel is titled Pip
+  (the admin one "Pip · admin console"), each answer carries the face, and the waiting line
+  reads "Pip is thinking…". The sidebar entry and the assistant's own page (`/c/<slug>/assistant`,
+  `/admin/assistant`) are named Pip; inline "Let Pip do this" buttons prefill the panel. The
+  name is spelled once per language: `lib/copilot/assistantName.ts` on the web and
+  `apps/api/copilot/identity.ASSISTANT_NAME` on the API, which names it in the system
+  prompt's identity block, the canned identity answer and the copilot's refusals.
 
 Admin realm (`/admin/…`)
 - **Number and account operations** (D-671, D-672): recording a number takes its provider, direction
@@ -533,6 +542,17 @@ Admin realm (`/admin/…`)
   stayed stopped until they acted themselves or the IST month rolled over. The response
   reports the counters and the effective ceiling next to the flag, so "it did not work"
   becomes "the ceiling is 2 and they have used 3".
+- **Voice response time** (`/admin/ops/reply-times`; `GET /v1/ops/reply-times?days=`,
+  `ops:manage`, D-770). How long callers waited for the agent to start answering, from the
+  voice platform's own per-call `quality` (`calls.engine_quality`) and its live
+  `slow_reply` problems, across every client: calls measured, typical reply (median of each
+  call's median), slow reply (90th percentile of each call's p90, withheld below ten calls),
+  the model's first-word share, calls over the `reply_time_target_ms` console target
+  (default 500 ms, judged on each call's p90), model errors, rescues, interruptions and long
+  silences; broken down by client, agent (worst 50), Clear/Studio rung and IST day, with the
+  20 slowest calls opening through view-as. An empty window says whether no call finished or
+  the platform sent no figures. Read cross-client through `call_reply_scan` (each tenant
+  under its own RLS context); no audit row, a read of numbers and names only.
 - **Global do-not-call** (`/admin/ops/dnc`; `GET`/`POST /v1/ops/dnc/global`,
   `DELETE /v1/ops/dnc/global/{entry_id}`, `ops:manage`, both writes step-up confirmed and
   audited). The writer for `dnc_list.scope='global'` (D-107) — an ABSOLUTE platform-wide
@@ -622,7 +642,16 @@ Compliance API (client realm)
   /launch` because it IS a launch with a delay on it, and the compliance gate runs at
   FIRE time rather than at schedule time (FLOWS §5). The response carries
   `first_dial_not_before`: a 22:00 start is accepted and answered with 09:00, because a
-  start is not a dial. Recurrence is deliberately unbuilt.
+  start is not a dial. `POST …/recurrence` sets a weekly repeat the same way.
+- **Campaign controls and results (D-773)**: `PATCH /v1/campaigns/{id}` (a draft's
+  settings), `DELETE /v1/campaigns/{id}` (a draft; kept as stopped when anything names it),
+  `POST …/stop`, `POST …/duplicate` (`with_unreached`), `POST …/contacts/from-leads`,
+  `POST …/contacts/remove` and `POST …/complaint-review` are `leads:dispatch` and audited;
+  `GET /v1/campaigns/page`, `GET /v1/campaigns/lead-pool`, `GET …/{id}/contacts`,
+  `GET …/{id}/results` (credit spent null without `billing:read`) and `GET …/{id}/opt-outs`
+  are `leads:read`. `POST …/resume` is refused while an automatic pause's cause holds
+  (`complaint_review_required`, `no_credits`, `spend_cap`). `GET /v1/calls?campaign_id=`
+  lists one campaign's calls.
 - **Consent provenance for a campaign list**:
   `POST /v1/campaigns/{campaign_id}/consent-provenance` (`leads:dispatch`, drafts only,
   audited) — SEC-COMP §3's fourth bullet, and the answer path for a draft created before
@@ -791,18 +820,34 @@ still exists, and opening it writes an `audit_log` row, exactly like a raw trans
 is that a missing copy reads as a stated absence rather than a link into a refusal, and
 that a truncated copy says so.
 
-### 3.2 Real-time UI sync (D-24)
+### 3.2 Real-time UI sync (D-24, built by D-774)
 
-- **v1 (M1): TanStack Query polling.** Dashboard/leads refetch on interval + on window
-  focus; post-call data appears within the 2-min SLO without any new infra. Boring
-  solution first, per doctrine.
-- **Upgrade (with M3 moat work): SSE, not WebSockets.** One `/events` stream per
-  client session (live call tiles, lead-created toasts); server pushes invalidation
-  hints, TanStack Query refetches — events carry "what changed", never payloads
-  (avoids auth/staleness bugs in the stream). SSE chosen because our flow is strictly
-  server→client, it's plain HTTP (no proxy/infra changes), and it's materially
-  cheaper per connection than WebSockets. WebSockets are explicitly NOT planned — we
-  have no client→server streaming need; revisit only via a decision-log entry.
+- **The floor: TanStack Query polling.** Every feed keeps its `refetchInterval` and its
+  refetch on window focus; post-call data appears within the 2-min SLO with no stream at
+  all. While the live stream is healthy the feed intervals stretch to a 5-minute safety
+  poll (`lib/live/liveStatus.livePoll`); when it is down they return to their own.
+- **The upgrade, shipped 14 Oct 2026: SSE, not WebSockets (D-774).** `GET /v1/live` for a
+  client session (and a view-as session, which hears the viewed account) and
+  `GET /v1/admin/live` for the operator console. The server pushes invalidation notes —
+  `{topic, at}`, plus `tenant_id` on the operator stream — never payloads, ids or personal
+  data; TanStack Query refetches through the ordinary authorised routes. Notes are
+  captured at commit from every write (`apps/api/live/capture.py`) and published to Redis
+  pub/sub as hints. TRD §8a has the mechanics. WebSockets remain NOT planned — we have no
+  client→server streaming need; revisit only via a decision-log entry.
+- **Covered screens.** Client: dashboard (figures, This week, What needs you today, Where
+  your agents struggled, latest calls, agents at a glance), calls list and call detail,
+  leads and lead detail, campaigns list, detail, results and people, call-backs, knowledge
+  and knowledge gaps, billing, wallet, credit and usage, numbers and forwarding,
+  do-not-call, integrations and lead sources, team, the assistant's activity, approvals and
+  routines, verification and agreements. Operator: tenants and each tenant's pages, voice
+  response time, healer, alerts, holds, KYC reviews, numbers, spend and margin, payments,
+  QA sampling, operators and the ops settings screens.
+- **Left on polling, deliberately.** The client maintenance banner (a platform fact; the
+  client stream never carries `platform`), the public status page (no session to stream
+  to), the engine catalogue on client screens (same reason), in-flight job polls that stop
+  themselves (an upload being read, a teaching being processed, a forwarding test, a
+  payment landing, a deletion request) and the ops secrets panel (it reads the deployment's
+  environment, which no database write announces).
 
 ### 3.3 Engine API usage rules (adapter-internal)
 

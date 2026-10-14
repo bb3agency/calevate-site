@@ -34,7 +34,6 @@ from collections.abc import AsyncIterator, Iterator
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.campaigns.sender_attestation import SENDER_STATEMENT_VERSION
 from apps.api.core import ratelimit
 from apps.api.core.context import bearer_token
 from apps.api.core.ratelimit import LimitProfile
@@ -477,18 +476,8 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
 #: that sent none would be asserting 400 on them and proving nothing about tenancy.
 _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # A NUMBER is the strongest handle in the client realm: it is the identity calls go
-    # out under. Reading a neighbour's attestation leaks who they told the regulator they
-    # are; WRITING one would attest on their behalf that they are the sender and accept
-    # the obligation, and `assign` would point one business's number at another's agent —
-    # a redirection of live calls, not an information leak.
-    ("GET", "/v1/numbers/{number_id}/sender-attestation", {}, {}),
-    (
-        "POST",
-        "/v1/numbers/{number_id}/sender-attestation",
-        {"statement_version": SENDER_STATEMENT_VERSION},
-        {},
-    ),
-    ("DELETE", "/v1/numbers/{number_id}/sender-attestation", {}, {}),
+    # out under, and `assign` would point one business's number at another's agent — a
+    # redirection of live calls, not an information leak.
     ("POST", "/v1/numbers/{number_id}/assign", {"agent_id": str(uuid.uuid4())}, {}),
     # D-693: giving a number up for good. Swept with the engine's workspaces switched on
     # (see the test), so the refusal is the number row's RLS and not the deployment gate.
@@ -553,6 +542,29 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/campaigns/{campaign_id}/resume", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/schedule", {"start_at": "2027-01-01T10:00:00+05:30"}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}/schedule", {}, {}),
+    # The D-773 controls and results. Each would edit, delete, stop, copy, fill, empty or
+    # read a neighbour's campaign if the campaign row resolved; every one reads it under the
+    # caller's RLS first, so a neighbour's id is invisible and the answer is 404.
+    ("PATCH", "/v1/campaigns/{campaign_id}", {"name": "idor sweep"}, {}),
+    ("DELETE", "/v1/campaigns/{campaign_id}", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/stop", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/duplicate", {"with_unreached": False}, {}),
+    (
+        "POST",
+        "/v1/campaigns/{campaign_id}/contacts/from-leads",
+        {"lead_ids": ["0192f0aa-5555-7000-8000-000000000001"]},
+        {},
+    ),
+    (
+        "POST",
+        "/v1/campaigns/{campaign_id}/contacts/remove",
+        {"contact_ids": ["0192f0aa-5555-7000-8000-000000000002"]},
+        {},
+    ),
+    ("GET", "/v1/campaigns/{campaign_id}/contacts", {}, {}),
+    ("GET", "/v1/campaigns/{campaign_id}/results", {}, {}),
+    ("GET", "/v1/campaigns/{campaign_id}/opt-outs", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/complaint-review", {"reviewed": True}, {}),
     ("DELETE", "/v1/dnc/{entry_id}", {}, {}),
     # A neighbour's opt-out evidence is the caller's own words; restoring one would put a
     # person who said "do not call me" back on another business's dialling list.

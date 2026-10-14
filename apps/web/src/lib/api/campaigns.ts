@@ -10,6 +10,7 @@
  * the enforcement.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import {
   useMutation,
   useQuery,
@@ -19,7 +20,7 @@ import {
 
 import { attentionKey } from "./attention";
 import { apiRequest, type Session } from "./client";
-import type { components } from "./schema";
+import type { components, paths } from "./schema";
 
 type Schemas = components["schemas"];
 
@@ -402,5 +403,221 @@ export function useSetRecurrence(session: Session, campaignId: string | null) {
       void client.invalidateQueries({ queryKey: ["campaign-check", session.orgSlug, campaignId] });
       void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
     },
+  });
+}
+
+/* ------------------------------------------------------------------ D-773 */
+
+/*
+ * Every key below nests under `["campaigns", org]` (the list and its pages) or
+ * `["campaign", org, id]` (one campaign and everything read about it), so the existing
+ * invalidations above refresh the new reads too: TanStack matches a key by prefix.
+ */
+
+export type CampaignPage = Schemas["CampaignPageOut"];
+export type CampaignStatus = NonNullable<
+  NonNullable<paths["/v1/campaigns/page"]["get"]["parameters"]["query"]>["status"]
+>;
+export type ContactResults = Schemas["ContactResultsOut"];
+export type ContactResult = Schemas["ContactResultOut"];
+export type ContactOutcome = ContactResult["outcome"];
+export type CampaignResults = Schemas["CampaignResultsOut"];
+export type OptOut = Schemas["OptOutOut"];
+export type CampaignEdit = Schemas["UpdateCampaignIn"];
+export type RetryPolicy = Schemas["RetryPolicyIn"];
+export type LeadFilter = Schemas["LeadFilterIn"];
+export type PauseReason = NonNullable<CampaignProgress["pause_reason"]>;
+
+/** The retry choices the server accepts (`campaigns.service.RETRY_GAP_CHOICES`). */
+export const RETRY_GAP_CHOICES = [15, 30, 60, 120, 240, 1440] as const;
+export const DEFAULT_RETRY: RetryPolicy = { max_attempts: 3, gaps_minutes: [30, 120] };
+
+function searchOf(params: Record<string, string | number | string[] | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value)) value.forEach((item) => search.append(key, item));
+    else if (value !== undefined && value !== "") search.set(key, String(value));
+  }
+  const text = search.toString();
+  return text ? `?${text}` : "";
+}
+
+/** Drop every read of this account's campaigns, and the attention bell they feed. */
+function refreshCampaigns(client: ReturnType<typeof useQueryClient>, org: string): void {
+  void client.invalidateQueries({ queryKey: ["campaigns", org] });
+  void client.invalidateQueries({ queryKey: ["campaign", org] });
+  void client.invalidateQueries({ queryKey: ["campaign-check", org] });
+  void client.invalidateQueries({ queryKey: attentionKey(org) });
+}
+
+export interface CampaignPageQuery {
+  page: number;
+  pageSize: number;
+  status?: CampaignStatus;
+  search?: string;
+}
+
+export function useCampaignPage(session: Session, query: CampaignPageQuery) {
+  const params = {
+    limit: query.pageSize,
+    offset: (query.page - 1) * query.pageSize,
+    status: query.status,
+    q: query.search?.trim() || undefined,
+  };
+  return useQuery({
+    queryKey: ["campaigns", session.orgSlug, "page", params],
+    queryFn: () => apiRequest<CampaignPage>(session, `/v1/campaigns/page${searchOf(params)}`),
+    placeholderData: (previous) => previous,
+    // The list shows live progress; a running campaign moves at the dispatcher's pace.
+    refetchInterval: livePoll(30_000),
+  });
+}
+
+export interface ContactResultsQuery {
+  page: number;
+  pageSize: number;
+  outcome?: ContactOutcome;
+  search?: string;
+}
+
+export function useContactResults(
+  session: Session,
+  campaignId: string,
+  query: ContactResultsQuery,
+  live: boolean,
+) {
+  const params = {
+    limit: query.pageSize,
+    offset: (query.page - 1) * query.pageSize,
+    outcome: query.outcome,
+    q: query.search?.trim() || undefined,
+  };
+  return useQuery({
+    queryKey: ["campaign", session.orgSlug, campaignId, "contacts", params],
+    queryFn: () =>
+      apiRequest<ContactResults>(
+        session,
+        `/v1/campaigns/${campaignId}/contacts${searchOf(params)}`,
+      ),
+    placeholderData: (previous) => previous,
+    refetchInterval: livePoll(live ? 30_000 : false),
+  });
+}
+
+export function useCampaignResults(
+  session: Session,
+  campaignId: string,
+  live: boolean,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ["campaign", session.orgSlug, campaignId, "results"],
+    queryFn: () => apiRequest<CampaignResults>(session, `/v1/campaigns/${campaignId}/results`),
+    enabled,
+    refetchInterval: livePoll(live ? 30_000 : false),
+  });
+}
+
+export function useOptOuts(session: Session, campaignId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["campaign", session.orgSlug, campaignId, "opt-outs"],
+    queryFn: () => apiRequest<OptOut[]>(session, `/v1/campaigns/${campaignId}/opt-outs`),
+    enabled,
+  });
+}
+
+export function useUpdateCampaign(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (changes: CampaignEdit) =>
+      apiRequest<void>(session, `/v1/campaigns/${campaignId}`, { method: "PATCH", body: changes }),
+    onSuccess: () => refreshCampaigns(client, session.orgSlug),
+  });
+}
+
+export function useDeleteCampaign(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<Schemas["DeleteCampaignOut"]>(session, `/v1/campaigns/${campaignId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => refreshCampaigns(client, session.orgSlug),
+  });
+}
+
+export function useStopCampaign(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<void>(session, `/v1/campaigns/${campaignId}/stop`, { method: "POST" }),
+    onSuccess: () => refreshCampaigns(client, session.orgSlug),
+  });
+}
+
+export function useDuplicateCampaign(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Schemas["DuplicateCampaignIn"]) =>
+      apiRequest<Schemas["DuplicateCampaignOut"]>(
+        session,
+        `/v1/campaigns/${campaignId}/duplicate`,
+        { method: "POST", body },
+      ),
+    onSuccess: () => refreshCampaigns(client, session.orgSlug),
+  });
+}
+
+export function useAddLeads(session: Session, campaignId: string | null) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Schemas["AddLeadsIn"]) =>
+      apiRequest<AddContactsResult>(session, `/v1/campaigns/${campaignId}/contacts/from-leads`, {
+        method: "POST",
+        body,
+      }),
+    onSuccess: () => refreshCampaigns(client, session.orgSlug),
+  });
+}
+
+export function useRemoveContacts(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (contactIds: string[]) =>
+      apiRequest<Schemas["RemoveContactsOut"]>(
+        session,
+        `/v1/campaigns/${campaignId}/contacts/remove`,
+        { method: "POST", body: { contact_ids: contactIds } },
+      ),
+    onSuccess: () => refreshCampaigns(client, session.orgSlug),
+  });
+}
+
+/** How many of the account's leads a filter selects, before anything is added. */
+export function useLeadPool(session: Session, filter: LeadFilter, enabled: boolean) {
+  const params = {
+    statuses: filter.statuses ?? [],
+    sources: filter.sources ?? [],
+    agent_id: filter.agent_id ?? undefined,
+    created_since: filter.created_since ?? undefined,
+    created_until: filter.created_until ?? undefined,
+  };
+  return useQuery({
+    queryKey: ["campaigns", session.orgSlug, "lead-pool", params],
+    queryFn: () =>
+      apiRequest<Schemas["LeadPoolOut"]>(session, `/v1/campaigns/lead-pool${searchOf(params)}`),
+    enabled,
+  });
+}
+
+export function useComplaintReview(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<void>(session, `/v1/campaigns/${campaignId}/complaint-review`, {
+        method: "POST",
+        body: { reviewed: true },
+      }),
+    onSuccess: () => refreshCampaigns(client, session.orgSlug),
   });
 }

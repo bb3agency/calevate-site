@@ -1,0 +1,198 @@
+"use client";
+
+import Link from "next/link";
+
+import { Metric, MetricRow } from "@/components/console/metric";
+import { Section } from "@/components/console/section";
+import { ProblemNotice, Skeleton, StatusBadge, formatCount, formatDuration, formatINR } from "@/components/ui";
+import type { CampaignResults as Results, ContactOutcome } from "@/lib/api/campaigns";
+import { outcomeLabel } from "@/lib/callReview";
+import { useClientRealm } from "@/lib/api/session";
+import { lookup } from "@/lib/lookup";
+
+/** The outcome of one person, in the owner's words. Shared with the people table. */
+export const OUTCOME_WORDS: Record<ContactOutcome, string> = {
+  connected: "Spoke to the agent",
+  no_answer: "No answer",
+  busy: "Busy",
+  voicemail: "Voicemail",
+  failed: "Call failed",
+  do_not_call: "Do not call",
+  calling: "Being called now",
+  not_called: "Not called yet",
+};
+
+/** The order outcomes are listed in: reached first, then the ways a call can miss. */
+export const OUTCOME_ORDER: ContactOutcome[] = [
+  "connected",
+  "no_answer",
+  "busy",
+  "voicemail",
+  "failed",
+  "do_not_call",
+  "calling",
+  "not_called",
+];
+
+const SENTIMENT_WORDS: Record<string, string> = {
+  positive: "Positive",
+  neutral: "Neutral",
+  negative: "Negative",
+};
+
+function percent(rate: number): string {
+  return `${Math.round(rate * 100)}%`;
+}
+
+/**
+ * WHAT THE CAMPAIGN ACHIEVED (FLOWS §5): reach, how the conversations went, leads, spend.
+ *
+ * Every figure is the server's (`GET /v1/campaigns/{id}/results`). The outcome list is a
+ * labelled count with a hairline bar for its share of the list, the one encoding that
+ * helps here (which way the misses went); there is no chart for a figure a number says.
+ * Credit spent is the server's NUMERIC string, formatted, never parsed (hard rule 7), and
+ * is absent for a role that may not see billing.
+ */
+export function CampaignResults({
+  slug,
+  campaignId,
+  results,
+}: {
+  slug: string;
+  campaignId: string;
+  results: { data: Results | undefined; isLoading: boolean; error: unknown; refetch: () => void };
+}) {
+  const { href } = useClientRealm();
+  if (results.isLoading) return <Skeleton rows={3} />;
+  if (!results.data) {
+    return (
+      <ProblemNotice
+        error={results.error ?? new Error("This campaign's results did not load.")}
+        onRetry={() => results.refetch()}
+      />
+    );
+  }
+  const r = results.data;
+  const tags = Object.entries(r.outcome_tags).sort((a, b) => b[1] - a[1]);
+  const sentiment = Object.entries(r.sentiment).filter(([, n]) => n > 0);
+  return (
+    <div className="space-y-8">
+      <MetricRow label="Campaign results">
+        <Metric
+          label="Picked up"
+          value={r.pickup_rate === null ? "—" : percent(r.pickup_rate)}
+          hint={
+            r.tried
+              ? `${formatCount(r.outcomes.connected ?? 0)} of ${formatCount(r.tried)} people called so far`
+              : "Nobody has been called yet"
+          }
+        />
+        <Metric
+          label="Average call"
+          value={formatDuration(r.average_call_s)}
+          hint={`${formatCount(Math.round(r.talk_seconds / 60))} minutes talked in all`}
+        />
+        <Metric
+          label="Leads"
+          value={formatCount(r.leads)}
+          hint={r.hot_leads ? `${formatCount(r.hot_leads)} hot` : "None marked hot yet"}
+        />
+        <Metric
+          label="Credit spent"
+          value={r.credits_spent_inr === null ? "—" : formatINR(r.credits_spent_inr)}
+          hint={r.credits_spent_inr === null ? "Your role doesn't show billing" : "On this campaign's calls"}
+        />
+      </MetricRow>
+
+      <div className="grid gap-8 md:grid-cols-2">
+        <Section title="How the calls went" headingLevel={3}>
+          <dl className="space-y-2.5">
+            {OUTCOME_ORDER.filter((o) => (r.outcomes[o] ?? 0) > 0).map((outcome) => {
+              const count = r.outcomes[outcome] ?? 0;
+              const share = r.contacts ? count / r.contacts : 0;
+              return (
+                <div key={outcome}>
+                  <div className="flex items-baseline justify-between gap-3 text-body">
+                    <dt className="text-ink">{OUTCOME_WORDS[outcome]}</dt>
+                    <dd className="tabular-nums text-ink-muted">{formatCount(count)}</dd>
+                  </div>
+                  <div aria-hidden className="mt-1 h-1 overflow-hidden rounded-full bg-ink/[0.07]">
+                    <div
+                      className={`h-full origin-left rounded-full ${outcome === "connected" ? "bg-brand" : "bg-chart-neutral"}`}
+                      style={{ transform: `scaleX(${share})` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </dl>
+          {r.opt_outs > 0 && (
+            <p className="mt-3 text-meta text-ink-muted">
+              {formatCount(r.opt_outs)} {r.opt_outs === 1 ? "person" : "people"} asked not to be called again and
+              {r.opt_outs === 1 ? " is" : " are"} on your do-not-call list.
+            </p>
+          )}
+        </Section>
+
+        <Section title="What the conversations came to" headingLevel={3}>
+          {tags.length === 0 && sentiment.length === 0 ? (
+            <p className="text-body text-ink-muted">Nothing yet. This fills in as calls are answered.</p>
+          ) : (
+            <div className="space-y-4">
+              {tags.length > 0 && (
+                <dl className="space-y-1.5">
+                  {tags.map(([tag, count]) => (
+                    <div key={tag} className="flex items-baseline justify-between gap-3 text-body">
+                      <dt className="text-ink">{outcomeLabel(tag) ?? tag}</dt>
+                      <dd className="tabular-nums text-ink-muted">{formatCount(count)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+              {sentiment.length > 0 && (
+                <p className="text-meta text-ink-muted">
+                  Mood:{" "}
+                  {sentiment.map(([s, n]) => `${lookup(SENTIMENT_WORDS, s) ?? s} ${formatCount(n)}`).join(" · ")}
+                </p>
+              )}
+            </div>
+          )}
+        </Section>
+      </div>
+
+      {r.recent_leads.length > 0 && (
+        <Section
+          title="Leads from this campaign"
+          headingLevel={3}
+          action={
+            <Link
+              href={href(`/c/${slug}/calls?campaign_id=${campaignId}`)}
+              className="text-meta font-medium text-ink underline underline-offset-2"
+            >
+              All this campaign&rsquo;s calls
+            </Link>
+          }
+        >
+          <ul className="divide-y divide-line border-y border-line">
+            {r.recent_leads.map((lead) => (
+              <li key={lead.id} className="flex items-center justify-between gap-3 py-2">
+                <Link
+                  href={href(`/c/${slug}/leads/${lead.id}`)}
+                  className="min-w-0 truncate text-body font-medium text-ink hover:underline"
+                >
+                  {lead.name?.trim() || "Unnamed lead"}
+                </Link>
+                <StatusBadge value={lead.status} />
+              </li>
+            ))}
+          </ul>
+          {r.leads > r.recent_leads.length && (
+            <p className="mt-2 text-meta text-ink-muted">
+              Showing {formatCount(r.recent_leads.length)} of {formatCount(r.leads)}, hot leads first.
+            </p>
+          )}
+        </Section>
+      )}
+    </div>
+  );
+}

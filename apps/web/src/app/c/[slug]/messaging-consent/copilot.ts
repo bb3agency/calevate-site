@@ -1,5 +1,6 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { CONSENT_SOURCES } from "@/lib/api/messagingConsent";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
@@ -30,7 +31,7 @@ export function useConsentCopilot(form: ConsentForm, write: { allowed: boolean; 
         value: form.lookupPhone,
         writable: false,
         personal: "phone",
-        help: "Typed by the reader; the assistant is told whether the box is filled in, never what is in it.",
+        help: `Typed by the reader; ${ASSISTANT_NAME} is told whether the box is filled in, never what is in it.`,
       },
       {
         id: "consent-phone",

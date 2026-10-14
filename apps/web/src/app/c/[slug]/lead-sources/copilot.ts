@@ -1,5 +1,6 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import type {
@@ -81,7 +82,7 @@ export function useLeadSourcesCopilot({
         value: payloadText,
         writable: false,
         personal: "text",
-        help: "A form post to rehearse against. It often holds a real customer, so the assistant is told about it rather than shown it.",
+        help: `A form post to rehearse against. It often holds a real customer, so ${ASSISTANT_NAME} is told about it rather than shown it.`,
       },
     ],
     facts: [

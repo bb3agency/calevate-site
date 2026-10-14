@@ -60,62 +60,58 @@ from apps.api.agents.service import (
     outbound_number_provider,
 )
 from apps.api.billing.dispute_hold import DISPUTE_HOLD_REASON, dispute_hold_active
+from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.billing.platform_fee import (
     PLATFORM_FEE_PAUSE_REASON,
     PLATFORM_FEE_RULE,
     platform_fee_paused,
 )
 from apps.api.campaigns.models import (
+    CAMPAIGN_STATUSES,
     CONSENT_SOURCES,
     REFUSED_CONSENT_SOURCES,
     TEMPLATE_STATUSES,
 )
+from apps.api.compliance import service as compliance_clock
 from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
 from apps.api.compliance.preference_scrub import national_dnd_blocker, read_current_scrub
 from apps.api.compliance.service import (
+    BIG_RED_SWITCH_REASON,
+    BIG_RED_SWITCH_RULE,
     DEFAULT_WINDOW,
     INDIA_E164_PREFIX,
     NO_CREDITS_REASON,
     SPEND_CAP_REASON,
+    account_dial_blockers,
     account_stopped_blocker,
     credits_exhausted,
+    dial_refusal_for_agent_status,
     first_campaign_hold_blocker,
     kyc_blocker,
     outbound_pledge_blocker,
     spend_capped,
     truthful_answer_drift_blocker,
+    within_calling_hours,
 )
 from apps.api.compliance.trial_access import trial_blocker
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
+from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
+from apps.api.db.like import contains_pattern
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.db.transition import transition_status
+from apps.api.engine.dial_lines import outbound_line_pool
 from apps.api.ingest.service import normalize_phone
 from apps.api.legal.service import agreements_blocker
 
 log = get_logger(__name__)
 
-# Series <-> classification (DATA-MODEL §6): 140 dials promotions, 160 dials service and
-# transactional. A mismatch is a DLT violation, not a preference.
-#
-# `standard` USED TO BE ALLOWED HERE FOR SERVICE AND TRANSACTIONAL, AND TRAI'S OWN WORDS
-# FORBID IT: "Senders shall not use any other 10-digit fixed line/ mobile number for making
-# Promotional/ Service/ Transactional voice calls to their customers, either directly or
-# through their employees or channel partners, DSAs, BPO partner, in-house or outsourced
-# Call Centre, etc." (TRAI direction RG-25/(18)/2023-QoS (E-10291), 18 Jun 2024, read
-# 20 Sep 2026). The same direction requires the sender to register a 140/160-series Voice
-# Header and to place commercial voice calls only on it.
-#
-# An ordinary DID stays legitimate for the INBOUND leg, which this map does not govern: a
-# receptionist answering a call the customer placed is not a sender making one.
-SERIES_FOR_CLASSIFICATION: dict[str, tuple[str, ...]] = {
-    "promotional": ("140",),
-    "transactional": ("160",),
-    "service": ("160",),
-}
+# No gate matches a number's series to a campaign's classification (D-692, no client DLT;
+# the series map and the ordinary-number sender attestation it implied were removed by
+# D-775). A campaign dials from the number bound to its agent, whatever its series.
 
 # WHICH CLASSIFICATIONS A BULK CAMPAIGN MAY CARRY — `transactional` is deliberately absent.
 #
@@ -133,8 +129,8 @@ SERIES_FOR_CLASSIFICATION: dict[str, tuple[str, ...]] = {
 #
 # WHAT THIS DOES NOT DO, stated because the opposite is the tempting claim: it closes no
 # escape that `service` does not equally offer. Every gate in this module treats the two
-# identically — same 160 series above, same absence from
-# `preference_scrub.PREFERENCE_SCRUBBED_CLASSIFICATIONS`, same `ATTESTABLE_CLASSIFICATIONS`.
+# identically, including their absence from
+# `preference_scrub.PREFERENCE_SCRUBBED_CLASSIFICATIONS`.
 # Since D-692 nothing in the gate stops a promotional list being filed as `service`: the
 # DLT template that used to (`dlt_template_mismatch`) cannot exist without a client DLT
 # registration. The client's no-cold-calls pledge (`compliance/outbound_pledge.py`) is
@@ -162,6 +158,51 @@ TRANSACTIONAL_CAMPAIGN_REASON = (
 CLASSIFICATION_REFUSALS: dict[str, str] = {"transactional": TRANSACTIONAL_CAMPAIGN_REASON}
 
 DEFAULT_RETRY_POLICY: dict[str, Any] = {"max_attempts": 3, "backoff_minutes": [30, 120]}
+#: How many times a campaign may try one person (D-773). Five is the ceiling because a
+#: sixth unanswered call to someone on a consented list stops being a reminder.
+MAX_RETRY_ATTEMPTS = 5
+#: The gaps a client may choose between tries, in minutes. A fixed menu rather than a free
+#: number: a gap under fifteen minutes rings somebody back before they can reach the phone
+#: they just missed, and a day is the longest a gap can be and still belong to one campaign.
+RETRY_GAP_CHOICES: tuple[int, ...] = (15, 30, 60, 120, 240, 1440)
+
+
+def validated_retry_policy(max_attempts: int, gaps: list[int]) -> dict[str, Any]:
+    """The stored retry policy, or a 422 naming what is wrong with it.
+
+    `gaps` holds one entry per retry, so its length is `max_attempts - 1`; the dispatcher's
+    `_record_failure` reads gap N after the Nth unanswered attempt.
+    """
+    if not 1 <= max_attempts <= MAX_RETRY_ATTEMPTS:
+        raise ProblemError(
+            kind="validation",
+            code="campaign_retry_attempts_invalid",
+            title="Invalid number of tries",
+            detail=f"Choose between 1 and {MAX_RETRY_ATTEMPTS} tries per person.",
+        )
+    if len(gaps) != max_attempts - 1 or any(gap not in RETRY_GAP_CHOICES for gap in gaps):
+        raise ProblemError(
+            kind="validation",
+            code="campaign_retry_gaps_invalid",
+            title="Invalid gap between tries",
+            detail=(
+                "Give one gap for each retry, each one of "
+                f"{', '.join(str(gap) for gap in RETRY_GAP_CHOICES)} minutes."
+            ),
+        )
+    return {"max_attempts": max_attempts, "backoff_minutes": list(gaps)}
+
+
+def retry_policy_view(stored: object) -> dict[str, Any]:
+    """The policy a campaign dials under, read the way the dispatcher reads it."""
+    policy = stored if isinstance(stored, dict) else {}
+    attempts = int(policy.get("max_attempts", DEFAULT_RETRY_POLICY["max_attempts"]))
+    gaps = policy.get("backoff_minutes") or DEFAULT_RETRY_POLICY["backoff_minutes"]
+    return {
+        "max_attempts": attempts,
+        "gaps_minutes": [int(gaps[min(i, len(gaps) - 1)]) for i in range(attempts - 1)],
+    }
+
 
 # The client-facing wording of the two provenance refusals and the two DLT-entity ones,
 # kept beside each other so the same condition is never explained two different ways.
@@ -195,20 +236,13 @@ class LaunchBlocker:
 
 @dataclass(frozen=True, slots=True)
 class _CampaignFacts:
-    """One read of everything both gates ask about — the campaign, its template, its
-    number and its agent. Shared so `launch_blockers` and `dispatch_blockers` cannot
-    drift into asking the same question two different ways."""
+    """One read of everything both gates ask about — the campaign, its number and its
+    agent. Shared so `launch_blockers` and `dispatch_blockers` cannot drift into asking
+    the same question two different ways."""
 
     status: str
     classification: str
-    template_id: UUID | None
-    template_status: str | None
-    template_cls: str | None
-    series: str | None
-    #: The number's own id, carried so the launch gate can read its sender attestation
-    #: without a second query for a row it already joined.
     number_id: UUID | None
-    number_dlt_status: str | None
     #: WHICH AGENT THIS NUMBER IS BOUND TO, and the campaign's own agent beside it —
     #: the pair `number_not_bound_to_agent` compares (D-420).
     number_agent_id: UUID | None
@@ -233,10 +267,8 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
     row = (
         await session.execute(
             text(
-                "SELECT c.status, c.classification, c.dlt_template_id, "
-                "  t.status AS template_status, t.classification AS template_cls, "
-                "  n.series, n.id AS number_id, n.dlt_status AS number_dlt_status, "
-                "  n.agent_id AS number_agent_id, "
+                "SELECT c.status, c.classification, "
+                "  n.id AS number_id, n.agent_id AS number_agent_id, "
                 "  c.agent_id, "
                 "  n.provider AS number_provider, n.direction AS number_direction, "
                 # The AI sentence, not the legacy bundle (D-163) — the launch gate asks
@@ -247,7 +279,6 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
                 "  a.direction AS agent_direction, a.deleted_at AS agent_deleted_at, "
                 "  c.consent_source, c.consent_collected_at "
                 "FROM campaigns c "
-                "LEFT JOIN dlt_templates t ON t.id = c.dlt_template_id "
                 "LEFT JOIN phone_numbers n ON n.id = c.number_id "
                 "JOIN agents a ON a.id = c.agent_id "
                 "WHERE c.id = :cid"
@@ -260,22 +291,17 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
     return _CampaignFacts(
         status=str(row[0]),
         classification=str(row[1]),
-        template_id=row[2],
-        template_status=row[3],
-        template_cls=row[4],
-        series=row[5],
-        number_id=row[6],
-        number_dlt_status=row[7],
-        number_agent_id=row[8],
-        agent_id=row[9],
-        number_provider=row[10],
-        number_direction=row[11],
-        agent_status=row[12],
-        disclosure=row[13],
-        agent_direction=row[14],
-        agent_deleted=row[15] is not None,
-        consent_source=row[16],
-        consent_collected_at=row[17],
+        number_id=row[2],
+        number_agent_id=row[3],
+        agent_id=row[4],
+        number_provider=row[5],
+        number_direction=row[6],
+        agent_status=row[7],
+        disclosure=row[8],
+        agent_direction=row[9],
+        agent_deleted=row[10] is not None,
+        consent_source=row[11],
+        consent_collected_at=row[12],
     )
 
 
@@ -346,14 +372,7 @@ def _consent_age_blocker(collected_at: datetime | None) -> LaunchBlocker | None:
 
 
 def _classification_blocker(classification: str) -> LaunchBlocker | None:
-    """Can this classification be TRUE of a campaign at all?
-
-    Asked before the two checks that are derived from it, because both of those give advice
-    premised on the classification holding: `dlt_template_mismatch` tells the client to attach
-    a template of this class, and `number_series_mismatch` tells them which series it dials
-    from. Emitting either beside a refusal of the class itself sends them to fix paperwork
-    for a campaign that cannot launch under any paperwork.
-    """
+    """Can this classification be TRUE of a campaign at all?"""
     if classification in DIALABLE_CAMPAIGN_CLASSIFICATIONS:
         return None
     return LaunchBlocker(
@@ -399,14 +418,28 @@ def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
                 else OTHER_AGENT_NUMBER_REASON,
             )
         )
-    carrier = outbound_number_provider()
-    if carrier is not None:
-        if facts.number_provider != carrier:
-            blockers.append(LaunchBlocker(NUMBER_NOT_ON_CARRIER_RULE, NUMBER_NOT_ON_CARRIER_REASON))
-        elif facts.number_direction not in ("outbound", "both"):
-            blockers.append(LaunchBlocker(NUMBER_INBOUND_ONLY_RULE, NUMBER_INBOUND_ONLY_REASON))
+    refused = number_dial_refusal(facts.number_provider, facts.number_direction)
+    if refused is not None:
+        blockers.append(refused)
 
     return blockers
+
+
+def number_dial_refusal(provider: str | None, direction: str | None) -> LaunchBlocker | None:
+    """Why a number cannot carry this platform's outgoing calls, or None when it can.
+
+    One predicate for the launch gate and the campaign number picker (`GET
+    /v1/campaigns/numbers`'s `places_calls`), so the picker never offers a number the gate
+    then refuses. On an engine with no outbound carrier of its own any number passes.
+    """
+    carrier = outbound_number_provider()
+    if carrier is None:
+        return None
+    if provider != carrier:
+        return LaunchBlocker(NUMBER_NOT_ON_CARRIER_RULE, NUMBER_NOT_ON_CARRIER_REASON)
+    if direction not in ("outbound", "both"):
+        return LaunchBlocker(NUMBER_INBOUND_ONLY_RULE, NUMBER_INBOUND_ONLY_REASON)
+    return None
 
 
 async def dispatch_blockers(
@@ -471,12 +504,88 @@ async def dispatch_blockers(
     ]
 
 
+def tenant_line_ceiling(configured: int | None, pool: int) -> int:
+    """FLOWS §5 rule 3 under rules 1+2: a tenant's plan ceiling, clamped to the outbound pool.
+
+    A ceiling larger than the whole pool is not a ceiling: the first tenant in the spend
+    order could take every line, which is what rules 1+2 prevent. A tenant with no plan row
+    is allowed the pool. The clamp is here rather than a CHECK on `plans` because the pool
+    is computed from live settings, and a plan row selling more lines than exist is a
+    commercial promise to correct with a person, not a row to refuse. It is a cap, never a
+    floor; the dispatcher's starvation alarm covers the absence of floors.
+
+    The dispatcher budgets with this, and the campaign screen states the same figure
+    (`effective_concurrency`), so "up to N at once" is the number that dials.
+    """
+    ceiling = pool if configured is None else int(configured)
+    return max(0, min(ceiling, pool))
+
+
+async def effective_concurrency(session: AsyncSession, *, tenant_id: UUID, slider: int) -> int:
+    """The most calls this campaign can have at once right now: its slider, under the plan's
+    ceiling, under the shared outbound pool. Other campaigns of the same account share the
+    plan ceiling, so this is the most, not a promise."""
+    configured = (
+        await session.execute(
+            text(f"SELECT ({plan_in_effect_sql('concurrency_ceiling', at=NOW_SQL)})"),
+            {"tid": tenant_id},
+        )
+    ).scalar()
+    return min(slider, tenant_line_ceiling(configured, outbound_line_pool()))
+
+
+#: Why a paused campaign is paused, as one word, over `campaigns c` (D-773). The automatic
+#: pausers record themselves (`auto_pause_reason`, the maintenance and healer markers);
+#: a pause with none of them was made by a person. NULL when the campaign is not paused.
+PAUSE_REASON_SQL = (
+    "CASE WHEN c.status <> 'paused' THEN NULL "
+    "WHEN c.auto_pause_reason IS NOT NULL THEN c.auto_pause_reason "
+    "WHEN c.paused_by_maintenance_id IS NOT NULL THEN 'maintenance' "
+    "WHEN c.paused_by_heal_id IS NOT NULL THEN 'healer' "
+    "ELSE 'person' END"
+)
+
+
+async def not_calling_reasons(
+    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID, agent_status: str
+) -> list[LaunchBlocker]:
+    """Why a RUNNING campaign would place no call right now, by the gate's own rule names.
+
+    The dispatcher refuses a running campaign two ways: `dispatch_blockers` before it claims
+    anyone, and `check_dispatch` per contact, whose agent and account halves refuse every
+    contact alike. This asks exactly those (the platform halt, the account's lifecycle and
+    dial blockers, the agent, and `dispatch_blockers`) and nothing per number, so the screen
+    says "Not calling: <reason>" for precisely the cases where nobody will be rung. DNC and
+    the calling hour are per contact and per minute and are not reasons a whole campaign
+    stops; the hour is reported separately as waiting for calling hours.
+    """
+    found: list[LaunchBlocker] = []
+    if (await get_platform_status()).outbound_halted:
+        found.append(LaunchBlocker(BIG_RED_SWITCH_RULE, BIG_RED_SWITCH_REASON))
+    stopped = await account_stopped_blocker(session, tenant_id=tenant_id)
+    if stopped is not None:
+        found.append(LaunchBlocker(*stopped))
+    found.extend(
+        LaunchBlocker(*b)
+        for b in await account_dial_blockers(session, tenant_id=tenant_id, trial_call=False)
+    )
+    refused_agent = dial_refusal_for_agent_status(agent_status)
+    if refused_agent is not None:
+        found.append(LaunchBlocker(*refused_agent))
+    found.extend(await dispatch_blockers(session, tenant_id=tenant_id, campaign_id=campaign_id))
+    # The agreements are asked by both halves; one line per rule.
+    unique: dict[str, LaunchBlocker] = {}
+    for blocker in found:
+        unique.setdefault(blocker.rule, blocker)
+    return list(unique.values())
+
+
 def _parse_hhmm(value: object) -> time:
     """Strict HH:MM only — seconds, offsets and prose all fail the same way."""
     return datetime.strptime(str(value), "%H:%M").time()
 
 
-def _validated_window(calling_hours: dict[str, Any]) -> dict[str, str]:
+def validated_window(calling_hours: dict[str, Any]) -> dict[str, str]:
     """Validate a per-campaign calling window at CREATE time, so an unlawful window
     can never be stored — which is why launch_blockers needs no window check.
 
@@ -627,7 +736,7 @@ async def campaign_dialable_now(
       mid-flight because `check_dispatch` re-reads it per contact. This is the same
       property for the per-campaign switch.
     - **the campaign's own narrowed calling window.** `calling_hours` may only SHRINK the
-      platform's 09:00-21:00 IST (`_validated_window`), so `check_dispatch` refusing
+      platform's 09:00-21:00 IST (`validated_window`), so `check_dispatch` refusing
       outside the platform window is not enough to honour it: a campaign restricted to
       09:00-12:00 whose window check passed at 11:59 dialled at 12:05, because nothing
       asked again.
@@ -669,8 +778,12 @@ async def create_campaign(
     calling_hours: dict[str, Any] | None = None,
     consent_source: str | None = None,
     consent_collected_at: datetime | None = None,
+    retry_policy: dict[str, Any] | None = None,
 ) -> UUID:
     """Create a draft campaign.
+
+    `retry_policy` arrives already validated (`validated_retry_policy`) or as None, which
+    stores `DEFAULT_RETRY_POLICY`.
 
     Consent provenance (SEC-COMP §3) is accepted here and OPTIONAL here, which is a
     deliberate split of concerns: a draft may be assembled before the client has dug
@@ -703,7 +816,7 @@ async def create_campaign(
 
     # Validated HERE, at the only write path, so the column can never hold a window
     # the dispatcher would have to second-guess. None = "platform window applies".
-    window = _validated_window(calling_hours) if calling_hours is not None else None
+    window = validated_window(calling_hours) if calling_hours is not None else None
     source, collected_at = _validated_provenance(consent_source, consent_collected_at)
     campaign_id = uuid7()
     await session.execute(
@@ -725,7 +838,7 @@ async def create_campaign(
             "nid": number_id,
             "dlt": dlt_template_id,
             "conc": concurrency,
-            "retry": json.dumps(DEFAULT_RETRY_POLICY),
+            "retry": json.dumps(retry_policy or DEFAULT_RETRY_POLICY),
             "window": json.dumps(window) if window is not None else None,
         },
     )
@@ -1373,7 +1486,12 @@ async def assert_agent_still_assignable(session: AsyncSession, *, campaign_id: U
 
 
 async def set_campaign_status(
-    session: AsyncSession, *, campaign_id: UUID, to_status: str, from_statuses: tuple[str, ...]
+    session: AsyncSession,
+    *,
+    campaign_id: UUID,
+    to_status: str,
+    from_statuses: tuple[str, ...],
+    auto_pause_reason: str | None = None,
 ) -> bool:
     """pause/resume/cancel — all the same CAS shape. True when THIS call moved the row.
 
@@ -1397,7 +1515,16 @@ async def set_campaign_status(
     want, and the window's end must not overrule it: otherwise a client's Pause, or a
     complaint-spike safety pause taken after a Resume inside the window, is reversed by
     `resume_campaigns_after_maintenance`.
+
+    **A real move also writes `auto_pause_reason`** (D-773): the automatic pauser passes
+    its reason, every other caller passes nothing and so clears it. The no-op answer
+    leaves it alone, because a second Pause click must not erase why a complaint spike
+    stopped the campaign. A complaint-spike pause also clears the previous review, so the
+    client has to review the new opt-outs before Resume works again.
     """
+    reset_review = (
+        ", complaint_reviewed_at = NULL" if auto_pause_reason == "complaint_spike" else ""
+    )
     moved = await transition_status(
         session,
         table="campaigns",
@@ -1405,7 +1532,11 @@ async def set_campaign_status(
         row_id=campaign_id,
         to_status=to_status,
         from_statuses=from_statuses,
-        extra_set="paused_by_maintenance_id = NULL, paused_by_heal_id = NULL",
+        extra_set=(
+            "paused_by_maintenance_id = NULL, paused_by_heal_id = NULL, "
+            f"auto_pause_reason = :auto_reason{reset_review}"
+        ),
+        params={"auto_reason": auto_pause_reason},
     )
     if not moved:
         await session.execute(
@@ -1555,7 +1686,14 @@ async def set_template_status(
         raise ProblemError.not_found("DLT template")
 
 
-async def list_campaigns(session: AsyncSession, *, limit: int = 100) -> list[dict[str, Any]]:
+async def list_campaigns(
+    session: AsyncSession,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+    status: str | None = None,
+    search: str | None = None,
+) -> list[dict[str, Any]]:
     """Newest first, with the two counts the list actually needs — and the one blocker
     the list cannot otherwise see.
 
@@ -1584,6 +1722,12 @@ async def list_campaigns(session: AsyncSession, *, limit: int = 100) -> list[dic
     flagging a running campaign that predates the columns would put a to-do on the list
     with no way to do it.
     """
+    params: dict[str, Any] = {
+        "refused": list(REFUSED_CONSENT_SOURCES),
+        "limit": limit,
+        "offset": offset,
+    }
+    where = _list_where(params, status=status, search=search)
     rows = (
         await session.execute(
             text(
@@ -1593,11 +1737,14 @@ async def list_campaigns(session: AsyncSession, *, limit: int = 100) -> list[dic
                 "  CASE WHEN c.status IN ('draft', 'scheduled') THEN CASE "
                 "    WHEN c.consent_source IS NULL THEN 'consent_provenance_missing' "
                 "    WHEN c.consent_source = ANY(:refused) THEN 'consent_source_refused' "
-                "  END END AS consent_provenance_blocker "
+                "  END END AS consent_provenance_blocker, "
+                f"  {PAUSE_REASON_SQL} AS pause_reason "
                 "FROM campaigns c LEFT JOIN campaign_contacts cc ON cc.campaign_id = c.id "
-                "GROUP BY c.id ORDER BY c.created_at DESC LIMIT :limit"
+                f"{where} "
+                # `id` breaks ties so OFFSET pages are a total order.
+                "GROUP BY c.id ORDER BY c.created_at DESC, c.id DESC LIMIT :limit OFFSET :offset"
             ),
-            {"refused": list(REFUSED_CONSENT_SOURCES), "limit": limit},
+            params,
         )
     ).all()
     return [
@@ -1611,9 +1758,40 @@ async def list_campaigns(session: AsyncSession, *, limit: int = 100) -> list[dic
             "contacts": int(r[6] or 0),
             "connected": int(r[7] or 0),
             "consent_provenance_blocker": r[8],
+            "pause_reason": r[9],
         }
         for r in rows
     ]
+
+
+def _list_where(params: dict[str, Any], *, status: str | None, search: str | None) -> str:
+    """The campaign list's filter, shared by the page and its counts."""
+    clauses: list[str] = []
+    if status is not None:
+        clauses.append("c.status = :status")
+        params["status"] = status
+    if search:
+        clauses.append("c.name ILIKE :search")
+        params["search"] = contains_pattern(search)
+    return f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+
+async def campaign_status_counts(session: AsyncSession, *, search: str | None) -> dict[str, int]:
+    """How many campaigns are in each status, under the same search as the list.
+
+    Never narrowed by the status filter, so every status tab can show its number.
+    """
+    params: dict[str, Any] = {}
+    where = _list_where(params, status=None, search=search)
+    rows = (
+        await session.execute(
+            text(f"SELECT c.status, count(*) FROM campaigns c {where} GROUP BY c.status"), params
+        )
+    ).all()
+    counts = dict.fromkeys(CAMPAIGN_STATUSES, 0)
+    for name, count in rows:
+        counts[str(name)] = int(count)
+    return counts
 
 
 async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[str, Any]:
@@ -1648,6 +1826,20 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
         )
     ).all()
     counts = {str(r[0]): int(r[1]) for r in rows}
+    about = (
+        await session.execute(
+            text(
+                "SELECT c.id, c.name, c.classification, c.agent_id, a.name, c.number_id, "
+                "  c.consent_source, c.consent_collected_at, c.created_at, c.retry_policy, "
+                f"  {PAUSE_REASON_SQL}, c.complaint_reviewed_at, c.tenant_id, a.status "
+                "FROM campaigns c JOIN agents a ON a.id = c.agent_id WHERE c.id = :cid"
+            ),
+            {"cid": campaign_id},
+        )
+    ).first()
+    if about is None:
+        raise ProblemError.not_found("Campaign")
+    tenant_id = UUID(str(about[12]))
     campaign = (
         await session.execute(
             text(
@@ -1682,9 +1874,7 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
             ),
             {"cid": campaign_id},
         )
-    ).first()
-    if campaign is None:
-        raise ProblemError.not_found("Campaign")
+    ).one()
     blocked_rules = campaign[4]
     # BOTH scrubs, side by side, and that pairing is the point. SEC-COMP §3 certifies a
     # list as scrubbed against the national DND AND the tenant list; until this pair
@@ -1692,7 +1882,37 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
     # on every screen an operator or a client could reach. `national_dnd` is None when
     # no run has ever been recorded, which is the honest reading of an absent artefact.
     scrub = await read_current_scrub(session, campaign_id=campaign_id)
+    status = str(campaign[0])
+    not_calling: list[LaunchBlocker] = []
+    waiting_for_hours = False
+    if status == "running":
+        not_calling = await not_calling_reasons(
+            session, tenant_id=tenant_id, campaign_id=campaign_id, agent_status=str(about[13])
+        )
+        now_ist = compliance_clock.ist_now()
+        waiting_for_hours = not (
+            within_calling_hours(now_ist) and campaign_window_open(campaign[7], now_ist)
+        )
+    pause_reason = about[10]
     return {
+        "id": about[0],
+        "name": about[1],
+        "classification": about[2],
+        "agent_id": about[3],
+        "agent_name": about[4],
+        "number_id": about[5],
+        "consent_source": about[6],
+        "consent_collected_at": about[7],
+        "created_at": about[8],
+        "retry_policy": retry_policy_view(about[9]),
+        "pause_reason": pause_reason,
+        "complaint_review_required": pause_reason == "complaint_spike" and about[11] is None,
+        "complaint_reviewed_at": about[11],
+        "not_calling": [{"rule": b.rule, "reason": b.reason} for b in not_calling],
+        "waiting_for_calling_hours": waiting_for_hours,
+        "effective_concurrency": await effective_concurrency(
+            session, tenant_id=tenant_id, slider=int(campaign[2])
+        ),
         "status": campaign[0],
         "launched_at": campaign[1],
         "concurrency": campaign[2],
@@ -1721,7 +1941,7 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
         # from one that chose nothing. The screen states the platform bound itself,
         # because it is true of every campaign.
         #
-        # Normalised to the two keys `_validated_window` writes rather than handed over
+        # Normalised to the two keys `validated_window` writes rather than handed over
         # whole: a response model is an output WHITELIST (BACKEND-PATTERNS §1), and this
         # column is JSONB that a future field would ride out of on its own.
         "calling_hours": (
@@ -1743,9 +1963,11 @@ __all__ = [
     "CLASSIFICATION_REFUSALS",
     "DEFAULT_RETRY_POLICY",
     "DIALABLE_CAMPAIGN_CLASSIFICATIONS",
+    "MAX_RETRY_ATTEMPTS",
     "NO_PROVENANCE_REASON",
+    "PAUSE_REASON_SQL",
     "PURCHASED_LIST_REASON",
-    "SERIES_FOR_CLASSIFICATION",
+    "RETRY_GAP_CHOICES",
     "TRANSACTIONAL_CAMPAIGN_REASON",
     "LaunchBlocker",
     "account_outbound_blockers",
@@ -1753,18 +1975,26 @@ __all__ = [
     "assert_agent_still_assignable",
     "campaign_dialable_now",
     "campaign_progress",
+    "campaign_status_counts",
     "campaign_window_open",
     "create_campaign",
     "declare_consent_provenance",
     "dispatch_blockers",
+    "effective_concurrency",
     "launch_blockers",
     "launch_campaign",
     "launch_refusal_for_agent_status",
     "list_campaigns",
+    "not_calling_reasons",
+    "number_dial_refusal",
     "pause_campaigns_for_maintenance",
     "record_dlt_registration",
     "register_dlt_template",
     "resume_campaigns_after_maintenance",
+    "retry_policy_view",
     "set_campaign_status",
     "set_template_status",
+    "tenant_line_ceiling",
+    "validated_retry_policy",
+    "validated_window",
 ]

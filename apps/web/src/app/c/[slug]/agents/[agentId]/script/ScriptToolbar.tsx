@@ -14,7 +14,7 @@
  */
 
 import Link from "next/link";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 import { PRIMARY_BUTTON, SECONDARY_BUTTON, formatCount, formatIST, type NoticeTone } from "@/components/ui";
 import { Drawer } from "@/components/console/drawer";
@@ -129,7 +129,6 @@ export function ScriptToolbar({
             aria-pressed={helperOpen}
             className={`${SECONDARY_BUTTON} max-sm:flex-1`}
           >
-            <Sparkles aria-hidden className="h-4 w-4" />
             AI helper
           </button>
           {unpublished && (

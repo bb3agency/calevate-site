@@ -100,6 +100,12 @@ import re
 import unicodedata
 from typing import Final
 
+#: The assistant's name (D-772, founder 14 Oct 2026). It names the product's assistant and
+#: says nothing about being a person: every sentence that carries it also says "an AI".
+#: The web app spells it once in `apps/web/src/lib/copilot/assistantName.ts`;
+#: `identity_test.py` holds the two equal.
+ASSISTANT_NAME: Final = "Pip"
+
 #: The names the assistant may never call itself by. LANGUAGE-MODEL VENDORS AND THEIR
 #: MODEL FAMILIES — every provider this product has ever routed a language request
 #: through, live leg or not, because "trained by X" reads exactly as authoritatively for a
@@ -293,7 +299,7 @@ def asserts_an_identity(text: str) -> bool:
 #: It is one paragraph and not two because it is also what a caught answer becomes —
 #: substituted mid-stream, where a second paragraph would read as a new thought.
 CANONICAL_IDENTITY_ANSWER: Final = (
-    "I am the Calevate assistant — an AI that helps you work inside Calevate. "
+    f"I am {ASSISTANT_NAME}, the Calevate assistant — an AI that helps you work inside Calevate. "
     "I do not discuss which AI providers Calevate buys from; the kinds it uses are "
     "listed at /legal/subprocessors, and a named list is available on request."
 )

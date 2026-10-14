@@ -301,6 +301,14 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "it is cut off mid-sentence. 300 is ThinnestAI's own default.",
         _THINNEST,
     ),
+    "reply_time_target_ms": _m(
+        "voice-engine",
+        "thinnest",
+        "Reply time target",
+        "How long a caller should wait for the agent to start answering. A call is over "
+        "target when more than one reply in ten took longer.",
+        _THINNEST,
+    ),
     # ---- telephony -------------------------------------------------------------------
     "number_provider": _m(
         "telephony",
@@ -1121,6 +1129,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "whatsapp_message_inr": ControlHint(unit="rupees"),
     "thinnest_max_concurrent_calls": ControlHint(unit="calls at once"),
     "thinnest_reply_length": ControlHint(unit="tokens"),
+    "reply_time_target_ms": ControlHint(kind="duration", unit="milliseconds"),
     "carrier_concurrency": ControlHint(unit="calls at once"),
     "inbound_reserved_lines": ControlHint(
         unit="lines", help="Leave unset to use the automatic share."

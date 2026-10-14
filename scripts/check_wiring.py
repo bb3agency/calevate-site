@@ -103,7 +103,25 @@ _D763_REASON = (
     "rule 8's two-step and dropped by the D-763 drop migration next release"
 )
 
+_D770_REASON = (
+    "D-770: call_engine_latency lost its only writer with Pipecat (D-763) and its reader with "
+    "the stage-budget report; kept under hard rule 8's two-step and dropped next release"
+)
+
+_D775_REASON = (
+    "D-775: the outbound sender attestation, its routes and its panel were removed, which "
+    "deleted every writer and reader of `outbound_sender_attestations`. Kept with its rows "
+    "under hard rule 8's two-step; closes with the migration that drops the table"
+)
+
 UNWIRED_BASELINE: dict[str, str] = {
+    # D-775: one reason, one entry per table-specific column.
+    "OutboundSenderAttestation.attested_by": _D775_REASON,
+    "OutboundSenderAttestation.phone_number_id": _D775_REASON,
+    "OutboundSenderAttestation.state": _D775_REASON,
+    "OutboundSenderAttestation.statement_version": _D775_REASON,
+    "CallEngineLatency.parse_warnings": _D770_REASON,
+    "CallEngineLatency.time_to_first_audio_ms": _D770_REASON,
     # D-763: one reason, one entry per column.
     "Agent.knowledge_pack_recorded_at": _D763_REASON,
     "Agent.knowledge_pack_sha256": _D763_REASON,

@@ -78,6 +78,7 @@ from apps.api.billing.ai_quota import (
 )
 from apps.api.billing.rates import llm_inr_per_ktok
 from apps.api.billing.service import _IST_MONTH
+from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -283,7 +284,7 @@ async def require_platform_ai(session: AsyncSession) -> None:
         raise ProblemError(
             kind="transient",
             code="admin_ai_paused_platform_wide",
-            title="The assistant is paused platform-wide",
+            title=f"{ASSISTANT_NAME} is paused platform-wide",
             detail=(
                 "This month's platform-wide AI spend has reached its ceiling, so the "
                 "assistant is paused for everyone including the admin console. Nothing has "

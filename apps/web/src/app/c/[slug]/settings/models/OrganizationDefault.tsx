@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { Info, IndianRupee, Sparkles } from "lucide-react";
 
 import { ModelTierSetting } from "@/components/modelTierSetting";
 import { Disclosure, NoticeBox } from "@/components/ui";
@@ -86,19 +85,11 @@ export function OrganizationDefault({
           subtitle="A tier's figure is added to your plan's per-minute rate, as its own line on your statement."
         >
           <ul className="space-y-2 text-body text-ink-muted">
-            <li className="flex gap-2">
-              <Sparkles
-                aria-hidden
-                className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint"
-              />
+            <li>
               The voice your callers hear is a separate setting, and changing
               the model does not change it.
             </li>
-            <li className="flex gap-2">
-              <IndianRupee
-                aria-hidden
-                className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint"
-              />
+            <li>
               {/* A SURCHARGE, not a replacement rate: the plan's per-minute rate is unchanged
                 and this is added to it (`plans.llm_model_surcharge`). One span inside the
                 flex <li>, so the link stays inline text rather than its own flex item. */}
@@ -117,11 +108,7 @@ export function OrganizationDefault({
                 .
               </span>
             </li>
-            <li className="flex gap-2">
-              <Info
-                aria-hidden
-                className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint"
-              />
+            <li>
               <span>
                 One agent can be put on a different tier from the rest. Open it
                 from{" "}

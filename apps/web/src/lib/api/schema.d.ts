@@ -743,6 +743,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live change notes across every account, for the operator console
+         * @description The operator console's change stream: every account's notes, each with its `tenant_id`,
+         *     plus the platform's own topics (`alerts`, `platform`, `healer`, `quality`). Same events and
+         *     rules as `GET /v1/live`. Requires an operator session.
+         */
+        get: operations["admin_live_changes_v1_admin_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/me": {
         parameters: {
             query?: never;
@@ -5454,6 +5476,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/lead-pool": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How many of your leads a filter selects, before adding them to a campaign */
+        get: operations["lead_pool_v1_campaigns_lead_pool_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/numbers": {
         parameters: {
             query?: never;
@@ -5463,6 +5502,27 @@ export interface paths {
         };
         /** Numbers this tenant may dial from, with their series (140/160/standard) */
         get: operations["list_numbers_v1_campaigns_numbers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of campaigns, filtered by status and searched by name, with counts
+         * @description The Campaigns screen's list. `GET /v1/campaigns` stays the plain newest-first list the
+         *     dashboard and the copilot read; both run `service.list_campaigns`.
+         */
+        get: operations["campaign_page_v1_campaigns_page_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5499,6 +5559,33 @@ export interface paths {
         get: operations["progress_v1_campaigns__campaign_id__get"];
         put?: never;
         post?: never;
+        /** Delete a draft (kept as stopped when calls or compliance records name it) */
+        delete: operations["delete_campaign_v1_campaigns__campaign_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a draft's settings: name, agent, number, hours, calls at once, retries
+         * @description Drafts only (`controls.update_draft`). Audited with the names of the fields changed,
+         *     not their values: who changed which setting is the question an audit answers.
+         */
+        patch: operations["update_campaign_v1_campaigns__campaign_id__patch"];
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/complaint-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm you reviewed the opt-outs behind a complaint-spike pause
+         * @description Resume stays refused until this is recorded (`controls.assert_resumable`). Audited
+         *     once: a second click is the same confirmation.
+         */
+        post: operations["complaint_review_v1_campaigns__campaign_id__complaint_review_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5547,10 +5634,67 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Each person on the campaign with their outcome, tries and next retry */
+        get: operations["contact_results_v1_campaigns__campaign_id__contacts_get"];
         put?: never;
         /** CSV rows in — deduped, validated, malformed numbers counted not guessed */
         post: operations["add_contacts_v1_campaigns__campaign_id__contacts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/contacts/from-leads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add your CRM leads to a campaign, picked by id or by a filter
+         * @description The numbers are read from the leads on the server (`controls.add_leads`). A filter
+         *     matching more than `controls.MAX_LEADS_PER_ADD` is refused rather than cut short, so
+         *     "add these leads" never silently means "add some of them".
+         */
+        post: operations["add_contacts_from_leads_v1_campaigns__campaign_id__contacts_from_leads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/contacts/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Take people off a campaign before it starts calling */
+        post: operations["remove_campaign_contacts_v1_campaigns__campaign_id__contacts_remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** A new draft from this campaign's settings, optionally with the people it missed */
+        post: operations["duplicate_v1_campaigns__campaign_id__duplicate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5583,6 +5727,23 @@ export interface paths {
         };
         /** Why the launch button is disabled, by name (SEC-COMP §3) */
         get: operations["launch_check_v1_campaigns__campaign_id__launch_check_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/opt-outs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Who on this campaign asked not to be called, in their own (redacted) words */
+        get: operations["campaign_opt_outs_v1_campaigns__campaign_id__opt_outs_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5638,6 +5799,23 @@ export interface paths {
          *     version of that question that gets asked after a complaint.
          */
         post: operations["set_recurrence_v1_campaigns__campaign_id__recurrence_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pickup rate, call length, outcomes, sentiment, leads and spend for one campaign */
+        get: operations["campaign_results_v1_campaigns__campaign_id__results_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5708,6 +5886,27 @@ export interface paths {
          *     are why: both are answers the caller cannot derive from the request it sent.
          */
         delete: operations["unschedule_v1_campaigns__campaign_id__schedule_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop for good: nobody else on the list is called. Idempotent.
+         * @description Running, paused or scheduled → cancelled (`controls.stop_campaign`). Audited on a real
+         *     transition only, for `pause`'s reason.
+         */
+        post: operations["stop_v1_campaigns__campaign_id__stop_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -8350,6 +8549,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live change notes for this account (server-sent events)
+         * @description A `text/event-stream` of change notes for the caller's own account. Events:
+         *
+         *     * `ready` · `{"heartbeat_s": 20, "max_age_s": 1800}` — open. Refetch what is on screen.
+         *     * `change` · `{"topic": "calls", "at": "<instant>"}` — something in that family changed.
+         *       Refetch the queries that show it. Topics: account, agents, assistant, callbacks, calls,
+         *       campaigns, dnc, healer, integrations, knowledge, knowledge_gaps, leads, numbers,
+         *       quality, wallet.
+         *     * `resync` · `{"reason": "subscription_restored"|"fell_behind"}` — notes may have been
+         *       missed. Refetch what is on screen.
+         *     * `closed` · `{"reason": "session_ended"|"max_age"|"shutting_down"}` — the server ended
+         *       the stream. Reopen after `max_age`; after `session_ended` the next ordinary request
+         *       says what to do.
+         *
+         *     A note never carries a row id, a name, a phone number, an amount or any text. Requires
+         *     `org:read`; a view-as session receives the viewed account's notes.
+         */
+        get: operations["live_changes_v1_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/maintenance": {
         parameters: {
             query?: never;
@@ -8663,41 +8896,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/numbers/{number_id}/sender-attestation": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Whether this number carries the outbound-sender confirmation
-         * @description What this number's confirmation says today, and whether it is even needed.
-         */
-        get: operations["read_v1_numbers__number_id__sender_attestation_get"];
-        put?: never;
-        /**
-         * Confirm this business is the sender and accepts the obligation
-         * @description Record that this business is the sender and accepts the obligation.
-         *
-         *     Refused on a 140 or 160 number rather than stored harmlessly: a row against a number
-         *     that needs no exception would later read as though an exception had been needed, and the
-         *     ledger's value is that every row in it means the same thing.
-         */
-        post: operations["attest_v1_numbers__number_id__sender_attestation_post"];
-        /**
-         * Withdraw the outbound-sender confirmation for this number
-         * @description Step back out of the obligation. A new row, never a deletion (hard rule 4).
-         *
-         *     Takes no statement version: refusing a withdrawal because the page is stale would hold
-         *     someone to an obligation they are trying to leave.
-         */
-        delete: operations["withdraw_v1_numbers__number_id__sender_attestation_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/ops/alerts": {
         parameters: {
             query?: never;
@@ -8709,13 +8907,13 @@ export interface paths {
          * Every alarm this platform has raised, loudest and still-open first
          * @description THE SCREEN THE FOUNDER ASKED FOR (D-591): *"failures in admin panel only"*.
          *
-         *     **`GlobalSession` AND NOT `AdminSession`**, unlike the latency report two routes down.
+         *     **`GlobalSession` AND NOT `AdminSession`**, unlike the reply-time report above.
          *     `platform_alerts` carries no `tenant_id` and no policy at all — it is platform
          *     machinery, registered in `db/registry.RLS_EXEMPT_TENANT_COLUMNS` — so there is no
          *     tenant to be inside and no widened policy to need. Asking for the admin-widened
          *     session here would be taking a privilege this read has no use for.
          *
-         *     **NO STEP-UP CONFIRMATION AND NO AUDIT ROW**, for `read_engine_latency`'s two reasons
+         *     **NO STEP-UP CONFIRMATION AND NO AUDIT ROW**, for `read_reply_times`'s two reasons
          *     unchanged: it writes nothing, and it is a page an operator refreshes while watching an
          *     incident — an audit chain that grows a row per refresh stops being readable. Nothing
          *     in the payload belongs to a client: `detail` and `ids` were redacted at the write
@@ -8912,41 +9110,6 @@ export interface paths {
          * @description Records what an ENCODER costs this account, read off your own vendor console or invoice, as a NEW effective-dated row — a correction is a later attestation, never an edit. Requires `X-Confirm-Action: attest_embedding_price:<model>`. The figure is USD per million **INPUT** tokens as a decimal string, and there is NO OUTPUT PRICE TO ENTER: an embedding request returns a vector, so the vendor bills no output leg and the column is stored NULL. Until this exists, a client's uploaded knowledge is indexed by word-matching only — nothing is embedded, nothing is charged, and the panel says so with its ground. The model identifier is sent VERBATIM and may contain one interior slash (a vendor-prefixed `models/<name>`).
          */
         post: operations["attest_embedding_model_price_v1_ops_embedding_prices__model__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/ops/engine-latency": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * What the voice engine reported its own pipeline cost, by region (gate 4)
-         * @description The LLM time-to-first-token distribution per (engine, region).
-         *
-         *     **NO STEP-UP CONFIRMATION**, for this file's stated reason: it writes nothing, and
-         *     demanding a confirmation to run a read teaches operators to type past confirmations.
-         *
-         *     **NO AUDIT ROW.** The payload is milliseconds, counts and a region code — nothing from
-         *     any call and nothing about any person — and it is a page an operator refreshes while
-         *     watching a pilot. An audit chain that grows a row per refresh stops being readable,
-         *     which is the argument `quality/routes.py` and `holds_routes.py` both make.
-         *
-         *     **WHY IT IS ADMIN AND NOT CLIENT.** It is a question about OUR infrastructure choices
-         *     across every tenant — specifically what the model deployment's geography costs the
-         *     caller, which is what D-449 traded the India residency claim away to improve and what
-         *     nobody has yet measured (OPERATIONS §2 gate 4). A client's own screen has
-         *     nothing to do with it, and `flags.registry.call_timing_breakdown` is where the
-         *     per-client version waits with its blocker written down.
-         */
-        get: operations["read_engine_latency_v1_ops_engine_latency_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -9537,6 +9700,35 @@ export interface paths {
          * @description Records that a card recorded earlier will never take effect. Requires `X-Confirm-Action: cancel_rate_card:<effective_from>`. It is a POST and not a DELETE because nothing is deleted: rate history is append-only, so the withdrawal is its own row and both facts — what was scheduled, and that it was withdrawn — stay readable. Only a card whose date is still in the future may be withdrawn; one already in force has priced purchases, and unwinding it would restate lots that are already frozen.
          */
         post: operations["cancel_rate_card_v1_ops_rate_card_cancellations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/reply-times": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How long callers waited for replies, across every client (D-770)
+         * @description The voice platform's per-call reply times, by client, agent, voice rung and IST day.
+         *
+         *     **NO STEP-UP CONFIRMATION**, for this file's stated reason: it writes nothing, and
+         *     demanding a confirmation to run a read teaches operators to type past confirmations.
+         *
+         *     **NO AUDIT ROW.** The payload is milliseconds, counts and the names of clients and their
+         *     agents, nothing any caller said and nothing about any person; it is a page an operator
+         *     refreshes while watching calls, and an audit chain that grows a row per refresh stops
+         *     being readable (`quality/routes.py` and `holds_routes.py` make the same argument).
+         *     Opening one of the listed calls goes through view-as, which audits the entry.
+         */
+        get: operations["read_reply_times_v1_ops_reply_times_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -10501,6 +10693,15 @@ export interface components {
             /** Voice Id */
             voice_id: string;
         };
+        /**
+         * AddLeadsIn
+         * @description Either named leads (a selection) or a filter. Exactly one.
+         */
+        AddLeadsIn: {
+            filter?: components["schemas"]["LeadFilterIn"] | null;
+            /** Lead Ids */
+            lead_ids?: string[] | null;
+        };
         /** AddNumbersIn */
         AddNumbersIn: {
             /** Numbers */
@@ -11252,6 +11453,50 @@ export interface components {
             status: "draft" | "live" | "paused" | "archived";
             /** Truthful Answer Rule */
             truthful_answer_rule: string;
+        };
+        /** AgentReplyTimes */
+        AgentReplyTimes: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Agent Name */
+            agent_name: string | null;
+            /** Calls */
+            calls: number;
+            /** Calls Measured */
+            calls_measured: number;
+            /** Calls Over Target */
+            calls_over_target: number;
+            /** Client Name */
+            client_name: string;
+            /** Client Slug */
+            client_slug: string;
+            /** First Token Slow Ms */
+            first_token_slow_ms?: number | null;
+            /** First Token Typical Ms */
+            first_token_typical_ms?: number | null;
+            /** Interruptions */
+            interruptions: number;
+            /** Long Silences */
+            long_silences: number;
+            /** Model Errors */
+            model_errors: number;
+            /** Reply Slow Ms */
+            reply_slow_ms?: number | null;
+            /** Reply Typical Ms */
+            reply_typical_ms?: number | null;
+            /** Reply Worst Ms */
+            reply_worst_ms?: number | null;
+            /** Rescues */
+            rescues: number;
+            /** Slow Reply Problems */
+            slow_reply_problems: number;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Turns */
+            turns: number;
         };
         /**
          * AgentSpendOut
@@ -12855,6 +13100,76 @@ export interface components {
             /** Start */
             start: string;
         };
+        /** CampaignLeadOut */
+        CampaignLeadOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string | null;
+            /** Status */
+            status: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** CampaignPageOut */
+        CampaignPageOut: {
+            /** Items */
+            items: components["schemas"]["CampaignSummaryOut"][];
+            /** Status Counts */
+            status_counts: {
+                [key: string]: number;
+            };
+            /** Total */
+            total: number;
+        };
+        /**
+         * CampaignResultsOut
+         * @description A campaign's totals (FLOWS §5): reach, conversations, leads, spend.
+         */
+        CampaignResultsOut: {
+            /** Average Call S */
+            average_call_s: number | null;
+            /** Calls */
+            calls: number;
+            /** Connected Calls */
+            connected_calls: number;
+            /** Contacts */
+            contacts: number;
+            /** Credits Spent Inr */
+            credits_spent_inr: string | null;
+            /** Hot Leads */
+            hot_leads: number;
+            /** Leads */
+            leads: number;
+            /** Opt Outs */
+            opt_outs: number;
+            /** Outcome Tags */
+            outcome_tags: {
+                [key: string]: number;
+            };
+            /** Outcomes */
+            outcomes: {
+                [key: string]: number;
+            };
+            /** Pickup Rate */
+            pickup_rate: number | null;
+            /** Recent Leads */
+            recent_leads: components["schemas"]["CampaignLeadOut"][];
+            /** Sentiment */
+            sentiment: {
+                [key: string]: number;
+            };
+            /** Talk Seconds */
+            talk_seconds: number;
+            /** Tried */
+            tried: number;
+        };
         /**
          * CampaignSummaryOut
          * @description One row of the campaign list.
@@ -12894,6 +13209,8 @@ export interface components {
             launched_at: string | null;
             /** Name */
             name: string;
+            /** Pause Reason */
+            pause_reason?: ("person" | "maintenance" | "healer" | "complaint_spike" | "out_of_credit" | "spend_cap") | null;
             /** Status */
             status: string;
         };
@@ -13444,6 +13761,46 @@ export interface components {
              */
             state: "none" | "scheduled" | "draining" | "active";
         };
+        /** ClientReplyTimes */
+        ClientReplyTimes: {
+            /** Calls */
+            calls: number;
+            /** Calls Measured */
+            calls_measured: number;
+            /** Calls Over Target */
+            calls_over_target: number;
+            /** Client Name */
+            client_name: string;
+            /** Client Slug */
+            client_slug: string;
+            /** First Token Slow Ms */
+            first_token_slow_ms?: number | null;
+            /** First Token Typical Ms */
+            first_token_typical_ms?: number | null;
+            /** Interruptions */
+            interruptions: number;
+            /** Long Silences */
+            long_silences: number;
+            /** Model Errors */
+            model_errors: number;
+            /** Reply Slow Ms */
+            reply_slow_ms?: number | null;
+            /** Reply Typical Ms */
+            reply_typical_ms?: number | null;
+            /** Reply Worst Ms */
+            reply_worst_ms?: number | null;
+            /** Rescues */
+            rescues: number;
+            /** Slow Reply Problems */
+            slow_reply_problems: number;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Turns */
+            turns: number;
+        };
         /**
          * CloneConsentOut
          * @description The speaker's recorded consent to a cloned voice being offered (D-721).
@@ -13638,6 +13995,18 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /**
+         * ComplaintReviewIn
+         * @description The client's confirmation that they read the opt-outs. A literal `true`, so the
+         *     request states the act rather than toggling a flag.
+         */
+        ComplaintReviewIn: {
+            /**
+             * Reviewed
+             * @constant
+             */
+            reviewed: true;
         };
         /** CompleteVerificationIn */
         CompleteVerificationIn: {
@@ -13957,6 +14326,44 @@ export interface components {
             name?: string | null;
             /** Phone */
             phone: string;
+        };
+        /** ContactResultOut */
+        ContactResultOut: {
+            /** Attempts */
+            attempts: number;
+            /** Call Id */
+            call_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Attempt At */
+            last_attempt_at: string | null;
+            /** Name */
+            name: string | null;
+            /** Next Attempt At */
+            next_attempt_at: string | null;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "connected" | "no_answer" | "busy" | "voicemail" | "failed" | "do_not_call" | "calling" | "not_called";
+            /** Phone E164 */
+            phone_e164: string;
+            /** Will Retry */
+            will_retry: boolean;
+        };
+        /** ContactResultsOut */
+        ContactResultsOut: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Items */
+            items: components["schemas"]["ContactResultOut"][];
+            /** Total */
+            total: number;
         };
         /**
          * ConversationStage
@@ -14593,7 +15000,7 @@ export interface components {
              * Classification
              * @enum {string}
              */
-            classification: "promotional" | "transactional" | "service";
+            classification: "promotional" | "service";
             /**
              * Concurrency
              * @default 3
@@ -14606,6 +15013,7 @@ export interface components {
             name: string;
             /** Number Id */
             number_id?: string | null;
+            retry_policy?: components["schemas"]["RetryPolicyIn"] | null;
         };
         /** CreateCampaignOut */
         CreateCampaignOut: {
@@ -15055,6 +15463,10 @@ export interface components {
             avg_duration_s_7d?: number | null;
             /** Calls 7D */
             calls_7d: number;
+            /** Calls Connected 7D */
+            calls_connected_7d: number;
+            /** Calls Not Connected 7D */
+            calls_not_connected_7d: number;
             /** Calls Prev 7D */
             calls_prev_7d: number;
             /** Calls Today */
@@ -15098,6 +15510,42 @@ export interface components {
             day: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
             /** Opens */
             opens?: string | null;
+        };
+        /** DayReplyTimes */
+        DayReplyTimes: {
+            /** Calls */
+            calls: number;
+            /** Calls Measured */
+            calls_measured: number;
+            /** Calls Over Target */
+            calls_over_target: number;
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** First Token Slow Ms */
+            first_token_slow_ms?: number | null;
+            /** First Token Typical Ms */
+            first_token_typical_ms?: number | null;
+            /** Interruptions */
+            interruptions: number;
+            /** Long Silences */
+            long_silences: number;
+            /** Model Errors */
+            model_errors: number;
+            /** Reply Slow Ms */
+            reply_slow_ms?: number | null;
+            /** Reply Typical Ms */
+            reply_typical_ms?: number | null;
+            /** Reply Worst Ms */
+            reply_worst_ms?: number | null;
+            /** Rescues */
+            rescues: number;
+            /** Slow Reply Problems */
+            slow_reply_problems: number;
+            /** Turns */
+            turns: number;
         };
         /**
          * DeadLetterJobOut
@@ -15148,6 +15596,18 @@ export interface components {
             depth: number;
             /** Oldest At */
             oldest_at: string | null;
+        };
+        /**
+         * DeleteCampaignOut
+         * @description `deleted` when the draft is gone; `stopped` when it was kept as a stopped campaign
+         *     because calls or compliance records already name it.
+         */
+        DeleteCampaignOut: {
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "deleted" | "stopped";
         };
         /** DeleteCloneOut */
         DeleteCloneOut: {
@@ -15539,6 +15999,28 @@ export interface components {
             /** Spent Inr */
             spent_inr: string;
         };
+        /** DuplicateCampaignIn */
+        DuplicateCampaignIn: {
+            /** Name */
+            name?: string | null;
+            /**
+             * With Unreached
+             * @default false
+             */
+            with_unreached: boolean;
+        };
+        /** DuplicateCampaignOut */
+        DuplicateCampaignOut: {
+            /** Contacts Added */
+            contacts_added: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+        };
         /**
          * EditTenantIn
          * @description The client's OWN details, and nothing else on the row.
@@ -15855,49 +16337,6 @@ export interface components {
             out_of_sync: number;
             /** Undetermined */
             undetermined: number;
-        };
-        /**
-         * EngineLatencyReport
-         * @description Every group in the window, and the WHOLE budget each is judged against.
-         *
-         *     **THE BUDGET IS AN OBJECT AND NOT A FIELD**, and that is this model's second version.
-         *     It carried `llm_ttft_budget_ms` alone, so the console it feeds printed "target for the
-         *     first reply: 350 ms" as though it were the budget — one quarter of a 1.1s voice-to-voice
-         *     p50, presented as the whole constraint. Publishing `LatencyBudget` puts every target on
-         *     the wire, including the two nothing here can measure and the two legs nothing here
-         *     samples, so a reader can see what the stages add up to instead of inferring it — and,
-         *     since the target became 500ms, whether they add up to MORE than the caller is allowed to
-         *     wait (`budget.composes`).
-         */
-        EngineLatencyReport: {
-            /**
-             * @default {
-             *       "composes": false,
-             *       "endpointing_ms": 100,
-             *       "india_us_transit_floor_ms": 100,
-             *       "inherited_turn_detection_ms": 650,
-             *       "llm_ttft_ms": 150,
-             *       "pipeline_ms": 500,
-             *       "retrieval_ms": 100,
-             *       "stt_ms": 70,
-             *       "tts_ttfa_ms": 80,
-             *       "turn_ms": 300,
-             *       "voice_to_voice_floor_ms": 600,
-             *       "voice_to_voice_headroom_p50_ms": -100,
-             *       "voice_to_voice_p50_ms": 500,
-             *       "voice_to_voice_p95_ms": 800
-             *     }
-             */
-            budget: components["schemas"]["LatencyBudget"];
-            /**
-             * Complete
-             * @default true
-             */
-            complete: boolean;
-            /** Groups */
-            groups: components["schemas"]["LatencyGroup"][];
-            /** Window Days */
-            window_days: number;
         };
         /** EngineMinutePriceAttestIn */
         EngineMinutePriceAttestIn: {
@@ -18557,124 +18996,6 @@ export interface components {
             /** Unpublished Changes */
             unpublished_changes: number;
         };
-        /**
-         * LatencyBudget
-         * @description The whole of TRD §4, as one object, with the composed totals DERIVED.
-         *
-         *     Exists so a surface that judges a latency carries every target rather than the one leg
-         *     it happens to summarise — the defect this model was written for is an operator screen
-         *     printing "target for the first reply: 350 ms" as though it were the budget, when it was
-         *     one of four legs inside a 1.1s voice-to-voice p50.
-         *
-         *     **IT NOW ALSO CARRIES THE GAP**, because the budget no longer fits inside the target
-         *     (see `latency_budget_composes`). `composes` and `voice_to_voice_headroom_p50_ms` are
-         *     computed here and shipped, so the console states the shortfall in the operator's own
-         *     words instead of a CI job failing where no operator is looking.
-         *
-         *     FROZEN, and every field defaults to the module constant above. It is a CARRIER, not a
-         *     second declaration: nothing constructs it with different numbers, and a caller that
-         *     wants the budget wants `LATENCY_BUDGET`.
-         *
-         *     The composed figures are `computed_field`s rather than plain properties so they reach
-         *     the wire — a browser that had to add the legs up itself would be computing a target,
-         *     which is the one thing every surface here is forbidden to do.
-         */
-        LatencyBudget: {
-            /**
-             * Composes
-             * @description Does the declared budget fit inside the declared target? False today.
-             *
-             *     A FIELD rather than a comparison left to each consumer: the console must state the
-             *     shortfall, and a screen that re-derived the verdict from two numbers would be
-             *     computing a target in the place least able to defend it.
-             */
-            readonly composes: boolean;
-            /**
-             * Endpointing Ms
-             * @default 100
-             */
-            endpointing_ms: number;
-            /**
-             * India Us Transit Floor Ms
-             * @default 100
-             */
-            india_us_transit_floor_ms: number;
-            /**
-             * Inherited Turn Detection Ms
-             * @default 650
-             */
-            inherited_turn_detection_ms: number;
-            /**
-             * Llm Ttft Ms
-             * @default 150
-             */
-            llm_ttft_ms: number;
-            /**
-             * Pipeline Ms
-             * @description Endpointing + the turn + one retrieval: every stage inside the engine.
-             */
-            readonly pipeline_ms: number;
-            /**
-             * Retrieval Ms
-             * @default 100
-             */
-            retrieval_ms: number;
-            /**
-             * Stt Ms
-             * @default 70
-             */
-            stt_ms: number;
-            /**
-             * Tts Ttfa Ms
-             * @default 80
-             */
-            tts_ttfa_ms: number;
-            /**
-             * Turn Ms
-             * @description STT + LLM TTFT + TTS TTFA — the three legs the engine times.
-             */
-            readonly turn_ms: number;
-            /**
-             * Voice To Voice Floor Ms
-             * @description The pipeline plus the caller's crossing — the best case the evidence supports.
-             */
-            readonly voice_to_voice_floor_ms: number;
-            /**
-             * Voice To Voice Headroom P50 Ms
-             * @description What the target leaves once the floor-allocated stages are spent.
-             *
-             *     NEGATIVE TODAY, and it is published rather than left to the reader precisely
-             *     because of that: -100ms means the stages already cost more than the caller is
-             *     allowed to wait, before any leg misses the fastest figure its vendor prints.
-             */
-            readonly voice_to_voice_headroom_p50_ms: number;
-            /**
-             * Voice To Voice P50 Ms
-             * @default 500
-             */
-            voice_to_voice_p50_ms: number;
-            /**
-             * Voice To Voice P95 Ms
-             * @default 800
-             */
-            voice_to_voice_p95_ms: number;
-        };
-        /**
-         * LatencyGroup
-         * @description One (engine, region) pair, every leg of it.
-         */
-        LatencyGroup: {
-            /** Calls */
-            calls: number;
-            /** Engine */
-            engine: string;
-            /** Legs */
-            legs: components["schemas"]["LegSummary"][];
-            /** Region */
-            region: string | null;
-            /** Turns */
-            turns: number;
-        };
         /** LaunchCheckOut */
         LaunchCheckOut: {
             /** Blockers */
@@ -19004,6 +19325,22 @@ export interface components {
             standard_fields: components["schemas"]["ExtractionField"][];
         };
         /**
+         * LeadFilterIn
+         * @description Which of the account's leads to add. Every field narrows; none means every lead.
+         */
+        LeadFilterIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** Created Since */
+            created_since?: string | null;
+            /** Created Until */
+            created_until?: string | null;
+            /** Sources */
+            sources?: ("inbound_call" | "webhook" | "campaign" | "manual" | "test_call" | "outbound_call")[];
+            /** Statuses */
+            statuses?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost")[];
+        };
+        /**
          * LeadLensIn
          * @description The Leads table's lens — WHICH ROWS and WHICH COLUMNS — carried in a request BODY.
          *
@@ -19130,6 +19467,13 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** LeadPoolOut */
+        LeadPoolOut: {
+            /** Limit */
+            limit: number;
+            /** Matching */
+            matching: number;
         };
         /**
          * LeadSearchIn
@@ -19374,43 +19718,6 @@ export interface components {
             entries: components["schemas"]["WalletEntryOut"][];
             /** Payments */
             payments: components["schemas"]["WalletPaymentOut"][];
-        };
-        /**
-         * LegSummary
-         * @description One leg's distribution for one (engine, region) group, and its own verdict.
-         *
-         *     **EVERY LEG CARRIES ITS OWN BUDGET, ITS OWN SAMPLE SIZE AND ITS OWN BASIS**, because it
-         *     has all three. A turn whose payload carried an LLM timing and no transcriber block is a
-         *     sample for one leg and for neither the other nor the composed sum, so a single `turns`
-         *     count on the group would be wrong for at least one column of any real report.
-         */
-        LegSummary: {
-            /**
-             * Basis
-             * @enum {string}
-             */
-            basis: "measured" | "insufficient_samples";
-            /** Budget Breached */
-            budget_breached?: boolean | null;
-            /** Budget Ms */
-            budget_ms: number;
-            /**
-             * Leg
-             * @enum {string}
-             */
-            leg: "stt" | "llm_ttft" | "tts_ttfa" | "turn";
-            /** Max Ms */
-            max_ms?: number | null;
-            /** P50 Ms */
-            p50_ms?: number | null;
-            /** P95 Ms */
-            p95_ms?: number | null;
-            /** Turns */
-            turns: number;
-            /** Turns Over Budget */
-            turns_over_budget: number;
-            /** Unit Verified */
-            unit_verified: boolean;
         };
         /**
          * LegalDocumentOut
@@ -20473,6 +20780,11 @@ export interface components {
             /** Inr Per Month */
             inr_per_month?: string | null;
             /**
+             * Places Calls
+             * @default false
+             */
+            places_calls: boolean;
+            /**
              * Releasable
              * @default false
              */
@@ -20648,6 +20960,20 @@ export interface components {
              * Format: date-time
              */
             recorded_at: string;
+        };
+        /** OptOutOut */
+        OptOutOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Call Id */
+            call_id: string | null;
+            /** Contact Name */
+            contact_name: string | null;
+            /** Words Redacted */
+            words_redacted: string | null;
         };
         /**
          * OrganizationCallHandlingIn
@@ -20890,8 +21216,12 @@ export interface components {
             inr_per_month: string | null;
             /** Kyc Status */
             kyc_status: string | null;
+            /** Paid */
+            paid: boolean;
             /** Step */
             step: ("add_credit" | "workspace" | "verify_business" | "business_details" | "price" | "ready") | null;
+            /** Trial */
+            trial: ("running" | "ended") | null;
         };
         /** OwnVoiceKeyOut */
         OwnVoiceKeyOut: {
@@ -21557,21 +21887,59 @@ export interface components {
         };
         /** ProgressOut */
         ProgressOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string;
             calling_hours?: components["schemas"]["CallingHoursIn"] | null;
+            /** Classification */
+            classification: string;
+            /** Complaint Review Required */
+            complaint_review_required: boolean;
+            /** Complaint Reviewed At */
+            complaint_reviewed_at: string | null;
             /** Concurrency */
             concurrency: number;
+            /** Consent Collected At */
+            consent_collected_at: string | null;
+            /** Consent Source */
+            consent_source: string | null;
             /** Contacts */
             contacts: {
                 [key: string]: number;
             };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
             /** Dnc Scrubbed At */
             dnc_scrubbed_at?: string | null;
+            /** Effective Concurrency */
+            effective_concurrency: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /** Launched At */
             launched_at: string | null;
+            /** Name */
+            name: string;
             national_dnd_scrub?: components["schemas"]["NationalDndScrubOut"] | null;
+            /** Not Calling */
+            not_calling: components["schemas"]["BlockerOut"][];
             /** Number E164 */
             number_e164?: string | null;
+            /** Number Id */
+            number_id: string | null;
+            /** Pause Reason */
+            pause_reason: ("person" | "maintenance" | "healer" | "complaint_spike" | "out_of_credit" | "spend_cap") | null;
             recurrence?: components["schemas"]["RecurrenceOut"] | null;
+            retry_policy: components["schemas"]["RetryPolicyOut"];
             /** Schedule Blocked Rules */
             schedule_blocked_rules?: string[];
             /** Scheduled Start At */
@@ -21580,6 +21948,8 @@ export interface components {
             status: string;
             /** Total */
             total: number;
+            /** Waiting For Calling Hours */
+            waiting_for_calling_hours: boolean;
         };
         /** PromptVersionOut */
         PromptVersionOut: {
@@ -22530,6 +22900,16 @@ export interface components {
             /** Released */
             released: boolean;
         };
+        /** RemoveContactsIn */
+        RemoveContactsIn: {
+            /** Contact Ids */
+            contact_ids: string[];
+        };
+        /** RemoveContactsOut */
+        RemoveContactsOut: {
+            /** Removed */
+            removed: number;
+        };
         /**
          * ReplaceIn
          * @description Which agents get a fresh set of business fields. Omit `agent_ids` for all of them.
@@ -22574,6 +22954,64 @@ export interface components {
             max_reply_tokens: number | null;
             /** Min */
             min: number;
+        };
+        /**
+         * ReplyTimeFigures
+         * @description One group's figures. A withheld or unreported figure is null, never zero.
+         */
+        ReplyTimeFigures: {
+            /** Calls */
+            calls: number;
+            /** Calls Measured */
+            calls_measured: number;
+            /** Calls Over Target */
+            calls_over_target: number;
+            /** First Token Slow Ms */
+            first_token_slow_ms?: number | null;
+            /** First Token Typical Ms */
+            first_token_typical_ms?: number | null;
+            /** Interruptions */
+            interruptions: number;
+            /** Long Silences */
+            long_silences: number;
+            /** Model Errors */
+            model_errors: number;
+            /** Reply Slow Ms */
+            reply_slow_ms?: number | null;
+            /** Reply Typical Ms */
+            reply_typical_ms?: number | null;
+            /** Reply Worst Ms */
+            reply_worst_ms?: number | null;
+            /** Rescues */
+            rescues: number;
+            /** Slow Reply Problems */
+            slow_reply_problems: number;
+            /** Turns */
+            turns: number;
+        };
+        /** ReplyTimeReport */
+        ReplyTimeReport: {
+            /** Agents Total */
+            agents_total: number;
+            /** By Agent */
+            by_agent: components["schemas"]["AgentReplyTimes"][];
+            /** By Client */
+            by_client: components["schemas"]["ClientReplyTimes"][];
+            /** By Day */
+            by_day: components["schemas"]["DayReplyTimes"][];
+            /** By Tier */
+            by_tier: components["schemas"]["TierReplyTimes"][];
+            /** Complete */
+            complete: boolean;
+            /** Empty Reason */
+            empty_reason: ("no_calls" | "not_reported") | null;
+            overall: components["schemas"]["ReplyTimeFigures"];
+            /** Target Ms */
+            target_ms: number;
+            /** Window Days */
+            window_days: number;
+            /** Worst Calls */
+            worst_calls: components["schemas"]["SlowCall"][];
         };
         /** ResendInviteIn */
         ResendInviteIn: {
@@ -22733,6 +23171,26 @@ export interface components {
             days: number;
             /** What */
             what: string;
+        };
+        /**
+         * RetryPolicyIn
+         * @description How many times to try each person, and how long to wait between tries (D-773).
+         *
+         *     `gaps_minutes` has one entry per retry (`max_attempts - 1`), each one of
+         *     `service.RETRY_GAP_CHOICES`; the service refuses anything else by name.
+         */
+        RetryPolicyIn: {
+            /** Gaps Minutes */
+            gaps_minutes?: number[];
+            /** Max Attempts */
+            max_attempts: number;
+        };
+        /** RetryPolicyOut */
+        RetryPolicyOut: {
+            /** Gaps Minutes */
+            gaps_minutes: number[];
+            /** Max Attempts */
+            max_attempts: number;
         };
         /** RevokedOut */
         RevokedOut: {
@@ -23345,22 +23803,6 @@ export interface components {
             /** Secrets */
             secrets: components["schemas"]["SecretOut"][];
         };
-        /** SenderAttestationIn */
-        SenderAttestationIn: {
-            /** Statement Version */
-            statement_version: string;
-        };
-        /** SenderAttestationOut */
-        SenderAttestationOut: {
-            /** Applicable */
-            applicable: boolean;
-            /** Attested */
-            attested: boolean;
-            /** Statement */
-            statement: string;
-            /** Statement Version */
-            statement_version: string;
-        };
         /**
          * ServiceItem
          * @description `price_inr` is a digit STRING (hard rule 7): the price read aloud must be exactly
@@ -23582,6 +24024,54 @@ export interface components {
             key: string;
             /** Label */
             label: string;
+        };
+        /**
+         * SlowCall
+         * @description One of the window's slowest calls, by its p90 reply time.
+         */
+        SlowCall: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Agent Name */
+            agent_name: string | null;
+            /**
+             * Call Id
+             * Format: uuid
+             */
+            call_id: string;
+            /** Client Name */
+            client_name: string;
+            /** Client Slug */
+            client_slug: string;
+            /** First Token P90 Ms */
+            first_token_p90_ms: number | null;
+            /** Model Errors */
+            model_errors: number | null;
+            /** Reply Max Ms */
+            reply_max_ms: number | null;
+            /** Reply Median Ms */
+            reply_median_ms: number | null;
+            /** Reply P90 Ms */
+            reply_p90_ms: number | null;
+            /** Slow Reply */
+            slow_reply: boolean;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Turns */
+            turns: number | null;
+            /**
+             * Voice Tier
+             * @enum {string}
+             */
+            voice_tier: "clear" | "studio" | "not_metered";
         };
         /** SourceOut */
         SourceOut: {
@@ -25351,6 +25841,42 @@ export interface components {
             /** Voice Tier */
             voice_tier: string;
         };
+        /** TierReplyTimes */
+        TierReplyTimes: {
+            /** Calls */
+            calls: number;
+            /** Calls Measured */
+            calls_measured: number;
+            /** Calls Over Target */
+            calls_over_target: number;
+            /** First Token Slow Ms */
+            first_token_slow_ms?: number | null;
+            /** First Token Typical Ms */
+            first_token_typical_ms?: number | null;
+            /** Interruptions */
+            interruptions: number;
+            /** Long Silences */
+            long_silences: number;
+            /** Model Errors */
+            model_errors: number;
+            /** Reply Slow Ms */
+            reply_slow_ms?: number | null;
+            /** Reply Typical Ms */
+            reply_typical_ms?: number | null;
+            /** Reply Worst Ms */
+            reply_worst_ms?: number | null;
+            /** Rescues */
+            rescues: number;
+            /** Slow Reply Problems */
+            slow_reply_problems: number;
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "clear" | "studio" | "not_metered";
+            /** Turns */
+            turns: number;
+        };
         /**
          * TierSplitOut
          * @description The margin's cost side, split by the OVERAGE RUNG each minute was metered on.
@@ -26312,6 +26838,26 @@ export interface components {
             qty: string;
             /** Unit Type */
             unit_type: string;
+        };
+        /**
+         * UpdateCampaignIn
+         * @description A draft's settings, each optional. An absent field is left alone; `number_id` and
+         *     `calling_hours` may be sent as null to clear them. Consent provenance has its own route,
+         *     because it is a declaration with its own audit row.
+         */
+        UpdateCampaignIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            calling_hours?: components["schemas"]["CallingHoursIn"] | null;
+            /** Classification */
+            classification?: ("promotional" | "service") | null;
+            /** Concurrency */
+            concurrency?: number | null;
+            /** Name */
+            name?: string | null;
+            /** Number Id */
+            number_id?: string | null;
+            retry_policy?: components["schemas"]["RetryPolicyIn"] | null;
         };
         /**
          * UploadOut
@@ -28319,6 +28865,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KycReviewItem"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_live_changes_v1_admin_live_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -36381,6 +36956,8 @@ export interface operations {
                 until?: string | null;
                 /** @description False leaves out free-trial test calls */
                 test_calls?: boolean;
+                /** @description Only the calls one campaign placed */
+                campaign_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -36418,6 +36995,7 @@ export interface operations {
                 since?: string | null;
                 until?: string | null;
                 test_calls?: boolean;
+                campaign_id?: string | null;
             };
             header?: {
                 "X-Confirm-Action"?: string | null;
@@ -36823,6 +37401,41 @@ export interface operations {
             };
         };
     };
+    lead_pool_v1_campaigns_lead_pool_get: {
+        parameters: {
+            query?: {
+                statuses?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost")[];
+                sources?: ("inbound_call" | "webhook" | "campaign" | "manual" | "test_call" | "outbound_call")[];
+                agent_id?: string | null;
+                created_since?: string | null;
+                created_until?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadPoolOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_numbers_v1_campaigns_numbers_get: {
         parameters: {
             query?: never;
@@ -36839,6 +37452,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NumberOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    campaign_page_v1_campaigns_page_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                status?: ("draft" | "scheduled" | "running" | "paused" | "completed" | "cancelled") | null;
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignPageOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -36912,6 +37559,103 @@ export interface operations {
             };
         };
     };
+    delete_campaign_v1_campaigns__campaign_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteCampaignOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    update_campaign_v1_campaigns__campaign_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCampaignIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    complaint_review_v1_campaigns__campaign_id__complaint_review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComplaintReviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     declare_consent_provenance_v1_campaigns__campaign_id__consent_provenance_post: {
         parameters: {
             query?: never;
@@ -36933,6 +37677,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    contact_results_v1_campaigns__campaign_id__contacts_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                outcome?: ("connected" | "no_answer" | "busy" | "voicemail" | "failed" | "do_not_call" | "calling" | "not_called") | null;
+                q?: string | null;
+            };
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactResultsOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -36967,6 +37747,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AddContactsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_contacts_from_leads_v1_campaigns__campaign_id__contacts_from_leads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddLeadsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddContactsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_campaign_contacts_v1_campaigns__campaign_id__contacts_remove_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoveContactsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoveContactsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    duplicate_v1_campaigns__campaign_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DuplicateCampaignIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DuplicateCampaignOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -37042,6 +37927,39 @@ export interface operations {
             };
         };
     };
+    campaign_opt_outs_v1_campaigns__campaign_id__opt_outs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptOutOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     pause_v1_campaigns__campaign_id__pause_post: {
         parameters: {
             query?: never;
@@ -37093,6 +38011,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecurrenceSetOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    campaign_results_v1_campaigns__campaign_id__results_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignResultsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -37189,6 +38138,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ScheduleCancelledOut"];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    stop_v1_campaigns__campaign_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -41973,6 +42951,35 @@ export interface operations {
             };
         };
     };
+    live_changes_v1_live_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     my_maintenance_v1_maintenance_get: {
         parameters: {
             query?: never;
@@ -42478,103 +43485,6 @@ export interface operations {
             };
         };
     };
-    read_v1_numbers__number_id__sender_attestation_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                number_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SenderAttestationOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    attest_v1_numbers__number_id__sender_attestation_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                number_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SenderAttestationIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SenderAttestationOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    withdraw_v1_numbers__number_id__sender_attestation_delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                number_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SenderAttestationOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     read_alerts_v1_ops_alerts_get: {
         parameters: {
             query?: {
@@ -42955,38 +43865,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EmbeddingPriceWriteOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    read_engine_latency_v1_ops_engine_latency_get: {
-        parameters: {
-            query?: {
-                /** @description How many days of calls to include. */
-                days?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EngineLatencyReport"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -43978,6 +44856,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RateCardCancelOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_reply_times_v1_ops_reply_times_get: {
+        parameters: {
+            query?: {
+                /** @description How many days of calls to include. */
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplyTimeReport"];
                 };
             };
             /** @description RFC-9457 problem+json */

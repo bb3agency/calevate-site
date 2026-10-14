@@ -1,9 +1,10 @@
 import type { ComponentType } from "react";
+
+import { PipIcon } from "@/components/illustration/pip";
 import {
   AudioLines,
   BadgeCheck,
   BellRing,
-  BotMessageSquare,
   Building2,
   CalendarClock,
   CreditCard,
@@ -141,10 +142,10 @@ export const ADMIN_NAV: NavGroup[] = [
       },
       {
         href: "/admin/assistant",
-        label: "Assistant",
-        icon: BotMessageSquare,
+        label: "Pip",
+        icon: PipIcon,
         permission: "copilot:admin",
-        action: "open the assistant's page",
+        action: "open Pip's page",
       },
     ],
   },
@@ -281,11 +282,9 @@ export const ADMIN_NAV: NavGroup[] = [
         action: "read and steer the auto-healer",
       },
       {
-        // Same argument as the row above: OPERATIONS §2 gate 4 sends an
-        // operator to this read to find out what D-449 actually bought, and it pointed at a
-        // curl until this screen existed. Somebody paging on a slow call is not going
-        // to scroll the platform switches to find it.
-        href: "/admin/ops/engine-latency",
+        // Same argument as the row above: somebody paging on a slow call is not going to
+        // scroll the platform switches to find it.
+        href: "/admin/ops/reply-times",
         label: "Voice response time",
         icon: Gauge,
         permission: "ops:manage",

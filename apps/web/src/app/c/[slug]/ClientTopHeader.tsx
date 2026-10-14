@@ -6,7 +6,8 @@ import { Bell, Menu } from "lucide-react";
 
 import { ClientCopilotDock } from "@/components/copilot/CopilotDock";
 import { LiveCallsPill } from "@/components/console/liveCalls";
-import { SHELL_RAIL_CLASS, formatCountOf } from "@/components/ui";
+import { BAR_STATUS } from "@/components/console/statusPill";
+import { NOTICE_DOT, SHELL_RAIL_CLASS, formatCountOf } from "@/components/ui";
 import { useAttention } from "@/lib/api/attention";
 import { useClientRealm } from "@/lib/api/session";
 import { creditLeftPhrase, useWallet, walletState } from "@/lib/api/wallet";
@@ -117,10 +118,11 @@ function CreditChip({ slug }: { slug: string }) {
   return (
     <Link
       href={href(`/c/${slug}/billing?tab=credits`)}
-      className="press hidden h-9 items-center gap-1.5 rounded-full border border-line bg-surface px-3 text-[13px] font-medium text-warn hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 sm:inline-flex touch:h-11"
+      className={`${BAR_STATUS} hidden text-ink sm:inline-flex`}
     >
+      <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${NOTICE_DOT[state === "stopped" ? "stop" : "warn"]}`} />
       {text}
-      <span className="text-ink-muted">· Add credit</span>
+      <span className="text-brand-strong">Add credit</span>
     </Link>
   );
 }

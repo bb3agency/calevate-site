@@ -8,6 +8,7 @@
  * says a submission is "in review" rather than showing a button that would 403.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { apiRequest, apiUpload, type Session, type UploadProgress } from "./client";
@@ -26,7 +27,7 @@ export function useKbSources(session: Session): UseQueryResult<KbSource[]> {
     queryFn: () => apiRequest<KbSource[]>(session, "/v1/kb/sources"),
     // Slower than the call surfaces: an approval is a human on our side, measured in
     // hours, not the two-minute post-call SLO.
-    refetchInterval: 120_000,
+    refetchInterval: livePoll(120_000),
   });
 }
 
@@ -136,7 +137,7 @@ export function useKbUploads(session: Session, enabled = true): UseQueryResult<K
     // a four-second timer to see one of them change is the shape this hook exists not to
     // be. Sixty seconds is here for the other reason a list changes — a colleague adding
     // something in another tab — and stays cheap.
-    refetchInterval: 60_000,
+    refetchInterval: livePoll(60_000),
   });
 }
 

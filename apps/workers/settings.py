@@ -90,6 +90,8 @@ from apps.api.core.settings import (
     settings_scope,
     validate_bootstrap_env,
 )
+from apps.api.db.session import get_engine
+from apps.api.live.capture import LIVE_DRAIN_S, drain_in_flight, install_change_capture
 from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
 from apps.api.ops.pricing_snapshot import start_pricing_refresher, stop_pricing_refresher
 from apps.api.ops.spoken_style_store import refresh_spoken_style
@@ -1550,6 +1552,9 @@ async def startup(ctx: dict[str, Any]) -> None:
     # initialised tracing, every enqueued traceparent would arrive at a process with no
     # provider and the call's trace would end at Redis.
     observability = init_observability("workers")
+    # Most feed changes are committed HERE — a call settled, a lead extracted, a contact
+    # dialled, a gap found — so the worker announces its commits to open browsers (D-774).
+    install_change_capture(get_engine())
     # THE WORKER IS WHERE A CALL'S COST IS CONVERTED (`pipeline._meter`), so it is the
     # process that most needs the published rate — an API that never meters a call would
     # be the wrong one to give it to. One line, idempotent, and a worker that did not call
@@ -1683,6 +1688,10 @@ async def shutdown(ctx: dict[str, Any]) -> None:
         await stop_pricing_refresher()
     with suppress(Exception):
         await stop_config_refresher()
+    # Change notes already scheduled by the last commits (D-774), before the client they
+    # publish through is closed. Bounded: a note is a hint and may be lost.
+    with suppress(Exception):
+        await asyncio.wait_for(drain_in_flight(), timeout=LIVE_DRAIN_S)
     with suppress(Exception):
         await close_redis()
     with suppress(Exception):

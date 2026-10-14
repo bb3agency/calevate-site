@@ -133,7 +133,7 @@ function ConfigFrame({
       },
       {
         key: "no_inventory",
-        label: "What this screen tells the assistant about stored credentials",
+        label: "What this screen tells Pip about stored credentials",
         value: "nothing — not a key name, not a count",
       },
     ],

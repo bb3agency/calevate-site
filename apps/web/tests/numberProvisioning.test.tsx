@@ -52,8 +52,6 @@ const REMEDIATION =
   "Talk to us and we will arrange the number. Calevate provides it on " +
   "our own telephony account, so there is no operator account for you to open.";
 
-const STATEMENT = "I confirm that my business is the sender of these calls.";
-
 function operatorLed(): unknown {
   return problem(422, {
     type: "https://calevate.tech/problems/number_purchase_is_operator_led",
@@ -117,12 +115,6 @@ function routes(extra: Routes = {}): Routes {
     ...NO_FORWARDING_ROUTES,
     "/v1/campaigns/numbers": heldNumbers(),
     "/v1/agents": [{ id: "agent-1", name: "Reception", status: "live" }],
-    "/v1/numbers/num-1/sender-attestation": {
-      attested: false,
-      applicable: true,
-      statement: STATEMENT,
-      statement_version: "2026-09-20",
-    },
     "/v1/compliance/kyc": kyc(true),
     "/v1/billing/wallet": { prepaid: true, balance_inr: "200000.00" },
     [PATHS.available]: [offer()],
@@ -401,26 +393,6 @@ describe("choosing what a number is used for", () => {
     expect(screen.getByLabelText(/^both/i)).toBeTruthy();
   });
 
-  it("says nothing extra while only answering is chosen", async () => {
-    await renderClientPage(<PhoneNumberPage />, routes());
-
-    await screen.findByLabelText(/answer calls to this number/i);
-    expect(screen.queryByText(/confirmed that your business is the sender/i)).toBeNull();
-  });
-
-  it("points calling out at the confirmation rather than restating it", async () => {
-    await renderClientPage(<PhoneNumberPage />, routes());
-
-    fireEvent.click(await screen.findByLabelText(/call out from this number/i));
-
-    const note = await screen.findByText(
-      /once you confirm your business sends those calls/i,
-    );
-    expect(note.textContent).toMatch(/marketing campaigns need a 140-series number/i);
-    // The statement itself belongs to the attestation panel and is not duplicated here.
-    expect(screen.getAllByText(STATEMENT).length).toBe(1);
-  });
-
   it("tells the voice platform which agent and which legs", async () => {
     const { calls } = await renderClientPage(
       <PhoneNumberPage />,
@@ -565,19 +537,12 @@ describe("a number we supplied says which link is missing", () => {
     agent_id: agentId,
     direction: "inbound",
   });
-  const attestation = {
-    attested: false,
-    applicable: true,
-    statement: STATEMENT,
-    statement_version: "2026-09-20",
-  };
 
   it("asks for an agent on one and asks for patience on the other", async () => {
     const { container } = await renderClientPage(
       <PhoneNumberPage />,
       routes({
         "/v1/campaigns/numbers": [supplied("num-1", null), supplied("num-2", "agent-1")],
-        "/v1/numbers/num-2/sender-attestation": attestation,
       }),
     );
 

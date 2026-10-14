@@ -9,7 +9,10 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
+import { NewItemsPill } from "@/components/interior/new-items-pill";
+import { continuesFrom, useArrivals } from "@/components/live/arrivals";
 import { ScrollRegion } from "@/components/ui";
 
 import { FLASH_MS, compareDecimal } from "./valueFlash";
@@ -109,37 +112,57 @@ function nextSort<T>(column: DataColumn<T>, current: SortState): SortState {
 }
 
 /**
- * Marks what changed between two renders of the same rows: a row id seen for the first
- * time (after the first render), and any cell whose `flash` value moved. Both clear after
- * `FLASH_MS`. Nothing is marked on the first render, so opening a screen is quiet.
+ * Marks what changed between two renders of the same rows: a row that arrived, and any cell
+ * whose `flash` value moved. Both clear after `FLASH_MS`. Nothing is marked on the first
+ * render, so opening a screen is quiet, nor when the rows were replaced rather than
+ * continued (another page or filter), so paging is quiet too.
  */
-function useChangedKeys<T>(rows: T[], columns: DataColumn<T>[], getRowId: (row: T) => string) {
+function useChangedKeys<T>(
+  rows: T[],
+  columns: DataColumn<T>[],
+  getRowId: (row: T) => string,
+  onArrived?: (rows: T[]) => void,
+) {
   const seen = useRef<Map<string, string> | null>(null);
   const [changed, setChanged] = useState<Set<string>>(() => new Set());
   // In a ref, not an effect cleanup: the rows array is rebuilt on every render, so a
   // cleanup would cancel the clearing timer on the very next render.
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const arrivedCallback = useRef(onArrived);
+  useEffect(() => {
+    arrivedCallback.current = onArrived;
+  });
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
   }, []);
 
   useEffect(() => {
+    const ids = rows.map(getRowId);
+    const previous = seen.current;
+    const previousIds = new Set<string>();
+    if (previous) for (const key of previous.keys()) if (!key.includes("\u0000")) previousIds.add(key);
+    const continuous = previous !== null && continuesFrom(previousIds, ids);
     const next = new Map<string, string>();
     const marked = new Set<string>();
-    for (const row of rows) {
-      const id = getRowId(row);
+    const arrived: T[] = [];
+    rows.forEach((row, index) => {
+      const id = ids[index];
       next.set(id, "");
-      if (seen.current && !seen.current.has(id)) marked.add(id);
+      if (continuous && !previousIds.has(id)) {
+        marked.add(id);
+        arrived.push(row);
+      }
       for (const column of columns) {
         if (!column.flash) continue;
         const key = `${id}\u0000${column.id}`;
         const value = column.flash(row) ?? "";
-        const before = seen.current?.get(key);
+        const before = previous?.get(key);
         if (before !== undefined && before !== "" && before !== value) marked.add(key);
         next.set(key, value);
       }
-    }
+    });
     seen.current = next;
+    if (arrived.length > 0) arrivedCallback.current?.(arrived);
     if (marked.size === 0) return;
     setChanged(marked);
     if (timer.current) clearTimeout(timer.current);
@@ -148,6 +171,18 @@ function useChangedKeys<T>(rows: T[], columns: DataColumn<T>[], getRowId: (row: 
 
   return changed;
 }
+
+
+/**
+ * A removed row fades out over 150 ms when the change continued the rows on screen, and
+ * goes at once when they were replaced (another page) or motion is reduced.
+ */
+const ROW_EXIT = {
+  leave: (animate: boolean) => ({
+    opacity: 0,
+    transition: animate ? { duration: 0.15, ease: [0.23, 1, 0.32, 1] as const } : { duration: 0 },
+  }),
+};
 
 export type DataTableProps<T> = {
   rows: T[];
@@ -165,6 +200,11 @@ export type DataTableProps<T> = {
   partialNote?: string;
   rowClassName?: (row: T) => string;
   className?: string;
+  /**
+   * A sentence for screen readers when rows ARRIVE live, or null to say nothing. Only for
+   * arrivals worth interrupting for (a new hot lead), never for every refetch.
+   */
+  announceArrivals?: (rows: T[]) => string | null;
 };
 
 /**
@@ -188,11 +228,46 @@ export function DataTable<T>({
   partialNote,
   rowClassName,
   className = "",
+  announceArrivals,
 }: DataTableProps<T>) {
   const [internal, setInternal] = useState<SortState>(defaultSort);
   const sort = controlled !== undefined ? controlled : internal;
   const ordered = useMemo(() => sortRows(rows, columns, sort), [rows, columns, sort]);
-  const changed = useChangedKeys(rows, columns, getRowId);
+  const reduced = useReducedMotion() === true;
+  const ids = useMemo(() => rows.map(getRowId), [rows, getRowId]);
+  const { arrived, continuous } = useArrivals(ids);
+
+  // Arrivals while the top of the table is scrolled out of view: say so quietly instead of
+  // moving the reader (UX: never steal the scroll position).
+  const top = useRef<HTMLDivElement>(null);
+  const topInView = useRef(true);
+  const [unseen, setUnseen] = useState(0);
+  // Mounted from the first arrival a reader did not see, and kept: the control and its
+  // polite count exist only on a table that has had something to offer.
+  const [offered, setOffered] = useState(false);
+  const [announcement, setAnnouncement] = useState("");
+  useEffect(() => {
+    const element = top.current;
+    if (!element || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => {
+      topInView.current = entry.isIntersecting;
+      if (entry.isIntersecting) setUnseen(0);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const changed = useChangedKeys(rows, columns, getRowId, (list) => {
+    if (!topInView.current) {
+      setOffered(true);
+      setUnseen((count) => count + list.length);
+    }
+    const sentence = announceArrivals?.(list);
+    if (sentence) setAnnouncement(sentence);
+  });
+  const showArrivals = () => {
+    top.current?.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+    setUnseen(0);
+  };
 
   const setSort = (next: SortState) => {
     if (controlled === undefined) setInternal(next);
@@ -202,6 +277,19 @@ export function DataTable<T>({
 
   return (
     <div className={className}>
+      <div ref={top} aria-hidden className="h-0" />
+      {/* The console's one "new above" control (`NewItemsPill`, also the assistant's
+          activity log), in a zero-height sticky strip so it floats over the rows while the
+          page scrolls and pushes nothing. */}
+      {offered && (
+        <div className="sticky top-0 z-sticky h-0">
+          <NewItemsPill
+            count={unseen}
+            onJump={showArrivals}
+            label={(count, over) => `${count}${over ? "+" : ""} new ${count === 1 && !over ? "row" : "rows"}`}
+          />
+        </div>
+      )}
       {/* `relative`: absolutely positioned descendants (visually hidden header text, a
           row's stretched link) must take this scroller as their containing block, or they
           escape its clipping and widen the page. */}
@@ -250,13 +338,20 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
+            {/* `initial={false}`: the rows present when the table first renders do not
+                enter. Arrivals enter by class (`live-enter`, CSS, off the main thread);
+                Motion is here only for the exit, which CSS cannot do. */}
+            <AnimatePresence initial={false} custom={continuous && !reduced}>
             {ordered.map((row) => {
               const id = getRowId(row);
+              const arriving = arrived.has(id) || changed.has(id);
               return (
-                <tr
+                <motion.tr
                   key={id}
+                  variants={ROW_EXIT}
+                  exit="leave"
                   className={`relative transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.025] ${
-                    changed.has(id) ? "value-flash" : ""
+                    arriving ? "live-arrive" : ""
                   } ${rowClassName?.(row) ?? ""}`}
                 >
                   {columns.map((column) => (
@@ -279,9 +374,10 @@ export function DataTable<T>({
                       )}
                     </td>
                   ))}
-                </tr>
+                </motion.tr>
               );
             })}
+            </AnimatePresence>
           </tbody>
         </table>
       </ScrollRegion>
@@ -294,6 +390,10 @@ export function DataTable<T>({
               partialNote ? ` ${partialNote}` : ""
             }`
           : ""}
+      </p>
+      {/* Its own region: an arrival worth announcing must not replace the sort status. */}
+      <p aria-live="polite" className="sr-only">
+        {announcement}
       </p>
       {sort && partialNote && (
         <p aria-hidden className="px-3 pb-1 pt-2 text-[12px] text-ink-faint">

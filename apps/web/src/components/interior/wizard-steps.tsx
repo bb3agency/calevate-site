@@ -288,7 +288,7 @@ export function WizardSteps({
                     intent.current = "list";
                     goTo(i);
                   }}
-                  className="rounded-[8px] outline-none focus-visible:shadow-[0_0_0_1.5px_#16a05d] dark:focus-visible:shadow-[0_0_0_1.5px_#22c55e]"
+                  className="rounded-[8px] outline-none focus-visible:shadow-[0_0_0_1.5px_var(--brand)] dark:focus-visible:shadow-[0_0_0_1.5px_var(--brand-bright)]"
                 >
                   {tile}
                 </button>
@@ -395,7 +395,7 @@ export function WizardSteps({
                   : { duration: 0.14, ease: EXIT_EASE },
               }}
               transition={reduced ? { duration: 0 } : CROSSFADE}
-              className="ml-auto grid h-9 touch:h-11 place-items-center rounded-[9px] bg-brand-strong px-3.5 text-[13px] font-medium text-white outline-none transition-colors duration-150 hover:bg-brand-deep focus-visible:shadow-[inset_0_0_0_1.5px_#0c5932]"
+              className="ml-auto grid h-9 touch:h-11 place-items-center rounded-[9px] bg-brand-strong px-3.5 text-[13px] font-medium text-white outline-none transition-colors duration-150 hover:bg-brand-deep focus-visible:shadow-[inset_0_0_0_1.5px_var(--brand-deep)]"
             >
               <span aria-hidden className="invisible col-start-1 row-start-1">
                 {finishLabel.length > nextLabel.length ? finishLabel : nextLabel}

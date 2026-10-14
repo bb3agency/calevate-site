@@ -2,7 +2,7 @@
 
 import { Section } from "@/components/console/section";
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Sparkles } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 
 import {
   FIELD,
@@ -25,6 +25,8 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import type { VerticalExamples } from "@/lib/verticalExamples";
+import { StatusPill } from "@/components/console/statusPill";
+import { useEnterClass } from "@/components/live/arrivals";
 
 /**
  * "Where the agents struggled on real calls" — the URGENT insights surface.
@@ -42,9 +44,13 @@ import type { VerticalExamples } from "@/lib/verticalExamples";
 export function KnowledgeGaps({
   agentId,
   className,
+  hideWhenClear = false,
 }: {
   agentId?: string;
   className?: string;
+  /** Render nothing until there is something to teach: the dashboard home shows this card
+   *  only when an agent actually struggled. The agent page keeps the calm line. */
+  hideWhenClear?: boolean;
 }) {
   const session = useClientSession();
   // This tenant's trade, not a clinic's — see `lib/verticalExamples.ts`.
@@ -55,8 +61,11 @@ export function KnowledgeGaps({
   const write = useWriteAccess(session, "kb:write", "teach or dismiss these");
 
   const title = agentId ? "Where this agent struggled" : "Where your agents struggled";
+  // A gap found while the screen is open enters softly (D-774); the list on load does not.
+  const enter = useEnterClass(gaps.data ? gaps.data.items.map((gap) => gap.id) : null);
 
   if (gaps.isLoading) {
+    if (hideWhenClear) return null;
     return (
       <Section title={title} className={className}>
         <Skeleton rows={4} />
@@ -76,6 +85,7 @@ export function KnowledgeGaps({
   }
 
   const { items, open_count } = gaps.data;
+  if (hideWhenClear && items.length === 0 && open_count === 0) return null;
 
   return (
     <Section
@@ -89,9 +99,9 @@ export function KnowledgeGaps({
       }
       action={
         open_count > 0 ? (
-          <span className="inline-flex items-center rounded-full bg-warn-soft px-2.5 py-0.5 text-meta font-medium tabular-nums text-warn">
+          <StatusPill tone="warn" className="tabular-nums">
             {open_count} need{open_count === 1 ? "s" : ""} attention
-          </span>
+          </StatusPill>
         ) : undefined
       }
     >
@@ -115,6 +125,7 @@ export function KnowledgeGaps({
             <GapRow
               eg={eg}
               key={gap.id}
+              enterClass={enter(gap.id)}
               gap={gap}
               showAgent={!agentId}
               canWrite={write.allowed}
@@ -137,7 +148,9 @@ function GapRow({
   showAgent,
   canWrite,
   eg,
+  enterClass,
 }: {
+  enterClass: string;
   gap: KnowledgeGap;
   showAgent: boolean;
   canWrite: boolean;
@@ -175,7 +188,7 @@ function GapRow({
   const error = dismiss.error ?? teach.error ?? failed?.error ?? null;
 
   return (
-    <li className="px-2 py-3">
+    <li className={`px-2 py-3 ${enterClass}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <span className="text-meta font-medium text-warn">{SIGNAL_BADGE[gap.signal]}</span>
@@ -272,7 +285,6 @@ function GapRow({
             onClick={() => setTeaching(true)}
             disabled={busy}
           >
-            <Sparkles aria-hidden className="mr-1 h-3.5 w-3.5" />
             Teach this
           </button>
           <button

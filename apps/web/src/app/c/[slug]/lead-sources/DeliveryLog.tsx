@@ -12,11 +12,13 @@ import { deliveryRowKeys } from "@/lib/leadSourceRows";
 import { lookup } from "@/lib/lookup";
 
 import { sourceLabel } from "./sourceKinds";
+import { StatusPill } from "@/components/console/statusPill";
+import type { NoticeTone } from "@/components/ui";
 
-const OUTCOME_TONE: Record<string, string> = {
-  accepted: "bg-brand-soft text-brand-strong",
-  rejected: "border border-danger-line bg-danger-soft text-danger",
-  processing: "border border-line bg-surface-muted text-ink-muted",
+const OUTCOME_TONE: Record<string, NoticeTone> = {
+  accepted: "ok",
+  rejected: "stop",
+  processing: "neutral",
 };
 
 type Row = { item: IngestActivityItem; key: string };
@@ -54,13 +56,9 @@ export function DeliveryLog({ activity }: { activity: ReturnType<typeof useInges
       flash: ({ item }) => item.outcome,
       cell: ({ item }) => (
         <div className="max-w-xs space-y-1">
-          <span
-            className={`inline-flex rounded-full px-2 py-0.5 text-meta font-medium ${
-              lookup(OUTCOME_TONE, item.outcome) ?? OUTCOME_TONE.processing
-            }`}
-          >
+          <StatusPill tone={lookup(OUTCOME_TONE, item.outcome) ?? "neutral"} className="capitalize">
             {item.outcome}
-          </span>
+          </StatusPill>
           {item.error && <p className="text-meta text-danger">{item.error}</p>}
           {/* SERVER-derived: only the server knows which reasons the re-drive acts on. */}
           {item.recoverable && (

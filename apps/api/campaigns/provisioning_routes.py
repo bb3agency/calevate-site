@@ -164,9 +164,7 @@ class PurchaseIn(BaseModel):
     #: client picked from; a number that is no longer in it is refused before any money
     #: moves, which is also the freshest answer to "is this still available".
     search_pattern: str | None = Field(default=None, min_length=1, max_length=3)
-    #: What the number is FOR. It records an intent and authorises nothing: what a number
-    #: may lawfully carry is `campaigns.service.SERIES_FOR_CLASSIFICATION` and, for an
-    #: ordinary DID, the client's own confirmation in `campaigns/sender_attestation.py`.
+    #: What the number is FOR. It records an intent and authorises nothing.
     direction: Literal["inbound", "outbound", "both"] = "inbound"
 
 

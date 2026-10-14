@@ -471,6 +471,13 @@ class Settings(BaseSettings):
     thinnest_reply_length: int = Field(
         default=REPLY_TOKENS_DEFAULT, ge=REPLY_TOKENS_MIN, le=REPLY_TOKENS_MAX
     )
+    #: How long a caller may wait for a reply, in milliseconds: from the moment they stop
+    #: speaking to the agent's first audio, as the voice platform measures it per call
+    #: (`CallQuality.reply_ms_*`). A call is over target when its p90 reply exceeds this: more
+    #: than one reply in ten kept the caller waiting longer. 500 is the founder's end-to-end
+    #: goal of 27 Aug 2026;
+    #: the admin "Voice response time" screen judges against it (D-770).
+    reply_time_target_ms: int = Field(default=500, ge=100, le=10_000)
     #: The public `https://` origin of `apps/api` (e.g. `https://api.calevate.tech`) that
     #: ThinnestAI's custom actions call for our in-call tools (`reliability/engine_actions.py`).
     #: Not `webhook_base_url`: that is voice-runtime's face, which may not write the DNC list

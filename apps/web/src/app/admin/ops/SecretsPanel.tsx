@@ -332,7 +332,7 @@ function SecretRow({
 export function removalConsequence(key: string): string {
   switch (key) {
     case "gemini_api_key":
-      return "The assistant and anything using Google models will stop using Google until a new key is added.";
+      return "Pip and anything using Google models will stop using Google until a new key is added.";
     case "openai_api_key":
       return "Anything using OpenAI models will stop using OpenAI until a new key is added.";
     default:

@@ -8,7 +8,8 @@ import { Section } from "@/components/console/section";
 import {
   Disclosure,
   FIELD,
-  NOTICE_TONES,
+  NOTICE_BAR,
+  NOTICE_BASE,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON,
@@ -109,7 +110,7 @@ export function UsageTab({
       ) : (
         <>
           {data.capped && (
-            <div role="alert" className={`rounded-md border px-4 py-3 text-body ${NOTICE_TONES.warn}`}>
+            <div role="alert" className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
               {/* The cap is a safety rail the client chose; explaining it beats a silent
                   stop, which reads as an outage. Inbound is unaffected — the gate is
                   outbound-only — and saying so prevents a needless support call. */}
@@ -467,9 +468,7 @@ function SpendLimit({ session }: { session: Session }) {
         {save.data && (
           <div
             role="status"
-            className={`rounded-md border px-4 py-3 text-body ${
-              save.data.capped ? NOTICE_TONES.warn : NOTICE_TONES.ok
-            }`}
+            className={`${NOTICE_BASE} ${NOTICE_BAR[save.data.capped ? "warn" : "ok"]}`}
           >
             {save.data.capped
               ? "Saved. Outgoing calls are stopped for the rest of this month. Incoming calls still get through."

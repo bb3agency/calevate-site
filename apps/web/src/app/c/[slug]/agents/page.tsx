@@ -16,6 +16,7 @@ import { noFill } from "@/lib/copilot/types";
 import { HowChangesTakeEffect } from "./LaneGuide";
 import { Archive, Roster } from "./Roster";
 import { TrialLockNotice } from "../TrialLockNotice";
+import { StatusPill } from "@/components/console/statusPill";
 
 /**
  * Your agents — which ones are answering calls right now, one row each, and the way to make
@@ -101,9 +102,7 @@ export default function AgentsPage({
         status={
           agents.data && roster.length > 0 ? (
             working === 0 ? (
-              <span className="rounded-full border border-warn-line bg-warn-soft px-3 py-1 text-xs font-semibold text-ink">
-                Nothing is answering your calls
-              </span>
+              <StatusPill tone="warn">Nothing is answering your calls</StatusPill>
             ) : (
               <span className="text-sm text-ink-muted">
                 {working} of {roster.length} answering calls

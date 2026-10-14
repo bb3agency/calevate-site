@@ -187,7 +187,7 @@ export function ShowMore({
 
             scrollbarGutter: capped ? "stable" : undefined,
           }}
-          className="overflow-hidden overscroll-contain rounded-[6px] outline-none focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_#16a05d] dark:focus-visible:bg-brand-bright/[0.10] dark:focus-visible:shadow-[inset_0_0_0_1px_#22c55e]"
+          className="overflow-hidden overscroll-contain rounded-[6px] outline-none focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_var(--brand)] dark:focus-visible:bg-brand-bright/[0.10] dark:focus-visible:shadow-[inset_0_0_0_1px_var(--brand-bright)]"
         >
           <div ref={contentRef}>{children}</div>
         </motion.div>

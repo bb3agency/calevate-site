@@ -1,5 +1,6 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useCallback, useEffect, useId, useMemo, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
@@ -62,7 +63,7 @@ export function ClientAssistantWorkspace({
 
   return (
     <div className="space-y-5 pb-12">
-      <PageHeader description="What the assistant is doing for you, what's waiting for you, and everything it did." />
+      <PageHeader description={`What ${ASSISTANT_NAME} is doing for you, what's waiting for you, and everything it did.`} />
       <RunningTask jobs={jobs.data?.jobs} />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Tile label="Waiting for you" value={waiting} onOpen={() => setTab("approvals")} />
@@ -70,7 +71,7 @@ export function ClientAssistantWorkspace({
         <Tile label="Routines on" value={routinesOn} onOpen={() => setTab("routines")} />
       </div>
       <Tabs
-        label="The assistant"
+        label={`${ASSISTANT_NAME}'s workspace`}
         items={CLIENT_TABS.map((item) => ({
           value: item.value,
           label:
@@ -122,9 +123,9 @@ export function AdminAssistantWorkspace({
   const titleId = useId();
   return (
     <div className="space-y-5 pb-12">
-      <PageHeader description="Your conversation with the assistant, and everything it changed." />
+      <PageHeader description={`Your conversation with ${ASSISTANT_NAME}, and everything it changed.`} />
       <Tabs
-        label="The assistant"
+        label={`${ASSISTANT_NAME}'s workspace`}
         items={[...ADMIN_TABS]}
         value={tab}
         onValueChange={setTab}
@@ -196,7 +197,7 @@ function useWorkspaceSurface(
   realm: Realm,
   facts: { key: string; label: string; value: string }[],
 ): SurfaceHolder {
-  useCopilotSurface({ route, title: "Assistant", realm, fields: [], facts, apply: noFill });
+  useCopilotSurface({ route, title: ASSISTANT_NAME, realm, fields: [], facts, apply: noFill });
   const declared = useCopilotSurfaceHolder();
   const fallback = useMemo<SurfaceHolder>(() => {
     const surface = fallbackSurface(route, realm);

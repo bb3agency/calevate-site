@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Lock, ShieldCheck, UserCog } from "lucide-react";
+import { Lock } from "lucide-react";
 
 import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
 import { formatIST } from "@/components/ui";
@@ -15,23 +15,16 @@ import {
 import { lookup } from "@/lib/lookup";
 
 import { EndStaySignedInPanel, ResendPanel, RevokePanel, RoleChangePanel } from "./rowConfirmations";
+import { StatusPill } from "@/components/console/statusPill";
 
 /** A tier as a badge, from the wire string, never from a guess about seniority. */
 function RoleBadge({ role }: { role: string }) {
   const copy = lookup(ROLE_COPY, role);
-  const isSuper = role === "superadmin";
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-meta font-medium ${
-        isSuper ? "bg-brand-soft text-brand-strong" : "bg-ink/[0.06] text-ink-muted"
-      }`}
-    >
-      {isSuper ? <ShieldCheck aria-hidden className="h-3 w-3" /> : <UserCog aria-hidden className="h-3 w-3" />}
-      {/* Fails visible: a tier this build has no word for still gets its badge, with the
-          wire string in it, because that account is the one somebody needs to look at. */}
-      {copy?.label ?? role}
-    </span>
-  );
+  // A tier is a fact about the account, not a state to act on, so it is plain meta text;
+  // the top tier alone gets the ok dot so a list of operators shows who holds it.
+  // Fails visible: a tier this build has no word for still shows, with the wire string.
+  if (role === "superadmin") return <StatusPill tone="ok">{copy?.label ?? role}</StatusPill>;
+  return <span className="text-meta text-ink-muted">{copy?.label ?? role}</span>;
 }
 
 /** Which inline confirmation, if any, this row has open. */
@@ -100,14 +93,10 @@ export function OperatorRow({
             {selfBlock !== null && <span className="text-meta text-ink-muted">(you)</span>}
             <RoleBadge role={operator.role} />
             {!operator.activated && (
-              <span className="inline-flex items-center rounded-full border border-warn-line bg-warn-soft px-2 py-0.5 text-meta font-medium text-warn">
-                Setup link outstanding
-              </span>
+              <StatusPill tone="warn">Setup link outstanding</StatusPill>
             )}
             {operator.stay_signed_in && (
-              <span className="inline-flex items-center rounded-full bg-ink/[0.06] px-2 py-0.5 text-meta font-medium text-ink-muted">
-                Stays signed in
-              </span>
+              <span className="text-meta text-ink-muted">Stays signed in</span>
             )}
           </div>
           {/* The whole address: two accounts at one domain must be told apart before one is

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useId, useState } from "react";
-import { Archive, Check, Copy, Download, RotateCcw, Sparkles, Trash2 } from "lucide-react";
+import { Archive, Check, Copy, Download, RotateCcw, Trash2 } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { SavedNote, StatusPill, sentenceCase } from "@/components/admin/kit";
@@ -139,7 +139,6 @@ function ListenSection({ voice }: { voice: HostedVoice }) {
             disabled={fetchPreview.isPending}
             onClick={() => fetchPreview.mutate({ voice_id: voice.voice_id })}
           >
-            <Sparkles aria-hidden className="h-4 w-4" />
             {fetchPreview.isPending ? "Fetching…" : voice.preview_available ? "Generate again" : "Generate preview"}
           </button>
         )}

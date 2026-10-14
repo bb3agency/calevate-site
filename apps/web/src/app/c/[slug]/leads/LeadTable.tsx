@@ -113,6 +113,13 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
           partialNote={partialNote}
           // A ticked row stays tinted so the selection is legible away from the checkbox.
           rowClassName={(lead) => (ticked.has(lead.id) ? "bg-brand-soft/50" : "")}
+          // Said aloud only for what a person would turn round for (D-774); every other
+          // arrival is visible, not spoken.
+          announceArrivals={(arrived) => {
+            const hot = arrived.filter((lead) => lead.status === "hot").length;
+            if (hot === 0) return null;
+            return hot === 1 ? "A new hot lead arrived." : `${hot} new hot leads arrived.`;
+          }}
         />
       ) : (
         /* "No leads yet" only where the server said so; with a filter on, the emptiness

@@ -460,8 +460,8 @@ describe("granting and withdrawing consent sit in the same weight class", () => 
     );
 
     const stop = await screen.findByRole("button", { name: /Stop sending me/ });
-    // `bg-rose-600` is `DANGER_BUTTON`, reserved for what cannot be undone.
-    expect(stop.className).not.toContain("rose-");
+    // `bg-danger` is `DANGER_BUTTON`, reserved for what cannot be undone.
+    expect(stop.className).not.toContain("bg-danger");
     // …and it is still a real, reachable button, not a link or a footnote: a 🔒 control
     // may be made more prominent and never less.
     expect((stop as HTMLButtonElement).disabled).toBe(false);

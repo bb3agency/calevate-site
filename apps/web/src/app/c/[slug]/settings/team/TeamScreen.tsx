@@ -1,5 +1,6 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useState } from "react";
 
 import { DataTable } from "@/components/console/dataTable";
@@ -163,7 +164,7 @@ export function TeamScreen() {
         value: email,
         writable: false,
         personal: "email",
-        help: "Typed by the owner. The assistant is told whether it is filled in, never what it says.",
+        help: `Typed by the owner. ${ASSISTANT_NAME} is told whether it is filled in, never what it says.`,
       },
       {
         id: "team-invite-role",

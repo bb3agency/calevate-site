@@ -2,6 +2,8 @@
 
 import { ArrowRight } from "lucide-react";
 
+import { NOTICE_BAR } from "@/components/ui";
+
 import type { CopilotNavigation } from "@/lib/copilot/types";
 
 /**
@@ -25,7 +27,7 @@ import type { CopilotNavigation } from "@/lib/copilot/types";
  */
 export function NavigationReceipt({ navigation }: { navigation: CopilotNavigation }) {
   return (
-    <div className="rounded-md bg-surface-muted px-3 py-2">
+    <div className={`border-l-2 ${NOTICE_BAR.neutral} py-1 pl-3`}>
       <p className="flex items-center gap-1.5 text-xs font-medium text-ink">
         <ArrowRight aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
         Opening

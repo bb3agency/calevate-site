@@ -117,6 +117,14 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
 
 ## 3. Campaign Compliance Gate [GATE — launch button disabled until all pass]
 
+> **D-773 (founder, 14 Oct 2026) adds two refusals around RESUME and changes no launch
+> rule.** A campaign paused by the complaint-spike safety cannot be resumed until the
+> client has confirmed, in an audited act, that they read the opt-outs behind it
+> (`complaint_review_required`); the spike windows then restart from that confirmation. A
+> campaign paused at the spending cap or out of credit cannot be resumed while that still
+> holds. The dispatcher now pauses at those two money limits instead of refusing every
+> contact one by one; the per-dial gate is unchanged and still the enforcement.
+
 > **D-692 (founder decision, 8 Oct 2026) CHANGES THIS GATE — read this box before the
 > DLT bullets below.** Calevate does NOT register as a telemarketer and clients do NOT
 > register on DLT. The outbound precondition — at campaign launch, on every dispatch tick
@@ -190,36 +198,18 @@ cite the same string:
   the only sequential pair in the function: a TM link to an entity that is not registered
   cannot be active either, and telling a client to chase an authorisation for a
   registration they do not yet have sends them to the wrong desk.
-- `campaigns.classification` set; number series matches (promotional⇔140;
-  transactional/service⇔160 — `number_series_mismatch`, number_missing); the number's own
-  DLT header registered (`number_not_registered`); voice `dlt_templates.status='approved'`
-  and linked, for this classification (dlt_template_missing, dlt_template_not_approved,
-  dlt_template_mismatch — rule names retired with D-692). Three registrations, and none implies another.
-  - **`standard` IS NO LONGER IN THE ALLOWED SET, AND THIS BULLET USED TO SAY
-    `160/standard`.** TRAI direction RG-25/(18)/2023-QoS (E-10291), 18 Jun 2024: *"Senders
-    shall not use any other 10-digit fixed line/ mobile number for making Promotional/
-    Service/ Transactional voice calls to their customers, either directly or through their
-    employees or channel partners, DSAs, BPO partner, in-house or outsourced Call Centre,
-    etc."* (verbatim, with section numbers, in
-    `docs/evidence/primary-legal-findings-2026-09-20.md` §1). An ordinary DID is refused by
-    default: `campaigns.service.SERIES_FOR_CLASSIFICATION` allows only `140` and `160`.
-  - **The one exception is the CLIENT's, not ours.** The direction binds the SENDER and
-    names the delegation chain, so it cannot be handed to a vendor; under Model B (D-474)
-    the client holds the carrier account and is that sender. A `standard` number carries a
-    `service` or `transactional` campaign only where a named person at the client has been
-    shown the obligation and accepted it — one append-only row per decision in
-    `outbound_sender_attestations` (DATA-MODEL §9), recorded and withdrawn through
-    `GET`/`POST`/`DELETE /v1/numbers/{number_id}/sender-attestation` (`org:manage`,
-    audited, client realm only). There is deliberately NO admin route: an attestation
-    Calevate recorded would evidence nothing about what the client accepted, and the act is
-    withheld from a view-as session by name
-    (`rbac.VIEW_AS_WITHHELD_ACTS["compliance.outbound_sender_attestation"]`).
-    The row records WHICH WORDING was accepted; when the wording changes the client is
-    asked again, and the gate reads an older version as not attested.
-  - **Promotional is not reachable through that exception and must not become so.** 140 is
-    the only series that may carry a marketing call; `ATTESTABLE_CLASSIFICATIONS` is
-    `{service, transactional}`, and `number_series_mismatch` names both ways out — attach a
-    140/160 number, or confirm — only where the second one is genuinely open.
+- `campaigns.classification` set to `promotional` or `service`
+  (`classification_not_campaignable`). The number-series, number-registration and DLT
+  template rules (number_series_mismatch as a launch rule, number_missing,
+  number_not_registered, dlt_template_*) are retired with D-692: no gate matches a number's series to a
+  campaign's classification. **No outbound sender attestation is asked for (D-775,
+  founder decision 14 Oct 2026).** It was the client's per-number confirmation that it was
+  the sender of calls from an ordinary (non-140/160) number, against TRAI direction
+  RG-25/(18)/2023-QoS (E-10291), 18 Jun 2024
+  (`docs/evidence/primary-legal-findings-2026-09-20.md` §1); no gate had read it since
+  D-692, so its routes and panel were removed. `outbound_sender_attestations` is kept
+  unwritten until a later release drops it (DATA-MODEL §9). The direction still binds the
+  sender in law; the client's KYC and no-cold-calls pledge are what the product asks.
 - **No autodialer notice is asked for (D-762, founder decision 13 Oct 2026).** TCCCPR
   Regulation 4, relayed as *"Every Sender shall notify the Originating Access Provider, in
   advance, about the use of Auto Dialer or Robo-Calls as well as the intended objective of

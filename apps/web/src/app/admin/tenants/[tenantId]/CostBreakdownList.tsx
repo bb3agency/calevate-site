@@ -1,3 +1,4 @@
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { formatCountOf, formatINR } from "@/components/ui";
 import type { CostBreakdown } from "@/lib/api/spend";
 
@@ -13,7 +14,7 @@ import type { CostBreakdown } from "@/lib/api/spend";
 export function CostBreakdownList({ breakdown }: { breakdown: CostBreakdown }) {
   const rows = [
     {
-      label: "AI assistant and other AI help",
+      label: `${ASSISTANT_NAME} and other AI help`,
       value: breakdown.assistant_inr,
       detail: formatCountOf(breakdown.assistant_requests, "action"),
     },
@@ -60,7 +61,7 @@ export function costBreakdownFacts(
     { key: `${prefix}_total_inr`, label: `Cost to us, all in, ${scope} (₹)`, value: breakdown.total_inr },
     {
       key: `${prefix}_assistant`,
-      label: `AI assistant and other AI help, ${scope} (₹, actions)`,
+      label: `${ASSISTANT_NAME} and other AI help, ${scope} (₹, actions)`,
       value: `${breakdown.assistant_inr} across ${formatCountOf(breakdown.assistant_requests, "action")}`,
     },
     {

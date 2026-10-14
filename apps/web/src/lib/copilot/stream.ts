@@ -1,5 +1,6 @@
 "use client";
 
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { ApiProblem, openEventStream, type Session } from "@/lib/api/client";
 
 import type {
@@ -113,7 +114,7 @@ export class StreamDroppedProblem extends ApiProblem {
       kind: "transient",
       type: "urn:calevate:browser/copilot_stream_dropped",
       title: "The answer stopped part-way",
-      detail: "The connection closed before the assistant finished answering.",
+      detail: `The connection closed before ${ASSISTANT_NAME} finished answering.`,
       remediation:
         "Anything it already filled in is still on the form and can still be undone. Ask again if the answer looks incomplete.",
       retryable: true,

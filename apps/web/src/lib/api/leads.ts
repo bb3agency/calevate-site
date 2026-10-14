@@ -26,6 +26,7 @@
  * `hooks.ts` keep matching across the move.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import { useCallback, useState } from "react";
 import {
   keepPreviousData,
@@ -392,7 +393,7 @@ export function useLeadsUnderLens(
     queryKey: ["leads", session.orgSlug, lensKey(lens, paging)],
     queryFn: () =>
       apiRequest<LeadListWithColumns>(session, "/v1/leads/search", { method: "POST", body }),
-    refetchInterval: SLOW_INTERVAL_MS,
+    refetchInterval: livePoll(SLOW_INTERVAL_MS),
     refetchOnWindowFocus: true,
     placeholderData: keepPreviousData,
   });

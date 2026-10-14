@@ -15,8 +15,8 @@ import { useClientRealm } from "@/lib/api/session";
 import { BuyNumber } from "./BuyNumber";
 import { NumberAssignment } from "./NumberAssignment";
 import { OwnNumbersJourney, ReleaseOwnNumber } from "./OwnNumbers";
-import { SenderAttestation } from "./SenderAttestation";
 import { TrialLockNotice } from "../TrialLockNotice";
+import { StatusPill } from "@/components/console/statusPill";
 
 /**
  * THE NUMBERS THIS BUSINESS ANSWERS AND CALLS FROM (D-537).
@@ -30,11 +30,9 @@ import { TrialLockNotice } from "../TrialLockNotice";
  * and no provider is named to a client (white label, founder 6 Oct 2026): neither section
  * may tell a client they hold a connection with an operator of their own.
  *
- * Each number's agent choice and its sender confirmation sit open on the page, never in a
- * drawer: the confirmation is a TRAI-facing compliance control, and UX-DOCTRINE §8.7 keeps
- * those out of anything that hides them. `answerable` is said in plain words, because a
- * client who forwards their line to a number that cannot answer sends every caller into
- * silence.
+ * Each number's agent choice sits open on the page, never in a drawer. `answerable` is
+ * said in plain words, because a client who forwards their line to a number that cannot
+ * answer sends every caller into silence.
  *
  * No price and no operator-specific forwarding steps: neither is a verified fact (the
  * pricing decision is OPERATIONS §2 gate 26, and the steps differ per operator), so the
@@ -74,7 +72,9 @@ export function PhoneNumberScreen() {
   return (
     <div className="max-w-4xl space-y-6 pb-12">
       <PageHeader description="The numbers your agents answer and call from." />
-      <TrialLockNotice lock="numbers" />
+      {/* The own-number flow says the trial's state and offers credit itself; a second
+          notice above it would be a second primary action for the same step. */}
+      {own.data?.available === false && <TrialLockNotice lock="numbers" />}
       <ExistingNumberPrompt session={session} href={href} />
 
       {/* With no number yet, getting one IS the job, so it comes first. */}
@@ -179,31 +179,29 @@ function NumberCard({
 }) {
   const status = number.supplied_by_us
     ? number.answerable
-      ? { text: "Ready to answer", tone: "bg-brand-soft text-brand-strong" }
+      ? { text: "Ready to answer", tone: "ok" as const }
       : !number.agent_id
-        ? { text: "No agent on it yet", tone: "border border-line text-ink-muted" }
+        ? { text: "No agent on it yet", tone: "neutral" as const }
         : outboundOnly
-          ? { text: "Makes calls only", tone: "border border-line text-ink-muted" }
-          : { text: "Not ready yet", tone: "border border-line text-ink-muted" }
+          ? { text: "Makes calls only", tone: "neutral" as const }
+          : { text: "Not ready yet", tone: "neutral" as const }
     : number.dlt_status === "registered"
-      ? { text: "Registered for calling out", tone: "bg-ink/[0.06] text-ink" }
-      : { text: "Registration still in progress", tone: "border border-line text-ink-muted" };
+      ? { text: "Registered for calling out", tone: "ok" as const }
+      : { text: "Registration still in progress", tone: "neutral" as const };
   return (
     <div className="border-b border-line py-5">
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {/* The client's OWN number, not a called party's (hard rule 6 is about those). */}
           <p className="font-mono text-heading tabular-nums text-ink">{formatPhone(number.e164)}</p>
-          <span className={`rounded-full px-2 py-0.5 text-meta font-medium ${status.tone}`}>{status.text}</span>
+          <StatusPill tone={status.tone}>{status.text}</StatusPill>
           <span className="text-meta text-ink-faint">{number.series} series</span>
         </div>
         <NumberAssignment
           numberId={number.id}
-          series={number.series}
           currentAgentId={number.agent_id ?? null}
           currentDirection={number.direction}
         />
-        <SenderAttestation numberId={number.id} />
         {releasable && <ReleaseOwnNumber numberId={number.id} e164={number.e164} />}
       </div>
     </div>

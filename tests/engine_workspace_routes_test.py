@@ -131,6 +131,44 @@ async def test_the_status_says_set_up_while_the_workspace_is_not_ready(
     _white_label(buy.json())
 
 
+async def test_the_status_says_whether_the_account_is_on_a_trial_or_has_paid(
+    account: FakeAccount,
+) -> None:
+    from apps.api.billing.trials import start_trial
+    from tests.conftest import mark_paid_for_tests
+    from tests.engine_workspace_test import _tenant
+
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await start_trial(
+            session, tenant_id=tenant_id, days=14, actor_user_id=None, free_minutes=30
+        )
+        await session.commit()
+    headers = await _client_headers(tenant_id)
+
+    async def read() -> tuple[str, str | None, bool]:
+        async with _http() as http:
+            body = (await http.get("/v1/numbers/own/status", headers=headers)).json()
+        return body["step"], body["trial"], body["paid"]
+
+    assert await read() == ("add_credit", "running", False)
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE tenant_trials SET started_at = now() - interval '20 days', "
+                "ends_at = now() - interval '1 day' WHERE tenant_id = :tid"
+            ),
+            {"tid": tenant_id},
+        )
+        await session.commit()
+    assert await read() == ("add_credit", "ended", False)
+
+    # Paying lifts the trial's restriction; the next step is the calling account's set-up.
+    await mark_paid_for_tests(tenant_id)
+    assert await read() == ("workspace", None, True)
+
+
 async def test_the_number_screens_are_absent_where_clients_have_no_workspace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

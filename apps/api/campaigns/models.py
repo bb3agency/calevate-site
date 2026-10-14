@@ -3,9 +3,11 @@
 Two state machines, both driven by CAS transitions (BACKEND-PATTERNS §5):
 
 - `campaigns.status`: draft → scheduled → running ⇄ paused → completed | cancelled.
-- `campaign_contacts.status`: pending → dialing → connected | no_answer | failed |
-  dnc_blocked | completed. `dnc_blocked` is TERMINAL — a number that opted out is not
-  "retryable", it is done.
+- `campaign_contacts.status`: pending → dialing → connected | pending (retry) | failed |
+  dnc_blocked. `dnc_blocked` is TERMINAL — a number that opted out is not "retryable", it
+  is done. `no_answer` and `completed` are admitted by the CHECK and written by nothing:
+  whether an unconnected attempt was busy, unanswered or voicemail is a fact about its
+  CALL (`last_call_id`), and `campaigns.results` reads it from there.
 
 `dlt_templates` ships alongside because the launch gate reads it: an approved template
 is one of the named blockers (SEC-COMP §3), and the 140/160 series-vs-classification
@@ -48,6 +50,9 @@ CONSENT_SOURCES = (
 # Sources the launch gate refuses outright rather than merely recording.
 REFUSED_CONSENT_SOURCES = ("purchased_list",)
 CAMPAIGN_STATUSES = ("draft", "scheduled", "running", "paused", "completed", "cancelled")
+#: The automatic pauses that carry no marker column of their own (D-773). Maintenance and
+#: the healer are named by `paused_by_maintenance_id` / `paused_by_heal_id`.
+AUTO_PAUSE_REASONS = ("complaint_spike", "out_of_credit", "spend_cap")
 CONTACT_STATUSES = (
     "pending",
     "dialing",
@@ -82,6 +87,10 @@ class Campaign(PKMixin, TimestampMixin, Base):
         CheckConstraint(
             "(consent_source IS NULL) = (consent_collected_at IS NULL)",
             name="consent_provenance_complete",
+        ),
+        CheckConstraint(
+            f"auto_pause_reason IS NULL OR auto_pause_reason IN {AUTO_PAUSE_REASONS!r}",
+            name="auto_pause_reason_enum",
         ),
     )
 
@@ -130,6 +139,14 @@ class Campaign(PKMixin, TimestampMixin, Base):
     paused_by_heal_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("heal_incidents.id", ondelete="SET NULL")
     )
+    #: Which automatic safety paused this campaign, when it was not maintenance or the
+    #: healer (D-773). Written by the pausing CAS and cleared by any move a person makes,
+    #: so it always describes the current pause and never a past one.
+    auto_pause_reason: Mapped[str | None] = mapped_column(String)
+    #: When the client confirmed they reviewed the opt-outs behind a complaint-spike pause.
+    #: Resume is refused until it is set; the spike measurement restarts from it, so the
+    #: opt-outs already reviewed do not pause the campaign a second time.
+    complaint_reviewed_at: Mapped[datetime | None]
     # Consent provenance for THIS campaign's contact list (SEC-COMP §3). It sits on the
     # campaign rather than in `consent_ledger` because the ledger answers a different
     # question at a different time: per phone, per call, AFTER the conversation. The

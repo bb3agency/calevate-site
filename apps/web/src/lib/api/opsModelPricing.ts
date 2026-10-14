@@ -21,6 +21,7 @@
  * overwrite of an earlier one.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { adminSession } from "./admin";
@@ -61,7 +62,7 @@ export function useModelPrices(): UseQueryResult<ModelPrices> {
     // Slower than the ops screen's platform poll on purpose: a price is a deliberate act by
     // a person at a keyboard, not a state that drifts, and a tighter poll would clobber a
     // half-typed form more often than it would tell anyone anything.
-    refetchInterval: 60_000,
+    refetchInterval: livePoll(60_000),
   });
 }
 
@@ -181,7 +182,7 @@ export function useInrLlmPrices(): UseQueryResult<InrLlmPrices> {
   return useQuery({
     queryKey: OPS_INR_LLM_PRICES_QUERY_KEY,
     queryFn: () => apiRequest<InrLlmPrices>(adminSession(), OPS_INR_LLM_PRICES_PATH),
-    refetchInterval: 60_000,
+    refetchInterval: livePoll(60_000),
   });
 }
 

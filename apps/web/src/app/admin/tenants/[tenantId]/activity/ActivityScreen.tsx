@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, Eye } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { StatusPill } from "@/components/admin/kit";
 import {
@@ -53,10 +53,7 @@ function who(entry: ActivityEntry): string {
 function ViewAsMark() {
   return (
     <span title="Done from a view-as session: one of us, acting inside the client's console">
-      <StatusPill tone="warn" className="gap-1">
-        <Eye aria-hidden className="h-3 w-3" />
-        as the client
-      </StatusPill>
+      <StatusPill tone="warn">as the client</StatusPill>
     </span>
   );
 }

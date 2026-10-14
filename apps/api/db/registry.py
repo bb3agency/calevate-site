@@ -1040,10 +1040,10 @@ APPEND_ONLY_TABLES = [
     # a DELETE would erase the basis for calls already placed; a correction is a new run
     # under the provider's new reference.
     "preference_scrub_runs",
-    # A client's recorded decision to dial outbound commercial calls from an ordinary DID
-    # (TRAI 18 Jun 2024). Append-only for consent_ledger's reason: it is evidence of what a
-    # named person accepted on a date, so a withdrawal is a new row and an edit would
-    # destroy the only record that the earlier state existed.
+    # A client's recorded decision to dial outbound commercial calls from an ordinary DID.
+    # Unwritten since D-775; kept with its rows and triggers until the release that drops
+    # the table (hard rule 8). Append-only for consent_ledger's reason: it is evidence of
+    # what a named person accepted on a date.
     "outbound_sender_attestations",
     # Whose connection a bought number is. Immutable for the reason the table exists: a
     # holder edited after a number was registered would leave the operator's record of who

@@ -427,8 +427,8 @@ describe("the client health board", () => {
     // admin shell that no longer exists. A hardcoded colour is a screen the next brand
     // change and the dark-mode toggle leave behind — the argument `globals.css` makes for
     // role-named tokens. Asserted by the literals this migration removed rather than by
-    // `slate-` outright, because `NOTICE_TONES` legitimately paints neutral verdicts slate
-    // and is shared with the client realm.
+    // `slate-` outright, because the neutral tone's dot is slate (`--chart-neutral`) and is
+    // shared with the client realm.
     const { container } = renderAdminPage(<ClientHealthPage />, {
       [CLIENT_HEALTH_PATH]: [row()],
     });

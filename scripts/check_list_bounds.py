@@ -815,7 +815,16 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="`days` is ISO weekdays — seven, enforced by the request model."
     ),
     "GET /v1/campaigns/{campaign_id}": BoundedByConstruction(
-        by="`recurrence.days` is seven; `schedule_blocked_rules` is one per gate rule."
+        by=(
+            "`recurrence.days` is seven; `schedule_blocked_rules`, `not_calling` and "
+            "`retry_policy.gaps_minutes` are one per gate rule and at most four gaps."
+        )
+    ),
+    "GET /v1/campaigns/{campaign_id}/results": BoundedByConstruction(
+        by=(
+            "`recent_leads` is `campaigns.results.RECENT_LEADS` in the LIMIT; the maps are "
+            "keyed by the outcome, outcome-tag and sentiment enums."
+        )
     ),
     "POST /v1/lead-sources/{webhook_id}/test": BoundedByConstruction(
         by="`steps` is the fixed dry-run ladder in `ingest/service.py`."

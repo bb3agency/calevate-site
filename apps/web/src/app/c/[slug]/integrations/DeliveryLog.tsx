@@ -14,6 +14,8 @@ import { EmptyState } from "@/components/console/emptyState";
 import type { WriteAccess } from "@/lib/api/hooks";
 import { eventLabel, useDeliveries, useDeliveryPayload } from "@/lib/api/integrations";
 import { lookup } from "@/lib/lookup";
+import { StatusPill } from "@/components/console/statusPill";
+import type { NoticeTone } from "@/components/ui";
 
 /**
  * DELIVERIES ARE SHOWN, INCLUDING THE FAILURES. An integration that quietly stops is
@@ -35,10 +37,10 @@ import { lookup } from "@/lib/lookup";
  * do-not-call and team rows already use for a colourless pill, and a second spelling of
  * plain grey is where the two drift.
  */
-const STATUS_TONE: Record<string, string> = {
-  delivered: "bg-brand-soft text-brand-strong",
-  failed: "bg-danger-soft text-danger",
-  skipped: "bg-black/5 text-ink-muted dark:bg-white/10",
+const STATUS_TONE: Record<string, NoticeTone> = {
+  delivered: "ok",
+  failed: "stop",
+  skipped: "neutral",
 };
 
 export function DeliveryLog({
@@ -100,14 +102,9 @@ export function DeliveryLog({
                   </span>
                 </td>
                 <td className="py-2">
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                      lookup(STATUS_TONE, delivery.status) ??
-                      "bg-black/5 text-ink-muted dark:bg-white/10"
-                    }`}
-                  >
+                  <StatusPill tone={lookup(STATUS_TONE, delivery.status) ?? "neutral"} className="capitalize">
                     {delivery.status}
-                  </span>
+                  </StatusPill>
                 </td>
                 <td className="py-2 tabular-nums text-ink-muted">
                   {delivery.attempts}

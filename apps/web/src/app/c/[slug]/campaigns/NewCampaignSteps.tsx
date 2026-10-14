@@ -9,7 +9,12 @@ import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { FIELD, FIELD_HINT, FIELD_LABEL, formatPhone } from "@/components/ui";
 import { canDialOut } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
-import type { CampaignNumber, DltTemplate } from "@/lib/api/campaigns";
+import {
+  RETRY_GAP_CHOICES,
+  type CampaignNumber,
+  type DltTemplate,
+  type RetryPolicy,
+} from "@/lib/api/campaigns";
 import { Term } from "@/lib/glossary";
 
 import type { CampaignFormState, ScheduleFormState, StartMode } from "./campaignForm";
@@ -20,6 +25,94 @@ import { describeRepeat } from "./scheduleCopy";
 export interface ListQuery<T> {
   data: T[] | undefined;
   isLoading: boolean;
+}
+
+/**
+ * The numbers a campaign of this agent can call from: the launch gate's own predicate
+ * (`places_calls`) and the agent binding it also checks (`number_not_bound_to_agent`), so
+ * the picker never offers a number the launch then refuses.
+ */
+export function campaignNumbers(
+  numbers: CampaignNumber[] | undefined,
+  agentId: string,
+): CampaignNumber[] {
+  return (numbers ?? []).filter((number) => number.places_calls && number.agent_id === agentId);
+}
+
+/** "30 min", "2 hours", "1 day": a gap between tries as a person says it. */
+export function gapWords(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 1440) return `${minutes / 60} ${minutes === 60 ? "hour" : "hours"}`;
+  return "1 day";
+}
+
+/** The retry policy in one line: "3 tries, 30 min then 2 hours apart". */
+export function describeRetry(retry: { max_attempts: number; gaps_minutes?: number[] }): string {
+  if (retry.max_attempts === 1) return "1 try, no retries";
+  return `${retry.max_attempts} tries, ${(retry.gaps_minutes ?? []).map(gapWords).join(" then ")} apart`;
+}
+
+/**
+ * HOW OFTEN TO TRY ONE PERSON (D-773): 1–5 tries, and a gap before each retry from the
+ * server's fixed menu (`RETRY_GAP_CHOICES`). Changing the count keeps the gaps already
+ * chosen and fills new ones with the last.
+ */
+export function RetryChoice({
+  value,
+  onChange,
+}: {
+  value: RetryPolicy;
+  onChange: (value: RetryPolicy) => void;
+}) {
+  const gapList = value.gaps_minutes ?? [];
+  const setAttempts = (attempts: number) => {
+    const gaps = (value.gaps_minutes ?? []).slice(0, attempts - 1);
+    while (gaps.length < attempts - 1) gaps.push(gaps[gaps.length - 1] ?? 30);
+    onChange({ max_attempts: attempts, gaps_minutes: gaps });
+  };
+  return (
+    <div className="space-y-3">
+      <label className="block max-w-xs">
+        <span className={FIELD_LABEL}>Tries per person</span>
+        <select
+          value={value.max_attempts}
+          onChange={(e) => setAttempts(Number(e.target.value))}
+          className={FIELD}
+        >
+          {[1, 2, 3, 4, 5].map((n) => (
+            <option key={n} value={n}>
+              {n === 1 ? "1 (no retries)" : n}
+            </option>
+          ))}
+        </select>
+        <span className={FIELD_HINT}>A try that was answered, or a number on the do-not-call list, is never retried.</span>
+      </label>
+      {gapList.length > 0 && (
+        <div className="grid max-w-md gap-3 sm:grid-cols-2">
+          {gapList.map((gap, index) => (
+            <label key={index} className="block">
+              <span className={FIELD_LABEL}>Wait before try {index + 2}</span>
+              <select
+                value={gap}
+                onChange={(e) => {
+                  const gaps = [...gapList];
+                  gaps[index] = Number(e.target.value);
+                  onChange({ ...value, gaps_minutes: gaps });
+                }}
+                className={FIELD}
+              >
+                {RETRY_GAP_CHOICES.map((choice) => (
+                  <option key={choice} value={choice}>
+                    {gapWords(choice)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** One choice-card radio group, the shape every choice on this flow uses. */
@@ -78,6 +171,7 @@ export function BasicsStep({
   hasNoAgents,
   numbers,
   templates,
+  showTemplate = true,
 }: {
   form: CampaignFormState;
   agents: { data: Agent[] | undefined };
@@ -87,7 +181,10 @@ export function BasicsStep({
   hasNoAgents: boolean;
   numbers: ListQuery<CampaignNumber>;
   templates: ListQuery<DltTemplate>;
+  /** The edit page has no template field: `PATCH` does not change it. */
+  showTemplate?: boolean;
 }) {
+  const usable = campaignNumbers(numbers.data, selectedAgentId);
   return (
     <div className="space-y-5">
       <label className="block max-w-sm">
@@ -139,18 +236,23 @@ export function BasicsStep({
         <label className="block min-w-0">
           <span className={FIELD_LABEL}>Calling from</span>
           <select value={form.numberId} onChange={(e) => form.setNumberId(e.target.value)} className={FIELD}>
-            <option value="">Choose a number…</option>
-            {(numbers.data ?? []).map((option) => (
+            <option value="">The agent&rsquo;s own number</option>
+            {usable.map((option) => (
               <option key={option.id} value={option.id}>
                 {formatPhone(option.e164)} ({option.series} series)
               </option>
             ))}
           </select>
-          {/* "None" only from a list the server sent; a failed read is refused at the top. */}
-          {numbers.data?.length === 0 && (
-            <span className={FIELD_HINT}>No numbers yet — buy one on the Numbers page.</span>
+          {/* Only from a list the server sent; a failed read is refused at the top. */}
+          {numbers.data && (
+            <span className={FIELD_HINT}>
+              {usable.length === 0
+                ? "None of your numbers is set up to make calls for this agent, so calls show the number the agent dials from."
+                : "Only numbers this agent can make calls from are listed."}
+            </span>
           )}
         </label>
+        {showTemplate && (
         <label className="block min-w-0">
           <span className={FIELD_LABEL}>
             <Term id="dlt" /> template (optional)
@@ -167,6 +269,7 @@ export function BasicsStep({
             <span className={FIELD_HINT}>None registered. You do not need one to make calls.</span>
           )}
         </label>
+        )}
       </div>
     </div>
   );
@@ -253,14 +356,14 @@ export function StartChoice({ schedule }: { schedule: ScheduleFormState }) {
 }
 
 /**
- * THE PRE-SET RULES, as rows with Change (founder, REDESIGN-2): the hours it may call in
- * and how many calls run at once are the create fields (`calling_hours`, `concurrency`);
- * retrying unanswered calls and skipping the do-not-call list are the platform's own and
- * are stated, not offered.
+ * THE PRE-SET RULES, as rows with Change (founder, REDESIGN-2):
+ * the hours it may call in, how many calls run at once and how often an unanswered person
+ * is tried again are this campaign's own (`calling_hours`, `concurrency`, `retry_policy`);
+ * skipping the do-not-call list is the platform's and is stated, not offered.
  */
 export function PaceRows({ form }: { form: CampaignFormState }) {
-  const [editing, setEditing] = useState<"hours" | "pace" | null>(null);
-  const change = (what: "hours" | "pace") => (
+  const [editing, setEditing] = useState<"hours" | "pace" | "retry" | null>(null);
+  const change = (what: "hours" | "pace" | "retry") => (
     <button type="button" className={TEXT_ACTION} onClick={() => setEditing(editing === what ? null : what)} aria-expanded={editing === what}>
       {editing === what ? "Done" : "Change"}
     </button>
@@ -316,11 +419,24 @@ export function PaceRows({ form }: { form: CampaignFormState }) {
               onChange={(e) => form.setConcurrency(Number(e.target.value))}
               className={FIELD}
             />
-            <span className={FIELD_HINT}>Between 1 and 10. Lower is slower.</span>
+            <span className={FIELD_HINT}>
+              Between 1 and 10. Your plan and the lines kept free for people calling you can
+              allow fewer; the campaign page shows the number that applies.
+            </span>
           </label>
         </div>
       )}
-      <SettingRow label="No answer" value="Tried again later" />
+      <SettingRow
+        label="No answer, busy or voicemail"
+        hint="How many times we try each person, and how long we wait in between."
+        value={describeRetry(form.retry)}
+        action={change("retry")}
+      />
+      {editing === "retry" && (
+        <div className="settings-enter pb-4">
+          <RetryChoice value={form.retry} onChange={form.setRetry} />
+        </div>
+      )}
       <SettingRow label="Do-not-call list" value="Numbers on it are always skipped" />
     </SettingRows>
   );

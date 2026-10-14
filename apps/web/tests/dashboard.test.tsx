@@ -6,9 +6,10 @@ import type { CallSummary, Dashboard, Me } from "@/lib/api/client";
 import type { UsagePanel } from "@/lib/api/hooks";
 import type { Wallet } from "@/lib/api/wallet";
 
-import { activeTrialBlock } from "./fixtures/sharedReads";
+import { activeTrialBlock, agentRow } from "./fixtures/sharedReads";
 import {
   browserOffline,
+  noReply,
   problem,
   renderClientPage,
   stillLoading,
@@ -62,6 +63,8 @@ const EMPTY_DASHBOARD: Dashboard = {
   leads_new_7d: 0,
   hot_leads_open: 0,
   calls_prev_7d: 0,
+  calls_connected_7d: 0,
+  calls_not_connected_7d: 0,
   leads_new_prev_7d: 0,
   avg_duration_s_7d: null,
   sentiment_split: {},
@@ -239,6 +242,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/calls?limit=6": [],
     "/v1/agents": [],
     "/v1/agents/stats": [],
+    "/v1/campaigns": [],
     "/v1/attention": { counts: {}, items: [], total: 0 },
     "/v1/knowledge-gaps?status=open&limit=20": { items: [], open_count: 0, total: 0 },
     "/v1/business-profile": businessProfileFixture(),
@@ -796,18 +800,161 @@ describe("the calling credit tile", () => {
   });
 });
 
-describe("this week, in sentences", () => {
-  it("compares with the week before and counts the calls that did not connect, from the reads", async () => {
-    const { container } = await renderClientPage(
+describe("this week", () => {
+  /** An owner: may add credit, create agents and run campaigns. */
+  const OWNER: Me = { ...ME, permissions: ["calls:read", "leads:read", "org:manage", "leads:dispatch"] };
+
+  async function recap(over: Record<string, unknown>) {
+    await renderClientPage(page, routes({ "/v1/me": OWNER, ...over }));
+    const heading = await screen.findByRole("heading", { name: "This week" });
+    const card = heading.closest("section") as HTMLElement;
+    return card;
+  }
+
+  /** The card's buttons, in order; the first is the filled primary. */
+  async function actions(card: HTMLElement) {
+    // `/v1/me` answers after the dashboard, so wait for the permission-gated buttons.
+    await waitFor(() => expect(within(card).queryAllByRole("link").length).toBeGreaterThan(0));
+    return within(card)
+      .getAllByRole("link")
+      .filter((link) => link.className.includes("rounded-md"))
+      .map((link) => ({ name: link.textContent, primary: link.className.includes("bg-brand-strong") }));
+  }
+
+  it("reads a busy week as three figures and compares it with the week before", async () => {
+    const card = await recap({
+      "/v1/dashboard": {
+        ...EMPTY_DASHBOARD,
+        calls_7d: 29,
+        calls_prev_7d: 17,
+        calls_connected_7d: 20,
+        calls_not_connected_7d: 7,
+        daily_7d: WEEK,
+      },
+      "/v1/agents": [agentRow()],
+      "/v1/campaigns": [{ id: "c1", name: "Recall", status: "completed" }],
+    });
+    const text = card.textContent ?? "";
+    expect(text).toContain("12 more than the week before");
+    expect(within(card).getByText("Connected").parentElement?.textContent).toContain("20");
+    expect(text).toContain("69% of calls");
+    expect(within(card).getByText("Did not connect").parentElement?.textContent).toContain("7");
+    expect(text).toContain("No answer, busy or failed");
+    // The agent's state, with a way to it.
+    expect(text).toContain("Reception");
+    expect(text).toContain("Switched on");
+    expect(within(card).getByRole("link", { name: "Open agent" }).getAttribute("href")).toContain("/agents/agent-1");
+    // Nothing urgent: the week's calls lead; an inbound agent cannot dial, so no campaign.
+    expect(await actions(card)).toEqual([
+      { name: "See calls", primary: true },
+      { name: "Add credit", primary: false },
+      { name: "Add an agent", primary: false },
+    ]);
+  });
+
+  it("says every call connected when none was missed", async () => {
+    const card = await recap({
+      "/v1/dashboard": { ...EMPTY_DASHBOARD, calls_7d: 8, calls_prev_7d: 8, calls_connected_7d: 8 },
+      "/v1/agents": [agentRow()],
+    });
+    expect(card.textContent).toContain("Every one of them");
+    expect(card.textContent).toContain("None missed");
+    expect(card.textContent).toContain("Same as the week before");
+  });
+
+  it("does not invent a comparison in a first week", async () => {
+    const card = await recap({
+      "/v1/dashboard": { ...EMPTY_DASHBOARD, calls_7d: 8, calls_connected_7d: 8 },
+      "/v1/agents": [agentRow()],
+    });
+    expect(card.textContent).toContain("None the week before");
+    expect(card.textContent).not.toContain("more than the week before");
+  });
+
+  it("says a quiet week in one sentence instead of a row of zeroes", async () => {
+    const card = await recap({
+      "/v1/dashboard": { ...EMPTY_DASHBOARD, calls_prev_7d: 5 },
+      "/v1/agents": [agentRow()],
+    });
+    expect(card.textContent).toContain("No calls in the last 7 days. The week before had 5 calls.");
+    expect(within(card).queryByText("Connected")).toBeNull();
+    // Nothing calls for an action, so nothing is filled.
+    expect(await actions(card)).toEqual([
+      { name: "Add credit", primary: false },
+      { name: "Add an agent", primary: false },
+    ]);
+  });
+
+  it("leads with creating an agent when there is none", async () => {
+    const card = await recap({ "/v1/agents": [] });
+    expect(card.textContent).toContain("You have no agent yet");
+    const buttons = await actions(card);
+    expect(buttons[0]).toEqual({ name: "Create an agent", primary: true });
+    expect(buttons.map((b) => b.name)).not.toContain("Open campaigns");
+  });
+
+  it("leads with the agent when none is switched on", async () => {
+    const card = await recap({
+      "/v1/agents": [agentRow({ status: "paused" })],
+    });
+    expect(card.textContent).toContain("Paused");
+    const buttons = await actions(card);
+    expect(buttons[0]).toEqual({ name: "Open agent", primary: true });
+    // The same link is not offered twice.
+    expect(within(card).getAllByRole("link", { name: "Open agent" })).toHaveLength(1);
+  });
+
+  it("counts several agents rather than naming them", async () => {
+    const card = await recap({
+      "/v1/agents": [agentRow(), agentRow({ id: "agent-2", name: "Sales", status: "paused" })],
+    });
+    expect(card.textContent).toContain("Your 2 agents");
+    expect(card.textContent).toContain("1 switched on");
+    expect(within(card).getByRole("link", { name: "See agents" })).toBeTruthy();
+  });
+
+  it("leads with starting a campaign when an agent can dial and there is no campaign yet", async () => {
+    const card = await recap({
+      "/v1/agents": [agentRow({ direction: "outbound" })],
+      "/v1/campaigns": [],
+    });
+    expect((await actions(card))[0]).toEqual({ name: "Start a campaign", primary: true });
+  });
+
+  it("leads with credit when calls have stopped", async () => {
+    const card = await recap({
+      "/v1/agents": [agentRow({ direction: "outbound" })],
+      "/v1/billing/wallet": wallet({ is_low: true, outbound_stopped: true }),
+    });
+    expect((await actions(card))[0]).toEqual({ name: "Add credit", primary: true });
+  });
+
+  it("on a test-calls trial leads with credit and offers no campaign, which could not launch", async () => {
+    const card = await recap({
+      "/v1/agents": [agentRow({ direction: "outbound" })],
+      "/v1/billing/wallet": wallet({
+        balance_inr: "0.00",
+        minutes_left: null,
+        trial: activeTrialBlock({ test_calls_only: true }),
+      }),
+      // The trial's own test-call panel is not what this test is about.
+      "/v1/trial": noReply(),
+    });
+    const buttons = await actions(card);
+    expect(buttons[0]).toEqual({ name: "Add credit", primary: true });
+    expect(buttons.map((b) => b.name)).not.toContain("Start a campaign");
+  });
+
+  it("offers staff only what their role may do", async () => {
+    await renderClientPage(
       page,
       routes({
-        "/v1/dashboard": { ...EMPTY_DASHBOARD, calls_7d: 29, calls_prev_7d: 17, daily_7d: WEEK },
+        "/v1/dashboard": { ...EMPTY_DASHBOARD, calls_7d: 3, calls_connected_7d: 3 },
+        "/v1/agents": [agentRow({ direction: "outbound" })],
       }),
     );
-    await screen.findByRole("heading", { name: "This week" });
-    const text = container.textContent ?? "";
-    expect(text).toContain("12 more than the week before");
-    const missed = WEEK.reduce((sum, day) => sum + day.failed + day.no_answer, 0);
-    expect(text).toContain(`${missed} calls did not connect`);
+    const card = (await screen.findByRole("heading", { name: "This week" })).closest("section") as HTMLElement;
+    const buttons = await actions(card);
+    expect(buttons.map((b) => b.name)).toEqual(["See calls"]);
   });
 });

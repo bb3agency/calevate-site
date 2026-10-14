@@ -212,6 +212,8 @@ class CallFilters:
     #: Half-open `[since, until)` on `started_at`; aware instants.
     since: datetime | None = None
     until: datetime | None = None
+    #: The calls one campaign placed (`calls.campaign_id`), for its results' call links.
+    campaign_id: UUID | None = None
     #: False leaves out free-trial test calls (`calls.trial_call`).
     test_calls: bool = True
 
@@ -237,6 +239,9 @@ def _call_where(filters: CallFilters) -> tuple[str, dict[str, Any]]:
     if filters.until:
         clauses.append("c.started_at < :until")
         params["until"] = filters.until
+    if filters.campaign_id:
+        clauses.append("c.campaign_id = :campaign_id")
+        params["campaign_id"] = filters.campaign_id
     if not filters.test_calls:
         clauses.append("c.trial_call IS NOT TRUE")
     return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
@@ -2587,10 +2592,19 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
                 # database that happens to be set to UTC (same fix as performance.py).
                 "  count(*) FILTER ("
                 f"     WHERE {IST_HOUR_SQL} < 9 OR {IST_HOUR_SQL} >= 21"
-                "  ) AS after_hours "
+                "  ) AS after_hours, "
+                "  count(*) FILTER (WHERE status = ANY(:connected)) AS connected, "
+                "  count(*) FILTER (WHERE status = ANY(:not_connected)) AS not_connected "
                 "FROM calls WHERE started_at >= :since"
             ),
-            {"since": since_7d},
+            {
+                "since": since_7d,
+                "connected": list(DAILY_CALL_CLASSES["completed"]),
+                "not_connected": [
+                    *DAILY_CALL_CLASSES["no_answer"],
+                    *DAILY_CALL_CLASSES["failed"],
+                ],
+            },
         )
     ).first()
 
@@ -2684,6 +2698,8 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
         leads_new_7d=int(leads[0] or 0) if leads else 0,
         hot_leads_open=int(leads[1] or 0) if leads else 0,
         calls_prev_7d=int(calls_prev or 0),
+        calls_connected_7d=int(counts[4] or 0) if counts else 0,
+        calls_not_connected_7d=int(counts[5] or 0) if counts else 0,
         leads_new_prev_7d=int(leads[2] or 0) if leads else 0,
         minutes_used_month=counters.minutes_used,
         # Named columns rather than positional: six of them, and a chart that swaps

@@ -11,6 +11,7 @@
  * being used on a client surface, and vice versa.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { adminRealmSession } from "@/lib/authn/realmSessions";
@@ -549,7 +550,7 @@ export function useTenants(query: TenantDirectoryQuery = {}): UseQueryResult<Ten
   return useQuery({
     queryKey: ["admin", "tenants", { q: q.trim(), status, planTier, sort, offset }],
     queryFn: () => apiRequest<TenantDirectoryPage>(adminSession(), path),
-    refetchInterval: 60_000,
+    refetchInterval: livePoll(60_000),
     // The rows of the previous page stay on screen while the next one loads, so paging
     // and typing do not blank the table between answers.
     placeholderData: (previous) => previous,
@@ -575,7 +576,7 @@ export function useHeldTenants(): UseQueryResult<HeldTenant[]> {
   return useQuery({
     queryKey: HOLDS_QUERY_KEY,
     queryFn: () => apiRequest<HeldTenant[]>(adminSession(), HOLDS_PATH),
-    refetchInterval: 60_000,
+    refetchInterval: livePoll(60_000),
   });
 }
 
@@ -599,7 +600,7 @@ export function useClientHealth(): UseQueryResult<ClientHealth[]> {
   return useQuery({
     queryKey: CLIENT_HEALTH_QUERY_KEY,
     queryFn: () => apiRequest<ClientHealth[]>(adminSession(), CLIENT_HEALTH_PATH),
-    refetchInterval: 120_000,
+    refetchInterval: livePoll(120_000),
   });
 }
 
@@ -614,7 +615,7 @@ export function useTenantHealth(tenantId: string): UseQueryResult<TenantHealth> 
     queryFn: () =>
       apiRequest<TenantHealth>(adminSession(), `${CLIENT_HEALTH_PATH}/${encodeURIComponent(tenantId)}`),
     enabled: tenantId !== "",
-    refetchInterval: 120_000,
+    refetchInterval: livePoll(120_000),
   });
 }
 
@@ -784,7 +785,7 @@ export function usePlatformState(): UseQueryResult<PlatformState> {
   return useQuery({
     queryKey: ["admin", "platform"],
     queryFn: () => apiRequest<PlatformState>(adminSession(), "/v1/ops/platform"),
-    refetchInterval: 30_000,
+    refetchInterval: livePoll(30_000),
   });
 }
 

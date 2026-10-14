@@ -226,8 +226,8 @@ describe("the hold queue", () => {
     // preferences: a screen that hardcodes a colour is a screen the next brand change or
     // the dark-mode toggle silently leaves behind, which is the whole argument in
     // `globals.css`. Asserted by absence of the literals this migration removed rather
-    // than by absence of `slate-` outright, because `NOTICE_TONES.neutral` legitimately
-    // paints a fresh wait in slate and is shared with both realms.
+    // than by absence of `slate-` outright, because the neutral tone's dot is slate
+    // (`--chart-neutral`) and is shared with both realms.
     const { container } = renderAdminPage(<HeldAccountsPage />, {
       [HOLDS_PATH]: [tenant()],
     });

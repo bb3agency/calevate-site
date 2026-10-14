@@ -49,7 +49,7 @@ import {
 } from "@/lib/api/numberProvisioning";
 import { useClientRealm } from "@/lib/api/session";
 
-import { DIRECTIONS, OutboundRestriction } from "./direction";
+import { DIRECTIONS } from "./direction";
 
 /** Detach: the recovery path from a wrong binding, and a real choice rather than a gap. */
 const NOBODY = "";
@@ -62,13 +62,10 @@ function notActivated(error: unknown): boolean {
 
 export function NumberAssignment({
   numberId,
-  series,
   currentAgentId,
   currentDirection,
 }: {
   numberId: string;
-  /** DLT's number class, as the server derived it from the number's own prefix. */
-  series: string;
   /** `NumberOut.agent_id` — the agent the number is on now, or null for nobody. */
   currentAgentId: string | null;
   /** `NumberOut.direction` — what the number is recorded as being for. */
@@ -141,10 +138,6 @@ export function NumberAssignment({
           ))}
         </div>
       </fieldset>
-
-      <div className="mt-3">
-        <OutboundRestriction direction={direction} series={series} />
-      </div>
 
       <div className="mt-3">
         <RestrictionNote reason={write.reason} />

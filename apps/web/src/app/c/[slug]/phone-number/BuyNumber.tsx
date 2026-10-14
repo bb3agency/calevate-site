@@ -80,7 +80,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { activeTrial, trialEndsAt, useWallet } from "@/lib/api/wallet";
 import { useIdempotencyKey } from "@/lib/authn/useIdempotencyKey";
 
-import { DIRECTIONS, OutboundRestriction } from "./direction";
+import { DIRECTIONS } from "./direction";
 
 /** A refusal's machine code, its sentence and what to do instead — whatever it carried. */
 function refusal(error: unknown): { code: string; detail: string; remediation: string | null } | null {
@@ -500,7 +500,6 @@ export function BuyNumber() {
                       ))}
                     </div>
                   </fieldset>
-                  <OutboundRestriction direction={direction} series={chosen.series} />
 
                   {!verified && (
                     <p className="text-body text-ink-muted">

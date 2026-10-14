@@ -495,7 +495,7 @@ async def test_campaign_clone_copies_the_settings_and_not_the_contacts() -> None
         {
             "name": "Autumn",
             "agent_id": str(await _agent_of(tenant_id)),
-            "classification": "transactional",
+            "classification": "service",
         },
     )
     copy = await _run(
@@ -506,7 +506,7 @@ async def test_campaign_clone_copies_the_settings_and_not_the_contacts() -> None
         "SELECT name, classification, status FROM campaigns WHERE id = :i",
         i=UUID(copy.object_id),
     )
-    assert tuple(row) == ("Copy of Autumn", "transactional", "draft")
+    assert tuple(row) == ("Copy of Autumn", "service", "draft")
 
 
 async def test_a_campaign_is_scheduled_unscheduled_and_resumed_by_confirm_only() -> None:

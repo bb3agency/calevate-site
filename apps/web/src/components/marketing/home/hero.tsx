@@ -48,22 +48,20 @@ export function Hero() {
   return (
     <section className="relative isolate overflow-hidden">
       {/*
-        Decorative ground: the masked line grid and two soft brand glows. A SIBLING of the
+        Decorative ground: the masked line grid, the marketing site's one texture. A SIBLING of the
         content at `z-below`, never an ancestor of it — a background image on an ancestor of
         text is what makes a contrast check unresolvable. `isolate` on the section is what
         keeps `z-below` inside it rather than behind the page's own background.
       */}
       <div aria-hidden className="pointer-events-none absolute inset-0 z-below">
-        <div className="mk-grid-lines absolute inset-0" />
-        <div className="mk-blob mk-blob--a mk-float absolute -top-24 left-[8%] h-56 w-56 sm:h-96 sm:w-96" />
-        <div className="mk-blob mk-blob--b mk-float--slow absolute top-[38%] right-[-6rem] h-64 w-64 sm:h-[28rem] sm:w-[28rem]" />
+        <div className="mk-grid-lines absolute inset-0" />
       </div>
 
       <div className={`${SHELL} relative pt-10 pb-16 sm:pt-16 sm:pb-24 lg:pt-20`}>
         <HeroStagger className="mx-auto flex max-w-5xl flex-col items-center text-center">
           <p
             data-hero-item
-            className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-4 py-1.5 text-sm font-medium text-ink-muted shadow-card"
+            className="text-sm font-medium text-ink-muted"
           >
             Telugu-first · Hindi · English
           </p>
@@ -90,8 +88,6 @@ export function Hero() {
             Calevate answers your calls, follows up on every enquiry, works out who is worth
             your team’s time, and turns each conversation into a lead they can act on.
           </p>
-          {/* `-muted`, not `-faint`: this line sits over the hero's glow, and `--text-faint`
-              has no headroom above 4.5:1 on a tinted ground (see `globals.css`). */}
           <p data-hero-item className="mt-4 max-w-2xl text-base text-pretty text-ink-muted sm:text-lg">
             Built Telugu-first for clinics, property offices, insurance advisors and coaching
             centres across Andhra Pradesh and Telangana.

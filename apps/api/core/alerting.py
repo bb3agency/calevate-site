@@ -968,6 +968,16 @@ def record_campaign_dials(*, dialled: int, blocked: int) -> None:
     _record("campaign_dials", dialled, blocked=str(blocked))
 
 
+def record_live_publish_failure(*, reason: str) -> None:
+    """A change note (D-774) that did not reach Redis after its write committed.
+
+    The write stands and nothing is retried: open browsers catch up on their next
+    reconnect or safety poll. A run of these means live updates are degraded to polling
+    across the platform, which is what an operator grepping for it needs to know.
+    """
+    _record("live_publish_failed", 1, reason=reason)
+
+
 def record_outbox_lag(seconds: float) -> None:
     _record("outbox_lag_seconds", seconds)
 

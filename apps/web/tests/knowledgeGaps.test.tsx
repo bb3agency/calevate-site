@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { KnowledgeGaps } from "@/app/c/[slug]/KnowledgeGaps";
@@ -98,6 +98,24 @@ describe("the knowledge-gaps card", () => {
     );
     expect(await screen.findByText("Nothing unanswered")).toBeTruthy();
     expect(container.textContent).not.toContain("Didn't know this");
+  });
+
+  it("on the dashboard, shows nothing at all until an agent actually struggled", async () => {
+    const { container, calls } = await renderClientPage(
+      <KnowledgeGaps hideWhenClear />,
+      routes({ [GAPS_ROUTE]: list({ items: [], open_count: 0, total: 0 }) }),
+    );
+    // Empty while loading too, so wait for the answer before judging the settled state.
+    await waitFor(() => expect(calls.some((c) => c.path.includes("knowledge-gaps"))).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(container.textContent).toBe("");
+    expect(screen.queryByText("Where your agents struggled")).toBeNull();
+  });
+
+  it("on the dashboard, shows the card as soon as there is a gap to teach", async () => {
+    await renderClientPage(<KnowledgeGaps hideWhenClear />, routes());
+    expect(await screen.findByText("Where your agents struggled")).toBeTruthy();
+    expect(screen.getByText("Pricing")).toBeTruthy();
   });
 
   it("does not report calm when the request failed", async () => {

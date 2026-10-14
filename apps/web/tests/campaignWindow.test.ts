@@ -4,7 +4,7 @@ import { PLATFORM_WINDOW, windowRefusal } from "@/app/c/[slug]/campaigns/NewCamp
 
 /**
  * The "When should we call?" step refuses a narrowed calling window the server would refuse
- * at create (`campaigns/service.py::_validated_window`), so the client fixes it on the step
+ * at create (`campaigns/service.py::validated_window`), so the client fixes it on the step
  * that set it instead of seeing a 422 on "Create campaign".
  */
 describe("the campaign calling window", () => {

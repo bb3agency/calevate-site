@@ -28,6 +28,7 @@
  * reached a vendor stays answerable. There is therefore no `If-Match` here.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { adminSession } from "./admin";
@@ -70,7 +71,7 @@ export function useDashboardDataUse(): UseQueryResult<DashboardDataUseList> {
     // an attestation is a deliberate act by a person at a keyboard, not a state that drifts,
     // and a tighter poll would clobber a half-typed form more often than it would tell anyone
     // anything.
-    refetchInterval: 60_000,
+    refetchInterval: livePoll(60_000),
   });
 }
 

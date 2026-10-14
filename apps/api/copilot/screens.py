@@ -94,6 +94,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
+from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.core.rbac import ROLE_PERMISSIONS, Permission
 
 #: The heading a group carries in the sidebar. `None` is the primary group, which is
@@ -230,13 +231,14 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
     ),
     Screen(
         route="/c/{slug}/assistant",
-        name="Assistant",
+        name=ASSISTANT_NAME,
         group=None,
         summary=(
-            "The assistant's own page: past conversations, tasks running in the background, "
-            "the approvals waiting for you, routines, and everything it did with an Undo."
+            f"{ASSISTANT_NAME}'s own page (the assistant): past conversations, tasks running "
+            "in the background, the approvals waiting for you, routines, and everything it "
+            "did with an Undo."
         ),
-        aliases=("approvals", "routines", "activity log", "tasks", "undo"),
+        aliases=("assistant", "approvals", "routines", "activity log", "tasks", "undo"),
     ),
     Screen(
         route="/c/{slug}/quality",

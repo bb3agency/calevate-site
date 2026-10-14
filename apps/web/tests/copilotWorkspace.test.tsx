@@ -70,7 +70,7 @@ describe("the words the workspace uses", () => {
 });
 
 describe("the side panel", () => {
-  it("opens from a 'Let the assistant do this' button with the request written but NOT sent", async () => {
+  it("opens from a 'Let Pip do this' button with the request written but NOT sent", async () => {
     const view = await renderClientPage(
       <>
         <ClientCopilotDock />
@@ -80,7 +80,7 @@ describe("the side panel", () => {
     );
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Let the assistant do this: Summarise the leads I've ticked.",
+        name: "Let Pip do this: Summarise the leads I've ticked.",
       }),
     );
     const panel = await screen.findByRole("dialog");
@@ -175,7 +175,7 @@ describe("the activity log", () => {
     const undos = screen.getAllByRole("button", { name: /^Undo:/ });
     expect(undos).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Show older" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "What the assistant did" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "What Pip did" })).toBeTruthy();
     await act(async () => {
       fireEvent.click(undos[0]);
     });

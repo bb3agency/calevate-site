@@ -133,12 +133,9 @@ from apps.api.ops.alerts_service import (
     AlertReport,
     alert_report,
 )
-from apps.api.ops.engine_latency import (
-    DEFAULT_WINDOW_DAYS,
-    MAX_WINDOW_DAYS,
-    EngineLatencyReport,
-    engine_latency_report,
-)
+from apps.api.ops.reply_times import DEFAULT_WINDOW_DAYS as REPLY_DEFAULT_WINDOW_DAYS
+from apps.api.ops.reply_times import MAX_WINDOW_DAYS as REPLY_MAX_WINDOW_DAYS
+from apps.api.ops.reply_times import ReplyTimeReport, reply_time_report
 from apps.api.ops.service import (
     TmRegistration,
     read_halt_state,
@@ -152,10 +149,10 @@ router = APIRouter(prefix="/v1/ops", tags=["ops"])
 
 GlobalSession = Annotated[AsyncSession, Depends(global_db)]
 # THE TENANT-DIRECTORY SESSION, and the only route in this file that needs one. Every
-# other lever here reads platform state; the latency report reads a TENANT-SCOPED table
-# across every tenant on purpose — a pilot call placed under one client and its control
-# under another must land in the same distribution. `admin_db` takes the admin principal
-# as a dependency, so the widened policy is unreachable without a verified admin token.
+# other lever here reads platform state; the reply-time report enumerates tenants so
+# `call_reply_scan` can enter each one under its own RLS context. `admin_db` takes the
+# admin principal as a dependency, so the widened policy is unreachable without a
+# verified admin token.
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 
 #: The recall arm of the big red switch (D-432) lives in `ops/halt.py`, shared with the
@@ -1360,39 +1357,33 @@ async def read_kb_orphans(
 
 
 @router.get(
-    "/engine-latency",
-    response_model=EngineLatencyReport,
+    "/reply-times",
+    response_model=ReplyTimeReport,
     openapi_extra=permission_meta("ops:manage"),
-    summary="What the voice engine reported its own pipeline cost, by region (gate 4)",
+    summary="How long callers waited for replies, across every client (D-770)",
 )
-async def read_engine_latency(
+async def read_reply_times(
     session: AdminSession,
     days: int = Query(
-        DEFAULT_WINDOW_DAYS,
+        REPLY_DEFAULT_WINDOW_DAYS,
         ge=1,
-        le=MAX_WINDOW_DAYS,
+        le=REPLY_MAX_WINDOW_DAYS,
         description="How many days of calls to include.",
     ),
     _: Principal = Depends(requires("ops:manage", realm="admin")),
-) -> EngineLatencyReport:
-    """The LLM time-to-first-token distribution per (engine, region).
+) -> ReplyTimeReport:
+    """The voice platform's per-call reply times, by client, agent, voice rung and IST day.
 
     **NO STEP-UP CONFIRMATION**, for this file's stated reason: it writes nothing, and
     demanding a confirmation to run a read teaches operators to type past confirmations.
 
-    **NO AUDIT ROW.** The payload is milliseconds, counts and a region code — nothing from
-    any call and nothing about any person — and it is a page an operator refreshes while
-    watching a pilot. An audit chain that grows a row per refresh stops being readable,
-    which is the argument `quality/routes.py` and `holds_routes.py` both make.
-
-    **WHY IT IS ADMIN AND NOT CLIENT.** It is a question about OUR infrastructure choices
-    across every tenant — specifically what the model deployment's geography costs the
-    caller, which is what D-449 traded the India residency claim away to improve and what
-    nobody has yet measured (OPERATIONS §2 gate 4). A client's own screen has
-    nothing to do with it, and `flags.registry.call_timing_breakdown` is where the
-    per-client version waits with its blocker written down.
+    **NO AUDIT ROW.** The payload is milliseconds, counts and the names of clients and their
+    agents, nothing any caller said and nothing about any person; it is a page an operator
+    refreshes while watching calls, and an audit chain that grows a row per refresh stops
+    being readable (`quality/routes.py` and `holds_routes.py` make the same argument).
+    Opening one of the listed calls goes through view-as, which audits the entry.
     """
-    return await engine_latency_report(session, days=days)
+    return await reply_time_report(session, days=days)
 
 
 @router.get(
@@ -1419,13 +1410,13 @@ async def read_alerts(
 ) -> AlertReport:
     """THE SCREEN THE FOUNDER ASKED FOR (D-591): *"failures in admin panel only"*.
 
-    **`GlobalSession` AND NOT `AdminSession`**, unlike the latency report two routes down.
+    **`GlobalSession` AND NOT `AdminSession`**, unlike the reply-time report above.
     `platform_alerts` carries no `tenant_id` and no policy at all — it is platform
     machinery, registered in `db/registry.RLS_EXEMPT_TENANT_COLUMNS` — so there is no
     tenant to be inside and no widened policy to need. Asking for the admin-widened
     session here would be taking a privilege this read has no use for.
 
-    **NO STEP-UP CONFIRMATION AND NO AUDIT ROW**, for `read_engine_latency`'s two reasons
+    **NO STEP-UP CONFIRMATION AND NO AUDIT ROW**, for `read_reply_times`'s two reasons
     unchanged: it writes nothing, and it is a page an operator refreshes while watching an
     incident — an audit chain that grows a row per refresh stops being readable. Nothing
     in the payload belongs to a client: `detail` and `ids` were redacted at the write

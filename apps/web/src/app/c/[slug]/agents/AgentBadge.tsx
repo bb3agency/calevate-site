@@ -14,15 +14,16 @@
  * production build with a message that names no line (D-196, tests/routeModuleExports).
  */
 
-import { NOTICE_TONES } from "@/components/ui";
+import { StatusPill } from "@/components/console/statusPill";
+import type { NoticeTone } from "@/components/ui";
 import { humanise, isDeleted } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
 
 export interface LiveState {
   /** The badge word. */
   label: string;
-  /** Border/background/text classes — design tokens, never a fresh colour. */
-  tone: string;
+  /** The shared tone, drawn by `StatusPill`. */
+  tone: NoticeTone;
   /** The same fact as a sentence, for the screen that has room for one. */
   detail: string;
 }
@@ -35,10 +36,8 @@ export interface LiveState {
  * column says. An agent switched on but not yet built is a different wait from one built
  * and left switched off, and only we can tell them apart — so they get different words.
  *
- * Tones are the design tokens: brand-soft for live (the console's one "this is working"
- * colour) and the neutral surface for the waits. Paused borrows `NOTICE_TONES.warn`
- * rather than re-picking an amber — it is the one state a client may want to act on,
- * which is exactly what that tone already means everywhere else in this app.
+ * Tones: ok for live (the console's one "this is working" colour), neutral for the waits,
+ * and warn for paused, the one state a client may want to act on.
  */
 export function liveState(agent: Agent): LiveState {
   if (isDeleted(agent)) {
@@ -47,7 +46,7 @@ export function liveState(agent: Agent): LiveState {
       // heading and the button that produced it have to be one word or an owner cannot
       // connect them. The detail keeps the sentence that makes the word honest.
       label: "Deleted",
-      tone: "border-line bg-surface-muted text-ink-muted",
+      tone: "neutral",
       detail:
         "It takes no calls and makes none. The calls it already handled are still in your call log.",
     };
@@ -55,7 +54,7 @@ export function liveState(agent: Agent): LiveState {
   if (!agent.published) {
     return {
       label: "Being set up",
-      tone: "border-line bg-surface-muted text-ink-muted",
+      tone: "neutral",
       detail:
         "Not on the calling system yet, so it cannot take or make calls. Switching it on puts it there.",
     };
@@ -63,7 +62,7 @@ export function liveState(agent: Agent): LiveState {
   if (agent.status === "paused") {
     return {
       label: "Paused",
-      tone: NOTICE_TONES.warn,
+      tone: "warn",
       detail:
         "Switched off for now. No calls are being answered or made by this agent.",
     };
@@ -71,7 +70,7 @@ export function liveState(agent: Agent): LiveState {
   if (agent.status === "live") {
     return {
       label: "Live",
-      tone: "border-brand-soft bg-brand-soft text-brand-strong",
+      tone: "ok",
       detail: "On the calling system and working right now.",
     };
   }
@@ -80,7 +79,7 @@ export function liveState(agent: Agent): LiveState {
      of the roster's "Working right now" section for the same reason. */
   return {
     label: humanise(agent.status),
-    tone: "border-line bg-surface-muted text-ink-muted",
+    tone: "neutral",
     detail:
       "We cannot tell you from here whether this agent is taking calls. Our team can.",
   };
@@ -110,31 +109,19 @@ export function voiceTierLabel(agent: Agent): string | null {
   return typeof label === "string" && label.trim() !== "" ? label : null;
 }
 
-/** The voice-quality badge, beside the live one. Renders nothing when the API sent none. */
+/** The voice quality, beside the live state. Renders nothing when the API sent none. */
 export function VoiceTierBadge({ agent }: { agent: Agent }) {
   const label = voiceTierLabel(agent);
   if (label === null) return null;
   return (
-    <span
-      className="inline-flex shrink-0 items-center rounded-full border border-line bg-surface-muted px-3 py-1 text-xs font-semibold text-ink-muted"
-      /* The visible word is a quality name on its own ("Studio"), which reads as a state
-         next to "Live" unless it says what it is a name FOR. The accessible name carries
-         the noun; the badge stays short enough to scan. */
-      aria-label={`${label} voice`}
-    >
-      {label}
-    </span>
+    // A tag, not a state, so plain text; "voice" is written out because "Studio" alone
+    // beside "Live" would read as another state.
+    <span className="shrink-0 whitespace-nowrap text-meta text-ink-muted">{label} voice</span>
   );
 }
 
 /** The badge, wherever an agent is named. */
 export function LiveBadge({ agent }: { agent: Agent }) {
   const live = liveState(agent);
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1 text-xs font-semibold ${live.tone}`}
-    >
-      {live.label}
-    </span>
-  );
+  return <StatusPill tone={live.tone}>{live.label}</StatusPill>;
 }

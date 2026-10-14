@@ -274,7 +274,7 @@ export function ModelPicker({
               )}
               <span className="text-sm font-semibold text-ink">{choice.label}</span>
               {choice.badge && (
-                <span className="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-muted">
+                <span className="text-meta text-ink-muted">
                   {choice.badge}
                 </span>
               )}

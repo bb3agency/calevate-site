@@ -66,7 +66,7 @@ class NumberHolder(PKMixin, Base):
     holder_name: Mapped[str] = mapped_column(Text, nullable=False)
     holder_email: Mapped[str] = mapped_column(Text, nullable=False)
     #: The person at the client who gave it. NOT NULL: an identity nobody is named on
-    #: evidences nothing, which is `outbound_sender_attestations.attested_by`'s reasoning.
+    #: evidences nothing.
     recorded_by: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )

@@ -500,6 +500,77 @@ async def verify_session(*, token: str, realm: str, now: datetime | None = None)
         return await _verify_within(session, token=token, realm=realm, now=now)
 
 
+async def session_still_live(
+    *, token: str, realm: str, now: datetime | None = None
+) -> VerifiedSession | None:
+    """Whether a session that was verified earlier is STILL live — read-only.
+
+    For a long-lived response (the live change stream, D-774) that must stop when its
+    session ends without refreshing that session. `verify_session` is the wrong tool for
+    it twice over:
+
+    - it SLIDES the idle window, so a browser tab holding a stream open would keep its
+      session alive forever and the idle bound would mean nothing;
+    - it treats a SUPERSEDED token as a replay and revokes the family. A stream holds the
+      cookie it was opened with, and the console rotates that cookie legitimately
+      (refresh, a second factor, step-up, password change), so re-presenting it here
+      would sign the person out of every tab the moment they clicked "stay signed in".
+
+    So this reads the row and applies the same bounds `_verify_within` applies, and
+    writes nothing. A superseded row is answered "not live" (the stream closes and the
+    browser reopens it with its new cookie), not "reuse".
+    """
+    _refuse_unknown_realm(realm)
+    at = now or datetime.now(UTC)
+    async with credential_session() as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT id, family_id, subject_id, absolute_expires_at, idle_expires_at, "
+                    "last_seen_at, superseded_at, revoked_at, mfa_verified_at, "
+                    "(SELECT min(f.created_at) FROM auth_sessions f "
+                    "WHERE f.family_id = auth_sessions.family_id) AS family_started_at "
+                    "FROM auth_sessions WHERE token_hash = :hash AND realm = :realm"
+                ),
+                {"hash": token_fingerprint(token, realm), "realm": realm},
+            )
+        ).first()
+        if row is None:
+            return None
+        (
+            session_id,
+            family_id,
+            subject_id,
+            absolute_expires_at,
+            idle_expires_at,
+            last_seen_at,
+            superseded_at,
+            revoked_at,
+            mfa_verified_at,
+            family_started_at,
+        ) = row
+        if superseded_at is not None or revoked_at is not None:
+            return None
+        switch_on = await _switch_on(session, realm=realm, subject_id=subject_id)
+    policy = session_policy(
+        realm, switch_on=switch_on, second_factor_proved=mfa_verified_at is not None
+    )
+    absolute_bound = min(absolute_expires_at, family_started_at + policy.timeouts.absolute)
+    idle_bound = min(idle_expires_at, last_seen_at + policy.timeouts.idle)
+    if at >= absolute_bound or at >= idle_bound:
+        return None
+    return VerifiedSession(
+        session_id=UUID(str(session_id)),
+        family_id=UUID(str(family_id)),
+        realm=realm,
+        subject_id=UUID(str(subject_id)),
+        absolute_expires_at=absolute_expires_at,
+        mfa_verified_at=mfa_verified_at,
+        switch_on=switch_on,
+        policy=policy,
+    )
+
+
 async def _verify_within(
     session: AsyncSession, *, token: str, realm: str, now: datetime | None
 ) -> SessionOutcome:
@@ -877,6 +948,7 @@ __all__ = [
     "revoke_subject_sessions",
     "rotate_session",
     "session_policy",
+    "session_still_live",
     "shorten_subject_sessions",
     "token_fingerprint",
     "verify_session",

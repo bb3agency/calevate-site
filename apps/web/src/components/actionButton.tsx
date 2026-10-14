@@ -1,9 +1,8 @@
 "use client";
 
 /**
- * A primary button that shows an inline spinner while an async action runs — adapted to
- * the Calevate green from the "liquid gradient" sample, with its `master.png` sheen dropped
- * (there is no such asset here, and a strict CSP would block one anyway).
+ * A primary button that shows an inline spinner while an async action runs, in the same flat
+ * brand fill as `PRIMARY_BUTTON`.
  *
  * ## The label stays mounted; only the spinner comes and goes
  *
@@ -68,18 +67,14 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(
         // `--ease-out-strong` in globals.css); motion needs the numbers, not the variables.
         transition={{ duration: 0.14, ease: [0.23, 1, 0.32, 1] }}
         className={clsx(
-          "relative inline-flex h-11 items-center justify-center gap-2 overflow-hidden rounded-md px-4 text-sm font-semibold text-white shadow-sm",
+          "relative inline-flex h-11 items-center justify-center gap-2 overflow-hidden rounded-md bg-brand-strong px-4 text-sm font-semibold text-white [&:not(:disabled)]:hover:bg-brand-deep",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app",
           "disabled:cursor-not-allowed disabled:opacity-60",
           className,
         )}
-        // OUR green, top-to-bottom — the sample's blue liquid gradient restated as brand
-        // tokens so a rebrand flows through globals.css, not this file. Spread last so a
-        // caller can still override.
-        style={{
-          backgroundImage: "linear-gradient(180deg, var(--brand-strong) 0%, var(--brand-deep) 100%)",
-          ...style,
-        }}
+        // A flat fill, the same as `PRIMARY_BUTTON`: the console has one primary button
+        // look, and a gradient on this one made it a second (D-771).
+        style={style}
         {...props}
       >
         <span

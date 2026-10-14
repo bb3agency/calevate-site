@@ -8,6 +8,7 @@
  * with a support ticket costs more than answering it with a table.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { lookup } from "@/lib/lookup";
@@ -163,7 +164,7 @@ export function useDeliveries(session: Session): UseQueryResult<Delivery[]> {
     queryFn: () => apiRequest<Delivery[]>(session, "/v1/integrations/deliveries"),
     // Deliveries move on the outbox's schedule (seconds), and this screen is usually
     // open precisely because someone is watching one land.
-    refetchInterval: 20_000,
+    refetchInterval: livePoll(20_000),
   });
 }
 

@@ -27,6 +27,7 @@ import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
 import { awaitsConfirmation, fileSize, isMachineRead, uploadState, uploadSteps } from "./uploadCopy";
+import { StatusPill } from "@/components/console/statusPill";
 
 const KIND_ICONS = {
   url: Globe,
@@ -61,14 +62,7 @@ export function UploadRow({ upload }: { upload: KbUpload }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="min-w-0 break-words text-sm font-medium text-ink">{shown.name}</span>
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${state.tone}`}
-            >
-              {shown.is_live && (
-                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-brand-bright" />
-              )}
-              {state.label}
-            </span>
+            <StatusPill tone={state.tone}>{state.label}</StatusPill>
           </div>
           <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-ink-faint">
             <span>{kind}</span>

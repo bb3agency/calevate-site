@@ -9,6 +9,7 @@
  * than a running job's card, because what changes here is mostly the person's own doing.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "@/lib/api/client";
@@ -58,7 +59,7 @@ export function useCopilotActivity(session: Session, realm: Realm) {
     queryKey: key.actions(realm, session.orgSlug),
     queryFn: () =>
       apiRequest<CopilotActionPageOut>(session, `${actionsBase(realm)}?limit=${ACTIVITY_PAGE}`),
-    refetchInterval: WORKSPACE_POLL_MS,
+    refetchInterval: livePoll(WORKSPACE_POLL_MS),
   });
 }
 
@@ -77,7 +78,7 @@ export function useCopilotApprovals(session: Session, enabled = true) {
   return useQuery<CopilotActionPageOut>({
     queryKey: key.approvals(session.orgSlug),
     queryFn: () => apiRequest<CopilotActionPageOut>(session, "/v1/copilot/approvals"),
-    refetchInterval: WORKSPACE_POLL_MS,
+    refetchInterval: livePoll(WORKSPACE_POLL_MS),
     enabled,
   });
 }
@@ -169,7 +170,7 @@ export function useRoutines(session: Session) {
   return useQuery<CopilotRoutinePageOut>({
     queryKey: key.routines(session.orgSlug),
     queryFn: () => apiRequest<CopilotRoutinePageOut>(session, "/v1/copilot/routines"),
-    refetchInterval: WORKSPACE_POLL_MS,
+    refetchInterval: livePoll(WORKSPACE_POLL_MS),
   });
 }
 

@@ -15,7 +15,7 @@ quiet for an hour, so an open row is one that has been seen recently or has not 
 swept. The screen shows open episodes above cleared ones and loud above quiet, because
 that is the order the question is asked in.
 
-**NO DERIVATION HERE, FOR `engine_latency.py`'s REASON.** The severity is the one recorded
+**NO DERIVATION HERE.** The severity is the one recorded
 on the row rather than the one `ALARM_SEVERITY` holds today, so a re-classification never
 rewrites the history of what was actually mailed; `emailed` is the transport's own answer
 and not "severity == page", so a `page` whose SMTP failed twice reads as the unmailed alarm
@@ -24,7 +24,7 @@ paint green.
 
 **PLATFORM-SCOPED, SO NO TENANT WALK.** `platform_alerts` carries no `tenant_id` and no
 policy (`db/registry.RLS_EXEMPT_TENANT_COLUMNS`), which is why this is one query and not
-the per-tenant walk `engine_latency` and `admin/health` have to do. Nothing here can be
+the per-tenant walk `reply_times` and `admin/health` have to do. Nothing here can be
 traced to a client.
 
 **HARD RULE 6 IS ALREADY SATISFIED AT THE WRITE.** `core/alert_records.py` redacts `detail`

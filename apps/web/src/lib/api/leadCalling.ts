@@ -8,6 +8,7 @@
  * words rather than its own.
  */
 
+import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
@@ -44,7 +45,7 @@ export function useHeldLeads(session: Session) {
   return useQuery({
     queryKey: heldKey(session),
     queryFn: () => apiRequest<HeldLeads>(session, "/v1/lead-calling/held"),
-    refetchInterval: 60_000,
+    refetchInterval: livePoll(60_000),
   });
 }
 
