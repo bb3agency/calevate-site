@@ -632,3 +632,104 @@ B — §11.2 row 6; C — `api-reference/calls/get-call.md:1102-1112`; D — `do
 `api-reference/calls/cancel-call.md:7`; F — `workspace/data-and-erasure.md:14-56`,
 THINNEST-INTEGRATION "Erasure" (D-691); G — §12 item 4, the hourly sweeps (D-727, D-764); H — §9
 item 1 (moved here from question 9 of the draft).
+
+## 14. Ashutosh's answer to the §13.1 requests, received 15 Oct 2026
+
+- **From:** Ashutosh K, founder of ThinnestAI.
+- **Relayed by:** the founder.
+- **Evidence class:** **VENDOR-STATED**.
+- **Status:** all eight requests of §13.1 (A–H) are "built and live".
+- **What the answers below are.** A summary, item by item; the email's own text, as the founder pasted it, is the record and follows the summary as §14.0.
+- **Where the docs check is.** `docs/evidence/thinnest-reply-2026-10-15.md` checks each answer against the docs snapshot `thinnest-findings/mirror/snapshots/2026-10-15/`. **All eight are documented there** (VERIFIED-VENDOR-DOCS). The differences are noted beside each answer.
+
+A. **What each call was billed as.**
+   - Get Call and `call.analysed` carry `billing` with five fields:
+     - `keys` (`off | all | voice | llm | llm_voice`): what the call actually ran on, after any fallback;
+     - `voicePlan` (Standard | Premium | Studio): null for flat own-key prices and for older calls;
+     - `ratePerMinuteMicro`;
+     - `billedSeconds`: empty until settled;
+     - `currency`.
+   - For a forwarded call with no agent, trust `costMicro`.
+   - *Docs:* `voicePlan` is lower case (`standard | premium | studio | null`), and it is also null for a free trial call. List Calls does not carry `billing`. The forwarded-call rule is not in the docs.
+B. **`usage.ttsCharacters`.** All text sent to the voice, including cut-off sentences. It matches what our Cartesia account bills.
+   - *Docs:* the field is documented. The match with a Cartesia invoice is only "what a voice provider charges for".
+C. **`usage.inputTokensEstimated`.** True when the input tokens are their estimate.
+   - *Docs:* nullable, and null for calls before 15 Oct.
+D. **Shared clones.**
+   - Developer-workspace clones are usable by customer workspaces' agents automatically.
+   - No copies are made, and the clones count only against our limit.
+   - Customers can pick a clone but cannot edit or delete it.
+   - Deleting a clone moves its agents to a standard voice.
+   - *Docs:* `sharedFromDeveloper: true` in a customer's `GET /voices`. Whether the id equals the developer workspace's `voiceId` is not stated.
+E. **Deleting one call's content, and shorter retention.**
+   - `DELETE /api/v1/calls/{id}/content` deletes one call's recording, transcript, summary and collected fields. The billing record stays.
+   - `callRetentionDays` on the workspace (Update Workspace) sets a shorter retention, never longer than the plan's.
+   - *Docs:* `callRetentionDays` runs from 1 day to `planRetentionDays` (30 / 49 / 75 / 365). `null` keeps transcripts with no end.
+F. **`contact.erased`.** A webhook sent once, when the last recording is gone.
+G. **`byok.changed`.** A webhook sent when a key is added, replaced, removed or fails verification, or when BYOK or its default choice changes. It carries no key material.
+   - *Docs:* "fails verification" is `key_failed_verification`, which is a refusal when a key is saved. Saved keys are not re-checked on a schedule, and a key that stops working on a call is still only `call.problem` `byok_failed`. A key's model change is not sent.
+H. **`own` on `GET /byok/voices`.** `GET /byok/voices` marks our own account's voices `own: true`.
+
+### 14.0 The email, verbatim (Ashutosh K, 15 Oct 2026, 2:49 PM)
+
+> All eight are built and are live now.:
+>
+> A. What each call was billed as. Get Call and call.analysed now carry billing:
+>
+> keys: the choice the call ran on: off, all, voice, llm or llm_voice.
+>
+> voicePlan: Standard, Premium or Studio, the plan actually priced. It is null for the flat own-key prices and for calls made before this release.
+>
+> ratePerMinuteMicro, billedSeconds and currency.
+>
+> If a key was missing and the call fell back, keys shows what it actually ran on. billedSeconds is empty until the call is settled. On forwarded calls with no agent, the rate and plan shown are the agent's, although only the carrier charge was billed. Treat those calls by costMicro.
+>
+> B. Characters on your voice key. usage.ttsCharacters counts all text we sent to the voice. That includes sentences cut off by an interruption that the caller never heard, so it matches what your Cartesia account bills. We can't stop synthesis already sent to your voice provider.
+>
+> C. Estimated tokens. usage.inputTokensEstimated is true when the input side is our estimate.
+>
+> D. Clones shared with your customers. Your clones in the developer workspace are now usable by your customer workspaces' agents automatically. No copies are needed, and they count only against your limit. Customers can pick them but not edit or delete them. If you delete a clone, the agents using it move to a standard voice.
+>
+> E. Deleting one call, and shorter retention.
+>
+> DELETE /api/v1/calls/{id}/content deletes one call's recording, transcript, summary and collected fields. The billing record stays. DELETE /calls/{id} still only cancels.
+>
+> callRetentionDays on the workspace (Update Workspace) sets a shorter retention for recordings and transcripts, never longer than the plan's. If you don't set it, transcripts stay as today.
+>
+> A delete doesn't reach data already copied into a contact, webhooks already sent, or the metadata you attached.
+>
+> F. Erasure finished. A contact.erased webhook is sent once, when the last recording is gone.
+>
+> G. Your keys changed. A byok.changed webhook fires when a key is added, replaced, removed or fails verification, or BYOK or its default choice changes. It never includes key material.
+>
+> H. Your own voices. GET /byok/voices marks your own account's voices own: true.
+
+### 14.1 What it closes and what stays open
+
+**Closed:**
+
+- **§13.1 A–H** (the requests): all eight, per the docs.
+- **§12.2 question 1**, which scope ran after a fallback and what the minute was billed at: `billing.keys` and `ratePerMinuteMicro`. The fallback happens when the call starts, and `keys` is the stack as set up then (`api-reference/calls/get-call.md:200-203`, `:1240-1252`).
+- **§12.2 question 2**, whether `usage` says when the input count is an estimate: `usage.inputTokensEstimated`.
+- **§11.8 item 3, in part:** what `usage` counts on our own key is documented again. Whether Google bills `cachedInputTokens` at the cached rate through their call is **still open**.
+
+**Partly answered:**
+
+- **§13 question 4** (the Standard voice plan). `standard` is now a documented `voicePlan` value and a List Voices tier. Its per-minute price is **not** stated.
+
+**Still open:**
+
+- **§11.8 item 1 = §13 question 3:** the `byok-model` `409` wording. `set-agent-byok-model.md` changed only in its preamble.
+- **§11.8 item 2:** the Standard price.
+- **§11.8 item 4 = §13 question 6:** the `callInstructions` rules.
+- **§13 question 1:** the per-agent `byok` live date. This reply does not mention it.
+- **§13 question 2 = §12.2 question 3:** whether the post-call summary and extraction run on our own LLM key.
+- **§13 questions 5 and 7–13.**
+- **§13 questions 14 and 15:** Place Call `calling_not_set_up` and `callingAgent` surfaces. `place-call.md` changed only in its preamble.
+
+**New, for the next email:**
+
+1. Is a developer clone's id in a customer workspace's `GET /voices` the same as its `voiceId` in the developer workspace? (One read of each listing answers this without asking.)
+2. What does `billing` hold on a forwarded call with no agent: `null`, or `voicePlan: standard`?
+3. Does "a free trial call" (`voicePlan`, `ratePerMinuteMicro` and `billedSeconds` all null) include test calls that our own free-trial agents place in our developer workspace, or only ThinnestAI's own free plan?
+4. `voice.reaskAfterSeconds` is in the Voice guide (`channels/voice.md:659`) but in no API schema. Does Update Agent accept it? Is there an API field for the console's "up to four" reply languages?
