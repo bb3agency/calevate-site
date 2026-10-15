@@ -1,8 +1,8 @@
 """The signed consent of a person whose voice we cloned, kept sealed (D-721).
 
 A consent document names a real person and carries their signature, so the object in storage
-is ciphertext under the platform key, never the document, as the clone recordings are
-(`clone_copies.keep_clone_sample`). One object per voice: a new consent replaces it.
+is ciphertext under the platform key, never the document. One object per voice: a new
+consent replaces it.
 """
 
 from __future__ import annotations

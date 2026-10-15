@@ -1327,9 +1327,9 @@ class PlatformVoiceCatalogEntry(Base):
     #: ENGINE-HOSTED ROWS ONLY (D-687, `agents/hosted_voices.py`); NULL on cached catalogue rows.
     #: The accent and description the engine's listing gives the voice.
     accent: Mapped[str | None] = mapped_column(Text, nullable=True)
-    #: Where the sealed recording behind one of OUR clones is kept (D-693), so the clone can
-    #: be made again in a client's own workspace: clones are per workspace. NULL on every
-    #: voice that is not a clone, and on a clone made before D-693.
+    #: LEGACY, no longer written (D-797): where the sealed recording behind one of OUR clones
+    #: was kept to copy it into client workspaces (D-693). Read only to delete the object
+    #: with its clone; dropped in a later release (hard rule 8).
     sample_object_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: The engine's id for the CLONE behind a voice we cloned (not the voice id), which is
@@ -1471,10 +1471,10 @@ class OutboundSenderAttestation(PKMixin, Base):
 class EngineVoiceCloneCopy(PKMixin, TimestampMixin, Base):
     """One of our cloned voices, as cloned again into a client's own workspace (D-693).
 
-    A ThinnestAI clone belongs to the workspace that made it, so a client agent speaking one
-    of our clones needs its own copy, made from the sample we kept
-    (`platform_voice_catalog.sample_object_key`). `voice_id` is OUR catalogue id; the two
-    vendor ids are the copy's in `workspace_id`.
+    LEGACY, no longer written (D-797): client agents speak our developer clones as shared
+    clones, so no copy is made. Rows made before that are read only to delete the copies when
+    the clone is deleted; the table is dropped in a later release (hard rule 8).
+    `voice_id` is OUR catalogue id; the two vendor ids are the copy's in `workspace_id`.
     """
 
     __tablename__ = "engine_voice_clone_copies"

@@ -3315,6 +3315,10 @@ export interface paths {
          * @description The Test button. Executes the real external call with the client's sample values so a
          *     misconfiguration is caught before a caller triggers it, audited as `source="test"`. A
          *     WhatsApp or payment-link test goes only to one of the business's own contact numbers.
+         *
+         *     Under view-as, an action that carries a stored key runs only once the owner has
+         *     switched it on: an operator can set an action's URL, so testing it before then would
+         *     send the business's key to an address nobody at the business approved.
          */
         post: operations["test_action_v1_agents__agent_id__actions__tool_id__test_post"];
         delete?: never;
@@ -10206,7 +10210,7 @@ export interface paths {
         post: operations["create_clone_v1_ops_voices_clones_post"];
         /**
          * Delete one of our cloned voices (step-up confirmed, audited)
-         * @description Deletes the clone on the voice platform, which forgets it everywhere and moves every agent on it to a standard voice; it cannot be undone. Refused with `voice_clone_in_use` while live agents here are on it, unless `confirm=true`. Requires `X-Confirm-Action: delete_voice_clone:<voice_id>`.
+         * @description Deletes the clone on the voice platform, which forgets it everywhere and moves every agent on it, in our workspace and in every client's, to a standard voice; it cannot be undone. Refused with `voice_clone_in_use` while live agents of any client are on it, unless `confirm=true`. Requires `X-Confirm-Action: delete_voice_clone:<voice_id>`.
          */
         delete: operations["delete_clone_v1_ops_voices_clones_delete"];
         options?: never;

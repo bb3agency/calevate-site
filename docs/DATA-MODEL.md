@@ -381,13 +381,15 @@ engine_number_purchases(id, tenant_id → organizations RESTRICT, idempotency_ke
 engine_voice_clone_copies(id, tenant_id → organizations RESTRICT, voice_id,
   workspace_id, vendor_voice_id, vendor_clone_id, created_at, updated_at,
   UNIQUE(tenant_id, voice_id, workspace_id))
-  -- D-693, migration d93b6f2a4c18. A ThinnestAI clone belongs to the workspace that made
-  -- it, so a client agent on one of our clones speaks a copy made in the client's own
-  -- workspace from the admin's kept recording (`agents/clone_copies.py`); this maps our
-  -- catalogue `voice_id` to that copy's ids. FORCEd §1 RLS.
+  -- D-693, migration d93b6f2a4c18. Maps our catalogue `voice_id` to the ids of a copy of
+  -- one of our clones made in a client's own workspace. FORCEd §1 RLS.
+  -- LEGACY since D-797: client agents speak our clones as shared clones, so nothing writes
+  -- it; rows are read only to delete those copies when the clone is deleted
+  -- (`agents/shared_clones.forget_clone`). Dropped in a later release (hard rule 8).
 platform_voice_catalog gains sample_object_key TEXT NULL (D-693, migration d93b6f2a4c18):
   -- the sealed recording an admin clone was made from (`voice-clone-samples/
-  -- <sha256(voice_id)>`), kept so the clone can be made again in a client's workspace.
+  -- <sha256(voice_id)>`). LEGACY since D-797: no longer written; read only to delete the
+  -- object with its clone. Dropped with the table above.
 ```
 
 `extraction_schemas.fields` shape (validated by Pydantic on write). `reason` is the

@@ -699,8 +699,8 @@ function DeleteCloneDialog({
       }}
     >
       <p>
-        This deletes the voice on the voice platform and cannot be undone. Every agent on it is moved
-        to the voice platform&rsquo;s default voice.
+        This deletes the voice on the voice platform and cannot be undone. Every agent on it, in
+        every client account, is moved to the voice platform&rsquo;s default voice.
       </p>
       {inUse ? (
         <NoticeBox tone="warn" title="Live agents are speaking this voice">

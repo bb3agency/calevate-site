@@ -626,6 +626,8 @@ async def test_deleting_a_clone_warns_about_live_agents_then_withdraws_it(
         warned.status_code == 409
         and warned.json()["type"].rsplit("/", 1)[-1] == "voice_clone_in_use"
     )
+    # A shared clone moves every client's agents too (channels/voice-clone.md:124-126).
+    assert "every client's workspace" in warned.json()["detail"]
     assert done.status_code == 200 and done.json()["moved_agents"] == 2
     assert "moved 2 agent(s)" in done.json()["next_step"]
     entry = await _entry(voice)

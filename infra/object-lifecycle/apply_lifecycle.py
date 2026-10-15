@@ -114,10 +114,9 @@ UNBOUNDED_PREFIXES: dict[str, str] = {
         "voice's preview off the picker."
     ),
     "voice-clone-samples/": (
-        "One sealed recording per voice WE cloned (D-693), keyed by the voice, kept so the "
-        "clone can be made again in a client's own workspace: bounded by the number of clones "
-        "an operator makes, not by time. An expiry would silently stop a client agent on that "
-        "voice from being published."
+        "One sealed recording per voice WE cloned between D-693 and D-797, keyed by the "
+        "voice. Nothing writes here since D-797 (client agents speak our clones as shared), "
+        "so the prefix only shrinks: each object is deleted with its clone."
     ),
     "voice-consents/": (
         "One sealed signed consent per voice cloned from a real person (D-721), keyed by the "
