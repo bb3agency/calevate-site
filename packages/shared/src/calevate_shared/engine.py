@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from calevate_shared.call_script import NativeStep, opening_line_of
 from calevate_shared.events import (
+    CallBilling,
     CallDirection,
     CallEvent,
     CallLlmUsage,
@@ -4569,6 +4570,12 @@ class ExecutionSnapshot(BaseModel):
     #: The language-model tokens the call's replies used (D-764), our own model key's
     #: included. None when the engine reported nothing.
     llm_usage: CallLlmUsage | None = None
+    #: Characters the engine sent to the voice to be spoken, cut-off sentences, greeting and
+    #: fillers included: what a voice provider bills. None when the engine reported none.
+    tts_characters: int | None = None
+    #: What the engine billed this call as. None when it reported nothing: a listing row, a
+    #: booked call that has not rung, an engine that does not say.
+    billing: CallBilling | None = None
     #: The engine put this call through to a phone rather than an agent answering it (a
     #: number forward): no transcript, and its minutes are priced as forwarded minutes.
     forwarded: bool = False

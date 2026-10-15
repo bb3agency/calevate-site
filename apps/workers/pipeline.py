@@ -110,7 +110,7 @@ from apps.api.billing.service import (
     rate_card_at,
 )
 from apps.api.billing.trials import trial_covers
-from apps.api.billing.tts_speaking_rate import bump_speaking_rate
+from apps.api.billing.tts_speaking_rate import TTS_CHARACTERS_META_KEY, bump_speaking_rate
 from apps.api.billing.tts_volume import (
     CHARS_PER_KCHAR,
     PLAN_BILLED_VOICE_TIER,
@@ -1496,7 +1496,12 @@ async def _post_call_stages(
             set_span_attributes(
                 stage,
                 outcome=await reconcile_call_charge(
-                    tenant_id, call_id, snapshot.engine_charged_inr, engine=snapshot.engine
+                    tenant_id,
+                    call_id,
+                    snapshot.engine_charged_inr,
+                    engine=snapshot.engine,
+                    billing=snapshot.billing,
+                    forwarded=snapshot.forwarded,
                 ),
             )
 
@@ -3487,10 +3492,17 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             return 0
 
         duration_s = _billable_seconds(snapshot, tenant_id=tenant_id, call_id=call_id)
+        turns, agent_chars = await _agent_transcript(session, tenant_id=tenant_id, call_id=call_id)
+        spoken_chars, spoken_source = spoken_characters(snapshot.tts_characters, agent_chars)
         meta = _json(
             {
                 "engine": snapshot.engine,
                 "engine_call_id": snapshot.engine_call_id,
+                # Which count the synthesis row and the fleet counters used (`spoken_characters`).
+                TTS_CHARACTERS_SOURCE_META_KEY: spoken_source,
+                # The engine's own count, null when it gave none: the speaking-rate board
+                # reads it so it samples the same count as the counter (`tts_speaking_rate`).
+                TTS_CHARACTERS_META_KEY: snapshot.tts_characters,
                 "source_currency": cost.source_currency,
                 # `is not None`, NOT truthiness, on both of these. A ZERO `source_amount`
                 # is a real answer — the vendor charged nothing for this execution — and
@@ -3581,6 +3593,11 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                         "llm_cached_input_tokens": snapshot.llm_usage.cached_input_tokens
                         if snapshot.llm_usage
                         else None,
+                        # The engine's estimate, not the provider's count: the prompt-size
+                        # floor's measured p95 leaves such calls out (`billing/own_model_prompt`).
+                        "llm_input_tokens_estimated": snapshot.llm_usage.input_tokens_estimated
+                        if snapshot.llm_usage
+                        else None,
                     }
                     if minute_cost is not None and minute_cost.own_model is not None
                     else {}
@@ -3616,17 +3633,16 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # pricing page says so (plan ADDENDUM 3 §3.5) — so on a Cartesia call the figure
         # below is expected to be ₹0 and recording it would meter a real vendor bill as
         # free. What Cartesia actually charges is a MONTHLY PLAN with a character
-        # allotment, which no execution payload can report, so the cost of the leg is the
-        # operator-attested plan rate times the characters OUR transcript says the agent
-        # spoke. `_tts_cost_rows` decides which of the two this call is.
-        turns, agent_chars = await _agent_transcript(session, tenant_id=tenant_id, call_id=call_id)
+        # allotment, so the cost of the leg is the operator-attested plan rate times the
+        # characters sent to the voice (`spoken_characters`). `_tts_cost_rows` decides
+        # which of the two this call is.
         rows.extend(
             await _tts_cost_rows(
                 session,
                 tenant_id=tenant_id,
                 call_id=call_id,
                 voice=voice,
-                agent_chars=agent_chars,
+                characters=spoken_chars,
                 engine_tts_inr=cost.tts_inr,
                 at=snapshot.ended_at or datetime.now(UTC),
             )
@@ -3688,18 +3704,20 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # Same transaction, same exactly-once guard, same reason as the Studio counter
         # above — and EVERY VOICE, because how fast an agent talks is a fact about the agent
         # and is applied to the Clear floor, which is the Sarvam-voiced one. Two independent
-        # totals again: the characters our transcript says the agent spoke, and the seconds
-        # this call actually billed. Deriving either from the other would put the unmeasured
-        # 360-540 band back inside the measurement built to replace it.
+        # totals again: the characters sent to the voice, the same count the synthesis row
+        # above used, so a Cartesia invoice and the fleet's chars-per-minute cannot disagree
+        # about one call; and the seconds this call actually billed. Deriving either from
+        # the other would put the unmeasured 360-540 band back inside the measurement built
+        # to replace it.
         #
-        # A call with no transcript at all is NOT counted (`turns == 0`): it would raise the
-        # sample size that decides whether the figure may be published while contributing no
-        # characters, which is the one way a counter can launder an absence into a low rate.
-        if turns > 0:
+        # A call with neither an engine count nor a transcript is NOT counted: it would raise
+        # the sample size that decides whether the figure may be published while contributing
+        # no characters, which is the one way a counter can launder an absence into a low rate.
+        if turns > 0 or snapshot.tts_characters is not None:
             await bump_speaking_rate(
                 session,
                 month=ist_billing_month(snapshot.ended_at or datetime.now(UTC)),
-                agent_chars=agent_chars,
+                agent_chars=spoken_chars,
                 call_seconds=duration_s,
             )
 
@@ -4181,6 +4199,27 @@ async def _agent_transcript(
     return int(row[0]), int(row[1])
 
 
+#: `usage_events.meta` key: which count of synthesised characters the call was metered on.
+TTS_CHARACTERS_SOURCE_META_KEY: Final = "tts_characters_source"
+TtsCharactersSource = Literal["engine", "transcript"]
+
+
+def spoken_characters(
+    engine_count: int | None, transcript_chars: int
+) -> tuple[int, TtsCharactersSource]:
+    """The characters this call sent to the voice, and which count that is.
+
+    The engine's own count when it gave one (D-796): every reply, the greeting, fillers and
+    text the caller cut off, which is what a voice provider bills (snapshots/2026-10-15/
+    pages/api-reference/calls/get-call.md:1218-1227). The agent's transcript misses all but
+    the replies, so it is the fallback for a call the engine did not count (calls before
+    15 Oct 2026, or an engine with no count). A null engine count is read as unknown, not as
+    zero."""
+    if engine_count is not None:
+        return engine_count, "engine"
+    return transcript_chars, "transcript"
+
+
 #: Characters per unit of `usage_events.qty` on a `tts_kchars` row. See
 #: `billing/models.CLIENT_BILLED_UNIT_TYPES` for why the unit is a THOUSAND and not one.
 _CHARS_PER_KCHAR: Final = Decimal("1000")
@@ -4192,7 +4231,7 @@ async def _tts_cost_rows(
     tenant_id: UUID,
     call_id: UUID,
     voice: VoiceTier,
-    agent_chars: int,
+    characters: int,
     engine_tts_inr: Decimal | None,
     at: datetime,
 ) -> list[tuple[str, Decimal, Decimal | None]]:
@@ -4212,11 +4251,11 @@ async def _tts_cost_rows(
       is the cost, on a `tts_chars` row at `qty = 1`, exactly as before. (Whether the
       engine's own figure is right is OPERATIONS §2 gate 7 and is not this seam.)
     * **Studio** — BYOK, so the engine is *expected* to charge nothing. The cost is the
-      operator-attested plan rate times the characters our transcript says the agent
-      spoke, on a `tts_kchars` row whose `qty` is that count in thousands — PLUS, if the
-      engine reported a charge anyway, that charge on a `tts_chars` row beside it, with an
-      alarm. Hence a LIST: on that one path this call's synthesis has two costs from two
-      vendors, and dropping either is dropping money.
+      operator-attested plan rate times the characters sent to the voice
+      (`spoken_characters`), on a `tts_kchars` row whose `qty` is that count in
+      thousands — PLUS, if the engine reported a charge anyway, that charge on a
+      `tts_chars` row beside it, with an alarm. Hence a LIST: on that one path this call's
+      synthesis has two costs from two vendors, and dropping either is dropping money.
 
     **AND IT WRITES NO ROW AT ALL RATHER THAN A ZERO, when a Cartesia call has no attested
     price.** A `unit_cost_paid` of ₹0 on a leg that really cost money is a FABRICATED ZERO
@@ -4271,17 +4310,17 @@ async def _tts_cost_rows(
             tenant_id=str(tenant_id),
         )
         return rows
-    # `agent_chars` is the caller's, read once for this call (`_agent_transcript`) and
-    # shared with the fleet speaking-rate counter — the same characters, so a Cartesia
-    # invoice and the fleet's chars-per-minute can never disagree about one call.
-    characters = Decimal(agent_chars)
+    # `characters` is the caller's (`spoken_characters`), shared with the fleet speaking-rate
+    # counter — the same characters, so a Cartesia invoice and the fleet's chars-per-minute
+    # can never disagree about one call.
+    spoken = Decimal(characters)
     # A call whose agent spoke nothing synthesised nothing. `qty = 0` with a real price is
     # the honest row — `_ROW_COST_SQL` reads a zero-qty row as a whole-leg row (D-370), so
     # writing NO row is what keeps it out of the cost side rather than putting the rate on
     # it as a leg total.
-    if characters <= 0:
+    if spoken <= 0:
         return rows
-    rows.append(("tts_kchars", characters / _CHARS_PER_KCHAR, price.inr_per_1k_chars))
+    rows.append(("tts_kchars", spoken / _CHARS_PER_KCHAR, price.inr_per_1k_chars))
     return rows
 
 

@@ -11,6 +11,7 @@ transcript, so its key names the tenant and the call and a DPDP erasure deletes 
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -170,6 +171,40 @@ class CallLlmUsage(BaseModel):
     output_tokens: int | None = None
     #: How many of `input_tokens` the provider served from its cache.
     cached_input_tokens: int | None = None
+    #: True when part of `input_tokens` is the engine's estimate rather than the provider's
+    #: count; False when every count came from the provider; None when unknown (no tokens,
+    #: or a call from before the engine reported it).
+    input_tokens_estimated: bool | None = None
+
+
+#: Whose keys a call ran on, after any fallback when a key was gone at the start: `off` the
+#: engine's own, `all` ours for speech, model and voice, `voice` our voice only, `llm` our
+#: model only, `llm_voice` our model and voice. The same words an agent's `byok` setting uses.
+CallKeys = Literal["off", "all", "voice", "llm", "llm_voice"]
+#: The engine voice band a call was priced on. The same words as the rate keys of the
+#: bands (`billing/engine_minutes.EngineRateKey`).
+CallVoicePlan = Literal["standard", "premium", "studio"]
+
+
+class CallBilling(BaseModel):
+    """What the engine billed one call as. Evidence for reconciling our metered minute, never
+    a price: our cost comes only from an operator-attested rate (hard rule 7)."""
+
+    keys: CallKeys
+    #: None for a flat own-key price, a free trial call, or a call from before the engine
+    #: reported it.
+    voice_plan: CallVoicePlan | None = None
+    #: The per-minute rate the call was charged at, in rupees; None when the engine stated
+    #: none (a free trial call) or stated it in another currency.
+    rate_inr_per_min: Decimal | None = None
+    currency: Literal["INR", "USD"] | None = None
+    #: The seconds the charge was for, already rounded up to the engine's step. None until
+    #: the call is settled.
+    billed_seconds: int | None = None
+    #: The call ended before the agent spoke: it is charged the phone carrier's fee only,
+    #: and `billed_seconds` is rounded to the carrier's block rather than the engine's step,
+    #: so neither the per-minute rate nor the step applies to it.
+    carrier_only: bool = False
 
 
 class TranscriptTurn(BaseModel):
@@ -197,11 +232,14 @@ class TranscriptTurn(BaseModel):
 __all__ = [
     "CALLER_HEARD_FAILURE",
     "TERMINAL_STATUSES",
+    "CallBilling",
     "CallDirection",
     "CallEvent",
+    "CallKeys",
     "CallLlmUsage",
     "CallQuality",
     "CallStatus",
+    "CallVoicePlan",
     "EngineNotice",
     "EngineNoticeKind",
     "EngineOptOut",
