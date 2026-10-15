@@ -75,7 +75,7 @@ export function PhoneNumbersScreen() {
         {forwarding.isLoading ? (
           <Skeleton rows={4} label="Loading your numbers" />
         ) : forwarding.error || !data ? (
-          <ProblemNotice error={forwarding.error} onRetry={() => void forwarding.refetch()} />
+          <ProblemNotice error={forwarding.error ?? new Error("Your numbers did not load.")} onRetry={() => void forwarding.refetch()} />
         ) : data.lines.length === 0 ? (
           <EmptyState
             align="start"
@@ -266,7 +266,7 @@ function SaveNumber({ session }: { session: Session }) {
       {state.isLoading ? (
         <Skeleton rows={1} label="Loading the setting" />
       ) : state.error || !state.data ? (
-        <ProblemNotice error={state.error} onRetry={() => void state.refetch()} />
+        <ProblemNotice error={state.error ?? new Error("This setting did not load.")} onRetry={() => void state.refetch()} />
       ) : (
         <div className="space-y-2">
           <ToggleSwitch

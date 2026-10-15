@@ -451,20 +451,8 @@ export interface TenantDirectoryQuery {
   offset?: number;
 }
 
-/**
- * One page of the roster, and the size of the set it is a page of.
- *
- * ⚠ HAND-WRITTEN UNTIL THE OPENAPI SNAPSHOT IS REGENERATED, and it mirrors
- * `admin/routes.py::TenantDirectoryPage` field for field. `rows` carries the generated
- * `TenantSummary`, which has not changed. Replace this with
- * `Schemas["TenantDirectoryPage"]` when the snapshot is next generated.
- */
-export interface TenantDirectoryPage {
-  rows: TenantSummary[];
-  total: number;
-  limit: number;
-  offset: number;
-}
+/** One page of the roster, and the size of the set it is a page of. */
+export type TenantDirectoryPage = Schemas["TenantDirectoryPage"];
 
 /**
  * The client directory — a PAGE of it, narrowed by whatever the operator asked for.

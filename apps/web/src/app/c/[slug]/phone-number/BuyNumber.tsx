@@ -172,7 +172,7 @@ function HolderBlock() {
 
   if (holder.isLoading) return <Skeleton rows={2} label="Loading who your numbers are registered to" />;
   if (holder.error || !holder.data) {
-    return <ProblemNotice error={holder.error} onRetry={() => holder.refetch()} />;
+    return <ProblemNotice error={holder.error ?? new Error("Who your numbers are registered to did not load.")} onRetry={() => holder.refetch()} />;
   }
 
   if (holder.data.recorded) {

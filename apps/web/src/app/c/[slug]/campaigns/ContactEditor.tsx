@@ -97,7 +97,15 @@ export function ContactEditor({
       setNotice(`${file.name} is larger than 4 MB. Split it, and add the rest from the campaign afterwards.`);
       return;
     }
-    append(await file.text(), file.name);
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      // A file moved or locked after it was picked cannot be read.
+      setNotice(`${file.name} could not be opened. Pick it again, or save a fresh copy first.`);
+      return;
+    }
+    append(text, file.name);
   };
 
   const onDrop = (event: DragEvent) => {

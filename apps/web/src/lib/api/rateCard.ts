@@ -204,9 +204,9 @@ export function tierLabel(card: PublicRateCard, voice: VoiceTier): string {
  *
  * The server decides both (`billing/payment_routes.voice_tier_not_offered`), because the
  * answer follows the voice engine: on the engine that speaks our own voices the cheaper rung
- * has no attested invoice figure (D-629, hard rule 7), and on an engine that hosts its own
- * voices Studio stays held until its workspace is set up (D-687, which superseded D-681's
- * "Clear = Premium band, Studio on hold"). A rate the buyer cannot be put on still prices credit bought today, so the
+ * has no attested invoice figure (D-629, hard rule 7), and on ThinnestAI Studio stays held
+ * until our voice key is on and its minute is attested (D-688), while Clear is sold on the
+ * band the console names, Studio by default (D-792). A rate the buyer cannot be put on still prices credit bought today, so the
  * pages print its table with this sentence beside it rather than hiding it. Three surfaces
  * render it (`/pricing`, the ROI calculator, the client's "What calls cost"), all from here.
  */

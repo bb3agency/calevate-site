@@ -84,8 +84,11 @@ export function LaunchGate({
     >
       {check.isLoading ? (
         <Skeleton rows={3} />
-      ) : check.error ? (
-        <ProblemNotice error={check.error} onRetry={() => check.refetch()} />
+      ) : check.error || !check.data ? (
+        <ProblemNotice
+          error={check.error ?? new Error("The launch check did not load.")}
+          onRetry={() => check.refetch()}
+        />
       ) : check.data?.ready ? (
         <div className="space-y-3">
           <p className="flex items-center gap-2 text-body font-medium text-ink">

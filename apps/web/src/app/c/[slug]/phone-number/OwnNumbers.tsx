@@ -388,7 +388,7 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
 
   if (cities.isLoading) return <Skeleton rows={2} label="Loading cities" />;
   if (cities.error || !cities.data) {
-    return <ProblemNotice error={cities.error} onRetry={() => void cities.refetch()} />;
+    return <ProblemNotice error={cities.error ?? new Error("The list of cities did not load.")} onRetry={() => void cities.refetch()} />;
   }
 
   const pages = available.data?.pages;

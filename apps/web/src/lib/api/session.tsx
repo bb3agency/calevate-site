@@ -118,8 +118,8 @@ export const VIEW_AS_ADMIN = "admin";
  * have to import a query provider to get it — see that module.
  */
 export function viewAsHref(slug: string, path = ""): string {
-  // Through the operator console's start page (D-730), which asks for a code typed for
-  // this entry and hands the grant to the client console; the client console cannot
+  // Through the operator console's start page (D-730), which mints the grant without a code
+  // (D-791) and hands it to the client console; the client console cannot
   // start a view-as session itself.
   return viewAsStartUrl(slug, path);
 }

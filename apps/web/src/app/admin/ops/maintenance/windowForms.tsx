@@ -218,7 +218,7 @@ export function ScheduleWindowDrawer({
           hint={
             `Clients are emailed ${leadHours} ${leadHours === 1 ? "hour" : "hours"} ahead ` +
             "(set in Platform configuration). Scheduling closer than that is allowed — they " +
-            "simply get less notice, and it is recorded."
+            "simply get less notice."
           }
         />
         <TimeField

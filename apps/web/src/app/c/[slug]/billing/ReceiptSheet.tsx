@@ -8,7 +8,7 @@ import { ReceiptDocument } from "@/components/receiptDocument";
 import { PRIMARY_BUTTON, ProblemNotice, Skeleton } from "@/components/ui";
 import { usePaymentReceipt } from "@/lib/api/wallet";
 import type { Session } from "@/lib/api/client";
-import { printDocument } from "@/lib/printDocument";
+import { PRINT_FAILED, usePrintDocument } from "@/lib/printDocument";
 
 /**
  * One payment's receipt, in the console's shared Drawer.
@@ -28,6 +28,7 @@ export function ReceiptSheet({
 }) {
   const receipt = usePaymentReceipt(session, paymentRef);
   const sheet = useRef<HTMLDivElement>(null);
+  const printing = usePrintDocument();
 
   return (
     <Drawer
@@ -38,11 +39,12 @@ export function ReceiptSheet({
       initialFocus="container"
       footer={
         receipt.data ? (
+          <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => {
               if (sheet.current) {
-                void printDocument(sheet.current, { title: `Receipt ${paymentRef ?? ""}`.trim() });
+                printing.print(sheet.current, { title: `Receipt ${paymentRef ?? ""}`.trim() });
               }
             }}
             className={PRIMARY_BUTTON}
@@ -50,6 +52,8 @@ export function ReceiptSheet({
             <Printer className="h-4 w-4" aria-hidden />
             Print or save as PDF
           </button>
+          {printing.failed && <p role="alert" className="text-meta text-danger">{PRINT_FAILED}</p>}
+          </div>
         ) : undefined
       }
     >

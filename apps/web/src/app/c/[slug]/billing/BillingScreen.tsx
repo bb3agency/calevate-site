@@ -367,7 +367,7 @@ export function BillingScreen({ slug }: { slug: string }) {
   const header = () => {
     if (wallet.isLoading) return <Skeleton rows={4} label="Loading your balance" />;
     if (wallet.error || !wallet.data) {
-      return <ProblemNotice error={wallet.error} onRetry={() => void wallet.refetch()} />;
+      return <ProblemNotice error={wallet.error ?? new Error("Your balance did not load.")} onRetry={() => void wallet.refetch()} />;
     }
     if (walletState(wallet.data) === "not-prepaid") return <InvoicedAccount />;
     return (

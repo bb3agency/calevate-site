@@ -45,8 +45,9 @@ import {
  *    AGENT (plan §2.1, §3.3 — the tier is derived from the chosen voice's provider, so an
  *    agent cannot hold one and be billed the other). Which quality no agent can be put on is
  *    the server's answer for this deployment (`lib/api/rateCard.voiceNotOffered`: the
- *    cheaper rung on our own voices, Studio on an engine that sells only its Premium band as
- *    Clear, D-681), and this panel prints the server's sentence for it. Neither quality
+ *    cheaper rung on our own voices; on ThinnestAI, Studio until our voice key is on and its
+ *    minute is attested, D-688, while Clear is sold on the band the console names, D-792),
+ *    and this panel prints the server's sentence for it. Neither quality
  *    is a degraded tier — what you hear in a demo is what a customer hears at three in
  *    the morning.
  *

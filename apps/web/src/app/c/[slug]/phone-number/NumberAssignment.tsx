@@ -81,7 +81,7 @@ export function NumberAssignment({
 
   if (agents.isLoading) return <Skeleton rows={2} label="Loading your agents" />;
   if (agents.error || !agents.data) {
-    return <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />;
+    return <ProblemNotice error={agents.error ?? new Error("Your agents did not load.")} onRetry={() => agents.refetch()} />;
   }
 
   const result = assign.data;

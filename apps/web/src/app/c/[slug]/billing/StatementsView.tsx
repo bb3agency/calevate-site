@@ -22,7 +22,7 @@ import { useStatements, type StatementSummary } from "@/lib/api/billingHistory";
 import type { Session } from "@/lib/api/client";
 import { useClientInvoice } from "@/lib/api/invoice";
 import { formatBillingMonth } from "@/lib/billingMonth";
-import { printDocument } from "@/lib/printDocument";
+import { PRINT_FAILED, usePrintDocument } from "@/lib/printDocument";
 
 /**
  * One row per IST month since the account opened, newest first, each opening that
@@ -151,6 +151,7 @@ function StatementDrawer({
 }) {
   const invoice = useClientInvoice(session, month);
   const sheet = useRef<HTMLDivElement>(null);
+  const printing = usePrintDocument();
   const label = formatBillingMonth(month);
   return (
     <Drawer
@@ -161,17 +162,20 @@ function StatementDrawer({
       width="lg"
       initialFocus="container"
       footer={
+        <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           disabled={!invoice.data}
           onClick={() => {
-            if (sheet.current) void printDocument(sheet.current, { title: `Statement ${month}` });
+            if (sheet.current) printing.print(sheet.current, { title: `Statement ${month}` });
           }}
           className={PRIMARY_BUTTON}
         >
           <Printer className="h-4 w-4" aria-hidden />
           Print
         </button>
+        {printing.failed && <p role="alert" className="text-meta text-danger">{PRINT_FAILED}</p>}
+        </div>
       }
     >
       {/* §52: loading is a skeleton and failure is a refusal; neither is a ₹0.00 sheet. */}

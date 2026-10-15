@@ -27,6 +27,7 @@ import { renderAdminRoute, routeParams } from "./adminRoute";
 import {
   WHATSAPP_NEVER_ASKED,
   adminAccountFactReads,
+  prepaidWallet,
 } from "./fixtures/sharedReads";
 
 /**
@@ -598,13 +599,32 @@ describe("the client detail screen", () => {
  */
 describe("the client's health summary", () => {
   it("says nothing is wrong only when the judgement, the line incidents and the calls say so", async () => {
-    render({ "/v1/healer/incidents?days=30&limit=20": { items: [], open: 0 } });
+    render({ "/v1/billing/wallet": prepaidWallet(), "/v1/healer/incidents?days=30&limit=20": { items: [], open: 0 } });
     expect(await screen.findByText("Nothing is wrong with this account right now.")).toBeTruthy();
   });
 
   it("does not call an account healthy while its line incidents are unread", async () => {
     render();
     await screen.findByText("Last calls");
+    expect(screen.queryByText("Nothing is wrong with this account right now.")).toBeNull();
+  });
+
+  it("does not call a prepaid account healthy when its wallet could not be read", async () => {
+    render({
+      "/v1/billing/wallet": problem(503, { title: "Service unavailable", detail: "Down." }),
+      "/v1/healer/incidents?days=30&limit=20": { items: [], open: 0 },
+    });
+    expect(await screen.findByText("Credit could not be read")).toBeTruthy();
+    expect(screen.queryByText("Nothing is wrong with this account right now.")).toBeNull();
+  });
+
+  it("says the recent calls could not be read instead of showing an empty list", async () => {
+    render({
+      "/v1/billing/wallet": prepaidWallet(),
+      "/v1/healer/incidents?days=30&limit=20": { items: [], open: 0 },
+      "/v1/calls?limit=5": problem(503, { title: "Service unavailable", detail: "Down." }),
+    });
+    expect(await screen.findByText("Recent calls could not be read")).toBeTruthy();
     expect(screen.queryByText("Nothing is wrong with this account right now.")).toBeNull();
   });
 
@@ -652,6 +672,7 @@ describe("the client's health summary", () => {
   it("shows a healthy trial account as on trial with nothing wrong", async () => {
     render({
       [HEALTH_PATH]: { ...HEALTHY, on_trial: true },
+      "/v1/billing/wallet": prepaidWallet(),
       "/v1/healer/incidents?days=30&limit=20": { items: [], open: 0 },
     });
     expect(await screen.findByText("Nothing is wrong with this account right now.")).toBeTruthy();

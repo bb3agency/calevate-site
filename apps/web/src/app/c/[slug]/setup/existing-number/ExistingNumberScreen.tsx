@@ -32,7 +32,7 @@ export function ExistingNumberScreen() {
   if (forwarding.isLoading) {
     body = <Skeleton rows={4} label="Loading your numbers" />;
   } else if (forwarding.error || !forwarding.data) {
-    body = <ProblemNotice error={forwarding.error} onRetry={() => void forwarding.refetch()} />;
+    body = <ProblemNotice error={forwarding.error ?? new Error("Your numbers did not load.")} onRetry={() => void forwarding.refetch()} />;
   } else if (forwarding.data.calevate_numbers.length === 0) {
     body = (
       <NoticeBox

@@ -199,7 +199,8 @@ export default async function PricingPage() {
             : /* The headline quotes the voice somebody can be put on on this deployment
                   (`headlineVoice`, from the server's `voice_not_offered`: Studio on our own
                   voices, where hard rule 7 keeps the cheaper rung off the picker; Clear on
-                  an engine that sells only its Premium band, D-681). The other voice is in
+                  ThinnestAI while Studio waits on our voice key and an attested minute,
+                  D-688). The other voice is in
                   the lede, with the server's notice saying why. */
               `Talk time on the ${tierLabel(rateCard, lead ?? "studio")} voice: ${bandSentence(rateCard, lead ?? "studio")}`
         }

@@ -181,7 +181,7 @@ describe("the feature-flag screen", () => {
     fireEvent.click(
       await screen.findByRole("radio", { name: /Follow the platform default/ }),
     );
-    fireEvent.change(screen.getByLabelText("Why (recorded)"), {
+    fireEvent.change(screen.getByLabelText("Why"), {
       target: { value: "Beta trial finished; back on the platform default." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save this flag" }));
@@ -218,7 +218,7 @@ describe("the feature-flag screen", () => {
       ),
     });
     // The form opens on the stored position, so the button is dead until something moves.
-    fireEvent.change(await screen.findByLabelText("Why (recorded)"), {
+    fireEvent.change(await screen.findByLabelText("Why"), {
       target: { value: "Beta trial, ticket 4471." },
     });
     expect(saveButton().disabled).toBe(true);
@@ -242,12 +242,12 @@ describe("the feature-flag screen", () => {
     fireEvent.click(
       await screen.findByRole("radio", { name: /On for this client/ }),
     );
-    fireEvent.change(screen.getByLabelText("Why (recorded)"), {
+    fireEvent.change(screen.getByLabelText("Why"), {
       target: { value: "Turning the timing view on for the week." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save this flag" }));
 
-    await screen.findByText(/no row moved and no audit entry was written/);
+    await screen.findByText(/Nothing changed. That is already what was on file/);
   });
 
   it("disables the controls, with the reason, for a session that may not write", async () => {
@@ -278,7 +278,7 @@ describe("the feature-flag screen", () => {
     await screen.findByText("Left over from an older release");
     // Setting it is refused (it would store a row nothing reads); clearing it is not.
     fireEvent.click(screen.getByRole("radio", { name: /On for this client/ }));
-    fireEvent.change(screen.getByLabelText("Why (recorded)"), {
+    fireEvent.change(screen.getByLabelText("Why"), {
       target: { value: "Trying to set a flag this build does not declare." },
     });
     expect(saveButton().disabled).toBe(true);
@@ -302,7 +302,7 @@ describe("the feature-flag screen", () => {
     fireEvent.click(
       await screen.findByRole("radio", { name: /On for this client/ }),
     );
-    fireEvent.change(screen.getByLabelText("Why (recorded)"), {
+    fireEvent.change(screen.getByLabelText("Why"), {
       target: { value: "Turning the timing view on for the week." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save this flag" }));

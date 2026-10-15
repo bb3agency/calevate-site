@@ -13,7 +13,7 @@ import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { useTenant } from "@/lib/api/admin";
-import { useTenantReadiness, type ReadinessRow } from "@/lib/api/adminAccount";
+import { useTenantReadiness, type ReadinessActor, type ReadinessRow } from "@/lib/api/adminAccount";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
@@ -59,6 +59,10 @@ export function ReadinessScreen({
   const rows = readiness.data?.rows ?? [];
   const ours = rows.filter((row) => row.actor === "calevate");
   const theirs = rows.filter((row) => row.actor === "client");
+  const groups: [ReadinessActor, ReadinessRow[]][] = [
+    ["calevate", ours],
+    ["client", theirs],
+  ];
   const firstOurs = ours.find((row) => lookup(ruleScreens, row.rule) !== undefined);
 
   /*
@@ -149,7 +153,7 @@ export function ReadinessScreen({
           message="This account is blocked, but nothing was listed. That is a disagreement inside the readiness answer itself — report it before telling the client anything."
         />
       ) : (
-        ([["calevate", ours], ["client", theirs]] as const).map(([actor, group]) =>
+        groups.map(([actor, group]) =>
           group.length ? (
             <section key={actor} aria-labelledby={`readiness-${actor}`}>
               <h3 id={`readiness-${actor}`} className="text-body font-semibold text-ink">

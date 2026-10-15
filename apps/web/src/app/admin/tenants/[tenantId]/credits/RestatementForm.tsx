@@ -209,7 +209,7 @@ export function RestatementForm({
         <Field
           label="Why this was under-recorded (required)"
           id="restate-reason"
-          hint="Stored on the entry and on the audit record, in your words. A credit that appears on a client's wallet with no explanation is the one nobody ever complains about — write the sentence that answers it months later."
+          hint="Required. Stored on the entry. Say why this credit is on the client's wallet."
           error={
             draft.reason.trim() !== "" && !reasonReady
               ? "Say why in at least a few words."
@@ -289,7 +289,7 @@ export function RestatementForm({
                 : !confirmed
                   ? "Type the total a second time to confirm. The two have to match exactly."
                   : !reasonReady
-                    ? "Say why. It is stored on the entry and on the audit record."
+                    ? "Say why. It is stored on the entry."
                     : "Ready. This cannot be taken back once it is written."}
           </p>
         )}

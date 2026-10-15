@@ -10,7 +10,7 @@ import { currentISTMonth, useInvoice, type AdminInvoice } from "@/lib/api/invoic
 import { useTenant } from "@/lib/api/admin";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
-import { printDocument } from "@/lib/printDocument";
+import { PRINT_FAILED, usePrintDocument } from "@/lib/printDocument";
 
 /**
  * INVOICE — this client's statement for a month, and why it is not a tax invoice.
@@ -33,6 +33,7 @@ export function InvoiceScreen({ tenantId }: { tenantId: string }) {
   const tenantName = useTenant(tenantId).data?.name;
   const data = invoice.data;
   const sheet = useRef<HTMLDivElement>(null);
+  const printing = usePrintDocument();
 
   /*
    * THE STATEMENT, DECLARED TO THE ASSISTANT. `organization.billing_email` is a person's
@@ -115,7 +116,7 @@ export function InvoiceScreen({ tenantId }: { tenantId: string }) {
               disabled={!data}
               onClick={() =>
                 sheet.current &&
-                void printDocument(sheet.current, {
+                printing.print(sheet.current, {
                   title: `${tenantName ?? "Statement"} ${month}`,
                 })
               }
@@ -124,6 +125,7 @@ export function InvoiceScreen({ tenantId }: { tenantId: string }) {
               <Printer aria-hidden className="h-4 w-4" />
               Print or save as PDF
             </button>
+            {printing.failed && <p role="alert" className="text-meta text-danger">{PRINT_FAILED}</p>}
           </>
         }
       />

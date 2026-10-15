@@ -215,7 +215,6 @@ export default function FeatureFlagsPage({
               // halfway through typing (react.dev/learn/you-might-not-need-an-effect).
               key={`${flag.flag}|${flag.override}|${flag.reason}`}
               flag={flag}
-              tenantName={tenant.name}
               set={set}
               write={write}
             />
@@ -229,17 +228,15 @@ export default function FeatureFlagsPage({
 /**
  * One flag: what it does, the three facts behind its answer, and the control that moves
  * it. The reason and Save sit on the row because every write here — in either direction —
- * is audited with the operator's reason; the projection is one line and the audit detail
- * is behind an ⓘ.
+ * is audited with the operator's reason; the projection is one line and the rest is behind
+ * an ⓘ.
  */
 function FlagRow({
   flag,
-  tenantName,
   set,
   write,
 }: {
   flag: FeatureFlag;
-  tenantName: string;
   set: ReturnType<typeof useSetFeatureFlag>;
   write: ReturnType<typeof useAdminAccess>;
 }) {
@@ -374,7 +371,7 @@ function FlagRow({
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-0 flex-1 basis-64">
             <label htmlFor={reasonId} className={FIELD_LABEL}>
-              Why (recorded)
+              Why
             </label>
             <input
               id={reasonId}
@@ -412,13 +409,9 @@ function FlagRow({
               </>
             )}
           </span>
-          <InfoTip label="What saving records">
-            <p>Recorded against {tenantName}, from your session rather than this form.</p>
+          <InfoTip label="What saving does">
             <p>It applies on this client&apos;s next request; there is no cache to wait out.</p>
-            <p>
-              One audit entry, and only if something actually changes. Restating what is
-              already on file writes nothing.
-            </p>
+            <p>Restating what is already on file changes nothing.</p>
           </InfoTip>
         </div>
         {blocked && <p className="text-meta text-warn">{blocked}</p>}
@@ -437,8 +430,7 @@ function FlagRow({
               </>
             ) : (
               <>
-                Nothing changed — that is already what was on file, so no row moved and no
-                audit entry was written.
+                Nothing changed. That is already what was on file.
               </>
             )}
         </SavedNote>

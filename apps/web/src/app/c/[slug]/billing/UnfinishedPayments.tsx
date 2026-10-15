@@ -55,7 +55,7 @@ export function UnfinishedPayments({ session }: { session: Session }) {
   if (attempts.error || !attempts.data) {
     return (
       <Section title="Payments in progress">
-        <ProblemNotice error={attempts.error} onRetry={() => void attempts.refetch()} />
+        <ProblemNotice error={attempts.error ?? new Error("Your payments in progress did not load.")} onRetry={() => void attempts.refetch()} />
       </Section>
     );
   }

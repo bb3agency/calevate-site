@@ -39,6 +39,7 @@ import {
 
 import { agreementsKey } from "./agreements";
 import { apiRequest, type Session } from "./client";
+import type { components } from "./schema";
 
 /** THE ONE PLACE A ROUTE IS SPELLED — `router = APIRouter(prefix="/v1/numbers")`. */
 export const PATHS = {
@@ -75,45 +76,17 @@ export interface NumberHolder {
   holder_email: string | null;
 }
 
-/** `HolderIn`. Accepted once; a second attempt is `number_holder_already_recorded`. */
-export interface NumberHolderIn {
-  holder_type: HolderType;
-  holder_name: string;
-  holder_email: string;
-}
+/** Accepted once; a second attempt is `number_holder_already_recorded`. */
+export type NumberHolderIn = components["schemas"]["HolderIn"];
 
-/** `OfferedNumberOut` — priced in rupees at the rate an operator attested. */
-export interface OfferedNumber {
-  e164: string;
-  region: string | null;
-  locality: string | null;
-  /** DLT's number class, derived from the number's own prefix. */
-  series: string;
-  inr_per_month: string;
-}
+/** Priced in rupees at the rate an operator attested. */
+export type OfferedNumber = components["schemas"]["OfferedNumberOut"];
 
-/** `PurchasedNumberOut`. `activated` is false while the holder is unverified. */
-export interface PurchasedNumber {
-  id: string;
-  e164: string;
-  series: string;
-  direction: CallDirection;
-  inr_per_month: string;
-  activated: boolean;
-}
+/** `activated` is false while the holder is unverified. */
+export type PurchasedNumber = components["schemas"]["PurchasedNumberOut"];
 
-/**
- * `AssignOut` — what the voice platform was TOLD, so a binding that failed is not
- * reported as one that worked.
- */
-export interface NumberAssigned {
-  number_id: string;
-  agent_id: string | null;
-  bound: number;
-  released: number;
-  failed: number;
-  unsupported: number;
-}
+/** What the voice platform was TOLD, so a binding that failed is not reported as one that worked. */
+export type NumberAssigned = components["schemas"]["AssignOut"];
 
 export const numberKeys = {
   holder: (org: string) => ["number-holder", org] as const,

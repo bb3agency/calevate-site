@@ -267,7 +267,7 @@ function Granted({ result, clientName }: { result: GrantResult; clientName: stri
       <p className="mt-1 text-meta opacity-90">
         Balance is now {formatINR(result.balance_inr)}. Lifetime: paid{" "}
         {formatINR(result.paid_inr)}, given {formatINR(result.granted_inr)}. The entry is
-        on the ledger under its own reason, and the audit row carries your words.
+        on the ledger with your reason.
         {result.is_low && " The wallet is still below the low-balance threshold."}
       </p>
     </NoticeBox>

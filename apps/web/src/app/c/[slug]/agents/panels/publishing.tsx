@@ -10,7 +10,7 @@
  */
 
 
-import { formatCallCap, formatINR, formatIST, formatRupeeRate, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
+import { formatINR, formatIST, formatRupeeRate, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
 import { SettingRow } from "@/components/console/settingRow";
 import { voiceTierRate, type PendingChange, type PendingState } from "@/lib/api/publishing";
 
@@ -168,21 +168,6 @@ export function WorstCaseCost({ state }: { state: PendingState }) {
           ? "We cannot say yet"
           : formatINR(state.worst_case_call_cost_inr)
       }
-    />
-  );
-}
-
-/** The limit in force, for the read-only view of a deleted agent. */
-export function CallCapFact({ state }: { state: PendingState }) {
-  return (
-    <SettingRow
-      label="Longest one call may run"
-      hint={
-        state.call_cap_is_platform_default
-          ? "The standard limit we put on every agent."
-          : "Set specifically for this agent."
-      }
-      value={formatCallCap(state.effective_call_cap_s)}
     />
   );
 }

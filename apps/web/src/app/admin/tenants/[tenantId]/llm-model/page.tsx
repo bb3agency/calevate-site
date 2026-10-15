@@ -616,9 +616,8 @@ function ChoiceForm({
               it.
             </li>
             <li>
-              <span className="text-ink-muted">Audit</span> — one entry, against the admin
-              account sending this request. Taken from your session, not from this form.
-              There is no undo; putting it back is another change and another entry.
+              <span className="text-ink-muted">Undo</span> — there is none; putting it back
+              is another change.
             </li>
           </ul>
         </div>
