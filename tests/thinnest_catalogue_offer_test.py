@@ -65,7 +65,7 @@ def _row(source: str, **update: Any) -> HostedVoiceRow:
         preview_available=False,
         preview_source=None,
         clone_id=None,
-        band="premium" if source == "engine" else None,
+        band="studio" if source == "engine" else None,
         gender=None,
         languages=(),
         person_clone=False,
@@ -126,10 +126,10 @@ def test_an_unpriced_minute_is_refused_by_its_rate_key() -> None:
         platform="ThinnestAI",
         audience="operator",
     )
-    assert operator is not None and "'premium'" in operator
+    assert operator is not None and "'studio'" in operator
     client = hosted_voice_unofferable_reason(
         _row("byok"),
-        attested=frozenset({"premium"}),
+        attested=frozenset({"studio"}),
         voice_key_priced=True,
         platform="ThinnestAI",
         audience="client",
@@ -232,7 +232,7 @@ async def test_with_our_key_off_no_studio_voice_is_listed(
 async def test_an_unpriced_rung_is_listed_and_refused(
     priced: set[str], hosted_rows: CatalogueRows
 ) -> None:
-    priced.discard("premium")
+    priced.discard("studio")
     voice = await hosted_rows.add("engine")
     with selected(HostingEngine()):
         out = await engine_catalogue(_client())

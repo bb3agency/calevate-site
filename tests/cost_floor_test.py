@@ -751,7 +751,8 @@ def test_the_thinnest_floors_are_the_vendor_minutes_plus_the_top_up_fee() -> Non
     assert cost_floor_inr_per_min("clear", engine="thinnest", clear_band="studio") == Decimal(
         "3.0708"
     )
-    assert cost_floor_inr_per_min("clear", engine="thinnest") == Decimal("2.5590")
+    # Unnamed, the band is the one Clear is sold on by default (D-792): Studio.
+    assert cost_floor_inr_per_min("clear", engine="thinnest") == Decimal("3.0708")
     assert cost_floor_inr_per_min("clear", engine="thinnest", clear_band="premium") == Decimal(
         "2.5590"
     )
@@ -786,8 +787,8 @@ def test_the_card_is_judged_at_the_deployments_engine() -> None:
     from apps.api.billing.credit_packs import card_margins
 
     thinnest = {(p, v): m for p, v, m in card_margins(PACK_CATALOGUE, engine="thinnest")}
-    # Clear sold on the Premium band by default (D-688): ₹2.50 with the 2.36% fee.
-    assert thinnest[("starter", "clear")].cost == Decimal("2.5590")
+    # Clear sold on the Studio band by default (D-792): ₹3.00 with the 2.36% fee.
+    assert thinnest[("starter", "clear")].cost == Decimal("3.0708")
     # 31.76% at the ₹4.50 Clear rate on the Studio band, above the 20% target.
     assert gross_margin_ratio(rate=Decimal("4.50"), cost=Decimal("3.0708")) == Decimal("0.3176")
     assert not thinnest[("max", "clear")].below_cost

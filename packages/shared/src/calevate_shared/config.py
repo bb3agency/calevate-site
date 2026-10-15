@@ -435,13 +435,14 @@ class Settings(BaseSettings):
     #: metered at the `platform` rate key, the ₹1/min BYOK rate (:21), instead of a tier. A
     #: write needs step-up and the typed confirmation (`ops/config_catalog.HIGH_RISK`).
     thinnest_byok_enabled: bool = False
-    #: The ThinnestAI voice band sold as the Clear rung (D-688): `premium` (pay-as-you-go,
-    #: no plan needed) or `studio` (the shared Studio catalogue and our clones, listed only on
-    #: Pro and above, `thinnest-findings/mirror/snapshots/2026-10-07b/pages/api-reference/
-    #: voices/list-voices.md:7`). Only voices of this band can be added and offered as Clear,
-    #: and a Clear minute is metered at this band's attested rate. An agent already published
-    #: keeps its band's rate key until it is republished.
-    thinnest_clear_voice_band: Literal["premium", "studio"] = "premium"
+    #: The ThinnestAI voice band sold as the Clear rung (D-688). `studio` by default (D-792:
+    #: Clear is sold on ThinnestAI's Studio band): the shared Studio catalogue and our clones,
+    #: listed only on Pro and above (`thinnest-findings/mirror/snapshots/2026-10-07b/pages/
+    #: api-reference/voices/list-voices.md:7`). `premium` stays selectable for an account
+    #: without Pro. Only voices of this band can be added and offered as Clear, and a Clear
+    #: minute is metered at this band's attested rate. An agent already published keeps its
+    #: band's rate key until it is republished.
+    thinnest_clear_voice_band: Literal["premium", "studio"] = "studio"
     #: The IN-CALL language model a Clear agent answers calls with when the agent names
     #: none. Unset (the default) sends nothing, so the agent stays on ThinnestAI's own
     #: default, Prana [Voice] (`thinnest-findings/mirror/snapshots/2026-10-08/pages/

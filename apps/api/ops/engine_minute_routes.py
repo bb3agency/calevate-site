@@ -80,8 +80,9 @@ class EngineMinutePriceOut(BaseModel):
     #: Whether a minute on this rate may be sold (hard rule 7's one door).
     billable: bool
     #: The client price rung a minute on this rate is sold on ("Clear"), or null when no
-    #: client is sold this rate (D-681: on ThinnestAI only the Premium band is sold; the
-    #: platform rate is still attested, because it opens the engine at all).
+    #: client is sold this rate (on ThinnestAI only the band `thinnest_clear_voice_band` names,
+    #: Studio by default, and our own-key voice minutes are sold, D-688, D-792; the platform
+    #: rate is still attested, because it opens the engine at all).
     sold_as: str | None
 
 

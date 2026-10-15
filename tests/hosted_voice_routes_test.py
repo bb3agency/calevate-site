@@ -127,6 +127,18 @@ def clear_on_studio(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     get_settings.cache_clear()
 
 
+@pytest.fixture
+def clear_on_premium(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """A deployment that sells Clear on ThinnestAI's Premium band (any plan)."""
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setenv("THINNEST_CLEAR_VOICE_BAND", "premium")
+    get_settings.cache_clear()
+    yield
+    monkeypatch.delenv("THINNEST_CLEAR_VOICE_BAND", raising=False)
+    get_settings.cache_clear()
+
+
 async def test_a_thinnest_refresh_reads_the_hosted_lists_and_never_list_voices(
     hosted_rows: CatalogueRows,
 ) -> None:
@@ -295,7 +307,9 @@ async def test_an_engine_running_our_voices_reads_no_hosted_list(
 # --- small pieces of the hosted catalogue -------------------------------------------
 
 
-def test_the_rung_comes_from_the_billing_map_and_an_unsold_source_raises() -> None:
+def test_the_rung_comes_from_the_billing_map_and_an_unsold_source_raises(
+    clear_on_premium: None,
+) -> None:
     assert rung_of_source("thinnest", "engine") == "clear"
     assert rung_of_source("thinnest", "byok") == "studio"
     with pytest.raises(ValueError):
@@ -1108,7 +1122,7 @@ def _voice(band: HostedVoiceBand | None, *, label: str = "V") -> HostedVoice:
 
 
 async def test_a_listing_without_the_sold_band_is_cached_and_raises_the_plan_alarm(
-    hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
+    clear_on_premium: None, hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _no_stranded_studio_agents(monkeypatch)
     alerts: list[tuple[str, str | None]] = []
@@ -1158,7 +1172,10 @@ async def _refresh_on(engine: HostingEngine, admin: dict[str, str]) -> dict[str,
 
 
 async def test_a_thinnest_refresh_without_the_sold_band_names_the_setting_not_the_credential(
-    admin: dict[str, str], hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
+    clear_on_premium: None,
+    admin: dict[str, str],
+    hosted_rows: CatalogueRows,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(hosted_voices, "alert", lambda *a, **k: None)
     voices = [_voice("standard"), _voice("standard"), _voice("studio")]
@@ -1265,7 +1282,10 @@ async def test_a_band_is_allowed_when_listed_or_when_nothing_was_ever_read(
 
 
 async def test_a_thinnest_refresh_with_the_sold_band_counts_each_band(
-    admin: dict[str, str], hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
+    clear_on_premium: None,
+    admin: dict[str, str],
+    hosted_rows: CatalogueRows,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(hosted_voices, "alert", lambda *a, **k: None)
     voices = [_voice("standard"), _voice("premium")]
@@ -1330,7 +1350,7 @@ async def test_a_refresh_on_an_engine_that_runs_our_voices_reports_no_bands(
 
 
 async def test_a_voice_outside_the_sold_band_cannot_be_added_and_is_shown_why(
-    admin: dict[str, str], hosted_rows: CatalogueRows
+    clear_on_premium: None, admin: dict[str, str], hosted_rows: CatalogueRows
 ) -> None:
     standard = await hosted_rows.add(
         "engine", origin="synced", state="disabled", label="Anjali", band="standard"
@@ -1356,7 +1376,7 @@ async def test_a_voice_outside_the_sold_band_cannot_be_added_and_is_shown_why(
 
 
 async def test_an_added_voice_the_platform_moved_out_of_the_band_cannot_be_enabled_or_offered(
-    admin: dict[str, str], hosted_rows: CatalogueRows
+    clear_on_premium: None, admin: dict[str, str], hosted_rows: CatalogueRows
 ) -> None:
     moved = await hosted_rows.add("engine", state="enabled", band="standard")
     unbanded = await hosted_rows.add("engine", state="enabled", band=None)
@@ -1381,7 +1401,7 @@ async def test_an_added_voice_the_platform_moved_out_of_the_band_cannot_be_enabl
 
 
 async def test_the_panel_explains_a_platform_with_none_of_the_sold_band(
-    admin: dict[str, str], monkeypatch: pytest.MonkeyPatch
+    clear_on_premium: None, admin: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def _bands(session: Any) -> dict[str, int]:
         return {"standard": 4, "studio": 2}
@@ -1397,7 +1417,7 @@ async def test_the_panel_explains_a_platform_with_none_of_the_sold_band(
 
 
 async def test_the_panel_says_nothing_about_the_plan_when_the_sold_band_is_listed(
-    admin: dict[str, str], hosted_rows: CatalogueRows
+    clear_on_premium: None, admin: dict[str, str], hosted_rows: CatalogueRows
 ) -> None:
     await hosted_rows.add("engine", origin="synced", state="disabled", band="premium")
     with selected(HostingEngine()):
@@ -1407,7 +1427,7 @@ async def test_the_panel_says_nothing_about_the_plan_when_the_sold_band_is_liste
 
 
 async def test_a_clone_is_recorded_in_the_studio_band_and_sold_only_on_studio(
-    hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
+    clear_on_premium: None, hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     vendor_id = f"c{uuid.uuid4().hex[:8]}"
     hosted_rows.track(f"engine:{vendor_id}")

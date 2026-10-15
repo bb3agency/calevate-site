@@ -33,8 +33,9 @@ metered minutes, wallet debit).
 
 ## 0. Before you start (15 minutes)
 
-- [ ] A ThinnestAI account. On pay-as-you-go, Clear is sold on their **Premium** band
-      (`thinnest_clear_voice_band`, the default, D-688). Clear on their studio band needs
+- [ ] A ThinnestAI account. Clear is sold on their **Studio** band by default
+      (`thinnest_clear_voice_band`, D-688, D-792); on pay-as-you-go set it to `premium`
+      until Pro is active. Clear on their studio band needs
       **Pro** or above (gate T-11): it is listed only on Pro and above, and cloning needs Pro too
       (`2026-10-07b/pages/api-reference/voices/list-voices.md:7`,
       `2026-10-07b/pages/channels/voice-clone.md:20-24`). The plan also decides recording
@@ -87,11 +88,11 @@ rule 7). Record each from your own invoice or plan page; each needs a step-up co
 
 - [ ] **Platform minute.** Needed before any voice is offered at all. The row says
       "Not sold on its own".
-- [ ] **The band sold as Clear** (`thinnest_clear_voice_band`, D-688): `premium` (₹2.50 quoted)
-      on pay-as-you-go, or `studio` (₹3.00 quoted, also our clones) on Pro; VENDOR-STATED,
-      gate T-14. Clients pay the Clear rate (₹4.00 on every pack): on Premium with the 10%
-      pay-as-you-go top-up fee that leaves about 31%, on Studio with the 9% Pro fee about 18%
-      (`docs/THINNEST-INTEGRATION.md` §5).
+- [ ] **The band sold as Clear** (`thinnest_clear_voice_band`, D-688, D-792): `studio`
+      (₹3.00 quoted, also our clones; the default, needs Pro) or `premium` (₹2.50 quoted) on
+      pay-as-you-go; VENDOR-STATED, gate T-14. Clients pay the Clear rate (₹4.50 on every
+      pack, D-728): with the 2.36% top-up fee (D-754) that leaves about 31.8% on Studio and
+      43.1% on Premium, before the Pro plan fee (`docs/THINNEST-INTEGRATION.md` §5).
 - [ ] **Voice-only BYOK** (`byok_voice`, the Studio rung, D-687): ₹1.50 quoted. Cartesia's
       own charge to our key is priced separately and is not recorded here.
 - [ ] Leave the other bands unrecorded. Only the band named by `thinnest_clear_voice_band` is
@@ -120,7 +121,8 @@ you add here AND enable, and can play a preview of each. Paths are under
       upload a short clip for it if clients should hear one.
 - [ ] **Enable** the voices clients may choose. A voice added but not enabled is not offered.
 - [ ] **Clear band.** Check the ops console setting "ThinnestAI voice band sold as Clear"
-      (`thinnest_clear_voice_band`): `premium` without Pro, `studio` once on Pro. Attest that
+      (`thinnest_clear_voice_band`): `studio` (the default) once on Pro, `premium` without
+      it. Attest that
       band's per-minute rate, then add and enable voices of that band only.
 - [ ] **Studio voices (only if Studio is to be offered; gates T-12, T-27).** Follow
       `runbooks/thinnest-studio-voices.md` §1-§2: on Voices press "Studio ready" (step-up),

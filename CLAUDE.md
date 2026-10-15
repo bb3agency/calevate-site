@@ -15,9 +15,9 @@ own numbers, telephony, STT, LLM, TTS and recording (D-678..D-682). `ENGINE` acc
 the tag `pre-pipecat-removal` keeps it one checkout away. D-687 and D-688 (8 Oct 2026):
 
 - **Clear** = ThinnestAI's stack end to end, speaking the ThinnestAI voice band the console
-  setting `thinnest_clear_voice_band` names: **Premium** (default; pay-as-you-go, ₹2.50/min)
-  or **Studio** (catalogue voices with `tier: studio` plus voices our **admin** clones; needs
-  ThinnestAI Pro, ₹3.00/min). VENDOR-STATED rates, operator-attested, never a constant.
+  setting `thinnest_clear_voice_band` names: **Studio** (default, D-792; catalogue voices
+  with `tier: studio` plus voices our **admin** clones; needs ThinnestAI Pro, ₹3.00/min) or
+  **Premium** (pay-as-you-go, ₹2.50/min). VENDOR-STATED rates, operator-attested, never a constant.
   Agent `byok: "off"`.
 - **Studio** = Cartesia on OUR key through ThinnestAI BYOK `scope: "voice"`, with ThinnestAI's
   STT, LLM and telephony (`api-reference/bring-your-own-keys.md:13-24`), ₹1.50/min plus

@@ -305,7 +305,8 @@ class CatalogueRows:
         preview: bool = False,
         accent: str | None = "hi",
         vendor_id: str | None = None,
-        band: str | None = "premium",
+        # The band Clear is sold on by default (D-792); a test about another band names it.
+        band: str | None = "studio",
     ) -> str:
         vendor = vendor_id or f"t{uuid.uuid4().hex[:12]}"
         voice_id = hosted_voice_id(source, vendor)

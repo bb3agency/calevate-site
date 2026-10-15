@@ -117,10 +117,11 @@ def client_rungs(engine: str) -> Mapping[str, rates.VoiceTier] | None:
     bills on; None for an engine with no such rule (the agent's own voice decides).
 
     On ThinnestAI (D-688, founder, 8 Oct 2026) the Clear rung is the voice band
-    `Settings.thinnest_clear_voice_band` names (Premium for testing, Studio once on Pro); the
-    Studio rung is a voice of our own Cartesia key. No other band is sold. The rate key is the
-    one publish stamped on the route row from the chosen voice
-    (`engine_agent_routes.engine_rate_key`), so the rung and the cost come from one fact.
+    `Settings.thinnest_clear_voice_band` names (Studio by default, D-792; Premium for an
+    account without ThinnestAI Pro); the Studio rung is a voice of our own Cartesia key. No
+    other band is sold. The rate key is the one publish stamped on the route row from the
+    chosen voice (`engine_agent_routes.engine_rate_key`), so the rung and the cost come from
+    one fact.
     """
     if engine not in BAND_SOLD_ENGINES:
         return None
