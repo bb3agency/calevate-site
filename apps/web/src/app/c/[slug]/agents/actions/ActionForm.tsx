@@ -109,7 +109,7 @@ export function ActionForm({
   const [draft, setDraft] = useState<KindDraft>(() => initialDraft(kind, existing));
   const pickCredential = useCallback((id: string) => setCredentialId(id), []);
   // The details this agent captures, which "From the lead" can read by label.
-  const capturedFields = useAgent(session, agentId).data?.extraction_fields ?? [];
+  const capturedFields = useAgent(session, agentId).data?.extraction_fields ?? null;
 
   const credentialKind = credentialKindFor(kind, provider);
   const fills = params.map((p) => p.name).filter(Boolean);

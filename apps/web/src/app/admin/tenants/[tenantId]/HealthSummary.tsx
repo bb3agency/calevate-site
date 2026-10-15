@@ -73,12 +73,24 @@ export function HealthSummary({ tenant }: { tenant: TenantSummary }) {
   const failedCalls =
     calls.data === undefined ? null : calls.data.filter((call) => call.status === "failed").length;
   const signals = health.data === undefined ? [] : health.data.signals;
+  // A prepaid wallet that was not read cannot vouch for "credit is fine".
+  const walletKnown = !prepaid || wallet.data !== undefined;
+  const walletFailed = prepaid && wallet.isError;
   const nothingWrong =
     health.data !== undefined &&
     signals.length === 0 &&
+    walletKnown &&
     !lowCredit &&
     openIncidents === 0 &&
     failedCalls === 0;
+  const hasProblemRows =
+    signals.length > 0 ||
+    lowCredit ||
+    walletFailed ||
+    incidents.isError ||
+    calls.isError ||
+    (openIncidents ?? 0) > 0 ||
+    (failedCalls ?? 0) > 0;
 
   return (
     <div className="space-y-10">
@@ -106,6 +118,9 @@ export function HealthSummary({ tenant }: { tenant: TenantSummary }) {
             <span aria-hidden className="h-2 w-2 rounded-full bg-brand" />
             Nothing is wrong with this account right now.
           </p>
+        ) : !hasProblemRows ? (
+          // The board found nothing, and the wallet, line or call reads have not answered yet.
+          <Skeleton rows={1} />
         ) : (
           <ul aria-label="What is wrong now" className={HAIRLINE_LIST}>
             {signals.map((signal) => (
@@ -122,6 +137,24 @@ export function HealthSummary({ tenant }: { tenant: TenantSummary }) {
                 }
                 href={`/admin/tenants/${tenant.id}/credits`}
                 cta="Record a payment"
+              />
+            )}
+            {walletFailed && (
+              <ProblemRow
+                tone="warn"
+                label="Credit could not be read"
+                detail="So this summary cannot say whether the wallet is low."
+                href={`/admin/tenants/${tenant.id}/credits`}
+                cta="Open credits"
+              />
+            )}
+            {calls.isError && (
+              <ProblemRow
+                tone="warn"
+                label="Recent calls could not be read"
+                detail="So this summary cannot say whether any failed."
+                href={viewAsHref(tenant.slug, "/calls")}
+                cta="Open calls as the client"
               />
             )}
             {incidents.isError && (

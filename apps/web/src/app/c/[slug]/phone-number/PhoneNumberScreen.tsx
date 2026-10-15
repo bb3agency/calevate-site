@@ -62,7 +62,7 @@ export function PhoneNumberScreen() {
   const getNumber = own.isLoading ? (
     <Skeleton rows={3} label="Loading how to get a number" />
   ) : own.error || !own.data ? (
-    <ProblemNotice error={own.error} onRetry={() => void own.refetch()} />
+    <ProblemNotice error={own.error ?? new Error("Your number options did not load.")} onRetry={() => void own.refetch()} />
   ) : ownNumbers ? (
     <OwnNumbersJourney status={own.data} />
   ) : (

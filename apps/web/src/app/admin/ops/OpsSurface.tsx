@@ -279,8 +279,8 @@ export function OpsSurface() {
     <div className="max-w-3xl space-y-10 pb-12">
       <div className="space-y-4">
         <p className="text-body text-ink-muted">
-          Platform-wide switches. Every one applies to every client at once and is recorded
-          with your reason.
+          Platform-wide switches. Every one applies to every client at once and needs
+          a reason.
         </p>
 
         <OpsStatusStrip platform={platform} deadLetters={deadLetters} engineDrift={engineDrift} />

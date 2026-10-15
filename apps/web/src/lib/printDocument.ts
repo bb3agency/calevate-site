@@ -1,5 +1,7 @@
 "use client";
 
+import { useCallback, useState } from "react";
+
 /**
  * PRINT ONE DOCUMENT, NOT THE CONSOLE.
  *
@@ -112,6 +114,25 @@ export async function printDocument(
     frame.remove();
     throw error;
   }
+}
+
+/** The sentence a print button shows when the print frame could not be opened. */
+export const PRINT_FAILED = "This could not be printed. Try again, or use your browser's own Print.";
+
+/**
+ * `printDocument` for a button: a failure becomes `failed` for the screen to show beside the
+ * button instead of an unhandled rejection behind a click that did nothing.
+ */
+export function usePrintDocument(): {
+  print: (...args: Parameters<typeof printDocument>) => void;
+  failed: boolean;
+} {
+  const [failed, setFailed] = useState(false);
+  const print = useCallback((...args: Parameters<typeof printDocument>) => {
+    setFailed(false);
+    printDocument(...args).catch(() => setFailed(true));
+  }, []);
+  return { print, failed };
 }
 
 /**

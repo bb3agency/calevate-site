@@ -32,7 +32,7 @@ export function ForwardingCard({ tenantId }: { tenantId: string }) {
       {forwarding.isLoading ? (
         <Skeleton rows={3} label="Loading the client's existing number" />
       ) : forwarding.error || !data ? (
-        <ProblemNotice error={forwarding.error} onRetry={() => void forwarding.refetch()} />
+        <ProblemNotice error={forwarding.error ?? new Error("The client's existing number did not load.")} onRetry={() => void forwarding.refetch()} />
       ) : (
         <div className="space-y-4">
           {data.lines.length === 0 ? (

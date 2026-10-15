@@ -49,6 +49,7 @@ import {
 
 import { adminSession } from "./admin";
 import { apiRequest } from "./client";
+import type { components } from "./schema";
 
 export const OPERATORS_PATH = "/v1/admin/operators";
 
@@ -83,21 +84,9 @@ export const ADMIN_ROLES: AdminRole[] = ["operator", "superadmin"];
  * `.isoformat()` — and is rendered through `formatIST` like every other instant in both
  * consoles.
  */
-export interface Operator {
-  id: string;
-  email: string | null;
-  name: string | null;
-  role: string;
-  created_at: string;
-  /** False while the setup link is outstanding: the account exists and cannot sign in. */
-  activated: boolean;
-  /** Their own "Stay signed in" switch (D-766). Only they can switch it on. */
-  stay_signed_in: boolean;
-}
+export type Operator = components["schemas"]["OperatorOut"];
 
-export interface OperatorList {
-  operators: Operator[];
-}
+export type OperatorList = components["schemas"]["OperatorsOut"];
 
 /* ── The four step-up confirmations, copied VERBATIM from the API ──────────────────────
  *

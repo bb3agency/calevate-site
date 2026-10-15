@@ -18,21 +18,9 @@ import { ALL_LIVE_FAMILIES, familyOf } from "./topics";
 export const LIVE_SAFETY_POLL_MS = 5 * 60_000;
 
 let healthy = false;
-const listeners = new Set<(healthy: boolean) => void>();
-
-export function isLiveHealthy(): boolean {
-  return healthy;
-}
 
 export function setLiveHealthy(next: boolean): void {
-  if (next === healthy) return;
   healthy = next;
-  for (const listener of listeners) listener(next);
-}
-
-export function onLiveHealth(listener: (healthy: boolean) => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
 }
 
 /** How long an answer counts as fresh when no healthy stream vouches for it. */

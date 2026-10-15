@@ -231,7 +231,7 @@ export function CorrectionForm({
           <Field
             label="Why (required)"
             id="adjust-reason"
-            hint="Stored on the entry and on the audit record, in your words. “Who took this off the client, and why” is the question this answers months later — write the sentence you would want to find."
+            hint="Required. Stored on the entry. Say who took this off the client, and why."
             error={
               draft.reason.trim() !== "" && !reasonReady
                 ? "Say why in at least a few words."
@@ -326,7 +326,7 @@ export function CorrectionForm({
                   : !confirmed
                     ? "Type the amount a second time to confirm. The two have to match exactly."
                     : !reasonReady
-                      ? "Say why. It is stored on the entry and on the audit record."
+                      ? "Say why. It is stored on the entry."
                       : "Ready. This cannot be taken back once it is written."}
             </p>
           )}

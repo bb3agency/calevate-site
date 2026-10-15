@@ -326,7 +326,7 @@ describe("the commercials screen", () => {
     await waitFor(() => {
       expect(document.body.textContent).toContain("already the terms in effect");
     });
-    expect(document.body.textContent).toContain("no audit row was added");
+    expect(document.body.textContent).toContain("Nothing was changed.");
   });
 
   /**

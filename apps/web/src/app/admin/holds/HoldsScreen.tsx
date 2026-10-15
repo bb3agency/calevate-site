@@ -66,7 +66,7 @@ export function HoldsScreen() {
           {
             key: "longest_wait",
             label: "Longest anyone has waited",
-            value: rows.length === 0 ? "nobody is waiting" : waitedFor(rows[0].signed_up_at, now),
+            value: rows.length === 0 ? "nobody is waiting" : waitedFor(longestWait(rows), now),
           },
           {
             key: "rules",

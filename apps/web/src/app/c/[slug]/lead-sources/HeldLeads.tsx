@@ -28,7 +28,8 @@ export function HeldLeads({
   onDrop: (id: string) => void;
 }) {
   const items = held.data?.items ?? [];
-  if (!holding && items.length === 0) return null;
+  // A failed read still shows: leads held before the plan changed would otherwise vanish.
+  if (!holding && !held.error && items.length === 0) return null;
   return (
     <Card title="Waiting for you" info="Leads held after hours. Nothing is called until you choose.">
       {held.isLoading ? (

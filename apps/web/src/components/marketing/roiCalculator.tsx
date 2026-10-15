@@ -401,8 +401,8 @@ function voiceOptions(
       label: `${tierLabel(card, voice)} voice — ${formatRateINR(rateFor(card, voice, LIST_RATE).rate)}/min`,
       caption:
         // No agent can start on or be moved to this rung on this deployment (the server's
-        // `voice_not_offered`: unpriced on our own voices, D-631; held back on an engine that
-        // sells only its Premium band, D-681). The RATE is real and stays on the label — it is
+        // `voice_not_offered`: unpriced on our own voices, D-631; held back on ThinnestAI until
+        // our voice key is on and its minute is attested, D-688). The RATE is real and stays on the label — it is
         // frozen on any credit bought today — so what the caption has to say is that the
         // voice is not on offer, and the notice is the one place that sentence is written.
         voice === voiceNotOffered(card)

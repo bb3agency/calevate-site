@@ -46,7 +46,7 @@ export function PlatformFeePanel({ tenantId }: { tenantId: string }) {
       {fee.isLoading ? (
         <Skeleton rows={3} />
       ) : fee.error || !fee.data ? (
-        <ProblemNotice error={fee.error} onRetry={() => void fee.refetch()} />
+        <ProblemNotice error={fee.error ?? new Error("The platform fee did not load.")} onRetry={() => void fee.refetch()} />
       ) : (
         <FeeDetail tenantId={tenantId} fee={fee.data} />
       )}

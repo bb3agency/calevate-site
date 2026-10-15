@@ -14,7 +14,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { blankKeys, fill, toPlainText, valueOf } from "@/lib/noticeDraft/blanks";
 import { parseNotice } from "@/lib/noticeDraft/blocks";
-import { printDocument } from "@/lib/printDocument";
+import { PRINT_FAILED, usePrintDocument } from "@/lib/printDocument";
 
 import { downloadText } from "./download";
 import { FillPanel } from "./FillPanel";
@@ -93,6 +93,7 @@ function Draft({ notice }: { notice: CallerNotice }) {
   const persist = me.data !== undefined && !me.data.impersonating;
   const { values, set, clear } = useBlankValues(session.orgSlug, persist);
   const sheet = useRef<HTMLElement>(null);
+  const printing = usePrintDocument();
 
   const blocks = useMemo(() => parseNotice(notice.notice_markdown), [notice.notice_markdown]);
   const keys = useMemo(() => blankKeys(notice.notice_markdown), [notice.notice_markdown]);
@@ -100,7 +101,7 @@ function Draft({ notice }: { notice: CallerNotice }) {
   const done = keys.filter((key) => valueOf(values, key) !== null).length;
 
   const print = () => {
-    if (sheet.current) void printDocument(printableClone(sheet.current, values), { title: "Privacy notice (draft)" });
+    if (sheet.current) printing.print(printableClone(sheet.current, values), { title: "Privacy notice (draft)" });
   };
 
   return (
@@ -127,6 +128,7 @@ function Draft({ notice }: { notice: CallerNotice }) {
           </>
         }
       />
+      {printing.failed && <p role="alert" className="text-meta text-danger">{PRINT_FAILED}</p>}
 
       {/* The server's own sentence, word for word, before the document it qualifies. */}
       <p role="note" className={`${NOTICE_BASE} ${NOTICE_BAR.warn} text-meta leading-snug`}>

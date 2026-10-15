@@ -91,7 +91,7 @@ export function EndTrialForm({
       <Field
         label="Why this trial is ending (required)"
         id="trial-end-reason"
-        hint="Stored on the trial row and on the audit record, in your words."
+        hint="Required. Stored on the trial."
         error={
           draft.reason.trim() !== "" && reason.length < 3
             ? "Say why in at least a few words."

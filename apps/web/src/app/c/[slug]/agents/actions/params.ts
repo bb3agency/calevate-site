@@ -102,16 +102,18 @@ export interface CapturedField {
 /**
  * Everything "From the lead" can read: the call facts, then the agent's own captured details
  * by label. A stored binding to a detail the agent no longer captures stays listed, marked,
- * so opening the form never silently rebinds it.
+ * so opening the form never silently rebinds it. With `fields` null (the agent not read yet)
+ * the binding is listed by its key alone, making no claim either way.
  */
 export function leadVarOptions(
-  fields: readonly CapturedField[],
+  fields: readonly CapturedField[] | null,
   current?: string,
 ): { value: string; label: string }[] {
-  const captured = fields.map((f) => ({ value: `${LEAD_FIELD_PREFIX}${f.key}`, label: f.label }));
+  const captured = (fields ?? []).map((f) => ({ value: `${LEAD_FIELD_PREFIX}${f.key}`, label: f.label }));
   const options = [...LEAD_VARS, ...captured];
   if (current && !options.some((o) => o.value === current) && current.startsWith(LEAD_FIELD_PREFIX)) {
-    options.push({ value: current, label: `${current.slice(LEAD_FIELD_PREFIX.length)} (no longer captured)` });
+    const key = current.slice(LEAD_FIELD_PREFIX.length);
+    options.push({ value: current, label: fields === null ? key : `${key} (no longer captured)` });
   }
   return options;
 }

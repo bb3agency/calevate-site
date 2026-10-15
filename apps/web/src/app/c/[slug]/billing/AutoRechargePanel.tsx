@@ -54,6 +54,7 @@ export function AutoRechargePanel({ session }: { session: Session }) {
   const [cap, setCap] = useState("");
   const [method, setMethod] = useState<MandateMethod>("upi");
   const [windowNote, setWindowNote] = useState<string | null>(null);
+  const [checkoutProblem, setCheckoutProblem] = useState<unknown>(null);
 
   const data = settings.data;
   useEffect(() => {
@@ -64,7 +65,7 @@ export function AutoRechargePanel({ session }: { session: Session }) {
   }, [data]);
 
   if (settings.isLoading) return <Skeleton rows={3} label="Loading auto-recharge" />;
-  if (settings.error || !data) return <ProblemNotice error={settings.error} />;
+  if (settings.error || !data) return <ProblemNotice error={settings.error ?? new Error("Your auto-recharge settings did not load.")} />;
 
   const fieldProblem = rupeeProblem(threshold) ?? rupeeProblem(amount) ?? rupeeProblem(cap);
   const confirmed = data.mandate_status === "confirmed";
@@ -79,7 +80,11 @@ export function AutoRechargePanel({ session }: { session: Session }) {
 
   const approve = async () => {
     setWindowNote(null);
-    const checkout = await start.mutateAsync({ method, max_debit_inr: amount.trim() });
+    setCheckoutProblem(null);
+    // A refused start is already on screen as `start.error`; nothing more to do with it here.
+    const checkout = await start.mutateAsync({ method, max_debit_inr: amount.trim() }).catch(() => null);
+    if (checkout === null) return;
+    // The checkout script can fail to load; it rejects with a problem worth showing.
     await openRazorpayCheckout({
       keyId: checkout.key_id,
       orderId: checkout.order_id,
@@ -92,7 +97,7 @@ export function AutoRechargePanel({ session }: { session: Session }) {
       onDismissed: () => setWindowNote("The approval window was closed. Nothing was set up."),
       onFailed: () =>
         setWindowNote("The approval did not go through. You can try again or use another method."),
-    });
+    }).catch((problem: unknown) => setCheckoutProblem(problem));
   };
 
   const RUPEE_INPUT = `${FIELD} mt-0 w-full tabular-nums sm:w-36`;
@@ -240,7 +245,9 @@ export function AutoRechargePanel({ session }: { session: Session }) {
       )}
       {windowNote && <p className="mt-2 text-meta text-ink-muted">{windowNote}</p>}
       <div className="mt-3">
-        <ProblemNotice error={save.error ?? start.error ?? confirm.error ?? withdraw.error} />
+        <ProblemNotice
+          error={save.error ?? start.error ?? checkoutProblem ?? confirm.error ?? withdraw.error}
+        />
       </div>
 
       {charges.data && charges.data.length > 0 && (

@@ -188,10 +188,10 @@ export function LeadsScreen() {
 
   const exportNote =
     exportTotal === null
-      ? "The CSV export contains the leads shown here: name and full phone number first, then the columns shown here. Each download is recorded."
+      ? "The CSV export contains the leads shown here: name and full phone number first, then the columns shown here."
       : `The CSV export contains ${
           exportTotal === 1 ? "this 1 lead" : `these ${formatCount(exportTotal)} leads`
-}: name and full phone number first, then the columns shown here. Each download is recorded.`;
+}: name and full phone number first, then the columns shown here.`;
 
   /** How many of the "More filters" are narrowing the rows, for its closed state. */
   const moreInUse =

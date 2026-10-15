@@ -38,8 +38,9 @@ export function ParamEditor({
 }: {
   params: DraftParam[];
   onChange: (p: DraftParam[]) => void;
-  /** The details this agent captures, offered by label under "From the lead". */
-  fields?: readonly CapturedField[];
+  /** The details this agent captures, offered by label under "From the lead"; null while
+   *  the agent has not been read, so no stored binding is called stale off a missing read. */
+  fields?: readonly CapturedField[] | null;
 }) {
   const patch = (index: number, next: Partial<DraftParam>) =>
     onChange(params.map((q, j) => (j === index ? { ...q, ...next } : q)));

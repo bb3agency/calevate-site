@@ -236,7 +236,7 @@ function DigiLockerCard({ tenantId, record, access }: { tenantId: string; record
       ) : (
         <div className="mt-3 space-y-2">
           <label className="block">
-            <span className={FIELD_LABEL}>Why (recorded)</span>
+            <span className={FIELD_LABEL}>Why</span>
             <input className={FIELD} value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} />
           </label>
           <button

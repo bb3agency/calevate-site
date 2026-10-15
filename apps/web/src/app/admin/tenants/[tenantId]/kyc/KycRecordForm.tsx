@@ -366,9 +366,8 @@ function WillRecord({ draft, tenantName }: { draft: KycRecordIn; tenantName: str
           {verified && " The time is stamped by the database."}
         </li>
         <li>
-          <span className="text-ink-muted">Audit</span> — one entry with the status and the
-          registry reference; the signatory&apos;s name is not copied into it. Blank optional
-          fields leave what is filed alone; only the rejection reason is replaced outright.
+          <span className="text-ink-muted">Blank fields</span> — optional fields left blank
+          keep what is filed; only the rejection reason is replaced outright.
         </li>
       </ul>
     </div>

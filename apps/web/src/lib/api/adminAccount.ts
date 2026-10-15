@@ -23,68 +23,22 @@
  * verdict held in the place least able to defend it, and it would drift the day a gate's
  * sentence changes. The only copy in this file is the ACTOR column — `client` /
  * `calevate` — which is an operator's word for whose move it is.
- *
- * ⚠ THE RESPONSE TYPES ARE HAND-WRITTEN AND MUST BECOME GENERATED ONES. Every other
- * module here reads `Schemas[...]` from `./schema`, which is generated from the OpenAPI
- * document; these three routes are newer than the checked-in snapshot and regenerating it
- * is a separate step (it is one artefact several changes land in at once). The shapes
- * below mirror `TenantReadinessOut`, `TenantReadinessRowOut`, `ActivityEntryOut` and
- * `TenantActivityOut` field for field. Replace them with `Schemas["TenantReadinessOut"]`
- * and its siblings the moment the snapshot is regenerated — a hand-written response type
- * is exactly the drift the generated client exists to stop.
  */
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { adminSession } from "./admin";
 import { apiRequest } from "./client";
+import type { components } from "./schema";
 
-/** Whose move a readiness row is. Two values and no third (`legal/readiness.py`). */
-export type ReadinessActor = "client" | "calevate";
+type Schemas = components["schemas"];
 
-/** One condition standing between this account and its first call. */
-export interface ReadinessRow {
-  /** The gate's own machine name, e.g. `agreements_not_accepted`. */
-  rule: string;
-  title: string;
-  /** The gate's refusal sentence, verbatim — the same one the client is shown. */
-  reason: string;
-  actor: ReadinessActor;
-  next_step: string;
-}
-
-export interface TenantReadiness {
-  tenant_id: string;
-  may_operate: boolean;
-  blocked_on_calevate: number;
-  rows: ReadinessRow[];
-}
-
-/** Who acted: one of ours, somebody at the client, or the platform itself. */
-export type ActorType = "admin" | "user" | "system";
-
-export interface ActivityEntry {
-  id: string;
-  at: string;
-  /** The dotted action name as `write_audit` recorded it. */
-  action: string;
-  object_type: string | null;
-  object_id: string | null;
-  actor_type: ActorType;
-  actor_id: string | null;
-  /** The operator's name, when one of ours acted. Null for a client or system actor. */
-  actor_label: string | null;
-  /** Set when the act came through a view-as session (D-587). */
-  via_grant_id: string | null;
-}
-
-export interface TenantActivityPage {
-  tenant_id: string;
-  entries: ActivityEntry[];
-  total: number;
-  limit: number;
-  offset: number;
-}
+export type ReadinessRow = Schemas["TenantReadinessRowOut"];
+export type ReadinessActor = ReadinessRow["actor"];
+export type TenantReadiness = Schemas["TenantReadinessOut"];
+export type ActivityEntry = Schemas["ActivityEntryOut"];
+export type ActorType = ActivityEntry["actor_type"];
+export type TenantActivityPage = Schemas["TenantActivityOut"];
 
 /** How many entries one page of the trail holds. The server's own bound is 200. */
 export const ACTIVITY_PAGE_SIZE = 25;

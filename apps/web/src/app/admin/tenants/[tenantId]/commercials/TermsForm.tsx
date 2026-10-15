@@ -234,7 +234,7 @@ export function TermsForm({
             <p>
               {save.data.changed
                 ? "Recorded as a new dated agreement. Nothing already billed was altered."
-                : "These are already the terms in effect. Nothing was written, and no audit row was added."}
+                : "These are already the terms in effect. Nothing was changed."}
             </p>
           </NoticeBox>
         )}

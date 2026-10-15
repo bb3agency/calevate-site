@@ -29,7 +29,7 @@ export function WorkspacesSummaryPanel({ access }: { access: OpsAccess }) {
   if (summary.error || !summary.data) {
     return (
       <Section title="Client voice workspaces">
-        <ProblemNotice error={summary.error} onRetry={() => void summary.refetch()} />
+        <ProblemNotice error={summary.error ?? new Error("The workspace summary did not load.")} onRetry={() => void summary.refetch()} />
       </Section>
     );
   }

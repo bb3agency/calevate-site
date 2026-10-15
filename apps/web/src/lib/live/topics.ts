@@ -82,6 +82,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "lead-calling",
     "ingest-activity",
     "members",
+    // `lead_field_drafts` announces `leads`; a draft that fails writes nothing else.
+    "lead-fields",
+    "admin/lead-fields",
   ],
   campaigns: [
     ...SUMMARY,
@@ -194,6 +197,12 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "deletion-requests",
     "whatsapp-alerts",
     "junction-business-profile",
+    // A trial start or end writes only `tenant_trials`, which announces `account`; the
+    // wallet shows the active trial, so these move with it.
+    "trial",
+    "wallet",
+    "admin/trial",
+    "admin/credits",
     "admin/tenant",
     "admin/tenants",
     "admin/tenant-profile",
@@ -260,6 +269,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "ops/engine-model-bands",
     "ops/trial-number",
     "ops/tts-plan-fees",
+    "admin/tts-speaking-rate",
     "client/maintenance",
     "engine-catalogue",
   ],

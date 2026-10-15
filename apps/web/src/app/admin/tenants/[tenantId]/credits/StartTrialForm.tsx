@@ -196,7 +196,7 @@ export function StartTrialForm({
       <Field
         label="Why this client is being carried (required)"
         id="trial-reason"
-        hint="Stored on the audit record in your words. “Who agreed to carry this account for a month, and why” is the question this answers months later."
+        hint="Required. Say who agreed to carry this account for a month, and why."
         error={
           draft.reason.trim() !== "" && !reasonReady ? "Say why in at least a few words." : null
         }
@@ -298,7 +298,7 @@ export function StartTrialForm({
             : !confirmed
               ? "Type the number of days a second time to confirm. The two have to match exactly."
               : !reasonReady
-                ? "Say why. It is stored on the audit record."
+                ? "Say why."
                 : !graceReady
                   ? "Enter how long to keep their data if they do not buy."
                   : !minutesReady

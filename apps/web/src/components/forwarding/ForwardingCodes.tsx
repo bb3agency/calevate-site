@@ -94,7 +94,7 @@ export function ForwardingCodes({
   const catalogue = useForwardingCodes(session);
   if (catalogue.isLoading) return <Skeleton rows={3} label="Loading the codes" />;
   if (catalogue.error || !catalogue.data) {
-    return <ProblemNotice error={catalogue.error} onRetry={() => void catalogue.refetch()} />;
+    return <ProblemNotice error={catalogue.error ?? new Error("The forwarding codes did not load.")} onRetry={() => void catalogue.refetch()} />;
   }
   const guide: CarrierGuide =
     lineKind === "mobile"

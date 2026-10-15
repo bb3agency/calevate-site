@@ -92,7 +92,7 @@ export function WorkspacePanel({
 
   if (workspace.isLoading) return <Skeleton rows={3} label="Loading the voice workspace" />;
   if (workspace.error || !workspace.data) {
-    return <ProblemNotice error={workspace.error} onRetry={() => void workspace.refetch()} />;
+    return <ProblemNotice error={workspace.error ?? new Error("The voice workspace did not load.")} onRetry={() => void workspace.refetch()} />;
   }
   if (!workspace.data.available) return null;
   return <WorkspaceBody tenantId={tenantId} data={workspace.data} canWrite={canWrite} agents={agents} />;
@@ -323,7 +323,7 @@ function AdminBuyNumber({
 
   if (cities.isLoading) return <Skeleton rows={2} label="Loading cities" />;
   if (cities.error || !cities.data) {
-    return <ProblemNotice error={cities.error} onRetry={() => void cities.refetch()} />;
+    return <ProblemNotice error={cities.error ?? new Error("The list of cities did not load.")} onRetry={() => void cities.refetch()} />;
   }
   const pages = available.data?.pages;
   const numbers = pages === undefined ? undefined : pages.flatMap((page) => page.numbers);
