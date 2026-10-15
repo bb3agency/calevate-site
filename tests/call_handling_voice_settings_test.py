@@ -334,8 +334,9 @@ async def test_the_published_config_carries_the_resolved_settings() -> None:
 async def test_an_attached_engine_number_is_reported_to_the_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """F1 reads it: an agent answers on a phone line only once an engine number is attached.
-    A released number, another agent's, or a carrier number does not count."""
+    """F1 reads it: an agent gets the phone surface only once the platform holds one of its
+    numbers for it, as its line or lent to call out on (D-789). A released number, a number
+    in another workspace, or a carrier number does not count."""
     from apps.api.core.settings import get_settings
 
     monkeypatch.setattr(get_settings(), "engine", "thinnest")
@@ -379,12 +380,13 @@ async def test_an_attached_engine_number_is_reported_to_the_config(
             {"ref": f"ag_{agent_id.hex[:12]}", "aid": agent_id},
         )
     assert await attached() is True
-    # An outbound-only agent is lent a number to call out on, never given it as its line.
+    # An outbound-only agent is lent the number to call out on, and the platform places calls
+    # only from an agent with the phone surface (D-789).
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agents SET direction = 'outbound' WHERE id = :aid"), {"aid": agent_id}
         )
-    assert await attached() is False
+    assert await attached() is True
     # A number in another workspace than the agent's answers nobody.
     async with tenant_session(tenant_id) as session:
         await session.execute(

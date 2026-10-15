@@ -71,10 +71,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 _EMAIL_EVENT = "email_console"
 _BODY_KEY = "dev_message"
 
-#: `Your Calevate code to <what> is:\n\n    123456\n` — `auth_email._body`. Anchored on the
-#: sentence rather than on "six digits anywhere", so a request id that happens to be six
-#: digits long cannot be printed as a code an operator would then type.
-_CODE_RE = re.compile(r"code to .*? is:\s*(\d{4,10})", re.S)
+#: `Enter this code <...>.\n\n    123456\n` — the text part `email_render._code_email`
+#: composes, which is what the console transport logs. Anchored on the lead sentence and the
+#: code's own line rather than on "six digits anywhere", so a request id that happens to be
+#: six digits long cannot be printed as a code an operator would then type.
+_CODE_RE = re.compile(r"Enter this code[^\n]*\n\s*(\d{4,10})\s*\n")
 
 #: The other secret these emails carry: a single-use link (password reset, invitation,
 #: operator setup — the last of which is the ONLY copy of a new administrator's way in).

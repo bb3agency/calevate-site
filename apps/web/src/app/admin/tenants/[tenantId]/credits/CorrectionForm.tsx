@@ -281,7 +281,7 @@ export function CorrectionForm({
                 A correction may take the balance <span className="font-semibold">below
                 zero</span> — a wrong credit that has already been spent cannot be fully
                 taken back any other way. That stops the client&apos;s
-                their outgoing calls immediately and stops their agents answering incoming
+                outgoing calls immediately and stops their agents answering incoming
                 ones, exactly as an empty wallet does, until you add credit back. The
                 answer comes back with the result rather than being guessed here.
               </p>

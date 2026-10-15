@@ -54,7 +54,7 @@ from apps.workers.extraction import (
     assist_capability,
     assist_unavailable,
 )
-from calevate_shared.engine import LlmProvider
+from calevate_shared.engine import LlmProvider, leg_for_model
 
 pytestmark = pytest.mark.anyio
 
@@ -669,4 +669,7 @@ async def test_the_rung_travels_from_the_one_query_to_the_sentence() -> None:
     leg = await account_assist_leg(cast(Any, _Session()))
 
     assert leg.account_chose_model is False
-    assert leg.model == llm_models.platform_default_model()
+    # The platform default is a Google model, and the Google arm of the dashboard assists
+    # runs the assistant's fast model on our key rather than the account's id (D-786).
+    assert leg_for_model(llm_models.platform_default_model()).provider == GOOGLE_PROVIDER
+    assert leg.model == get_settings().copilot_fast_model

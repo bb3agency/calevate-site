@@ -447,6 +447,9 @@ AREAS: tuple[Area, ...] = (
             # `heal_actions` (D-701) is an append-only ledger: every automatic step the
             # healer took on a client's account, read in time order like `audit_log`.
             "apps/api/healer/models.py",
+            # `copilot_consents` (D-788) is an append-only ledger: the owner's acceptance of
+            # the assistant disclosure, the evidence that unmasked sending was agreed to.
+            "apps/api/copilot/models.py",
         ),
         why=(
             "metering, credits, caps, rating and invoicing. Money arithmetic fails "

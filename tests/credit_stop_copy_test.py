@@ -319,7 +319,9 @@ WEB_CREDIT_BOTH_HALVES: tuple[tuple[str, str, str, str], ...] = (
     (
         f"{CREDITS_DIR}/CorrectionForm.tsx",
         "A correction may take the balance",
-        "Recorded in the audit log",
+        # The paragraph's own close: the audit-log sentence that followed it is gone, since
+        # no console screen announces audit logging (founder, 15 Oct 2026).
+        "</p>",
         "the consequence stated above the Correct button",
     ),
     (
