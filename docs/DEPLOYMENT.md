@@ -923,7 +923,7 @@ Calevate adaptations:
    Cloudflare ranges + `real_ip_header CF-Connecting-IP`, so rate zones and audit
    logs see real caller IPs, not CF edge IPs. (Their config lacks this; the survey
    flagged it.)
-4. **Rate zones** (ours): `auth` 20r/m · `admin_api` 180r/m · `client_api` 120r/m ·
+4. **Rate zones** (ours): `auth` 20r/m · `admin_api` 360r/m · `client_api` 300r/m (both burst 120, above the app's own limits so the app, which answers with CORS and Retry-After, is the one that refuses) ·
    `webhooks` 600r/m (engine events burst on campaign completion) · `worker` 1200r/m (the api
    vhost's `/v1/worker/` location: ThinnestAI's in-call actions and caller lookups, which
    arrive from a handful of shared egress addresses) · `health` 60r/m · `browser`

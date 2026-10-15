@@ -39,11 +39,18 @@
 limit_req_zone $binary_remote_addr zone=auth:10m rate=20r/m;
 
 # Admin console. One operator, a dashboard that fans out to several endpoints per view.
-limit_req_zone $binary_remote_addr zone=admin_api:10m rate=180r/m;
+# Above the app's own `admin_api` profile (300/min per caller, `apps/api/core/ratelimit.py`)
+# for the same reason as `client_api` below.
+limit_req_zone $binary_remote_addr zone=admin_api:10m rate=360r/m;
 
-# Client dashboards. Lower than admin because there are many of them and each one is a
-# browser session, not an operator sweeping every tenant.
-limit_req_zone $binary_remote_addr zone=client_api:10m rate=120r/m;
+# Client dashboards and public lead intake. The APP is the limit here (`client_api`,
+# 240/min per caller and 900/min per account, `apps/api/core/ratelimit.py`), and this zone
+# sits above it as flood defence only. It used to be 120r/m with burst=30, TIGHTER than the
+# app: one dashboard load fans out to about 15 reads, live refreshes and retries add more,
+# and nginx refused them with its own 429. That reply carries no CORS header, so the browser
+# reports it as a network error and the page says no reply arrived (15 Oct 2026, origin
+# error log). Refused by the app instead, the client gets problem+json with Retry-After.
+limit_req_zone $binary_remote_addr zone=client_api:10m rate=300r/m;
 
 # Engine webhooks. Sized for the SHAPE of the traffic, not its average: a campaign
 # finishing hangs up 250 calls at once (D-32's production concurrency) and every one of
@@ -53,7 +60,7 @@ limit_req_zone $binary_remote_addr zone=client_api:10m rate=120r/m;
 limit_req_zone $binary_remote_addr zone=webhooks:10m rate=600r/m;
 
 # The voice engine's door (`/v1/worker/` on api.): its in-call actions and caller lookups.
-# Under `client_api` (120r/m per IP) it would be the tightest limiter on the call path, and
+# Under `client_api` (300r/m per IP) it would be the tightest limiter on the call path, and
 # the engine calls from a handful of shared egress addresses, so one IP here is the whole
 # fleet. The edge must never be tighter than the app's own limits
 # (`apps/api/core/ratelimit.py`): a refused action is a caller told the wrong thing.
@@ -91,7 +98,7 @@ limit_req_zone $binary_remote_addr zone=health:5m rate=60r/m;
 # while still bounding the box. What it costs: a flood from ONE address now gets 600
 # requests a minute of static-asset service instead of 90. That is the right trade at
 # this layer — these vhosts serve documents and cached assets, not database work; the
-# expensive surfaces (`auth` 20r/m, `client_api` 120r/m, `admin_api` 180r/m) are on the
+# expensive surfaces (`auth` 20r/m, `client_api` 300r/m, `admin_api` 360r/m) are on the
 # api vhost, are untouched by this, and are where a flood would actually hurt.
 limit_req_zone $binary_remote_addr zone=browser:10m rate=600r/m;
 

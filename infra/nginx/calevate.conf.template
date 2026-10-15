@@ -633,7 +633,7 @@ server {
     }
 
     location ^~ /v1/admin/ {
-        limit_req zone=admin_api burst=40 nodelay;
+        limit_req zone=admin_api burst=120 nodelay;
         proxy_pass http://calevate_api;
         include /etc/nginx/snippets/calevate-proxy.conf;
     }
@@ -641,8 +641,8 @@ server {
     # The public self-serve rate card (D-545), on the `browser` zone rather than
     # `client_api`'s — and the reason is WHO calls it. Its one caller is the marketing
     # site's own Next server, which renders `/`, `/pricing` and `/roi` per request and
-    # reads this once for each render from ONE address. `client_api` is 120r/m per IP,
-    # sized for one signed-in person; here that would be a ceiling of 120 page views a
+    # reads this once for each render from ONE address. `client_api` is 300r/m per IP,
+    # sized for one signed-in person; here that would be a ceiling of 300 page views a
     # minute on the whole site, hit exactly when the site is being looked at, and the
     # page's honest degrade ("the rate card could not be loaded") would fire on a
     # LinkedIn post. The route costs the API one settings read and five decimal
@@ -657,7 +657,7 @@ server {
 
     # The voice engine's in-call actions and caller lookups (`/v1/worker/**`, authenticated
     # per agent by the app). Its own zone because every request arrives from the engine's
-    # shared egress, so `client_api`'s per-person 120r/m would be a fleet-wide ceiling on
+    # shared egress, so `client_api`'s per-person 300r/m would be a fleet-wide ceiling on
     # every live call. The burst covers the lookups of calls that ring together.
     location ^~ /v1/worker/ {
         limit_req zone=worker burst=200 nodelay;
@@ -666,7 +666,7 @@ server {
     }
 
     location / {
-        limit_req zone=client_api burst=30 nodelay;
+        limit_req zone=client_api burst=120 nodelay;
         proxy_pass http://calevate_api;
         include /etc/nginx/snippets/calevate-proxy.conf;
     }
