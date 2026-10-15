@@ -208,8 +208,8 @@ async def _viewed_tenant(principal: Principal, claimed: UUID | None) -> UUID | N
     """Which account is open: the impersonation grant's, else the body's, else none.
 
     **THE GRANT WINS AND THE TWO ARE NEVER RECONCILED.** `Principal.tenant_id` on an admin
-    principal exists only inside a D-22 view-as session, where it was minted behind a second
-    factor (D-210) and is audited on every read; the body field is a claim a browser
+    principal exists only inside a D-22 view-as session, where it was minted by the grant
+    route and is audited on every read; the body field is a claim a browser
     composed. Preferring the proven one is the same rule `copilot/routes.py` states about
     `payload.screen` — a caller-composed description is for the prompt and the audit row,
     never for scoping.
@@ -226,9 +226,8 @@ async def _viewed_tenant(principal: Principal, claimed: UUID | None) -> UUID | N
     operator holding only `copilot:admin` can ask the assistant about ANY live account's
     leads, campaigns, agents and (through `search_calls`) its redacted transcript windows,
     none of which has an admin-realm route: `/v1/leads` and `/v1/crm/calls` are client-realm
-    and an operator reaches them only through a D-22 view-as session, which is minted behind
-    a second factor (D-210) and audited on every read. Grepped this session, not recalled —
-    the only admin-realm surface over a client's call content is
+    and an operator reaches them only through a D-22 view-as session, whose start is audited
+    and which is audited on every read. The only admin-realm surface over a client's call content is
     `/v1/admin/qa-samples/{id}` (`calls:read`, redacted, sampled calls only).
 
     THAT IS D-499's DESIGN AND NOT A HOLE THIS FUNCTION OPENED — an operator on a client's
@@ -486,8 +485,8 @@ async def ask_admin_copilot(
                     # HOW THIS ACCOUNT WAS REACHED, and it is the field a reviewer needs
                     # first. `tenant_id` set with `impersonating: false` means the account
                     # was named in the request BODY and validated against the directory
-                    # (`_viewed_tenant`) rather than proven by an impersonation grant minted
-                    # behind a second factor. Both are legitimate; they are not the same
+                    # (`_viewed_tenant`) rather than proven by an audited impersonation
+                    # grant. Both are legitimate; they are not the same
                     # event, and a row that cannot tell them apart cannot be reviewed.
                     "impersonating": principal.impersonating,
                     # How many files the operator attached (D-781); a count, never a name.

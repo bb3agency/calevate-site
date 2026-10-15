@@ -854,7 +854,7 @@
       },
       "AdminCopilotAskIn": {
         "additionalProperties": false,
-        "description": "`POST /v1/admin/copilot/ask` \u2014 the client body plus WHICH ACCOUNT IS OPEN (D-499).\n\n`tenant_id` is the account whose admin page the operator is looking at, or null on a\nplatform screen. It scopes three things and nothing else: which tenant the account read\ntools run under, which tenant's live business state is composed, and which memories are\neligible for recall (`copilot/admin_memory.py`).\n\n**IT IS NOT AN AUTHORIZATION INPUT AND IT IS NOT A PAYER.** The payer is always the\nplatform ledger \u2014 an operator never spends a client's allowance (D-499) \u2014 so no body\nfield here can move anyone's bill. And it widens nothing: every route serving this\npermission is admin-realm, and both admin roles hold `admin:tenants`, so an operator\nnaming an account here reaches exactly what the console's own tenant page would show\nthem. It is still validated to be a real, undeleted account before it is used, because\na silently-ignored id would let a screen believe it had scoped the assistant when it\nhad not.\n\n**INSIDE A VIEW-AS SESSION THE HEADER WINS.** `Principal.tenant_id` from an\nimpersonation grant is proven by a second factor and audited; this field is a claim in a\nbody. The route takes the principal's when there is one and never reconciles the two.",
+        "description": "`POST /v1/admin/copilot/ask` \u2014 the client body plus WHICH ACCOUNT IS OPEN (D-499).\n\n`tenant_id` is the account whose admin page the operator is looking at, or null on a\nplatform screen. It scopes three things and nothing else: which tenant the account read\ntools run under, which tenant's live business state is composed, and which memories are\neligible for recall (`copilot/admin_memory.py`).\n\n**IT IS NOT AN AUTHORIZATION INPUT AND IT IS NOT A PAYER.** The payer is always the\nplatform ledger \u2014 an operator never spends a client's allowance (D-499) \u2014 so no body\nfield here can move anyone's bill. And it widens nothing: every route serving this\npermission is admin-realm, and both admin roles hold `admin:tenants`, so an operator\nnaming an account here reaches exactly what the console's own tenant page would show\nthem. It is still validated to be a real, undeleted account before it is used, because\na silently-ignored id would let a screen believe it had scoped the assistant when it\nhad not.\n\n**INSIDE A VIEW-AS SESSION THE HEADER WINS.** `Principal.tenant_id` from an\nimpersonation grant is signed, bound to the operator and audited; this field is a claim\nin a body. The route takes the principal's when there is one and never reconciles the two.",
         "properties": {
           "attachments": {
             "default": [],
@@ -47623,26 +47623,8 @@
     },
     "/v1/admin/impersonation-grants": {
       "post": {
-        "description": "Begins a 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant and expires in minutes.\n\nThe session may CHANGE the account, not only read it, and every change is recorded against you: the audit row names your operator id, the client, and this grant. What it may not do is spend the client's money or AI allowance, grant anyone access to their account, give a consent, accept an agreement or file an erasure \u2014 those stay with the client, and the platform surfaces stay in the operator console.\n\nSTARTING a view-as session needs a code entered for it (D-730): request one at `POST /v1/auth/admin/step-up`, answer it at `/v1/auth/admin/step-up/verify` with `action: view_as:<slug>`, then send this request with the header `X-Confirm-Action: view_as:<slug>`. The proof is spent by the mint it was typed for, and this route is accepted from the operator console's origin only. EXTENDING a session takes no code \u2014 send the grant currently held as `renew`, here or at `/impersonation-grants/renew`, and it is continued for up to an hour from the code that started it.",
+        "description": "Begins a 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant and expires in minutes.\n\nThe session may CHANGE the account, not only read it, and every change is recorded against you: the audit row names your operator id, the client, and this grant. What it may not do is spend the client's money or AI allowance, grant anyone access to their account, give a consent, accept an agreement or file an erasure \u2014 those stay with the client, and the platform surfaces stay in the operator console.\n\nStarting a session needs the operator's signed-in admin session and `admin:impersonate`, and no code (D-791). This route is accepted from the operator console's origin only. To extend a session, send the grant currently held as `renew`, here or at `/impersonation-grants/renew`; it is continued for up to an hour from the mint that started it.",
         "operationId": "mint_impersonation_grant_v1_admin_impersonation_grants_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "x-confirm-action",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Confirm-Action"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -47680,7 +47662,7 @@
     },
     "/v1/admin/impersonation-grants/renew": {
       "post": {
-        "description": "Continues a view-as session from the grant currently held, for up to an hour from the code that started it. It never STARTS one: a missing, foreign, expired or out-of-window grant is refused, and the operator re-enters the client from the operator console. This is the one grant route the client console may call.",
+        "description": "Continues a view-as session from the grant currently held, for up to an hour from the mint that started it. It never STARTS one: a missing, foreign, expired or out-of-window grant is refused, and the operator re-enters the client from the operator console. This is the one grant route the client console may call.",
         "operationId": "renew_impersonation_grant_v1_admin_impersonation_grants_renew_post",
         "requestBody": {
           "content": {

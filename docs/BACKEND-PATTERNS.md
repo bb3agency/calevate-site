@@ -222,14 +222,14 @@ realm it names:
   factor existing at all — which is a product decision about Indian SMB owners and email
   deliverability (D-170), not an engineering gap, and reversing it would be its own
   decision-log entry rather than a consequence of this one.
-- **On the admin realm, it is step-up, and the gate is on the DOOR rather than the
-  read.** An operator reaches that client-realm route exactly one way: a view-as
-  session, which needs a grant, and grants exist only at
-  `POST /v1/admin/impersonation-grants`. That mint takes the full step-up (D-210), so
-  every tenant-realm read an operator can reach — the raw transcript among them — now
-  sits behind a second factor proved in the last five minutes. One gate on the door
-  rather than a freshness check bolted onto each read, which is also the only place it
-  CAN live: the reads are served by a realm with no admin session to check.
+- **On the admin realm, there is no step-up on this read since D-791.** An operator
+  reaches that client-realm route exactly one way: a view-as session, which needs a
+  grant, and grants exist only at `POST /v1/admin/impersonation-grants`. D-210 and D-730
+  put a per-entry code on that mint; the founder removed it (D-791, 15 Oct 2026), knowingly
+  accepting the weaker control, so an operator enters on the MFA-gated admin session and
+  `admin:impersonate` alone. What remains on the read is `calls:read_raw`, the
+  `transcript.read_raw` audit row on every read, and the `admin.impersonation_started`
+  row on every entry.
 
 **Audit hash chain** (ADOPTED for `audit_log`): each entry's hash =
 HMAC(`AUDIT_CHAIN_SECRET`, previous_hash + entry), written under

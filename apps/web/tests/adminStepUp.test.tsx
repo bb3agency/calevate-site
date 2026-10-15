@@ -6,7 +6,7 @@ import {
   IMPERSONATION_GRANT_PATH,
   IMPERSONATION_RENEW_PATH,
   clearImpersonationGrants,
-  viewAsConfirmation,
+  confirmedAdminRequest,
   viewAsSession,
 } from "@/lib/api/admin";
 import { apiRequest } from "@/lib/api/client";
@@ -17,20 +17,13 @@ import { problem, renderAdminPage, type ApiCall, type Routes } from "./harness";
 /**
  * The console's half of D-210: a step-up refusal becomes a code prompt, not a dead end.
  *
- * The API now refuses a COLD view-as mint without a second factor proved in the last five
- * minutes, and the whole point of D-178's refusal text — "an operator mid-incident must
- * not have to find the source to learn how to get past this" — is defeated if the browser
- * has nowhere to type the code. It had nowhere: the step-up gate shipped on sixteen routes
- * and this console had no prompt at all.
- *
  * What is asserted here:
  *
- *   1. the mint carries the `X-Confirm-Action` echo the route demands, and offers the
- *      grant it is replacing as `renew` — which is what makes the prompt roughly hourly
- *      rather than every fourteen minutes;
- *   2. a `reauthentication_required` refusal OPENS the prompt, and answering it retries
- *      the mint — without `renew`, because that value has just been ruled out;
- *   3. DISMISSING fails the action with the server's own refusal rather than looping;
+ *   1. the view-as mint starts a session with the slug alone (D-791) and offers the grant
+ *      it is replacing as `renew` on the renewal route;
+ *   2. a `reauthentication_required` refusal on a confirmed operator write OPENS the
+ *      prompt, and answering it retries the write;
+ *   3. signing out fails the action with the server's own refusal rather than looping;
  *   4. six concurrent refusals produce ONE prompt and ONE emailed code, because
  *      `request_step_up` retires the previous challenge and six asks would leave an
  *      operator typing a code the sixth request had already invalidated.
@@ -40,13 +33,18 @@ const SLUG = "sri-traders";
 const STEP_UP_PATH = "/v1/auth/admin/step-up";
 const VERIFY_PATH = "/v1/auth/admin/step-up/verify";
 
+/** A confirmed operator write, standing for every route behind the step-up gate. */
+const WRITE_PATH = "/v1/admin/tenants/t-1/kyc";
+const WRITE_CONFIRMATION = "record_kyc:t-1";
+const WRITE_REASON = `Recording KYC for ${SLUG}.`;
+
 /** The API's step-up refusal, in the shape `authn/stepup.py` sends it. */
 function reauthRequired() {
   return problem(403, {
     type: "https://calevate.tech/problems/reauthentication_required",
     title: "Confirm it is still you",
-    detail: "This action needs a second factor proved in the last 5 minutes.",
-    remediation: `POST ${STEP_UP_PATH} to have a code emailed, POST the code to ${VERIFY_PATH}, then repeat this request with X-Confirm-Action: ${viewAsConfirmation(SLUG)}`,
+    detail: "This action needs a second factor proved in the last 30 minutes.",
+    remediation: `POST ${STEP_UP_PATH} to have a code emailed, POST the code to ${VERIFY_PATH}, then repeat this request with X-Confirm-Action: ${WRITE_CONFIRMATION}`,
     kind: "permission",
   });
 }
@@ -68,13 +66,12 @@ function grantBody(): Record<string, unknown> {
 }
 
 /**
- * Mount the prompt alone, and drive the grant source the way the transport does.
+ * Mount the prompt alone, and drive callers the way the screens do.
  *
  * The prompt is mounted once in `app/admin/layout.tsx` and answers refusals raised from
- * anywhere, including from inside `apiRequest` while it assembles headers. Rendering the
- * shell to reach it would drag in the session gate, the nav and a dozen unrelated reads;
- * rendering the component and calling the same entry point the shell's screens call is
- * the truthful shape for what is under test.
+ * anywhere. Rendering the shell to reach it would drag in the session gate, the nav and a
+ * dozen unrelated reads; rendering the component and calling the same entry points the
+ * shell's screens call is the truthful shape for what is under test.
  */
 function mountPrompt(routes: Routes): ApiCall[] {
   const { calls } = renderAdminPage(<StepUpPrompt />, routes);
@@ -86,27 +83,22 @@ function readThroughViewAs(): Promise<unknown> {
   return apiRequest(viewAsSession(SLUG), "/v1/agents");
 }
 
+/** One confirmed operator write, which is what can be refused for a stale factor. */
+function confirmedWrite(): Promise<unknown> {
+  return confirmedAdminRequest(
+    WRITE_PATH,
+    { method: "POST", body: { status: "verified" }, confirmAction: WRITE_CONFIRMATION },
+    WRITE_REASON,
+  );
+}
+
 const mints = (calls: ApiCall[]) =>
   calls.filter((call) => call.path === IMPERSONATION_GRANT_PATH);
 
-describe("the view-as mint carries what the step-up gate asks for", () => {
-  it("echoes the confirmation string the API's own function builds", async () => {
-    const calls = mountPrompt({
-      [`POST ${IMPERSONATION_GRANT_PATH}`]: grantBody(),
-      "/v1/agents": [],
-    });
+const writes = (calls: ApiCall[]) => calls.filter((call) => call.path === WRITE_PATH);
 
-    await readThroughViewAs();
-
-    const mint = mints(calls)[0];
-    // Copied VERBATIM from `apps/api/admin/routes.py::view_as_confirmation`. If the two
-    // ever disagree the API answers `step_up_required` and prints the string it wanted —
-    // deliberately NOT a code this console retries, because a version skew must be seen.
-    expect(mint?.headers["X-Confirm-Action"]).toBe(`view_as:${SLUG}`);
-    expect(JSON.parse(mint?.body ?? "{}")).toEqual({ slug: SLUG });
-  });
-
-  it("offers the grant it is replacing as `renew`, so staying in does not re-challenge", async () => {
+describe("the view-as mint", () => {
+  it("starts with the slug and renews with the grant it replaces", async () => {
     let issued = 0;
     const grant = () => {
       issued += 1;
@@ -131,9 +123,8 @@ describe("the view-as mint carries what the step-up gate asks for", () => {
     const first = mints(calls)[0];
     const second = calls.find((call) => call.path === IMPERSONATION_RENEW_PATH);
     expect(JSON.parse(first?.body ?? "{}")).toEqual({ slug: SLUG });
-    // The renewal names the grant it continues. Without it the API would demand a second
-    // factor on every re-mint — an emailed code roughly every fourteen minutes, which is
-    // the control `core/impersonation.VIEW_AS_MAX_AGE` argues gets switched off.
+    // The renewal names the grant it continues, so the new grant keeps the session's
+    // original `auth_time` (`core/impersonation.VIEW_AS_MAX_AGE`).
     expect(JSON.parse(second?.body ?? "{}")).toEqual({
       slug: SLUG,
       renew: "grant-1",
@@ -142,22 +133,15 @@ describe("the view-as mint carries what the step-up gate asks for", () => {
 });
 
 describe("a step-up refusal becomes a prompt", () => {
-  it("emails a code, accepts it, and retries the mint as a cold start", async () => {
+  it("emails a code, accepts it, and retries the write", async () => {
     let refuse = true;
     const calls = mountPrompt({
-      [`POST ${IMPERSONATION_GRANT_PATH}`]: () =>
-        refuse ? reauthRequired() : grantBody(),
+      [`POST ${WRITE_PATH}`]: () => (refuse ? reauthRequired() : {}),
       [`POST ${STEP_UP_PATH}`]: {},
-      [`POST ${VERIFY_PATH}`]: {
-        realm: "admin",
-        subject_id: "op-1",
-        mfa_complete: true,
-        email_verified: true,
-      },
-      "/v1/agents": [],
+      [`POST ${VERIFY_PATH}`]: SESSION_OUT,
     });
 
-    const read = readThroughViewAs();
+    const write = confirmedWrite();
 
     expect(await screen.findByRole("alertdialog")).toBeTruthy();
     // The reason names what is waiting, so the operator knows which action the code is for.
@@ -174,35 +158,29 @@ describe("a step-up refusal becomes a prompt", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /^confirm$/i }));
 
-    await expect(read).resolves.toEqual([]);
+    await expect(write).resolves.toEqual({});
     // The prompt closes on success rather than being left for the operator to dismiss.
     await waitFor(() => {
       expect(screen.queryByRole("alertdialog")).toBeNull();
     });
 
-    const bodies = mints(calls).map((call) => JSON.parse(call.body ?? "{}"));
-    expect(bodies).toHaveLength(2);
-    // The retry drops `renew` — there was none to offer here, and after a refusal there
-    // would be nothing left to continue.
-    expect(bodies[1]).toEqual({ slug: SLUG });
+    const sent = writes(calls);
+    expect(sent).toHaveLength(2);
+    expect(sent[1]?.headers["X-Confirm-Action"]).toBe(WRITE_CONFIRMATION);
   });
 
   it("has no way out except proving the factor or signing out (D-473)", async () => {
-    /* THE `X` IS GONE ON PURPOSE, and this asserts the absence rather than trusting it.
-
-       A close control on a second-factor challenge reads as "not now", which is the one
+    /* A close control on a second-factor challenge reads as "not now", which is the one
        posture the challenge exists to refuse. Escape is asserted too, because leaving the
-       button off while Escape still closed it would HIDE the exit rather than remove it —
-       strict-looking, loose-behaving, and only a keyboard user would ever find out. */
+       button off while Escape still closed it would HIDE the exit rather than remove it. */
     mountPrompt({
-      [`POST ${IMPERSONATION_GRANT_PATH}`]: reauthRequired(),
-      "/v1/agents": [],
+      [`POST ${WRITE_PATH}`]: reauthRequired(),
     });
 
     // Held and swallowed rather than `void`ed: this ask is settled `false` when the tree
     // unmounts at the end of the test, and an unattended rejection there fails the FILE
-    // rather than this case — which is a failure pointing at the wrong line.
-    readThroughViewAs().catch(() => undefined);
+    // rather than this case.
+    confirmedWrite().catch(() => undefined);
     const dialog = await screen.findByRole("alertdialog");
 
     expect(
@@ -214,51 +192,37 @@ describe("a step-up refusal becomes a prompt", () => {
 
   it("signing out settles the waiting action with the server's own refusal", async () => {
     const calls = mountPrompt({
-      [`POST ${IMPERSONATION_GRANT_PATH}`]: reauthRequired(),
+      [`POST ${WRITE_PATH}`]: reauthRequired(),
       "POST /v1/auth/admin/logout": { revoked: 1 },
-      "/v1/agents": [],
     });
 
-    const read = readThroughViewAs();
+    const write = confirmedWrite();
     await screen.findByRole("alertdialog");
 
     fireEvent.click(screen.getByRole("button", { name: /^sign out$/i }));
 
-    // The ORIGINAL refusal, not an invented one: it is still exactly true, and it already
-    // carries a title, a sentence and a remediation this console would have to reinvent.
-    // It must settle even though the panel is being torn down — a caller left awaiting a
-    // prompt that no longer exists is a promise nothing can resolve.
-    await expect(read).rejects.toMatchObject({
+    // The ORIGINAL refusal, not an invented one: it already carries a title, a sentence
+    // and a remediation this console would have to reinvent. It must settle even though
+    // the panel is being torn down.
+    await expect(write).rejects.toMatchObject({
       code: "reauthentication_required",
     });
     // And nothing was retried behind the closing prompt.
-    expect(mints(calls)).toHaveLength(1);
+    expect(writes(calls)).toHaveLength(1);
     await waitFor(() => {
       expect(calls.some((call) => call.path.endsWith("/logout"))).toBe(true);
     });
   });
 
-  it("asks ONCE when six reads are refused together", async () => {
+  it("asks ONCE when six writes are refused together", async () => {
     let refuse = true;
     const calls = mountPrompt({
-      [`POST ${IMPERSONATION_GRANT_PATH}`]: () =>
-        refuse ? reauthRequired() : grantBody(),
+      [`POST ${WRITE_PATH}`]: () => (refuse ? reauthRequired() : {}),
       [`POST ${STEP_UP_PATH}`]: {},
-      [`POST ${VERIFY_PATH}`]: {
-        realm: "admin",
-        subject_id: "op-1",
-        mfa_complete: true,
-        email_verified: true,
-      },
-      "/v1/agents": [],
+      [`POST ${VERIFY_PATH}`]: SESSION_OUT,
     });
 
-    // Six at once, the way a tenant screen opens its panels. The grant cache already
-    // collapses them into ONE mint, so this asserts the seam end to end: six reads, one
-    // prompt, one code, six resolutions. The store's own single-flight — two INDEPENDENT
-    // asks sharing one prompt — is pinned separately below, because the grant cache would
-    // hide a regression in it here.
-    const reads = Array.from({ length: 6 }, () => readThroughViewAs());
+    const pending = Array.from({ length: 6 }, () => confirmedWrite());
     await screen.findByRole("alertdialog");
     expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
 
@@ -271,7 +235,7 @@ describe("a step-up refusal becomes a prompt", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /^confirm$/i }));
 
-    await expect(Promise.all(reads)).resolves.toHaveLength(6);
+    await expect(Promise.all(pending)).resolves.toHaveLength(6);
     // ONE emailed code. `service.request_step_up` retires the previous challenge on
     // issue, so six asks would have left the operator typing a code the sixth invalidated.
     expect(calls.filter((call) => call.path === STEP_UP_PATH)).toHaveLength(1);
@@ -280,7 +244,7 @@ describe("a step-up refusal becomes a prompt", () => {
 
   it("keeps the prompt open on a wrong code instead of failing the action", async () => {
     mountPrompt({
-      [`POST ${IMPERSONATION_GRANT_PATH}`]: reauthRequired(),
+      [`POST ${WRITE_PATH}`]: reauthRequired(),
       [`POST ${STEP_UP_PATH}`]: {},
       [`POST ${VERIFY_PATH}`]: problem(401, {
         type: "https://calevate.tech/problems/invalid_second_factor",
@@ -288,14 +252,12 @@ describe("a step-up refusal becomes a prompt", () => {
         detail: "That code did not match.",
         kind: "auth",
       }),
-      "/v1/agents": [],
       "POST /v1/auth/admin/logout": { revoked: 1 },
     });
 
-    const read = readThroughViewAs();
-    // The read is going to fail when the prompt is eventually closed; attached now so the
+    // The write is going to fail when the prompt is eventually closed; attached now so the
     // rejection is never unhandled.
-    const settled = read.catch(() => "declined");
+    const settled = confirmedWrite().catch(() => "declined");
 
     await screen.findByRole("alertdialog");
     fireEvent.click(screen.getByRole("button", { name: /email me a code/i }));
@@ -304,13 +266,12 @@ describe("a step-up refusal becomes a prompt", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /^confirm$/i }));
 
-    // A typo must not eject the operator from the action they asked for — the same
-    // argument `lib/authn/problems.ts` makes about `invalid_credentials` on a live console.
+    // A typo must not eject the operator from the action they asked for.
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.getByRole("alertdialog")).toBeTruthy();
 
-    // Signing out is now the only exit that is not proving the factor (D-473), and it
-    // still settles the waiting caller `false` rather than leaving it pending.
+    // Signing out is the only exit that is not proving the factor (D-473), and it still
+    // settles the waiting caller `false` rather than leaving it pending.
     fireEvent.click(screen.getByRole("button", { name: /^sign out$/i }));
     expect(await settled).toBe("declined");
   });

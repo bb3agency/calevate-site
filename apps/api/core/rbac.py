@@ -351,7 +351,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
     #
     #   `calls:read_raw` — every route that declares it is client-realm, so a normal
     #     admin reaches it only through a D-22 view-as session, which needs an
-    #     impersonation grant minted behind a second factor (D-210) and writes an
+    #     impersonation grant (minted with no per-entry code since D-791) and writes an
     #     `audit_log` row of its own on every raw read (hard rule 5). This IS a real
     #     widening and is worth naming rather than burying: an operator in a view-as
     #     session can now read an unredacted transcript, play a recording, take the

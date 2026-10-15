@@ -459,9 +459,9 @@ lawful rather than merely useful:
   plus an `audit_log` row on every read (`GET /v1/integrations/deliveries/{id}/payload`).
   `staff` see the delivery record and never the body. An impersonating admin — of EITHER
   tier since the founder's correction to D-457 moved `calls:read_raw` into the normal one
-  — sees the record freely and reaches the body only by asking for it, having passed a
-  second factor at the impersonation door (D-210) and leaving the audit row this bullet
-  names. (This line used to put an impersonating operator on the `staff` side of that
+  — sees the record freely and reaches the body only by asking for it, inside a view-as
+  session whose start is audited (no per-entry code since D-791), and leaving the audit
+  row this bullet names. (This line used to put an impersonating operator on the `staff` side of that
   boundary; that was true of the old split and is not true now.)
 - **Bounded**: 64 KiB per delivery, truncation declared inside the stored object. Neither
   the endpoint URL nor the signing secret is ever part of it.
@@ -803,16 +803,19 @@ Identity & access
     answers it, rotating the session and carrying `absolute_expires_at` forward so
     re-proving cannot extend a session. This was "the named next step needing a browser
     reverification flow"; D-170 built the flow, so the reason for deferring it expired.
-  - **ENTERING A CLIENT'S ACCOUNT is a step-up action (D-210)**, and it is the one that
-    covers this section's most sensitive read. `POST /v1/admin/impersonation-grants` is
-    the only place a D-22 view-as grant exists, and no impersonated request is served
-    without one — so a second factor on that mint sits in front of every tenant-realm
-    read an operator can reach, the raw transcript and the recording included. STAYING in
-    a session does not re-challenge: the console presents the grant it holds and is
-    extended, bounded at `core/impersonation.VIEW_AS_MAX_AGE` = 1 h from the step-up that
-    started it (AWS STS caps a chained role session the same way, and for the same
-    reason). Both the entry and each extension still write `admin.impersonation_started`
-    naming the operator, so the audit obligation is unchanged.
+  - **ENTERING A CLIENT'S ACCOUNT is NOT a step-up action (D-791, amending D-210 and
+    D-730 for entry only).** `POST /v1/admin/impersonation-grants` is the only place a
+    D-22 view-as grant exists, and no impersonated request is served without one. The
+    founder removed the per-entry code on 15 Oct 2026 after being told it was the only
+    second factor between an operator and a client's account, raw transcripts included,
+    and knowingly accepted the weaker control: a mint now needs the MFA-gated admin
+    session and `admin:impersonate` alone. What still holds: the mint is accepted from the
+    operator console's origin only (`core/console_links.VIEW_AS_HANDOFF_PATHS`), the grant
+    is bound to the operator and the tenant and lives 15 minutes, an impersonating session
+    cannot mint, raw reads keep their role check and audit row (hard rule 5), and every
+    entry and every extension writes `admin.impersonation_started` naming the operator.
+    Extensions are bounded at `core/impersonation.VIEW_AS_MAX_AGE` = 1 h from the entry
+    that started the chain (AWS STS caps a chained role session the same way).
   - **The client realm has NO step-up, by design (D-211).** `MFA_REQUIRED_REALMS` is
     `{"admin"}` (D-170), so an owner reading their own raw transcript is `calls:read_raw`
     + a `transcript.read_raw` audit row written in the same transaction, and that is the
@@ -883,7 +886,7 @@ Identity & access
     implied: a normal admin in a view-as session can read an unredacted transcript, play a
     recording, take the unmasked CSV export, produce a data-subject export and open a
     delivered webhook payload. Six routes, all client-realm, each one reached only through
-    an impersonation grant minted behind a second factor (D-210) and each one writing its
+    an impersonation grant (no per-entry code since D-791) and each one writing its
     own `audit_log` row. `staff` remains the role that holds none of it.
   - **THE CLIENT REALM: `staff` HOLDS ONE CAPABILITY MORE THAN THE ROLE TABLE SHOWS, AND
     ONLY WHERE AN OWNER SAID SO** (D-487). Two separate grants, deliberately not one:

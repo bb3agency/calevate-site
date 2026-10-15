@@ -11,8 +11,9 @@
  *
  * ## Why it is mounted once in the shell rather than per screen
  *
- * The refusal can arrive from anywhere, including from `lib/api/admin.ts::mint`, which
- * runs inside the transport while assembling headers and has no component in scope.
+ * The refusal can arrive from anywhere, including from `lib/api/admin.ts::
+ * confirmedAdminRequest`, which runs inside a mutation function and has no component in
+ * scope.
  * `lib/authn/stepUpPrompt.ts` is the external store that lets any of them ask; this is the
  * one subscriber. A per-screen prompt would mean the sixteen gated routes each need their
  * own, and the one nobody wrote would be the one an operator hits at 3am.
@@ -21,8 +22,8 @@
  *
  * It does not retry anything. Proving the factor resolves the ask and the ORIGINAL caller
  * decides what to do next — because only that caller knows whether its request is safe to
- * repeat. `admin.ts::mint` repeats because its route refuses before it writes anything and
- * a test pins that; a caller without that proof must not have a retry imposed on it from
+ * repeat. `withActionCode` repeats because every step-up gate refuses before it writes
+ * anything (`apps/api/core/stepup.py`); a caller without that proof must not have a retry imposed on it from
  * here (`lib/api/client.ts` records the same rule for its own deleted retry rung).
  *
  * It also does not read `mfa_complete` and decide anything from it. The server's answer to

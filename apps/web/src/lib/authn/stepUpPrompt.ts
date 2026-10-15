@@ -9,12 +9,10 @@
  *
  * ═══ WHY IT IS A MODULE-LEVEL STORE AND NOT A HOOK OR A CONTEXT ═══
  *
- * The caller that needs it most is not in React's render path. `lib/api/admin.ts::mint`
- * is invoked from a `GrantSource` — a plain async function the transport calls once per
- * request while assembling headers (`client.ts`) — and there is no component, no hook and
- * no provider in scope there. A context would force every such caller to become a hook,
- * which `admin.ts` already argues it cannot: `viewAsSession(slug)` is called from ~15
- * places, several of them outside render.
+ * Its callers are not in React's render path. `lib/api/admin.ts::confirmedAdminRequest`
+ * and the client-realm code gates run inside mutation functions, where there is no
+ * component, no hook and no provider in scope. A context would force every such caller to
+ * become a hook.
  *
  * So the shape is the one React ships for exactly this — an external store read through
  * `useSyncExternalStore`. The prompt COMPONENT subscribes; anything at all may ask.

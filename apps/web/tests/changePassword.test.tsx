@@ -381,7 +381,7 @@ describe("the admin realm's account screen", () => {
     });
 
     // Retried because the route checks freshness BEFORE it writes anything, which is the
-    // property `lib/api/admin.ts::mint` retries on too.
+    // property `lib/api/admin.ts::confirmedAdminRequest` retries on too.
     await waitFor(() =>
       expect(
         calls.filter((c) => c.path === "/v1/auth/admin/password/change"),

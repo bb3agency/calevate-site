@@ -7,14 +7,13 @@
  * identity block showing two em-dashes. The console was indistinguishable from that
  * client's own login except for a query string.
  *
- * The cause was a DEADLOCK between a module-level promise and the component tree.
- * Entering a client is a step-up action (D-210) and the grant is minted lazily, inside
- * the CLIENT shell. On a `step_up_required` refusal `admin.ts::mint` awaits
- * `requireStepUp`, whose promise only `<StepUpPrompt />` can settle — and that component
- * was mounted in `app/admin/layout.tsx` alone. `publish()` reached no listener, no dialog
- * appeared, nothing settled, and every request in the impersonated console awaited a
- * grant that would never arrive. TanStack held every query `pending`: `data` undefined,
- * `error` null, forever.
+ * The cause was a DEADLOCK between a module-level promise and the component tree: a
+ * request in the CLIENT shell awaited `requireStepUp`, whose promise only
+ * `<StepUpPrompt />` can settle — and that component was mounted in
+ * `app/admin/layout.tsx` alone. `publish()` reached no listener, no dialog appeared,
+ * nothing settled, and TanStack held every query `pending`: `data` undefined, `error`
+ * null, forever. (Entering a client asks for no code since D-791; the prompt stays
+ * mounted for any other code-gated act reached in this shell.)
  *
  * So the marker's absence was a SYMPTOM, and it had its own defect underneath —
  * `ViewAsBanner` covered "impersonating" and "the read failed" and rendered nothing in
@@ -121,14 +120,12 @@ describe("the read-only marker while the server has not answered yet", () => {
 });
 
 describe("the step-up prompt is reachable from inside an impersonated console", () => {
-  it("renders a dialog when the grant mint asks for a second factor", async () => {
+  it("renders a dialog when something in the shell asks for a second factor", async () => {
     await mountShell();
 
-    // `requireStepUp` is what `admin.ts::mint` awaits on a `step_up_required` refusal.
-    // Called directly rather than through a refused mint because the DEADLOCK is not in
-    // the mint: it is that nothing in this tree was listening. A test that drove the
-    // whole mint would hang here exactly as the browser did, and a hanging test reads as
-    // a slow suite rather than as this defect.
+    // `requireStepUp` is what every code-gated act awaits on a refusal. Called directly
+    // because the DEADLOCK it guards is that nothing in this tree was listening; a test
+    // that drove a whole refused request would hang exactly as the browser did.
     let settled = false;
     await act(async () => {
       void requireStepUp("Opening acme as an operator.").then(() => {

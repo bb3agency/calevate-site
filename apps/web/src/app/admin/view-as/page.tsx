@@ -5,9 +5,9 @@
  *
  * Starting a view-as session is accepted from the operator console's origin only: an
  * injected script on the client console could otherwise turn the operator's cookie into a
- * grant for any tenant. So this page, on the operator console, asks for a code typed for
- * this entry, mints the grant, and hands it to the client console in the URL FRAGMENT,
- * which no server sees. The client console strips it on arrival and may only renew it.
+ * grant for any tenant. So this page, on the operator console, mints the grant (no code is
+ * asked for, D-791) and hands it to the client console in the URL FRAGMENT, which no
+ * server sees. The client console strips it on arrival and may only renew it.
  */
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
@@ -68,7 +68,7 @@ function ViewAsStart() {
       <h1 className="text-xl font-semibold text-ink">Opening {slug}</h1>
       {error === null ? (
         <p className="text-sm text-ink-muted">
-          Confirm it is you, and the client&apos;s console opens in this tab.
+          The client&apos;s console opens in this tab.
         </p>
       ) : (
         <>

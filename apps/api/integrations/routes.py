@@ -845,8 +845,8 @@ async def get_delivery_payload(
     # WHAT D-22 LEAVES STANDING HERE, now that BOTH admin tiers hold `calls:read_raw`
     # (the founder's correction to D-457): the delivery LIST is `org:read` and the
     # payload is not, so an impersonating support user still has to ask for the body
-    # deliberately — and asking for it costs them a step-up at the impersonation door
-    # (D-210) plus the `audit_log` row this handler writes before the object is fetched.
+    # deliberately — and asking for it writes the `audit_log` row this handler writes
+    # before the object is fetched, inside a view-as session whose start is audited too.
     # It used to be refused outright, because `operator` held no raw permission at all;
     # what replaces "they cannot" is "they can, once, attributably", which is the same
     # control a client `owner` reading their own payload is under.

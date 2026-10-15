@@ -169,7 +169,7 @@ export const HANDOFF_EXPIRES_KEY = "ve";
 
 /**
  * Per-tab copy of each slug's grant, so a reload continues the session instead of sending
- * the operator back for a new code. `sessionStorage`, never `localStorage`: the grant is
+ * the operator back through the operator console. `sessionStorage`, never `localStorage`: the grant is
  * worthless without the operator's own cookie, and it should not outlive the tab.
  */
 const GRANT_STORAGE_PREFIX = "calevate:view-as-grant:";
@@ -185,19 +185,6 @@ const GRANT_STORAGE_PREFIX = "calevate:view-as-grant:";
  * against.
  */
 const GRANT_REFRESH_MARGIN_MS = 60_000;
-
-/**
- * The `X-Confirm-Action` string for entering ONE client's account (D-210).
- *
- * `apps/api/admin/routes.py::view_as_confirmation`, copied VERBATIM — the same
- * arrangement `lib/api/opsConfig.ts` and `lib/api/erasure.ts` have with their routes.
- * A `step_up_required` refusal therefore means this console and that function disagree
- * about the string, which is a version skew and has to be visible rather than silently
- * retried; `reauthentication_required` is the one this file acts on.
- */
-export function viewAsConfirmation(slug: string): string {
-  return `view_as:${slug}`;
-}
 
 export interface MintedGrant {
   grant: string;
@@ -222,8 +209,7 @@ interface CachedGrant {
    * `expiresAtMs` is, and needed for the same kind of reason.
    *
    * A re-mint sends the grant it is replacing as `renew`, which is what lets the API
-   * extend the view-as session instead of asking for a second factor every fourteen
-   * minutes (`core/impersonation.VIEW_AS_MAX_AGE`). Reading it off the promise would mean
+   * extend the view-as session on its original clock (`core/impersonation.VIEW_AS_MAX_AGE`). Reading it off the promise would mean
    * awaiting before installing the replacement entry, which is exactly the window the
    * synchronous read above exists to close.
    */
@@ -348,7 +334,6 @@ async function postStart(slug: string): Promise<MintedGrant> {
   const minted = await apiRequest<MintResponse>(adminSession(), IMPERSONATION_GRANT_PATH, {
     method: "POST",
     body: { slug },
-    confirmAction: viewAsConfirmation(slug),
   });
   return { grant: minted.grant, expiresAtMs: Date.parse(minted.expires_at) };
 }
@@ -362,37 +347,19 @@ async function postRenew(slug: string, renew: string): Promise<MintedGrant> {
 }
 
 /**
- * Start a view-as session for `slug` on the operator console, asking for a code typed
- * for this entry (D-730). The retry is safe: the API refuses before it mints or audits.
+ * Start a view-as session for `slug` on the operator console. No code is asked for
+ * (D-791): the operator's admin session and `admin:impersonate` are what the API checks.
  */
 export async function startViewAs(slug: string): Promise<MintedGrant> {
-  const minted = await withActionCode(
-    viewAsConfirmation(slug),
-    `Opening ${slug} as an operator.`,
-    () => postStart(slug),
-    needsReauthentication,
-  );
+  const minted = await postStart(slug);
   storeGrant(slug, minted);
   return minted;
 }
 
 /**
- * One grant, prompting for a second factor if the API asks for one (D-210).
- *
- * Entering a client's account is a step-up action, and extending a session already open
- * is not: the API accepts the grant being replaced as `renew` and continues the session
- * on the strength of the step-up that started it, for up to
- * `core/impersonation.VIEW_AS_MAX_AGE`. So the prompt appears when an operator opens a
- * client and roughly once an hour after that — not on every re-mint.
- *
- * THE RETRY IS SAFE, AND THAT IS A PROVEN CLAIM RATHER THAN AN ASSUMPTION.
- * `lib/api/client.ts` records the rule its own deleted retry rung had to meet: a POST may
- * only be repeated when the refusal provably executed nothing. This one qualifies —
- * `mint_impersonation_grant` takes the gate before `mint_grant` and before `write_audit`,
- * so a refused mint issues no grant and leaves no `admin.impersonation_started` row, and
- * `tests/impersonation_stepup_test.py` asserts the absent row on every refusing branch.
- * The retry drops `renew`: whatever was offered has just been ruled out as a continuation,
- * and re-offering it would ask the API the question it has already answered.
+ * One grant: a renewal of the one held when there is one, else a fresh start (D-210,
+ * D-791). A renewal refused as out of window or not this operator's starts again on the
+ * operator console, and sends a client-console page back there to do it.
  */
 async function mint(slug: string, renew: string | undefined): Promise<MintedGrant> {
   if (renew !== undefined) {

@@ -62,10 +62,11 @@ WHAT THE GRANT IS BOUND TO, AND WHY EACH BINDING IS THERE.
   - `jti`  = the grant id. It is what makes `admin.impersonation_started`,
              `admin.impersonation_read` and — since D-587 — every WRITE the session
              performs JOINABLE: one start row, N read rows, N act rows, same id.
-  - `auth_time` = when the operator proved the second factor this view-as session rests
-             on (D-210). INHERITED by every renewal rather than restamped, which is what
-             bounds the whole chain at `VIEW_AS_MAX_AGE` with no server-side table. See
-             `AUTH_TIME_CLAIM` and `renewable_grant`.
+  - `auth_time` = when this view-as session STARTED, i.e. the first mint of the chain
+             (D-791). INHERITED by every renewal
+             rather than restamped, which is what bounds the whole chain at
+             `VIEW_AS_MAX_AGE` with no server-side table. See `AUTH_TIME_CLAIM` and
+             `renewable_grant`.
 
 RENEWAL IS NOT DELEGATION CHAINING, and the two must not be confused because this file
 refuses one and performs the other. Nested `act` — an impersonating session minting a
@@ -167,37 +168,22 @@ ACTOR_CLAIM: Final = "act"
 #: whose meaning a reviewer already knows, and inventing `stepped_up_at` would be a
 #: private spelling of a public idea.
 #:
-#: Here it carries the instant the operator PROVED A SECOND FACTOR for this view-as
-#: session, and it is what makes `VIEW_AS_MAX_AGE` enforceable without a table: a renewed
-#: grant inherits its predecessor's value rather than restarting the clock, so no chain of
-#: renewals can outlive the one step-up that started it.
+#: Here it carries the instant this view-as session was STARTED by a fresh mint on the
+#: operator console, and it is what makes `VIEW_AS_MAX_AGE` enforceable without a table: a
+#: renewed grant inherits its predecessor's value rather than restarting the clock, so no
+#: chain of renewals can outlive the entry that started it.
 AUTH_TIME_CLAIM: Final = "auth_time"
 
-#: ONE HOUR — how long a view-as session may be extended on the strength of a single
-#: step-up (D-210), after which the operator proves a factor again.
+#: ONE HOUR — how long a view-as session may be extended by renewal from the entry that
+#: started it. After that the client console cannot continue it (`/impersonation-grants/
+#: renew` refuses) and sends the operator back through the operator console, which mints a
+#: fresh session without a prompt (D-791). The ceiling is what stops a grant held on the
+#: client console's origin — which may renew but never start — from being kept alive
+#: indefinitely without the operator console being involved.
 #:
-#: THE ALTERNATIVE THIS REPLACES, stated because it is the obvious one: demand a fresh
-#: second factor on EVERY mint. `GRANT_TTL` is 15 minutes and the console re-mints just
-#: inside it, so the question is whether each re-mint falls inside `REAUTH_MAX_AGE`.
-#:
-#: THIS ARITHMETIC CHANGED WITH D-473 AND THE CONCLUSION DID NOT. At 5 minutes every mint
-#: after the first fell outside the window, so an operator answered an emailed code roughly
-#: every fourteen minutes to stay inside one client's account — flatly unusable. At 30 the
-#: first ~30 minutes of a view-as session would be free and the challenge would begin
-#: partway through, which is better and still wrong: `VIEW_AS_MAX_AGE` is an hour, so the
-#: back half of every long support session would be interrupted, and interrupted at a
-#: moment the operator cannot predict. `authn/stepup.py` records this repo's own name for
-#: that failure — "a control that gets switched off" — and a read-only support session is
-#: exactly the workflow it would be switched off for. Renewal is what makes the ceiling a
-#: property of the SESSION rather than a recurring interruption inside it.
-#:
-#: The shape used instead is the one the industry converged on for "assume authority into
-#: another account's data": AWS STS `AssumeRole` takes the MFA code ONCE and returns a
-#: session credential with its own bounded life (one hour by default, and — the detail
-#: that matters here — a CHAINED role session is capped at one hour and cannot be extended
-#: past it). So a factor at the door, a bounded session behind it, and a hard ceiling on
-#: the chain. One hour is that ceiling, and it sits below the admin realm's own 8-hour
-#: absolute bound, so this is never the loosest clock in the request.
+#: The shape follows AWS STS: a CHAINED role session is capped at one hour and cannot be
+#: extended past it. One hour sits below the admin realm's own 8-hour absolute bound, so
+#: this is never the loosest clock in the request.
 #:
 #: The effective ceiling is one hour PLUS `GRANT_TTL`: the last grant a chain may mint is
 #: issued just inside the hour and then lives out its fifteen minutes. Capping `exp` at
@@ -218,8 +204,8 @@ class ImpersonationGrant:
     tenant_id: UUID
     admin_id: UUID
     expires_at: datetime
-    #: When the operator last proved a second factor for THIS view-as session. Inherited
-    #: by every renewal, so it dates the chain rather than the link. See `AUTH_TIME_CLAIM`.
+    #: When THIS view-as session was started. Inherited by every renewal, so it dates the
+    #: chain rather than the link. See `AUTH_TIME_CLAIM`.
     auth_time: datetime
 
 
@@ -280,8 +266,8 @@ def mint_grant(
     The caller writes `admin.impersonation_started` from the returned grant, in its own
     transaction, so the row and the credential come into existence together.
 
-    `auth_time` is when the operator proved the second factor this view-as session rests
-    on — the step-up instant on a cold start, the PREDECESSOR'S value on a renewal. It is
+    `auth_time` is when this view-as session started — the mint instant on a cold start,
+    the PREDECESSOR'S value on a renewal. It is
     a required argument rather than a defaulted one precisely so that "now" cannot be
     reached for by accident: a renewal that restarted the clock would turn
     `VIEW_AS_MAX_AGE` into no bound at all, and a default would make that a typo away.
@@ -437,32 +423,19 @@ def renewable_grant(
 ) -> ImpersonationGrant | None:
     """The live grant a new mint may CONTINUE, or `None` if there is nothing to continue.
 
-    D-210. A view-as session starts with a step-up and is then extended by presenting the
-    grant it already holds, up to `VIEW_AS_MAX_AGE` from the step-up that started it. This
-    is the "may it be extended?" question, and it is deliberately TOTAL: every way of
-    failing returns `None`, which sends the caller to the STRICTER path (prove a factor).
+    D-210. A view-as session is extended by presenting the grant it already holds, up to
+    `VIEW_AS_MAX_AGE` from the entry that started it. This is the "may it be extended?"
+    question, and it is deliberately TOTAL: every way of failing returns `None`.
 
-    ═══ WHY SWALLOWING `verify_grant`'S REFUSALS IS SAFE HERE, AND ONLY HERE ═══
-
-    Everywhere else those refusals are the answer — `core/auth.py` turns them into the 403
-    that keeps an operator out of a tenant, and their distinguishable codes exist so the
-    console can tell "re-mint silently" from "this is a bug". Here they are a QUESTION
-    about an optional extra credential, asked before the gate rather than instead of it,
-    and the answer `None` grants nothing: it costs the caller an emailed code. There is no
-    input to this function that can make it return a grant `verify_grant` would refuse, so
-    it cannot widen anything; the worst a malformed `renew` can do is make its sender
-    prove a second factor they would otherwise have skipped.
+    Swallowing `verify_grant`'s refusals is safe here and only here. Everywhere else they
+    are the answer — `core/auth.py` turns them into the 403 that keeps an operator out of
+    a tenant. Here they answer a question about an optional extra input, and `None` grants
+    nothing: the mint route starts a fresh session (on the operator console's origin only)
+    and the renew route refuses. No input can make this return a grant `verify_grant`
+    would refuse, so it cannot widen anything.
 
     The bound is on `auth_time`, not on `iat`: `iat` is the age of the LINK and would let
     a chain run forever fifteen minutes at a time. See `AUTH_TIME_CLAIM`.
-
-    WHAT RENEWAL COSTS, STATED PLAINLY: an attacker holding BOTH a live admin cookie and a
-    live grant can extend without answering a code, up to `VIEW_AS_MAX_AGE`. That is not a
-    new capability — the grant they hold already opens the tenant for the rest of its own
-    TTL, and both travel on the same requests, so anything that has one has the other.
-    What renewal removes is the second factor at the 15-minute boundary; what it does NOT
-    remove is the one at the hour, or the one that stopped a cookie-only attacker at the
-    door, which is the case a stolen session actually is.
     """
     if not raw:
         return None
@@ -475,8 +448,7 @@ def renewable_grant(
         return None
     if (now or datetime.now(UTC)) - grant.auth_time > VIEW_AS_MAX_AGE:
         # The chain has run its hour. The grant itself is still valid for whatever is left
-        # of its own TTL — reads keep working while the operator answers the code — but it
-        # buys no further extension.
+        # of its own TTL, but it buys no further extension.
         log.info("impersonation_view_as_window_elapsed", extra={"grant_id": str(grant.grant_id)})
         return None
     return grant

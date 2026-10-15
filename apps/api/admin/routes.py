@@ -70,7 +70,7 @@ from apps.api.core.impersonation import (
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta, role_has
 from apps.api.core.settings import get_settings
-from apps.api.core.stepup import AdminActionCode, StepUpGate
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.db.transition import transition_status
 from apps.api.kb import service as kb_service
@@ -1369,26 +1369,6 @@ def record_kyc_confirmation(tenant_id: UUID) -> str:
     return f"record_kyc:{tenant_id}"
 
 
-def view_as_confirmation(slug: str) -> str:
-    """The step-up string for ENTERING one client's account (D-210).
-
-    A named function for the reason `spend_ceiling_confirmation` gives: it is part of an
-    operator procedure, so changing its shape has to be a deliberate edit that fails a
-    test rather than a reformat that leaves the console sending a header the API refuses.
-
-    Bound to the SLUG rather than the tenant id, which is the one place this differs from
-    its siblings, and the route's own reasoning is why: the mint is addressed by slug
-    precisely so the console never has to resolve an id it does not hold, and building the
-    confirmation from the id would reintroduce that lookup on the one caller the route was
-    shaped around. What the binding has to stop is a confirmation captured while entering
-    one client being replayed against another, and the slug is unique among live tenants
-    (`uq_organizations_slug`), so it does that. The IMMUTABLE id remains what the grant
-    itself is bound to — a five-minute echo and a fifteen-minute authorisation do not need
-    the same handle.
-    """
-    return f"view_as:{slug}"
-
-
 class ImpersonationGrantIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1398,8 +1378,8 @@ class ImpersonationGrantIn(BaseModel):
     slug: str = Field(min_length=1, max_length=100)
 
     #: The grant this one CONTINUES, if the console already holds a live one for this
-    #: tenant (D-210). Present it and no second factor is asked for; omit it, or present
-    #: one that has run out of window, and the step-up gate applies.
+    #: tenant (D-210). Present it and the new grant keeps its predecessor's `auth_time`;
+    #: omit it, or present one that cannot be continued, and a fresh session starts.
     #:
     #: IN THE BODY RATHER THAN IN `X-Impersonation-Grant`, deliberately. That header means
     #: "this request is being made INSIDE the named tenant" and `core/auth.py` reads it
@@ -1439,26 +1419,18 @@ class ImpersonationGrantOut(BaseModel):
         "grant anyone access to their account, give a consent, accept an agreement or "
         "file an erasure — those stay with the client, and the platform surfaces stay in "
         "the operator console.\n\n"
-        "STARTING a view-as session needs a code entered for it (D-730): request one at "
-        "`POST /v1/auth/admin/step-up`, answer it at `/v1/auth/admin/step-up/verify` with "
-        "`action: view_as:<slug>`, then send this request with the header "
-        "`X-Confirm-Action: view_as:<slug>`. The proof is spent by the mint it was typed "
-        "for, and this route is accepted from the operator console's origin only. "
-        "EXTENDING a session takes no code — send the grant currently held as `renew`, "
-        "here or at `/impersonation-grants/renew`, and it is continued for up to an hour "
-        "from the code that started it."
+        "Starting a session needs the operator's signed-in admin session and "
+        "`admin:impersonate`, and no code (D-791). This route is accepted from the "
+        "operator console's origin only. To extend a session, send the grant currently "
+        "held as `renew`, here or at `/impersonation-grants/renew`; it is continued for "
+        "up to an hour from the mint that started it."
     ),
 )
 async def mint_impersonation_grant(
     payload: ImpersonationGrantIn,
     session: AdminSession,
     request: Request,
-    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
-    # open transaction — `core/stepup.py` on `max_overflow=0`.
-    step_up: StepUpGate,
-    action_code: AdminActionCode,
     principal: Principal = Depends(requires("admin:impersonate", realm="admin")),
-    x_confirm_action: str | None = Header(default=None),
 ) -> ImpersonationGrantOut:
     """Issue one grant, and record that authority was issued.
 
@@ -1484,33 +1456,18 @@ async def mint_impersonation_grant(
     unimplemented. `admin:impersonate` is deliberately not a mutating permission — D-22
     forbids gating reads on one — so `requires()` would not have caught it.
 
-    ═══ STEP-UP, AND WHY IT IS ON THE DOOR RATHER THAN ON EACH READ (D-210) ═══
+    **No second factor at the door (D-791, amending D-210 and D-730 for entry only).** The
+    founder removed the per-entry code because every client page an operator opened asked
+    for one; an operator now enters on the admin session (itself MFA-gated at sign-in,
+    `verify_token`) and `admin:impersonate`. What still bounds an entry: the start row
+    below on every mint, the grant bound to this operator and this tenant, `GRANT_TTL`,
+    the refusal to mint from the client console's origin, and the per-read role check and
+    audit row on raw transcripts (hard rule 5).
 
-    BACKEND-PATTERNS §7 names raw-transcript access a step-up action. The route that
-    serves it is `GET /v1/calls/{id}/transcript/raw` on the CLIENT realm, and the only way
-    an operator reaches it is through here — `_load_admin_principal` refuses every
-    impersonated request without a grant, and grants exist only at this endpoint. So this
-    is where the second factor belongs: one gate on the door an operator walks through,
-    rather than a freshness check bolted onto each of the tenant-realm reads behind it,
-    which would put an admin-realm concern in a module that has no admin-realm session to
-    read it from (`authn/stepup.py::STEP_UP_REALM`).
-
-    **This does not gate a read on a mutating permission.** D-22's rule is about
-    PERMISSIONS — `admin:impersonate` stays out of `MUTATING_PERMISSIONS`, so a view-as
-    session still buys nothing but reads. Step-up is orthogonal to that: it asks who is at
-    the keyboard, not what they may do.
-
-    **Renewal rides, entry does not.** A console holding a live grant for this tenant
-    sends it back as `renew` and is not challenged again; `core/impersonation.py`'s
-    `VIEW_AS_MAX_AGE` bounds the whole chain at an hour from the ONE step-up that started
-    it. Demanding a fresh factor on every mint instead would mean an emailed code roughly
-    every fourteen minutes — see `VIEW_AS_MAX_AGE` for why that is the design that gets
-    switched off, and for the AWS STS precedent this follows instead.
-
-    **The refusal executes nothing.** Both refusals happen before `mint_grant` and before
-    `write_audit`, so a caller that is sent away to prove a factor has changed no state and
-    left no start row — which is what lets the console retry the identical request once the
-    operator has answered the code.
+    **Renewal keeps the session's clock.** A console holding a live grant for this tenant
+    sends it back as `renew` and the new grant inherits its `auth_time`, so the start rows
+    say which entries are one session extending itself; `VIEW_AS_MAX_AGE` caps how long a
+    chain kept alive from the client console can run before it returns here.
     """
     if principal.impersonating:
         raise ProblemError.forbidden(
@@ -1535,20 +1492,7 @@ async def mint_impersonation_grant(
     renewed = renewable_grant(
         payload.renew, admin_id=admin_id, tenant_id=UUID(str(tenant_id)), now=now
     )
-    if renewed is not None:
-        auth_time = renewed.auth_time
-    else:
-        step_up.require(x_confirm_action, view_as_confirmation(payload.slug))
-        # A RECENT SIGN-IN IS NOT ENOUGH TO ENTER A CLIENT (D-730): the operator typed a
-        # code for THIS entry. The proof names the slug the grant below is resolved from
-        # and bound to by immutable id, and it is spent here, so it opens one door once.
-        await action_code.require(x_confirm_action, view_as_confirmation(payload.slug))
-        # `verified_at` is the instant the second factor was proved, and `require` has just
-        # established it is inside `REAUTH_MAX_AGE`. It is `None` only on the local
-        # `dev:` branch that `require` waves through (`APP_ENV=local` with no
-        # `PLATFORM_KEK`), where there is no session row to carry one — `now` there means
-        # the window starts at this request, which is the strictest reading available.
-        auth_time = step_up.verified_at or now
+    auth_time = renewed.auth_time if renewed is not None else now
 
     return await _issue_grant(
         session,
@@ -1576,7 +1520,7 @@ class ImpersonationGrantRenewIn(BaseModel):
     summary="Extend a view-as session the operator already holds (D-730)",
     description=(
         "Continues a view-as session from the grant currently held, for up to an hour "
-        "from the code that started it. It never STARTS one: a missing, foreign, expired "
+        "from the mint that started it. It never STARTS one: a missing, foreign, expired "
         "or out-of-window grant is refused, and the operator re-enters the client from "
         "the operator console. This is the one grant route the client console may call."
     ),
@@ -1593,7 +1537,7 @@ async def renew_impersonation_grant(
     minute grant, but it must not be able to START one: an injected script on the client
     console would otherwise turn the operator's cookie into a grant for any tenant. A path
     that only renews is what the client origin may call; starting stays on the operator
-    console's origin behind a code typed for the entry.
+    console's origin.
     """
     if principal.impersonating:
         raise ProblemError.forbidden(

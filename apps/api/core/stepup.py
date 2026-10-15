@@ -27,18 +27,12 @@ confirmation" — so the check moved here and the ops routes import it. A second
 The ACTION STRINGS deliberately stay with their routes. They are ops procedures printed
 in runbooks and pinned literal-by-literal by tests (`platform_confirmation`,
 `spend_cap_confirmation`, `outbox_replay_confirmation`, `spend_ceiling_confirmation`,
-`tenant_erasure_confirmation`, `view_as_confirmation`); what is shared is the comparison
-and the refusal, not the vocabulary.
+`tenant_erasure_confirmation`); what is shared is the comparison and the refusal, not the
+vocabulary.
 
-The gate also guards a DOOR rather than a mutation in one place — `admin/routes.py::
-mint_impersonation_grant` (D-210). Entering a client's account is the single act behind
-which every tenant-realm read an operator can reach sits, including the raw transcript
-BACKEND-PATTERNS §7 names, so the second factor is asked for once at the door instead of
-being bolted onto reads that have no admin-realm session to check it against. That route
-is also the one call site where satisfying the gate is not the only way through: a console
-extending a view-as session it already holds presents the live grant instead, bounded at
-`core/impersonation.VIEW_AS_MAX_AGE` from the step-up that started it. The alternative
-there is argued in that constant, not here.
+Entering a client's account (`admin/routes.py::mint_impersonation_grant`) is NOT behind
+this gate: D-791 removed the per-entry code D-210 and D-730 had put there, so an operator
+enters on the admin session and `admin:impersonate` alone.
 
 ═══ WHY THIS IS A DEPENDENCY AND THE CHECK ITSELF IS SYNCHRONOUS ═══
 
@@ -152,8 +146,8 @@ def _confirmation_required(action: str) -> ProblemError:
 @dataclass(frozen=True, slots=True)
 class ActionCode:
     """A code entered FOR ONE ACTION, demanded by the few routes where a recent sign-in is
-    not enough (D-730): minting a view-as grant, and on the client realm handing out
-    exported data or storing a credential.
+    not enough (D-730): on the client realm, handing out exported data or storing a
+    credential.
 
     `StepUp` asks "was a factor proved in the last half hour"; a console left open after
     sign-in answers yes. This asks "was a code typed for exactly this action", and the
@@ -205,27 +199,20 @@ async def _subject_for(request: Request, realm: str) -> UUID | None:
     return None if outcome.session is None else outcome.session.subject_id
 
 
-async def admin_action_code(request: Request) -> ActionCode:
-    return ActionCode(realm="admin", subject_id=await _subject_for(request, "admin"))
-
-
 async def client_action_code(request: Request) -> ActionCode:
     return ActionCode(realm="client", subject_id=await _subject_for(request, "client"))
 
 
-#: The two realms' declarations, resolved before the handler opens a transaction for the
-#: reason the module docstring gives for `StepUpGate`.
-AdminActionCode = Annotated[ActionCode, Depends(admin_action_code)]
+#: Resolved before the handler opens a transaction, for the reason the module docstring
+#: gives for `StepUpGate`.
 ClientActionCode = Annotated[ActionCode, Depends(client_action_code)]
 
 
 __all__ = [
     "ActionCode",
-    "AdminActionCode",
     "ClientActionCode",
     "StepUp",
     "StepUpGate",
-    "admin_action_code",
     "client_action_code",
     "client_confirmation",
     "step_up_gate",

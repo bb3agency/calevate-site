@@ -66,8 +66,9 @@ import { requireStepUp } from "@/lib/authn/stepUpPrompt";
  * issue, so a second prompt would be an operator typing a code that is already dead.
  *
  * A component that mounted its own prompt would be a second asker and would reintroduce
- * exactly that. The store already exists precisely because its first caller
- * (`lib/api/admin.ts::mint`) is a plain async function with no component in scope; a
+ * exactly that. The store already exists precisely because its callers
+ * (`lib/api/admin.ts::confirmedAdminRequest`) are plain async functions with no component
+ * in scope; a
  * confirmed write is simply the second caller, not a second mechanism.
  *
  * `requireStepUp` resolves `false` on dismissal rather than rejecting, so a prompt nobody

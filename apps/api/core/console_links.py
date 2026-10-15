@@ -87,8 +87,8 @@ APEX_CREDENTIALED_PREFIXES: tuple[str, ...] = ("/v1/auth/", "/v1/public/")
 #: rather than a prefix, so `/session/refresh`, `/logout` and every other operator surface
 #: stay bound to the admin origin.
 #:
-#: STARTING a view-as session is deliberately NOT here (D-730). The mint, and the step-up
-#: code it demands, are accepted from the operator console alone: an injected script on
+#: STARTING a view-as session is deliberately NOT here (D-730). The mint is accepted from
+#: the operator console alone: an injected script on
 #: the client console could otherwise use the operator's cookie to mint a grant for any
 #: tenant. The operator console mints and hands the grant over in the URL fragment
 #: (`apps/web/src/app/admin/view-as`); the client console may only RENEW what it was

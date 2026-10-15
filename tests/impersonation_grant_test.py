@@ -31,7 +31,6 @@ from typing import Any
 import jwt
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.admin.routes import view_as_confirmation
 from apps.api.core import impersonation as grant_module
 from apps.api.core.errors import ProblemError
 from apps.api.core.impersonation import (
@@ -91,14 +90,7 @@ async def _mint_over_http(http: AsyncClient, token: str, slug: str) -> str:
     """Mint through the ROUTE, not the helper — this is the console's path."""
     response = await http.post(
         GRANT_PATH,
-        # The step-up echo D-210 added. The FRESHNESS half is waived for `dev:` tokens
-        # (`core/stepup.py`: `APP_ENV=local` with no `PLATFORM_KEK`, the same two
-        # conditions that let a `dev:` token authenticate at all), but the echo is not —
-        # so every suite that enters a tenant now goes through the door the console does.
-        headers={
-            "Authorization": f"Bearer {token}",
-            "X-Confirm-Action": view_as_confirmation(slug),
-        },
+        headers={"Authorization": f"Bearer {token}"},
         json={"slug": slug},
     )
     assert response.status_code == 200, response.text

@@ -262,8 +262,8 @@ class AdminCopilotAskIn(CopilotAskIn):
     had not.
 
     **INSIDE A VIEW-AS SESSION THE HEADER WINS.** `Principal.tenant_id` from an
-    impersonation grant is proven by a second factor and audited; this field is a claim in a
-    body. The route takes the principal's when there is one and never reconciles the two.
+    impersonation grant is signed, bound to the operator and audited; this field is a claim
+    in a body. The route takes the principal's when there is one and never reconciles the two.
     """
 
     model_config = ConfigDict(extra="forbid")

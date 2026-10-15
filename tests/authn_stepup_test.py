@@ -320,10 +320,8 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
             ):
                 sites += 1
                 assert "StepUpGate" in source, f"{path} calls the gate without declaring it"
-    # 30: the twenty-nine dangerous mutations, plus D-210's door —
-    # `admin/routes.py::mint_impersonation_grant`, which is a step-up on ENTERING a
-    # client account rather than on changing something. Counted the same way because the
-    # census is about the pairing, not about the verb.
+    # Every site is a dangerous mutation. Entering a client account
+    # (`admin/routes.py::mint_impersonation_grant`) is not gated since D-791.
     #
     # THE SIXTEENTH MUTATION CHANGED IDENTITY WITHOUT CHANGING THE COUNT (D-546), and the
     # seat is worth reading rather than the number.
@@ -514,7 +512,7 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # ONE MORE installs our Google key in one client's own voice workspace (D-764,
     # `ops/hosted_voice_routes.py`, `OWN_MODEL_ENABLE_CONFIRMATION`): it installs a credential
     # and switches that workspace's own keys on.
-    assert sites == 79, f"found {sites} step-up call sites, expected 79; the census went stale"
+    assert sites == 78, f"found {sites} step-up call sites, expected 78; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

@@ -783,7 +783,7 @@ export interface paths {
          *
          *     The session may CHANGE the account, not only read it, and every change is recorded against you: the audit row names your operator id, the client, and this grant. What it may not do is spend the client's money or AI allowance, grant anyone access to their account, give a consent, accept an agreement or file an erasure — those stay with the client, and the platform surfaces stay in the operator console.
          *
-         *     STARTING a view-as session needs a code entered for it (D-730): request one at `POST /v1/auth/admin/step-up`, answer it at `/v1/auth/admin/step-up/verify` with `action: view_as:<slug>`, then send this request with the header `X-Confirm-Action: view_as:<slug>`. The proof is spent by the mint it was typed for, and this route is accepted from the operator console's origin only. EXTENDING a session takes no code — send the grant currently held as `renew`, here or at `/impersonation-grants/renew`, and it is continued for up to an hour from the code that started it.
+         *     Starting a session needs the operator's signed-in admin session and `admin:impersonate`, and no code (D-791). This route is accepted from the operator console's origin only. To extend a session, send the grant currently held as `renew`, here or at `/impersonation-grants/renew`; it is continued for up to an hour from the mint that started it.
          */
         post: operations["mint_impersonation_grant_v1_admin_impersonation_grants_post"];
         delete?: never;
@@ -803,7 +803,7 @@ export interface paths {
         put?: never;
         /**
          * Extend a view-as session the operator already holds (D-730)
-         * @description Continues a view-as session from the grant currently held, for up to an hour from the code that started it. It never STARTS one: a missing, foreign, expired or out-of-window grant is refused, and the operator re-enters the client from the operator console. This is the one grant route the client console may call.
+         * @description Continues a view-as session from the grant currently held, for up to an hour from the mint that started it. It never STARTS one: a missing, foreign, expired or out-of-window grant is refused, and the operator re-enters the client from the operator console. This is the one grant route the client console may call.
          */
         post: operations["renew_impersonation_grant_v1_admin_impersonation_grants_renew_post"];
         delete?: never;
@@ -11129,8 +11129,8 @@ export interface components {
          *     had not.
          *
          *     **INSIDE A VIEW-AS SESSION THE HEADER WINS.** `Principal.tenant_id` from an
-         *     impersonation grant is proven by a second factor and audited; this field is a claim in a
-         *     body. The route takes the principal's when there is one and never reconciles the two.
+         *     impersonation grant is signed, bound to the operator and audited; this field is a claim
+         *     in a body. The route takes the principal's when there is one and never reconciles the two.
          */
         AdminCopilotAskIn: {
             /**
@@ -29567,9 +29567,7 @@ export interface operations {
     mint_impersonation_grant_v1_admin_impersonation_grants_post: {
         parameters: {
             query?: never;
-            header?: {
-                "x-confirm-action"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };

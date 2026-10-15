@@ -1,30 +1,20 @@
-"""Entering a client's account takes a second factor; staying in one does not (D-210).
+"""Entering a client's account needs no code; staying in one keeps the session's clock.
 
 `POST /v1/admin/impersonation-grants` is the single door through which an operator
 reaches a tenant's leads, calls and transcripts — `_load_admin_principal` refuses every
-impersonated request without a grant, and grants exist only there. BACKEND-PATTERNS §7
-names raw-transcript access a step-up action, and the route that serves it
-(`GET /v1/calls/{id}/transcript/raw`) is on the CLIENT realm, where there is no second
-factor to check. So the check belongs on the door, and this file is what pins it there.
+impersonated request without a grant, and grants exist only there. D-791 removed the
+per-entry code D-210 and D-730 had put on that door; what this file pins is what is left:
 
-WHAT IS ASSERTED, in the order a reviewer should read it:
+  1. a cold entry on a signed-in admin session mints and writes the start row naming the
+     operator, and a half-signed-in session still cannot reach the door;
+  2. RENEWAL: a live grant for this tenant is continued and the ledger links the two
+     start rows; the renew route refuses another tenant's grant, another operator's, a
+     forged one, an expired one and one whose hour has run out;
+  3. a renewal INHERITS `auth_time` rather than restamping it, so no chain of renewals
+     outlives the entry that started it.
 
-  1. the two halves of the gate, each refused on its own — no echo, and a stale factor;
-  2. that a refusal leaves NO `admin.impersonation_started` row, which is what makes the
-     console's retry-after-the-prompt safe and keeps the ledger honest about who entered;
-  3. the happy path, and that the grant records the instant the factor was proved;
-  4. RENEWAL: a console holding a live grant for this tenant is not challenged again —
-     and every way that could have become a bypass is refused. Another tenant's grant,
-     another operator's, a forged one, an expired one and one whose hour has run out are
-     all "no renewal", i.e. all send the caller back to the second factor.
-  5. THE PROPERTY THE WHOLE DESIGN RESTS ON: a renewal INHERITS `auth_time` rather than
-     restamping it, so no chain of renewals outlives the one step-up that started it.
-
-These drive the ROUTE over HTTP with a real first-party admin cookie rather than the
-`dev:` bearer the sibling suites use, and that is deliberate: `core/stepup.py` waives the
-freshness half for `dev:` tokens (`APP_ENV=local` with no `PLATFORM_KEK`), so a `dev:`
-token could only ever exercise the echo. The cookie is the credential this route has in
-production.
+These drive the ROUTE over HTTP with a real first-party admin cookie, the credential this
+route has in production, rather than the `dev:` bearer the sibling suites use.
 
 SHARED DATABASE DISCIPLINE: every row hangs off ids this module mints, the fixture
 deletes exactly those, and nothing counts globally.
@@ -42,12 +32,9 @@ import jwt
 import pytest
 import pytest_asyncio
 from apps.api.admin import service as admin_service
-from apps.api.admin.routes import view_as_confirmation
-from apps.api.authn import otp
-from apps.api.authn import service as authn_service
 from apps.api.authn.cookies import cookie_name
 from apps.api.authn.sessions import issue_session
-from apps.api.authn.stepup import REAUTH_MAX_AGE, record_action_proof
+from apps.api.authn.stepup import REAUTH_MAX_AGE
 from apps.api.core import impersonation as grant_module
 from apps.api.core.impersonation import (
     ACTOR_CLAIM,
@@ -64,6 +51,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
 GRANT_PATH = "/v1/admin/impersonation-grants"
+RENEW_PATH = f"{GRANT_PATH}/renew"
 STARTED_ACTION = "admin.impersonation_started"
 
 #: The cookie the API reads on a plain-HTTP test transport. `_is_secure(request)` picks
@@ -80,11 +68,7 @@ async def operator() -> AsyncIterator[uuid.UUID]:
     """One `superadmin` in `admin_users`, which is also the session's subject.
 
     `superadmin` rather than `operator` only because a fixture that holds every
-    permission cannot be the reason a test fails. BOTH tiers reach a raw transcript
-    through this door since the founder's correction to D-457 put `calls:read_raw` in
-    `ROLE_PERMISSIONS["operator"]` — which makes this gate matter MORE than it did, not
-    less: the second factor now stands in front of every admin who can enter a client's
-    account, rather than in front of the one who could also read the transcript.
+    permission cannot be the reason a test fails.
     """
     admin_id = uuid.uuid4()
     async with untenanted_session() as session:
@@ -136,27 +120,17 @@ async def _make_org() -> dict[str, Any]:
     )
 
 
-async def _prove(admin_id: uuid.UUID, slug: str) -> None:
-    """A code entered for entering `slug` (D-730), recorded as `step-up/verify` records it."""
-    await record_action_proof(realm="admin", subject_id=admin_id, action=view_as_confirmation(slug))
-
-
-async def _mint(
-    http: AsyncClient,
-    cookie: str,
-    slug: str,
-    *,
-    confirm: str | None = None,
-    renew: str | None = None,
-    prove_for: uuid.UUID | None = None,
-) -> Any:
-    if prove_for is not None:
-        await _prove(prove_for, slug)
+async def _mint(http: AsyncClient, cookie: str, slug: str, *, renew: str | None = None) -> Any:
     body: dict[str, Any] = {"slug": slug}
     if renew is not None:
         body["renew"] = renew
-    headers = {} if confirm is None else {"X-Confirm-Action": confirm}
-    return await http.post(GRANT_PATH, headers=headers, cookies={ADMIN_COOKIE: cookie}, json=body)
+    return await http.post(GRANT_PATH, cookies={ADMIN_COOKIE: cookie}, json=body)
+
+
+async def _renew(http: AsyncClient, cookie: str, slug: str, renew: str) -> Any:
+    return await http.post(
+        RENEW_PATH, cookies={ADMIN_COOKIE: cookie}, json={"slug": slug, "renew": renew}
+    )
 
 
 async def _started_rows(tenant_id: uuid.UUID) -> list[Any]:
@@ -165,10 +139,9 @@ async def _started_rows(tenant_id: uuid.UUID) -> list[Any]:
     `audit_log` is not tenant-RLS'd (the hash chain is global), so this reads under the
     untenanted session and filters by tenant itself — same as the sibling suites.
 
-    The SUMMARY is deliberately not selected: `audit_log` has no such column and never
-    had one (`compliance/audit.py` — hashing a field the row does not carry would make
-    the chain unverifiable), so the summary goes to the log stream keyed by entry id.
-    `_summaries` below reads it there, which is where an auditor reads it too.
+    The SUMMARY is deliberately not selected: `audit_log` has no such column (hashing a
+    field the row does not carry would make the chain unverifiable), so the summary goes
+    to the log stream keyed by entry id. `_summaries` below reads it there.
     """
     async with untenanted_session() as session:
         return (
@@ -203,134 +176,30 @@ def _auth_time_of(wire: str) -> datetime:
     return datetime.fromtimestamp(int(claims[AUTH_TIME_CLAIM]), UTC)
 
 
-# ═══════════════ the gate, each half refused on its own ═══════════════
+# ═══════════════ who can reach the door ═══════════════
 
 
 @pytest.mark.asyncio
-async def test_entering_a_client_without_the_confirmation_is_refused(
-    operator: uuid.UUID,
-) -> None:
-    """THE ECHO HALF. A console that meant to do something else cannot start a view-as.
-
-    The refusal prints the exact string to send, on purpose (`core/stepup.py`): it is not
-    a secret, it is an ops procedure, and an operator who cannot get past a gate reads the
-    source next.
-    """
-    cookie = await _cookie_for(operator, factor_age=timedelta(seconds=5))
-    org = await _make_org()
-
-    async with _client() as http:
-        response = await _mint(http, cookie, str(org["slug"]))
-
-    assert response.status_code == 403, response.text
-    assert response.json()["type"].endswith("/step_up_required")
-    assert view_as_confirmation(str(org["slug"])) in response.json()["remediation"]
-    # A refused entry leaves no claim that authority was ever issued.
-    assert await _started_rows(uuid.UUID(str(org["id"]))) == []
-
-
-@pytest.mark.asyncio
-async def test_entering_a_client_with_a_stale_second_factor_is_refused(
-    operator: uuid.UUID,
-) -> None:
-    """THE FRESHNESS HALF, which is the one this route did not have at all.
-
-    A live admin cookie, a perfectly correct confirmation, and a second factor proved
-    just outside the window — the unattended-laptop case, and the stolen-cookie case,
-    both refused at the door rather than inside the tenant.
-    """
-    cookie = await _cookie_for(operator, factor_age=REAUTH_MAX_AGE + timedelta(minutes=1))
-    org = await _make_org()
-
-    async with _client() as http:
-        response = await _mint(
-            http, cookie, str(org["slug"]), confirm=view_as_confirmation(str(org["slug"]))
-        )
-
-    assert response.status_code == 403, response.text
-    assert response.json()["type"].endswith("/reauthentication_required")
-    # The way out is printed, both endpoints and the header.
-    assert "/v1/auth/admin/step-up" in response.json()["remediation"]
-    assert await _started_rows(uuid.UUID(str(org["id"]))) == []
-
-
-@pytest.mark.asyncio
-async def test_a_session_that_never_proved_a_factor_cannot_even_reach_the_door(
-    operator: uuid.UUID,
-) -> None:
-    """A half-authenticated admin session — password accepted, code unanswered — is
-    refused BEFORE the step-up gate, by `verify_token`'s `_require_second_factor`.
-
-    Written as an assertion rather than left implicit because the two refusals mean
-    different things and a reader will otherwise expect this one to be
-    `reauthentication_required`: 401 says "finish signing in", 403 says "you are signed in,
-    prove it is still you". The gate's own answer to a NULL `mfa_verified_at` is pinned at
-    the unit level (`authn_stepup_test`); what this adds is that no route change can make
-    a partial session reach the tenant door at all.
-    """
-    cookie = await _cookie_for(operator, factor_age=None)
-    org = await _make_org()
-
-    async with _client() as http:
-        response = await _mint(
-            http, cookie, str(org["slug"]), confirm=view_as_confirmation(str(org["slug"]))
-        )
-
-    assert response.status_code == 401, response.text
-    assert response.json()["type"].endswith("/second_factor_required")
-    assert await _started_rows(uuid.UUID(str(org["id"]))) == []
-
-
-@pytest.mark.asyncio
-async def test_a_confirmation_for_one_client_does_not_open_another(operator: uuid.UUID) -> None:
-    """The binding, so a confirmation captured on one account is not a key to the next."""
-    cookie = await _cookie_for(operator, factor_age=timedelta(seconds=5))
-    tenant_a = await _make_org()
-    tenant_b = await _make_org()
-
-    async with _client() as http:
-        response = await _mint(
-            http, cookie, str(tenant_b["slug"]), confirm=view_as_confirmation(str(tenant_a["slug"]))
-        )
-
-    assert response.status_code == 403, response.text
-    assert response.json()["type"].endswith("/step_up_required")
-
-
-# ═══════════════ the happy path, and what it records ═══════════════
-
-
-@pytest.mark.asyncio
-async def test_a_fresh_factor_opens_the_door_and_the_grant_dates_it(
+async def test_a_signed_in_operator_enters_with_no_code_and_the_start_row_names_them(
     operator: uuid.UUID, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The control has to work, or every refusal above is asserting a broken feature.
-
-    Also pins D-22's audit obligation through the new gate: the start row still exists and
-    still NAMES THE ACTOR. A step-up that quietly moved the audit write would be a fix
-    that broke the thing the route exists for.
-    """
-    cookie = await _cookie_for(operator, factor_age=timedelta(seconds=30))
+    """D-791: the admin session and `admin:impersonate` open the door, however long ago
+    the sign-in factor was proved, and the entry is audited exactly as before (D-22)."""
+    cookie = await _cookie_for(operator, factor_age=REAUTH_MAX_AGE + timedelta(minutes=10))
     org = await _make_org()
 
     with caplog.at_level(logging.INFO, logger="apps.api.compliance.audit"):
         async with _client() as http:
-            response = await _mint(
-                http,
-                cookie,
-                str(org["slug"]),
-                confirm=view_as_confirmation(str(org["slug"])),
-                prove_for=operator,
-            )
+            response = await _mint(http, cookie, str(org["slug"]))
 
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["slug"] == str(org["slug"])
 
-    # The grant dates the factor, not the mint: `auth_time` is ~30s old, `exp` is ahead.
+    # A cold entry dates the session from the mint itself.
     auth_time = _auth_time_of(body["grant"])
     now = datetime.now(UTC)
-    assert timedelta(seconds=5) < now - auth_time < timedelta(minutes=2)
+    assert now - auth_time < timedelta(minutes=1)
     assert datetime.fromisoformat(body["expires_at"]) > now
 
     rows = await _started_rows(uuid.UUID(str(org["id"])))
@@ -345,146 +214,55 @@ async def test_a_fresh_factor_opens_the_door_and_the_grant_dates_it(
     assert summaries[0].auth_time == auth_time.isoformat()
 
 
-# ═══════════════ D-730: a code typed for THIS entry, not a recent sign-in ═══════════════
-
-
 @pytest.mark.asyncio
-async def test_a_fresh_sign_in_without_a_code_for_this_entry_is_refused(
+async def test_a_session_that_never_proved_a_factor_cannot_even_reach_the_door(
     operator: uuid.UUID,
 ) -> None:
-    """Freshness alone no longer opens the door: a console left open within half an hour of
-    sign-in is exactly the case this closes. Nothing is minted and nothing is audited."""
-    cookie = await _cookie_for(operator, factor_age=timedelta(seconds=5))
+    """A half-authenticated admin session — password accepted, code unanswered — is
+    refused by `verify_token`'s `_require_second_factor`, so no route change can make a
+    partial session reach the tenant door."""
+    cookie = await _cookie_for(operator, factor_age=None)
     org = await _make_org()
 
     async with _client() as http:
-        response = await _mint(
-            http, cookie, str(org["slug"]), confirm=view_as_confirmation(str(org["slug"]))
-        )
+        response = await _mint(http, cookie, str(org["slug"]))
 
-    assert response.status_code == 403, response.text
-    assert response.json()["type"].endswith("/reauthentication_required")
-    assert '"action": "view_as:' in response.json()["remediation"]
+    assert response.status_code == 401, response.text
+    assert response.json()["type"].endswith("/second_factor_required")
     assert await _started_rows(uuid.UUID(str(org["id"]))) == []
 
 
-@pytest.mark.asyncio
-async def test_a_code_opens_one_entry_to_one_client_once(operator: uuid.UUID) -> None:
-    """The proof is bound to the client it was typed for and spent by the mint it opens."""
-    cookie = await _cookie_for(operator, factor_age=timedelta(seconds=5))
-    tenant_a = await _make_org()
-    tenant_b = await _make_org()
-    await _prove(operator, str(tenant_a["slug"]))
-
-    async with _client() as http:
-        other = await _mint(
-            http, cookie, str(tenant_b["slug"]), confirm=view_as_confirmation(str(tenant_b["slug"]))
-        )
-        first = await _mint(
-            http, cookie, str(tenant_a["slug"]), confirm=view_as_confirmation(str(tenant_a["slug"]))
-        )
-        again = await _mint(
-            http, cookie, str(tenant_a["slug"]), confirm=view_as_confirmation(str(tenant_a["slug"]))
-        )
-
-    assert other.status_code == 403, other.text
-    assert first.status_code == 200, first.text
-    assert again.status_code == 403, again.text
-    assert len(await _started_rows(uuid.UUID(str(tenant_a["id"])))) == 1
+# ═══════════════ renewal ═══════════════
 
 
 @pytest.mark.asyncio
-async def test_the_code_answered_at_step_up_verify_with_the_action_opens_the_door(
-    operator: uuid.UUID,
-) -> None:
-    """End to end over HTTP: the code is answered naming the action, and the mint passes."""
-    cookie = await _cookie_for(operator, factor_age=REAUTH_MAX_AGE + timedelta(minutes=5))
-    org = await _make_org()
-    action = view_as_confirmation(str(org["slug"]))
-    async with credential_session() as session:
-        code = (
-            await otp.issue_challenge(
-                session, purpose=authn_service.STEP_UP, realm="admin", subject_id=operator
-            )
-        ).code
-
-    async with _client() as http:
-        verified = await http.post(
-            "/v1/auth/admin/step-up/verify",
-            cookies={ADMIN_COOKIE: cookie},
-            json={"code": code, "action": action},
-        )
-        assert verified.status_code == 200, verified.text
-        rotated = verified.cookies.get(ADMIN_COOKIE) or http.cookies.get(ADMIN_COOKIE)
-        assert rotated
-        minted = await _mint(http, rotated, str(org["slug"]), confirm=action)
-
-    assert minted.status_code == 200, minted.text
-
-
-@pytest.mark.asyncio
-async def test_renewal_is_its_own_route_and_never_starts_a_session(operator: uuid.UUID) -> None:
+async def test_renewal_is_its_own_route_and_continues_the_session(operator: uuid.UUID) -> None:
     """`/impersonation-grants/renew` is what the client console may call; it continues a
-    grant and refuses anything else rather than falling back to a fresh entry."""
+    grant on the clock of the entry that started it."""
     org = await _make_org()
-    fresh = await _cookie_for(operator, factor_age=timedelta(seconds=30))
+    cookie = await _cookie_for(operator, factor_age=timedelta(seconds=30))
     async with _client() as http:
-        first = await _mint(
-            http,
-            fresh,
-            str(org["slug"]),
-            confirm=view_as_confirmation(str(org["slug"])),
-            prove_for=operator,
-        )
+        first = await _mint(http, cookie, str(org["slug"]))
         assert first.status_code == 200, first.text
-        renewed = await http.post(
-            f"{GRANT_PATH}/renew",
-            cookies={ADMIN_COOKIE: fresh},
-            json={"slug": str(org["slug"]), "renew": first.json()["grant"]},
-        )
-        junk = await http.post(
-            f"{GRANT_PATH}/renew",
-            cookies={ADMIN_COOKIE: fresh},
-            json={"slug": str(org["slug"]), "renew": "not-a-grant"},
-        )
+        renewed = await _renew(http, cookie, str(org["slug"]), first.json()["grant"])
 
     assert renewed.status_code == 200, renewed.text
     assert _auth_time_of(renewed.json()["grant"]) == _auth_time_of(first.json()["grant"])
-    assert junk.status_code == 403, junk.text
-    assert junk.json()["type"].endswith("/view_as_renewal_refused")
-
-
-# ═══════════════ renewal: the reason this is not an OTP every 14 minutes ═══════════════
 
 
 @pytest.mark.asyncio
-async def test_a_live_grant_renews_without_a_second_factor(
+async def test_a_live_grant_renews_and_the_ledger_links_the_two_entries(
     operator: uuid.UUID, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """STAYING in a client's account does not re-challenge, and the ledger says so.
-
-    The second mint is made with a session whose factor is now STALE and with no
-    confirmation header at all — i.e. one that would be refused outright on a cold start.
-    It succeeds because the caller presented the grant it already holds, which is evidence
-    of both intent and presence that the two halves of the gate were asking for.
-    """
+    """A renewal is still an audited entry, and its start row names the grant it extends."""
     org = await _make_org()
-    fresh = await _cookie_for(operator, factor_age=timedelta(seconds=30))
+    cookie = await _cookie_for(operator, factor_age=timedelta(seconds=30))
 
     with caplog.at_level(logging.INFO, logger="apps.api.compliance.audit"):
         async with _client() as http:
-            first = await _mint(
-                http,
-                fresh,
-                str(org["slug"]),
-                confirm=view_as_confirmation(str(org["slug"])),
-                prove_for=operator,
-            )
+            first = await _mint(http, cookie, str(org["slug"]))
             assert first.status_code == 200, first.text
-            held = first.json()["grant"]
-
-            stale = await _cookie_for(operator, factor_age=REAUTH_MAX_AGE + timedelta(minutes=10))
-            renewed = await _mint(http, stale, str(org["slug"]), renew=held)
+            renewed = await _mint(http, cookie, str(org["slug"]), renew=first.json()["grant"])
 
     assert renewed.status_code == 200, renewed.text
     rows = await _started_rows(uuid.UUID(str(org["id"])))
@@ -496,7 +274,7 @@ async def test_a_live_grant_renews_without_a_second_factor(
     assert summaries[0].renews is None
     assert summaries[1].renews == summaries[0].grant_id, (
         "the ledger must say WHICH session this extended, or a renewal is "
-        "indistinguishable from a fresh entry that skipped the gate"
+        "indistinguishable from a fresh entry"
     )
 
 
@@ -504,34 +282,33 @@ async def test_a_live_grant_renews_without_a_second_factor(
 async def test_a_renewal_inherits_auth_time_rather_than_restamping_it(
     operator: uuid.UUID,
 ) -> None:
-    """THE PROPERTY THE DESIGN RESTS ON, and the one a plausible refactor would break.
+    """THE PROPERTY THE WINDOW RESTS ON, and the one a plausible refactor would break.
 
     If a renewal took `now` as its `auth_time` — the natural thing to write — then
-    `VIEW_AS_MAX_AGE` would bound nothing at all: each link would restart the hour and a
-    console could hold a view-as session open forever on one second factor. So the
-    inherited value is asserted to the second across two hops, not merely "still in the
-    past".
+    `VIEW_AS_MAX_AGE` would bound nothing at all: each link would restart the hour and the
+    client console could hold a view-as session open forever without returning to the
+    operator console. So the inherited value is asserted to the second across two hops,
+    not merely "still in the past".
     """
     org = await _make_org()
-    fresh = await _cookie_for(operator, factor_age=timedelta(minutes=2))
-    confirm = view_as_confirmation(str(org["slug"]))
+    cookie = await _cookie_for(operator, factor_age=timedelta(minutes=2))
 
     async with _client() as http:
-        first = await _mint(http, fresh, str(org["slug"]), confirm=confirm, prove_for=operator)
+        first = await _mint(http, cookie, str(org["slug"]))
         assert first.status_code == 200, first.text
         one = first.json()["grant"]
 
-        second = await _mint(http, fresh, str(org["slug"]), renew=one)
+        second = await _mint(http, cookie, str(org["slug"]), renew=one)
         assert second.status_code == 200, second.text
         two = second.json()["grant"]
 
-        third_response = await _mint(http, fresh, str(org["slug"]), renew=two)
+        third_response = await _mint(http, cookie, str(org["slug"]), renew=two)
         assert third_response.status_code == 200, third_response.text
         three = third_response.json()["grant"]
 
     origin = _auth_time_of(one)
     assert _auth_time_of(two) == origin
-    assert _auth_time_of(three) == origin, "three hops, one step-up, one clock"
+    assert _auth_time_of(three) == origin, "three hops, one entry, one clock"
 
 
 @pytest.mark.asyncio
@@ -549,56 +326,30 @@ async def test_a_renewal_stops_at_the_view_as_window(operator: uuid.UUID) -> Non
         admin_id=operator,
         auth_time=datetime.now(UTC) - VIEW_AS_MAX_AGE - timedelta(minutes=1),
     )
-    stale = await _cookie_for(operator, factor_age=REAUTH_MAX_AGE + timedelta(minutes=1))
+    cookie = await _cookie_for(operator, factor_age=timedelta(seconds=30))
 
     async with _client() as http:
-        response = await _mint(
-            http,
-            stale,
-            str(org["slug"]),
-            confirm=view_as_confirmation(str(org["slug"])),
-            renew=elapsed,
-        )
+        response = await _renew(http, cookie, str(org["slug"]), elapsed)
 
     assert response.status_code == 403, response.text
-    assert response.json()["type"].endswith("/reauthentication_required")
+    assert response.json()["type"].endswith("/view_as_renewal_refused")
     assert await _started_rows(tenant_id) == []
 
 
 @pytest.mark.asyncio
 async def test_another_tenants_grant_renews_nothing(operator: uuid.UUID) -> None:
-    """The replay the grant design already refuses, refused again on the renewal input.
-
-    A grant for client A offered while minting for client B does not extend anything and
-    does not leak an entry: the caller is sent to the second factor, exactly as if they
-    had offered nothing.
-    """
+    """A grant for client A offered to renew client B extends nothing and leaves no entry."""
     tenant_a = await _make_org()
     tenant_b = await _make_org()
-    fresh = await _cookie_for(operator, factor_age=timedelta(seconds=30))
+    cookie = await _cookie_for(operator, factor_age=timedelta(seconds=30))
 
     async with _client() as http:
-        first = await _mint(
-            http,
-            fresh,
-            str(tenant_a["slug"]),
-            confirm=view_as_confirmation(str(tenant_a["slug"])),
-            prove_for=operator,
-        )
+        first = await _mint(http, cookie, str(tenant_a["slug"]))
         assert first.status_code == 200, first.text
-        grant_a = first.json()["grant"]
-
-        stale = await _cookie_for(operator, factor_age=REAUTH_MAX_AGE + timedelta(minutes=1))
-        crossed = await _mint(
-            http,
-            stale,
-            str(tenant_b["slug"]),
-            confirm=view_as_confirmation(str(tenant_b["slug"])),
-            renew=grant_a,
-        )
+        crossed = await _renew(http, cookie, str(tenant_b["slug"]), first.json()["grant"])
 
     assert crossed.status_code == 403, crossed.text
-    assert crossed.json()["type"].endswith("/reauthentication_required")
+    assert crossed.json()["type"].endswith("/view_as_renewal_refused")
     assert await _started_rows(uuid.UUID(str(tenant_b["id"]))) == []
 
 
@@ -611,46 +362,34 @@ async def test_another_operators_grant_renews_nothing(operator: uuid.UUID) -> No
         admin_id=uuid.uuid4(),
         auth_time=datetime.now(UTC),
     )
-    stale = await _cookie_for(operator, factor_age=REAUTH_MAX_AGE + timedelta(minutes=1))
+    cookie = await _cookie_for(operator, factor_age=timedelta(seconds=30))
 
     async with _client() as http:
-        response = await _mint(
-            http,
-            stale,
-            str(org["slug"]),
-            confirm=view_as_confirmation(str(org["slug"])),
-            renew=somebody_else,
-        )
+        response = await _renew(http, cookie, str(org["slug"]), somebody_else)
 
     assert response.status_code == 403, response.text
-    assert response.json()["type"].endswith("/reauthentication_required")
+    assert response.json()["type"].endswith("/view_as_renewal_refused")
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("offered", ["", "not-a-token", "a.b.c"])
-async def test_junk_offered_as_a_renewal_is_a_challenge_not_a_crash(
+@pytest.mark.parametrize("offered", ["not-a-token", "a.b.c"])
+async def test_junk_offered_as_a_renewal_is_refused_not_a_crash(
     operator: uuid.UUID, offered: str
 ) -> None:
-    """Every unreadable `renew` value must land on the STRICTER path, never a 500."""
+    """Every unreadable `renew` value is a refusal, never a 500."""
     org = await _make_org()
-    stale = await _cookie_for(operator, factor_age=REAUTH_MAX_AGE + timedelta(minutes=1))
+    cookie = await _cookie_for(operator, factor_age=timedelta(seconds=30))
 
     async with _client() as http:
-        response = await _mint(
-            http,
-            stale,
-            str(org["slug"]),
-            confirm=view_as_confirmation(str(org["slug"])),
-            renew=offered,
-        )
+        response = await _renew(http, cookie, str(org["slug"]), offered)
 
     assert response.status_code == 403, response.text
-    assert response.json()["type"].endswith("/reauthentication_required")
+    assert response.json()["type"].endswith("/view_as_renewal_refused")
 
 
 @pytest.mark.asyncio
 async def test_an_expired_grant_renews_nothing(operator: uuid.UUID) -> None:
-    """A console that slept through its own expiry starts again rather than continuing."""
+    """A console that slept through its own expiry cannot continue from the client console."""
     org = await _make_org()
     stale_instant = datetime.now(UTC) - GRANT_TTL - timedelta(minutes=1)
 
@@ -660,18 +399,12 @@ async def test_an_expired_grant_renews_nothing(operator: uuid.UUID) -> None:
             tenant_id=uuid.UUID(str(org["id"])), admin_id=operator, auth_time=stale_instant
         )
 
-    cookie = await _cookie_for(operator, factor_age=REAUTH_MAX_AGE + timedelta(minutes=1))
+    cookie = await _cookie_for(operator, factor_age=timedelta(seconds=30))
     async with _client() as http:
-        response = await _mint(
-            http,
-            cookie,
-            str(org["slug"]),
-            confirm=view_as_confirmation(str(org["slug"])),
-            renew=expired,
-        )
+        response = await _renew(http, cookie, str(org["slug"]), expired)
 
     assert response.status_code == 403, response.text
-    assert response.json()["type"].endswith("/reauthentication_required")
+    assert response.json()["type"].endswith("/view_as_renewal_refused")
 
 
 # ═══════════════ the claim itself ═══════════════

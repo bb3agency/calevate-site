@@ -105,7 +105,7 @@ export async function confirmAdminStepUp(code: string, action?: string): Promise
  * `stepup.REAUTH_MAX_AGE` (which the operator may well not have). The route checks the
  * freshness ITSELF, before it calls `service.change_password`, so a `403
  * reauthentication_required` means nothing was written — which is what makes retrying
- * after the prompt safe, and is the same proof `lib/api/admin.ts::mint` retries on. A
+ * after the prompt safe, and is the same proof `lib/api/admin.ts::confirmedAdminRequest` retries on. A
  * caller without that property must not have a retry imposed on it
  * (`components/authn/stepUpPrompt.tsx`).
  *
