@@ -450,6 +450,17 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "turns holding the number; and that all Calevate staff can see all client data. "
                 "MATERIAL: caller personal data reaches providers unmasked.",
             ),
+            # D-798.
+            Revision(
+                "25",
+                False,
+                "D-798: sections 9 and 12 say the hosted voice platform keeps its copy of a "
+                "call no longer than the client's shorter recording or transcript period, "
+                "capped by its plan, that we ask it to delete each call's content when our "
+                "period ends and on an erasure, and that a person's contact entry there is "
+                "erased only in the client's own workspace. NOT MATERIAL: less is kept, and "
+                "no new recipient or use.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -862,6 +873,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "clause 8 and Annexes A and B follow. MATERIAL: the description of the processing "
                 "and the client's duties.",
             ),
+            # D-798.
+            Revision(
+                "17",
+                False,
+                "D-798: the erasure callout says we ask the hosted voice platform to delete "
+                "each call's content, erase the person's contact entry only in the client's own "
+                "workspace there, and record the platform's copy as deleted once it confirms. "
+                "NOT MATERIAL: the processor deletes more, and nothing the client agreed to "
+                "moves.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -1113,6 +1134,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "the owner turns it on, its standby only masked text, and that the first "
                 "provider's paid terms do not use the content to improve its products. MATERIAL: "
                 "providers receive more personal data.",
+            ),
+            # D-798.
+            Revision(
+                "24",
+                False,
+                "D-798: the voice-platform row and section 3.7 say we set its call retention "
+                "to the client's shorter recording or transcript period, capped by its plan, and "
+                "ask it to delete each call's content when our period ends and on an erasure. "
+                "NOT MATERIAL: the platform keeps less, and no new recipient or use.",
             ),
         ),
         effective_date="2026-09-02",

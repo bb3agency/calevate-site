@@ -20,9 +20,12 @@ Where the workspace comes from:
 
 Three classes of route, enforced here rather than at each call site:
 
-* DEVELOPER-ONLY — our account itself: customers, the model catalogue and the workspace
-  read. A header there is refused before the request is built (the vendor refuses
-  `/customers/*` with one, `customers.md:102`).
+* DEVELOPER-ONLY — our account itself: customers and the model catalogue. A header there is
+  refused before the request is built (the vendor refuses `/customers/*` with one,
+  `customers.md:102`). `GET` and `PATCH /workspace` are not among them: they read and set a
+  customer's call retention with its header (`snapshots/2026-10-15/pages/api-reference/
+  customers.md:243-247`, `workspace/get-workspace.md:451-452`), and `thinnest_customers.
+  developer_workspace` reads ours with none.
 * The BYOK routes are NOT developer-only. Our Cartesia key is switched on, for the voice
   only, in our developer workspace (D-727) and in the customer workspace of each paying client
   that uses Studio (D-717); every BYOK request "also works for a customer, with the
@@ -61,7 +64,6 @@ DEVELOPER_ONLY_ROUTES: Final[frozenset[tuple[str, str]]] = frozenset(
         ("POST", "/customers/{id}/restore"),
         ("GET", "/customers/usage"),
         ("GET", "/models"),
-        ("GET", "/workspace"),
     }
 )
 

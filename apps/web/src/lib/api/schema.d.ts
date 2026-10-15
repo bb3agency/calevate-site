@@ -3315,6 +3315,10 @@ export interface paths {
          * @description The Test button. Executes the real external call with the client's sample values so a
          *     misconfiguration is caught before a caller triggers it, audited as `source="test"`. A
          *     WhatsApp or payment-link test goes only to one of the business's own contact numbers.
+         *
+         *     Under view-as, an action that carries a stored key runs only once the owner has
+         *     switched it on: an operator can set an action's URL, so testing it before then would
+         *     send the business's key to an address nobody at the business approved.
          */
         post: operations["test_action_v1_agents__agent_id__actions__tool_id__test_post"];
         delete?: never;
@@ -13130,6 +13134,20 @@ export interface components {
             reply_ms_p90?: number | null;
             /** Turns */
             turns?: number | null;
+        };
+        /**
+         * CallRetentionOut
+         * @description The call retention last confirmed on the client's workspace (D-798).
+         */
+        CallRetentionOut: {
+            /** Checked At */
+            checked_at: string | null;
+            /** Days */
+            days: number | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Plan Days */
+            plan_days: number | null;
         };
         /**
          * CallScript
@@ -26031,6 +26049,7 @@ export interface components {
             /** Available */
             available: boolean;
             business_details: components["schemas"]["BusinessDetailsStateOut"] | null;
+            call_retention?: components["schemas"]["CallRetentionOut"] | null;
             /** Client Inr Per Month */
             client_inr_per_month: string | null;
             /** Last Error Code */

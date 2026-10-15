@@ -1,10 +1,11 @@
-"""An erasure on ThinnestAI erases OUR copies and never asks the voice platform (D-691).
+"""An erasure on ThinnestAI erases OUR copies and asks the platform to delete each call (D-798).
 
-Founder decision, 8 Oct 2026: ThinnestAI has no per-call delete (`DELETE /calls/{id}` only
-cancels a call not yet ended, `thinnest-findings/mirror/snapshots/2026-10-08/pages/
-api-reference/calls/cancel-call.md:7`) and `DELETE /contacts/{id}` is workspace-wide, so
-nothing is deleted there. The tenant's proof says the platform's copy was "not deleted at the
-voice platform; expires with its plan retention", and no `voice_engine` task is opened.
+ThinnestAI deletes one call's recording, transcript, summary and collected fields on request
+(`thinnest-findings/mirror/snapshots/2026-10-15/pages/api-reference/post-call/
+delete-call-content.md:443-533`), so every erasure queues that deletion for the subject's
+calls, whichever workspace holds them. Its contact erasure is workspace-wide (D-691), so for a
+call in our shared developer workspace the contact is NOT asked: the `voice_engine` task says
+`contact-not-asked` and waits only on the calls.
 """
 
 from __future__ import annotations
@@ -15,8 +16,10 @@ from typing import Any
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.compliance.processor_erasure import (
-    VOICE_PLATFORM_RETAINED,
-    VOICE_PLATFORM_RETAINED_SENTENCE,
+    CONTACT_NOT_ASKED,
+    VOICE_PLATFORM_CONTENT_DELETION,
+    VOICE_PLATFORM_CONTENT_DELETION_SENTENCE,
+    VOICE_PLATFORM_TENANT_CONTENT_SENTENCE,
 )
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
@@ -83,11 +86,11 @@ async def _request(tenant_id: uuid.UUID, phone: str) -> uuid.UUID:
         )
 
 
-async def test_our_copies_are_erased_and_the_platform_copy_is_flagged_not_asked(
+async def test_our_copies_are_erased_and_each_platform_call_is_asked_deleted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(get_settings(), "engine", "thinnest")
-    tenant_id, call_id, phone, _engine_call_id = await _tenant_with_a_platform_call()
+    tenant_id, call_id, phone, engine_call_id = await _tenant_with_a_platform_call()
     request_id = await _request(tenant_id, phone)
 
     await retention.execute_deletion_request(
@@ -112,29 +115,39 @@ async def test_our_copies_are_erased_and_the_platform_copy_is_flagged_not_asked(
                 text("SELECT proof FROM deletion_requests WHERE id = :r"), {"r": request_id}
             )
         ).scalar_one()
-        tasks = (
-            (
-                await session.execute(
-                    text(
-                        "SELECT processor FROM processor_erasure_tasks WHERE request_ref = :r "
-                        "ORDER BY processor"
-                    ),
-                    {"r": request_id},
-                )
+        task = (
+            await session.execute(
+                text(
+                    "SELECT status, vendor_refs, vendor_reference FROM processor_erasure_tasks "
+                    "WHERE request_ref = :r AND processor = 'voice_engine'"
+                ),
+                {"r": request_id},
             )
-            .scalars()
-            .all()
-        )
+        ).one()
+        requested_at = (
+            await session.execute(
+                text("SELECT engine_content_delete_requested_at FROM calls WHERE id = :c"),
+                {"c": call_id},
+            )
+        ).scalar_one()
+        queued = (
+            await session.execute(
+                text("SELECT payload FROM outbox_messages WHERE job = 'delete_engine_call_content'")
+            )
+        ).scalars()
+        payloads = [p for p in queued if p.get("tenant_id") == str(tenant_id)]
 
     # Ours: the numbers, the pointer to our recording copy, the summary and the words.
     assert call[0] is None and call[1] is None and call[2] is None
     assert call[3] in (None, "")
     assert "Ravi" not in f"{turn[0]} {turn[1]}"
-    # Theirs: flagged for this tenant, in the founder's words, and never asked for.
-    assert proof["engine_deletion"] == VOICE_PLATFORM_RETAINED
-    assert proof["actions"]["voice_platform"].endswith(VOICE_PLATFORM_RETAINED_SENTENCE)
+    # Theirs: each call queued for deletion; the shared workspace's contact is not asked.
+    assert proof["engine_deletion"] == VOICE_PLATFORM_CONTENT_DELETION
+    assert proof["actions"]["voice_platform"].endswith(VOICE_PLATFORM_CONTENT_DELETION_SENTENCE)
     assert proof["actions"]["voice_platform"].startswith("1 call record(s)")
-    assert "voice_engine" not in tasks
+    assert task == ("open", [engine_call_id], CONTACT_NOT_ASKED)
+    assert requested_at is not None
+    assert payloads == [{"tenant_id": str(tenant_id), "call_ids": [str(call_id)]}]
 
 
 async def test_another_engines_calls_still_open_the_written_request(
@@ -170,7 +183,7 @@ async def test_another_engines_calls_still_open_the_written_request(
     assert refs == [engine_call_id]
 
 
-async def test_a_tenant_erasure_says_the_same_about_the_platform_copy(
+async def test_a_tenant_erasure_asks_the_platform_to_delete_every_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from tests import tenant_erasure_test as te
@@ -192,5 +205,6 @@ async def test_a_tenant_erasure_says_the_same_about_the_platform_copy(
         )
     proof = read.json()["proof"]
     assert proof["actions"]["voice_platform"] == (
-        f"1 call record(s) also held by the voice platform: {VOICE_PLATFORM_RETAINED_SENTENCE}"
+        "1 call record(s) also held by the voice platform: "
+        f"{VOICE_PLATFORM_TENANT_CONTENT_SENTENCE}"
     )

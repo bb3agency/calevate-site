@@ -160,9 +160,11 @@ async def test_publish_registers_once_and_stores_the_secret_sealed(vendor: FakeT
     assert row["url"] == agent_webhook_url(ENGINE, ref)
     assert row["url"].startswith("https://hooks.calevate.example/hooks/v1/engine/thinnest?agent=")
     assert row["events"] == [
+        "byok.changed",
         "call.analysed",
         "call.completed",
         "call.problem",
+        "contact.erased",
         "contact.opted_out",
         "conversation.escalated",
         "lead.captured",
@@ -340,9 +342,11 @@ async def test_an_endpoint_registered_before_the_opt_out_event_is_resubscribed_i
 
     assert (result.outcome, result.webhook_id) == ("resubscribed", webhook_id)
     assert sorted(vendor.endpoints[webhook_id]["events"]) == [
+        "byok.changed",
         "call.analysed",
         "call.completed",
         "call.problem",
+        "contact.erased",
         "contact.opted_out",
         "conversation.escalated",
         "lead.captured",

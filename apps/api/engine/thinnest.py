@@ -46,7 +46,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Final, Literal, get_args
+from typing import Any, Final, Literal, cast, get_args
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -86,6 +86,9 @@ from calevate_shared.events import (
     CallLlmUsage,
     CallQuality,
     CallStatus,
+    EngineByokChange,
+    EngineByokChanged,
+    EngineContactErased,
     EngineNotice,
     EngineNoticeKind,
     EngineOptOut,
@@ -606,6 +609,18 @@ _PROBLEM_KINDS: Final[dict[str, EngineProblemKind]] = {
     "slow_reply": "slow_reply",
     "voice_failed": "voice_failed",
 }
+
+#: `byok.changed`'s `change` values (snapshots/2026-10-15/pages/api-reference/
+#: webhooks.md:565-597), the same words as ours.
+_BYOK_CHANGES: Final = frozenset(get_args(EngineByokChange))
+
+
+def _content_deleted(call: dict[str, Any]) -> bool:
+    """`contentDeleted` on Get Call and List Calls: true once a call's recording and
+    transcript were deleted (snapshots/2026-10-15/pages/api-reference/calls/
+    get-call.md:1014-1027)."""
+    return call.get("contentDeleted") is True
+
 
 #: The most of the vendor's problem sentence an operator alarm carries.
 PROBLEM_DETAIL_MAX_CHARS: Final = 240
@@ -3504,7 +3519,10 @@ class ThinnestEngine:
             "GET", f"/calls/{raw_call}", route="/calls/{id}", workspace=workspace
         )
         return self._snapshot(payload, workspace=workspace, fallback_id=call_id).model_copy(
-            update={"raw_document": engine_document(payload, engine=self.name)}
+            update={
+                "raw_document": engine_document(payload, engine=self.name),
+                "content_deleted": _content_deleted(payload),
+            }
         )
 
     def recording_source(self, snapshot: ExecutionSnapshot) -> EngineRecordingSource | None:
@@ -3517,9 +3535,11 @@ class ThinnestEngine:
         pay-as-you-go) (snapshots/2026-10-07/pages/api-reference/recordings/
         get-call-recording.md:247-300). Only our API host may be fetched, with or without the
         key. Asked for a call that ended normally or that carries a link; a missed or failed
-        call has nothing to fetch.
+        call has nothing to fetch, and neither has a call whose content was deleted.
         """
         if not self._api_key or not snapshot.engine_call_id or not snapshot.terminal:
+            return None
+        if snapshot.content_deleted:
             return None
         if snapshot.recording_url is None and snapshot.raw_status != "completed":
             return None
@@ -3568,7 +3588,9 @@ class ThinnestEngine:
             "/calls", route="/calls", workspace=workspace, params={"since": instant}
         )
         for row in rows:
-            snapshot = self._snapshot(row, workspace=workspace)
+            snapshot = self._snapshot(row, workspace=workspace).model_copy(
+                update={"content_deleted": _content_deleted(row)}
+            )
             if not snapshot.engine_call_id or snapshot.engine_call_id in seen:
                 continue
             seen.add(snapshot.engine_call_id)
@@ -3721,6 +3743,52 @@ class ThinnestEngine:
             operator_detail=problem_detail(body.get("detail"))
             if kind == "own_key_failed"
             else None,
+        )
+
+    def parse_contact_erased(self, payload: dict[str, Any]) -> EngineContactErased | None:
+        """A VERIFIED `contact.erased` delivery, or None for any other event or one naming no
+        contact. `data` is `{contactId, erasedAt}`, sent once when the last recording of an
+        erased contact is gone; a developer-wide endpoint also gets `data.workspaceId`
+        (snapshots/2026-10-15/pages/api-reference/webhooks.md:286, :536-563)."""
+        if payload.get("event") != "contact.erased":
+            return None
+        event_id = _str(payload.get("id"))
+        data = payload.get("data")
+        body: dict[str, Any] = data if isinstance(data, dict) else {}
+        contact = _str(body.get("contactId"))
+        if event_id is None or contact is None:
+            return None
+        return EngineContactErased(
+            event_id=event_id,
+            contact_id=contact,
+            workspace=_str(body.get("workspaceId")),
+            erased_at=_parse_dt(body.get("erasedAt")),
+            engine=self.name,
+        )
+
+    def parse_byok_changed(self, payload: dict[str, Any]) -> EngineByokChanged | None:
+        """A VERIFIED `byok.changed` delivery, or None for any other event or an unknown
+        `change`. `data` is `{change, kind, provider, byokEnabled, scope}`, the state AFTER the
+        change, and never any part of a key (snapshots/2026-10-15/pages/api-reference/
+        webhooks.md:565-597)."""
+        if payload.get("event") != "byok.changed":
+            return None
+        event_id = _str(payload.get("id"))
+        data = payload.get("data")
+        body: dict[str, Any] = data if isinstance(data, dict) else {}
+        change = _str(body.get("change"))
+        if event_id is None or change not in _BYOK_CHANGES:
+            return None
+        enabled = body.get("byokEnabled")
+        return EngineByokChanged(
+            event_id=event_id,
+            change=cast(EngineByokChange, change),
+            kind=_str(body.get("kind")),
+            provider=_str(body.get("provider")),
+            byok_enabled=enabled if isinstance(enabled, bool) else None,
+            scope=_str(body.get("scope")),
+            workspace=_str(body.get("workspaceId")),
+            engine=self.name,
         )
 
     async def platform_status(self) -> PlatformStatus:

@@ -105,7 +105,10 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "7 October 2026 that it will sign a data processing agreement, and that it never " +
       "trains on recordings or transcripts on its two higher paid plans (on its " +
       "pay-as-you-go plan it may, unless switched off on request); until an agreement is " +
-      "signed those are its statements, not terms we hold (section 3.7).",
+      "signed those are its statements, not terms we hold (section 3.7). We set it to keep " +
+      "each client's calls for no longer than that client's own recording and transcript " +
+      "periods, capped by its plan, and ask it to delete a call's recording and transcript " +
+      "when our period for that call ends or an erasure reaches it (section 3.7).",
   },
   {
     key: "post-call-extraction",
@@ -988,6 +991,20 @@ export const SUBPROCESSORS: LegalDocument = {
                 "deleted; and that it processes and stores in India. Until a data " +
                 "processing agreement is signed, those are its statements and not terms " +
                 "we hold, and we represent nothing beyond them.",
+            },
+            {
+              kind: "para",
+              text:
+                "What we now do with its copy. Since 15 October 2026 its published " +
+                "documentation lets us delete one call's recording, transcript, summary " +
+                "and collected details, keeping only the fact of the call, its length and " +
+                "its cost, and set how many days each workspace keeps calls, up to the " +
+                "longest its plan allows (30 to 365 days by plan). We set every client's " +
+                "workspace to the shorter of that client's recording and transcript " +
+                "periods, capped by the plan, and check it every hour; we ask it to delete " +
+                "a call's content when our own period for that call ends, and for every " +
+                "call of a person who asks to be erased or a client whose account is " +
+                "closed. A deletion is recorded as done only when the platform confirms it.",
             },
             {
               kind: "para",

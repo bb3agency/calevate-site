@@ -103,19 +103,23 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.engine_content import (
+    deletes_call_content,
+    queue_engine_content_deletion,
+)
 from apps.api.compliance.processor_erasure import (
+    CONTACT_NOT_ASKED,
     OWN_RUNTIME_ENGINES,
-    VOICE_PLATFORM_ERASURE_REQUESTED,
-    VOICE_PLATFORM_ERASURE_SENTENCE,
-    VOICE_PLATFORM_RETAINED,
-    VOICE_PLATFORM_RETAINED_ENGINES,
-    VOICE_PLATFORM_RETAINED_SENTENCE,
+    VOICE_PLATFORM_CONTENT_AND_CONTACT_DELETION,
+    VOICE_PLATFORM_CONTENT_AND_CONTACT_SENTENCE,
+    VOICE_PLATFORM_CONTENT_DELETION,
+    VOICE_PLATFORM_CONTENT_DELETION_SENTENCE,
+    VOICE_PLATFORM_TENANT_CONTENT_SENTENCE,
     engine_held_call_refs,
     open_tasks_for_request,
 )
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
@@ -131,6 +135,7 @@ from apps.api.retrieval.caller_erasure import (
     unreachable_generations,
 )
 from apps.api.retrieval.supermemory_index import purge_tenant_index
+from apps.api.tenancy.engine_retention import call_content_days
 from apps.api.tenancy.engine_workspace import own_workspace
 from apps.workers import storage
 from apps.workers.engine_customer_data import seal_subject
@@ -467,6 +472,10 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     # rather than in columns, unlike `knowledge_gap_quotes`: both columns of one attempt
     # are one model's account of one conversation, and clearing them is one act.
     "handoff_briefs": 0,
+    # Calls whose content at the voice platform was queued for deletion (D-798): newly past
+    # the tenant's recording or transcript period, or still owed a day after an earlier
+    # request. Counted in CALLS queued, not deleted: the deletion is a job after this tick.
+    "engine_content_queued": 0,
     "deferred": 0,
 }
 
@@ -988,7 +997,72 @@ async def sweep_tenant(tenant_id: UUID) -> dict[str, int]:
             )
             for key, value in counts.items():
                 totals[key] += value
+        totals["engine_content_queued"] += await _queue_engine_content(
+            session,
+            tenant_id=tenant_id,
+            ttl_days=call_content_days((str(row[0]), int(row[1])) for row in policies),
+        )
     return totals
+
+
+#: Calls queued per tenant per tick by each half of `_queue_engine_content`; the next
+#: nightly tick takes the rest.
+ENGINE_CONTENT_BATCH: Final = 500
+
+#: Calls past the period whose platform content was never queued for deletion.
+_ENGINE_CONTENT_DUE_SQL = f"""
+SELECT c.id FROM calls c
+WHERE c.engine_call_id IS NOT NULL AND c.engine_content_delete_requested_at IS NULL
+  AND {_CLOCK} < :cutoff
+ORDER BY {_CLOCK} LIMIT :batch
+"""
+
+#: Calls queued more than a day ago whose deletion is still not settled: a job that gave
+#: up, a call that was live or booked, or recording files the platform still retries.
+_ENGINE_CONTENT_OWED_SQL = """
+SELECT id FROM calls
+WHERE engine_content_delete_requested_at < now() - interval '1 day'
+  AND (engine_content_deleted_at IS NULL OR engine_content_recordings_pending > 0)
+ORDER BY engine_content_delete_requested_at LIMIT :batch
+"""
+
+
+async def _queue_engine_content(
+    session: AsyncSession, *, tenant_id: UUID, ttl_days: int | None
+) -> int:
+    """Queue the platform's copy of this tenant's calls for deletion: those past the period
+    (D-798) and those still owed from an earlier request. Bounded per tick.
+
+    `ttl_days` is the shorter of the tenant's recording and transcript periods
+    (`tenancy/engine_retention.call_content_days`): the platform deletes both at once, and
+    the shorter promise is the one the client was made."""
+    if not deletes_call_content():
+        return 0
+    queued = 0
+    if ttl_days is not None:
+        due = (
+            (
+                await session.execute(
+                    text(_ENGINE_CONTENT_DUE_SQL),
+                    {
+                        "cutoff": datetime.now(UTC) - timedelta(days=ttl_days),
+                        "batch": ENGINE_CONTENT_BATCH,
+                    },
+                )
+            )
+            .scalars()
+            .all()
+        )
+        queued += await queue_engine_content_deletion(
+            session, tenant_id=tenant_id, call_ids=list(due)
+        )
+    owed = (
+        (await session.execute(text(_ENGINE_CONTENT_OWED_SQL), {"batch": ENGINE_CONTENT_BATCH}))
+        .scalars()
+        .all()
+    )
+    queued += await queue_engine_content_deletion(session, tenant_id=tenant_id, call_ids=list(owed))
+    return queued
 
 
 async def _sweep_in_batches(
@@ -2972,27 +3046,29 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         engine_call_ids = engine_held_call_refs(
             str(row[0]) for row in vendor_call_ids if row[0] is not None
         )
-        # THINNESTAI (D-691): ERASED THERE ONLY IN THE CLIENT'S OWN WORKSPACE. Its one erasure,
-        # `DELETE /contacts/{id}`, acts on a whole workspace; in our developer workspace it
-        # would take every other client's history of this person with it. So: where the
-        # tenant has its own workspace, the contact is erased there after this commits (the
-        # outbox job, the `voice_engine` task below records the outcome); where it does not,
-        # nothing is asked and the proof says the copy expires with the plan's retention.
-        if engine_call_ids and get_settings().engine in VOICE_PLATFORM_RETAINED_ENGINES:
+        # THINNESTAI (D-798): EVERY CALL'S CONTENT IS ASKED DELETED, in whichever workspace
+        # holds it, after this commits (the outbox job). The person's CONTACT is erased only
+        # in the client's own workspace (D-691): `DELETE /contacts/{id}` acts on a whole
+        # workspace, and in our developer workspace it would take every other client's
+        # history of this person with it. The `voice_engine` task below is confirmed by
+        # code once the platform has confirmed both.
+        contact_reference: str | None = None
+        if engine_call_ids and deletes_call_content():
+            await queue_engine_content_deletion(session, tenant_id=tenant_id, call_ids=list(calls))
             workspace = await own_workspace(tenant_id)
             if workspace is None:
                 proof["actions"]["voice_platform"] = (
                     f"{len(engine_call_ids)} call record(s) also held by the voice platform: "
-                    f"{VOICE_PLATFORM_RETAINED_SENTENCE}"
+                    f"{VOICE_PLATFORM_CONTENT_DELETION_SENTENCE}"
                 )
-                proof["engine_deletion"] = VOICE_PLATFORM_RETAINED
-                engine_call_ids = []
+                proof["engine_deletion"] = VOICE_PLATFORM_CONTENT_DELETION
+                contact_reference = CONTACT_NOT_ASKED
             else:
                 proof["actions"]["voice_platform"] = (
                     f"{len(engine_call_ids)} call record(s) also held by the voice platform: "
-                    f"{VOICE_PLATFORM_ERASURE_SENTENCE}"
+                    f"{VOICE_PLATFORM_CONTENT_AND_CONTACT_SENTENCE}"
                 )
-                proof["engine_deletion"] = VOICE_PLATFORM_ERASURE_REQUESTED
+                proof["engine_deletion"] = VOICE_PLATFORM_CONTENT_AND_CONTACT_DELETION
                 await enqueue_outbox(
                     session,
                     # `engine_customer_data.ENGINE_CONTACT_ERASURE_JOB`, spelled as a literal so
@@ -3045,6 +3121,7 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                     subject_ref=subject_handle,
                     vendor_refs=refs,
                     processors=(processor,),
+                    vendor_reference=contact_reference if processor == "voice_engine" else None,
                 )
         # The number goes in the SAME write that records the proof. Until this statement
         # the row is the worker's only handle on the subject; after it, the row would
@@ -3727,24 +3804,15 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
             },
             "engine_deletion": "unconfirmed_pending_vendor_api",
         }
-        # The calls ThinnestAI holds for this client are not deleted there (D-691,
-        # `processor_erasure.VOICE_PLATFORM_RETAINED_ENGINES`); the proof says so. The
-        # agent and knowledge-base task below is a different object and still opens.
-        if get_settings().engine in VOICE_PLATFORM_RETAINED_ENGINES:
-            held = engine_held_call_refs(
-                str(ref)
-                for ref in (
-                    await session.execute(
-                        text("SELECT engine_call_id FROM calls WHERE tenant_id = :tid"),
-                        {"tid": tenant_id},
-                    )
-                ).scalars()
+        # Every call's content the voice platform still holds for this client is asked
+        # deleted, after this commits (D-798, the outbox job). The agent and knowledge-base
+        # task below is a different object and still opens.
+        queued = await queue_engine_content_deletion(session, tenant_id=tenant_id, call_ids=None)
+        if queued:
+            proof["actions"]["voice_platform"] = (
+                f"{queued} call record(s) also held by the voice platform: "
+                f"{VOICE_PLATFORM_TENANT_CONTENT_SENTENCE}"
             )
-            if held:
-                proof["actions"]["voice_platform"] = (
-                    f"{len(held)} call record(s) also held by the voice platform: "
-                    f"{VOICE_PLATFORM_RETAINED_SENTENCE}"
-                )
 
         # THE OBLIGATIONS, RECORDED (D-433). No vendor call is made from here:
         # `_WITHDRAW_ROUTES_SQL` records why — a third-party round trip inside the one

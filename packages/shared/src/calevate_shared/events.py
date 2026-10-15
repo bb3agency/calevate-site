@@ -137,6 +137,50 @@ class EngineProblem(BaseModel):
     operator_detail: str | None = None
 
 
+class EngineContactErased(BaseModel):
+    """The engine finished erasing one contact: the last of its recordings is gone.
+
+    Ids and a time only; the engine sends no personal data with it.
+    """
+
+    #: The engine's id for the delivery, stable across its retries.
+    event_id: str
+    #: The engine's id for the erased contact.
+    contact_id: str
+    #: The customer workspace the delivery names, when it names one (a developer-wide
+    #: endpoint); None when it came from an endpoint inside the workspace itself.
+    workspace: str | None = None
+    erased_at: datetime | None = None
+    engine: str
+
+
+EngineByokChange = Literal[
+    "key_added",
+    "key_replaced",
+    "key_removed",
+    "key_failed_verification",
+    "byok_enabled",
+    "byok_disabled",
+    "scope_changed",
+]
+
+
+class EngineByokChanged(BaseModel):
+    """The own-keys set-up of one engine workspace changed. Never carries key material."""
+
+    event_id: str
+    change: EngineByokChange
+    #: Which key changed (`stt`, `llm`, `tts`) for the four key changes; None otherwise.
+    kind: str | None = None
+    provider: str | None = None
+    #: Where the workspace stands AFTER the change.
+    byok_enabled: bool | None = None
+    scope: str | None = None
+    #: As on `EngineContactErased`.
+    workspace: str | None = None
+    engine: str
+
+
 class CallQuality(BaseModel):
     """How a call went, in numbers the engine measured once it ended. Every figure may be
     None: the engine could not measure it on that call."""
@@ -202,6 +246,9 @@ __all__ = [
     "CallLlmUsage",
     "CallQuality",
     "CallStatus",
+    "EngineByokChange",
+    "EngineByokChanged",
+    "EngineContactErased",
     "EngineNotice",
     "EngineNoticeKind",
     "EngineOptOut",

@@ -147,38 +147,54 @@ async def sweep_own_model_workspaces(ctx: dict[str, Any]) -> str:
         return "not_hosted"
     tally = dict.fromkeys(("ok", "repaired", "failed"), 0)
     for row in await own_model_workspaces():
-        try:
-            with in_workspace(row.workspace_id):
-                state = await engine.own_key_state()
-            if own_model_key_ready(state):
-                async with tenant_session(row.tenant_id) as session:
-                    await record_own_model_check(session, row.tenant_id, error_code=None)
-                tally["ok"] += 1
-                continue
-            log.warning(
-                "own_model_workspace_drift",
-                extra={
-                    "tenant_id": str(row.tenant_id),
-                    "enabled": state.enabled,
-                    "scope": state.scope,
-                    "using": state.using,
-                    "llm_provider": state.llm_provider,
-                },
-            )
-            await ensure_own_model_workspace(
-                cast(HostsVoices, engine),
-                tenant_id=row.tenant_id,
-                workspace=row.workspace_id,
-                audience="operator",
-            )
-            tally["repaired"] += 1
-        except ProblemError as exc:
-            tally["failed"] += 1
-            log.warning(
-                "own_model_workspace_repair_failed",
-                extra={"tenant_id": str(row.tenant_id), "reason": exc.code},
-            )
-    if tally["repaired"]:
+        tally[await _check_workspace(engine, row.tenant_id, row.workspace_id)] += 1
+    alarm_own_model_tally(tally)
+    basis = await refresh_prompt_basis(get_engine())
+    return " ".join(f"{k}={v}" for k, v in tally.items()) + f" prompt={basis.source}"
+
+
+async def check_own_model_workspace(engine: RunsOwnModel, tenant_id: UUID, workspace: str) -> str:
+    """One own-model client workspace verified on our Google key, repaired when not, and
+    alarmed as the hourly sweep alarms: `ok`, `repaired` or `failed`. Read first and written
+    only on drift, so asking again after our own write finds it `ok` and writes nothing."""
+    outcome = await _check_workspace(engine, tenant_id, workspace)
+    alarm_own_model_tally({outcome: 1})
+    return outcome
+
+
+async def _check_workspace(engine: RunsOwnModel, tenant_id: UUID, workspace: str) -> str:
+    try:
+        with in_workspace(workspace):
+            state = await engine.own_key_state()
+        if own_model_key_ready(state):
+            async with tenant_session(tenant_id) as session:
+                await record_own_model_check(session, tenant_id, error_code=None)
+            return "ok"
+        log.warning(
+            "own_model_workspace_drift",
+            extra={
+                "tenant_id": str(tenant_id),
+                "enabled": state.enabled,
+                "scope": state.scope,
+                "using": state.using,
+                "llm_provider": state.llm_provider,
+            },
+        )
+        await ensure_own_model_workspace(
+            cast(HostsVoices, engine), tenant_id=tenant_id, workspace=workspace, audience="operator"
+        )
+        return "repaired"
+    except ProblemError as exc:
+        log.warning(
+            "own_model_workspace_repair_failed",
+            extra={"tenant_id": str(tenant_id), "reason": exc.code},
+        )
+        return "failed"
+
+
+def alarm_own_model_tally(tally: dict[str, int]) -> None:
+    """The two alarms, for whatever a sweep or one check counted."""
+    if tally.get("repaired"):
         alert(
             "CORE_LOGIC",
             "own_model_workspace_repaired",
@@ -189,7 +205,7 @@ async def sweep_own_model_workspaces(ctx: dict[str, Any]) -> str:
             ),
             count=str(tally["repaired"]),
         )
-    if tally["failed"]:
+    if tally.get("failed"):
         alert(
             "CORE_LOGIC",
             "own_model_workspace_drift",
@@ -201,13 +217,13 @@ async def sweep_own_model_workspaces(ctx: dict[str, Any]) -> str:
             ),
             count=str(tally["failed"]),
         )
-    basis = await refresh_prompt_basis(get_engine())
-    return " ".join(f"{k}={v}" for k, v in tally.items()) + f" prompt={basis.source}"
 
 
 __all__ = [
     "GOOGLE_KEY",
     "PUSH_TO_WORKSPACE_JOB",
+    "alarm_own_model_tally",
+    "check_own_model_workspace",
     "push_own_model_key",
     "push_own_model_key_to_workspace",
     "sweep_own_model_workspaces",

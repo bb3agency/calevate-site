@@ -54,6 +54,9 @@ ENGINE_NOTICE_JOB: Final = "ingest_engine_notice"
 #: Something going wrong on a call that is still live
 #: (`apps/workers/engine_signals.ENGINE_PROBLEM_JOB`).
 ENGINE_PROBLEM_JOB: Final = "ingest_engine_problem"
+#: An event about a whole workspace: an erased contact, or a change to its own keys
+#: (`apps/workers/engine_workspace_events.ENGINE_WORKSPACE_EVENT_JOB`).
+ENGINE_WORKSPACE_EVENT_JOB: Final = "ingest_engine_workspace_event"
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +107,12 @@ SIGNED_INTAKES: Final[dict[str, SignedIntake]] = {
             # while the call is live (docs.thinnest.ai api-reference/webhooks "call.problem",
             # read 11 Oct 2026).
             "call.problem": SignedEventRoute(call_fields=("callId",), job=ENGINE_PROBLEM_JOB),
+            # Workspace events, about no call and no agent: keyed on the event id, which is
+            # the same on the copy every agent endpoint in the workspace receives, so the
+            # inbox runs one job per event (snapshots/2026-10-15/pages/api-reference/
+            # webhooks.md:536-597).
+            "contact.erased": SignedEventRoute(call_fields=(), job=ENGINE_WORKSPACE_EVENT_JOB),
+            "byok.changed": SignedEventRoute(call_fields=(), job=ENGINE_WORKSPACE_EVENT_JOB),
         },
     ),
 }
@@ -258,6 +267,11 @@ def keyed_event(
     if named is not None and named != agent_id:
         # Signed by this agent's secret yet naming another agent: a misregistered endpoint.
         return "agent mismatch"
+    named_workspace = scalar_hint(data.get("workspaceId"))
+    if named_workspace is not None and workspace is not None and named_workspace != workspace:
+        # Signed by an agent of one client's workspace yet about another's: acting on it
+        # would touch the wrong client's records.
+        return "workspace mismatch"
     event_name = keyable(f"{event}:{event_id}")
     if event_name is None:
         return "unusable execution key"
@@ -269,6 +283,7 @@ __all__ = [
     "ENGINE_NOTICE_JOB",
     "ENGINE_OPT_OUT_JOB",
     "ENGINE_PROBLEM_JOB",
+    "ENGINE_WORKSPACE_EVENT_JOB",
     "INGEST_JOB",
     "REPLAY_TOLERANCE",
     "SIGNED_INTAKES",

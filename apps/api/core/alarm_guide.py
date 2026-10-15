@@ -286,6 +286,10 @@ ALARM_SUMMARIES: Final[dict[str, AlarmSummary]] = {
         "A Studio client workspace is off our voice key",
         "One client's Studio agents are on a different voice and rate than we bill, or silent.",
     ),
+    "engine_workspace_retention_drift": _s(
+        "The voice platform could not be set to the client's retention period",
+        "The platform may keep that client's call recordings and transcripts past its policy.",
+    ),
     "own_model_key_push_failed": _s(
         "A new model key did not reach a client workspace",
         "Calls there still use the previous key, and fail if that key was revoked.",

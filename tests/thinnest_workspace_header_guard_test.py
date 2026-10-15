@@ -265,6 +265,9 @@ def _tenant_ops(rec: Recorder) -> list[Callable[[], Awaitable[Any]]]:
         lambda: data.add_do_not_call(WS, "+919876543210"),
         lambda: data.contact_ids(WS, "+919876543210"),
         lambda: data.delete_contact(WS, "ct_1"),
+        lambda: data.delete_call_content(WS, "out_1"),
+        lambda: data.read_retention(WS),
+        lambda: data.set_retention(WS, 30),
     ]
 
 

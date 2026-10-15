@@ -171,6 +171,21 @@ class Call(PKMixin, TimestampMixin, Base):
                 "AND carrier_recording_deleted_at IS NULL"
             ),
         ),
+        # Calls whose content deletion at the voice platform is queued and not yet settled:
+        # the backstop's worklist (`workers/engine_customer_data`, migration e4b7d2a9c160).
+        Index(
+            "ix_calls_engine_content_owed",
+            "tenant_id",
+            "engine_content_delete_requested_at",
+            postgresql_where=text(
+                "engine_content_delete_requested_at IS NOT NULL "
+                "AND (engine_content_deleted_at IS NULL OR engine_content_recordings_pending > 0)"
+            ),
+        ),
+        CheckConstraint(
+            "engine_content_recordings_pending IS NULL OR engine_content_recordings_pending >= 0",
+            name="engine_content_recordings_pending_nonnegative",
+        ),
         # The complaint-spike check (`campaigns/complaint_spike.py`, OPERATIONS §4) is
         # the first thing in this repo to filter calls by campaign, and it runs once per
         # running campaign per 30-second dispatch tick. PARTIAL because inbound calls
@@ -267,6 +282,12 @@ class Call(PKMixin, TimestampMixin, Base):
     #: its own copy deleted, one day later (migration c5d82f1a9e47).
     recording_copied_at: Mapped[datetime | None]
     carrier_recording_deleted_at: Mapped[datetime | None]
+    #: The voice platform's copy of this call's content (recording, transcript, summary,
+    #: collected fields): when we queued its deletion, when the platform said it was
+    #: deleted, and how many recording files it still retries (migration e4b7d2a9c160).
+    engine_content_delete_requested_at: Mapped[datetime | None]
+    engine_content_deleted_at: Mapped[datetime | None]
+    engine_content_recordings_pending: Mapped[int | None] = mapped_column(Integer)
     disclosure_played: Mapped[bool | None] = mapped_column(Boolean)
     consent_recording: Mapped[str | None] = mapped_column(String)
     #: The client-facing outcome, DERIVED from facts by `crm/outcomes.derive_outcome`.

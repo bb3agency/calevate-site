@@ -70,7 +70,7 @@ async def _current_key() -> str | None:
     return resolved.values.get(CARTESIA_KEY) or get_settings().cartesia_api_key
 
 
-def _hosting() -> HostsVoices | None:
+def hosting_engine() -> HostsVoices | None:
     engine = get_engine()
     if not isinstance(engine, HostsVoices) or engine.capabilities.is_ours("tts"):
         return None
@@ -97,7 +97,7 @@ async def push_studio_voice_key(ctx: dict[str, Any], payload: dict[str, Any]) ->
     """Replace the developer workspace's held key and fan out one push per Studio client
     workspace. Returns what it did."""
     del ctx, payload  # the store holds the key; the payload only names the version
-    engine = _hosting()
+    engine = hosting_engine()
     if engine is None:
         return "not_hosted"
     key = await _current_key()
@@ -129,7 +129,7 @@ async def push_studio_voice_key(ctx: dict[str, Any], payload: dict[str, Any]) ->
 async def push_studio_voice_key_to_workspace(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Replace our key in ONE Studio client's workspace. Retried with backoff on a transient
     failure; alarmed when it gives up or the provider refuses the key."""
-    engine = _hosting()
+    engine = hosting_engine()
     if engine is None:
         return "not_hosted"
     tenant_id = UUID(str(payload["tenant_id"]))
@@ -159,43 +159,62 @@ async def sweep_studio_workspaces(ctx: dict[str, Any]) -> str:
     """Hourly: our developer workspace and every Studio client workspace verified on our key,
     and repaired when not."""
     del ctx
-    engine = _hosting()
+    engine = hosting_engine()
     if engine is None:
         return "not_hosted"
+    tally = dict.fromkeys(("ok", "repaired", "failed"), 0)
+    developer = await check_developer_studio(engine)
+    for row in await studio_workspaces():
+        tally[await _check_workspace(engine, row.tenant_id, row.workspace_id)] += 1
+    alarm_studio_tally(tally)
+    summary = " ".join(f"{k}={v}" for k, v in tally.items())
+    return f"developer={developer} {summary}"
+
+
+async def check_studio_workspace(engine: HostsVoices, tenant_id: UUID, workspace: str) -> str:
+    """One Studio client workspace verified on our key, repaired when not, and alarmed as the
+    hourly sweep alarms: `ok`, `repaired` or `failed`. Read first and written only on drift,
+    so asking again after our own write finds it `ok` and writes nothing."""
+    outcome = await _check_workspace(engine, tenant_id, workspace)
+    alarm_studio_tally({outcome: 1})
+    return outcome
+
+
+async def _check_workspace(engine: HostsVoices, tenant_id: UUID, workspace: str) -> str:
     from apps.api.agents.studio_voices import ensure_studio_workspace
 
-    tally = dict.fromkeys(("ok", "repaired", "failed"), 0)
-    developer = await _check_developer(engine)
-    for row in await studio_workspaces():
-        try:
-            with in_workspace(row.workspace_id):
-                state = await engine.own_key_state()
-            if own_voice_key_ready(state):
-                async with tenant_session(row.tenant_id) as session:
-                    await record_studio_check(session, row.tenant_id, error_code=None)
-                tally["ok"] += 1
-                continue
-            log.warning(
-                "studio_workspace_drift",
-                extra={
-                    "tenant_id": str(row.tenant_id),
-                    "enabled": state.enabled,
-                    "scope": state.scope,
-                    "using": state.using,
-                    "voice_provider": state.voice_provider,
-                },
-            )
-            await ensure_studio_workspace(
-                engine, tenant_id=row.tenant_id, workspace=row.workspace_id, audience="operator"
-            )
-            tally["repaired"] += 1
-        except ProblemError as exc:
-            tally["failed"] += 1
-            log.warning(
-                "studio_workspace_repair_failed",
-                extra={"tenant_id": str(row.tenant_id), "reason": exc.code},
-            )
-    if tally["repaired"]:
+    try:
+        with in_workspace(workspace):
+            state = await engine.own_key_state()
+        if own_voice_key_ready(state):
+            async with tenant_session(tenant_id) as session:
+                await record_studio_check(session, tenant_id, error_code=None)
+            return "ok"
+        log.warning(
+            "studio_workspace_drift",
+            extra={
+                "tenant_id": str(tenant_id),
+                "enabled": state.enabled,
+                "scope": state.scope,
+                "using": state.using,
+                "voice_provider": state.voice_provider,
+            },
+        )
+        await ensure_studio_workspace(
+            engine, tenant_id=tenant_id, workspace=workspace, audience="operator"
+        )
+        return "repaired"
+    except ProblemError as exc:
+        log.warning(
+            "studio_workspace_repair_failed",
+            extra={"tenant_id": str(tenant_id), "reason": exc.code},
+        )
+        return "failed"
+
+
+def alarm_studio_tally(tally: dict[str, int]) -> None:
+    """The two client-workspace alarms, for whatever a sweep or one check counted."""
+    if tally.get("repaired"):
         alert(
             "CORE_LOGIC",
             "studio_workspace_repaired",
@@ -206,7 +225,7 @@ async def sweep_studio_workspaces(ctx: dict[str, Any]) -> str:
             ),
             count=str(tally["repaired"]),
         )
-    if tally["failed"]:
+    if tally.get("failed"):
         alert(
             "CORE_LOGIC",
             "studio_workspace_drift",
@@ -218,11 +237,9 @@ async def sweep_studio_workspaces(ctx: dict[str, Any]) -> str:
             ),
             count=str(tally["failed"]),
         )
-    summary = " ".join(f"{k}={v}" for k, v in tally.items())
-    return f"developer={developer} {summary}"
 
 
-async def _check_developer(engine: HostsVoices) -> str:
+async def check_developer_studio(engine: HostsVoices) -> str:
     """The developer workspace's half of the hourly check: `ok`, `repaired`, `failed`,
     or `not_set_up` while Studio ready has never held our key there."""
     from apps.api.agents.studio_voices import ensure_developer_studio
@@ -272,6 +289,10 @@ async def _check_developer(engine: HostsVoices) -> str:
 __all__ = [
     "CARTESIA_KEY",
     "PUSH_TO_WORKSPACE_JOB",
+    "alarm_studio_tally",
+    "check_developer_studio",
+    "check_studio_workspace",
+    "hosting_engine",
     "push_studio_voice_key",
     "push_studio_voice_key_to_workspace",
     "sweep_studio_workspaces",

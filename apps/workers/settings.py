@@ -141,17 +141,20 @@ from apps.workers.dispatcher import (
 from apps.workers.dnc_recall import recall_dials_for_dnc
 from apps.workers.engine_charges import CHARGE_SWEEP_MINUTES, reconcile_engine_charges
 from apps.workers.engine_customer_data import (
+    delete_engine_call_content,
     erase_engine_contact,
     push_engine_dnc,
     remove_engine_dnc,
 )
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
+from apps.workers.engine_retention import sweep_engine_retention, sync_engine_retention
 from apps.workers.engine_signals import (
     ingest_engine_notice,
     ingest_engine_opt_out,
     ingest_engine_problem,
 )
 from apps.workers.engine_webhooks import WEBHOOK_SWEEP_MINUTES, reconcile_engine_webhooks
+from apps.workers.engine_workspace_events import ingest_engine_workspace_event
 from apps.workers.engine_workspaces import (
     offboard_engine_workspace,
     poll_business_details_in_review,
@@ -289,6 +292,8 @@ FUNCTIONS: list[Any] = [
         ingest_engine_notice,
         # A problem on a live call the voice platform reported (`call.problem`).
         ingest_engine_problem,
+        # A whole workspace's event: a contact erased, or its own keys changed (D-798).
+        ingest_engine_workspace_event,
         # A client's number moved into its own voice workspace, retried while it is on a
         # call (`campaigns/engine_numbers.move_into_client_workspace`).
         move_engine_number,
@@ -332,6 +337,10 @@ FUNCTIONS: list[Any] = [
         apply_live_settings,
         apply_live_agent,
         erase_engine_contact,
+        # Calls' content deleted at the voice platform: retention and erasure (D-798).
+        delete_engine_call_content,
+        # A client workspace's call retention, from its policy (D-798).
+        sync_engine_retention,
         # Each client's own voice platform workspace (D-693): made, its business details
         # sent, offboarded when the account closes, and the old copy of an agent recreated
         # in it deleted once the new one is live. All from the outbox.
@@ -946,6 +955,16 @@ CRON_JOBS = [
         traced_job(sweep_own_model_workspaces),
         walk=bounded("one directory read, then one vendor GET per own-model workspace"),
         minute={41},
+        second={20},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-798. Every workspace's call retention read back and set again where it drifted from
+    # the client's policy. One GET per workspace (a PATCH only on drift), resumed from a
+    # cursor.
+    _cron(
+        traced_job(sweep_engine_retention),
+        walk=bounded("at most DEFAULT_WORKSPACE_BUDGET workspaces, resumed from a cursor"),
+        minute={43},
         second={20},
         max_tries=WORKER_MAX_TRIES,
     ),

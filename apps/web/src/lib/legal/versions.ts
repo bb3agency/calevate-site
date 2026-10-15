@@ -346,6 +346,17 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:d8d860f9ede05b1d1c3bc9c01487ba06fa8dc0c85caa34418a03efc66406f4df",
       },
+      // D-798: sections 9 and 12 say the hosted voice platform keeps its copy of a call no
+      // longer than the client's shorter recording or transcript period, capped by its plan,
+      // that each call's content is asked deleted when our period ends and on an erasure, and
+      // that a person's contact entry there is erased only in the client's own workspace. NOT
+      // MATERIAL: less is kept, and there is no new recipient or use.
+      {
+        revision: "25",
+        material: false,
+        contentHash:
+          "sha256:1acfc7d15ebb27ae192293729a229d3b9db96425269f3502a7e4a8fb67f015b7",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -693,6 +704,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:a3890a3d7bd58f741d0308a276f3329594a95ad8a4ac9ecb19c1f8fa5ed9a761",
       },
+      // D-798: the erasure callout says each call's content is asked deleted at the hosted
+      // voice platform, the person's contact entry is erased only in the client's own
+      // workspace there, and the copy is recorded as deleted once the platform confirms. NOT
+      // MATERIAL: the processor deletes more, and nothing the client agreed to moves.
+      {
+        revision: "17",
+        material: false,
+        contentHash:
+          "sha256:a3c14ba0e4f96e8bd3513b57c8562d1f1f3a56a560814e9e048020394efd0727",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -936,6 +957,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:a40cd614549c6004ffc29f5d63add14c462cde7ee2488cb7c7be90135aca4398",
+      },
+      // D-798: the voice-platform row and section 3.7 say its call retention is set to the
+      // client's shorter recording or transcript period, capped by its plan, and each call's
+      // content is asked deleted when our period ends and on an erasure. NOT MATERIAL: the
+      // platform keeps less, and there is no new recipient or use.
+      {
+        revision: "24",
+        material: false,
+        contentHash:
+          "sha256:a67231a82975a7be843fbac0a9cf9b0648dde4f494d9564a00282df16ee08adf",
       },
     ],
     effectiveDate: "2026-09-02",

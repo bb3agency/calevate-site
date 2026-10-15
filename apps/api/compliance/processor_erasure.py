@@ -60,30 +60,40 @@ from typing import Final
 from uuid import UUID
 
 from calevate_shared.engine import tenant_of_pipecat_ref
+from calevate_shared.engine_scope import raw_of
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.db.base import uuid7
 
 __all__ = [
+    "CONTACT_NOT_ASKED",
     "OVERDUE_AFTER_DAYS",
     "OWN_RUNTIME_ENGINES",
     "PROCESSORS",
     "STATUSES",
+    "VOICE_PLATFORM_CONTENT_AND_CONTACT_DELETION",
+    "VOICE_PLATFORM_CONTENT_AND_CONTACT_SENTENCE",
+    "VOICE_PLATFORM_CONTENT_DELETION",
+    "VOICE_PLATFORM_CONTENT_DELETION_SENTENCE",
+    "VOICE_PLATFORM_DELETING_ENGINES",
     "VOICE_PLATFORM_ERASURE_REQUESTED",
     "VOICE_PLATFORM_ERASURE_SENTENCE",
     "VOICE_PLATFORM_RETAINED",
-    "VOICE_PLATFORM_RETAINED_ENGINES",
     "VOICE_PLATFORM_RETAINED_SENTENCE",
+    "VOICE_PLATFORM_TENANT_CONTENT_SENTENCE",
     "ProcessorErasureTask",
     "VendorRefRejectedError",
     "assert_vendor_refs_are_id_shaped",
     "engine_held_call_refs",
+    "mark_task_requested",
     "open_tasks_for_request",
     "overdue_tasks",
     "record_answer",
+    "record_contact_erased",
     "record_engine_contact_progress",
     "record_request_sent",
+    "settle_voice_engine_task",
     "settled_tasks",
 ]
 
@@ -180,43 +190,73 @@ def assert_vendor_refs_are_id_shaped(refs: list[str]) -> None:
             )
 
 
-#: Engines whose copy of a call is deleted at the vendor ONLY in the client's own workspace
-#: (founder decision, 8 Oct 2026, revised; D-691). ThinnestAI offers no per-call,
-#: per-recording or per-conversation delete — `DELETE /calls/{id}` only cancels a call not
-#: yet ended (`thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/calls/
-#: cancel-call.md:7`) — and its one erasure, `DELETE /contacts/{id}`, acts on a whole
-#: WORKSPACE. In the client's own workspace that is exactly this client's history of the
-#: person, so it is asked (`workers/engine_customer_data.erase_engine_contact`); in our
-#: shared developer workspace it would erase other clients', so nothing is asked, no task is
-#: opened, and the copy expires with the plan's retention.
-VOICE_PLATFORM_RETAINED_ENGINES: Final = frozenset({"thinnest"})
+#: Engines that delete one call's content at our request (D-798). ThinnestAI's
+#: `DELETE /calls/{id}/content` removes a call's recording (its own, the carrier's and any
+#: training copy), its transcript turns, summary and collected fields, and keeps only the
+#: billing record (`thinnest-findings/mirror/snapshots/2026-10-15/pages/api-reference/
+#: post-call/delete-call-content.md:443-533`). A call row belongs to one tenant, so it is
+#: asked in whichever workspace holds the call, our developer workspace included
+#: (`workers/engine_customer_data.delete_engine_call_content`). Its contact erasure,
+#: `DELETE /contacts/{id}`, still acts on a whole workspace and is asked only in the
+#: client's own (D-691).
+VOICE_PLATFORM_DELETING_ENGINES: Final = frozenset({"thinnest"})
 
-#: The proof's `engine_deletion` for an erasure that reached such calls. A durable wire
-#: token (hard rule 4): never renamed once written.
+#: The proof's `engine_deletion` for an erasure whose calls' content was asked deleted at
+#: the voice platform, in a workspace shared with other businesses where the person's
+#: contact entry is not erased. Durable wire tokens (hard rule 4): never renamed once
+#: written.
+VOICE_PLATFORM_CONTENT_DELETION: Final = "call_content_deletion_requested"
+VOICE_PLATFORM_CONTENT_DELETION_SENTENCE: Final = (
+    "deletion of each call's recording, transcript, summary and collected details requested "
+    "at the voice platform; the platform's contact entry for this number is shared with "
+    "other businesses there and is not deleted; the outcome is recorded on the erasure task"
+)
+#: The same in the client's own workspace, where the contact is erased too.
+VOICE_PLATFORM_CONTENT_AND_CONTACT_DELETION: Final = "call_content_and_contact_erasure_requested"
+VOICE_PLATFORM_CONTENT_AND_CONTACT_SENTENCE: Final = (
+    "deletion of each call's recording, transcript, summary and collected details, and "
+    "erasure of this person's contact in the voice platform workspace held for this "
+    "business, requested; the outcome is recorded on the erasure task"
+)
+
+#: A tenant erasure's sentence for the calls the platform holds for the client.
+VOICE_PLATFORM_TENANT_CONTENT_SENTENCE: Final = (
+    "deletion of each call's recording, transcript, summary and collected details requested "
+    "at the voice platform"
+)
+
+#: Tokens and sentences proofs issued before D-798 carry: before the platform deleted one
+#: call, an erasure either left its copy to expire with the plan's retention or erased the
+#: contact in the client's own workspace. Read by the certificate renderers for those
+#: proofs; nothing new writes them.
 VOICE_PLATFORM_RETAINED: Final = "not_deleted_expires_with_plan_retention"
-
-#: The proof's sentence for those calls, in the founder's words.
 VOICE_PLATFORM_RETAINED_SENTENCE: Final = (
     "not deleted at the voice platform; expires with its plan retention"
 )
-
-#: The same erasure for a tenant with its OWN ThinnestAI workspace, where the contact is
-#: erased (`apps/workers/engine_customer_data.erase_engine_contact`). A durable wire token.
 VOICE_PLATFORM_ERASURE_REQUESTED: Final = "contact_erasure_requested_in_client_workspace"
 VOICE_PLATFORM_ERASURE_SENTENCE: Final = (
     "erasure of this person's contact requested in the voice platform workspace held for "
     "this business, recordings included; the outcome is recorded on the erasure task"
 )
 
+#: A `voice_engine` task's contact half when no contact erasure was asked (the tenant had
+#: no workspace of its own), written where the per-contact progress otherwise goes.
+CONTACT_NOT_ASKED: Final = "contact-not-asked"
+#: What `record_engine_contact_progress` writes when the workspace held no contact.
+_NO_CONTACT: Final = "no-contact"
+
 
 def engine_held_call_refs(engine_call_ids: Iterable[str]) -> list[str]:
-    """The `calls.engine_call_id` values that name an execution at a third-party engine.
+    """The vendor's own ids of the `calls.engine_call_id` values that name an execution at a
+    third-party engine.
 
     `calls` carries no engine column, so the ref's own shape is the discriminator: an id our
     runtime minted parses to a tenant (`calevate_shared.engine.tenant_of_pipecat_ref`) and
-    is dropped. Order is preserved so the task lists calls the way the erasure read them.
+    is dropped. A client workspace's handle is `<raw>@<org_…>` (D-693); the task quotes the
+    raw id the vendor knows, which is also the only form `vendor_refs` accepts. Order is
+    preserved so the task lists calls the way the erasure read them.
     """
-    return [ref for ref in engine_call_ids if tenant_of_pipecat_ref(ref) is None]
+    return [raw_of(ref) for ref in engine_call_ids if tenant_of_pipecat_ref(ref) is None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,8 +285,12 @@ async def open_tasks_for_request(
     subject_ref: str | None,
     vendor_refs: list[str],
     processors: tuple[str, ...] = PROCESSORS,
+    vendor_reference: str | None = None,
 ) -> int:
     """Open one task per processor that holds a copy this erasure could not reach.
+
+    `vendor_reference` starts the task's progress record where the opener already knows
+    part of it (`CONTACT_NOT_ASKED`).
 
     Called from INSIDE the erasure's own transaction, so the tasks and the certificate
     commit together or not at all. That is the same argument `deletion.py` makes for
@@ -279,9 +323,9 @@ async def open_tasks_for_request(
             text(
                 "INSERT INTO processor_erasure_tasks "
                 "(id, tenant_id, request_ref, request_kind, processor, status, "
-                " subject_ref, vendor_refs) "
+                " subject_ref, vendor_refs, vendor_reference) "
                 "VALUES (:id, :tid, :ref, :kind, :proc, 'open', :subj, "
-                "        CAST(:refs AS jsonb)) "
+                "        CAST(:refs AS jsonb), :vref) "
                 "ON CONFLICT (request_ref, processor) DO NOTHING "
                 "RETURNING id"
             ),
@@ -293,6 +337,7 @@ async def open_tasks_for_request(
                 "proc": processor,
                 "subj": subject_ref,
                 "refs": _json_array(vendor_refs),
+                "vref": vendor_reference,
             },
         )
         opened += len(result.fetchall())
@@ -391,6 +436,95 @@ async def record_answer(
         {"tid": str(task_id), "outcome": outcome, "note": note},
     )
     return result.first() is not None
+
+
+async def mark_task_requested(session: AsyncSession, *, task_id: UUID) -> None:
+    """Move an open task to `requested`: the voice platform has been asked by code."""
+    await session.execute(
+        text(
+            "UPDATE processor_erasure_tasks SET status = 'requested', "
+            "requested_at = COALESCE(requested_at, now()), updated_at = now() "
+            "WHERE id = :tid AND status = 'open'"
+        ),
+        {"tid": str(task_id)},
+    )
+
+
+#: The calls a `voice_engine` task names whose content the platform has not yet confirmed
+#: gone: not deleted, or deleted with recording files still queued. Matched on the vendor's
+#: raw id, the form the task quotes (`engine_held_call_refs`); RLS keeps it to the tenant.
+_CALLS_OWED_SQL: Final = (
+    "SELECT count(*) FROM calls WHERE split_part(engine_call_id, '@', 1) = ANY(:refs) "
+    "AND (engine_content_deleted_at IS NULL OR COALESCE(engine_content_recordings_pending, 0) > 0)"
+)
+
+
+def _contacts_settled(reference: str | None) -> bool:
+    """The contact half of a `voice_engine` task is done: none was asked, the workspace held
+    none, or every contact it erased reported its last recording gone."""
+    if reference in (CONTACT_NOT_ASKED, _NO_CONTACT):
+        return True
+    progress = _progress_of(reference)
+    return bool(progress) and all(pending == 0 for pending in progress.values())
+
+
+async def settle_voice_engine_task(session: AsyncSession, *, task_id: UUID) -> bool:
+    """Confirm a `voice_engine` task once both halves of the platform's erasure are done:
+    every call it names has its content deleted with no recording left queued, and the
+    contact half is settled (`_contacts_settled`). True when this call confirmed it.
+
+    Asked by each job that moves either half (the call content deletion, the contact
+    erasure, a `contact.erased` delivery), so whichever finishes last closes the task, and
+    the task row is locked so two finishing together confirm it once."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT status, vendor_refs, vendor_reference FROM processor_erasure_tasks "
+                "WHERE id = :tid AND processor = 'voice_engine' FOR UPDATE"
+            ),
+            {"tid": str(task_id)},
+        )
+    ).first()
+    if row is None or row.status != "requested" or not _contacts_settled(row.vendor_reference):
+        return False
+    refs = [str(ref) for ref in (row.vendor_refs or [])]
+    owed = (await session.execute(text(_CALLS_OWED_SQL), {"refs": refs})).scalar_one()
+    if owed:
+        return False
+    contacts = _progress_of(row.vendor_reference)
+    note = f"content of {len(refs)} call(s) deleted at the voice platform" + (
+        f"; {len(contacts)} contact(s) erased in the client's workspace, recordings included"
+        if contacts
+        else ""
+    )
+    return await record_answer(session, task_id=task_id, outcome="confirmed", note=note)
+
+
+async def record_contact_erased(session: AsyncSession, *, contact_id: str) -> list[UUID]:
+    """The voice platform says this contact's last recording is gone (`contact.erased`):
+    mark it so on every awaiting `voice_engine` task of the session's tenant that erased it,
+    and confirm each one that is now complete. Returns the tasks it touched; none when no
+    erasure of ours is waiting on that contact (a contact someone else deleted).
+
+    Called in the tenant's own session: RLS keeps a delivery for one client's workspace
+    from reaching another client's tasks."""
+    assert_vendor_refs_are_id_shaped([contact_id])
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, vendor_reference FROM processor_erasure_tasks "
+                "WHERE processor = 'voice_engine' AND status = 'requested' ORDER BY id"
+            )
+        )
+    ).all()
+    touched: list[UUID] = []
+    for task_id, reference in rows:
+        if contact_id not in _progress_of(reference):
+            continue
+        await record_engine_contact_progress(session, task_id=task_id, progress={contact_id: 0})
+        await settle_voice_engine_task(session, task_id=task_id)
+        touched.append(UUID(str(task_id)))
+    return touched
 
 
 async def overdue_tasks(

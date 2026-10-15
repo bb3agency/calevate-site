@@ -19,7 +19,7 @@ Each task names a processor by ROLE. What each role holds, and what to ask for:
 | Processor | Vendor | Holds | The ids quoted |
 | --- | --- | --- | --- |
 | `telephony` | The carrier our own call runtime used, removed by D-763 (named in its decision row, ROADMAP §6) | The caller's and the called number, its call detail records and the call audio, for calls placed on that runtime. Opened only for erased calls that carry a carrier call id, which ThinnestAI calls never do. | The carrier's own call ids (`calls.carrier_call_id`, the `CallUUID`). |
-| `voice_engine` | The hosted voice platform that ran the call (ThinnestAI) | Its copy of the person's calls, conversations and recordings. Where the tenant has its own workspace, `erase_engine_contact` deletes the person's contact there and this task records the outcome: `confirmed` when every recording went, `requested` while ThinnestAI reports `recordingsPending` (an operator closes it). In our developer workspace nothing is asked, no task is opened and the copy expires with the plan's retention (`compliance/processor_erasure.VOICE_PLATFORM_RETAINED_ENGINES`, D-691, D-693); the certificate says which. | The vendor's call ids and the contact it deleted; for a tenant task, its agent ids and knowledge-base handles. |
+| `voice_engine` | The hosted voice platform that ran the call (ThinnestAI) | Its copy of the person's calls, conversations and recordings. Code asks for every deletion and closes the task itself (D-798, §6): each call's content is deleted (`DELETE /calls/{id}/content`) in whichever workspace holds it, and where the tenant has its own workspace the person's contact is erased there too (`DELETE /contacts/{id}`, D-691). The task is `confirmed` once ThinnestAI has confirmed every call and, for a contact, sent `contact.erased`. In our developer workspace the contact is shared with other businesses and is not erased; the task says `contact-not-asked`. | The vendor's call ids and the contact it deleted; for a tenant task, its agent ids and knowledge-base handles. |
 | `speech`, `llm` | Sarvam; Azure OpenAI / OpenAI / Google | Call audio sent to our own runtime before D-763 and the transcripts the post-call extraction pass reads (speech); conversation turns and prompts (language). Opened on TENANT erasures only — a per-subject task could never be closed, since neither keys its records on an id we hold. | None. The request is "delete what you hold for this customer of ours". |
 
 `docs/evidence/subprocessor-erasure-reach.md` is the evidence file for the speech and language
@@ -112,3 +112,48 @@ Two things follow, both outside this repository:
 * **It does not touch the certificate.** A certificate is a statement of what was true when
   it was issued and nothing back-fills it (hard rule 4). The task is the living record; the
   certificate stays as issued.
+
+---
+
+## 6. ThinnestAI: call content and call retention (D-798)
+
+ThinnestAI deletes one call's recording, transcript, summary and collected fields on request
+and keeps only the billing record (`thinnest-findings/mirror/snapshots/2026-10-15/pages/
+api-reference/post-call/delete-call-content.md:443-589`). Three things ask for it, each
+through the outbox job `delete_engine_call_content`:
+
+* the nightly retention sweep, for calls past the shorter of the tenant's recording and
+  transcript periods;
+* a DPDP erasure, for the subject's calls;
+* a tenant erasure, for every call the platform still holds for that client.
+
+Each call records `engine_content_delete_requested_at`, `engine_content_deleted_at` and
+`engine_content_recordings_pending`. A call still live or booked (409) is asked again in 30
+minutes; anything not settled a day later is queued again by the retention sweep.
+
+**A `voice_engine` task stuck in `requested`.** Ask, for the tenant:
+
+```sql
+SELECT engine_call_id, engine_content_delete_requested_at, engine_content_deleted_at,
+       engine_content_recordings_pending
+FROM calls WHERE split_part(engine_call_id, '@', 1) = ANY(<the task's vendor_refs>);
+```
+
+* `deleted_at` empty: the deletion has not succeeded. Read `engine_call_content_delete_failed`
+  and the `engine_error` log lines for that tenant.
+* `recordings_pending` above 0: ThinnestAI retries those files nightly; the backstop asks
+  again each day and the task closes when it reaches 0.
+* every call settled and the task's reference shows a contact above 0: ThinnestAI has not
+  sent `contact.erased` for it. It can take three nights for a recording still being written.
+  Past that, ask their support, then record the answer by hand (§3).
+
+**Call retention.** Every workspace's `callRetentionDays` is the shorter of the tenant's
+recording and transcript periods, capped at the plan's `planRetentionDays` (30 on
+pay-as-you-go; `workspace/update-workspace.md:528-599`), never left unset, because unset keeps
+transcripts with no end. Our developer workspace gets the new-tenant defaults. It is set when
+a client's workspace is provisioned (`sync_engine_retention`) and read back hourly
+(`sweep_engine_retention`). On `engine_workspace_retention_drift`, read the tenant's
+`tenant_engine_workspaces.retention_error_code`: `engine_rejected` with a 403 is a key that is
+not a full key; with a 400, a number above the plan's window (the plan changed; the next run
+reads the new window); `engine_bad_response` means the platform answered with
+another number, which is a question for their support.

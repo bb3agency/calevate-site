@@ -162,6 +162,22 @@ function WorkspaceBody({
           <SettingRow label="Last error" value={<span className="font-mono">{data.last_error_code}</span>} />
         )}
         {data.provisioned_at && <SettingRow label="Provisioned" value={formatIST(data.provisioned_at)} />}
+        {data.call_retention && (
+          <SettingRow
+            label="Calls kept there"
+            value={
+              data.call_retention.error_code ? (
+                <span className="font-mono">Not set: {data.call_retention.error_code}</span>
+              ) : data.call_retention.days !== null ? (
+                `${data.call_retention.days} days (plan allows ${data.call_retention.plan_days ?? "?"})${
+                  data.call_retention.checked_at ? `, checked ${formatIST(data.call_retention.checked_at)}` : ""
+                }`
+              ) : (
+                "Not set yet"
+              )
+            }
+          />
+        )}
         <SettingRow
           label="Numbers"
           value={

@@ -108,6 +108,17 @@ category rows say the same facts without the names. Evidence classes follow hard
   used for training on Pro or Scale (on pay-as-you-go they may be, unless switched off on
   request); recording retention 30/49/75 days by plan, transcripts until deleted. No DPA is
   recorded as signed in this repository (OPERATIONS gate T-5).
+- Deletion and retention (D-798, VERIFIED-VENDOR-DOCS, `thinnest-findings/mirror/snapshots/
+  2026-10-15/pages/api-reference/`): `DELETE /calls/{id}/content` deletes one call's
+  recording (theirs, the carrier's copy and any training copy), transcript turns, summary and
+  collected fields and keeps the billing record (`post-call/delete-call-content.md:443-533`);
+  `callRetentionDays` on `PATCH /workspace` sets a workspace's period for recordings and
+  transcripts, 1 to `planRetentionDays` (30 PAYG, 49 Pro, 75 Scale, 365 Enterprise); left
+  null, transcripts are kept with no end (`workspace/update-workspace.md:528-599`). We set
+  every client workspace to the shorter of the tenant's recording and transcript periods,
+  capped by the plan, and the developer workspace to the new-tenant defaults, read back
+  hourly; per-call deletion is asked when our period ends, for a DPDP erasure and for a
+  tenant erasure. `contact.erased` confirms a contact erasure's last recording is gone.
 
 ### Sarvam (post-call extraction, assistant standby)
 

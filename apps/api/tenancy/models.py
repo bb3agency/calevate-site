@@ -622,6 +622,15 @@ class TenantEngineWorkspace(PKMixin, TimestampMixin, Base):
             "own_model_error_code IS NULL OR char_length(own_model_error_code) <= 64",
             name="own_model_error_code_bounded",
         ),
+        CheckConstraint(
+            "(retention_days IS NULL OR retention_days >= 1) "
+            "AND (retention_plan_days IS NULL OR retention_plan_days >= 1)",
+            name="retention_days_positive",
+        ),
+        CheckConstraint(
+            "retention_error_code IS NULL OR char_length(retention_error_code) <= 64",
+            name="retention_error_code_bounded",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -650,3 +659,10 @@ class TenantEngineWorkspace(PKMixin, TimestampMixin, Base):
     own_model_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     own_model_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     own_model_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The `callRetentionDays` last confirmed on this workspace, the plan's ceiling read with
+    #: it (`planRetentionDays`), when, and our code for the last failure (migration
+    #: e4b7d2a9c160).
+    retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retention_plan_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retention_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retention_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)

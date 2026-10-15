@@ -6716,6 +6716,65 @@
         "title": "CallQualityOut",
         "type": "object"
       },
+      "CallRetentionOut": {
+        "additionalProperties": false,
+        "description": "The call retention last confirmed on the client's workspace (D-798).",
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "plan_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Days"
+          }
+        },
+        "required": [
+          "days",
+          "plan_days",
+          "checked_at",
+          "error_code"
+        ],
+        "title": "CallRetentionOut",
+        "type": "object"
+      },
       "CallScript": {
         "additionalProperties": false,
         "description": "A whole agent script, structured \u2014 or a raw escape hatch, never both at once.\n\nONE MODEL, TWO SHAPES. `raw_override` is the escape hatch AND the lossless\nrepresentation of a legacy freeform prompt: when it is set, the compiler returns it\nverbatim and the structured fields are ignored, so nothing an author wrote in raw mode\nis reinterpreted, and a pre-structured `prompt_versions.body` round-trips exactly (see\n`from_freeform`). When it is None, the structured fields compile. A model validator\nforbids the ambiguous middle \u2014 structured content AND a raw override \u2014 because a row\nthat is half one and half the other has no single answer to \"what does this compile\nto\".\n\nThe `opening_line` here is the agent's GREETING, the client's own words, and it is a\nseparate thing from the two notices (D-163, D-708). The notices are composed by\n`compose_opening_line` from the agent's two switches; a notice that is switched on is\nsaid before this line, and with both off this line is the first thing a caller hears.\nNo switch adds, removes or replaces it. `engine.compose_first_utterance` joins the two\nfor an engine that speaks one greeting field.",
@@ -39326,6 +39385,16 @@
               }
             ]
           },
+          "call_retention": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallRetentionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "client_inr_per_month": {
             "anyOf": [
               {
@@ -55341,7 +55410,7 @@
     },
     "/v1/agents/{agent_id}/actions/{tool_id}/test": {
       "post": {
-        "description": "The Test button. Executes the real external call with the client's sample values so a\nmisconfiguration is caught before a caller triggers it, audited as `source=\"test\"`. A\nWhatsApp or payment-link test goes only to one of the business's own contact numbers.",
+        "description": "The Test button. Executes the real external call with the client's sample values so a\nmisconfiguration is caught before a caller triggers it, audited as `source=\"test\"`. A\nWhatsApp or payment-link test goes only to one of the business's own contact numbers.\n\nUnder view-as, an action that carries a stored key runs only once the owner has\nswitched it on: an operator can set an action's URL, so testing it before then would\nsend the business's key to an address nobody at the business approved.",
         "operationId": "test_action_v1_agents__agent_id__actions__tool_id__test_post",
         "parameters": [
           {

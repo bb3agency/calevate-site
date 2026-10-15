@@ -59,6 +59,7 @@ from apps.api.tenancy.engine_workspace import (
     engine_has_workspaces,
     queue_workspace_offboarding,
     queue_workspace_provisioning,
+    read_retention_record,
     read_workspace_state,
     workspace_directory,
 )
@@ -122,6 +123,20 @@ class TenantNumbersCountOut(BaseModel):
     platform_held: int
 
 
+class CallRetentionOut(BaseModel):
+    """The call retention last confirmed on the client's workspace (D-798)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: `callRetentionDays` set there; None until the first push.
+    days: int | None
+    #: The plan's `planRetentionDays` read with it.
+    plan_days: int | None
+    checked_at: datetime | None
+    #: Our code for the last failure to set or read it.
+    error_code: str | None
+
+
 class TenantWorkspaceOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -141,6 +156,8 @@ class TenantWorkspaceOut(BaseModel):
     #: Live agents still published in the developer workspace: recreated in the client's
     #: workspace on their next publish.
     agents_in_platform_account: int
+    #: How long the voice platform keeps this client's calls; None without workspaces.
+    call_retention: CallRetentionOut | None = None
 
 
 _NUMBER_REFS = (
@@ -170,6 +187,7 @@ async def _tenant_out(session: AsyncSession, tenant_id: UUID) -> TenantWorkspace
             agents_in_platform_account=0,
         )
     state = await read_workspace_state(session, tenant_id)
+    retention = await read_retention_record(session, tenant_id)
     readiness = await purchase_readiness(session, tenant_id=tenant_id)
     provider = engine_numbers.engine_number_provider()
     refs = (
@@ -211,6 +229,12 @@ async def _tenant_out(session: AsyncSession, tenant_id: UUID) -> TenantWorkspace
             platform_held=sum(1 for r in refs if scope_of(r) is None),
         ),
         agents_in_platform_account=sum(1 for r in agent_refs if scope_of(r) is None),
+        call_retention=CallRetentionOut(
+            days=retention.days,
+            plan_days=retention.plan_days,
+            checked_at=retention.checked_at,
+            error_code=retention.error_code,
+        ),
     )
 
 

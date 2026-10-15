@@ -4572,6 +4572,11 @@ class ExecutionSnapshot(BaseModel):
     #: The engine put this call through to a phone rather than an agent answering it (a
     #: number forward): no transcript, and its minutes are priced as forwarded minutes.
     forwarded: bool = False
+    #: The engine has deleted this call's recording and transcript (a per-call deletion we
+    #: asked for, or the workspace's retention window). The call is still known and billed;
+    #: its empty transcript and absent recording are the expected state, not a fault, and
+    #: no recording fetch is attempted for it.
+    content_deleted: bool = False
     engine: str = "fake"
     #: The vendor's OWN answer for this execution, serialized — the ONE thing in this
     #: contract that is not in our vocabulary, and the reason it is `bytes`.

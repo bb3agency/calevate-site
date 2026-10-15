@@ -129,9 +129,9 @@ def test_the_engine_entry_describes_the_platform_we_run_and_not_the_one_d639_del
     assert deletion.ENGINE_OUTCOME != "no_subject_granular_api"
     assert "ALL agent data" not in said
     assert "Calevate's database and was erased" in entry.why
-    # The platform still has a record of its own, and the entry names the remedy for it.
+    # The platform still has a record of its own, and the entry says it is asked to delete it.
     assert "third-party voice platform" in entry.why
-    assert "written request" in entry.why
+    assert "call by call" in entry.why
     # The REMEDY, not the gate number: `authority` reaches a data principal through the
     # client's data-rights screen, so it names the contractual fix and no internal file.
     assert "contract" in entry.authority.lower()

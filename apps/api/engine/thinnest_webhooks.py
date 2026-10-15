@@ -44,10 +44,25 @@ ENGINE: Final = "thinnest"
 #: agent heard them (D-691), and the engine's notices (`NOTICE_EVENTS`: `lead.captured`,
 #: `conversation.escalated`, read by `ThinnestEngine.parse_notice`), and `call.problem`, sent
 #: while a call is live (docs.thinnest.ai api-reference/webhooks/create-webhook, read 11 Oct
-#: 2026). Sorted, so the order sent and the order compared are one order. An endpoint
-#: registered before an event was added is brought up to date in place by the sweep.
+#: 2026). And the two workspace events (`snapshots/2026-10-15/pages/api-reference/webhooks/
+#: create-webhook.md:742-743`): `contact.erased`, which closes an erasure waiting on a
+#: recording, and `byok.changed`, which re-checks our keys in that workspace. They go to every
+#: subscribed endpoint in the workspace, one delivery per url (webhooks.md:536-543); our urls
+#: differ per agent, so each agent's endpoint gets one and the inbox dedupes them on the event
+#: id. Sorted, so the order sent and the order compared are one order. An endpoint registered
+#: before an event was added is brought up to date in place by the sweep.
 SUBSCRIBED_EVENTS: Final = tuple(
-    sorted({"call.analysed", "call.completed", "call.problem", "contact.opted_out", *NOTICE_EVENTS})
+    sorted(
+        {
+            "byok.changed",
+            "call.analysed",
+            "call.completed",
+            "call.problem",
+            "contact.erased",
+            "contact.opted_out",
+            *NOTICE_EVENTS,
+        }
+    )
 )
 
 #: The query parameter our registered url carries, naming the vendor agent the endpoint

@@ -428,9 +428,12 @@ export const DPA: LegalDocument = {
             "destroyed early: the link to it is cleared at once, a destruction date is " +
             "fixed when the request runs, and the audio is destroyed on that date without a " +
             "second request. Copies of the calls held by the hosted voice platform the " +
-            "calls ran on — its recordings and call records — are reported as " +
-            "unconfirmed: we ask it to delete them, and we will not certify a deletion we " +
-            "cannot show. " +
+            "calls ran on: we ask it to delete each call's recording, transcript, summary " +
+            "and collected details, keeping only the fact of the call, its length and its " +
+            "cost, and in a workspace of yours on that platform we also erase the person's " +
+            "contact entry; in a workspace shared with other businesses that entry is not " +
+            "erased. The erasure task records the platform's copy as deleted only once it " +
+            "confirms the deletion. " +
             "Knowledge content you uploaded is SEARCHED for the " +
             "subject's number and the number of matching documents is reported on the " +
             "certificate, but none of it is edited or deleted — this callout said it was " +

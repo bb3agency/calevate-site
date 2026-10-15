@@ -22,8 +22,8 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.compliance import engine_dnc
 from apps.api.compliance.processor_erasure import (
-    VOICE_PLATFORM_ERASURE_REQUESTED,
-    VOICE_PLATFORM_ERASURE_SENTENCE,
+    VOICE_PLATFORM_CONTENT_AND_CONTACT_DELETION,
+    VOICE_PLATFORM_CONTENT_AND_CONTACT_SENTENCE,
 )
 from apps.api.compliance.service import add_to_dnc
 from apps.api.core.errors import ProblemError
@@ -59,6 +59,16 @@ class FakeWorkspaceVendor:
         )
         if self.fail:
             return httpx.Response(503, json={"error": "down", "code": "unavailable"})
+        if path.startswith("/calls/") and path.endswith("/content"):
+            return httpx.Response(
+                200,
+                json={
+                    "contentDeleted": True,
+                    "contentDeletedAt": "2026-10-15T10:00:00Z",
+                    "recordingsPending": 0,
+                    "call": None,
+                },
+            )
         if path == "/do-not-call":
             return httpx.Response(201, json={"phone": body["phone"]})
         if path.startswith("/do-not-call/"):
@@ -222,6 +232,7 @@ def test_both_jobs_are_registered() -> None:
         jobs.ENGINE_DNC_PUSH_JOB,
         jobs.ENGINE_DNC_REMOVE_JOB,
         jobs.ENGINE_CONTACT_ERASURE_JOB,
+        jobs.ENGINE_CONTENT_DELETE_JOB,
     } <= registered
     assert jobs.ENGINE_DNC_PUSH_JOB == engine_dnc.ENGINE_DNC_PUSH_JOB
 
@@ -367,18 +378,22 @@ async def test_an_erasure_in_the_clients_own_workspace_erases_the_contact_and_re
                 text("SELECT proof FROM deletion_requests WHERE id = :r"), {"r": request_id}
             )
         ).scalar_one()
-    assert proof["engine_deletion"] == VOICE_PLATFORM_ERASURE_REQUESTED
-    assert proof["actions"]["voice_platform"].endswith(VOICE_PLATFORM_ERASURE_SENTENCE)
+    assert proof["engine_deletion"] == VOICE_PLATFORM_CONTENT_AND_CONTACT_DELETION
+    assert proof["actions"]["voice_platform"].endswith(VOICE_PLATFORM_CONTENT_AND_CONTACT_SENTENCE)
     [payload] = await _outbox(jobs.ENGINE_CONTACT_ERASURE_JOB, tenant_id)
     assert phone not in json.dumps(payload), "the subject travels sealed"
     assert (await _task_status(tenant_id, request_id))[0] == "open"
 
     assert await jobs.erase_engine_contact({}, payload) == "contacts=1 recordings_pending=0"
-
     assert [(m, p, h) for m, p, h, _ in vendor.requests] == [
         ("GET", "/contacts", WORKSPACE),
         ("DELETE", "/contacts/cust_1", WORKSPACE),
     ]
+    # The contact half is done; the call's content is still owed, so the task waits.
+    assert await _task_status(tenant_id, request_id) == ("requested", "cust_1=0")
+
+    [content] = await _outbox(jobs.ENGINE_CONTENT_DELETE_JOB, tenant_id)
+    assert (await jobs.delete_engine_call_content({}, content)).endswith("tasks_confirmed=1")
     assert await _task_status(tenant_id, request_id) == ("confirmed", "cust_1=0")
 
 
@@ -401,6 +416,9 @@ async def test_no_contact_on_the_number_is_confirmed_as_nothing_held(
     vendor.contacts = []
     tenant_id, request_id, _phone = await _erased_with_platform_call(monkeypatch)
     [payload] = await _outbox(jobs.ENGINE_CONTACT_ERASURE_JOB, tenant_id)
+    [content] = await _outbox(jobs.ENGINE_CONTENT_DELETE_JOB, tenant_id)
+    # The calls first this time: the contact job is then the one that finishes the task.
+    assert (await jobs.delete_engine_call_content({}, content)).endswith("tasks_confirmed=0")
 
     assert await jobs.erase_engine_contact({}, payload) == "contacts=0 recordings_pending=0"
     assert await _task_status(tenant_id, request_id) == ("confirmed", "no-contact")

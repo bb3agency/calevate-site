@@ -128,8 +128,10 @@ async def test_an_erasure_reaches_the_clients_own_workspace_once_it_has_one(
 ) -> None:
     tenant_id, request_id, workspace = await _erasure(monkeypatch, provisioned=True)
     [payload] = await _outbox(jobs.ENGINE_CONTACT_ERASURE_JOB, tenant_id)
+    [content] = await _outbox(jobs.ENGINE_CONTENT_DELETE_JOB, tenant_id)
     assert await jobs.erase_engine_contact({}, payload) == "contacts=1 recordings_pending=0"
-    assert {h for _m, _p, h, _b in vendor.requests} == {workspace}
+    await jobs.delete_engine_call_content({}, content)
+    assert {h for _m, p, h, _b in vendor.requests if p.startswith("/contacts")} == {workspace}
     assert await _task_status(tenant_id, request_id) == ("confirmed", "cust_1=0")
 
 
@@ -147,7 +149,8 @@ async def test_a_retried_erasure_keeps_what_earlier_attempts_left_pending(
 
     with pytest.raises(Retry):
         await jobs.erase_engine_contact({"job_try": 1}, payload)
-    assert await _task_status(tenant_id, request_id) == ("requested", "ct_a=2")
+    # ct_b was found and not yet confirmed gone: it stays unsettled (1) until it is.
+    assert await _task_status(tenant_id, request_id) == ("requested", "ct_a=2,ct_b=1")
 
     vendor.failing = set()
     assert await jobs.erase_engine_contact({"job_try": 2}, payload) == (

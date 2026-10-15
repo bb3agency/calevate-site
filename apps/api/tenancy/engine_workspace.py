@@ -368,6 +368,91 @@ async def record_own_model_check(
     )
 
 
+async def own_model_enabled(session: AsyncSession, tenant_id: UUID) -> bool:
+    """Was our Google key confirmed on in this tenant's workspace, in its tenant session?"""
+    row = (
+        await session.execute(
+            text(
+                "SELECT own_model_enabled_at FROM tenant_engine_workspaces WHERE tenant_id = :tid"
+            ),
+            {"tid": tenant_id},
+        )
+    ).first()
+    return row is not None and row[0] is not None
+
+
+async def tenant_for_workspace(workspace: str) -> UUID | None:
+    """The tenant whose customer workspace this is, whatever its state, from the untenanted
+    directory read; None for an id no tenant holds (and for our developer workspace, which
+    no tenant row ever records). `workspace_id` is unique, so one id maps to one tenant: this
+    is how a delivery naming a workspace finds the one client it may touch."""
+    if not is_own_workspace(workspace):
+        return None
+    async with untenanted_session() as session:
+        tenant = (
+            await session.execute(
+                text("SELECT tenant_id FROM tenant_engine_workspaces WHERE workspace_id = :ws"),
+                {"ws": workspace},
+            )
+        ).scalar()
+    return UUID(str(tenant)) if tenant is not None else None
+
+
+@dataclass(frozen=True, slots=True)
+class RetentionRecord:
+    """The call retention last confirmed on a client's workspace."""
+
+    days: int | None
+    plan_days: int | None
+    checked_at: datetime | None
+    error_code: str | None
+
+
+async def record_retention_check(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    days: int | None = None,
+    plan_days: int | None = None,
+    error_code: str | None = None,
+) -> None:
+    """Record one push or check of the tenant's call retention, in its tenant session: a
+    pass stamps the days confirmed, the plan's ceiling and the time, and clears the error; a
+    failure records only the error."""
+    if error_code is None:
+        await session.execute(
+            text(
+                "UPDATE tenant_engine_workspaces SET retention_days = :days, "
+                "retention_plan_days = :plan, retention_checked_at = now(), "
+                "retention_error_code = NULL, updated_at = now() WHERE tenant_id = :tid"
+            ),
+            {"tid": tenant_id, "days": days, "plan": plan_days},
+        )
+        return
+    await session.execute(
+        text(
+            "UPDATE tenant_engine_workspaces SET retention_error_code = :code, "
+            "updated_at = now() WHERE tenant_id = :tid"
+        ),
+        {"tid": tenant_id, "code": error_code[:64]},
+    )
+
+
+async def read_retention_record(session: AsyncSession, tenant_id: UUID) -> RetentionRecord:
+    row = (
+        await session.execute(
+            text(
+                "SELECT retention_days, retention_plan_days, retention_checked_at, "
+                "retention_error_code FROM tenant_engine_workspaces WHERE tenant_id = :tid"
+            ),
+            {"tid": tenant_id},
+        )
+    ).first()
+    if row is None:
+        return RetentionRecord(days=None, plan_days=None, checked_at=None, error_code=None)
+    return RetentionRecord(days=row[0], plan_days=row[1], checked_at=row[2], error_code=row[3])
+
+
 async def workspaces_in_review(*, limit: int = 1000) -> list[WorkspaceRow]:
     """Active client workspaces whose business-details application is being checked, by the
     status last read from the voice platform, ordered by tenant."""
@@ -396,6 +481,7 @@ __all__ = [
     "PROVISION_JOB",
     "WORKSPACE_ENGINES",
     "WORKSPACE_PREFIX",
+    "RetentionRecord",
     "StudioWorkspace",
     "WorkspaceRow",
     "WorkspaceState",
@@ -404,16 +490,20 @@ __all__ = [
     "engine_has_workspaces",
     "external_ref_for",
     "is_own_workspace",
+    "own_model_enabled",
     "own_model_workspaces",
     "own_workspace",
     "queue_workspace_offboarding",
     "queue_workspace_provisioning",
+    "read_retention_record",
     "read_workspace_state",
     "record_own_model_check",
+    "record_retention_check",
     "record_studio_check",
     "resolve_workspace",
     "studio_enabled",
     "studio_workspaces",
+    "tenant_for_workspace",
     "workspace_directory",
     "workspace_for_tenant",
     "workspaces_in_review",

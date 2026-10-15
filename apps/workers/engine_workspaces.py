@@ -64,6 +64,7 @@ from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.reliability.engine_webhooks import retire_agent_webhook
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.call_lines import queue_call_lines_sync, read_call_lines
+from apps.api.tenancy.engine_retention import queue_retention_sync
 from apps.api.tenancy.engine_workspace import (
     OWED_STATES,
     engine_has_workspaces,
@@ -160,6 +161,8 @@ async def _activate(tenant_id: UUID, workspace: str) -> None:
         await queue_business_details_submission(session, tenant_id=tenant_id)
         # How many calls at once the client may have there (F7), owed from the start.
         await queue_call_lines_sync(session, tenant_id=tenant_id)
+        # How long the platform keeps its calls, from the client's own policy (D-798).
+        await queue_retention_sync(session, tenant_id=tenant_id)
         ids = [
             str(row)
             for row in (

@@ -313,17 +313,19 @@ UNIDENTIFIED_COUNT_KEY: Final = "calls_without_an_identifiable_party"
 UNIDENTIFIED_OUTCOME: Final = "unidentified_caller_not_matchable"
 
 #: THE VOICE PLATFORM THAT RUNS THE CALL. Our record of the call (call row, turns, outcome)
-#: is in our database and the erasure reaches it. ThinnestAI has no per-call delete
-#: (`snapshots/2026-10-08/pages/api-reference/calls/cancel-call.md:7`) and
-#: `DELETE /contacts/{id}` is workspace-wide (founder decision, 8 Oct 2026, revised; D-691),
-#: so it is asked only in the client's own workspace, and otherwise the proof says
-#: `VOICE_PLATFORM_RETAINED` (`compliance/processor_erasure.py`) for that tenant's calls.
+#: is in our database and the erasure reaches it. ThinnestAI deletes one call's recording,
+#: transcript, summary and collected fields on request (`snapshots/2026-10-15/pages/
+#: api-reference/post-call/delete-call-content.md:443-533`), so every erasure asks it per
+#: call, in whichever workspace holds the call (D-798). `DELETE /contacts/{id}` is
+#: workspace-wide, so the person's contact entry is erased only in the client's own
+#: workspace (D-691). Asked after the erasure commits, through the outbox; the proof's
+#: `voice_platform` sentence and the `voice_engine` task carry the outcome.
 #:
 #: The PROOF's `engine_deletion: "unconfirmed_pending_vendor_api"` is a separate, durable
 #: wire token and is not renamed (hard rule 4 forbids back-filling proofs already issued).
 #: This value is the REGISTER's, rendered fresh on every read, so changing it changes
 #: `limitations_version` and nothing stored.
-ENGINE_OUTCOME: Final = "not_reached_retention_unestablished"
+ENGINE_OUTCOME: Final = "deletion_requested_per_call"
 
 #: The speech and language processors, which the register did not name at all until D-433.
 #: Sarvam receives the call audio and the RAW transcript (the first post-call extraction
@@ -694,24 +696,28 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "The conversation itself runs on a third-party voice platform. Calevate's own "
             "record of each call — the call itself, the transcript and the outcome — is in "
             "Calevate's database and was erased by this request. The voice platform keeps "
-            "its own record of the call. In a workspace of the business's own on that "
-            "platform the person's record is erased too, recordings included; in a shared "
-            "one it is not deleted, because the only deletion it offers removes the "
-            "person's history for every business sharing it, and it expires with the plan's "
-            "retention. The certificate of each erasure says which, and a written request "
-            "covers any copy the platform reports as still queued. Do not tell the data "
-            "principal that copy is gone until the certificate or the task says so."
+            "its own copy of each call, and this request asks it to delete that copy call "
+            "by call: the recording, the transcript, the summary and the details collected "
+            "on the call. The platform keeps only the fact of the call, its length and its "
+            "cost. In a workspace of the business's own on that platform the person's "
+            "contact entry is erased too; in a workspace shared with other businesses it is "
+            "not, because erasing it there would remove the person's history with every "
+            "business sharing it. The deletion is asked once this request completes and "
+            "the platform may take a few nights to remove a recording it was still "
+            "writing. Do not tell the data principal that copy is gone until the task for "
+            "this request says the platform confirmed it."
         ),
         # `apps/web/src/lib/legal/subprocessors.ts` is the client-facing copy this entry
-        # must agree with. The voice platform has no per-call delete
-        # (thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/calls/
-        # cancel-call.md:7) and its contact delete is workspace-wide (D-691).
+        # must agree with. Per-call deletion: snapshots/2026-10-15/pages/api-reference/
+        # post-call/delete-call-content.md:443-533; the contact delete is workspace-wide
+        # (D-691).
         authority=(
             "DPDP §8(7) storage limitation and §12(3) erasure, read against the voice "
-            "platform's published API documentation: it offers no deletion of a single "
-            "call, and its deletion of a person applies to a whole workspace. The durable "
-            "fix is a deletion term in our contract with that platform — a signed "
-            "commercial agreement, not something this system can supply."
+            "platform's published API documentation: it deletes one call's content on "
+            "request and confirms each deletion, and its deletion of a person applies to a "
+            "whole workspace. A deletion term in our contract with that platform is still "
+            "being sought; until it is signed, the platform's documentation is the only "
+            "commitment behind it."
         ),
     ),
     ErasureLimitation(

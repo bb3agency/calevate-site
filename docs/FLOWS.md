@@ -547,12 +547,14 @@ ported per client wish.
   stated in the certificate rather than hidden: the append-only ledgers, DNC entries, the
   knowledge base, the client's own users and memberships, and engine-side copies
   (`compliance/tenant_erasure.TENANT_ERASURE_LIMITATIONS`).
-- **The voice platform's copy is erased in the client's own workspace** (D-691). ThinnestAI
-  has no call delete; deleting a person's contact erases their contact, conversations, calls
-  and recordings in one workspace. A data principal's erasure queues `erase_engine_contact`
-  in the client's own ThinnestAI workspace; where the client has none, nothing is asked of
-  the vendor and its copy expires with ThinnestAI's plan retention, and the certificate says
-  which (THINNEST-INTEGRATION §6). Our own copies are always erased by us. A `telephony`
+- **The voice platform's copy is deleted call by call** (D-798). Every erasure queues
+  `delete_engine_call_content` for its calls (a tenant erasure for all of the client's),
+  which deletes each call's recording, transcript, summary and collected fields at
+  ThinnestAI in whichever workspace holds it. Deleting a person's contact still acts on a
+  whole workspace (D-691), so a data principal's erasure also queues `erase_engine_contact`
+  only in the client's own workspace; the `voice_engine` task closes itself when ThinnestAI
+  has confirmed every call and, for a contact, sent `contact.erased`
+  (THINNEST-INTEGRATION §6). Our own copies are always erased by us. A `telephony`
   processor-erasure task is opened only for an erased call that carries a carrier call id,
   which a ThinnestAI call never does: such rows come only from test calls placed on our own
   runtime before D-763 (`runbooks/processor-erasure.md`).

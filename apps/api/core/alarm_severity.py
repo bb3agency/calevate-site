@@ -334,6 +334,13 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_dnc_push_failed": "attention",
     "engine_dnc_remove_failed": "attention",
     "engine_contact_erasure_failed": "attention",
+    # D-798. The platform's copy of some calls is still held past a retention period or an
+    # erasure; the nightly backstop asks again, so one operator task rather than a page.
+    "engine_call_content_delete_failed": "attention",
+    # D-798. A workspace kept calls for another number of days: set back (attention), or it
+    # could not be set and the platform may keep a client's calls past its policy (page).
+    "engine_workspace_retention_repaired": "attention",
+    "engine_workspace_retention_drift": "page",
     # D-693, each client's own ThinnestAI customer workspace. A client without one cannot
     # publish or buy a number, which is one client and recoverable in the day by an operator
     # (a plan upgrade, a retry): attention, never a page. A workspace left holding rented

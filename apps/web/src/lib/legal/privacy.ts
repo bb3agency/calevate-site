@@ -1248,11 +1248,13 @@ export const PRIVACY_POLICY: LegalDocument = {
           kind: "para",
           text:
             "Our copies of call recordings are kept for 90 days and then deleted. The " +
-            "hosted voice platform that runs the call also records it, and keeps its own " +
-            "copy for the period its plan sets, between 30 and 75 days. The database " +
-            "refuses to store a " +
-            "shorter recording period, and the " +
-            "retention job refuses to act on one if it somehow existed. Clients in " +
+            "database refuses to store a shorter recording period, and the retention job " +
+            "refuses to act on one if it somehow existed. The hosted voice platform that " +
+            "runs the call also records it and keeps its own transcript. We set it to keep " +
+            "both for no longer than the shorter of the client's recording and transcript " +
+            "periods, and never longer than its plan allows (between 30 and 365 days, by " +
+            "plan), and we ask it to delete each call's recording and transcript when our " +
+            "own period for that call ends. Clients in " +
             "regulated sectors — banking, insurance, securities — may be subject to " +
             "longer minimums set by their own regulator, and are responsible for " +
             "configuring accordingly.",
@@ -1553,9 +1555,13 @@ export const PRIVACY_POLICY: LegalDocument = {
                   "is destroyed automatically on that date without a second request. The " +
                   "certificate states the date.",
                 "Copies of the calls held by the hosted voice platform the calls ran " +
-                  "on — its recordings and call records — are reported as unconfirmed: " +
-                  "we ask it to delete them, and we will not certify a deletion we " +
-                  "cannot show.",
+                  "on: we ask it to delete each call's recording, transcript, summary and " +
+                  "collected details, and it keeps only the fact of the call, its length " +
+                  "and its cost. Where the client has a workspace of its own on that " +
+                  "platform, your contact entry there is erased too; in a workspace shared " +
+                  "with other businesses it is not, because erasing it would remove your " +
+                  "history with every one of them. We report the platform's copy as " +
+                  "deleted only once it confirms the deletion.",
                 "Knowledge content a client uploaded is SEARCHED for the number, and the " +
                   "number of matching documents is reported on the erasure certificate — " +
                   "but nothing in it is edited or deleted. This list said the content was " +
