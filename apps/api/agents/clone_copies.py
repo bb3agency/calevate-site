@@ -16,8 +16,9 @@ The clone limit per workspace is not documented beyond the 409 the vendor answer
 ("You already have 10 voices, which is the limit", create-voice-clone.md:442-450); that 409
 is refused here by name (`voice_clone_workspace_limit`), never retried.
 
-Groundwork while Clear sells the Premium band, which has no clones (D-688): only a voice
-whose catalogue row is one of our clones ever reaches this path.
+Clones are Studio-band voices, so this path is live while Clear is sold on the Studio band
+(the default, D-792) and idle on the Premium band, which has no clones (D-688): only a voice
+whose catalogue row is one of our clones ever reaches it.
 """
 
 from __future__ import annotations

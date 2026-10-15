@@ -2187,8 +2187,8 @@ def voice_tier_label(voice: TtsProvider | VoiceTier) -> str:
 # telephony, speech and model as one minute (D-687, D-688), so a card is judged against the
 # engine the deployment runs (`cost_floor_inr_per_min(voice, engine=...)`):
 #
-# * Clear is sold on the voice band `Settings.thinnest_clear_voice_band` names: Premium,
-#   ₹2.50 a minute, or Studio, ₹3.00 (Studio voices need Pro).
+# * Clear is sold on the voice band `Settings.thinnest_clear_voice_band` names: Studio,
+#   ₹3.00 a minute, by default (D-792; Studio voices need Pro), or Premium, ₹2.50.
 # * Studio is our Cartesia key on their stack: ₹1.50 a minute plus Cartesia's own synthesis
 #   at its worst marginal plan rate (the TTS half of `CARTESIA_COST_FLOOR_INR_PER_MIN`).
 # * Every ThinnestAI rupee carries the 2.36% wallet top-up fee (`THINNEST_TOPUP_FEE`):

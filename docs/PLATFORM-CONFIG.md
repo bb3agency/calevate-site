@@ -169,7 +169,7 @@ of its own keys, which moves every minute to the ₹1 BYOK rate and locks per-ag
 model choices; not Studio),
 `engine_actions_base_url` (applies to live agents; the public API origin its in-call actions call)
 and `thinnest_clear_voice_band` (added by D-688, 8 Oct 2026, applies to live agents, default
-`premium`: the ThinnestAI voice band sold as Clear, `premium` or `studio`; Studio voices and
+`studio` since D-792: the ThinnestAI voice band sold as Clear, `studio` or `premium`; Studio voices and
 clones need ThinnestAI Pro). D-764 (13 Oct 2026) adds `thinnest_own_model` (applies to live
 agents, typed step-up, default off: agents answer on our Gemini model through our Google key,
 Clear on scope `llm` and Studio on `llm_voice`, refused until it is ready) and

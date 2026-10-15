@@ -72,7 +72,7 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
   const refresh = useRefreshVoiceCatalogue();
   const searchId = useId();
 
-  const soldBand = (added.clear_band && lookup(BAND_LABEL, added.clear_band)) ?? "ThinnestAI Premium band";
+  const soldBand = (added.clear_band && lookup(BAND_LABEL, added.clear_band)) ?? "ThinnestAI Studio band";
   const voices = added.voices;
   const filtered = applyFilters(voices, filters);
   const accents = choices(voices, accentOf);

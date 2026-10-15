@@ -12,14 +12,14 @@ from apps.api.ops.engine_minute_routes import _row
 
 
 def test_the_band_set_as_clear_is_sold_as_clear_and_the_own_voice_minute_as_studio() -> None:
-    """D-688: the band `thinnest_clear_voice_band` names (Premium by default) is Clear, a voice
-    of our own key is Studio, and no other band is sold."""
+    """D-688: the band `thinnest_clear_voice_band` names (Studio by default, D-792) is Clear,
+    a voice of our own key is Studio, and no other band is sold."""
     sold = {key: _row("thinnest", key, None).sold_as for key in ENGINE_RATE_KEYS}
     assert sold == {
         "platform": None,
         "standard": None,
-        "premium": "Clear",
-        "studio": None,
+        "premium": None,
+        "studio": "Clear",
         "byok_voice": "Studio",
         # Sold only while our own model is switched on (D-764), off by default.
         "byok_llm_voice": None,

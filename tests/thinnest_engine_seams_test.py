@@ -333,7 +333,7 @@ async def test_a_clear_voice_meters_at_its_band_and_a_studio_voice_at_its_own_ke
 ) -> None:
     clear = await hosted_rows.add("engine")
     studio = await hosted_rows.add("byok")
-    assert await _choose(voice_id=clear, model_id="gpt-5.4-nano") == "premium"
+    assert await _choose(voice_id=clear, model_id="gpt-5.4-nano") == "studio"
     assert await _choose(voice_id=studio, model_id="prana-voice", for_publish=True) == (
         "byok_voice"
     )
@@ -380,7 +380,7 @@ async def test_a_choice_that_is_not_allowed_is_refused_by_name(
 async def test_an_unpriced_rung_is_refused_as_unpriced(
     attested: set[str], hosted_rows: CatalogueRows
 ) -> None:
-    attested.discard("premium")
+    attested.discard("studio")
     voice = await hosted_rows.add("engine")
     with pytest.raises(ProblemError) as caught:
         await _choose(voice_id=voice, model_id=None)
@@ -529,7 +529,7 @@ async def test_publish_sends_a_clear_voice_kept_off_our_key_and_meters_its_band(
     assert (sent.engine_byok_voice_id, sent.engine_own_voice_key) == (None, False)
     assert sent.engine_model_id == "prana-voice"
     assert engine.own_voice_key[ref] is False
-    assert await _route(tenant_id, ref) == ("premium", True)
+    assert await _route(tenant_id, ref) == ("studio", True)
 
 
 async def test_publish_puts_a_studio_voice_on_our_key_in_the_clients_own_workspace(

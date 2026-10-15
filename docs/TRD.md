@@ -285,7 +285,7 @@ Models (per-agent config, BYOK):
   gates 13 and 20b. LLM id is a config string on the agent, so changing it is a config
   edit plus a regression run.
 - Voices on ThinnestAI (D-687, D-688): **Clear** is ThinnestAI's own stack end to end, in
-  the band the console setting `thinnest_clear_voice_band` names (Premium or Studio);
+  the band the console setting `thinnest_clear_voice_band` names (Studio by default, D-792, or Premium);
   **Studio** is Cartesia on our key through ThinnestAI's voice-only BYOK (`scope: "voice"`),
   with ThinnestAI's STT, LLM and telephony. Every agent states `byok` (`off` for Clear,
   `workspace` for Studio). Detail: THINNEST-INTEGRATION §4a; prices: §10.0 and BRD §6.

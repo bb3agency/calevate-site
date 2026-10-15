@@ -702,7 +702,7 @@ async def test_a_clear_agent_on_our_model_keeps_its_band_and_runs_our_key_in_its
     assert (sent.engine_own_voice_key, sent.engine_own_model) == (False, "gemini-2.5-flash-lite")
     assert engine.model_keys_in == [workspace_of(UUID(str(tenant_id)))]
     assert engine.key_state.llm_provider is None  # never our developer workspace
-    assert await _route_model(tenant_id, ref) == ("premium", "gemini-2.5-flash-lite")
+    assert await _route_model(tenant_id, ref) == ("studio", "gemini-2.5-flash-lite")
 
 
 async def test_a_studio_agent_on_our_model_meters_the_own_voice_and_model_minute(
@@ -764,7 +764,7 @@ async def test_switching_our_model_off_puts_the_agent_back_on_the_platforms_mode
     sent = engine.sent[-1]
     assert (sent.engine_own_voice_key, sent.engine_own_model) == (False, None)
     assert sent.engine_model_id is None  # a choice of our model is never sent as theirs
-    assert await _route_model(tenant_id, ref) == ("premium", None)
+    assert await _route_model(tenant_id, ref) == ("studio", None)
 
 
 # --- D-769: per-agent scope kept, and both Studio keys before the write --------------------

@@ -266,8 +266,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "voice-engine",
         "thinnest",
         "ThinnestAI voice band sold as Clear",
-        "ThinnestAI's Premium band (any plan) or its Studio band (Pro and above), sold as "
-        "Clear. Not our Studio tier. Attest that band's rate first.",
+        "ThinnestAI's Studio band (Pro and above; the default) or its Premium band (any "
+        "plan), sold as Clear. Not our Studio tier. Attest that band's rate first.",
         _THINNEST,
     ),
     "thinnest_in_call_default_model": _m(
