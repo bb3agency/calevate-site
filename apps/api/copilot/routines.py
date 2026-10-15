@@ -239,7 +239,9 @@ async def list_runs(
 
 
 def _clean_name(name: str) -> str:
-    cleaned = " ".join(strip_invisible(name).split())
+    # Redacted like the instruction (D-788 point 7): "Call 9876543210 every Monday" is as
+    # much routine content as the instruction it names, and the name is stored and listed.
+    cleaned = " ".join(redacted_content(strip_invisible(name)).split())
     if not cleaned:
         raise _invalid("copilot_routine_name_blank", "Give the routine a name.")
     return cleaned[:MAX_ROUTINE_NAME]

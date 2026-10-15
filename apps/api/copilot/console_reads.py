@@ -255,13 +255,15 @@ async def _call_detail(session: AsyncSession, context: ToolContext, args: Mappin
     RAW when the account turned Pip on (D-788): the transcript and summary as spoken, with
     the `transcript.read_raw` audit row `GET /v1/calls/{id}/transcript/raw` writes, in the
     same transaction as the read (hard rule 5). Otherwise the REDACTED read,
-    `GET /v1/calls/{id}`. The role check is the tool's own `calls:read`: consent is the
-    account's decision to let Pip read what its people may ask Pip about, and the raw read
-    is recorded either way."""
+    `GET /v1/calls/{id}`. The tool itself needs `calls:read`; the RAW read also needs
+    `calls:read_raw`, the permission the raw route asks. Consent decides whether Pip may
+    see unmasked text at all, never who may: without this a `staff` member, who holds
+    `calls:read` only, would read through Pip the transcript the raw route refuses them."""
     call_id = _uuid_arg(args, "call_id")
     if call_id is None:
         return _missing_id("call_id", "a `calls_recent` lookup")
-    raw = context.unmasked
+    may_read_raw = context.role is not None and role_has(context.role, "calls:read_raw")
+    raw = context.unmasked if may_read_raw else None
     try:
         call = await crm_service.get_call(session, call_id, raw=raw is not None)
     except ProblemError:

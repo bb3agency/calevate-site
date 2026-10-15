@@ -70,11 +70,12 @@ WHAT IS OURS AND WHAT IS NOT
 -----------------------------
 Everything here is ours and is built. What is NOT ours is the scrub itself: performing
 one requires a Registered Telemarketer relationship with an access provider and a login
-to that provider's DLT platform. That is the SAME external relationship that produces
-`platform_state.tm_id` — the fact `launch_blockers` already refuses every campaign on as
-`tm_registration_missing` — so this gate cannot be a self-inflicted outage: no campaign
-on any deployment can dial until that relationship exists, and when it exists the scrub
-facility comes with it. Recording a run is an operator action today because the DLT
+to that provider's DLT platform — the same external relationship that produces
+`platform_state.tm_id`. Since D-692 no gate asks `tm_registration_missing`, so this
+gate is not shadowed by it: a PROMOTIONAL campaign is refused here until an operator
+records a scrub, and without a telemarketer registration there is nothing true to
+record, so promotional outbound does not dial at all. Transactional and service
+campaigns are unaffected. Recording a run is an operator action because the DLT
 scrub facility is a web portal; when an access provider exposes it as an API the
 producer becomes a worker and this table does not change.
 """

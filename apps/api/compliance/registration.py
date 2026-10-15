@@ -211,23 +211,17 @@ def pe_verification_is_stale(verified_at: datetime | None, *, now: datetime | No
 async def outbound_entity_blockers(
     session: AsyncSession, *, tenant_id: UUID
 ) -> list[tuple[str, str]]:
-    """WHO may place an outbound call: Calevate's TM registration live AND this client's
-    DLT Principal Entity registration + TM link active.
+    """WHO may place an outbound call under the DLT model: Calevate's TM registration live
+    AND this client's DLT Principal Entity registration + TM link active.
 
-    SEC-COMP §3's first bullet, both halves, and LEGAL-OPS-PLAYBOOK §10.8/§16-C's rule
-    that ALL regulated outbound — a bulk campaign, a single "call this lead", an instant
-    requested callback — is off until the TM-ID exists and that client's PE-TM chain is
-    Active. It is the platform+tenant half of outbound eligibility and knows nothing
-    about any campaign, so the ONE implementation is read by the campaign launch/dispatch
-    gate (`campaigns.service._entity_blockers`) AND the per-dial gate
-    (`compliance.service.check_dispatch`) for the single-lead/callback paths — the two
-    gates cannot drift into asking it two different ways.
+    INACTIVE UNDER D-692: no gate calls this. `campaigns.service.launch_blockers`,
+    `dispatch_blockers` and `compliance.service.check_dispatch` ask KYC and the outbound
+    pledge instead. It is kept (hard rule 8) as the one implementation to restore if the
+    DLT model returns, so the launch and per-dial gates would again ask it the same way.
 
-    Returns a LIST rather than short-circuiting because the campaign launch preview must
-    be able to show BOTH that Calevate's TM registration is down (nothing to do at the
-    client's end) AND that their own PE chain is incomplete: a client who fixes their PE
-    during our TM outage should see that progress. `check_dispatch`, which renders a
-    single disabled-button reason, takes the first. Ours comes first because it is not a
+    Returns a LIST rather than short-circuiting because a launch preview must be able to
+    show BOTH that Calevate's TM registration is down (nothing to do at the client's end)
+    AND that their own PE chain is incomplete. Ours comes first because it is not a
     fact about this client at all — one row in `platform_state`, false for everybody at
     once — and a call placed while it is down is Calevate dialling as an unregistered
     telemarketer, not a client with a paperwork gap.

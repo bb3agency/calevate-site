@@ -34,8 +34,9 @@ scrub timestamp.
 **What is external.** Running a scrub at all needs a DLT-platform login from an access
 provider, which comes with the Registered Telemarketer registration Calevate is still
 obtaining (R-01, `platform_state.tm_registration_status`). Until that exists these
-routes have nothing true to record — which is the correct state, not a gap: the same
-missing registration already refuses every campaign through `tm_registration_missing`.
+routes have nothing true to record. Since D-692 no gate asks `tm_registration_missing`,
+so the consequence lands here alone: every PROMOTIONAL campaign stays refused by
+`national_dnd_scrub_missing`, while transactional and service campaigns dial.
 """
 
 from __future__ import annotations

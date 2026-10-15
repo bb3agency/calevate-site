@@ -862,13 +862,31 @@ def masked_messages(messages: list[Any]) -> list[Any]:
     account consented to, this leg receives a number as `[phone ••NN]`: the question, the
     screen, the history and the live block alike. Masking the assembled list rather than
     each input is what keeps a future input from reaching the standby unmasked. It carries
-    no tool results and no files (the standby has no tools; `attachments_unavailable`)."""
+    no tool results and no files (the standby has no tools; `attachments_unavailable`).
+
+    List-form content (OpenAI content parts) keeps only its text parts, each masked: a part
+    this function cannot read — an image, a file — is dropped rather than passed through,
+    so the rule holds for an input shape nobody sends this leg yet."""
     return [
-        {**message, "content": redact(message["content"]).text}
-        if isinstance(message.get("content"), str)
+        {**message, "content": _masked_content(message["content"])}
+        if "content" in message
         else message
         for message in messages
     ]
+
+
+def _masked_content(content: Any) -> Any:
+    if isinstance(content, str):
+        return redact(content).text
+    if isinstance(content, list):
+        return [
+            {**part, "text": redact(part["text"]).text}
+            for part in content
+            if isinstance(part, dict)
+            and part.get("type") == "text"
+            and isinstance(part.get("text"), str)
+        ]
+    return content
 
 
 # --- the loop -------------------------------------------------------------------------

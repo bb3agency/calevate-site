@@ -133,8 +133,13 @@ async def test_a_routine_is_saved_redacted_and_scheduled() -> None:
     created = await _create(
         token,
         slug,
-        {**_BODY, "instruction": "Every morning call 9876543210 back and tell me"},
+        {
+            **_BODY,
+            "name": "Ring 9876543210",
+            "instruction": "Every morning call 9876543210 back and tell me",
+        },
     )
+    assert "9876543210" not in str(created["name"]), "nor does it reach the name"
     assert created["enabled"] is True
     assert created["schedule"] == _BODY["schedule"]
     assert created["next_run_at"] is not None

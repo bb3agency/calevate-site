@@ -377,18 +377,24 @@ async def test_call_detail_reads_the_raw_transcript_and_audits_it() -> None:
     registry = service._read_tool_registry("client")
     args = json.dumps({"call_id": str(call_id)})
 
+    owner = await tools.run_read_tool(
+        "call_detail", args, context=_context(tenant_id, unmasked=True), registry=registry
+    )
+    masked = await tools.run_read_tool(
+        "call_detail", args, context=_context(tenant_id, unmasked=False), registry=registry
+    )
+    # Consent unmasks Pip; it does not hand `staff` the `calls:read_raw` the raw route
+    # refuses them (hard rule 5), so their read stays redacted and is not a raw read.
     staff = await tools.run_read_tool(
         "call_detail",
         args,
         context=_context(tenant_id, unmasked=True, role="staff"),
         registry=registry,
     )
-    masked = await tools.run_read_tool(
-        "call_detail", args, context=_context(tenant_id, unmasked=False), registry=registry
-    )
 
-    assert "naa number 9876543210" in staff
+    assert "naa number 9876543210" in owner
     assert "9876543210" not in masked and "[phone ••10]" in masked
+    assert "9876543210" not in staff and "[phone ••10]" in staff
     async with untenanted_session() as session:
         audited = (
             await session.execute(
@@ -504,3 +510,23 @@ def test_the_refusal_names_who_can_unlock_it() -> None:
     assert isinstance(problem, ProblemError)
     assert problem.code == "copilot_consent_required"
     assert "account owner" in (problem.detail or "")
+
+
+def test_the_standby_leg_masks_list_form_content_and_drops_parts_it_cannot_read() -> None:
+    masked = service.masked_messages(
+        [
+            {"role": "user", "content": "call 9876543210"},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "and 9876500011"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                ],
+            },
+            {"role": "assistant", "content": None},
+        ]
+    )
+    assert "9876543210" not in masked[0]["content"]
+    assert masked[1]["content"] == [{"type": "text", "text": masked[1]["content"][0]["text"]}]
+    assert "9876500011" not in masked[1]["content"][0]["text"]
+    assert masked[2]["content"] is None

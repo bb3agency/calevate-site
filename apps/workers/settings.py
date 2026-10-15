@@ -74,7 +74,7 @@ from arq.worker import Function
 from apps.api.core.alert_admission import close_admission
 from apps.api.core.alerting import alert
 from apps.api.core.fx import fx_scope
-from apps.api.core.logging import configure_logging, get_logger
+from apps.api.core.logging import ARQ_JOB_FAILED_TEMPLATE, configure_logging, get_logger
 from apps.api.core.observability import (
     init_observability,
     shutdown_tracing,
@@ -1436,8 +1436,8 @@ CRON_JOBS = [
 ]
 
 
-#: arq's template for a job that ended by RAISING, and the one exception class alerted
-#: from it. Arg 2 is `e.__class__.__name__` (`arq/worker.py:630`).
+#: `ARQ_JOB_FAILED_TEMPLATE` (`core.logging`, which also withholds its message) is arq's
+#: template for a job that ended by RAISING. Arg 2 is the class name (`arq/worker.py:630`).
 #:
 #: NOT every exception: a job that raises anything else has its own retry ladder, its own
 #: `alert()` on the last attempt, and `job_retries_exhausted` above as the backstop —
@@ -1446,7 +1446,6 @@ CRON_JOBS = [
 #: means arq cancelled the coroutine that would have done the reporting. A job that raises
 #: `TimeoutError` from its OWN `wait_for` is caught here too; that is a terminal job
 #: failure with no owner either, so it is the right side to be wrong on.
-ARQ_JOB_FAILED_TEMPLATE = "%6.2fs ! %s failed, %s: %s"
 ARQ_TIMEOUT_EXCEPTION = "TimeoutError"
 
 #: The two ways arq itself ends a job WITHOUT the job's own code running, mapped to the

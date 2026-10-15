@@ -653,6 +653,11 @@ VIEW_AS_WITHHELD_ACTS: Mapping[str, str] = MappingProxyType(
             "live call, and that is the owner's decision. You can set an action up and leave "
             "it off; ask the owner to switch it on from their own console."
         ),
+        "actions.test_unapproved": (
+            "Testing an action sends this business's stored key to the address the action "
+            "names, and nobody at the business has approved that address yet. Ask the owner "
+            "to switch the action on, or to run the test from their own console."
+        ),
         "compliance.dnc_optout_restore": (
             "Restoring a number a person opted out with is the business's statement that "
             "they never asked to stop, or have since asked to be called. Ask the client to "

@@ -256,10 +256,12 @@ work happens on somebody else's platform and only the last step is ours.
 **Before anything: is this even possible today?** Running a scrub needs a login to an
 access provider's DLT platform, which comes with the Registered Telemarketer registration
 Calevate is still obtaining (R-01, `platform_state.tm_registration_status`). Until that is
-`active`, EVERY tenant's campaign is already refused with `tm_registration_missing` and
-there is nothing true to record here. Check the ops console first; if the platform is not
-a live registered telemarketer, this runbook is not the answer to the client's problem
-and recording a scrub anyway would be evidence of something that did not happen.
+`active` there is nothing true to record here. Since D-692 no gate asks
+`tm_registration_missing`, so the client's transactional and service campaigns dial
+normally and ONLY their promotional campaigns are refused, by these three blockers.
+Check the ops console first; if the platform is not a live registered telemarketer, the
+honest answer to the client is that promotional campaigns cannot run, and recording a
+scrub anyway would be evidence of something that did not happen.
 
 1. **Get the list.** The numbers to submit are the campaign's pending contacts. Read-only,
    through the audited admin path, and the output is a file you do not paste anywhere:
