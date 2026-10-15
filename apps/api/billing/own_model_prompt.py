@@ -14,7 +14,10 @@ module decides that prompt size, best source first:
    per-minute fluctuation, and a floor must cover the agents with the long scripts, not the
    average one; not the maximum, so one anomalous call does not set every card's floor.
    Only this source sees what the engine adds to our prompt (its own rules, tool
-   definitions, knowledge results).
+   definitions, knowledge results). Only provider-reported counts are sampled: a call whose
+   input count the engine estimated from the prompt's length (`inputTokensEstimated`,
+   snapshots/2026-10-15/pages/api-reference/calls/get-call.md:1208-1217) would feed the
+   floor the engine's guess at our prompt instead of a measurement of it (D-796).
 2. **Published**: the largest engine prompt any live agent would publish now, composed by
    the publish path itself (`agents/prompt_size.publish_config`), in tokens.
 3. **Ceiling**: the engine's own prompt ceiling (`THINNEST_LIMITS.prompt_chars`, which the
@@ -168,13 +171,16 @@ def basis_from(
 # --- one tenant's rows --------------------------------------------------------------------
 
 #: Every own-model call of the session's tenant with its counted input tokens and its
-#: billed seconds (`telephony_s` carries `duration_s` as its quantity).
+#: billed seconds (`telephony_s` carries `duration_s` as its quantity). A call whose count
+#: the engine partly estimated (`llm_input_tokens_estimated` true) is left out; a call with
+#: the flag absent or null, from before the engine reported it, is kept.
 _OWN_MODEL_CALLS: Final = (
     "SELECT (m.meta->>'llm_input_tokens')::bigint AS input_tokens, t.qty AS seconds "
     "FROM usage_events m JOIN usage_events t "
     "ON t.call_id = m.call_id AND t.unit_type = 'telephony_s' "
     "WHERE m.unit_type = 'llm_ktok_in' AND m.call_id IS NOT NULL "
     "AND m.meta->>'own_model' IS NOT NULL AND m.meta->>'llm_input_tokens' IS NOT NULL "
+    "AND m.meta->>'llm_input_tokens_estimated' IS DISTINCT FROM 'true' "
     "AND t.qty >= :min_seconds"
 )
 _LIVE_AGENTS: Final = "SELECT id FROM agents WHERE status = 'live' AND deleted_at IS NULL"

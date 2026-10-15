@@ -81,11 +81,14 @@ from calevate_shared.engine import (
 )
 from calevate_shared.engine_scope import raw_of, scoped_handle
 from calevate_shared.events import (
+    CallBilling,
     CallDirection,
     CallEvent,
+    CallKeys,
     CallLlmUsage,
     CallQuality,
     CallStatus,
+    CallVoicePlan,
     EngineByokChange,
     EngineByokChanged,
     EngineContactErased,
@@ -576,15 +579,65 @@ def parse_quality(value: Any) -> CallQuality | None:
 
 def parse_llm_usage(value: Any) -> CallLlmUsage | None:
     """The call's `usage` block in our names, or None when the engine sent none: `inputTokens`,
-    `outputTokens` and `cachedInputTokens`, each null when not recorded, our own model key's
-    tokens included (`thinnest-findings/mirror/snapshots/2026-10-13/pages/api-reference/
-    calls/get-call.md:1105-1135`; `call.analysed` carries the same object, :322-325)."""
+    `outputTokens`, `cachedInputTokens` and `inputTokensEstimated`, each null when not
+    recorded, our own model key's tokens included (`thinnest-findings/mirror/snapshots/
+    2026-10-15/pages/api-reference/calls/get-call.md:1171-1217`; `call.analysed` carries the
+    same object, `api-reference/webhooks/create-webhook.md:330-340`)."""
     if not isinstance(value, dict):
         return None
+    estimated = value.get("inputTokensEstimated")
     return CallLlmUsage(
         input_tokens=_whole(value.get("inputTokens")),
         output_tokens=_whole(value.get("outputTokens")),
         cached_input_tokens=_whole(value.get("cachedInputTokens")),
+        input_tokens_estimated=estimated if isinstance(estimated, bool) else None,
+    )
+
+
+def parse_tts_characters(value: Any) -> int | None:
+    """`usage.ttsCharacters`: characters sent to the voice, text cut off by the caller
+    included, on our own voice key too; null when nothing was sent (snapshots/2026-10-15/
+    pages/api-reference/calls/get-call.md:1218-1227)."""
+    return _whole(value.get("ttsCharacters")) if isinstance(value, dict) else None
+
+
+_CALL_KEYS: Final[frozenset[str]] = frozenset(get_args(CallKeys))
+_VOICE_PLANS: Final[frozenset[str]] = frozenset(get_args(CallVoicePlan))
+
+
+#: The call's `hangup` when it ended before the agent spoke: such a call is charged the
+#: carrier's fee only, its seconds rounded to the carrier's block (get-call.md:1276-1285).
+#: The enum (:918-935) does not define its values; this one is read by its name and by the
+#: console's "Ended before the agent spoke" outcome (channels/voice.md:443). The block's
+#: length and the fee are UNKNOWN: no page in the 15 Oct 2026 snapshot states them.
+_BEFORE_AGENT_HANGUP: Final = "before_agent"
+
+
+def parse_billing(value: Any, *, hangup: str | None = None) -> CallBilling | None:
+    """The call's `billing` object in our names (snapshots/2026-10-15/pages/api-reference/
+    calls/get-call.md:1228-1294; `call.analysed` carries the same one, api-reference/webhooks/
+    create-webhook.md:330-340). None for a booked call that has not rung (:1228-1239), and
+    for a `keys` outside the documented enum (:1240-1252), which is no billing we can read.
+    `voicePlan` is lower case (:1253-1265); `ratePerMinuteMicro` is millionths of `currency`
+    (:1266-1275), read as rupees only; `billedSeconds` is null until settled (:1276-1285).
+    `hangup` is the call's own, which says whether the carrier-only charge applies."""
+    if not isinstance(value, dict):
+        return None
+    keys = value.get("keys")
+    if keys not in _CALL_KEYS:
+        return None
+    plan = value.get("voicePlan")
+    currency = value.get("currency")
+    micro = _whole(value.get("ratePerMinuteMicro"))
+    return CallBilling(
+        keys=keys,
+        voice_plan=plan if plan in _VOICE_PLANS else None,
+        rate_inr_per_min=Decimal(micro) / _MICRO_PER_UNIT
+        if micro is not None and _is_rupees(value)
+        else None,
+        currency=currency if currency in ("INR", "USD") else None,
+        billed_seconds=_whole(value.get("billedSeconds")),
+        carrier_only=hangup == _BEFORE_AGENT_HANGUP,
     )
 
 
@@ -3503,6 +3556,11 @@ class ThinnestEngine:
             else None,
             quality=parse_quality(payload.get("quality")),
             llm_usage=parse_llm_usage(payload.get("usage")),
+            tts_characters=parse_tts_characters(payload.get("usage")),
+            # Get Call and `call.analysed` carry it; a List Calls row's schema has none
+            # (snapshots/2026-10-15/pages/api-reference/calls/list-calls.md), so a listing
+            # reads None.
+            billing=parse_billing(payload.get("billing"), hangup=hangup),
             # `forwardedTo` is the phone a number forward put the call through to, absent or
             # null otherwise (api-reference/webhooks "call.completed", read 11 Oct 2026).
             forwarded=bool(_str(payload.get("forwardedTo"))),

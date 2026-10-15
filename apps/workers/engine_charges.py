@@ -57,14 +57,31 @@ every plan (`thinnest_topup_fee`). On a Studio call the charge is ThinnestAI's o
 only; Cartesia bills our key separately, and that cost is the call's `tts_kchars` row, which
 must exist.
 
-A KEY FALLBACK IS A VARIANCE. An agent that names a scope whose key is gone when a call starts
-runs that call on the workspace's default scope and is "billed for what actually ran"
-(ThinnestAI's answer of 14 Oct 2026, VENDOR-STATED; `snapshots/2026-10-13/pages/api-reference/
-calls/get-call.md:191-205`). The meter stamps the route's rate key, so such a call's charge
-differs from its metered minute and `engine_call_cost_variance` names it, saying so on the
-own-voice-and-model route where the two rates differ. It is alarmed, not restated: neither
-Get Call nor `call.analysed` documents which scope a call ran on, so the charge says that the
-minute was wrong and not which rate was right.
+WHAT THE CALL WAS BILLED AS (D-796). Get Call and `call.analysed` carry the call's `billing`
+(`CallBilling`): whose keys it ran on after any fallback, the voice plan it was priced on, the
+per-minute rate and the seconds charged (`snapshots/2026-10-15/pages/api-reference/calls/
+get-call.md:1228-1294`; `api-reference/webhooks/create-webhook.md:330-340`). An agent whose
+key is gone when a call starts runs on the workspace's scope (get-call.md:200-203), so the
+rate key the route was sold on is not always what ran. `reconcile_call_charge` checks a
+settled call three ways (`billing_findings`) and names what it finds in
+`engine_call_cost_variance`:
+
+- the scope and voice plan against the ones the route's rate key was sold on
+  (`expected_billing`), so the alarm says which stack really ran;
+- the engine's billed seconds against our billed minutes, on the engine's rule: 30-second
+  steps at half the per-minute rate each (get-call.md:1266-1275), the pulse the meter bills;
+  a call that ended before the agent spoke is rounded to the carrier's block instead
+  (:1276-1285), and a difference there is named as such;
+- the engine's per-minute rate against the attested one, before the top-up fee.
+
+It reconciles and never prices: the engine's rate is evidence, and `unit_cost_paid` stays the
+operator-attested rate (hard rule 7). A call that is not settled (`billed_seconds` None) is
+not checked on `billing`. Nor is a forwarded call: the docs say nothing of `billing` on a call
+no agent answered, and ThinnestAI's email of 15 Oct 2026 says to trust `costMicro` for those
+(VENDOR-STATED, `docs/evidence/thinnest-reply-2026-10-15.md` §A), so only the total is
+compared. The hourly sweep reads the call log, which carries no `billing`
+(`api-reference/calls/list-calls.md`), so it compares totals, and reads Get Call for the
+calls it settles itself to check their billing (`check_late_billing`, bounded per run).
 """
 
 from __future__ import annotations
@@ -77,12 +94,17 @@ from decimal import Decimal
 from typing import Any, Final, cast
 from uuid import UUID
 
+from calevate_shared.engine import ExecutionSnapshot, VoiceEngine
+from calevate_shared.events import CallBilling, CallKeys
 from sqlalchemy import text
 
 from apps.api.billing.engine_minutes import (
     BYOK_LLM_VOICE_RATE_KEY,
+    BYOK_VOICE_RATE_KEY,
     OWN_VOICE_RATE_KEYS,
+    PULSE_SECONDS,
     TOPUP_FEE_META_KEY,
+    billed_minutes,
     cost_with_fee,
     thinnest_topup_fee,
     topup_fee,
@@ -90,6 +112,7 @@ from apps.api.billing.engine_minutes import (
 from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.billing.service import _ROW_COST_SQL, LEDGER_RUNG_KEY, lock_tenant_credits
 from apps.api.core.alerting import alert, resolve_alert
+from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis
 from apps.api.db.base import uuid7
@@ -97,6 +120,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.charges import EngineCharge, ReportsCharges
 from apps.api.engine.thinnest_workspace import in_workspace
+from apps.api.engine.vendor_http import EngineRejectedError
 from apps.workers.workspace_walk import WalkReport, walk_workspaces
 
 log = get_logger(__name__)
@@ -195,9 +219,125 @@ _CALL_COSTS_SQL = text(
     "count(*) FILTER (WHERE unit_type = 'platform_min'), "
     "max(meta->>'engine_rate_key') FILTER (WHERE unit_type = 'platform_min'), "
     "count(*) FILTER (WHERE unit_type = 'tts_kchars'), "
-    "sum(qty * unit_cost_paid) FILTER (WHERE unit_type = 'tts_kchars') "
+    "sum(qty * unit_cost_paid) FILTER (WHERE unit_type = 'tts_kchars'), "
+    "max(meta->>'billed_minutes') FILTER (WHERE unit_type = 'platform_min'), "
+    "max(meta->>'inr_per_min') FILTER (WHERE unit_type = 'platform_min'), "
+    "bool_or(meta->>'own_model' IS NOT NULL) FILTER (WHERE unit_type = 'platform_min') "
     "FROM usage_events WHERE call_id = :cid AND tenant_id = :tid"
 )
+
+#: The rate keys that are one of the engine's voice bands, named as its `voicePlan` names them.
+_BAND_RATE_KEYS: Final[frozenset[str]] = frozenset({"standard", "premium", "studio"})
+
+
+def expected_billing(
+    rate_key: str | None, *, own_model: bool
+) -> tuple[CallKeys, str | None] | None:
+    """The keys and voice plan a call metered at `rate_key` was sold to run on; None for a
+    key with no single answer (the engine's base `platform` minute).
+
+    A band minute runs on the engine's keys, or on our model alone when the route answers on
+    our model (`llm` is priced at the band, get-call.md:1253-1265); an own-voice minute is a
+    flat own-key price with no voice plan."""
+    if rate_key == BYOK_VOICE_RATE_KEY:
+        return "voice", None
+    if rate_key == BYOK_LLM_VOICE_RATE_KEY:
+        return "llm_voice", None
+    if rate_key in _BAND_RATE_KEYS:
+        return ("llm" if own_model else "off"), rate_key
+    return None
+
+
+def billing_findings(
+    billing: CallBilling,
+    *,
+    billed_seconds: int,
+    engine: str,
+    rate_key: str | None,
+    own_model: bool,
+    our_minutes: Decimal | None,
+    attested_inr_per_min: Decimal | None,
+) -> list[str]:
+    """Where a settled call's `billing` disagrees with the minute we metered, one sentence
+    each; empty when it agrees. Three separate questions, so the alarm names which one:
+
+    - **scope**: the keys and voice plan against the ones the rate key was sold on;
+    - **seconds**: the engine's billed seconds, on its own step rule (30-second steps at
+      half the minute rate, get-call.md:1266-1275, which is `billed_minutes` at the pulse),
+      against our billed minutes;
+    - **rate**: the engine's per-minute rate against the attested one, priced on our
+      minutes before the top-up fee, so a rate gap is not read as a seconds gap.
+
+    A call that ended before the agent spoke (`carrier_only`) is charged the carrier's fee
+    only and rounded to the carrier's block (get-call.md:1276-1285), so the rate is not
+    compared, and differing seconds are named as the carrier's block against our pulse:
+    the block's length is UNKNOWN (no page states it), so it cannot be allowed for. The
+    rate is not compared when either side is unknown: an unpriced minute (already alarmed)
+    or a rate the engine stated in another currency."""
+    found: list[str] = []
+    expected = expected_billing(rate_key, own_model=own_model)
+    if expected is not None and (billing.keys, billing.voice_plan) != expected:
+        keys, plan = expected
+        found.append(
+            f"The call ran on keys={billing.keys} voice_plan={billing.voice_plan or 'none'}, "
+            f"not the keys={keys} voice_plan={plan or 'none'} the {rate_key} route was sold "
+            "on: a key of ours was gone when it started, or the route's rate key is stale."
+        )
+    if our_minutes is None:
+        return found
+    their_minutes = billed_minutes(Decimal(billed_seconds), pulse_s=PULSE_SECONDS[engine])
+    if their_minutes != our_minutes:
+        found.append(
+            (
+                f"Seconds, not rate: the call ended before the agent spoke and the voice "
+                f"platform billed the phone carrier's block of {billed_seconds}s for the "
+                f"carrier's fee only, against our {PULSE_SECONDS[engine]}-second pulse of "
+                f"{our_minutes} min."
+            )
+            if billing.carrier_only
+            else (
+                f"Seconds, not rate: the voice platform billed {billed_seconds}s "
+                f"({their_minutes} min in {PULSE_SECONDS[engine]}-second steps) against our "
+                f"{our_minutes} min."
+            )
+        )
+    if billing.carrier_only or billing.rate_inr_per_min is None or attested_inr_per_min is None:
+        return found
+    theirs = (our_minutes * billing.rate_inr_per_min).quantize(MONEY_Q, rounding=ROUNDING)
+    ours = (our_minutes * attested_inr_per_min).quantize(MONEY_Q, rounding=ROUNDING)
+    if not within_tolerance(ours, theirs):
+        found.append(
+            f"Rate: the voice platform charged INR {billing.rate_inr_per_min}/min against the "
+            f"attested INR {attested_inr_per_min}/min, INR {theirs} against INR {ours} on our "
+            f"{our_minutes} min before the top-up fee."
+        )
+    return found
+
+
+def checked_billing(
+    billing: CallBilling | None,
+    *,
+    forwarded: bool,
+    engine: str,
+    rate_key: str | None,
+    own_model: bool,
+    our_minutes: object,
+    attested_inr_per_min: object,
+) -> list[str] | None:
+    """`billing_findings` for a call that can be checked; None for one that cannot: no
+    billing, not settled (`billed_seconds` None), or forwarded (module docstring). The meta
+    figures are passed as read from the minute row."""
+    if billing is None or billing.billed_seconds is None or forwarded:
+        return None
+    return billing_findings(
+        billing,
+        billed_seconds=billing.billed_seconds,
+        engine=engine,
+        rate_key=rate_key,
+        own_model=own_model,
+        our_minutes=_decimal_or_none(our_minutes),
+        attested_inr_per_min=_decimal_or_none(attested_inr_per_min),
+    )
 
 
 async def record_engine_charge(tenant_id: UUID, call_id: UUID, charged_inr: Decimal) -> bool:
@@ -211,20 +351,37 @@ async def record_engine_charge(tenant_id: UUID, call_id: UUID, charged_inr: Deci
 
 
 async def reconcile_call_charge(
-    tenant_id: UUID, call_id: UUID, charged_inr: Decimal, *, engine: str
+    tenant_id: UUID,
+    call_id: UUID,
+    charged_inr: Decimal,
+    *,
+    engine: str,
+    billing: CallBilling | None = None,
+    forwarded: bool = False,
 ) -> str:
     """Record one settled call's charge and compare it with what we metered for it.
 
     Alarms, never corrects (hard rule 4): `engine_call_cost_variance` when the attested
-    minute differs from the charge with its top-up fee by more than the tolerance, naming
-    the variance; `engine_studio_synthesis_cost_missing` when a Studio call has no Cartesia
+    minute differs from the charge with its top-up fee by more than the tolerance, or when
+    the call's `billing` disagrees with the route it was metered on (`billing_findings`),
+    naming each; `engine_studio_synthesis_cost_missing` when a Studio call has no Cartesia
     synthesis row beside its minute. Returns what happened, for the pipeline's span.
     """
     if not await record_engine_charge(tenant_id, call_id, charged_inr):
         return "already_recorded"
     async with tenant_session(tenant_id) as session:
         row = (await session.execute(_CALL_COSTS_SQL, {"cid": call_id, "tid": tenant_id})).one()
-    metered, unpriced, minute_rows, rate_key, tts_rows, tts_cost = row
+    (
+        metered,
+        unpriced,
+        minute_rows,
+        rate_key,
+        tts_rows,
+        tts_cost,
+        our_minutes,
+        attested,
+        own_model,
+    ) = row
     if not minute_rows:
         return "not_metered"
     outcome = "matched"
@@ -241,36 +398,57 @@ async def reconcile_call_charge(
             call_id=str(call_id),
             tenant_id=str(tenant_id),
         )
+    checked = checked_billing(
+        billing,
+        forwarded=forwarded,
+        engine=engine,
+        rate_key=rate_key,
+        own_model=bool(own_model),
+        our_minutes=our_minutes,
+        attested_inr_per_min=attested,
+    )
+    found = checked or []
     if unpriced or metered is None:
-        # Metered with no attested rate: `engine_minute_rate_unattested` already alarmed.
-        return "unpriced"
-    fee = topup_fee(engine)
-    expected = cost_with_fee(charged_inr, fee=fee)
-    metered_inr = Decimal(str(metered)).quantize(MONEY_Q, rounding=ROUNDING)
-    if within_tolerance(metered_inr, expected):
-        return outcome
+        # Metered with no attested rate: `engine_minute_rate_unattested` already alarmed, so
+        # only a disagreement on what ran is news.
+        if not found:
+            return "unpriced"
+        variance = ""
+    else:
+        fee = topup_fee(engine)
+        expected = cost_with_fee(charged_inr, fee=fee)
+        metered_inr = Decimal(str(metered)).quantize(MONEY_Q, rounding=ROUNDING)
+        total_matches = within_tolerance(metered_inr, expected)
+        if total_matches and not found:
+            return outcome
+        variance = (
+            ""
+            if total_matches
+            else (
+                f"{variance_sentence(metered_inr, expected)} (the voice platform charged INR "
+                f"{charged_inr}, plus the {fee * 100}% top-up fee). The attested per-minute "
+                "rate does not reproduce what this call cost."
+            )
+        )
     synthesis = (
-        f" Cartesia synthesis is metered separately at INR "
+        f"Cartesia synthesis is metered separately at INR "
         f"{Decimal(str(tts_cost)).quantize(MONEY_Q, rounding=ROUNDING)}."
         if tts_cost is not None
         else ""
     )
+    # Only a guess while the call's own keys are unknown; `billing` names them when it is read.
     fallback = (
-        " On our own model and voice a different charge can also mean the call ran on the "
+        "On our own model and voice a different charge can also mean the call ran on the "
         "workspace's default keys because one of ours was gone when it started: check the "
         "workspace's own keys in ops Voices."
-        if rate_key == BYOK_LLM_VOICE_RATE_KEY
+        if rate_key == BYOK_LLM_VOICE_RATE_KEY and checked is None
         else ""
     )
     alert(
         "WORKER_TERMINAL",
         "engine_call_cost_variance",
-        detail=(
-            f"rate_key={rate_key}: {variance_sentence(metered_inr, expected)} "
-            f"(the voice platform charged INR {charged_inr}, plus the {fee * 100}% top-up "
-            "fee). The attested per-minute rate does not reproduce what this call cost."
-            f"{synthesis}{fallback}"
-        ),
+        detail=f"rate_key={rate_key}: "
+        + " ".join(part for part in (variance, *found, synthesis, fallback) if part),
         call_id=str(call_id),
         tenant_id=str(tenant_id),
     )
@@ -573,6 +751,132 @@ async def _forget_mismatches(engine: str) -> None:
         log.warning("engine_charge_memory_unavailable", extra={"reason": type(exc).__name__})
 
 
+# --- billing of calls this sweep settles -----------------------------------------------------
+#
+# A call the pipeline metered before the engine settled it is settled here from the call log,
+# which carries no `billing`, so its scope and seconds are read from Get Call. The calls wait
+# in a Redis hash keyed by our call id: written only by the one `record_engine_charge` that
+# set the charge (a conditional UPDATE, so once per call), removed once checked, so a call is
+# checked at most once. Redis and not a column: `calls` has no free-form field and
+# `usage_events` is an append-only cost ledger, and the alarm memory above already lives here.
+# A Redis loss drops pending checks, never money: the totals were compared already.
+
+_BILLING_PENDING_KEY: Final = "engine_charges:billing_pending:{engine}"
+#: Get Call reads per sweep; the rest wait an hour, so a backlog cannot crowd the vendor.
+BILLING_CHECKS_PER_RUN: Final = 20
+#: A call Get Call keeps refusing (not a throttle or an outage) is given up after this many.
+BILLING_CHECK_ATTEMPTS: Final = 3
+
+
+async def queue_billing_check(
+    engine: str, tenant_id: UUID, call_id: UUID, engine_call_id: str
+) -> None:
+    """Remember a call this sweep settled, for `check_late_billing`. Idempotent (`HSETNX`)."""
+    entry = {"tenant_id": str(tenant_id), "engine_call_id": engine_call_id, "attempts": 0}
+    try:
+        await cast(
+            "Awaitable[int]",
+            get_redis().hsetnx(
+                _BILLING_PENDING_KEY.format(engine=engine), str(call_id), json.dumps(entry)
+            ),
+        )
+    except Exception as exc:
+        log.warning(
+            "engine_billing_check_unqueued",
+            extra={"call_id": str(call_id), "reason": type(exc).__name__},
+        )
+
+
+def _vendor_busy(exc: ProblemError) -> bool:
+    """A refusal that says nothing about the call: throttled (after the adapter's own 429
+    ladder), unreachable, or a 5xx. The next run asks again with no attempt spent."""
+    if isinstance(exc, EngineRejectedError):
+        return exc.vendor_status >= 500
+    return exc.kind == "transient" or exc.code == "engine_unreachable"
+
+
+_CALL_ROUTE_SQL = text(
+    "SELECT max(meta->>'engine_rate_key'), max(meta->>'billed_minutes'), "
+    "max(meta->>'inr_per_min'), bool_or(meta->>'own_model' IS NOT NULL) "
+    "FROM usage_events WHERE call_id = :cid AND tenant_id = :tid AND unit_type = 'platform_min'"
+)
+
+
+async def check_settled_billing(
+    tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot, *, engine: str
+) -> str:
+    """Check one late-settled call's `billing` against its metered minute; the total was
+    compared by the sweep, so only `billing_findings` can alarm here."""
+    async with tenant_session(tenant_id) as session:
+        rate_key, minutes, attested, own_model = (
+            await session.execute(_CALL_ROUTE_SQL, {"cid": call_id, "tid": tenant_id})
+        ).one()
+    found = checked_billing(
+        snapshot.billing,
+        forwarded=snapshot.forwarded,
+        engine=engine,
+        rate_key=rate_key,
+        own_model=bool(own_model),
+        our_minutes=minutes,
+        attested_inr_per_min=attested,
+    )
+    if found is None:
+        return "not_checked"
+    if not found:
+        return "matched"
+    alert(
+        "WORKER_TERMINAL",
+        "engine_call_cost_variance",
+        detail=f"rate_key={rate_key}: " + " ".join(found),
+        call_id=str(call_id),
+        tenant_id=str(tenant_id),
+    )
+    return "variance"
+
+
+async def check_late_billing(engine: VoiceEngine) -> int:
+    """Read Get Call for up to `BILLING_CHECKS_PER_RUN` queued calls and check each one's
+    billing. Returns how many were checked. No database session is open across a vendor
+    read. A busy vendor stops the run with the rest left queued."""
+    key = _BILLING_PENDING_KEY.format(engine=engine.name)
+    try:
+        redis = get_redis()
+        pending = await cast("Awaitable[dict[str, str]]", redis.hgetall(key))
+    except Exception as exc:
+        log.warning("engine_charge_memory_unavailable", extra={"reason": type(exc).__name__})
+        return 0
+    checked = 0
+    for call_id in sorted(pending)[:BILLING_CHECKS_PER_RUN]:
+        entry = json.loads(pending[call_id])
+        try:
+            snapshot = await engine.get_execution(entry["engine_call_id"])
+        except ProblemError as exc:
+            if _vendor_busy(exc):
+                log.warning(
+                    "engine_billing_check_deferred",
+                    extra={"call_id": call_id, "code": exc.code, "left": len(pending) - checked},
+                )
+                break
+            attempts = int(entry["attempts"]) + 1
+            if attempts >= BILLING_CHECK_ATTEMPTS:
+                log.warning(
+                    "engine_billing_check_abandoned", extra={"call_id": call_id, "code": exc.code}
+                )
+                await cast("Awaitable[int]", redis.hdel(key, call_id))
+            else:
+                await cast(
+                    "Awaitable[int]",
+                    redis.hset(key, call_id, json.dumps(entry | {"attempts": attempts})),
+                )
+            continue
+        await check_settled_billing(
+            UUID(entry["tenant_id"]), UUID(call_id), snapshot, engine=engine.name
+        )
+        await cast("Awaitable[int]", redis.hdel(key, call_id))
+        checked += 1
+    return checked
+
+
 async def _tenant_of(engine: str, agent_ref: str | None) -> UUID | None:
     """The tenant an agent's route belongs to; the route bridge is the one untenanted read
     `db/registry` exempts for exactly this resolution."""
@@ -598,8 +902,10 @@ async def _compare(engine: str, charge: EngineCharge, tally: _Tally) -> None:
         tally.unmatched += 1
         return
     tally.matched += 1
-    # A call the pipeline saw before the vendor settled it gets its figure here, once.
-    await record_engine_charge(tenant_id, UUID(str(row[0])), charge.charged_inr)
+    # A call the pipeline saw before the vendor settled it gets its figure here, once, and
+    # its `billing`, which the call log does not carry, is read from Get Call later.
+    if await record_engine_charge(tenant_id, UUID(str(row[0])), charge.charged_inr):
+        await queue_billing_check(engine, tenant_id, UUID(str(row[0])), charge.engine_call_id)
     if row[2] or row[1] is None:
         # Metered with no attested rate: `engine_minute_rate_unattested` already alarmed.
         tally.unpriced += 1
@@ -643,6 +949,8 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
                 extra={"engine_call_id": charge.engine_call_id, "reason": type(exc).__name__},
             )
             tally.unreached += 1
+    # After the comparison, which queued this run's late-settled calls.
+    billing_checked = await check_late_billing(engine)
     fresh = (
         await _newly_mismatched(engine.name, [call_id for call_id, _m, _e in tally.mismatched])
         if tally.mismatched
@@ -699,22 +1007,30 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
         f"compared={tally.compared} matched={tally.matched} unmatched={tally.unmatched} "
         f"unpriced={tally.unpriced} mismatched={len(tally.mismatched)} "
         f"unreached={tally.unreached} complete={complete} workspaces={walk.visited} "
-        f"restated={restated} corrected={corrected}"
+        f"restated={restated} corrected={corrected} billing_checked={billing_checked}"
     )
 
 
 __all__ = [
+    "BILLING_CHECKS_PER_RUN",
+    "BILLING_CHECK_ATTEMPTS",
     "CHARGE_LOOKBACK_DAYS",
     "CHARGE_SWEEP_MINUTES",
     "CHARGE_TOLERANCE_INR",
     "CHARGE_TOLERANCE_SHARE",
     "FEE_CORRECTION_META_KIND",
     "FEE_RESTATEMENT_META_KIND",
+    "billing_findings",
+    "check_late_billing",
+    "check_settled_billing",
+    "checked_billing",
     "correct_overstated_fees",
     "correct_tenant_fees",
     "cost_with_fee",
+    "expected_billing",
     "fee_delta",
     "fee_excess",
+    "queue_billing_check",
     "reconcile_call_charge",
     "reconcile_engine_charges",
     "record_engine_charge",

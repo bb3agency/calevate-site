@@ -113,7 +113,7 @@ async def test_a_clear_rung_call_still_meters_the_engines_own_leg_figure() -> No
             tenant_id=tenant_id,
             call_id=call_id,
             voice="clear",
-            agent_chars=agent_chars,
+            characters=agent_chars,
             engine_tts_inr=Decimal("1.6200"),
             at=datetime.now(UTC),
         )
@@ -137,7 +137,7 @@ async def test_a_clear_rung_call_the_engine_priced_nothing_for_writes_no_row() -
                 tenant_id=tenant_id,
                 call_id=call_id,
                 voice="clear",
-                agent_chars=agent_chars,
+                characters=agent_chars,
                 engine_tts_inr=None,
                 at=datetime.now(UTC),
             )
@@ -173,7 +173,7 @@ async def test_a_studio_rung_call_meters_our_own_character_count_at_the_attested
             tenant_id=tenant_id,
             call_id=call_id,
             voice="studio",
-            agent_chars=agent_chars,
+            characters=agent_chars,
             # ₹0 from the engine, which is the whole reason this seam exists.
             engine_tts_inr=Decimal("0"),
             at=at,
@@ -208,7 +208,7 @@ async def test_a_studio_rung_call_with_no_attested_price_writes_no_row_rather_th
                 tenant_id=tenant_id,
                 call_id=call_id,
                 voice="studio",
-                agent_chars=agent_chars,
+                characters=agent_chars,
                 engine_tts_inr=Decimal("0"),
                 at=datetime(2024, 1, 1, tzinfo=UTC),
             )
@@ -243,7 +243,7 @@ async def test_a_studio_rung_call_whose_agent_said_nothing_meters_nothing() -> N
                 tenant_id=tenant_id,
                 call_id=call_id,
                 voice="studio",
-                agent_chars=agent_chars,
+                characters=agent_chars,
                 engine_tts_inr=Decimal("0"),
                 at=at,
             )
@@ -293,7 +293,7 @@ async def test_a_non_zero_engine_charge_on_a_studio_rung_call_is_metered_and_ala
             tenant_id=tenant_id,
             call_id=call_id,
             voice="studio",
-            agent_chars=agent_chars,
+            characters=agent_chars,
             engine_tts_inr=Decimal("0.4100"),
             at=at,
         )
@@ -334,7 +334,7 @@ async def test_a_studio_rung_call_the_engine_charged_nothing_for_raises_nothing(
             tenant_id=tenant_id,
             call_id=call_id,
             voice="studio",
-            agent_chars=agent_chars,
+            characters=agent_chars,
             engine_tts_inr=Decimal("0"),
             at=at,
         )
@@ -364,7 +364,7 @@ async def test_the_engines_charge_survives_a_studio_rung_call_with_no_attested_p
             tenant_id=tenant_id,
             call_id=call_id,
             voice="studio",
-            agent_chars=agent_chars,
+            characters=agent_chars,
             engine_tts_inr=Decimal("0.4100"),
             at=datetime(2024, 1, 1, tzinfo=UTC),
         )

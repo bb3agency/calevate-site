@@ -7,20 +7,22 @@ the single biggest lever on the TTS line."* Nothing measured it. With the Sarvam
 fixed and self-hosting out, it is the largest cost lever still in play — ₹0.27-0.40/min
 of a ₹3.70 floor — and this module is what turns it from a sentence into a number.
 
-THE ENGINE CANNOT SUPPLY IT. `apps/workers/pipeline.py` records that the engine bills TTS
-as a leg cost with no character count, and under BYOK it may not bill it at all
-(`rates.ENGINE_REPORTS_TTS_MODEL` is the neighbouring blindness). The honest source is
-OUR transcripts: characters in the AGENT's turns ÷ the call's duration = chars per
-call-minute, directly, with no vendor figure anywhere in the arithmetic.
+WHERE THE CHARACTERS COME FROM (D-796). ThinnestAI counts the characters it sent to the
+voice, greeting, fillers and cut-off text included (`usage.ttsCharacters`, thinnest-findings/
+mirror/snapshots/2026-10-15/pages/api-reference/calls/get-call.md:1218-1227); the meter stamps
+it on the call's usage rows as `meta.tts_characters` and moves the counter by it. A call with
+no such count (an older call, an engine that does not count) falls back to OUR transcript:
+characters in the AGENT's turns. The board and the counter take the same one count per call
+(`pipeline.spoken_characters`), so they cannot disagree about a call.
 
-WHAT IS COUNTED. Every call that has a transcript AND `duration_s > 0`, one sample per
-call, and the sample is `length(COALESCE(text_redacted, text))` summed over its `agent`
-turns. `COALESCE` is deliberate and the comment on the query says why: an aggregate
-`length()` never returns a character of text, so hard rule 5 is not at stake, but reading
-the default-redacted column keeps this inside the rule's DEFAULT rather than needing an
-exemption — and for the agent's own scripted turns the redaction mask is noise (a masked
-number is about the same length as the number). A caller's turns are never counted:
-they cost STT seconds, not TTS characters.
+WHAT IS COUNTED. Every call with `duration_s > 0` that has an engine count or a transcript,
+one sample per call; without an engine count the sample is
+`length(COALESCE(text_redacted, text))` summed over its `agent` turns. `COALESCE` is
+deliberate and the comment on the query says why: an aggregate `length()` never returns a
+character of text, so hard rule 5 is not at stake, but reading the default-redacted column
+keeps this inside the rule's DEFAULT rather than needing an exemption — and for the agent's
+own scripted turns the redaction mask is noise (a masked number is about the same length as
+the number). A caller's turns are never counted: they cost STT seconds, not TTS characters.
 
 THREE FIGURES, BECAUSE ONE WOULD MISLEAD. The pooled rate (Σ chars x 60 / Σ seconds) is
 what the fleet's TTS bill actually divides by its minutes, so it is the number the cost
@@ -85,6 +87,10 @@ from apps.api.billing.rates import (
 #: called a measurement, which is hard rule 11.
 TTS_SPEAKING_RATE_MIN_CALLS: Final[int] = 20
 
+#: `usage_events.meta` key the post-call meter writes: the engine's count of characters sent
+#: to the voice on that call, null when it reported none.
+TTS_CHARACTERS_META_KEY: Final = "tts_characters"
+
 #: Chars-per-minute figures are quantized to four places, the same scale as every rupee
 #: here (`billing/models.MONEY`), so a rate prints like the rupee it implies. The
 #: arithmetic that produces them is exact; only the published spelling is rounded.
@@ -99,7 +105,8 @@ TTS_SPEAKING_RATE_MIN_CALLS: Final[int] = 20
 _RATE_Q: Final[Decimal] = Decimal("0.0001")
 _SECONDS_PER_MINUTE: Final[Decimal] = Decimal(60)
 
-#: One row per call with a transcript, under the CALLER's RLS scope. `FILTER` on the agent
+#: One row per call with an engine character count or a transcript, under the CALLER's RLS
+#: scope; the engine's count wins (module docstring). `FILTER` on the agent
 #: speaker rather than a join predicate so a call whose transcript holds only caller turns
 #: still appears (as a zero) rather than vanishing from the sample size — it IS a call with
 #: a transcript, and its agent spoke nothing, which is a rate too.
@@ -121,12 +128,15 @@ _SECONDS_PER_MINUTE: Final[Decimal] = Decimal(60)
 #: repository makes. Recorded rather than left implied, so the next reader inherits the
 #: direction of the error and not just the number.
 _AGENT_CHARS_PER_CALL: Final[str] = (
-    "SELECT c.id AS call_id, c.duration_s, "
-    "COALESCE(SUM(length(COALESCE(t.text_redacted, t.text))) "
-    "FILTER (WHERE t.speaker = :agent), 0) AS agent_chars "
-    "FROM calls c JOIN transcript_turns t ON t.call_id = c.id "
-    "WHERE c.duration_s > 0 "
-    "GROUP BY c.id, c.duration_s"
+    "SELECT c.id AS call_id, c.duration_s, COALESCE(e.chars, t.agent_chars) AS agent_chars "
+    "FROM calls c "
+    f"LEFT JOIN LATERAL (SELECT max((u.meta->>'{TTS_CHARACTERS_META_KEY}')::bigint) AS chars "
+    "FROM usage_events u WHERE u.call_id = c.id) e ON true "
+    "LEFT JOIN LATERAL (SELECT count(*) AS turns, "
+    "COALESCE(SUM(length(COALESCE(tt.text_redacted, tt.text))) "
+    "FILTER (WHERE tt.speaker = :agent), 0) AS agent_chars "
+    "FROM transcript_turns tt WHERE tt.call_id = c.id) t ON true "
+    "WHERE c.duration_s > 0 AND (e.chars IS NOT NULL OR t.turns > 0)"
 )
 
 
@@ -435,6 +445,7 @@ async def bump_speaking_rate(
 
 
 __all__ = [
+    "TTS_CHARACTERS_META_KEY",
     "TTS_SPEAKING_RATE_MIN_CALLS",
     "CallSample",
     "FleetSpeakingRate",

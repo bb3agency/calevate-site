@@ -34,6 +34,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.charges import EngineCharge, EngineChargeListing
 from apps.workers import engine_charges
+from calevate_shared.engine import ExecutionSnapshot
 from sqlalchemy import text
 from tests.smoke_pipeline_test import _seed_tenant
 
@@ -304,6 +305,16 @@ class _Engine:
 
     async def list_call_charges(self, *, since: date) -> EngineChargeListing:
         return EngineChargeListing(charges=list(self._charges), complete=True)
+
+    async def get_execution(self, call_id: str) -> ExecutionSnapshot:
+        # The sweep reads Get Call for the calls it settles (D-796); no billing to check.
+        return ExecutionSnapshot(
+            engine_call_id=call_id,
+            status="completed",
+            raw_status="completed",
+            terminal=True,
+            billable_ready=True,
+        )
 
 
 @pytest.mark.rls

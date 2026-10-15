@@ -1617,6 +1617,13 @@ _VENDOR_ONLY_KEYS = frozenset(
         "inputTokens",
         "outputTokens",
         "verifiedAt",
+        # D-796: the call's `billing` and the rest of its `usage`; ours are `CallBilling`,
+        # `CallLlmUsage.input_tokens_estimated` and `ExecutionSnapshot.tts_characters`.
+        "billedSeconds",
+        "inputTokensEstimated",
+        "ratePerMinuteMicro",
+        "ttsCharacters",
+        "voicePlan",
     }
 )
 
@@ -1638,6 +1645,10 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "reason",
         # D-764: a call's token `usage`, our own word for metered usage too.
         "usage",
+        # D-796: a call's `billing` and whose `keys` it ran on; both words are ours too
+        # (`CallBilling`, `CallBilling.keys`, the billing module).
+        "billing",
+        "keys",
         # A phone number's display name on ThinnestAI, and a word this product uses for
         # its own form fields and connections (D-704 shows it in the trial-number picker).
         "label",
