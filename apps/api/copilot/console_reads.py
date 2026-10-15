@@ -17,13 +17,15 @@ THE SAME FOUR RULES AS `tools.py`, BECAUSE THESE ARE THE SAME KIND OF TOOL:
 2. The permission is the screen's, checked by `tools.run_read_tool` before anything runs.
    Where one result mixes two screens (the wallet is `wallet:read`, statements
    `billing:read`) the second half is asked of the role inside the executor.
-3. Text goes through `tools._clean` (redaction, then defusing) and IDS DO NOT: a uuid is
+3. Text goes through `tools._clean` (redaction unless the account turned Pip on, then
+   defusing) and IDS DO NOT: a uuid is
    not personal data, and a redactor that read a digit run inside one as a phone number
    would hand the model an id it cannot use. Ids are appended after the cleaned text.
-4. Nothing here returns a raw transcript, a recording link, a full phone number or an
-   extraction value. The raw transcript is `calls:read_raw` plus an audit row on its own
-   screen (hard rule 5); a recording link is a short-lived credential and belongs in a
-   browser, not a prompt.
+4. Before consent nothing here returns a raw transcript, a full phone number or an
+   extraction value; after it (D-788) `call_detail` returns the raw transcript with the
+   audit row hard rule 5 requires, and `lead_detail` the captured values. A recording link
+   is never returned: it is a short-lived credential and belongs in a browser, not a
+   prompt.
 
 Registered in `CONSOLE_READ_TOOLS` and composed after `tools.READ_TOOLS` by
 `service.realm_read_tools`, so the earlier tools' positions in the cacheable prefix do not
@@ -47,6 +49,7 @@ from apps.api.billing.wallet import read_wallet
 from apps.api.callbacks import service as callbacks_service
 from apps.api.campaigns import results as campaign_results
 from apps.api.campaigns import service as campaigns_service
+from apps.api.compliance.audit import write_audit
 from apps.api.compliance.kyc import kyc_not_verified_reason, read_kyc
 from apps.api.compliance.kyc_documents import current_documents
 from apps.api.compliance.outbound_pledge import pledge_blocker
@@ -109,6 +112,12 @@ def _principal(context: ToolContext) -> Principal:
 
 def _date(value: Any) -> str:
     return ist_date(value) if isinstance(value, datetime) else "—"
+
+
+def _captured(value: Any) -> str:
+    """One captured value as a short line: a list joined, anything long cut at 200."""
+    shown = ", ".join(str(item) for item in value) if isinstance(value, list) else str(value)
+    return shown[:200]
 
 
 # --- agent_detail ----------------------------------------------------------------------
@@ -194,11 +203,10 @@ async def _voice_tuning_line(session: AsyncSession, agent_id: UUID) -> str:
 async def _lead_detail(session: AsyncSession, context: ToolContext, args: Mapping[str, Any]) -> str:
     """`crm_service.get_lead` and `lead_timeline` — the lead screen's two reads.
 
-    The captured FIELD NAMES are listed, never their values: `data` is the extraction
-    payload hard rule 6 names beside transcripts, and the lead's own screen is where a
-    person reads it.
+    The captured values are listed when the account turned Pip on (D-788): they are the
+    lead's details the person is asking Pip about. Otherwise only the field NAMES are, and
+    the lead's own screen is where a person reads the values.
     """
-    del context
     lead_id = _uuid_arg(args, "lead_id")
     if lead_id is None:
         return _missing_id("lead_id", "a `leads_search` lookup")
@@ -208,6 +216,7 @@ async def _lead_detail(session: AsyncSession, context: ToolContext, args: Mappin
         return "No lead with that id in this account."
     timeline = await crm_service.lead_timeline(session, lead_id, limit=10)
     captured = sorted(key for key, value in lead.data.items() if value not in (None, "", []))
+    unmasked = context.unmasked is not None
     head = (
         f"Lead {lead.name or 'unnamed'} · {lead.status} · from {lead.source} · "
         f"{lead.call_count} call(s)"
@@ -217,11 +226,16 @@ async def _lead_detail(session: AsyncSession, context: ToolContext, args: Mappin
         + f" · added {_date(lead.created_at)}"
     )
     lines = [head]
-    lines.append(
-        "Captured fields: " + ", ".join(captured) + " (values are on the lead's screen)."
-        if captured
-        else "Nothing captured on this lead yet."
-    )
+    if not captured:
+        lines.append("Nothing captured on this lead yet.")
+    elif unmasked:
+        lines.append(
+            "Captured: " + "; ".join(f"{key}: {_captured(lead.data[key])}" for key in captured)
+        )
+    else:
+        lines.append(
+            "Captured fields: " + ", ".join(captured) + " (values are on the lead's screen)."
+        )
     if timeline.items:
         lines.append(f"Latest of {timeline.total} event(s):")
         lines.extend(
@@ -236,17 +250,33 @@ async def _lead_detail(session: AsyncSession, context: ToolContext, args: Mappin
 
 
 async def _call_detail(session: AsyncSession, context: ToolContext, args: Mapping[str, Any]) -> str:
-    """`crm_service.get_call(raw=False)` — `GET /v1/calls/{id}`, the REDACTED read. The raw
-    transcript is never fetched here: it is `calls:read_raw` plus an audit row, on the
-    call's own screen (hard rule 5)."""
-    del context
+    """`crm_service.get_call` — the call screen's read.
+
+    RAW when the account turned Pip on (D-788): the transcript and summary as spoken, with
+    the `transcript.read_raw` audit row `GET /v1/calls/{id}/transcript/raw` writes, in the
+    same transaction as the read (hard rule 5). Otherwise the REDACTED read,
+    `GET /v1/calls/{id}`. The role check is the tool's own `calls:read`: consent is the
+    account's decision to let Pip read what its people may ask Pip about, and the raw read
+    is recorded either way."""
     call_id = _uuid_arg(args, "call_id")
     if call_id is None:
         return _missing_id("call_id", "a `calls_recent` lookup")
+    raw = context.unmasked
     try:
-        call = await crm_service.get_call(session, call_id, raw=False)
+        call = await crm_service.get_call(session, call_id, raw=raw is not None)
     except ProblemError:
         return "No call with that id in this account."
+    if raw is not None:
+        await write_audit(
+            session,
+            action="transcript.read_raw",
+            actor=raw.actor,
+            tenant_id=context.tenant_id,
+            object_type="call",
+            object_id=str(call_id),
+            ip=raw.ip,
+            summary={"via": "copilot"},
+        )
     try:
         await crm_service.recording_ref_for(session, call_id)
         recording = (
@@ -267,7 +297,8 @@ async def _call_detail(session: AsyncSession, context: ToolContext, args: Mappin
     ]
     turns = call.transcript[:MAX_TURNS_SHOWN]
     if turns:
-        lines.append(f"Transcript (redacted; first {len(turns)} of {len(call.transcript)} turns):")
+        shown = "" if raw is not None else "redacted; "
+        lines.append(f"Transcript ({shown}first {len(turns)} of {len(call.transcript)} turns):")
         lines.extend(f"{turn.speaker}: {turn.text[:MAX_TURN_CHARS]}" for turn in turns)
     else:
         lines.append("No transcript is stored for this call.")

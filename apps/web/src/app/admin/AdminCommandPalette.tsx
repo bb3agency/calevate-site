@@ -151,7 +151,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       out.push({
         id: "action-view-as",
         group: ACTIONS,
-        label: `View ${client.name} as client (logged)`,
+        label: `View ${client.name} as client`,
         keywords: "impersonate view as",
         href: viewAsHref(client.slug),
       });

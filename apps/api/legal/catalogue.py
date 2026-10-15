@@ -439,6 +439,17 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "says they go to the same providers and places. MATERIAL: new personal data "
                 "reaches a provider, unredacted.",
             ),
+            # D-788.
+            Revision(
+                "24",
+                True,
+                "D-788: sections 3.2, 4.2, 4.3, 6, 8, 9, 10.1 and 12.4 say the in-app assistant is "
+                "off until the account owner turns it on, then sends what is typed, attached and "
+                "read in the account (phone numbers, contact details, full transcripts) unmasked "
+                "to its providers, its standby only masked text; that an erasure deletes stored "
+                "turns holding the number; and that all Calevate staff can see all client data. "
+                "MATERIAL: caller personal data reaches providers unmasked.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -602,6 +613,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "they are not reviewed or scanned and are sent as they are; clause 14.2 adds "
                 "them to the client's indemnity. MATERIAL: a new obligation and a wider "
                 "indemnity.",
+            ),
+            # D-788.
+            Revision(
+                "18",
+                True,
+                "D-788: clauses 4 and 5 make the owner's tick the client's instruction to send "
+                "assistant content unmasked, list what the client is responsible for and what "
+                "Calevate is not, beside our own duties; clause 7 discloses that all Calevate "
+                "staff can see all client data; clause 14.2 widens the indemnity. MATERIAL: new "
+                "obligations and a wider indemnity.",
             ),
         ),
         effective_date="2026-09-02",
@@ -829,6 +850,17 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "its language-model provider, not reviewed or scanned, the client responsible "
                 "as Data Fiduciary, our security and deletion duties unchanged. MATERIAL: the "
                 "description of the processing and the client's duties change.",
+            ),
+            # D-788.
+            Revision(
+                "16",
+                True,
+                "D-788: clause 1 lists the client's responsibilities, what Calevate is not "
+                "responsible for and our own duties; clause 2 makes the owner's tick the "
+                "instruction to send assistant content unmasked, its standby only masked text; "
+                "clause 3 replaces need-to-know with all Calevate staff seeing all client data; "
+                "clause 8 and Annexes A and B follow. MATERIAL: the description of the processing "
+                "and the client's duties.",
             ),
         ),
         effective_date="2026-09-02",
@@ -1071,6 +1103,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "a client's user attaches to the assistant are stored privately and sent whole "
                 "and unredacted, not reviewed or scanned, and deleted within 30 days. "
                 "MATERIAL: a sub-processor receives personal data for a new purpose.",
+            ),
+            # D-788.
+            Revision(
+                "23",
+                True,
+                "D-788: the language-model and post-call extraction rows and section 3.5 say the "
+                "assistant sends phone numbers, contact details and full transcripts unmasked once "
+                "the owner turns it on, its standby only masked text, and that the first "
+                "provider's paid terms do not use the content to improve its products. MATERIAL: "
+                "providers receive more personal data.",
             ),
         ),
         effective_date="2026-09-02",

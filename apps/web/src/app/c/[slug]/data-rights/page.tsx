@@ -82,8 +82,7 @@ export default function DataRightsPage() {
         description={
           <>
             Answer a person who asks what you hold about them, or asks you to erase it. You
-            are the <Term id="dataFiduciary" />; every request is recorded against your
-            account.
+            are the <Term id="dataFiduciary" />.
           </>
         }
         actions={

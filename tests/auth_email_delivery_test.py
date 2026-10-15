@@ -250,6 +250,7 @@ def test_the_route_tree_resolver_can_see_the_app_at_all() -> None:
         ("the client password reset", console_links.password_reset_link("client", "tok")),
         ("the operator password reset", console_links.password_reset_link("admin", "tok")),
         ("the invitation link", console_links.accept_invitation_link("tok")),
+        ("the alert mail's Ops > Alerts button", console_links.ops_alerts_link()),
     ],
 )
 def test_every_mailed_link_names_a_page_this_app_serves(what: str, link: str) -> None:

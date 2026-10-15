@@ -9,8 +9,9 @@ index that silently omits three modules is worse than no index, because a reader
 * `schemas.py`  — the wire contract, in Pydantic. The request is the ONLY description of
   the screen the server ever has, and it is the authority every `set_fields` call is
   re-validated against (OWASP GenAI LLM Top 10 2026, LLM01 #4).
-* `sanitize.py` — invisible-character stripping at ingest and at egress, and the
-  redaction guard that refuses a payload `redact()` still changes.
+* `sanitize.py` — invisible-character stripping at ingest and at egress.
+* `consent.py`  — whether the account owner turned Pip on (D-788): the client realm's
+  gate, and what it changes about masking.
 * `prompt.py`   — the static system prompt, the `set_fields` tool definition, and the XML
   helpers every block in this package escapes through (`xml_text`, `xml_attr`).
 * `identity.py` — who the assistant says it IS, as a property of this service rather than
@@ -19,7 +20,8 @@ index that silently omits three modules is worse than no index, because a reader
   `prompt.ASSISTANT_IDENTITY` is the same rule asked politely, and it is not sufficient —
   see that module for the live answers that proved it.
 * `tools.py`    — the READ tools: performance, leads, calls, campaigns, agents. Each one
-  its own short `tenant_session`, its own permission checked in code, its result redacted.
+  its own short `tenant_session`, its own permission checked in code, its result redacted
+  unless the account turned Pip on (D-788).
 * `write_tools.py` — the three PROPOSING tools and the one door that acts. A proposal is a
   signed five-minute token and no table; `confirm()` is the only code here that mutates
   anything, and it runs the same gated service function a human's click runs.

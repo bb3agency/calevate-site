@@ -22,6 +22,12 @@
  *    animates FROM a displaced state. The common alternative — `opacity: 0` in CSS,
  *    animated to 1 — ships a page that is permanently blank if the bundle fails to load,
  *    is blocked, or is rendered by something that does not execute scripts.
+ *
+ *    The corollary: GSAP never touches anything the reader can already see. The server
+ *    paints the page before this bundle runs, so a `gsap.from()` on a visible element
+ *    yanks it back to its start frame and plays it again — the page appearing, vanishing
+ *    and appearing. The hero's entrance is therefore CSS (`mk-hero-in` in globals.css),
+ *    and `Reveal` skips an element that is already in view when it mounts.
  * 2. **`prefers-reduced-motion` is honoured and is not a lesser experience.** Lenis is
  *    never constructed and every reveal resolves instantly to its resting state. The
  *    reader gets the same page, immediately.
@@ -60,30 +66,15 @@ gsap.registerPlugin(useGSAP, ScrollTrigger);
  * Read as STATE rather than at module scope, because the media query can change while
  * the page is open (a reader turning the OS setting on mid-visit is exactly the person
  * this must respond to) and because a module-scope read runs during SSR where
- * `matchMedia` does not exist.
- *
- * The initial value is `true` — "reduce" — on purpose. It flips to false only after the
- * effect has actually asked. Guessing the other way would start an animation on the
- * first frame for someone who asked for none.
+ * `matchMedia` does not exist. Where the answer is unknown it is `true` — "reduce" —
+ * because guessing the other way would start an animation for someone who asked for none.
  */
 function usePrefersReducedMotion(): boolean {
   /**
-   * READ SYNCHRONOUSLY ON THE FIRST CLIENT RENDER, and this is the whole entry-animation
-   * glitch rather than a micro-optimisation.
-   *
-   * It used to initialise to `true` and correct itself in an effect. `true` is the right
-   * DEFAULT — never animate until asked — but as an initial STATE it made the hero animate
-   * one render too late: hydration ran `useGSAP` with motion off, the effect then flipped
-   * `reduced` to false, and because `reduced` is a `useGSAP` dependency the hook re-ran and
-   * only THEN called `gsap.from()`. So the browser painted the finished hero, and a tick
-   * later GSAP pulled it back to opacity 0 and animated it in — the page appearing, then
-   * appearing again. Exactly what it looked like.
-   *
-   * The lazy initialiser runs during the first client render, before any paint of the
-   * hydrated tree, so `useGSAP` fires once with the real answer. `typeof window` guards the
-   * server, where the answer is unknowable and `true` is the safe one; it cannot cause a
-   * hydration mismatch because nothing here renders markup — `reduced` is read only by
-   * effects.
+   * Read synchronously on the first client render, so every `useGSAP` and effect below
+   * runs once with the real answer instead of running with `true` and again a render
+   * later. `typeof window` guards the server, where `true` is the safe answer; it cannot
+   * cause a hydration mismatch because `reduced` is read only by effects, never rendered.
    */
   const [reduced, setReduced] = useState(
     () => typeof window === "undefined" || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -102,7 +93,7 @@ function usePrefersReducedMotion(): boolean {
 
 const MotionContext = createContext<{ reduced: boolean }>({ reduced: true });
 
-/** Whether this subtree should animate. Consumed by `Reveal` and the hero. */
+/** Whether this subtree should animate. Consumed by `Reveal`, `MockStage` and the FAQ. */
 export function useMotion(): { reduced: boolean } {
   return useContext(MotionContext);
 }
@@ -191,15 +182,20 @@ export function Reveal({
 
   useGSAP(
     () => {
-      if (reduced) return;
-      gsap.from(scope.current, {
+      const el = scope.current;
+      if (reduced || !el) return;
+      // Already in view (a short page, a tall screen, a restored scroll position): it was
+      // painted finished by the server, so it stays as painted. Above the viewport counts
+      // too; the reader has scrolled past it.
+      if (el.getBoundingClientRect().top < window.innerHeight) return;
+      gsap.from(el, {
         opacity: 0,
         y: 16,
         duration: 0.6,
         delay,
         ease: "power3.out",
         scrollTrigger: {
-          trigger: scope.current,
+          trigger: el,
           // Fires when the element's top passes 88% of the viewport height — early
           // enough that the motion is finished by the time it is comfortably read.
           start: "top 88%",
@@ -216,43 +212,5 @@ export function Reveal({
     <Tag ref={scope as never} className={className}>
       {children}
     </Tag>
-  );
-}
-
-/**
- * The hero's entrance: a staggered rise, on load rather than on scroll.
- *
- * Separate from `Reveal` because the trigger is different in kind — the hero is already
- * in view, so a ScrollTrigger would either fire instantly (making the config a lie) or
- * never (leaving `gsap.from`'s starting state painted on screen).
- */
-export function HeroStagger({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  const { reduced } = useMotion();
-  const scope = useRef<HTMLDivElement>(null);
-
-  useGSAP(
-    () => {
-      if (reduced) return;
-      gsap.from(gsap.utils.toArray("[data-hero-item]", scope.current), {
-        opacity: 0,
-        y: 16,
-        duration: 0.6,
-        stagger: 0.06,
-        ease: "power3.out",
-      });
-    },
-    { scope, dependencies: [reduced] },
-  );
-
-  return (
-    <div ref={scope} className={className}>
-      {children}
-    </div>
   );
 }

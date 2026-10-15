@@ -333,7 +333,7 @@ def warnings(
     notes: list[str] = []
     choosable = SELECTABLE_LLM_MODELS if selectable is None else selectable
     for name, entry in sorted(table.items()):
-        offered = "SELECTABLE" if name in choosable else "withdrawn"
+        standing = "SELECTABLE" if name in choosable else "withdrawn"
         left = entry.days_left(today)
         if entry.retirement_stance == "none-announced":
             # THE VENDOR ANNOUNCED NOTHING, AND SOMEBODY CHECKED. Reported on every run and
@@ -349,7 +349,7 @@ def warnings(
             # and OpenAI's is a >=6-month notice policy, so "none announced" bounds the
             # notice period and never the lifetime.
             notes.append(
-                f"{name} ({entry.provider}, {offered}): NO SHUTDOWN IS ANNOUNCED, read "
+                f"{name} ({entry.provider}, {standing}): NO SHUTDOWN IS ANNOUNCED, read "
                 f"{entry.retirement.read_on.isoformat()} at {entry.retirement.source}. That "
                 "is a reading and not a blank — but it is only true as of that date, and "
                 "this leg's deprecation page is egress-blocked here, so no run can re-check "
@@ -361,7 +361,7 @@ def warnings(
             # dated schedule and this table consumes it; OpenAI and Google publish
             # deprecations on pages every egress path here refuses.
             notes.append(
-                f"{name} ({entry.provider}, {offered}): NOBODY HAS READ A RETIREMENT PAGE "
+                f"{name} ({entry.provider}, {standing}): NOBODY HAS READ A RETIREMENT PAGE "
                 f"FOR IT. {entry.retirement.source}. The model cannot be made selectable "
                 "until somebody does — see LLM_MODELS for the other half of the same block."
             )
@@ -377,10 +377,16 @@ def warnings(
             )
         elif 0 < left <= WARN_LEAD.days:
             notes.append(
-                f"{name} ({entry.provider}, {offered}) retires in {left} days "
+                f"{name} ({entry.provider}, {standing}) retires in {left} days "
                 f"({entry.retires_on.isoformat() if entry.retires_on else '?'}); vendor "
                 f"replacement: {entry.replacement or 'none published yet'}. On the Azure leg "
                 "migration is a new deployment plus gates 20b/20c, not a code change."
+            )
+        if entry.access_restriction:
+            notes.append(
+                f"{name} ({entry.provider}, {standing}): ACCESS IS RESTRICTED — "
+                f"{entry.access_restriction} Any setting naming it must be on a key that "
+                "already has access."
             )
         age = (today - entry.retirement.read_on).days
         if age > STALE_AFTER_DAYS:

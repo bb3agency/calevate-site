@@ -16,12 +16,14 @@ import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import type { SurfaceHolder } from "@/lib/copilot/registry";
 import { unsavedWork } from "@/lib/copilot/unsaved";
 import { openingLine, suggestedQuestions } from "@/lib/copilot/suggestions";
+import { pipLocked } from "@/lib/copilot/conversation";
 import { useCopilotConversation, type CopilotTurn } from "@/lib/copilot/useCopilotConversation";
 
 import { AnswerText } from "./answerText";
 import { ActionReceipt } from "./ActionReceipt";
 import { JobCard } from "./JobCard";
 import { NavigationReceipt } from "./NavigationReceipt";
+import { PipConsentGate } from "./PipConsent";
 import { ProposalCard } from "./ProposalCard";
 import { StepList } from "./StepList";
 import {
@@ -110,7 +112,7 @@ export function CopilotPanel({
   const conversation = useCopilotConversation(session, holder);
   // FILES FOR THE NEXT QUESTION (D-781): chosen, converted on this device, and streamed to
   // the API before Ask; Ask waits while any is still on its way.
-  const tray = useAttachmentTray(session, realm);
+  const tray = useAttachmentTray(session, realm, conversation.uploadsAvailable);
   const [dropping, setDropping] = useState(false);
   const canAsk = (question.trim() !== "" || tray.ready > 0) && !tray.busy;
   const send = () => {
@@ -252,6 +254,8 @@ export function CopilotPanel({
   // console button asks for; `ProposalCard` picks the door from `realm`.
   const confirmable = true;
   const selected = selectionSummary(surface);
+  const consent = conversation.consent;
+  const lockedConsent = realm === "client" && consent != null && pipLocked(consent) ? consent : null;
 
   return (
     <motion.div
@@ -339,6 +343,15 @@ export function CopilotPanel({
           three other scrollers in this tree (`interior/wizard-steps.tsx`,
           `show-more.tsx`, `skeleton-swap.tsx`) rather than a `useEffect` on
           `wheel`: one class, no listener, and it covers touch and trackpad alike. */}
+      {/* PIP IS OFF FOR THIS ACCOUNT until the owner turns it on (D-788): the owner sees
+          the disclosure and the tick, everyone else who can turn it on. Nothing below is
+          offered, because the server would refuse it. */}
+      {lockedConsent !== null ? (
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <PipConsentGate session={session} consent={lockedConsent} />
+        </div>
+      ) : (
+      <>
       <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={transcript}
@@ -734,10 +747,13 @@ export function CopilotPanel({
         />
         <div className="flex items-center justify-between gap-3 pt-1">
           <div className="flex min-w-0 items-center gap-1">
-            <AttachButton onFiles={tray.add} disabled={conversation.asking} />
-            <p className="hidden px-1 text-meta text-ink-faint sm:block">
-              {tray.busy ? "Waiting for files to finish…" : "Enter to send · Shift+Enter for a new line"}
-            </p>
+            <AttachButton onFiles={tray.add} disabled={conversation.asking} available={tray.available} />
+            {/* The sentence beside the paperclip takes this place while files can't be attached. */}
+            {tray.available !== false ? (
+              <p className="hidden px-1 text-meta text-ink-faint sm:block">
+                {tray.busy ? "Waiting for files to finish…" : "Enter to send · Shift+Enter for a new line"}
+              </p>
+            ) : null}
           </div>
           {/* ONE CONTROL, TWO JOBS, and it is never disabled while an answer is arriving.
               It used to read "Asking…" and be dead, which left a person watching a long
@@ -764,6 +780,8 @@ export function CopilotPanel({
         </div>
         </div>
       </form>
+      </>
+      )}
       {/* "YOU WILL LOSE WHAT YOU TYPED" — the one question the server could not answer.
           THROUGH `ConfirmDialog` AND NOT `window.confirm`: one way per problem, and this is
           the console's dialog for a consequence with two answers. It is not `beforeunload`

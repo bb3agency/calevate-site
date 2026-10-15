@@ -37,6 +37,10 @@ class Platform:
         self.requests: list[tuple[str, str, Any]] = []
         #: The platform refuses a number's line to an agent whose voice is off.
         self.needs_voice_on = False
+        #: The platform refuses `phone` to an agent with no number to answer or call from.
+        self.refuse_phone = False
+        #: The platform answers the agent write without keeping `phone`.
+        self.drop_phone = False
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         assert "Thinnest-Workspace" not in request.headers
@@ -52,8 +56,13 @@ class Platform:
             self.agents[ref] = {"id": ref, "name": body["name"], "voice": dict(body["voice"])}
             return httpx.Response(201, json=self.agents[ref])
         if path.startswith("/agents/") and request.method == "PATCH":
+            if self.refuse_phone and "phone" in body["voice"].get("surfaces", ()):
+                return httpx.Response(
+                    409, json={"error": "No number.", "code": "phone_number_required"}
+                )
             row = self.agents[path.removeprefix("/agents/")]
-            row["voice"].update(body["voice"])
+            if not self.drop_phone:
+                row["voice"].update(body["voice"])
             return httpx.Response(200, json=row)
         if path.startswith("/phone-numbers/"):
             if request.method == "PATCH":
@@ -136,13 +145,43 @@ async def test_an_attach_refused_for_voice_off_switches_it_on_only_for_the_attac
     assert agent["voice"]["answersCalls"] is False
 
 
+def _trial_agent(platform: Platform) -> dict[str, Any]:
+    """A client's trial agent as a publish leaves it: answering, on no surface (F1)."""
+    platform.agents["ag_trial"] = {
+        "id": "ag_trial",
+        "name": "Receptionist",
+        "voice": {"answersCalls": True, "surfaces": []},
+    }
+    return platform.agents["ag_trial"]
+
+
 async def test_a_test_call_borrows_the_number_and_its_line_stays_the_paused_agent(
     platform: Platform,
 ) -> None:
+    """The borrower gets `phone`, so the platform will place its call (`calling_not_set_up`
+    otherwise, incident 15 Oct 2026); the number's line stays the agent that answers
+    nobody, so a caller ringing back hears the trial message."""
+    trial = _trial_agent(platform)
     assert await engine_numbers.lend_trial_line("ag_trial")
-    (agent,) = platform.agents.values()
-    assert platform.number["agent"] == agent["id"]
+    line = next(a for a in platform.agents.values() if a["name"] == TRIAL_LINE_AGENT_NAME)
+    assert platform.number["agent"] == line["id"]
     assert platform.number["callingAgent"] == "ag_trial"
+    assert trial["voice"]["surfaces"] == ["phone"]
+    assert line["voice"]["answersCalls"] is False
+    assert line["voice"]["unavailableMessage"] == engine_numbers.TRIAL_LINE_MESSAGE
+
+
+@pytest.mark.parametrize("refusal", ["refuse_phone", "drop_phone"])
+async def test_a_borrower_refused_the_phone_is_reported_not_lent(
+    platform: Platform, monkeypatch: pytest.MonkeyPatch, refusal: str
+) -> None:
+    _trial_agent(platform)
+    await engine_numbers.converge_trial_line()
+    setattr(platform, refusal, True)
+    alarms: list[str] = []
+    monkeypatch.setattr(engine_numbers, "alert", lambda _s, code, **_: alarms.append(code))
+    assert not await engine_numbers.lend_trial_line("ag_trial")
+    assert alarms == ["trial_line_lend_failed"]
 
 
 async def test_without_a_number_nothing_is_made(

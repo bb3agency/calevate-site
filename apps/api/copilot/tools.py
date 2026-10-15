@@ -28,13 +28,14 @@ THE FOUR PROPERTIES, each of which is a rule from CLAUDE.md rather than a prefer
    function that only SELECTs. Nothing here inserts, updates or deletes, and nothing here
    meters, dials, publishes or spends — the metering for the whole answer is one row pair
    written by the route after the loop finishes (`crm/assist.meter_assist`).
-4. **NOTHING PERSONAL GOES BACK TO THE MODEL (hard rule 5 / D-127 G-2).** No transcript
-   text and no extraction payload is returned by any tool, and every assembled result goes
-   through `redact()` — the same primitive `sanitize.assert_redacted` uses on the way IN —
-   so a lead's number reaches the model as `[phone ••10]` and not as digits. That is a
-   BACKSTOP and not the plan: the results below are composed from names, statuses and
-   counts on purpose. The guard is there because the plan is a promise and the guard is a
-   check, which is exactly the argument `assert_redacted` makes about the ingress half.
+4. **WHAT IS MASKED DEPENDS ON WHO TURNED PIP ON (D-788, amending D-127 G-2).** A client
+   account whose owner turned Pip on, and the admin console, run with
+   `ToolContext.unmasked` set: results reach the model as stored — a lead's number as
+   digits, its captured details, a call's raw transcript (audited like the dashboard's raw
+   read, hard rule 5). Without it every result still goes through `redact()`, so a number
+   reaches the model as `[phone ••10]`. That masked default is for any caller that does not
+   positively know the account consented; in production the client ask and upload routes
+   refuse before consent, so the masked mode is the floor rather than a product path.
 
 RESULTS ARE COMPACT TEXT, NOT JSON. Every token here is paid for on every subsequent turn
 of the loop — a tool result stays in the message list for the rest of the request — so the
@@ -49,6 +50,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final, Literal, get_args
@@ -61,6 +63,7 @@ from apps.api.billing.plans import IST
 from apps.api.campaigns import service as campaigns_service
 from apps.api.copilot.prompt import defuse, function_tool
 from apps.api.copilot.sanitize import strip_invisible
+from apps.api.core.context import Principal
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import Permission, role_has
 from apps.api.crm import lead_search
@@ -126,6 +129,29 @@ class ToolContext:
     #: to some default tenant, which is the one failure mode this Optional could have.
     tenant_id: UUID | None
     role: str | None
+    #: Set when results may reach the model unmasked (D-788); None keeps every result
+    #: redacted. It carries who is reading because an unmasked transcript read writes an
+    #: audit row naming them.
+    unmasked: Unmasked | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Unmasked:
+    """The account turned Pip on, or this is the admin console (D-788).
+
+    A `Principal` and an address, because the raw transcript read writes the same
+    `transcript.read_raw` audit row `GET /v1/calls/{id}/transcript/raw` writes, and that row
+    names an actor and the caller's address (SEC-COMP §5). A background job has no caller
+    address and records none."""
+
+    actor: Principal
+    ip: str | None
+
+
+#: Whether the tool running in this task may return unmasked text. Set by `run_read_tool`
+#: around exactly one tool call, so `_clean` — called from every executor in three modules
+#: — follows the caller's consent without threading a flag through each of them.
+_UNMASKED: ContextVar[bool] = ContextVar("copilot_tool_unmasked", default=False)
 
 
 #: One tool's executor: a tenant-scoped session, WHO IS ASKING, and the model's
@@ -212,8 +238,12 @@ def _clean(text: str) -> str:
     (`prompt._text`, `memory.render_for_prompt` via `xml_text`); the tool-result path was
     the one that was not, and it is the path that carries the least trustworthy text of
     the three.
+
+    THE REDACTION IS SKIPPED, AND THE DEFUSING NEVER IS, when the caller's account turned
+    Pip on (D-788, `_UNMASKED`): consent makes a caller's number something the model may
+    read, and it does not make a caller's words safe to put in a prompt.
     """
-    return defuse(redact(text).text)
+    return defuse(text if _UNMASKED.get() else redact(text).text)
 
 
 def ist_date(value: datetime) -> str:
@@ -542,16 +572,17 @@ async def _leads_search(
     tool can answer "how many leads do I have?" — which it could not, because a total only
     ever surfaced through `_listing`'s truncation note.
 
-    NO `data` AND NO RAW NUMBER. `LeadOut.data` is the tenant's own extraction payload —
-    the one thing hard rule 6 names alongside transcripts — and `phone_e164` is a full
-    number; the phone survives only through `_clean`, as `[phone ••NN]`, which is enough
-    for a person to recognise the lead on their own screen and not enough to dial from a
-    model's answer.
+    NO `data`. The phone is the full number when the account turned Pip on (D-788) and
+    `[phone ••NN]` otherwise (`_clean`). `search` is the leads screen's own search — a name,
+    or the last digits of a number — so "find the lead on 98765 43210" is one call.
     """
     # Tenancy is the RLS session this was handed, not an argument — see `_Executor`.
     del context
     asked = _asked_status(args)
-    page = await crm_service.list_leads_page(session, limit=_cap(args.get("limit")), status=asked)
+    search = strip_invisible(str(args.get("search") or "")).strip()[:80] or None
+    page = await crm_service.list_leads_page(
+        session, limit=_cap(args.get("limit")), status=asked, search=search
+    )
     lines = [_lead_line(lead) for lead in page.items]
     label = f"leads{f' with status {asked}' if asked else ''}"
     # THE COUNT LINE IS UNCONDITIONAL, AND THAT IS THE FIX (D-497). It used to be an
@@ -1205,7 +1236,7 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         description=(
             "This account's leads, newest first, optionally filtered to one status, and "
             "always the total with a count for every status, even with no rows. Each row: "
-            "name, status, call count, masked phone, owner. Use it for how many leads there "
+            "name, status, call count, phone, owner. Use it for how many leads there "
             "are and who they are; for what a lead asked for, use `leads_semantic_search`."
         ),
         parameters={
@@ -1218,12 +1249,19 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
                     ],
                     "description": "Only leads in this state. Null means every state.",
                 },
+                "search": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "description": (
+                        "A name, or the last digits of a phone number, to look for. "
+                        "Null means every lead."
+                    ),
+                },
                 "limit": {
                     "anyOf": [{"type": "integer"}, {"type": "null"}],
                     "description": f"How many to return, at most {MAX_ROWS}. Null means 10.",
                 },
             },
-            "required": ["status", "limit"],
+            "required": ["status", "search", "limit"],
             "additionalProperties": False,
         },
         permission="leads:read",
@@ -1532,7 +1570,11 @@ async def run_read_tool(
         # ONE SESSION PER CALL, OPENED HERE AND CLOSED BEFORE THIS RETURNS. See the module
         # docstring: the streaming route holds no pooled connection across a provider round
         # trip, and this is what keeps that true while the loop can now touch the database.
-        result = await _run_scoped(tool, context, parsed)
+        token = _UNMASKED.set(context.unmasked is not None)
+        try:
+            result = await _run_scoped(tool, context, parsed)
+        finally:
+            _UNMASKED.reset(token)
     except Exception:
         # Ids only (hard rule 6) — never the arguments, which the model composed from
         # screen content, and never the result.
@@ -1551,6 +1593,7 @@ __all__ = [
     "READ_TOOL_NAMES",
     "ReadTool",
     "ToolContext",
+    "Unmasked",
     "read_tool_schemas",
     "run_read_tool",
 ]

@@ -27,8 +27,8 @@
  * ## The route is masked before it is sent
  *
  * The route reaches the model, and (for the client realm) `audit_log.object_id`, and it
- * goes through the server's redaction guard (`copilot/sanitize.assert_redacted`) like
- * everything else. A DECLARED route is a string a screen author wrote; this one is
+ * is refused by the server if `redact()` would change it (`CopilotScreen.route`). A
+ * DECLARED route is a string a screen author wrote; this one is
  * whatever is in the address bar, which can hold an email, a phone number or an identity
  * number in a path segment. So segments are allow-listed rather than screened: a segment
  * is kept only if it is a plain name (a letter, then letters/digits/hyphens), and anything

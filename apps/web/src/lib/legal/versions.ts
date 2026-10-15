@@ -335,6 +335,17 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:d15b3abc63479617a378bdeccab61ee52a6d40625b7f52f3077defdc84cdf073",
       },
+      // D-788: sections 3.2, 4.2, 4.3, 6, 8, 9, 10 and 12.4 say the in-app assistant is off
+      // until the account owner turns it on, then sends what is typed, attached and read in
+      // the account (numbers, contacts, full transcripts) unmasked, its standby masked; that
+      // erasure deletes stored turns holding the number; that all our staff see all client
+      // data. MATERIAL: caller personal data reaches providers unmasked.
+      {
+        revision: "24",
+        material: true,
+        contentHash:
+          "sha256:d8d860f9ede05b1d1c3bc9c01487ba06fa8dc0c85caa34418a03efc66406f4df",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -469,6 +480,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:a3f2ef1e614924b27b9f63e20be853ce3982854f66369360097756ad5ca4b503",
+      },
+      // D-788: clause 4 and 5 make the owner's tick the client's instruction to send assistant
+      // content unmasked, list what the client is responsible for and what Calevate is not,
+      // with our own duties; clause 7 discloses that all our staff see all client data;
+      // clause 14.2 widens the indemnity. MATERIAL: new obligations and a wider indemnity.
+      {
+        revision: "18",
+        material: true,
+        contentHash:
+          "sha256:b9fe2e2a915c756b2350e141c88a49ebb0599801a183bd300cb6a52cd4f240d8",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -661,6 +682,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:1d2122279cbbb42f454ed660e700055ade60624d9ae41b6192f59ab2c1452a0b",
+      },
+      // D-788: clause 1 lists the client's responsibilities, what Calevate is not responsible
+      // for and our own duties; clause 2 makes the owner's tick the instruction to send
+      // assistant content unmasked (standby masked); clause 3 replaces need-to-know with all
+      // staff seeing all data; clause 8, Annexes A and B follow. MATERIAL: the processing.
+      {
+        revision: "16",
+        material: true,
+        contentHash:
+          "sha256:a3890a3d7bd58f741d0308a276f3329594a95ad8a4ac9ecb19c1f8fa5ed9a761",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -895,6 +926,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:3727f6cd6a032814141da766e136bd924431f7d032ef9a42a791ac1850c6bc22",
+      },
+      // D-788: the language-model and post-call extraction rows and section 3.5 say the
+      // assistant sends unmasked numbers, contacts and full transcripts once the owner turns
+      // it on, its standby only masked text, and the first provider's paid terms do not use
+      // content to improve its products. MATERIAL: providers receive more personal data.
+      {
+        revision: "23",
+        material: true,
+        contentHash:
+          "sha256:a40cd614549c6004ffc29f5d63add14c462cde7ee2488cb7c7be90135aca4398",
       },
     ],
     effectiveDate: "2026-09-02",

@@ -311,6 +311,8 @@ export const RUN_STATUS_LABELS: Record<string, string> = {
   credential_unusable: "Account needs reconnecting",
   auth_failed: "Account refused the connection",
   not_opted_in: "Caller has not agreed to WhatsApp",
+  consent_not_asked: "Caller was not asked about WhatsApp",
+  caller_declined: "Caller said no to WhatsApp",
   blocked: "Number may not be contacted",
   slot_taken: "Slot already taken",
   timeout: "Took too long",

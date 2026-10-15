@@ -271,7 +271,7 @@ def test_the_block_is_small_by_construction() -> None:
 
 def test_the_block_carries_nothing_that_looks_like_a_person() -> None:
     """Hard rule 6's instinct, applied to a prompt instead of a log line — and checked with
-    the same primitive the ingest guard uses (`sanitize.assert_redacted` → `redact`), so a
+    the redaction primitive (`workers.redaction.redact`), so a
     field added later that carries a number or an address fails here rather than in
     production. The stronger property is structural: the block has no tenant-authored
     string in it at all."""

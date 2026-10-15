@@ -204,10 +204,9 @@ export function OpsSurface() {
    * screen and explains it; the levers stay in human hands.
    *
    * `halt_reason` IS DELIBERATELY WITHHELD even though it is on screen. It is operator free
-   * text, and free text about an incident is where a phone number ends up — which would
-   * hit `assert_redacted` and refuse the whole question, on the screen an operator opens
-   * when calls have stopped. Whether a reason was recorded is the fact worth having; the
-   * words are on the screen they are already looking at.
+   * text, and free text about an incident is where a phone number ends up. Whether a reason
+   * was recorded is the fact worth having; the words are on the screen the operator is
+   * already looking at.
    */
   useCopilotSurface({
     route: "/admin/ops",

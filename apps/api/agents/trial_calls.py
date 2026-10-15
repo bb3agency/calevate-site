@@ -8,9 +8,11 @@ number held in our developer workspace (`Settings.trial_caller_number`). The ord
    account, the agent and its truthful answers (hard rule 5), the no-cold-calls pledge, the
    agreements, calling hours, India only, the do-not-call list and consent;
 2. `agents.service.dispatch_call(trial=...)`, which holds the platform's one trial line in
-   the intent transaction (`_hold_trial_line`), lends the shared number to this agent with
-   nothing answering it (`campaigns.engine_numbers.lend_trial_line`), and places the call
-   with `from` = the shared number and the per-call `maxCallSeconds` override.
+   the intent transaction (`_hold_trial_line`), lends the shared number to this agent for
+   calling out while the number's own line stays the never-answering trial line agent, gives
+   the agent the phone surface (`campaigns.engine_numbers.lend_trial_line`), and places the
+   call naming the agent, with `from` = the shared number and the per-call
+   `maxCallSeconds` override.
 
 The line is released by the call ending (its `calls` row leaving `queued`/`ringing`/
 `in_progress`), or by the row ageing out at `trial_access.trial_line_horizon()`.
@@ -34,6 +36,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
+from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.ingest.service import normalize_phone
 from apps.api.reliability.service import (
     body_hash,
@@ -178,6 +181,10 @@ async def place_trial_call(
             isinstance(refused, ProblemError) and refused.code in _NOT_PLACED
         ):
             await release()
+        if isinstance(refused, EngineRejectedError) and refused.setup_refused:
+            # Our set-up at the voice platform, which the client cannot fix and the
+            # `engine_dial_setup_refused` alarm has already paged us about.
+            raise _not_placed_on_our_side() from refused
         raise
 
     result = TrialCallResult(status="queued", call_handle=handle)
@@ -200,6 +207,23 @@ async def place_trial_call(
         )
     log.info("trial_call_placed", extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id)})
     return result
+
+
+TRIAL_CALL_NOT_PLACED: Final = "trial_call_not_placed"
+
+
+def _not_placed_on_our_side() -> ProblemError:
+    return ProblemError(
+        kind="dependency",
+        code=TRIAL_CALL_NOT_PLACED,
+        title="We couldn't place this test call",
+        detail=(
+            "This is a problem on our side, not with your agent or the number you entered. "
+            "We've been told and are fixing it."
+        ),
+        remediation="Please try again later.",
+        status=503,
+    )
 
 
 def _payload(result: TrialCallResult) -> dict[str, str | None]:

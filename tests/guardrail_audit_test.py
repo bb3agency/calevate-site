@@ -1141,6 +1141,8 @@ class TestRedactionExposure:
             # our own sentences redacted on write.
             "CopilotActionOut.summary",
             "CopilotJobProgressOut.text",
+            # D-788: our own fixed disclosure the owner reads before turning Pip on.
+            "CopilotConsentOut.text",
             # The planner's sentence about a waiting approval, redacted before it leaves.
             "CopilotApprovalPreviewOut.summary",
             # The business's own words, never a caller's: facts and rules taught in the

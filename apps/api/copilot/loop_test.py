@@ -22,6 +22,7 @@ from apps.api.copilot import navigation, service, write_tools
 from apps.api.copilot import tools as tools_module
 from apps.api.copilot.sanitize import has_invisible
 from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
+from apps.api.core import provider_health
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.workers import chat
@@ -477,6 +478,43 @@ async def test_azure_failing_after_a_fragment_does_not_restart_on_the_fallback(
     with pytest.raises(httpx.ReadError):
         await _drain()
     assert fallback_called is False
+
+
+async def test_a_provider_failure_names_the_model_in_the_log_and_the_alarm(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """D-786: a 404 on Pip's main leg was alarmed three times naming only the provider, so
+    nobody could tell which model id the vendor refused. The id travels now; no key and no
+    content do (hard rule 6)."""
+    monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
+    request = httpx.Request("POST", "https://provider.invalid/v1/chat/completions")
+    not_found = httpx.HTTPStatusError(
+        "404", request=request, response=httpx.Response(404, request=request)
+    )
+    monkeypatch.setattr(chat, "stream", _failing_stream(not_found))
+
+    async def _complete(*args: Any, **kwargs: Any) -> chat.ChatOutcome:
+        return chat.ChatOutcome(content="Nine in the morning.", finish_reason="stop")
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    noted: list[str | None] = []
+
+    async def _note_failure(
+        leg: str, provider: str, exc: BaseException, *, model: str | None = None
+    ) -> None:
+        noted.append(model)
+
+    monkeypatch.setattr(provider_health, "note_failure", _note_failure)
+
+    with caplog.at_level("WARNING"):
+        await _drain()
+
+    (record,) = [r for r in caplog.records if r.message == "copilot_provider_failed"]
+    model = getattr(record, "model", None)
+    assert isinstance(model, str) and model
+    assert getattr(record, "status", None) == 404
+    assert noted == [model]
+    assert "sk-test" not in str(record.__dict__)
 
 
 # --- the Gemini leg: the account's own model, NON-STREAMED, with tools (D-478) ----------

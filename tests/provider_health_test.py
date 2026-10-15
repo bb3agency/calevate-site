@@ -129,6 +129,34 @@ async def test_three_failures_in_the_window_open_the_episode_and_mail(
     assert row.cleared_at is None
 
 
+async def test_the_alarm_names_pip_and_the_model_the_vendor_refused(
+    transport: RecordingTransport,
+) -> None:
+    """D-786: three 404s on Pip read "copilot leg ... google" and named no model. The detail
+    says Pip in words and carries the model id; the fingerprint keeps the internal leg."""
+    for _ in range(3):
+        await provider_health.note_failure(
+            "copilot", "google", _status_error(404), model="model-under-test"
+        )
+    _drain()
+
+    (message,) = transport.sent
+    assert (
+        "Pip (copilot leg): the main provider (google) is failing on model model-under-test"
+        in message["body"]
+    )
+    assert "model: model-under-test" in message["body"]
+    assert "status: 404" in message["body"]
+    assert PLANTED_BODY not in message["body"]
+    (row,) = await _episodes()
+    assert row.fingerprint == f"CORE_LOGIC:{CODE}:copilot:google"
+
+
+def test_other_legs_keep_a_plain_label() -> None:
+    assert provider_health.leg_label("copilot") == "Pip (copilot leg)"
+    assert provider_health.leg_label("embeddings") == "The embeddings leg"
+
+
 async def test_three_in_a_row_open_it_even_when_spread_past_the_window(
     transport: RecordingTransport,
 ) -> None:
@@ -174,7 +202,7 @@ async def test_a_success_closes_the_episode_and_says_so_once(
 
     assert len(transport.sent) == 2
     cleared = transport.sent[1]
-    assert f"{CODE} cleared" in cleared["subject"]
+    assert "Cleared: " in cleared["subject"] and f"({CODE})" in cleared["subject"]
     assert "reported recovery" in cleared["body"]
     (row,) = await _episodes()
     assert row.cleared_at is not None
@@ -213,7 +241,7 @@ async def test_an_open_episode_reminds_hourly_and_not_more_often(
 
     assert len(transport.sent) == 2
     reminder = transport.sent[1]
-    assert reminder["subject"].endswith("(still open)")
+    assert "] Still open: " in reminder["subject"] and reminder["subject"].endswith(f"({CODE})")
     assert "STILL OPEN" in reminder["body"]
     assert len(await _episodes()) == 1, "a reminder continues the episode, it is not a new one"
 

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.llm_tiers import client_model_labels
 from apps.api.agents.models import CALL_CAP_MAX_S
+from apps.api.agents.trial_panel import read_trial_panel
 from apps.api.billing import service as billing
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.billing.rates import PREPAID_TIERS
@@ -98,9 +99,15 @@ Session = Annotated[AsyncSession, Depends(db)]
     summary="Headline numbers for the client dashboard",
 )
 async def get_dashboard(
-    session: Session, _: Principal = Depends(requires("calls:read"))
+    session: Session, principal: Principal = Depends(requires("calls:read"))
 ) -> DashboardOut:
-    return await service.dashboard(session)
+    out = await service.dashboard(session)
+    if principal.tenant_id is None or principal.role is None:
+        return out
+    if not role_has(principal.role, "org:read"):
+        return out
+    trial = await read_trial_panel(session, tenant_id=principal.tenant_id)
+    return out.model_copy(update={"trial": trial})
 
 
 @router.get(

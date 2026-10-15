@@ -144,19 +144,16 @@ function TenantHeader({ tenant }: { tenant: TenantSummary }) {
       </div>
       {/* `?view=admin` selects the impersonating credential (admin token +
           X-Impersonate-Org) in the client shell and grants nothing; the API verifies the
-          admin identity regardless (lib/api/session.tsx). The label says "(logged)" and
-          never "read-only": since D-587 a view-as session can change the account, and what
-          stays true is that everything viewed and changed is recorded against the operator.
-          It is in the label, where a keyboard user reads it, not only in the title. */}
+          admin identity regardless (lib/api/session.tsx). The label never says
+          "read-only": since D-587 a view-as session can change the account. */}
       <Link
         href={viewAsHref(tenant.slug)}
-        title="Everything you view and everything you change is recorded against you in the audit log."
         // Bordered, not filled: every section below owns its own one primary action, and
         // a green button in the header of every page would be a second one on each.
         className={`${SECONDARY_BUTTON} max-sm:w-full max-sm:justify-center`}
       >
         <Eye aria-hidden className="h-4 w-4" />
-        View as client (logged)
+        View as client
       </Link>
     </header>
   );

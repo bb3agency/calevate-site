@@ -40,13 +40,14 @@ write the number itself into a ticket, a commit or a log; the console shows it t
    (`ops/trial_number.assert_trial_number_selectable`), so a typed number the platform does
    not hold is refused (`trial_number_not_platform_held`). The cap
    (`trial_daily_call_cap`) and the per-call limit (`trial_call_max_seconds`) sit beside it.
-3. **What answers it: nothing.** Each test call sends `PATCH /phone-numbers/{number}` with
-   `agent: null` and `callingAgent: <the trial agent>`
-   (`phone-numbers/update-phone-number.md:451-470`), so no agent of any client, trial or
-   paid, answers it, and a trial agent is only ever lent it to call out. Until the first test
-   call, whatever answered it before still does (the panel says "an agent answers it now");
-   clear it in the ThinnestAI console if that matters. What a caller hears on a number nothing
-   answers is not documented; ring it once and record what you hear here (gate T-22).
+3. **What answers it: the trial line agent, which answers nobody (D-742).** The number's line
+   is the developer-workspace agent "Calevate shared trial number (no answer)", Answer calls
+   off, which plays the "only places test calls" message. Each test call sends
+   `PATCH /phone-numbers/{number}` with that agent as `agent` and `callingAgent: <the trial
+   agent>`, then gives the trial agent the `phone` surface (`PATCH /agents/{id}`
+   `voice.surfaces: ["phone"]`), because ThinnestAI places a call only from an agent that
+   "answers the phone". A lent agent "calls out on it without answering it"
+   (`update-phone-number` `callingAgent`), so no client agent ever answers the number.
 4. **Smoke test.** Admin → the test client's Credits page → start a trial (days and free
    minutes). As that client's owner: accept the no-cold-calls promise on Verify your
    business, publish an agent that places calls, then the dashboard's **Your free trial**
@@ -74,6 +75,9 @@ write the number itself into a ticket, a commit or a log; the console shows it t
   never delivered) — it ages out by itself.
 - **"Test calls are not available right now."** The platform did not lend the number; see
   `trial_line_lend_failed` below.
+- **"We couldn't place this test call ... a problem on our side."** The voice platform refused
+  the dial for our own set-up (`engine_dial_setup_refused` paged); see the `calling_not_set_up`
+  section below.
 - **"You have placed today's 10 test calls."** The daily cap. Raise `trial_daily_call_cap` only
   if the founder agrees.
 - **"Your free trial has ended."** The days or the free minutes ran out, or it was stopped.
@@ -81,10 +85,35 @@ write the number itself into a ticket, a commit or a log; the console shows it t
 
 ## `trial_line_lend_failed`
 
-ThinnestAI refused `PATCH /phone-numbers/{number}` with `agent: null` and `callingAgent`. Check
+ThinnestAI refused `PATCH /phone-numbers/{number}` (the trial line agent as `agent`, the trial
+agent as `callingAgent`), or did not give the trial agent the `phone` surface afterwards. Check
 the number is in the developer workspace and our key can lend it (a brought number needs its
 carrier keys saved, `update-phone-number.md:7`), and that the agent is published with voice on
 (`:403-405`). The call was closed `failed`; the client may retry.
+
+## Test calls refused: "no agent answers the phone" (`calling_not_set_up`)
+
+Incident 15 Oct 2026. Every test call failed with `engine_dial_setup_refused` (`409
+calling_not_set_up`, "No agent in this workspace answers the phone"), and the client saw
+"We couldn't place this test call". Cause: since F1 (12 Oct) an agent with no number of its
+own is published with `voice.surfaces: []`, and every trial agent is such an agent, so no agent
+in the developer workspace counted as answering the phone. The fix gives the borrowing agent
+`phone` at each lend, and the settings sweep no longer strips it.
+
+After the fix is deployed:
+
+1. **Smoke test.** Run step 4 above (the admin `trial/test-call` route is enough). Pass = your
+   phone rings from the shared number. Nothing needs republishing for trial agents: the lend
+   sets `phone` on every call.
+2. **Ring the shared number back** from your own phone. Pass = you hear the "only places test
+   calls" message and nothing answers. If it rings into a client's agent, stop trial calls
+   (clear **Shared trial number**) and run `POST /v1/ops/trial-number/line`.
+3. **A paying client's outbound-only agent** has the same problem and the same fix: it now
+   publishes with `phone` because its number is lent to it. If one is live, republish it once
+   (its agent page, **Publish**), then place one call from it.
+4. If step 1 fails with `trial_line_lend_failed` naming `phone_number_required`, ThinnestAI
+   does not count a lent number as one the agent can "call from". Stop and send the question
+   in `docs/vendor/thinnest-replies-2026-10-12.md` §13.
 
 ## `trial_number_recorded_to_client`
 

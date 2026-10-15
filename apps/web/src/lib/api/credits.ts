@@ -646,8 +646,7 @@ export function grantCeilingProblem(raw: string): string | null {
     return (
       `A grant is between ${formatRupeeRate(MIN_GRANT_INR)} and ` +
       `${formatRupeeRate(MAX_GRANT_INR)}. If a larger gift really ` +
-      "is intended, grant it in parts — each part is separately confirmed and separately " +
-      "audited, which is the trail a credit this size should leave anyway."
+      "is intended, grant it in parts; each part is confirmed separately."
     );
   }
   return null;

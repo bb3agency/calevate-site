@@ -158,7 +158,7 @@ def _reject_invisible_characters(value: str, *, field: str) -> None:
     """Refuse text carrying a character the reviewer cannot see. See `_FORBIDDEN_CODEPOINTS`.
 
     REFUSED RATHER THAN STRIPPED, which is this repository's doctrine for a guard on
-    something that matters (`sanitize.assert_redacted`: a guard that silently repairs its
+    something that matters (`run_assist`'s input guard: a guard that silently repairs its
     input teaches the caller nothing). Stripping would be worse than usual here — the client
     would have approved wording they never see us change, and a bidi run that survives one
     stripping pass and not another is exactly the ambiguity the gate exists to remove.

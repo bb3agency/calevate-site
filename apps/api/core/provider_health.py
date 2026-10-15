@@ -128,8 +128,22 @@ async def _eval(script: str, keys: list[str], args: list[Any]) -> Any:
     )
 
 
-async def note_failure(leg: AiLeg, provider: str, exc: BaseException) -> None:
-    """Count one main-leg failure; alert when the condition is (or stays) open. Never raises."""
+#: How an alarm names a leg to a person. The fingerprint and the `leg` field keep the
+#: internal name (founder, 15 Oct 2026: the copilot leg stays `copilot`).
+LEG_LABELS: Final[dict[str, str]] = {"copilot": "Pip (copilot leg)"}
+
+
+def leg_label(leg: str) -> str:
+    return LEG_LABELS.get(leg, f"The {leg} leg")
+
+
+async def note_failure(
+    leg: AiLeg, provider: str, exc: BaseException, *, model: str | None = None
+) -> None:
+    """Count one main-leg failure; alert when the condition is (or stays) open. Never raises.
+
+    `model` is the model id the failed request named, so a 404 says which id the vendor
+    refused. An id, never a key or content (hard rule 6)."""
     fields = failure_fields(exc)
     try:
         reply = await _eval(
@@ -147,11 +161,13 @@ async def note_failure(leg: AiLeg, provider: str, exc: BaseException) -> None:
     if not degraded:
         return
     status = fields["status"]
+    on_model = f" on model {model}" if model else ""
     alert(
         "CORE_LOGIC",
         "ai_provider_degraded",
         detail=(
-            f"The {leg} leg's main provider ({provider}) is failing: {fields['error']}"
+            f"{leg_label(leg)}: the main provider ({provider}) is failing{on_model}: "
+            f"{fields['error']}"
             + (f", HTTP {status}" if status is not None else "")
             + f". Threshold: {FAILURE_THRESHOLD} failures in {FAILURE_WINDOW_S // 60} minutes"
             " or in a row."
@@ -159,6 +175,7 @@ async def note_failure(leg: AiLeg, provider: str, exc: BaseException) -> None:
         episode=f"{leg}:{provider}",
         leg=leg,
         provider=provider,
+        model=model or "unknown",
         error=str(fields["error"]),
         status=str(status) if status is not None else "none",
     )

@@ -113,6 +113,7 @@ async def test_a_setup_refusal_alarms_and_is_known_not_to_have_rung(
 ) -> None:
     refused = await _dial(409, {"error": "x", "code": "calling_not_set_up"})
     assert isinstance(refused, EngineRejectedError) and refused.request_refused
+    assert refused.setup_refused
     assert [code for code, _ in alarms] == ["engine_dial_setup_refused"]
 
 
@@ -124,6 +125,7 @@ async def test_a_carrier_503_with_its_code_is_a_refusal_not_a_maybe(
     refused = await _dial(503, {"error": "x", "code": "carrier_unavailable"})
     assert isinstance(refused, EngineRejectedError)
     assert refused.vendor_status == 503 and refused.request_refused
+    assert not refused.setup_refused
     assert alarms == []  # 503 is worth retrying; only the 502 names our number.
     bare = await _dial(503, {"error": "x"})
     assert isinstance(bare, EngineRejectedError) and not bare.request_refused

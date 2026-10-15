@@ -491,9 +491,14 @@ async def test_the_adapter_sends_from_and_the_per_call_limit() -> None:
         "+919876543210",
         CallContext(from_e164=TRIAL_NUMBER, max_call_seconds=180, call_id=str(uuid.uuid4())),
     )
-    body = json.loads(seen[-1].content)
+    call = seen[-1]
+    body = json.loads(call.content)
+    # The trial agent is named and rings from the lent shared number, in our developer
+    # workspace (place-call `agent`, `from`: "its own, or one lent to it for calling").
+    assert body["agent"] == "ag_1"
     assert body["from"] == TRIAL_NUMBER
     assert body["overrides"] == {"maxCallSeconds": 180}
+    assert "Thinnest-Workspace" not in call.headers
 
 
 def test_a_trial_agent_may_be_created_in_the_developer_workspace_and_nothing_else() -> None:

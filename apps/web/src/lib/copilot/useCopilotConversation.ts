@@ -13,6 +13,7 @@ import {
   conversationKey,
   EMPTY_CONVERSATION,
   newTurnId,
+  type PipConsent,
   type StoredConversation,
   useConversation,
 } from "./conversation";
@@ -262,6 +263,16 @@ export interface CopilotConversation {
    * while this device is asking or has just finished — its own stream is the fresher copy.
    */
   answeringElsewhere: boolean;
+  /**
+   * Whether files can be attached (D-781): `true` or `false` once the stored conversation
+   * has been read, `undefined` before. The panel offers attaching only on `true`.
+   */
+  uploadsAvailable: boolean | undefined;
+  /**
+   * Whether Pip is on for this account (D-788): the server's answer once the stored
+   * conversation has been read, `undefined` before, `null` when it did not say.
+   */
+  consent: PipConsent | null | undefined;
 }
 
 /** The one code the server uses for the allowance ceiling; `AssistCard` reads the same. */
@@ -473,10 +484,12 @@ export function useCopilotConversation(
     // this console asserting a deletion that did not happen.
     if (realm !== null) {
       void clearConversation(session, realm).catch((cause: unknown) => setError(cause));
-      queries.setQueryData<StoredConversation>(
-        conversationKey(session.orgSlug, realm),
-        EMPTY_CONVERSATION,
-      );
+      // Forgetting the turns is not forgetting whether files can be attached.
+      queries.setQueryData<StoredConversation>(conversationKey(session.orgSlug, realm), (current) => ({
+        ...EMPTY_CONVERSATION,
+        uploadsAvailable: current?.uploadsAvailable ?? false,
+        consent: current?.consent ?? null,
+      }));
     }
     setPending([]);
     said.current.clear();
@@ -801,6 +814,8 @@ export function useCopilotConversation(
     historyUnavailable,
     reloadHistory: () => void stored.refetch(),
     answeringElsewhere: stored.data?.answering === true && !asking && !settling,
+    uploadsAvailable: stored.data?.uploadsAvailable,
+    consent: stored.data?.consent,
     ask,
     retry,
     stop,

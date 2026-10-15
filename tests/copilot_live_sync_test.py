@@ -46,7 +46,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, text
 from sqlalchemy.orm import Session
-from tests.api_security_test import _make_tenant
+from tests.conftest import make_tenant_with_pip as _make_tenant
 
 BODY: dict[str, Any] = {
     "screen": {"route": "/c/x/leads", "title": "Leads", "realm": "client"},

@@ -341,6 +341,7 @@ function modelPrices(): ModelPrices {
         reference_output_usd_per_mtok: "0.60",
         reference_verified: true,
         withheld_reason: null,
+        off_call_only: false,
       },
     ],
     as_of: "2026-08-23T00:00:00Z",
@@ -2665,7 +2666,7 @@ describe("the platform configuration panel", () => {
       "gpt-5.4-mini": "GPT-5.4 mini",
       "gemini-2.5-flash": "Gemini 2.5 Flash",
       "gemini-2.5-flash-lite": "Gemini 2.5 Flash Lite",
-      "gemini-3.5-flash": "Gemini 3.5 Flash",
+      "gemini-3.8-flash": "Gemini 3.8 Flash",
     };
     const option = (value: string, provider: string, unavailable: string | null = null) =>
       labelled(value, MODEL_LABELS[value], { provider, unavailable_reason: unavailable });
@@ -2687,7 +2688,7 @@ describe("the platform configuration panel", () => {
                 option("gpt-5.4-mini", "openai", "this platform holds no API key"),
                 option("gemini-2.5-flash", "google"),
                 option("gemini-2.5-flash-lite", "google"),
-                option("gemini-3.5-flash", "google", "cannot switch thinking off"),
+                option("gemini-3.8-flash", "google", "cannot switch thinking off"),
               ],
               control: control("select"),
               ...placed("language-models", "tiers", "Standard tier model"),
@@ -2708,7 +2709,7 @@ describe("the platform configuration panel", () => {
     // Names, not ids: the operator reads "Gemini 2.5 Flash Lite", with its provider.
     expect(texts).toContain("Gemini 2.5 Flash Lite · Google Gemini · default");
     expect(texts.some((t) => t.startsWith("Gemini 2.5 Flash ·"))).toBe(true);
-    expect(texts).toContain("Gemini 3.5 Flash · Google Gemini · not available to clients yet");
+    expect(texts).toContain("Gemini 3.8 Flash · Google Gemini · not available to clients yet");
     expect(screen.queryByText("Clients cannot be given this model yet")).toBeNull();
 
     // Choosing an unavailable model is allowed and says what it means for clients.
@@ -3237,13 +3238,14 @@ describe("a model withheld on merit says so, instead of asking for a price", () 
       prices: [
         {
           ...base.prices[0],
-          model: "gemini-3.1-flash-lite",
-          provider: "google",
+          model: "gpt-5.6-luna",
+          provider: "openai",
           credential_installed: false,
           price_attested: false,
           offerable: false,
           reference_verified: false,
           withheld_reason: WITHHELD,
+          off_call_only: false,
         },
       ],
     };
@@ -3254,7 +3256,7 @@ describe("a model withheld on merit says so, instead of asking for a price", () 
       <OpsConfigPage />,
       configRoutes(SUPERADMIN, { [OPS_MODEL_PRICES_PATH]: withheldPrices() }),
     );
-    await screen.findByText("gemini-3.1-flash-lite");
+    await screen.findByText("gpt-5.6-luna");
     expect(view.container.textContent).not.toContain(
       "becomes available to customers only once you confirm a price",
     );
@@ -3267,7 +3269,7 @@ describe("a model withheld on merit says so, instead of asking for a price", () 
       <OpsConfigPage />,
       configRoutes(SUPERADMIN, { [OPS_MODEL_PRICES_PATH]: withheldPrices() }),
     );
-    await screen.findByText("gemini-3.1-flash-lite");
+    await screen.findByText("gpt-5.6-luna");
     expect(view.container.textContent).toContain(WITHHELD);
     expect(view.container.textContent).toContain(
       "a price will not change that",
@@ -3281,9 +3283,39 @@ describe("a model withheld on merit says so, instead of asking for a price", () 
       <OpsConfigPage />,
       configRoutes(SUPERADMIN, { [OPS_MODEL_PRICES_PATH]: withheldPrices() }),
     );
-    await screen.findByText("gemini-3.1-flash-lite");
+    await screen.findByText("gpt-5.6-luna");
     expect(view.container.textContent).not.toContain("Needs a vendor key");
     expect(view.container.textContent).toContain("Not offered");
+  });
+
+  it("says a price matters for a model our text legs use (D-786)", async () => {
+    const base = modelPrices();
+    const prices: ModelPrices = {
+      ...base,
+      prices: [
+        {
+          ...base.prices[0],
+          model: "gemini-3.5-flash-lite",
+          provider: "google",
+          credential_installed: true,
+          price_attested: false,
+          offerable: false,
+          reference_verified: false,
+          withheld_reason: WITHHELD,
+          off_call_only: true,
+        },
+      ],
+    };
+    const view = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, { [OPS_MODEL_PRICES_PATH]: prices }),
+    );
+    await screen.findByText("gemini-3.5-flash-lite");
+    expect(view.container.textContent).toContain("Not for calls: needs a price");
+    expect(view.container.textContent).toContain(
+      "Pip, photo reading and the dashboard assists use it once its price is confirmed.",
+    );
+    expect(view.container.textContent).not.toContain("a price will not change that");
   });
 
   it("still asks for a price on a model that only needs one", async () => {
@@ -3304,6 +3336,7 @@ describe("a model withheld on merit says so, instead of asking for a price", () 
               offerable: false,
               reference_verified: false,
               withheld_reason: null,
+              off_call_only: false,
             },
           ],
         },

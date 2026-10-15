@@ -152,9 +152,8 @@ export function InviteRow({
               className={FIELD}
             />
             <span className={FIELD_HINT}>
-              Required, and recorded in the audit log as your attestation — &quot;confirmed
-              on a call with the owner&quot;, &quot;from the signed order form&quot;. An
-              assertion with no stated ground is a claim rather than a record.
+              Required. Say how you know, for example &quot;confirmed on a call with the
+              owner&quot; or &quot;from the signed order form&quot;.
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-3">

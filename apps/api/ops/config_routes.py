@@ -60,7 +60,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.llm_models import unofferable_reason
+from apps.api.agents.llm_models import ASSISTANT_MODEL_SETTINGS, unofferable_reason
 from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, card_margins, card_refusals
 from apps.api.billing.list_rates import (
     CARD_NOTICE_DAYS,
@@ -520,13 +520,18 @@ def _options(field: ConfigField) -> list[ConfigOptionOut]:
     catalogue model id, so a new model-typed setting is covered with no list here to extend.
     """
     models = bool(field.options) and all(option in LLM_MODEL_NAMES for option in field.options)
+    # The assistant's two settings are judged by the assistant's rule (D-786), so a Gemini 3
+    # model refused on calls is not shown as unavailable there.
+    off_call = field.key in ASSISTANT_MODEL_SETTINGS
     return [
         ConfigOptionOut(
             value=choice.value,
             label=choice.label,
             hint=choice.hint,
             provider=leg_for_model(choice.value).provider if models else None,
-            unavailable_reason=unofferable_reason(choice.value) if models else None,
+            unavailable_reason=(
+                unofferable_reason(choice.value, off_call=off_call) if models else None
+            ),
         )
         for choice in choices_for(field)
     ]

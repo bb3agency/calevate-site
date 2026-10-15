@@ -42,7 +42,7 @@ Callers choose, and the two choices are not interchangeable:
 
 * **At a door a client is standing at** (`kb/service`'s submit and extract), REFUSE. The
   client can fix their source, and a guard that silently repairs its input teaches the
-  caller nothing (`copilot/sanitize.assert_redacted`'s doctrine, stated there at length).
+  caller nothing (`workers/extraction.run_assist`'s input guard's doctrine).
 * **At a point no client is standing at** (`kb/pack.read_entries`, which runs on a publish
   and on a background staleness sweep, over rows that may predate any gate), STRIP and
   alert. Refusing there would take an agent's ENTIRE knowledge pack away over one stored

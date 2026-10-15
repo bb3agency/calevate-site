@@ -26,6 +26,7 @@ import httpx
 import pytest
 from apps.api.agents.engine_model_bands import band_disagrees
 from apps.api.agents.engine_settings import AGENT_SETTING_LABELS
+from apps.api.agents.service import holds_a_number
 from apps.api.core.errors import ProblemError
 from apps.api.engine.catalogue import CatalogueModel
 from apps.api.engine.thinnest import (
@@ -90,6 +91,29 @@ async def test_an_agent_without_a_number_answers_nowhere_yet() -> None:
     handler, seen = _recorder({("PATCH", "/agents/ag_1"): httpx.Response(200, json={})})
     await _engine(handler).update_agent(AGENT, _cfg(has_phone_number=False))
     assert _body(_agent_write(seen))["voice"]["surfaces"] == []
+
+
+@pytest.mark.parametrize(
+    ("direction", "status", "numbers", "holds"),
+    [
+        ("inbound", "live", [f"918040000001@{WS}"], True),
+        # Lent its number to call out on: the platform places its calls only with `phone`.
+        ("outbound", "live", [f"918040000001@{WS}"], True),
+        ("outbound", "live", [], False),
+        ("outbound", "draft", [f"918040000001@{WS}"], False),
+        # A number in another workspace is neither its line nor lent to it.
+        ("outbound", "live", ["918040000001"], False),
+    ],
+)
+def test_an_agent_holds_a_number_it_answers_or_calls_from(
+    direction: str, status: str, numbers: list[str], holds: bool
+) -> None:
+    assert (
+        holds_a_number(
+            status=status, direction=direction, engine_agent_ref=AGENT, number_refs=list(numbers)
+        )
+        is holds
+    )
 
 
 async def test_phone_number_required_is_refused_in_words() -> None:
@@ -235,6 +259,26 @@ async def test_a_held_agent_matching_the_publish_has_no_drift() -> None:
     # Read back as the vendor stores them: `0.150`, a blank prompt line as null.
     held["voice"]["ambienceVolume"] = 0.150
     assert await _settings_engine(cfg, held, []).settings_drift(AGENT, cfg) == []
+
+
+@pytest.mark.parametrize(
+    ("held_surfaces", "drift"),
+    [
+        (["phone"], []),
+        (["phone", "web"], ["surfaces"]),
+        (["whatsapp"], ["surfaces"]),
+        (None, ["surfaces"]),
+    ],
+)
+async def test_a_phone_given_at_a_test_call_is_not_drift_but_the_website_button_is(
+    held_surfaces: list[str] | None, drift: list[str]
+) -> None:
+    """A trial agent is published on no surface and given `phone` when the shared number is
+    lent to it; repairing that away would refuse its next test call."""
+    cfg = _cfg(has_phone_number=False)
+    held = _held(cfg)
+    held["voice"]["surfaces"] = held_surfaces
+    assert await _settings_engine(cfg, held, []).settings_drift(AGENT, cfg) == drift
 
 
 @pytest.mark.parametrize(

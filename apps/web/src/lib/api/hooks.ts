@@ -11,8 +11,10 @@
  *
  * Intervals below are therefore a product decision, not a default: fast enough that a
  * lead appears within the SLO, slow enough that an idle dashboard is not a load
- * generator. Refetch-on-focus does the rest — a user coming back to the tab is the
- * moment staleness actually matters.
+ * generator. SSE has since arrived (D-774): while its stream is healthy the intervals
+ * stretch (`livePoll`) and an answer the stream covers stays fresh (`liveStaleTime`), so
+ * a page change or a return to the tab re-reads nothing; while it is down, both are the
+ * catch-up again.
  */
 
 import { livePoll } from "@/lib/live/liveStatus";
@@ -237,7 +239,6 @@ export function useDashboard(session: Session): UseQueryResult<Dashboard> {
     queryKey: queryKeys.dashboard(session.orgSlug),
     queryFn: () => apiRequest<Dashboard>(session, "/v1/dashboard"),
     refetchInterval: livePoll(LIVE_INTERVAL_MS),
-    refetchOnWindowFocus: true,
   });
 }
 
@@ -253,7 +254,6 @@ export function useCalls(
         `/v1/calls${query({ ...filters, limit: filters.limit ?? 50 })}`,
       ),
     refetchInterval: livePoll(LIVE_INTERVAL_MS),
-    refetchOnWindowFocus: true,
   });
 }
 
@@ -320,7 +320,6 @@ export function useCallsLog(
     // so the live cadence is kept but the reader's place is too — rows are deduped by id
     // at the render because a new call landing shifts rows across page boundaries.
     refetchInterval: livePoll(LIVE_INTERVAL_MS),
-    refetchOnWindowFocus: true,
   });
 }
 

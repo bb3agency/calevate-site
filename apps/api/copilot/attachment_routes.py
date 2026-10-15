@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
 from apps.api.copilot import attachments, session_run
+from apps.api.copilot.consent import require_consent
 from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.copilot.schemas import CopilotUploadOut
 from apps.api.core.auth import client_request_ip, requires
@@ -91,6 +92,10 @@ one message. For a PDF the browser also sends the text it found in it, as `text/
 `X-Upload-Text-Of` naming the PDF: Pip reads that only when the PDF itself cannot be read.
 Files with macros, older Office formats, ZIPs, audio and anything else are refused with a
 sentence saying what to do; so is a body whose first bytes are not what its type says.
+
+When files cannot be stored this answers 503 `copilot_uploads_unavailable`; the
+conversation read says so beforehand in `uploads_available`, so a browser never starts
+such an upload.
 
 Nothing in the file is opened, scanned or reviewed: it is stored privately and sent to
 {ASSISTANT_NAME}'s AI provider as it is. Requires `copilot:use`.\
@@ -232,6 +237,10 @@ async def upload_file(
 
     def session_for() -> Any:
         return tenant_session(tenant_id)
+
+    # Pip is on for this account (D-788), checked before a byte of the body is read.
+    async with session_for() as session:
+        await require_consent(session, tenant_id=tenant_id)
 
     return await _upload(
         request,

@@ -296,6 +296,11 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
         "the way into `copilot_actions` (`copilot/action_log._bounded`), so no digit "
         "reaches the column to come back out (apps/api/copilot/undo_test.py)"
     ),
+    "CopilotConsentOut.text": (
+        "OUR OWN fixed disclosure the account owner reads before turning Pip on (D-788), "
+        "the constant `copilot/consent.DISCLOSURE_TEXT`; it holds no caller's words "
+        "(tests/pip_consent_test.py)"
+    ),
     "CopilotJobProgressOut.text": (
         "one line of a background assistant job's progress (D-694), built by OUR worker "
         "from tool names and the server's own sentences and put through "
@@ -386,8 +391,8 @@ ACKNOWLEDGED_PASSTHROUGH: dict[str, str] = {
     #
     # WHAT MAKES IT SAFE IS THE WRITE, NOT THE READ. `core/alert_records.record()` passes
     # `detail` and every id through `core/logging.redact_mapping` — the SAME call
-    # `alerting._body` makes before an alert email leaves the building — BEFORE the row is
-    # composed, so a phone-shaped run is masked and a PII-shaped key is blanked in the
+    # `alert_email.compose_alert` makes before an alert email leaves the building — BEFORE
+    # the row is composed, so a phone-shaped run is masked and a PII-shaped key is blanked in the
     # column itself. There is no unredacted version of this field anywhere to leak. The
     # route is admin-realm behind `ops:manage`, and nothing in the table is attributable to
     # a tenant (`platform_alerts` carries no `tenant_id`). Pinned by

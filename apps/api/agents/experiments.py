@@ -391,8 +391,8 @@ async def start(
                     "variant_disclosure_required",
                     f"Variant {label} has no disclosure line.",
                     remediation=(
-                        "Every variant must state who is calling. Leave the field empty "
-                        "to inherit the agent's disclosure."
+                        "Every variant must state who is calling. Leave it empty to use "
+                        "the agent's own disclosure."
                     ),
                 )
         weights = {"A": split_bp, "B": SPLIT_TOTAL_BP - split_bp}

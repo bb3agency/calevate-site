@@ -12,6 +12,8 @@
  * scheduler, outside any render.
  */
 
+import { ALL_LIVE_FAMILIES, familyOf } from "./topics";
+
 /** The slow poll that stays on under a healthy stream: what a lost note can cost at most. */
 export const LIVE_SAFETY_POLL_MS = 5 * 60_000;
 
@@ -31,6 +33,27 @@ export function setLiveHealthy(next: boolean): void {
 export function onLiveHealth(listener: (healthy: boolean) => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+/** How long an answer counts as fresh when no healthy stream vouches for it. */
+export const BASE_STALE_MS = 10_000;
+
+/**
+ * Every query's `staleTime` (`app/providers.tsx`): the safety poll's period for a live
+ * family while the stream is healthy, `BASE_STALE_MS` otherwise.
+ *
+ * Staleness is what makes TanStack refetch when a screen mounts and when the tab regains
+ * focus. Under a healthy stream a live family's answer is not stale at ten seconds — any
+ * change since has already invalidated it — so at that bound every page change re-sent
+ * the reads the shell and the last screen had just made, and every tab switch re-sent all
+ * of them (sixteen on the client dashboard). A family no topic covers, or a stream that is
+ * down, keeps the short bound, and a lost note costs at most the safety period, as with
+ * `livePoll`.
+ */
+export function liveStaleTime(query: { queryKey: readonly unknown[] }): number {
+  if (!healthy) return BASE_STALE_MS;
+  const family = familyOf(query.queryKey);
+  return family !== null && ALL_LIVE_FAMILIES.has(family) ? LIVE_SAFETY_POLL_MS : BASE_STALE_MS;
 }
 
 type Interval<Q> = number | false | undefined | ((query: Q) => number | false | undefined);

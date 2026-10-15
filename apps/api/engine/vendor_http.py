@@ -397,6 +397,10 @@ class EngineRejectedError(ProblemError):
         #: The request field a `validation_failed` refusal names (`_vendor_error_field`), an
         #: identifier and never free text.
         self.vendor_field = vendor_field
+        #: A dial refused because OUR set-up at the vendor is wrong (the agent, its number or
+        #: the phone provider), which nobody but us can fix. Set by the adapter's dial
+        #: refusal mapping, so a caller can word it without reading vendor codes.
+        self.setup_refused = False
         self._refused_statuses = refused_statuses
 
     @property

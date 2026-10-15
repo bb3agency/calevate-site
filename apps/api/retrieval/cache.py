@@ -48,7 +48,7 @@ this keyspace at all; that is not an optimisation left on the table, it is the p
 
 **PII.** A cache key is a durable, greppable string in a shared store, and a cached VALUE is
 prose we will read back to somebody. So a question that `apps.workers.redaction.redact`
-would change is REFUSED — not stripped, refused (`sanitize.assert_redacted`'s doctrine: a
+would change is REFUSED — not stripped, refused (`run_assist`'s input guard's doctrine: a
 guard that silently repairs its input teaches the caller nothing). A long digit run is
 refused too, on a second ground: an order number or a policy number is caller-specific, so
 caching it would be a key that can never be hit again anyway.

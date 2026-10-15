@@ -111,7 +111,7 @@ export function OperatorsScreen({
   return (
     <div className="max-w-3xl space-y-10 pb-12">
       <PageHeader
-        description="Who can sign in to this console, and in which tier. Every change is recorded in the audit log against you."
+        description="Who can sign in to this console, and in which tier."
         actions={
           <button
             type="button"
@@ -154,9 +154,8 @@ export function OperatorsScreen({
             Admin accounts
           </h2>
           <InfoTip label="Admin accounts">
-            Revoked accounts are not listed: their rows survive as the record of what they
-            approved, and &ldquo;who was removed and when&rdquo; is a question for the audit log,
-            which keeps a record that cannot be quietly changed.
+            Revoked accounts are not listed. Their rows are kept as the record of what they
+            approved.
           </InfoTip>
           {/* No count until the server has sent a list: "1 account" in flight is a claim
               about who can reach every client's data, made on no evidence. */}

@@ -719,6 +719,8 @@ class HoldsTrialLine(Protocol):
 
     async def set_line_answering(self, ref: str, *, on: bool) -> None: ...
 
+    async def call_out_on_phone(self, ref: str) -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class TrialLineState:
@@ -838,15 +840,26 @@ async def lend_platform_line(number: str, agent_ref: str) -> bool:
     """Lend a platform number held in the developer workspace to `agent_ref` for calling
     out, with the trial line's never-answering agent as its line, so whoever rings it back
     hears `TRIAL_LINE_MESSAGE`. The shared trial number uses it, and so does the forwarding
-    test's second number (D-746). True once the platform holds exactly that."""
+    test's second number (D-746). True once the platform holds exactly that.
+
+    The borrowing agent is then given the `phone` surface: the platform places a call only
+    from an agent that "answers the phone", and an agent without a number of its own is
+    published with none (F1), so without this every test call is refused with
+    `calling_not_set_up` (incident 15 Oct 2026)."""
+    engine = _trial_line_engine()
     try:
         answerer = await _trial_line_answerer()
         result = await _attach(number, agent=answerer, calling_agent=agent_ref)
+        if result.outcome in ("partial", "refused"):
+            _trial_line_failed(outcome=result.outcome, refusal=result.refusal)
+            return False
+        if engine is not None:
+            await engine.call_out_on_phone(agent_ref)
+    except EngineRejectedError as exc:
+        _trial_line_failed(outcome="refused", refusal=exc.vendor_code or exc.code)
+        return False
     except ProblemError as exc:
         _trial_line_failed(outcome="refused", refusal=exc.code)
-        return False
-    if result.outcome in ("partial", "refused"):
-        _trial_line_failed(outcome=result.outcome, refusal=result.refusal)
         return False
     return True
 

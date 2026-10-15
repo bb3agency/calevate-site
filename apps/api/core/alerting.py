@@ -111,9 +111,10 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
 from apps.api.core.alarm_severity import Severity, is_emailed, repeat_while_open, severity_of
-from apps.api.core.logging import get_logger, redact_mapping, safe_extra
+from apps.api.core.logging import get_logger, safe_extra
 
 if TYPE_CHECKING:  # `alert_records` imports psycopg; keep it off the ack path's imports.
+    from apps.api.core.alert_email import AlertEmail
     from apps.api.core.alert_records import RecordOutcome
 
 log = get_logger("calevate.alert")
@@ -628,7 +629,7 @@ def _handle(notice: AlertNotice) -> None:
             notice = replace(notice, reminder=True)
             if _admit_shared(notice) is None:
                 return
-            if _deliver(notice):
+            if _deliver(notice, outcome):
                 from apps.api.core.alert_records import mark_emailed
 
                 mark_emailed(outcome.alert_id)
@@ -645,7 +646,7 @@ def _handle(notice: AlertNotice) -> None:
         return
     if _admit_shared(notice) is None:
         return
-    if _deliver(notice) and outcome is not None:
+    if _deliver(notice, outcome) and outcome is not None:
         from apps.api.core.alert_records import mark_emailed
 
         mark_emailed(outcome.alert_id)
@@ -658,7 +659,8 @@ def _handle_resolve(notice: AlertNotice) -> None:
     and the 15-minute window left behind by the old episode would otherwise hold its
     first notice back.
     """
-    from apps.api.core.alert_records import clear_message, close_open
+    from apps.api.core.alert_email import compose_clear
+    from apps.api.core.alert_records import close_open
     from apps.api.core.settings import get_settings
 
     _forget(notice.fingerprint)
@@ -669,14 +671,16 @@ def _handle_resolve(notice: AlertNotice) -> None:
     if recipient is None:
         _warn_unconfigured_once()
         return
-    subject, body = clear_message(
+    message = compose_clear(
         closed, app_env=get_settings().app_env, status="the condition reported recovery"
     )
     _local.delivering = True
     try:
         from apps.api.core.transport import get_transport
 
-        if get_transport().send(to=recipient, subject=subject, body=body):
+        if get_transport().send(
+            to=recipient, subject=message.subject, body=message.text, html=message.html
+        ):
             log.info("alert_clear_delivered", extra={"code": notice.code})
         else:
             log.warning("alert_clear_notice_failed", extra={"code": notice.code})
@@ -707,7 +711,7 @@ def _record_alert(notice: AlertNotice) -> RecordOutcome | None:
     )
 
 
-def _deliver(notice: AlertNotice) -> bool:
+def _deliver(notice: AlertNotice, outcome: RecordOutcome | None = None) -> bool:
     """Send one alert email. Returns whether it landed. Runs ONLY on the delivery thread.
 
     The transport import is here rather than at module scope for two reasons that
@@ -728,16 +732,11 @@ def _deliver(notice: AlertNotice) -> bool:
         from apps.api.core.transport import get_transport
 
         transport = get_transport()
-        subject = _subject(notice)
-        body = _body(notice)
+        message = _compose(notice, outcome)
         for attempt in (1, 2):
-            # PLAIN TEXT, DELIBERATELY, and this is the one sender that stays that way.
-            # An operator alert is grepped, forwarded to a pager gateway, and pasted into
-            # an incident channel; every one of those renders a multipart/alternative as
-            # either the raw markup or a stripped mess. The client-facing mail is branded
-            # (`workers/email_render`) because its reader is a business owner meeting the
-            # product; this reader is on call at 3am and wants the first line.
-            if transport.send(to=recipient, subject=subject, body=body):
+            if transport.send(
+                to=recipient, subject=message.subject, body=message.text, html=message.html
+            ):
                 log.info(
                     "alert_delivered",
                     extra={"code": notice.code, "transport": transport.name, "attempts": attempt},
@@ -759,60 +758,35 @@ def _deliver(notice: AlertNotice) -> bool:
         _local.delivering = False
 
 
-def _subject(notice: AlertNotice) -> str:
-    """What a phone shows on a lock screen. Code first — it is the searchable token."""
+def _compose(notice: AlertNotice, outcome: RecordOutcome | None) -> AlertEmail:
+    """The mail for this notice (`core/alert_email`), with the episode the row reports."""
+    from datetime import UTC, datetime
+
+    from apps.api.core.alert_email import EpisodeView, compose_alert
     from apps.api.core.settings import get_settings
 
-    suffix = " (still open)" if notice.reminder else ""
-    return f"[calevate/{get_settings().app_env}/{_service}] {notice.code}{suffix}"
-
-
-def _body(notice: AlertNotice) -> str:
-    """Ids only (hard rule 6), through the SAME redaction the logger uses.
-
-    `detail` is authored by us but is routinely an upstream error string, and an id
-    kwarg is whatever the call site passed — so both go through `redact_mapping`,
-    which masks phone-shaped runs, blanks PII-shaped KEYS and caps free text. An email
-    leaves the building; it is the last place to trust a caller.
-    """
-    safe = redact_mapping({"detail": notice.detail or "", **notice.ids})
-    detail = str(safe.pop("detail", ""))
-    lines = [
-        f"stage:   {notice.stage}",
-        f"code:    {notice.code}",
-        # Printed even though only `page` is ever mailed: the reader is meant to be able
-        # to tell, from the message alone, that this arrived because somebody decided it
-        # was worth waking them for — and to know where to go to argue with that
-        # decision (`apps/api/core/alarm_severity.py`).
-        f"severity: {notice.severity}",
-        f"service: {_service}",
-    ]
-    if notice.reminder:
-        every = (repeat_while_open(notice.code) or 0.0) / 60
-        lines.append(
-            f"status:  STILL OPEN — reminder, repeated every {every:.0f} minutes until it clears"
+    episode = None
+    if (
+        outcome is not None
+        and outcome.first_seen_at is not None
+        and outcome.last_seen_at is not None
+        and outcome.occurrences is not None
+    ):
+        episode = EpisodeView(
+            first_seen_at=outcome.first_seen_at,
+            last_seen_at=outcome.last_seen_at,
+            occurrences=outcome.occurrences,
         )
-    if detail:
-        lines.append(f"detail:  {detail}")
-    lines += [f"{key}: {value}" for key, value in sorted(safe.items())]
-    if notice.suppressed:
-        lines.append(
-            f"note:    {notice.suppressed} further occurrence(s) of this alert were "
-            f"suppressed in the last {ALERT_REPEAT_INTERVAL_S / 60:.0f} minutes"
-        )
-    if notice.rate_limited:
-        lines.append(
-            f"note:    {notice.rate_limited} other alert(s) were dropped by the rate "
-            f"limit ({ALERT_BUDGET_PER_HOUR:.0f}/hour) since the last delivery"
-        )
-        if notice.rate_limited_codes:
-            named = ", ".join(f"{code} x{count}" for code, count in notice.rate_limited_codes)
-            # The codes are ours, not a caller's, so they need no redaction — and they
-            # are the only way the operator learns WHICH alarm the bucket ate.
-            lines.append(f"dropped: {named}")
-    lines.append("")
-    lines.append(f"Search the logs for code={notice.code} for the full context.")
-    return "\n".join(lines)
+    return compose_alert(
+        notice,
+        service=_service,
+        app_env=get_settings().app_env,
+        episode=episode,
+        now=datetime.now(UTC),
+        repeat_window_s=ALERT_REPEAT_INTERVAL_S,
+        rate_budget_per_hour=ALERT_BUDGET_PER_HOUR,
+        reminder_every_s=repeat_while_open(notice.code),
+    )
 
 
 def flush_alerts(timeout: float = 5.0) -> bool:

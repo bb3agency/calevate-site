@@ -123,8 +123,8 @@ def _parse(data: object, *, report_id: object) -> QaReport:
             title="Quality report unreadable",
             detail="This month's quality report could not be opened, so we are not "
             "showing it rather than showing you incomplete figures.",
-            remediation="Please try again shortly. If it keeps happening, quote the trace "
-            "id on this response to our team and we will regenerate the report for you.",
+            remediation="Try again shortly. If it keeps happening, contact us and we will "
+            "rebuild the report for you.",
         ) from exc
 
 

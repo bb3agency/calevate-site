@@ -306,7 +306,7 @@ export function ConfigForm({
       {/* 3 · the reason, which is the audit log, and the typed confirmation. */}
       <div className="space-y-4 border-t border-line pt-5">
       {reverting ? (
-        <p className={FIELD_HINT}>The audit log records this as a return to the default.</p>
+        <p className={FIELD_HINT}>This returns the setting to its default.</p>
       ) : (
         <div>
           <label htmlFor={reasonId} className={FIELD_LABEL}>
@@ -337,7 +337,7 @@ export function ConfigForm({
             className={`${FIELD} mt-2`}
           />
           <span id={`${reasonId}-hint`} className={FIELD_HINT}>
-            {triedSave && reasonProblem ? reasonProblem : "Kept with the change in the audit log."}
+            {triedSave && reasonProblem ? reasonProblem : "Saved with the change."}
           </span>
         </div>
       )}

@@ -110,11 +110,10 @@ export const WHERE_IT_RUNS =
   "permits it to process personal data outside India, including on United States cloud " +
   "infrastructure. On our dearer voice, the VOICE your caller hears is a different vendor " +
   "again, which has not been established to process in India. The language model behind " +
-  "your dashboard assistant is not Indian either: by default it runs on a large cloud " +
-  "provider’s account in the United States, in its East US 2 region. What our code does " +
-  "is pin that model to that one region — no part of our code can send it anywhere else " +
-  "without editing one frozen constant — and the account’s own region is confirmed by a " +
-  "person against the provider’s console and filed: checked, not proved by a build.";
+  "your dashboard assistant, Pip, is not Indian either: it runs on a large cloud " +
+  "provider’s paid AI service, which does not train on what it is sent and may process or " +
+  "briefly hold it in any country where that provider has facilities. The sub-processor " +
+  "page names it.";
 
 /**
  * What happens to a caller's data once the call is over.
@@ -133,10 +132,11 @@ export const DATA_PROMISES: readonly { term: string; detail: string }[] = [
       "remembering to filter.",
   },
   {
-    term: "Phone numbers are hidden by default",
+    term: "Transcripts are masked on screen",
     detail:
-      "Transcripts come back redacted. Seeing the raw text takes the right role and " +
-      "writes an audit entry.",
+      "Call transcripts show with numbers and IDs masked, and seeing the raw text takes " +
+      "the right role. If your account owner turns Pip on, Pip reads your data in full " +
+      "to answer your team.",
   },
   {
     term: "Deletion produces a certificate",

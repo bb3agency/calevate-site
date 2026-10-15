@@ -40,6 +40,7 @@ from calevate_shared.engine import (
     azure_openai_base_url,
     google_native_base_url,
     google_openai_compat_base_url,
+    keeps_default_temperature,
 )
 
 from apps.api.copilot import (
@@ -97,6 +98,7 @@ from apps.workers.extraction import (
     assist_unavailable,
     azure_credentials,
 )
+from apps.workers.redaction import redact
 
 log = get_logger(__name__)
 
@@ -223,7 +225,7 @@ FALLBACK_RESERVE_S: Final = STREAM_IDLE_S
 
 #: Said to the person when the loop runs out of turns. An authored sentence with an action
 #: in it, never a spinner that stops.
-EXHAUSTED_MESSAGE: Final = "I couldn't finish within the turn limit — please narrow the request."
+EXHAUSTED_MESSAGE: Final = "I could not finish this in one go. Try asking for one thing at a time."
 
 #: Said when a model TURN ENDED WITH NO ANSWER IN IT — the defect this constant exists for.
 #:
@@ -401,9 +403,8 @@ def background_tool() -> dict[str, Any]:
 
 #: The longest a step frame's `args` or `detail` preview may be, in characters.
 #:
-#: A DISPLAY bound, not a safety one. The safety properties are elsewhere — the request was
-#: already refused if it carried an unredacted personal value (`sanitize.assert_redacted`),
-#: and none of this is logged or stored. What this bounds is a panel row: a tool result is
+#: A DISPLAY bound, not a safety one: none of this is logged, and it goes only to the person
+#: who asked, who may read what Pip read for them. What this bounds is a panel row: a tool result is
 #: prose written for a model and can run to thousands of characters, and a step list that
 #: rendered all of it would push the answer off the screen. 200 characters is about two
 #: lines at the panel's width.
@@ -830,7 +831,7 @@ async def _answer_via_sarvam(
             # LAST rather than into the shared prompt, so the cacheable prefix stays byte
             # identical for the leg that has a cache (`prompt.py`, point 1).
             [
-                *build_messages(payload, live, realm),
+                *masked_messages(build_messages(payload, live, realm)),
                 {"role": "system", "content": _NO_TOOL_NOTE},
             ],
             timeout_s=STREAM_IDLE_S,
@@ -851,6 +852,23 @@ async def _answer_via_sarvam(
     yield CopilotEvent(
         spend=CopilotSpend(usage=outcome.usage, capability=capability, model=SARVAM_DEFAULT_LLM)
     )
+
+
+def masked_messages(messages: list[Any]) -> list[Any]:
+    """Every message's text through `redact()`, for the standby leg (D-788).
+
+    The standby's terms permit training on what it is sent (SECURITY-COMPLIANCE §4), and
+    the owner's consent names the models that answer Pip, not this one. So whatever the
+    account consented to, this leg receives a number as `[phone ••NN]`: the question, the
+    screen, the history and the live block alike. Masking the assembled list rather than
+    each input is what keeps a future input from reaching the standby unmasked. It carries
+    no tool results and no files (the standby has no tools; `attachments_unavailable`)."""
+    return [
+        {**message, "content": redact(message["content"]).text}
+        if isinstance(message.get("content"), str)
+        else message
+        for message in messages
+    ]
 
 
 # --- the loop -------------------------------------------------------------------------
@@ -1120,14 +1138,7 @@ def _assistant_tool_message(
     message: dict[str, object] = {
         "role": "assistant",
         "content": outcome.content or None,
-        "tool_calls": [
-            {
-                "id": call.id,
-                "type": "function",
-                "function": {"name": call.name, "arguments": call.arguments},
-            }
-            for call in calls
-        ],
+        "tool_calls": [chat.replayed_tool_call(call) for call in calls],
     }
     return _with_native_parts(message, outcome)
 
@@ -1152,6 +1163,17 @@ _TurnRunner = Callable[
 ]
 
 
+#: The temperature Pip answers at, where the model lets us choose: low, because a fill must
+#: copy the person's words rather than paraphrase them.
+ANSWER_TEMPERATURE: Final = 0.2
+
+
+def answer_temperature(leg: chat.ChatLeg) -> float | None:
+    """`ANSWER_TEMPERATURE`, or None (send no temperature) on a Gemini 3 model, where Google
+    warns a lowered temperature can loop (`engine.TEMPERATURE_KEEP_DEFAULT`, D-786)."""
+    return None if keeps_default_temperature(leg.wire_model) else ANSWER_TEMPERATURE
+
+
 def streamed_turn(
     leg: chat.ChatLeg,
     messages: Sequence[chat.ChatMessage],
@@ -1165,7 +1187,7 @@ def streamed_turn(
         leg,
         messages,
         timeout_s=STREAM_IDLE_S,
-        temperature=0.2,
+        temperature=answer_temperature(leg),
         tools=tools,
         tool_choice="auto",
         max_tokens=MAX_ANSWER_TOKENS,
@@ -1194,13 +1216,7 @@ def _with_tool_result(
             {
                 "role": "assistant",
                 "content": outcome.content or None,
-                "tool_calls": [
-                    {
-                        "id": call.id,
-                        "type": "function",
-                        "function": {"name": call.name, "arguments": call.arguments},
-                    }
-                ],
+                "tool_calls": [chat.replayed_tool_call(call)],
             },
             outcome,
         ),
@@ -1213,9 +1229,9 @@ def _preview(value: str) -> str:
 
     Stripped of invisible characters (`sanitize`'s egress half — this reaches the DOM), then
     collapsed to one line, then truncated with an ellipsis so a reader can see that there
-    was more. NOT redacted here and deliberately: `routes.assert_redacted` has already
-    refused the whole request if the payload carried a personal value, and this text is the
-    caller's own account data going back to the caller's own screen.
+    was more. NOT redacted here: this text is the caller's own account data going back to
+    the caller's own screen, and a background job's copy is redacted where it is stored
+    (`jobs.progress_entry`).
     """
     flat = " ".join(strip_invisible(value).split())
     return flat if len(flat) <= MAX_STEP_CHARS else flat[: MAX_STEP_CHARS - 1] + "…"
@@ -2160,7 +2176,7 @@ def native_turn(
         leg,
         messages,
         timeout_s=STREAM_IDLE_S,
-        temperature=0.2,
+        temperature=answer_temperature(leg),
         tools=tools,
         max_tokens=MAX_ANSWER_TOKENS,
     )
@@ -2228,9 +2244,13 @@ async def _answer_pdf_turn(
     except (httpx.HTTPError, TimeoutError) as failure:
         log.warning(
             "copilot_pdf_native_failed",
-            extra={**provider_health.failure_fields(failure), "streamed": streamed},
+            extra={
+                **provider_health.failure_fields(failure),
+                "model": model,
+                "streamed": streamed,
+            },
         )
-        await provider_health.note_failure("copilot", GOOGLE_PROVIDER, failure)
+        await provider_health.note_failure("copilot", GOOGLE_PROVIDER, failure, model=model)
         if streamed:
             raise
         if turns:
@@ -2438,10 +2458,13 @@ async def _answer_stream(
                 extra={
                     **provider_health.failure_fields(failure),
                     "provider": capability.provider,
+                    "model": model or leg.wire_model,
                     "streamed": streamed_anything,
                 },
             )
-            await provider_health.note_failure("copilot", str(capability.provider), failure)
+            await provider_health.note_failure(
+                "copilot", str(capability.provider), failure, model=model or leg.wire_model
+            )
             if streamed_anything:
                 raise
             # WHAT THE DEAD LEG ALREADY COST (hard rule 7). Emitted only when a turn

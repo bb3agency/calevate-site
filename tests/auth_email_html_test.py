@@ -1,14 +1,9 @@
 """The branded half of every auth email — and the properties that make it safe to send.
 
-WHY THIS EXISTS. `auth_email._body` shipped plain text with a comment arguing for it: "a
-transactional secret does not need HTML and an HTML mail is one more thing that can render
-wrong in a client we have never seen." That is right about the OTP codes and wrong about
-the link mails, which arrive BEFORE a person has seen a single screen of the product. A
-wall of monospace asking someone to click a 200-character URL is indistinguishable from
-phishing, and the first one we send is to the founder's own first administrator.
-
-So the shape is deliberate and asymmetric — links get the frame, codes stay austere — and
-the tests below pin the parts that are correctness rather than taste:
+WHY THIS EXISTS. These mails arrive before a person has seen a single screen of the
+product, and a bare wall of text asking for a click or quoting a secret is
+indistinguishable from phishing. Every kind is designed (`workers/email_render`), and the
+tests below pin the parts that are correctness rather than taste:
 
 1. **Both parts, always.** An HTML-only message is invisible in a text client and in the
    preview pane. `text` is never empty and never a stub.
@@ -30,7 +25,7 @@ from apps.api.core import brand, console_links
 from apps.workers import email_render
 
 LINK_KINDS = ("admin_bootstrap", "password_reset", "invite_password")
-CODE_KINDS = ("otp_login_challenge", "otp_step_up", "otp_email_verify")
+CODE_KINDS = ("otp_login_challenge", "otp_step_up", "otp_email_verify", "otp_signup")
 
 
 def _realm_for(kind: str) -> str:
@@ -230,3 +225,69 @@ def test_a_value_that_looks_like_markup_is_escaped_in_the_wrapper_too() -> None:
     assert message.html is not None
     assert "<img" not in message.html
     assert "&lt;img" in message.html
+
+
+# --- the code mails ------------------------------------------------------------------
+
+
+def _seen(markup: str) -> str:
+    """The card a reader sees: the hidden preheader dropped, tags stripped, entities folded."""
+    import html as html_lib
+
+    body = markup.split("</div>", 1)[1]
+    return " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", body)).split())
+
+
+@pytest.mark.parametrize("kind", CODE_KINDS)
+def test_the_code_mail_states_the_verifier_s_real_expiry_in_both_parts(kind: str) -> None:
+    """The minutes come from `authn/otp.OTP_LIFETIME`, the window the verifier enforces."""
+    from apps.api.authn.otp import OTP_LIFETIME
+
+    minutes = int(OTP_LIFETIME.total_seconds() // 60)
+    message = email_render.render(kind, "client", "482913")
+    assert message.html is not None
+    for part in (message.text, _seen(message.html)):
+        assert f"expires in {minutes} minutes" in part
+        assert "Didn't ask for this?" in part
+
+
+@pytest.mark.parametrize("kind", CODE_KINDS)
+def test_the_code_mail_text_and_html_say_the_same_thing(kind: str) -> None:
+    message = email_render.render(kind, "client", "482913")
+    assert message.html is not None
+    seen = _seen(message.html)
+    for line in message.text.splitlines():
+        line = line.strip()
+        if line and line != "— Calevate":
+            assert line in seen, f"only in the text part: {line!r}"
+
+
+def test_the_code_is_one_unbroken_run_so_a_paste_is_accepted() -> None:
+    """A code split by spaces or cells pastes as `482 913`, which the input refuses."""
+    html = email_render.render("otp_login_challenge", "client", "482913").html
+    assert html is not None
+    assert ">482913</div>" in html
+
+
+def test_an_unexpected_sign_in_code_tells_the_reader_their_password_is_known() -> None:
+    """`login_challenge` is sent only after a correct password (`authn/models.OTP_PURPOSES`),
+    so "ignore it" would be the wrong advice."""
+    message = email_render.render("otp_login_challenge", "client", "482913")
+    assert "change your password" in message.text
+
+
+def test_the_preheader_carries_the_code_and_its_expiry() -> None:
+    html = email_render.render("otp_signup", "client", "482913").html
+    assert html is not None
+    preheader = re.search(r"<div style=\"display:none[^\"]*\">([^<]+)</div>", html)
+    assert preheader is not None and "482913" in preheader.group(1)
+    assert "expires" in preheader.group(1)
+
+
+@pytest.mark.parametrize("kind", CODE_KINDS + LINK_KINDS)
+def test_client_facing_auth_mail_names_no_vendor(kind: str) -> None:
+    """D-679. The list is the vendors this platform uses that a client could be shown."""
+    message = email_render.render(kind, _realm_for(kind), "482913")
+    blob = f"{message.subject}\n{message.text}\n{message.html}".lower()
+    for vendor in ("thinnest", "cartesia", "resend", "razorpay", "sarvam", "gemini", "azure"):
+        assert vendor not in blob, vendor

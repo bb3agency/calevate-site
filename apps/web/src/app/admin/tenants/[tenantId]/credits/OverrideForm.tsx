@@ -95,8 +95,7 @@ export function OverrideForm({
       <p className="text-meta text-ink-muted">
         For a promotion or a negotiated deal: {clientName}&apos;s credit stays exactly as
         it is, and the minutes it buys become cheaper. It changes a term this client was
-        sold, so it is recorded in the audit log with your reason and cannot be undone —
-        only re-priced again.
+        sold, so it needs a reason and cannot be undone, only re-priced again.
       </p>
 
       {apply.error && <WriteFailure error={apply.error} actionLabel="Re-price this lot" />}
@@ -174,7 +173,7 @@ export function OverrideForm({
           className={FIELD}
         />
         <span className={FIELD_HINT}>
-          Recorded in the audit log beside the pack this lot now borrows its rates from.
+          Kept beside the pack this lot now borrows its rates from.
         </span>
       </label>
 

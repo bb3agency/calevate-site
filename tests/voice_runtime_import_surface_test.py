@@ -618,6 +618,23 @@ INTENDED_RUNTIME_IMPORTS_ON_THE_ALERT_THREAD: dict[str, str] = {
         "`postgresql+psycopg`), so in production it is resident before the first alarm; "
         "the delta here is a freshly booted probe. Daemon thread, never the ack path."
     ),
+    # D-790: the mail `_deliver` sends is composed by these four of our own modules. All
+    # are imported inside `_compose`, on the delivery thread, and pull only stdlib and
+    # `apps.api.core` modules already resident; `alarm_guide` reads `runbooks/alarm-index.md`
+    # once per process and caches it.
+    "apps.api.core.alert_email": (
+        "the alarm mail composer. Lazy, delivery thread only, stdlib plus resident core."
+    ),
+    "apps.api.core.alarm_guide": (
+        "each alarm's headline and the alarm-index row the mail quotes. Lazy, delivery "
+        "thread only; one cached file read per process."
+    ),
+    "apps.api.core.email_layout": (
+        "the HTML building blocks of every mail. Lazy, delivery thread only, stdlib only."
+    ),
+    "apps.api.core.brand": (
+        "the mail's colour and font constants. Lazy, delivery thread only, no imports."
+    ),
     "apps.api.core.alert_records": (
         "the alert EPISODE recorder (D-591) — one row per alarm, and the onset/repeat "
         "answer that decides whether a `page` mails. Lazy, delivery thread only, no new "

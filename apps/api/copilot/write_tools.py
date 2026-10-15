@@ -402,11 +402,11 @@ class _DncAddArgs(BaseModel):
 async def _plan_dnc_add(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
     """READ ONLY, and THE NUMBER IS NAMED BY REFERENCE — never by value.
 
-    This is the constraint that shaped the tool. `sanitize.assert_redacted` refuses any
-    request whose text still looks like a phone number (D-127 G-2), so a `dnc_add(phone=…)`
-    tool could never be driven: the model cannot be told a number, and must not be. A LEAD
-    ID is the reference the screen already has, the server resolves it to E.164 itself, and
-    the number never enters the prompt, the token, the log or the audit row.
+    A LEAD ID is the reference the screen already has, the server resolves it to E.164
+    itself, and the number never enters the proposal token, the log or the audit row (hard
+    rule 6). That holds after D-788 too, when the model may have SEEN the number: what it
+    proposes still names the lead, so a mistyped digit in the model's output cannot put the
+    wrong person on the do-not-call list.
 
     `check_number` is asked rather than assumed so the proposal can say whether this
     changes anything — and it mirrors the dispatch gate's own query by construction, so

@@ -215,7 +215,7 @@ describe("the call log", () => {
     const { container } = await renderClientPage(page, routes([call()]));
 
     expect(container.textContent).not.toContain("No calls yet");
-    expect(container.textContent).toContain("No reply reached this page");
+    expect(container.textContent).toContain("If it keeps happening, contact us.");
   });
 });
 

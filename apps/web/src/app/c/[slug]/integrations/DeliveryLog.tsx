@@ -118,7 +118,7 @@ export function DeliveryLog({
                       <button
                         type="button"
                         onClick={() => onTogglePayload(delivery.id)}
-                        title="Shows the exact data we sent, personal details included. The read is written to your audit log."
+                        title="Shows the exact data we sent, personal details included."
                         className={SECONDARY_BUTTON_SM}
                       >
                         {openPayload === delivery.id ? "Hide" : "View"}
@@ -180,8 +180,8 @@ export function DeliveryLog({
           ) : payload.data ? (
             <>
               <p className="mt-1 text-xs text-ink-faint">
-                The exact request body your endpoint received. It contains your
-                customer&apos;s details, and this view was written to your audit log.
+                Exactly what your endpoint received. It contains your customer&apos;s
+                details.
               </p>
               {payload.data.truncated && (
                 <p className="mt-2 text-xs text-warn">

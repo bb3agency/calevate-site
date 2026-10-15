@@ -277,7 +277,7 @@ describe("the call detail screen", () => {
     expect(container.textContent).toContain("are hidden in this view");
   });
 
-  it("says that opening the full transcript is recorded, once it is open", async () => {
+  it("says the full transcript includes personal details, once it is open", async () => {
     // `redacted: false` — this IS the raw view, and the field is REQUIRED on
     // `TranscriptTurnOut`. It was missing here, and the `as unknown as Partial<CallDetail>`
     // that used to sit on this literal is what kept the compiler from saying so; the turn
@@ -310,11 +310,8 @@ describe("the call detail screen", () => {
     );
 
     expect(await screen.findByText(`My number is ${RAW_NUMBER}.`)).toBeTruthy();
-    // Honesty about the audit row is the price of the view. Someone deciding whether to
-    // look must know before they look, not learn it from a compliance review.
-    expect(container.textContent).toContain(
-      "recorded in your account's audit log",
-    );
+    // The raw view says what it holds.
+    expect(container.textContent).toContain("Personal details included.");
     expect(container.textContent).not.toContain("are hidden in this view");
   });
 

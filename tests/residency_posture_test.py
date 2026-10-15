@@ -829,7 +829,7 @@ def test_a_withdrawn_model_still_counts_as_naming_its_leg() -> None:
     # withheld while `gpt-5.4-mini` is offered, so check 7 sees a leg named by both kinds.
     assert (
         guard.inert_leg_failures(
-            providers={**guard.live_model_providers(), "google": ["gemini-3.5-flash"]},
+            providers={**guard.live_model_providers(), "google": ["gemini-3.8-flash"]},
             spec=DECLARED,
         )
         == []

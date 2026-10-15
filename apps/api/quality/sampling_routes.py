@@ -62,6 +62,7 @@ PERMISSIONS
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Annotated
 from uuid import UUID
@@ -193,35 +194,139 @@ async def _directory(session: AsyncSession) -> list[tuple[UUID, str, str]]:
     return [(UUID(str(r[0])), str(r[1]), str(r[2])) for r in rows]
 
 
+class QaQueueClient(BaseModel):
+    """One client with anything drawn, and where its queue stands — the client picker's
+    rows and the group headers on the queue."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: UUID
+    tenant_name: str
+    tenant_slug: str
+    waiting: int
+    sampled: int
+
+
+class QaQueuePage(BaseModel):
+    """One page of the filtered queue, with exact totals.
+
+    `total` counts every row the filter matches across every client, not the rows on this
+    page, so "40 of 312" is a true sentence. `clients` and `weeks` are what the filters
+    offer, and are not narrowed by the filter: a reviewer picking a different client needs
+    to see the other clients.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[QaSampleOut]
+    total: int
+    offset: int
+    limit: int
+    #: Every waiting call across every client, whatever the filter — the queue's headline.
+    waiting_total: int
+    clients: list[QaQueueClient]
+    #: The most recent draw weeks, newest first, at most `QUEUE_WEEKS`.
+    weeks: list[date]
+
+
+#: How many recent draw weeks the week filter offers. An older week can still be asked for
+#: by `week=`; the list is a picker, not the archive.
+QUEUE_WEEKS = 12
+
+
+def _queue_key(order: sampling.QueueOrder) -> Callable[[QaSampleOut], tuple[int, str, int, str]]:
+    """The merge order across tenants, matching each tenant's own SQL order.
+
+    Week first, then the client's name, then the draw's rank: one client's calls for one
+    week sit together, which is what lets the console head them with the client's name,
+    and within them the draw's own order survives.
+    """
+    sign = 1 if order == "oldest" else -1
+
+    def key(row: QaSampleOut) -> tuple[int, str, int, str]:
+        return (
+            sign * row.week_start.toordinal(),
+            row.tenant_name.casefold(),
+            row.selection_rank,
+            str(row.id),
+        )
+
+    return key
+
+
 @router.get(
     "",
-    response_model=list[QaSampleOut],
+    response_model=QaQueuePage,
     openapi_extra=permission_meta("org:read"),
     summary=f"The weekly QA spot-check queue — {round(QA_SAMPLE_RATE * 100)}% of calls per client",
     description=(
-        "Calls drawn for review, newest week first and in the draw's own order. Each row "
-        "carries the frame it came from — the week, the number of calls in it, the "
-        "number drawn — and the seed the order was computed from, so the sample can be "
-        "recomputed and checked by anyone. `pending` (default) shows only calls nobody "
-        "has reviewed yet. No transcript text and no phone number appear on this list."
+        "Calls drawn for review, filtered and paged. Each row carries the frame it came "
+        "from — the week, the number of calls in it, the number drawn — and the seed the "
+        "order was computed from, so the sample can be recomputed and checked by anyone. "
+        "`status=waiting` (default) shows only calls nobody has reviewed yet; `order=oldest` "
+        "(default) puts the longest-waiting week first. `total` is exact across every "
+        "client. No transcript text and no phone number appear on this list."
     ),
 )
 async def list_qa_samples(
     session: AdminSession,
     principal: QueueReader,
-    pending: bool = Query(True, description="only calls nobody has reviewed yet"),
-    limit: int = Query(200, ge=1, le=500),
-) -> list[QaSampleOut]:
+    status: Annotated[
+        sampling.QueueStatus, Query(description="waiting, reviewed or all")
+    ] = "waiting",
+    verdict: Annotated[Verdict | None, Query(description="only calls given this verdict")] = None,
+    tenant_id: Annotated[UUID | None, Query(description="only this client's calls")] = None,
+    week: Annotated[date | None, Query(description="only this draw week (its IST Monday)")] = None,
+    order: Annotated[sampling.QueueOrder, Query(description="oldest or newest week first")] = (
+        "oldest"
+    ),
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0, le=sampling.QUEUE_WINDOW_MAX - 100)] = 0,
+) -> QaQueuePage:
     del principal  # the dependency IS the authorization
-    queue: list[QaSampleOut] = []
-    for tenant_id, name, slug in await _directory(session):
-        async with tenant_session(tenant_id) as scoped:
-            rows = await sampling.list_samples(scoped, pending_only=pending, limit=limit)
-        queue += [_out(row, tenant_id=tenant_id, name=name, slug=slug) for row in rows]
-    # Newest week first across ALL clients, then by the draw's own rank — the same order
-    # each tenant's list already has, merged rather than re-decided.
-    queue.sort(key=lambda row: (row.week_start, -row.selection_rank), reverse=True)
-    return queue[:limit]
+    flt = sampling.QueueFilter(status=status, verdict=verdict, week_start=week)
+    # Each tenant contributes its first `offset + limit` matching rows in the merge order;
+    # the global page is then exactly rows [offset, offset + limit) of the merged list.
+    window = offset + limit
+    clients: list[QaQueueClient] = []
+    weeks: set[date] = set()
+    rows: list[QaSampleOut] = []
+    total = 0
+    waiting_total = 0
+    for tid, name, slug in await _directory(session):
+        async with tenant_session(tid) as scoped:
+            counts = await sampling.queue_counts(scoped, flt, weeks=QUEUE_WEEKS)
+            wanted = tenant_id is None or tenant_id == tid
+            found = (
+                await sampling.list_samples(scoped, flt=flt, order=order, limit=window)
+                if wanted and counts.matching
+                else []
+            )
+        if counts.sampled:
+            clients.append(
+                QaQueueClient(
+                    tenant_id=tid,
+                    tenant_name=name,
+                    tenant_slug=slug,
+                    waiting=counts.waiting,
+                    sampled=counts.sampled,
+                )
+            )
+        weeks.update(counts.weeks)
+        waiting_total += counts.waiting
+        if wanted:
+            total += counts.matching
+        rows += [_out(row, tenant_id=tid, name=name, slug=slug) for row in found]
+    rows.sort(key=_queue_key(order))
+    return QaQueuePage(
+        items=rows[offset:window],
+        total=total,
+        offset=offset,
+        limit=limit,
+        waiting_total=waiting_total,
+        clients=clients,
+        weeks=sorted(weeks, reverse=True)[:QUEUE_WEEKS],
+    )
 
 
 async def _locate(

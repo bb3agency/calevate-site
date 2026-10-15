@@ -26,13 +26,18 @@ export function useLiveUpdates(session: Session, path: LiveStreamPath): void {
   useEffect(() => {
     const connection = new LiveConnection({
       open: (signal, onEvent) => openEventStream(session, path, { signal, onEvent }),
-      invalidate: (families) => {
+      invalidate: (families, readBefore) => {
         void client.invalidateQueries({
           predicate: (query) => {
             const family = familyOf(query.queryKey);
-            return family !== null && families.has(family);
+            if (family === null || !families.has(family)) return false;
+            // `dataUpdatedAt` is 0 for a query with no answer yet; an in-flight first read
+            // is joined rather than restarted, so including it costs no request.
+            return readBefore === undefined || query.state.dataUpdatedAt < readBefore;
           },
-        });
+          // A catch-up joins a read already in flight instead of restarting it; a note
+          // restarts it, because that read may predate the change the note announces.
+        }, { cancelRefetch: readBefore === undefined });
       },
       onHealth: setLiveHealthy,
       isVisible: () => document.visibilityState !== "hidden",

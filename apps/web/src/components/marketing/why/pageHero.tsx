@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-import { HeroStagger } from "@/components/marketing/motion";
 import { PILL_LINK, SHELL } from "@/components/marketing/pageShell";
 
 /**
@@ -39,34 +38,31 @@ export function PageHero({
       </div>
 
       <div className={`${SHELL} relative pt-10 pb-16 sm:pt-16 sm:pb-20 lg:pt-20`}>
-        <HeroStagger className="mx-auto flex max-w-4xl flex-col items-center text-center">
+        <div className="mx-auto flex max-w-4xl flex-col items-center text-center">
           <p
-            data-hero-item
-            className="text-sm font-medium text-ink-muted"
+            className="mk-hero-in mk-h1 text-sm font-medium text-ink-muted"
           >
             {label}
           </p>
           <h1
-            data-hero-item
-            className="mt-6 max-w-4xl text-[2.25rem] leading-[1.08] font-semibold tracking-tight text-balance text-ink sm:mt-7 sm:text-5xl sm:leading-[1.05] lg:text-[3.5rem] lg:leading-[1.03]"
+            className="mk-hero-in mk-h2 mt-6 max-w-4xl text-[2.25rem] leading-[1.08] font-semibold tracking-tight text-balance text-ink sm:mt-7 sm:text-5xl sm:leading-[1.05] lg:text-[3.5rem] lg:leading-[1.03]"
           >
             {title}
           </h1>
           <p
-            data-hero-item
-            className="mt-6 max-w-2xl text-lg text-pretty text-ink-muted sm:text-xl"
+            className="mk-hero-in mk-h3 mt-6 max-w-2xl text-lg text-pretty text-ink-muted sm:text-xl"
           >
             {lede}
           </p>
           {nav && (
-            <div data-hero-item className="mt-8 w-full">
+            <div className="mk-hero-in mk-h4 mt-8 w-full">
               {nav}
             </div>
           )}
-        </HeroStagger>
+        </div>
 
         {product && (
-          <div className="relative mx-auto mt-12 max-w-6xl sm:mt-16">
+          <div className="mk-hero-in mk-h5 relative mx-auto mt-12 max-w-6xl sm:mt-16">
             {product}
           </div>
         )}

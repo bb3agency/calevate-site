@@ -131,7 +131,7 @@ export default function TenantProfilePage({
     <div className="max-w-3xl space-y-10">
       <PageHeader
         title="Business details"
-        description="The client's own record. Every change is audited, naming the value it replaced."
+        description="The client's own record."
       />
 
       <EditForm
@@ -345,10 +345,10 @@ function EditForm({
         >
           <p>
             {edit.data.changed.length === 0
-              ? "Nothing moved. The values sent were the ones already on file, so no audit row was written."
+              ? "Nothing changed. These values were already on file."
               : `Saved: ${edit.data.changed
                   .map((field) => EDIT_FIELD_COPY[field as keyof EditTenantIn]?.label ?? field)
-                  .join(", ")}. Each change is audited on its own, naming the value it replaced.`}
+                  .join(", ")}.`}
           </p>
           {edit.data.changed.includes("billing_email") && (
             <p className="mt-1">

@@ -30,10 +30,11 @@ from sqlalchemy import text
 
 from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.copilot import jobs, model_tiers, service
+from apps.api.copilot.consent import require_consent
 from apps.api.copilot.context import live_state_block, viewer_for
 from apps.api.copilot.fair_use import require_copilot_fair_use
 from apps.api.copilot.schemas import CopilotAskIn, CopilotScreen
-from apps.api.copilot.tools import ToolContext
+from apps.api.copilot.tools import ToolContext, Unmasked
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -82,6 +83,9 @@ async def run_copilot_job(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         refusal: ProblemError | None = None
         if role is not None:
             try:
+                # Pip is on for this account (D-788): a routine or a task started before
+                # the disclosure changed waits for the owner like an ask does.
+                await require_consent(session, tenant_id=tenant_id)
                 await require_copilot_fair_use(session, tenant_id=tenant_id)
             except ProblemError as problem:
                 refusal = problem
@@ -112,7 +116,13 @@ async def run_copilot_job(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             question,
             tenant_leg=model_tiers.tier_leg(model_tiers.route_tier(job.goal, background=True)),
             allow_azure=get_settings().copilot_azure_fallback,
-            tool_context=ToolContext(tenant_id=tenant_id, role=str(role)),
+            # Unmasked: the gate above refused an account that has not turned Pip on. No
+            # caller address: nobody is connected to a background task.
+            tool_context=ToolContext(
+                tenant_id=tenant_id,
+                role=str(role),
+                unmasked=Unmasked(actor=principal, ip=None),
+            ),
             live=live,
             principal=principal,
             # The job id is the conversation: a redelivered job replays its own receipts.

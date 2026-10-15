@@ -8,6 +8,7 @@ from typing import get_args
 import pytest
 from calevate_shared.engine import GoogleDirectModel
 
+from apps.api.agents import assist_leg
 from apps.api.copilot import model_tiers
 from apps.api.core.settings import get_settings
 
@@ -63,7 +64,7 @@ def test_an_unofferable_tier_model_is_a_leg_that_does_not_serve(
     """Price and credential first: an unpriced model that answered would raise on the meter
     after the provider was paid (hard rule 7), so the selector must never be handed one as
     serving."""
-    monkeypatch.setattr(model_tiers, "offerable_models", lambda: frozenset())
+    monkeypatch.setattr(assist_leg, "off_call_offerable_models", lambda: frozenset())
     leg = model_tiers.tier_leg("fast")
     assert leg.serves_dashboard is False
     assert leg.provider == "google"

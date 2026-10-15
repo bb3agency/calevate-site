@@ -28,17 +28,12 @@ from typing import Any, Final
 
 from calevate_shared.call_script import CallScript
 from calevate_shared.engine import (
-    GOOGLE_DIRECT_MODELS,
     SARVAM_DEFAULT_LLM,
     truthful_answer_directive,
 )
 from calevate_shared.spoken_style import caller_guidance
 
-from apps.api.agents.llm_models import (
-    offerable_models,
-    platform_default_model,
-    tenant_dashboard_leg,
-)
+from apps.api.agents.assist_leg import google_assist_leg
 from apps.api.agents.test_conversations import (
     CATEGORIES,
     FIX_KINDS,
@@ -456,9 +451,9 @@ def judge_leg(
     """The leg to judge on: the account's own, unless it would grade the agent with a model
     of the agent's own family and an approved paid dashboard leg of another family exists.
 
-    The alternatives are the platform's leg (Azure) and the offerable Google models the
-    dashboard may run on (`tenant_dashboard_leg` applies the data-use attestation), the
-    platform default first. Sarvam is not chosen on purpose: it is the disclosed standby,
+    The alternatives are the platform's leg (Azure) and the Google model the
+    dashboard assists run on (`agents/assist_leg.google_assist_leg`: key, attested price and
+    data-use attestation). Sarvam is not chosen on purpose: it is the disclosed standby,
     and judging there would trade the self-preference risk for a weaker judge. With no
     other family available the account's leg judges and the run records the shared family.
     """
@@ -469,15 +464,9 @@ def judge_leg(
         agent_family
     ):
         return account_leg
-    platform = platform_default_model()
-    google = sorted(
-        (m for m in offerable_models() if m in GOOGLE_DIRECT_MODELS),
-        key=lambda m: (m != platform, m),
-    )
-    candidates: list[TenantModelLeg | None] = [
-        None,
-        *(tenant_dashboard_leg(model=m, source="platform") for m in google),
-    ]
+    # The Google alternative is the dashboard assists' own Google leg (D-786): a model our key
+    # can call, priced and keyed, never a 2.5 id a new Google project 404s on.
+    candidates: list[TenantModelLeg | None] = [None, google_assist_leg()]
     for candidate in candidates:
         capability = assist_capability(tenant_leg=candidate, quota_exhausted=quota_exhausted)
         model = answering_model(candidate, quota_exhausted=quota_exhausted)

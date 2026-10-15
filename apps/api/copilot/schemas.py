@@ -31,7 +31,9 @@ from datetime import datetime
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from apps.workers.redaction import redact
 
 #: How a form control behaves, in the browser's own vocabulary. `select` is the one that
 #: earns a schema `enum` (see `prompt.set_fields_tool`), which is the single strongest
@@ -115,11 +117,10 @@ class CopilotField(BaseModel):
     half into a write the server permits.
 
     `redacted` says the browser has substituted a placeholder for a value it considers
-    personal and will substitute the real one back locally. It is a DECLARATION, not a
-    permission: `sanitize.assert_redacted` re-runs `redact()` over the whole payload and
-    refuses it if anything still matches, so a field the browser forgot to mark is caught
-    by the guard rather than by nothing (D-127 G-2, the same belt `run_assist` wears at
-    `workers/extraction.py`).
+    personal and will substitute the real one back locally, so the model can name the
+    field's value by its placeholder. The server no longer refuses a screen that still
+    carries one (D-788: Pip runs only on accounts whose owner turned it on, and the admin
+    console is exempt).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -153,11 +154,20 @@ class CopilotScreen(BaseModel):
     #: caller forge a line break inside a log record. It is NOT restricted further,
     #: because the values screens actually declare carry spaces, braces and em dashes
     #: ("/admin/new (step 2 — business intake)") and a charset guess would break them.
-    #: What keeps a PERSONAL value out of that column is the redaction guard: `route` is
-    #: inside `render_screen`'s output, which `routes.py` refuses if `redact()` changes it.
+    #: What keeps a PERSONAL value out of that column is `_route_holds_no_identifier`.
     route: Annotated[str, Field(max_length=_MAX_ID, pattern=r"^/[^\x00-\x1f\x7f]*$")]
     title: Annotated[str, Field(max_length=_MAX_LABEL)]
     realm: Literal["client", "admin"]
+
+    @field_validator("route")
+    @classmethod
+    def _route_holds_no_identifier(cls, route: str) -> str:
+        # The question may carry a caller's number since D-788; the route may not, because
+        # it is the one value written to the append-only audit log, which no erasure can
+        # reach. A real route is a template and never trips this.
+        if redact(route).changed:
+            raise ValueError("a screen route cannot contain personal details")
+        return route
 
 
 class CopilotFact(BaseModel):
@@ -571,6 +581,34 @@ class CopilotStoredTurnOut(BaseModel):
     said_at: str
 
 
+class CopilotConsentOut(BaseModel):
+    """Whether Pip is on for this account, and what the owner reads to turn it on (D-788).
+
+    `status` is `accepted` or `not_required` (the admin console) when Pip may answer;
+    `required` and `outdated` lock it. `can_accept` says whether THIS person may turn it on:
+    the account owner, signed in as themselves. The text is served rather than kept in the
+    browser so the words shown and the hash recorded cannot come from two places."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["accepted", "required", "outdated", "not_required"]
+    version: str
+    text: str
+    text_sha256: str
+    can_accept: bool
+    accepted_at: datetime | None
+
+
+class CopilotConsentIn(BaseModel):
+    """Echoes what the panel showed, so a panel opened before a new version cannot accept
+    words the owner never saw."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: str = Field(min_length=1, max_length=40)
+    text_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class CopilotConversationOut(BaseModel):
     """`GET /v1/copilot/conversation` — one page of the live conversation, oldest first.
 
@@ -591,6 +629,14 @@ class CopilotConversationOut(BaseModel):
     #: Pip is still answering a question this person asked, on this device or another
     #: (D-782). The answer is not in `turns` yet; it arrives with the next change note.
     answering: bool = False
+    #: Files can be attached to a question (D-781): `attachments.uploads_available()`, the
+    #: predicate the upload route refuses on. No default, so every answer states it; the
+    #: panel disables attaching when it is false rather than starting an upload that would
+    #: be refused mid-body.
+    uploads_available: bool
+    #: Whether Pip is on for this account (D-788). No default, like `uploads_available`:
+    #: the panel shows the owner's step or the locked sentence from it.
+    consent: CopilotConsentOut
 
 
 class CopilotConversationClearedOut(BaseModel):

@@ -235,6 +235,16 @@ class ToolCall:
     id: str
     name: str
     arguments: str
+    #: The tool call's `extra_content` object exactly as the vendor sent it, to be sent back
+    #: on the replayed assistant turn. Gemini 3 carries its thought signature here on the
+    #: OpenAI-compatible surface: the compat page says "Gemini 3 supports OpenAI
+    #: compatibility for thought signatures" (ai.google.dev/gemini-api/docs/openai, updated
+    #: 2026-10-14) and Google's Gemini 3 guide says a stateless caller "must include thought
+    #: blocks with their signatures in subsequent requests" (.../docs/gemini-3, updated
+    #: 2026-10-09). The field's name on the compat surface is REPORTED, not read: the page
+    #: that showed it has moved. Echoing an unknown object costs nothing; dropping a needed one
+    #: fails the next turn.
+    extra_content: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -440,14 +450,29 @@ def _tool_calls_of(message: Mapping[str, Any]) -> tuple[ToolCall, ...]:
         if not isinstance(name, str) or not name:
             continue
         arguments = function.get("arguments")
+        extra = entry.get("extra_content")
         calls.append(
             ToolCall(
                 id=str(entry.get("id") or "") or f"synthetic-{position}",
                 name=name,
                 arguments=arguments if isinstance(arguments, str) else "",
+                extra_content=extra if isinstance(extra, dict) else None,
             )
         )
     return tuple(calls)
+
+
+def replayed_tool_call(call: ToolCall) -> dict[str, Any]:
+    """`call` as one entry of a replayed assistant turn's `tool_calls`, carrying back the
+    vendor's `extra_content` untouched when it sent one (see `ToolCall.extra_content`)."""
+    entry: dict[str, Any] = {
+        "id": call.id,
+        "type": "function",
+        "function": {"name": call.name, "arguments": call.arguments},
+    }
+    if call.extra_content is not None:
+        entry["extra_content"] = dict(call.extra_content)
+    return entry
 
 
 def provider_of(leg: ChatLeg) -> str:
@@ -834,6 +859,7 @@ __all__ = [
     "complete",
     "embed",
     "provider_of",
+    "replayed_tool_call",
     "stream",
     "usage_from_body",
 ]

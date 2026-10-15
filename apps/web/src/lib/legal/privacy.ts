@@ -144,14 +144,16 @@ export const PUBLISHED_RETENTION: readonly {
     category: "copilot_memory",
     days: 180,
     label:
-      "What the in-app assistant remembers — a client user's questions and " +
-      "answers, and the business facts distilled from them",
+      "What the in-app assistant remembers — the short notes about a business it " +
+      "distils from a client user's questions and answers",
     period: "180 days",
     what:
       "Deleted. Shorter than the transcript clock on purpose: nothing depends on " +
       "these records, they are rebuilt by ordinary use, and no client bought " +
       "them. Closing an account deletes every one of them at once, without " +
-      "waiting for this clock.",
+      "waiting for this clock. The conversation itself is not kept this long: it " +
+      "is deleted when the person's last signed-in session ends, and never outlives " +
+      "the transcript clock above (section 3.2).",
   },
   {
     category: "caller_memory",
@@ -446,27 +448,40 @@ export const PRIVACY_POLICY: LegalDocument = {
                     "What you ask the in-app assistant, and what it remembers about your " +
                     "business",
                   detail:
-                    "The dashboard carries an assistant you can open on any screen. Until " +
-                    "recently it kept nothing at all, and this notice did not mention it " +
-                    "because there was nothing to mention. That has changed and the " +
-                    "change is stated here rather than left for you to discover: it now " +
-                    "keeps a record of what you asked it and what it answered, and an " +
-                    "hourly background job reads a run of those records back to a " +
-                    "language model to distil short, durable facts about how your " +
-                    "business works, so it does not have to be told the same thing every " +
-                    "week. Both kinds of record are held per person and per account — a " +
-                    "colleague's conversation is not shown to you and yours is not shown " +
-                    "to them. Before anything is written we run the same redaction pass " +
-                    "the rest of the product uses, so phone numbers, email addresses, " +
-                    "Aadhaar, PAN, card numbers and one-time passwords are replaced with " +
-                    "markers rather than stored. That pass recognises identifiers and " +
-                    "not names: if you type a customer's first name into a question, " +
-                    "that name can remain in the record, which is why these records " +
-                    "expire on their own clock (section 9) and why closing an account " +
-                    "deletes every one of them outright. The assistant also looks things " +
-                    "up in your own account to answer you — your leads, calls, " +
-                    "campaigns, agents and knowledge content — and section 8 says where " +
-                    "that goes.",
+                    "The dashboard carries an assistant you can open on any screen. It is " +
+                    "off for every account until the account owner turns it on, once, " +
+                    "for the whole account, by ticking a box in the assistant's panel " +
+                    "after reading a short statement of what it sends; until then nobody " +
+                    "in the account can use it. We record who ticked it, when, and which " +
+                    "version of that statement they were shown, and if the statement " +
+                    "changes in a way that matters we ask the owner again. Once it is on, " +
+                    "three things go to the language-model providers that answer it " +
+                    "(section 8) as they are, with nothing masked: what a person types; " +
+                    "the files they attach (below); and what the assistant reads in your " +
+                    "own account to answer them — your leads and contacts, including their " +
+                    "phone numbers and contact details, your calls, including the full " +
+                    "transcript and its summary, your campaigns, your agents and your " +
+                    "knowledge content. Every time it reads a full transcript for " +
+                    "somebody, an audit entry is written, as it is when a person opens " +
+                    "one on screen. It keeps a record of what you asked it and what it " +
+                    "answered, as you typed it, held per person — a colleague's " +
+                    "conversation is not shown to you and yours is not shown to them. " +
+                    "That record is deleted when your last signed-in session ends or " +
+                    "expires, when you start again, when the transcript clock in " +
+                    "section 9 runs out, when the account closes, and when a caller whose " +
+                    "phone number appears in it asks for their data to be erased " +
+                    "(section 12.4). Separately, an hourly background job reads a run of " +
+                    "those records back to a language model to distil short, durable " +
+                    "notes about how your business works, so it does not have to be told " +
+                    "the same thing every week, and the instructions of any routine you " +
+                    "save are kept too. Before those notes and instructions are written " +
+                    "we run the same redaction pass the rest of the product uses, so " +
+                    "phone numbers, email addresses, Aadhaar, PAN, card numbers and " +
+                    "one-time passwords are replaced with markers rather than stored. " +
+                    "That pass recognises identifiers and not names: a customer's first " +
+                    "name can remain in a note, which is why the notes expire on their " +
+                    "own clock (section 9) and why closing an account deletes every one " +
+                    "of them outright.",
                 },
                 {
                   term: "Files you attach to the in-app assistant",
@@ -480,9 +495,9 @@ export const PRIVACY_POLICY: LegalDocument = {
                     "cannot be. We store what arrives privately, under a random " +
                     "name, for you alone, and send it as it is to the language-model " +
                     "provider that answers the assistant, with the question you attached it " +
-                    "to (section 8). Unlike everything else the assistant sends, an attached " +
-                    "file is not redacted first: a phone number, a name or anything else in " +
-                    "it reaches that provider whole. We do not review attached files, scan " +
+                    "to (section 8). An attached file is not redacted: a phone number, a " +
+                    "name or anything else in it reaches that provider whole. The standby " +
+                    "described in section 8 is never sent a file. We do not review attached files, scan " +
                     "them for malware or redact them, so please attach only what you are " +
                     "entitled to share and what your question needs; the business whose " +
                     "account you use is responsible for having the right to share it. The " +
@@ -680,6 +695,16 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "writes an audit entry naming who read it and when. The same rule covers " +
                 "the exact body delivered to a client's own CRM.",
             },
+            {
+              kind: "para",
+              text:
+                "The in-app assistant is the one thing in a client's account that reads " +
+                "the full transcript for anyone who asks it, and it does so only after " +
+                "the account owner has turned it on for the account (section 3.2). It " +
+                "sends the full text to its language-model provider to answer, and its " +
+                "answer can repeat what the transcript says. Each of those reads writes " +
+                "the same audit entry.",
+            },
           ],
         },
         {
@@ -689,14 +714,25 @@ export const PRIVACY_POLICY: LegalDocument = {
             {
               kind: "para",
               text:
-                "Our operators can view a client's account read-only, to support them and " +
-                "to answer questions after they leave. That access is not a shortcut: it " +
-                "requires an operator sign-in that has passed multi-factor authentication " +
-                "(enforced by the server, not by the screen), plus a short-lived signed " +
-                "grant issued for that one operator and that one client. It cannot make " +
-                "changes. Two audit entries are written — one when the authority is " +
-                "issued, one when data is actually read — so the record distinguishes " +
-                '"permission was granted" from "data was looked at".',
+                "Every Calevate administrator and staff member who works on the service " +
+                "can see all of a client's data: calls, recordings, full transcripts, " +
+                "leads, contacts and the client's conversations with the in-app " +
+                "assistant. That includes our own staff's version of the assistant in " +
+                "our administration console, which reads that data without masking " +
+                "anything. Access is not limited to particular people or particular " +
+                "clients. What is true instead: everyone with that access is bound by " +
+                "confidentiality, every sign-in to it needs multi-factor authentication " +
+                "enforced by the server, access is recorded, and we use it only to run, " +
+                "support, secure and fix the service.",
+            },
+            {
+              kind: "para",
+              text:
+                "Viewing a client's own screens works the same way for every one of us: " +
+                "it is read-only, needs a short-lived signed grant issued for that one " +
+                "person and that one client, and writes two audit entries — one when the " +
+                "grant is issued, one when data is actually read — so the record " +
+                'distinguishes "permission was granted" from "data was looked at".',
             },
           ],
         },
@@ -820,7 +856,9 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "about them",
               "Performance of our contract with the client for their own account data, " +
                 "and the client's own instruction for anything it looks up about their " +
-                "callers. It acts only when a person asks. A change that can be taken " +
+                "callers. That instruction is given by the account owner turning the " +
+                "assistant on for the account, and nothing is sent before they do. It acts " +
+                "only when a person asks. A change that can be taken " +
                 "back and reaches nobody — such as giving a lead to a colleague — is made " +
                 "at once and can be undone for a day; anything that calls someone, " +
                 "spends money, publishes, deletes or changes the do-not-call list waits " +
@@ -1029,12 +1067,21 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "is on, recorded against that account. The second of those is not one of " +
                 "them today, so it receives nothing. Since 9 October 2026 the in-app " +
                 "assistant runs first on the third provider — so what you type into the " +
-                "assistant, and what it looks up in your account to answer, may be " +
-                "processed anywhere that provider operates — and only while we hold a " +
-                "recorded confirmation that our own account with it is on a plan under " +
-                "which it does not train on what is submitted. When it cannot answer, " +
-                "the hyperscale provider in East US 2 answers instead, unless we switch " +
-                "that fallback off. Until 22 August 2026 the default service was " +
+                "assistant, what you attach, and what it looks up in your account to " +
+                "answer, unmasked, may be processed anywhere that provider operates — " +
+                "and only while we hold a recorded confirmation that our own account " +
+                "with it is on a plan under which it does not train on what is " +
+                "submitted. Our account with it is a paid one, and that provider's " +
+                "published terms for its paid service say it does not use prompts, " +
+                "files or responses to improve its products; it keeps them for a " +
+                "limited time only to detect misuse of its service. When it cannot " +
+                "answer, the hyperscale provider in East US 2 answers instead, unless we " +
+                "switch that fallback off, and it receives the same unmasked content. " +
+                "If neither can answer, the post-call extraction company described " +
+                "above stands in, and it is sent only the conversation's text, with " +
+                "phone numbers, email addresses and identity numbers replaced by " +
+                "markers: never a file and never anything the assistant looked up. " +
+                "Until 22 August 2026 the default service was " +
                 "configured for the South India region and this notice said so; the " +
                 "claim that the language model runs in India is withdrawn, not reworded. " +
                 "What the build enforces: the set of providers our code may reach for " +
@@ -1089,30 +1136,25 @@ export const PRIVACY_POLICY: LegalDocument = {
             },
             {
               term:
-                "What the in-app assistant sends to a language model, which is more than " +
-                "it used to be",
+                "What the in-app assistant sends to a language model, once the account " +
+                "owner has turned it on",
               detail:
-                "This notice used to describe the dashboard side of the language leg as " +
-                "the redacted transcript and the client's own configuration, and that " +
-                "was accurate when the assistant could do nothing but read the screen in " +
-                "front of it. Both of those still reach it — a client can ask us to " +
-                "re-read a call for them, and that sends the redacted transcript. What " +
-                "is new is that the assistant now looks things up in the account to " +
-                "answer: the " +
-                "client's leads, their recent calls, their campaigns, their agents, a " +
-                "count-based summary of how the business is doing, and their own " +
-                "knowledge content. What goes to the model from those look-ups is names, " +
-                "statuses, counts and the already-redacted summary of a call — a phone " +
-                "number reaches it as a marker and never as digits, and no raw " +
-                "transcript and no extracted field payload is sent at all. What a person " +
-                "types into the assistant goes too, and so, on the hourly job described " +
-                "in section 3.2, does a run of earlier questions and answers, read back " +
-                "to the model to distil durable facts. All of it runs on the same " +
-                "language-model providers described above and in the same places. It is " +
-                "still true that the raw transcript is never part of it; it is no longer " +
-                "true that only configuration is. Since 15 October 2026 a file a person " +
-                "attaches to a question goes to the same providers and the same places, " +
-                "whole and unredacted (section 3.2).",
+                "Nothing, until the account owner turns the assistant on (section 3.2). " +
+                "After that, the assistant looks things up in the account to answer: the " +
+                "client's leads and contacts, their calls, their campaigns, their " +
+                "agents, a count-based summary of how the business is doing, and their " +
+                "own knowledge content. What it reads goes to the model as it is, with " +
+                "nothing masked: phone numbers and contact details as digits and words, " +
+                "and a call's full transcript and its summary in full. What a person " +
+                "types into the assistant goes too, unmasked, and so does a file a " +
+                "person attaches to a question (section 3.2). On the hourly job " +
+                "described in section 3.2, a run of earlier questions and answers is " +
+                "read back to the model to distil durable notes. All of it runs on the " +
+                "language-model providers described above and in the same places, with " +
+                "the one limit stated there: the standby that stands in when neither " +
+                "of the others can answer is sent only the conversation's text with " +
+                "identifiers replaced by markers, and never a file or anything the " +
+                "assistant looked up.",
             },
             {
               term: "The application and the database",
@@ -1277,14 +1319,18 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "Role-based permissions, with the map from every endpoint to its required " +
                   "permission asserted when the service starts, so a route cannot ship " +
                   "without a declared lock behind it.",
-                "Operator access to a client account is read-only, requires a short-lived " +
-                  "signed grant naming that operator and that client, and is audited twice.",
+                "Our staff can see all of a client's data (section 4.3). Viewing a " +
+                  "client's own screens is read-only, requires a short-lived signed grant " +
+                  "naming that person and that client, and is audited twice.",
                 "The audit record and the consent, billing and usage ledgers are " +
                   "insert-only, enforced by database triggers rather than by convention. " +
                   "Corrections are compensating entries; nothing is rewritten. Audit " +
                   "entries are chained with a keyed hash so a removal or an edit is " +
                   "detectable.",
-                "Transcripts are redacted before they leave the system, and the redaction " +
+                "Transcripts are redacted by default on every screen, export and " +
+                  "notification. Besides the account owner's audited read (section 4.2), two " +
+                  "processes read the full text, and sections 3.2 and 8 say where it goes: the first pass after each call, and the in-app " +
+                  "assistant once the account owner has turned it on. The redaction " +
                   "pair also backs the log formatter, the error-reporting hook and every " +
                   "operator alert. Traces are redacted at the exporter rather than at each " +
                   "call site.",
@@ -1519,15 +1565,16 @@ export const PRIVACY_POLICY: LegalDocument = {
                   "is told how many of their documents mention you, and removing them is " +
                   "manual work on their side.",
                 "Backups age out on their own 35-day cycle.",
-                "NOT YET ON THE CERTIFICATE, and stated here rather than held back until " +
-                  "it is: an erasure does not search what the in-app assistant remembers. " +
-                  "Those records are a client's own staff asking questions about their " +
-                  "own console, and identifiers are stripped from them before they are " +
-                  "written — but the pass that strips them recognises phone numbers and " +
-                  "document numbers, not names, so a first name typed into a question can " +
-                  "survive in one. They are deleted at 180 days whether or not anybody " +
-                  "asks, and entirely when the account closes. We would rather tell you " +
-                  "that the erasure does not reach them than let the list imply it does.",
+                "A client's conversations with the in-app assistant are searched for " +
+                  "the number, and every stored question or answer that contains it is " +
+                  "deleted. The notes the assistant distils from those conversations are " +
+                  "NOT searched, and that is NOT YET ON THE CERTIFICATE: identifiers are " +
+                  "stripped from those notes before they are written, but the pass that " +
+                  "strips them recognises phone numbers and document numbers, not names, " +
+                  "so a first name typed into a question can survive in one. They are " +
+                  "deleted at 180 days whether or not anybody asks, and entirely when the " +
+                  "account closes. We would rather tell you that the erasure does not " +
+                  "reach them than let the list imply it does.",
               ],
             },
           ],

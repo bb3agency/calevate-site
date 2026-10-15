@@ -124,7 +124,7 @@ export function RefundPanel({
         Sends money back to {clientName} at the payment provider AND records the matching
         entry on this wallet, so the ledger and the bank keep agreeing.{" "}
         <span className="font-semibold">This cannot be undone</span> — the money leaves,
-        and the ledger is append-only. It is recorded against your name.
+        and the ledger is append-only.
       </p>
 
       <NoticeBox
@@ -218,7 +218,7 @@ export function RefundPanel({
         <Field
           label="Why"
           id="refund-reason"
-          hint="Your own words, up to 280 characters. Written to the audit trail — it is what a later review of money leaving is looking for."
+          hint="Your own words, up to 280 characters. It is what a later review of money leaving is looking for."
           error={null}
         >
           <textarea

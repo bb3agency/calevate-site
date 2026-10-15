@@ -60,7 +60,7 @@ export function AddOperatorDrawer({
       open
       onClose={onClose}
       title="Add an admin"
-      description="Recorded in the audit log against your account, with the reason you type."
+      description="Choose their tier and say why they need access."
     >
       <form
         className="space-y-4"
@@ -171,8 +171,7 @@ export function AddOperatorDrawer({
           />
           {valid.error("reason")}
           <span className={FIELD_HINT}>
-            Recorded in the audit log beside who asked for it. Whoever reads this row in a year
-            has to be able to decide whether the reason still holds.
+            Write it so someone reading it in a year can tell whether it still holds.
           </span>
         </label>
 

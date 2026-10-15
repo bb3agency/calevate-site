@@ -957,7 +957,7 @@ describe("a proposal", () => {
     //
     // IT NOW ARRIVES AS `TransportProblem` rather than as a bare `TypeError`, so the box
     // is the one that class writes: the same two facts (no reply, no knowledge of the
-    // outcome) plus a support reference and the reason the browser gave. The sentence
+    // outcome) plus an error code and the reason the browser gave. The sentence
     // asserted here used to be `ProblemNotice`'s no-problem arm, which this path no
     // longer reaches — and the reason that matters is the reference: a confirm that
     // vanished into a blocked response is exactly the failure an operator has to be able
@@ -970,7 +970,7 @@ describe("a proposal", () => {
 
     expect(
       await screen.findByText(
-        "No reply reached this page, so we could not confirm whether that was done.",
+        "We could not confirm that went through.",
       ),
     ).toBeTruthy();
     // STILL NO CLAIM ABOUT THE OUTCOME. The token may have been spent; the card may not

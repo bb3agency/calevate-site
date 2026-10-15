@@ -483,7 +483,7 @@ function ClientRow({ tenant }: { tenant: TenantSummary }) {
               // The marker selects the impersonating credential and grants nothing
               // (lib/api/session.tsx); everything viewed and changed is logged.
               id: "view-as",
-              label: "View as client (logged)",
+              label: "View as client",
               href: viewAsHref(tenant.slug),
             },
           ]}

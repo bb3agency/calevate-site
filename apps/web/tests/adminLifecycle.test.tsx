@@ -224,7 +224,7 @@ describe("the account state screen", () => {
     await waitFor(() => {
       expect(container.textContent).toContain("was already suspended");
     });
-    expect(container.textContent).toContain("no audit row was written");
+    expect(container.textContent).toContain("Nothing changed.");
   });
 
   it("cannot close an account at all — there is one door and it is not this one", async () => {

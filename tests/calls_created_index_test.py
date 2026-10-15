@@ -1,0 +1,61 @@
+"""The reads that find a tenant's calls by `created_at` are served by an index (D-787).
+
+The attention queue's failed calls (polled by the header bell on every console page) and
+the Performance tab's aggregates filter `calls` by `created_at`. Without
+`ix_calls_tenant_created` each one scanned every call the tenant ever made. This runs the
+real functions, captures the statements they send, and asks the planner how it would run
+each with sequential scans priced out — so a dropped index, or a query rewritten into a
+shape the index cannot serve, fails here rather than as a slow console.
+"""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from apps.api.admin import service as admin_service
+from apps.api.crm.attention import failed_calls
+from apps.api.crm.performance import performance
+from apps.api.db.session import get_engine, tenant_session
+from sqlalchemy import event, text
+
+INDEX = "ix_calls_tenant_created"
+
+
+async def _tenant() -> uuid.UUID:
+    created = await admin_service.create_organization(
+        name="Created At Motors",
+        slug=f"created-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    return uuid.UUID(str(created["id"]))
+
+
+async def test_the_reads_by_creation_time_use_the_index() -> None:
+    tenant_id = await _tenant()
+    captured: list[tuple[str, Any]] = []
+
+    def capture(_conn: Any, _cursor: Any, statement: str, params: Any, *_rest: Any) -> None:
+        if "FROM calls" in statement and "created_at >" in statement:
+            captured.append((statement, params))
+
+    sync_engine = get_engine().sync_engine
+    event.listen(sync_engine, "before_cursor_execute", capture)
+    try:
+        async with tenant_session(tenant_id) as session:
+            await failed_calls(session)
+            await performance(session, days=7)
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", capture)
+
+    # failed calls, plus the Performance funnel, outcomes and busiest hours.
+    assert len(captured) == 4
+    async with tenant_session(tenant_id) as session:
+        await session.execute(text("SET LOCAL enable_seqscan = off"))
+        connection = await session.connection()
+        for statement, params in captured:
+            plan = (await connection.exec_driver_sql("EXPLAIN " + statement, params)).all()
+            assert INDEX in " ".join(str(row[0]) for row in plan), statement

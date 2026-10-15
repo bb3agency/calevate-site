@@ -97,8 +97,7 @@ export function HoldsScreen() {
           <>
             Accounts that cannot dial until we act. Oldest first.{" "}
             <InfoTip label="About this queue">
-              Read-only: every decision is recorded on the account&apos;s own screen, where it
-              is audited. A row leaves this list when the gate that held it is cleared — the
+              Read-only: every decision is made on the account&apos;s own screen. A row leaves this list when the gate that held it is cleared — the
               list is built from the same predicates that refuse the client&apos;s dial and
               launch, so it cannot say an account is clear while the client is staring at a
               refusal.

@@ -1184,6 +1184,19 @@ def _resolve(rows: Mapping[str, Any], environ: Mapping[str, str]) -> dict[str, A
         value = _typed(key, stored)
         if value is None and stored is not None:
             log.warning("platform_config_row_invalid", extra={"config_key": key})
+            # Alarmed as well as logged: the usual cause is a model id the vendor withdrew
+            # (D-786), and an operator who chose it must learn that the default now runs.
+            alert(
+                "CORE_LOGIC",
+                "platform_config_row_invalid",
+                detail=(
+                    f"The console setting {key} holds a value this release no longer "
+                    "accepts, so it is ignored and the built-in default is in force. "
+                    "Open the setting in the ops console and choose a current value."
+                ),
+                episode=key,
+                config_key=key,
+            )
             continue
         resolved[key] = value
     return resolved

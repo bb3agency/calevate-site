@@ -43,17 +43,19 @@ export function LiveCallsPill({ slug }: { slug: string }) {
   const { session, href } = useClientRealm();
   const live = useCalls(session, { status: LIVE_STATUS, limit: LIVE_PAGE });
   if (live.isPending) return null;
-  // A failed read is not "no calls live": it says it could not check, like the bell's "?".
+  // A failed read is not "no calls live": it says in words that it could not check.
   if (live.isError) {
     return (
       <Link
         href={href(`/c/${slug}/calls`)}
-        aria-label="Live calls: we could not check just now"
-        title="We could not check for calls in progress. Open the call log to try again."
+        aria-label="Live calls: couldn't check. Open the call log to try again."
+        title="We couldn't check for calls in progress. Open the call log to try again."
         className={`${BAR_STATUS} text-ink-muted`}
       >
         <span aria-hidden className="h-2 w-2 rounded-full bg-ink-faint" />
-        live ?
+        <span>
+          <span className="text-ink-muted">Live calls:</span> {"couldn't check"}
+        </span>
       </Link>
     );
   }

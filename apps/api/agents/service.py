@@ -518,29 +518,33 @@ def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
     return value in AGENT_DIRECTIONS
 
 
-def answers_on_a_number(
+def holds_a_number(
     *, status: str, direction: str, engine_agent_ref: object, number_refs: list[object]
 ) -> bool:
-    """Does the voice platform hold one of these numbers as this agent's answering line?
+    """Does the voice platform hold one of these numbers for this agent, as its answering
+    line or lent to it for calling out?
 
     Exactly when our number sync makes it so (`campaigns/engine_numbers.wanted_attachment`):
-    a live agent that answers calls, with a number in its own workspace. An outbound-only
-    agent is only lent a number to call out on, and the shared trial number is lent per
-    call without a row here, so neither counts: ThinnestAI adds "phone" to an agent only
-    when a number is attached to it, and refuses it otherwise (F1)."""
+    a live agent with a number in its own workspace. Both count, because the platform takes
+    `phone` on an agent with "a number to answer or call from" and refuses it otherwise
+    (F1), and places calls only from an agent that has it (`calling_not_set_up`; docs.
+    thinnest.ai agents/update-agent `voice.surfaces` and calls/place-call, read 15 Oct 2026).
+    The shared trial number is lent per call without a row here, so it gets `phone` at the
+    dial instead (`engine_numbers.lend_platform_line`)."""
     from apps.api.campaigns.engine_numbers import wanted_attachment
 
     if not isinstance(engine_agent_ref, str) or not engine_agent_ref:
         return False
-    agent, _calling = wanted_attachment(
+    agent, calling = wanted_attachment(
         released=False,
         direction=direction,
         status=status,
         engine_agent_ref=engine_agent_ref,
         archived=False,
     )
-    return agent is not None and any(
-        scope_of(str(ref)) == scope_of(agent) for ref in number_refs if ref
+    held = agent or calling
+    return held is not None and any(
+        scope_of(str(ref)) == scope_of(held) for ref in number_refs if ref
     )
 
 
@@ -594,7 +598,7 @@ async def _load_agent(
                 # The call handling settings and the account defaults they inherit (D-751,
                 # F3, F9), in this statement for `default_llm_model`'s reason.
                 f"{AGENT_SETTING_COLUMNS}, {ORG_SETTING_COLUMNS}, "
-                # The engine numbers bound to the agent, for `answers_on_a_number` (F1).
+                # The engine numbers bound to the agent, for `holds_a_number` (F1).
                 "ARRAY(SELECT n.engine_number_ref FROM phone_numbers n WHERE n.agent_id = a.id "
                 "AND n.released_at IS NULL AND n.engine_number_ref IS NOT NULL "
                 "AND n.provider = :number_provider), "
@@ -678,7 +682,7 @@ async def _load_agent(
         "organization_end_call_on_finish": row[39],
         "call_settings": settings_from_row(tuple(row[29:38])),
         "organization_call_settings": settings_from_row(tuple(row[38:47])),
-        "has_phone_number": answers_on_a_number(
+        "has_phone_number": holds_a_number(
             status=str(row[12]),
             direction=str(direction),
             engine_agent_ref=row[11],

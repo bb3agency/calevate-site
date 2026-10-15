@@ -497,11 +497,13 @@ def test_the_migrations_frozen_allow_list_still_matches_the_live_one() -> None:
     revision, or the database will refuse the value the API just accepted."""
     original = _load_revision("b7d2f10c93ae_a_client_chooses_the_model_their_agents_run")
     widened = _load_revision("d3a7c81f45be_a_client_chooses_a_model_on_any_declared_leg")
-    # THE LIVE CONSTRAINT IS THE LATER REVISION'S, AND IT IS THE WHOLE CATALOGUE. A CHECK is
+    october = _load_revision("a6e2c9f41d83_gemini_catalogue_follows_google_oct_2026")
+    # THE LIVE CONSTRAINT IS THE LATEST REVISION'S, AND IT IS THE WHOLE CATALOGUE. A CHECK is
     # a FLOOR against values no writer should produce; which models may be CHOSEN depends on
-    # a live credential and a live attestation, facts a constraint cannot see (see that
-    # revision's docstring for the argument in full).
-    assert set(widened.ALLOWED_LLM_MODELS) == LLM_MODEL_NAMES
+    # a live credential and a live attestation, facts a constraint cannot see (see
+    # `d3a7c81f45be`'s docstring for the argument in full).
+    assert set(october.ALLOWED_LLM_MODELS) == LLM_MODEL_NAMES
+    assert set(october.PRIOR_ALLOWED_LLM_MODELS) == set(widened.ALLOWED_LLM_MODELS)
     # AND THE EARLIER REVISION'S COPY IS FROZEN AT WHAT IT ADMITTED, which is what the
     # downgrade path restores — so the two are checked against each other rather than one
     # being quietly re-pointed at today's set.

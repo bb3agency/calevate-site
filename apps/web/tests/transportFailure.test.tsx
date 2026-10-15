@@ -179,12 +179,13 @@ describe("a fetch that rejects", () => {
     render(<ProblemNotice error={error} onRetry={() => {}} />);
     const box = screen.getByRole("alert").textContent ?? "";
 
-    expect(box).toContain("No reply reached this page");
+    expect(box).toContain("We could not confirm that went through.");
+    expect(box).toContain("Check whether it did before you try again.");
     // THE TWO CLAIMS IT MAY NOT MAKE. It cannot see WHY the reply was withheld — "check
     // your connection" sends a person to fix a connection that may be perfect — and it
     // cannot know whether the write landed, so it must not imply that nothing happened.
     expect(box).not.toContain("nothing was submitted");
-    expect(box.startsWith("No reply")).toBe(true);
+    expect(box.startsWith("We could not confirm")).toBe(true);
     // Retryable, which is honest and is what keeps the button the generic arm used to
     // grant unconditionally.
     expect(error.retryable).toBe(true);
@@ -198,8 +199,8 @@ describe("a fetch that rejects", () => {
     render(<ProblemNotice error={error} onRetry={() => {}} />);
     const box = screen.getByRole("alert").textContent ?? "";
 
-    expect(box).toContain("could not be loaded");
-    expect(box).not.toContain("whether that was done");
+    expect(box).toContain("This did not load.");
+    expect(box).not.toContain("went through");
   });
 
   it("does not steal the deadline's rejection", async () => {

@@ -67,7 +67,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -222,6 +222,52 @@ class SampledCall:
     reviewed_at: datetime | None
 
 
+#: What the queue can be narrowed to. `waiting` is the work list; `reviewed` is the record.
+QueueStatus = Literal["waiting", "reviewed", "all"]
+#: `oldest` is the work order: the week that has waited longest is cleared first, so a
+#: client's sample never ages out behind newer weeks. `newest` is for reading the record.
+QueueOrder = Literal["oldest", "newest"]
+
+#: The ceiling on how far into one filtered queue a page may reach. The admin queue merges
+#: every tenant's rows in Python (see `sampling_routes`), so each tenant is asked for
+#: `offset + limit` rows; this bounds that ask whatever the caller sends.
+QUEUE_WINDOW_MAX = 1000
+
+
+@dataclass(frozen=True, slots=True)
+class QueueFilter:
+    """The narrowing one queue read applies inside one tenant.
+
+    A `verdict` with `status="waiting"` matches nothing, and is left to do so rather than
+    being refused: the empty answer is true, and the console never sends the pair.
+    """
+
+    status: QueueStatus = "waiting"
+    verdict: Verdict | None = None
+    week_start: date | None = None
+
+
+def _queue_where(flt: QueueFilter) -> str:
+    """The WHERE for `flt`, built only from the literals below; values are bound."""
+    clauses = (
+        "s.verdict IS NULL" if flt.status == "waiting" else "",
+        "s.verdict IS NOT NULL" if flt.status == "reviewed" else "",
+        "s.verdict = :verdict" if flt.verdict is not None else "",
+        "s.week_start = :week_start" if flt.week_start is not None else "",
+    )
+    joined = " AND ".join(clause for clause in clauses if clause)
+    return f"WHERE {joined}" if joined else ""
+
+
+def _queue_params(flt: QueueFilter) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if flt.verdict is not None:
+        params["verdict"] = flt.verdict
+    if flt.week_start is not None:
+        params["week_start"] = flt.week_start
+    return params
+
+
 _QUEUE_SQL = """
 SELECT s.id, s.call_id, a.name, s.week_start, s.population, s.target, s.selection_rank,
        s.selection_seed, s.selected_at, c.started_at, c.duration_s, c.direction,
@@ -230,27 +276,65 @@ FROM qa_call_samples s
 JOIN calls c ON c.id = s.call_id
 JOIN agents a ON a.id = c.agent_id
 {where}
-ORDER BY s.week_start DESC, s.selection_rank
+ORDER BY s.week_start {direction}, s.selection_rank, s.id
 LIMIT :limit
 """
 
 
 async def list_samples(
-    session: AsyncSession, *, pending_only: bool = True, limit: int = 200
+    session: AsyncSession,
+    *,
+    flt: QueueFilter | None = None,
+    order: QueueOrder = "newest",
+    limit: int = 200,
 ) -> list[SampledCall]:
-    """This tenant's sampled calls, newest week first, in the DRAW's own order.
+    """This tenant's sampled calls, by week and then in the DRAW's own order.
 
-    Draw order, not "worst first": a reviewer who works the queue in an order the queue
-    chose for them is reviewing our opinion of the calls rather than a sample. The rank
-    is on screen for the same reason.
+    Draw order within a week, not "worst first": a reviewer who works the queue in an
+    order the queue chose for them is reviewing our opinion of the calls rather than a
+    sample. The rank is on screen for the same reason.
     """
-    where = "WHERE s.verdict IS NULL" if pending_only else ""
-    rows = (
-        await session.execute(
-            text(_QUEUE_SQL.format(where=where)), {"limit": max(1, min(limit, 500))}
-        )
-    ).all()
+    flt = flt or QueueFilter()
+    sql = _QUEUE_SQL.format(
+        where=_queue_where(flt), direction="ASC" if order == "oldest" else "DESC"
+    )
+    params = {**_queue_params(flt), "limit": max(1, min(limit, QUEUE_WINDOW_MAX))}
+    rows = (await session.execute(text(sql), params)).all()
     return [_row(r) for r in rows]
+
+
+@dataclass(frozen=True, slots=True)
+class QueueCounts:
+    """One tenant's queue in numbers: what is waiting, what was ever drawn, and how many
+    rows the current filter matches — the last is what makes a merged page's total exact."""
+
+    waiting: int
+    sampled: int
+    matching: int
+    weeks: tuple[date, ...]
+
+
+_COUNTS_SQL = """
+SELECT count(*) FILTER (WHERE s.verdict IS NULL),
+       count(*),
+       count(*) FILTER (WHERE {match})
+FROM qa_call_samples s
+"""
+
+_WEEKS_SQL = "SELECT DISTINCT week_start FROM qa_call_samples ORDER BY week_start DESC LIMIT :weeks"
+
+
+async def queue_counts(session: AsyncSession, flt: QueueFilter, *, weeks: int) -> QueueCounts:
+    """Counts for this tenant's queue and its `weeks` most recent draw weeks."""
+    where = _queue_where(flt)
+    match = where.removeprefix("WHERE ") if where else "true"
+    waiting, sampled, matching = (
+        await session.execute(text(_COUNTS_SQL.format(match=match)), _queue_params(flt))
+    ).one()
+    drawn = (await session.execute(text(_WEEKS_SQL), {"weeks": weeks})).scalars().all()
+    return QueueCounts(
+        waiting=int(waiting), sampled=int(sampled), matching=int(matching), weeks=tuple(drawn)
+    )
 
 
 def _row(r: Any) -> SampledCall:
@@ -280,7 +364,7 @@ async def find_sample(session: AsyncSession, sample_id: UUID) -> SampledCall | N
     another tenant is indistinguishable from one that does not exist, deliberately."""
     row = (
         await session.execute(
-            text(_QUEUE_SQL.format(where="WHERE s.id = :sid")),
+            text(_QUEUE_SQL.format(where="WHERE s.id = :sid", direction="DESC")),
             {"limit": 1, "sid": sample_id},
         )
     ).first()
@@ -342,12 +426,18 @@ async def record_review(
 __all__ = [
     "QA_SAMPLE_RATE",
     "QA_VERDICTS",
+    "QUEUE_WINDOW_MAX",
+    "QueueCounts",
+    "QueueFilter",
+    "QueueOrder",
+    "QueueStatus",
     "SampledCall",
     "WeekDraw",
     "draw_week_sample",
     "find_sample",
     "ist_week_start",
     "list_samples",
+    "queue_counts",
     "record_review",
     "seed_for",
 ]

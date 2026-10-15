@@ -47,7 +47,9 @@ Plan and build state: `docs/THINNEST-INTEGRATION.md`.
 Multi-tenant AI voice-agent SaaS (India, Telugu-first) on the ThinnestAI engine. Outside the
 call, two language legs are ours: **dashboard AI** on **Azure OpenAI in East US 2**
 (`AZURE_LOCATION`, `eastus2`; default `AZURE_OPENAI_DEFAULT_MODEL`, `gpt-4o-mini`), under
-D-127's redaction rules; and the **first post-call extraction on Sarvam, permanently**,
+D-127's redaction rules (Pip excepted once the account owner turns it on, D-788: its primary
+model then receives what is typed, attached and read unmasked; the standby stays masked); and
+the **first post-call extraction on Sarvam, permanently**,
 because it reads the raw transcript (`GEMINI_EXTRACTION_DEFAULT is False`). What a client
 may pick is `agents/llm_models.offerable_models()` — selectable AND credentialled AND priced
 — never a constant; a catalogue price has no path to `unit_cost_paid` (hard rule 7 is

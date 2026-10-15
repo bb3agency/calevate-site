@@ -37,6 +37,8 @@ ADMIN_BOOTSTRAP_PATH = "/auth/admin/bootstrap"
 ADMIN_RESET_PASSWORD_PATH = "/auth/admin/reset-password"
 CLIENT_RESET_PASSWORD_PATH = "/auth/reset-password"
 CLIENT_ACCEPT_INVITE_PATH = "/auth/accept-invitation"
+#: The operator console's alarm board, linked from every alert email.
+ADMIN_OPS_ALERTS_PATH = "/admin/ops/alerts"
 
 #: The query parameter every single-use link travels in. One name, because
 #: `apps/web/src/lib/authn/useLinkToken` strips exactly this one out of the URL on arrival
@@ -159,10 +161,16 @@ def accept_invitation_link(token: str) -> str:
     return _link(CONSOLE_BASE, CLIENT_ACCEPT_INVITE_PATH, token)
 
 
+def ops_alerts_link() -> str:
+    """Ops > Alerts on the operator console. Carries no token: the page needs a session."""
+    return f"{ADMIN_CONSOLE_BASE}{ADMIN_OPS_ALERTS_PATH}"
+
+
 __all__ = [
     "ADMIN_AUTH_PREFIX",
     "ADMIN_BOOTSTRAP_PATH",
     "ADMIN_CONSOLE_BASE",
+    "ADMIN_OPS_ALERTS_PATH",
     "ADMIN_ORIGIN_PREFIXES",
     "ADMIN_REALM_PREFIXES",
     "ADMIN_RESET_PASSWORD_PATH",
@@ -176,5 +184,6 @@ __all__ = [
     "admin_bootstrap_link",
     "client_console_redirect",
     "console_base",
+    "ops_alerts_link",
     "password_reset_link",
 ]

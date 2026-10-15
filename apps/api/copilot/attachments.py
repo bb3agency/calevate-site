@@ -143,6 +143,15 @@ _BINARY_SIGNATURES: Final = (
 )
 
 
+def uploads_available() -> bool:
+    """Whether an upload can be stored: the one predicate behind both the refusal in
+    `begin` and the `uploads_available` flag on Pip's conversation read. The browser reads
+    the flag and never starts an upload this would refuse, because a refusal sent while
+    the body is still streaming can reach it as a reset stream rather than as this
+    problem (an HTTP/2 proxy resetting an unbuffered request it has already answered)."""
+    return storage.uploads_configured()
+
+
 def uploads_unavailable() -> ProblemError:
     return ProblemError(
         kind="dependency",
@@ -483,7 +492,7 @@ async def begin(
     Pip reads when Gemini cannot read the PDF itself. It rides with its PDF, so it counts
     toward the message's bytes and not toward its files.
     """
-    if not storage.uploads_configured():
+    if not uploads_available():
         raise uploads_unavailable()
     if text_of is not None:
         if declared_type.split(";", 1)[0].strip().lower() != "text/plain":
@@ -1061,5 +1070,6 @@ __all__ = [
     "stored_type_for",
     "sweep_ended",
     "transcript_question",
+    "uploads_available",
     "uploads_unavailable",
 ]

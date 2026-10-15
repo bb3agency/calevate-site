@@ -90,10 +90,7 @@ function ConfirmBlock({
         <div className="min-w-0">
           <p className="font-semibold text-ink">{heading}</p>
           <div className="mt-1 text-ink-muted">{consequence}</div>
-          <p className="mt-1 text-meta text-ink-muted">
-            Recorded in the audit log against your admin account, with the reason you type
-            below.
-          </p>
+          <p className="mt-1 text-meta text-ink-muted">Give a reason below.</p>
         </div>
       </div>
 

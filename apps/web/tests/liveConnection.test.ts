@@ -3,8 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiProblem } from "@/lib/api/client";
 import type { SseEvent } from "@/lib/copilot/sse";
 import { LiveConnection, type LiveConnectionDeps } from "@/lib/live/liveConnection";
-import { LIVE_SAFETY_POLL_MS, livePoll, setLiveHealthy } from "@/lib/live/liveStatus";
-import { ALL_LIVE_FAMILIES } from "@/lib/live/topics";
+import {
+  BASE_STALE_MS,
+  LIVE_SAFETY_POLL_MS,
+  livePoll,
+  liveStaleTime,
+  setLiveHealthy,
+} from "@/lib/live/liveStatus";
+import { ALL_LIVE_FAMILIES, STATIC_FAMILIES } from "@/lib/live/topics";
 
 /**
  * The live stream's client rules (D-774), with fake timers: a burst is one refetch per
@@ -23,6 +29,7 @@ type Stream = {
 function harness(overrides: Partial<LiveConnectionDeps> = {}) {
   const streams: Stream[] = [];
   const invalidations: Set<string>[] = [];
+  const readBefore: (number | undefined)[] = [];
   const health: boolean[] = [];
   let visible = true;
   const deps: LiveConnectionDeps = {
@@ -36,7 +43,10 @@ function harness(overrides: Partial<LiveConnectionDeps> = {}) {
           signal,
         });
       }),
-    invalidate: (families) => invalidations.push(new Set(families)),
+    invalidate: (families, before) => {
+      invalidations.push(new Set(families));
+      readBefore.push(before);
+    },
     onHealth: (healthy) => health.push(healthy),
     isVisible: () => visible,
     random: () => 0.5,
@@ -49,6 +59,7 @@ function harness(overrides: Partial<LiveConnectionDeps> = {}) {
     connection,
     streams,
     invalidations,
+    readBefore,
     health,
     setVisible: (next: boolean) => {
       visible = next;
@@ -88,6 +99,34 @@ describe("LiveConnection", () => {
     expect(burst.has("wallet")).toBe(true);
     expect(burst.has("dashboard")).toBe(true);
     expect(burst.has("kb")).toBe(false);
+  });
+
+  it("on ready refetches only what was read before the stream opened", async () => {
+    vi.setSystemTime(1_000_000);
+    const h = harness();
+    h.connection.start();
+    // The page's own reads land while the stream is still opening; they are not repeated.
+    await vi.advanceTimersByTimeAsync(700);
+    h.streams[0].emit("ready");
+    expect(h.readBefore).toEqual([1_000_000]);
+
+    // A note restarts every read in its families, whenever it was made.
+    h.streams[0].emit("change", { topic: "calls", at: "x" });
+    await vi.advanceTimersByTimeAsync(400);
+    expect(h.readBefore.at(-1)).toBeUndefined();
+
+    // A resync, and a drop, cover everything: notes were lost while the tab held its data.
+    h.streams[0].emit("resync", { reason: "fell_behind" });
+    expect(h.readBefore.at(-1)).toBeUndefined();
+    h.streams[0].fail(new Error("network"));
+    await flush();
+    expect(h.readBefore.at(-1)).toBeUndefined();
+
+    // The reopened stream catches up on what was read before IT opened.
+    await vi.advanceTimersByTimeAsync(500);
+    expect(h.streams).toHaveLength(2);
+    h.streams[1].emit("ready");
+    expect(h.readBefore.at(-1)).toBe(1_001_600);
   });
 
   it("reconnects after a drop with jittered backoff, and refetches meanwhile", async () => {
@@ -181,5 +220,18 @@ describe("livePoll", () => {
     setLiveHealthy(true);
     expect(livePoll<unknown>(false)(undefined)).toBe(false);
     expect(livePoll<{ done: boolean }>((q) => (q.done ? false : 1_000))({ done: true })).toBe(false);
+  });
+});
+
+describe("liveStaleTime", () => {
+  it("keeps a live family fresh for the safety period while the stream is healthy, and nothing else", () => {
+    const live = { queryKey: ["dashboard", "acme"] };
+    const notCovered = { queryKey: [Object.keys(STATIC_FAMILIES)[0], "acme"] };
+    expect(liveStaleTime(live)).toBe(BASE_STALE_MS);
+    setLiveHealthy(true);
+    expect(liveStaleTime(live)).toBe(LIVE_SAFETY_POLL_MS);
+    expect(liveStaleTime(notCovered)).toBe(BASE_STALE_MS);
+    setLiveHealthy(false);
+    expect(liveStaleTime(live)).toBe(BASE_STALE_MS);
   });
 });

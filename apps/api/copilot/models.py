@@ -508,6 +508,34 @@ class AdminCopilotAction(_ActionColumns, PKMixin, TimestampMixin, Base):
     )
 
 
+class CopilotConsent(PKMixin, Base):
+    """An account owner turning Pip on for the whole account (D-788, migration
+    `b4d7e2a9c815`).
+
+    APPEND-ONLY (`APPEND_ONLY_TABLES`): accepting a new disclosure version is a new row, and
+    the one it supersedes survives, because "was Pip on, under which words, when this was
+    sent" is asked after the fact. `copilot/consent.read_consent` judges the latest row.
+    """
+
+    __tablename__ = "copilot_consents"
+    __table_args__ = (
+        CheckConstraint("btrim(disclosure_version) <> ''", name="version_present"),
+        CheckConstraint("text_sha256 ~ '^[0-9a-f]{64}$'", name="text_sha256_hex"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    disclosure_version: Mapped[str] = mapped_column(Text, nullable=False)
+    text_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    accepted_by_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    ip: Mapped[str | None] = mapped_column(Text)
+    accepted_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+
+
 class CopilotJob(PKMixin, TimestampMixin, Base):
     """One background job the client assistant is running (D-694 item 7).
 
@@ -563,6 +591,7 @@ __all__ = [
     "AdminCopilotConversationTurn",
     "AdminCopilotMemory",
     "CopilotAction",
+    "CopilotConsent",
     "CopilotConversationTurn",
     "CopilotJob",
     "CopilotMemory",

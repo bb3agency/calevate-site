@@ -34,7 +34,7 @@ import jwt
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.api_security_test import _make_tenant
+from tests.conftest import make_tenant_with_pip as _make_tenant
 
 from apps.api.billing import ai_quota
 from apps.api.compliance import dnc_recall
@@ -284,9 +284,8 @@ async def test_every_tool_proposes_a_readable_change_and_writes_nothing() -> Non
 
 
 async def test_a_proposal_never_carries_the_phone_number_it_is_about() -> None:
-    """`dnc_add` names the number by LEAD ID because `sanitize.assert_redacted` refuses a
-    payload that still looks like a phone number — so the number must not travel back out
-    either, in the token or in the sentence (hard rule 6)."""
+    """`dnc_add` names the number by LEAD ID, so the number does not travel back out in the
+    token or in the sentence (hard rule 6)."""
     tenant_id, _slug, token = await _make_tenant()
     lead_id = await _lead_of(tenant_id)
     async with tenant_session(tenant_id) as session:

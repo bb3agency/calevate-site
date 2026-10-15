@@ -291,7 +291,7 @@ function FixChooser({ wallet, onAct }: { wallet: Credits; onAct: (act: Act) => v
     { act: { kind: "correct" }, line: "Too much was credited — the wrong client, or more than arrived." },
     { act: { kind: "restate" }, line: "Too little was credited against a bank transfer." },
     { act: { kind: "refund" }, line: "Send a captured payment back through the payment provider." },
-    { act: { kind: "grant" }, line: "Credit with no payment behind it, audited." },
+    { act: { kind: "grant" }, line: "Credit with no payment behind it." },
     ...(wallet.lots.length > 0
       ? [{ act: { kind: "reprice" } as Act, line: "Make the minutes in one lot cheaper." }]
       : []),

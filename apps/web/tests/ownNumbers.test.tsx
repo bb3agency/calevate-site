@@ -431,7 +431,7 @@ describe("buying a number", () => {
 
   it("says an earlier request already bought it, and claims no charge, on a replay", async () => {
     await buyAnswering({ attachment: "unchanged", replayed: true, first_period: "replayed" });
-    expect(screen.getByText("Your earlier request already bought this number.")).toBeTruthy();
+    expect(screen.getByText("Your earlier try already bought this number.")).toBeTruthy();
     expect(screen.queryByText(/charged now/)).toBeNull();
   });
 
@@ -474,7 +474,7 @@ describe("what the confirmation says was charged", () => {
   it("claims no charge for a replayed purchase", () => {
     const sentence = firstPeriodSentence("replayed", "499.00");
     expect(sentence).not.toMatch(/charged/);
-    expect(sentence).toBe("Your earlier request already bought this number.");
+    expect(sentence).toBe("Your earlier try already bought this number.");
   });
 });
 

@@ -216,7 +216,9 @@ describe("the landing page's claims", () => {
      * language-model step may be processed abroad by its own policy.
      */
     expect(text).toContain("we report what it tells us rather than promise it");
-    expect(text).toContain("account in the United States, in its East US 2 region");
+    // Pip runs on a paid AI service (D-788): the page says it does not train and may
+    // process abroad, and names no provider.
+    expect(text).toContain("does not train on what it is sent and may process or");
     // D-679: the provider behind it is on the named list given on request, not on this page.
     expect(text).not.toMatch(/(microsoft|azure|openai)/i);
     expect(text).not.toMatch(
@@ -252,11 +254,9 @@ describe("the landing page's claims", () => {
     expect(text).not.toMatch(
       /\b(guarantee[sd]?|guaranteed|certified)\b[^.]{0,40}\bindia/i,
     );
-    // And the correction is PINNED, not merely un-banned: the sentence has to keep
-    // saying which half is machine-checked and which half a person confirms, because
-    // deleting that clause is how the over-claim comes back looking like a tidy-up.
-    // `docs/LEGAL-SURFACE.md` F-1 is where the wording comes from.
-    expect(text).toContain("checked, not proved by a build");
+    // The assistant's processing abroad is stated, not merely un-banned: deleting the
+    // clause is how the over-claim comes back looking like a tidy-up.
+    expect(text).toContain("briefly hold it in any country where that provider has facilities");
     /*
      * AND THE OTHER HALF OF THE PICTURE IS PINNED TOO, for the same reason.
      *

@@ -11415,6 +11415,83 @@
         "title": "CopilotConfirmOut",
         "type": "object"
       },
+      "CopilotConsentIn": {
+        "additionalProperties": false,
+        "description": "Echoes what the panel showed, so a panel opened before a new version cannot accept\nwords the owner never saw.",
+        "properties": {
+          "text_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Text Sha256",
+            "type": "string"
+          },
+          "version": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "text_sha256"
+        ],
+        "title": "CopilotConsentIn",
+        "type": "object"
+      },
+      "CopilotConsentOut": {
+        "additionalProperties": false,
+        "description": "Whether Pip is on for this account, and what the owner reads to turn it on (D-788).\n\n`status` is `accepted` or `not_required` (the admin console) when Pip may answer;\n`required` and `outdated` lock it. `can_accept` says whether THIS person may turn it on:\nthe account owner, signed in as themselves. The text is served rather than kept in the\nbrowser so the words shown and the hash recorded cannot come from two places.",
+        "properties": {
+          "accepted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
+          },
+          "can_accept": {
+            "title": "Can Accept",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "required",
+              "outdated",
+              "not_required"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "text_sha256": {
+            "title": "Text Sha256",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "text",
+          "text_sha256",
+          "can_accept",
+          "accepted_at"
+        ],
+        "title": "CopilotConsentOut",
+        "type": "object"
+      },
       "CopilotConversationClearedOut": {
         "additionalProperties": false,
         "description": "`DELETE /v1/copilot/conversation` \u2014 what \"start again\" forgot.\n\nA count rather than a bare 204, because it is the one number that distinguishes \"your\nconversation is gone\" from \"there was nothing there\" \u2014 and because a person who\nclicked Clear on a device whose thread had already been swept by the run rule should\nnot be told something happened that did not.",
@@ -11439,6 +11516,9 @@
             "title": "Answering",
             "type": "boolean"
           },
+          "consent": {
+            "$ref": "#/components/schemas/CopilotConsentOut"
+          },
           "has_more": {
             "default": false,
             "title": "Has More",
@@ -11451,8 +11531,16 @@
             },
             "title": "Turns",
             "type": "array"
+          },
+          "uploads_available": {
+            "title": "Uploads Available",
+            "type": "boolean"
           }
         },
+        "required": [
+          "uploads_available",
+          "consent"
+        ],
         "title": "CopilotConversationOut",
         "type": "object"
       },
@@ -11486,7 +11574,7 @@
       },
       "CopilotField": {
         "additionalProperties": false,
-        "description": "One form control as the browser sees it.\n\n`writable` DEFAULTS TO FALSE, which is the one default in this file that is a security\ndecision rather than a convenience. A field the browser forgot to describe is a field\nthe copilot may not touch; the opposite default would make an omission in the browser\nhalf into a write the server permits.\n\n`redacted` says the browser has substituted a placeholder for a value it considers\npersonal and will substitute the real one back locally. It is a DECLARATION, not a\npermission: `sanitize.assert_redacted` re-runs `redact()` over the whole payload and\nrefuses it if anything still matches, so a field the browser forgot to mark is caught\nby the guard rather than by nothing (D-127 G-2, the same belt `run_assist` wears at\n`workers/extraction.py`).",
+        "description": "One form control as the browser sees it.\n\n`writable` DEFAULTS TO FALSE, which is the one default in this file that is a security\ndecision rather than a convenience. A field the browser forgot to describe is a field\nthe copilot may not touch; the opposite default would make an omission in the browser\nhalf into a write the server permits.\n\n`redacted` says the browser has substituted a placeholder for a value it considers\npersonal and will substitute the real one back locally, so the model can name the\nfield's value by its placeholder. The server no longer refuses a screen that still\ncarries one (D-788: Pip runs only on accounts whose owner turned it on, and the admin\nconsole is exempt).",
         "properties": {
           "help": {
             "anyOf": [
@@ -13529,6 +13617,16 @@
             },
             "title": "Sentiment Split",
             "type": "object"
+          },
+          "trial": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrialPanelOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -26335,6 +26433,10 @@
             "title": "Model",
             "type": "string"
           },
+          "off_call_only": {
+            "title": "Off Call Only",
+            "type": "boolean"
+          },
           "offerable": {
             "title": "Offerable",
             "type": "boolean"
@@ -26400,6 +26502,7 @@
           "price_attested",
           "offerable",
           "withheld_reason",
+          "off_call_only",
           "input_usd_per_mtok",
           "output_usd_per_mtok",
           "effective_from",
@@ -30877,6 +30980,97 @@
           "first_period"
         ],
         "title": "PurchasedOwnNumberOut",
+        "type": "object"
+      },
+      "QaQueueClient": {
+        "additionalProperties": false,
+        "description": "One client with anything drawn, and where its queue stands \u2014 the client picker's\nrows and the group headers on the queue.",
+        "properties": {
+          "sampled": {
+            "title": "Sampled",
+            "type": "integer"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "tenant_name": {
+            "title": "Tenant Name",
+            "type": "string"
+          },
+          "tenant_slug": {
+            "title": "Tenant Slug",
+            "type": "string"
+          },
+          "waiting": {
+            "title": "Waiting",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "tenant_name",
+          "tenant_slug",
+          "waiting",
+          "sampled"
+        ],
+        "title": "QaQueueClient",
+        "type": "object"
+      },
+      "QaQueuePage": {
+        "additionalProperties": false,
+        "description": "One page of the filtered queue, with exact totals.\n\n`total` counts every row the filter matches across every client, not the rows on this\npage, so \"40 of 312\" is a true sentence. `clients` and `weeks` are what the filters\noffer, and are not narrowed by the filter: a reviewer picking a different client needs\nto see the other clients.",
+        "properties": {
+          "clients": {
+            "items": {
+              "$ref": "#/components/schemas/QaQueueClient"
+            },
+            "title": "Clients",
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QaSampleOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "waiting_total": {
+            "title": "Waiting Total",
+            "type": "integer"
+          },
+          "weeks": {
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "title": "Weeks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "offset",
+          "limit",
+          "waiting_total",
+          "clients",
+          "weeks"
+        ],
+        "title": "QaQueuePage",
         "type": "object"
       },
       "QaReport": {
@@ -46527,7 +46721,7 @@
     },
     "/v1/admin/copilot/uploads": {
       "post": {
-        "description": "Attach one file to Pip's next question. The body IS the file \u2014 not a form \u2014\nwith `Content-Type` set to the type the browser produced, and `X-Upload-Name` set to the\nname the person chose, percent-encoded.\n\nAllowed: pictures (JPG, PNG, WebP, HEIC \u2014 re-drawn by the browser as `image/jpeg`, which\ndrops their location and camera data), text and CSV (`text/plain`, `text/csv`), and Word,\nExcel and PowerPoint files the browser has turned into `text/plain`, and PDFs\n(`application/pdf`, sent as they are). Up to 20 MB a file, 5 MB a picture and 14 MB a PDF;\nup to 5 files, 2 of them pictures, 50 MB in all and 14 MB of pictures and PDFs together, on\none message. For a PDF the browser also sends the text it found in it, as `text/plain` with\n`X-Upload-Text-Of` naming the PDF: Pip reads that only when the PDF itself cannot be read.\nFiles with macros, older Office formats, ZIPs, audio and anything else are refused with a\nsentence saying what to do; so is a body whose first bytes are not what its type says.\n\nNothing in the file is opened, scanned or reviewed: it is stored privately and sent to\nPip's AI provider as it is. Requires `copilot:admin`.",
+        "description": "Attach one file to Pip's next question. The body IS the file \u2014 not a form \u2014\nwith `Content-Type` set to the type the browser produced, and `X-Upload-Name` set to the\nname the person chose, percent-encoded.\n\nAllowed: pictures (JPG, PNG, WebP, HEIC \u2014 re-drawn by the browser as `image/jpeg`, which\ndrops their location and camera data), text and CSV (`text/plain`, `text/csv`), and Word,\nExcel and PowerPoint files the browser has turned into `text/plain`, and PDFs\n(`application/pdf`, sent as they are). Up to 20 MB a file, 5 MB a picture and 14 MB a PDF;\nup to 5 files, 2 of them pictures, 50 MB in all and 14 MB of pictures and PDFs together, on\none message. For a PDF the browser also sends the text it found in it, as `text/plain` with\n`X-Upload-Text-Of` naming the PDF: Pip reads that only when the PDF itself cannot be read.\nFiles with macros, older Office formats, ZIPs, audio and anything else are refused with a\nsentence saying what to do; so is a body whose first bytes are not what its type says.\n\nWhen files cannot be stored this answers 503 `copilot_uploads_unavailable`; the\nconversation read says so beforehand in `uploads_available`, so a browser never starts\nsuch an upload.\n\nNothing in the file is opened, scanned or reviewed: it is stored privately and sent to\nPip's AI provider as it is. Requires `copilot:admin`.",
         "operationId": "upload_admin_file_v1_admin_copilot_uploads_post",
         "parameters": [
           {
@@ -49166,19 +49360,101 @@
     },
     "/v1/admin/qa-samples": {
       "get": {
-        "description": "Calls drawn for review, newest week first and in the draw's own order. Each row carries the frame it came from \u2014 the week, the number of calls in it, the number drawn \u2014 and the seed the order was computed from, so the sample can be recomputed and checked by anyone. `pending` (default) shows only calls nobody has reviewed yet. No transcript text and no phone number appear on this list.",
+        "description": "Calls drawn for review, filtered and paged. Each row carries the frame it came from \u2014 the week, the number of calls in it, the number drawn \u2014 and the seed the order was computed from, so the sample can be recomputed and checked by anyone. `status=waiting` (default) shows only calls nobody has reviewed yet; `order=oldest` (default) puts the longest-waiting week first. `total` is exact across every client. No transcript text and no phone number appear on this list.",
         "operationId": "list_qa_samples_v1_admin_qa_samples_get",
         "parameters": [
           {
-            "description": "only calls nobody has reviewed yet",
+            "description": "waiting, reviewed or all",
             "in": "query",
-            "name": "pending",
+            "name": "status",
             "required": false,
             "schema": {
-              "default": true,
-              "description": "only calls nobody has reviewed yet",
-              "title": "Pending",
-              "type": "boolean"
+              "default": "waiting",
+              "description": "waiting, reviewed or all",
+              "enum": [
+                "waiting",
+                "reviewed",
+                "all"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "description": "only calls given this verdict",
+            "in": "query",
+            "name": "verdict",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "clean",
+                    "concern",
+                    "defect"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only calls given this verdict",
+              "title": "Verdict"
+            }
+          },
+          {
+            "description": "only this client's calls",
+            "in": "query",
+            "name": "tenant_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only this client's calls",
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "description": "only this draw week (its IST Monday)",
+            "in": "query",
+            "name": "week",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only this draw week (its IST Monday)",
+              "title": "Week"
+            }
+          },
+          {
+            "description": "oldest or newest week first",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "oldest",
+              "description": "oldest or newest week first",
+              "enum": [
+                "oldest",
+                "newest"
+              ],
+              "title": "Order",
+              "type": "string"
             }
           },
           {
@@ -49186,10 +49462,22 @@
             "name": "limit",
             "required": false,
             "schema": {
-              "default": 200,
-              "maximum": 500,
+              "default": 50,
+              "maximum": 100,
               "minimum": 1,
               "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 900,
+              "minimum": 0,
+              "title": "Offset",
               "type": "integer"
             }
           }
@@ -49199,11 +49487,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/QaSampleOut"
-                  },
-                  "title": "Response List Qa Samples V1 Admin Qa Samples Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/QaQueuePage"
                 }
               }
             },
@@ -62565,6 +62849,45 @@
         "x-calevate-permission": "copilot:use"
       }
     },
+    "/v1/copilot/consent": {
+      "post": {
+        "description": "Records that the account owner read the disclosure Pip shows and turned Pip on for everyone on the account, with the version and a hash of the exact text, in an append-only record and the audit log. Only the account owner can do it, and an impersonated session cannot. A version or text that is no longer current is refused rather than recorded.",
+        "operationId": "accept_copilot_consent_v1_copilot_consent_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopilotConsentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotConsentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Turn Pip on for this account (the account owner, once)",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/copilot/conversation": {
       "delete": {
         "description": "Forget this person's whole conversation.\n\n**NO `audit_log` ROW, AND THAT IS HARD RULE 6 RATHER THAN AN OMISSION.** An audit\nentry naming \"this person cleared their assistant conversation\" records nothing anyone\ncan act on and puts a per-person behavioural trail on the compliance chain; the rows\nit describes carry a client's staff prose and are deliberately not durable. What IS\naudited is every ANSWER (`copilot.ask`) and every CHANGE the assistant made\n(`copilot/write_tools.py`), and neither is touched by this.\n\nIt clears every device, because there is one conversation and it belongs to the\nperson. The person's other windows are told once the delete has COMMITTED (D-782) \u2014\nwhich is why this handler opens its own session rather than taking `Depends(db)`,\nwhose commit runs after the handler returns.",
@@ -63086,7 +63409,7 @@
     },
     "/v1/copilot/uploads": {
       "post": {
-        "description": "Attach one file to Pip's next question. The body IS the file \u2014 not a form \u2014\nwith `Content-Type` set to the type the browser produced, and `X-Upload-Name` set to the\nname the person chose, percent-encoded.\n\nAllowed: pictures (JPG, PNG, WebP, HEIC \u2014 re-drawn by the browser as `image/jpeg`, which\ndrops their location and camera data), text and CSV (`text/plain`, `text/csv`), and Word,\nExcel and PowerPoint files the browser has turned into `text/plain`, and PDFs\n(`application/pdf`, sent as they are). Up to 20 MB a file, 5 MB a picture and 14 MB a PDF;\nup to 5 files, 2 of them pictures, 50 MB in all and 14 MB of pictures and PDFs together, on\none message. For a PDF the browser also sends the text it found in it, as `text/plain` with\n`X-Upload-Text-Of` naming the PDF: Pip reads that only when the PDF itself cannot be read.\nFiles with macros, older Office formats, ZIPs, audio and anything else are refused with a\nsentence saying what to do; so is a body whose first bytes are not what its type says.\n\nNothing in the file is opened, scanned or reviewed: it is stored privately and sent to\nPip's AI provider as it is. Requires `copilot:use`.",
+        "description": "Attach one file to Pip's next question. The body IS the file \u2014 not a form \u2014\nwith `Content-Type` set to the type the browser produced, and `X-Upload-Name` set to the\nname the person chose, percent-encoded.\n\nAllowed: pictures (JPG, PNG, WebP, HEIC \u2014 re-drawn by the browser as `image/jpeg`, which\ndrops their location and camera data), text and CSV (`text/plain`, `text/csv`), and Word,\nExcel and PowerPoint files the browser has turned into `text/plain`, and PDFs\n(`application/pdf`, sent as they are). Up to 20 MB a file, 5 MB a picture and 14 MB a PDF;\nup to 5 files, 2 of them pictures, 50 MB in all and 14 MB of pictures and PDFs together, on\none message. For a PDF the browser also sends the text it found in it, as `text/plain` with\n`X-Upload-Text-Of` naming the PDF: Pip reads that only when the PDF itself cannot be read.\nFiles with macros, older Office formats, ZIPs, audio and anything else are refused with a\nsentence saying what to do; so is a body whose first bytes are not what its type says.\n\nWhen files cannot be stored this answers 503 `copilot_uploads_unavailable`; the\nconversation read says so beforehand in `uploads_available`, so a browser never starts\nsuch an upload.\n\nNothing in the file is opened, scanned or reviewed: it is stored privately and sent to\nPip's AI provider as it is. Requires `copilot:use`.",
         "operationId": "upload_file_v1_copilot_uploads_post",
         "parameters": [
           {

@@ -77,9 +77,7 @@ describe("the console behind a live operator session", () => {
 
     expect(container.textContent).toContain("console body");
     // The shell's own furniture, so this cannot pass by rendering a bare fragment.
-    expect(container.textContent).toContain(
-      "Cross-client · every action is audited",
-    );
+    expect(container.querySelector('[aria-label="Open navigation"]')).not.toBeNull();
   });
 
   it("keeps speaking the admin realm's credential, never the client realm's", async () => {
@@ -123,9 +121,7 @@ describe("the console with no session", () => {
     await act(async () => {});
 
     expect(container.textContent).not.toContain("console body");
-    expect(container.textContent).not.toContain(
-      "Cross-client · every action is audited",
-    );
+    expect(container.querySelector('[aria-label="Open navigation"]')).toBeNull();
     // The restore itself, and nothing behind it.
     expect(calls.map((c) => c.path)).toEqual([SESSION_PATH]);
   });

@@ -111,10 +111,10 @@ export function TranscriptCard({
         {!rawAccess.allowed && <RestrictionNote reason={rawAccess.reason} />}
 
         {/* Which transcript this is, said before it is read. Quiet in the default view,
-            loud in the raw one, which is the view that is audited. */}
+            louder in the raw one, which carries personal details. */}
         {showingRaw ? (
           <NoticeBox tone="warn" title="Full transcript">
-            Personal details included. This view is recorded in your account&apos;s audit log under your name.
+            Personal details included.
           </NoticeBox>
         ) : (
           <p className="text-meta text-ink-faint">

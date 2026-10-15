@@ -62,6 +62,7 @@ from calevate_shared.engine import (
     SARVAM_DEFAULT_LLM,
     azure_openai_base_url,
     google_openai_compat_base_url,
+    keeps_default_temperature,
 )
 from calevate_shared.spoken_style import writer_guidance
 from pydantic import ValidationError
@@ -490,7 +491,8 @@ async def _json_via_google(
         instruction,
         response_format,
         max_tokens=max_tokens,
-        temperature=temperature,
+        # Gemini 3: none sent, Google warns a lowered temperature loops (D-786).
+        temperature=None if keeps_default_temperature(model) else temperature,
         timeout_s=timeout_s,
     )
 
@@ -503,7 +505,7 @@ async def _json_via_leg(
     response_format: dict[str, object],
     *,
     max_tokens: int,
-    temperature: float,
+    temperature: float | None,
     timeout_s: float,
 ) -> _RawJson | None:
     """One JSON answer from a paid leg (Azure or the account's Gemini), or None when it

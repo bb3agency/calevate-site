@@ -62,10 +62,17 @@ engine to fall back to: a bad release is rolled back by redeploying the previous
 
 ### Language models outside the call
 
-1. **Dashboard AI** (user-triggered, over redacted data) runs on **Azure OpenAI in East US 2**
+1. **Dashboard AI** (user-triggered) runs on **Azure OpenAI in East US 2**
    (`AZURE_LOCATION`, `eastus2`), deployment made from `AZURE_OPENAI_DEFAULT_MODEL`
    (`gpt-4o-mini`). D-127's rules G-1..G-7 (redaction before the call, no raw PII, the
-   disclosed Sarvam fallback) bind it. `AZURE_OPENAI_DEFAULT_MODEL` is also
+   disclosed Sarvam fallback) bind it, with ONE exception for Pip (D-788): Pip is off for a
+   client account until its OWNER turns it on (`copilot_consents`, `copilot/consent.py`),
+   and after that what a person types, attaches and asks Pip to read (lead numbers,
+   captured details, raw transcripts, each raw read audited) goes to Pip's primary model
+   UNMASKED; the admin console's Pip is never masked. What stays masked whatever the
+   consent: the Sarvam standby leg (its terms permit training), Pip memories and routine
+   instructions, logs and traces (hard rule 6), and every non-Pip API response (hard rule
+   5). `AZURE_OPENAI_DEFAULT_MODEL` is also
    `billing/rates.BASE_RATE_LLM_MODEL`, the frozen model the plan rate is struck against.
 2. **First post-call extraction** stays on **Sarvam, permanently**, because it reads the RAW
    transcript; `GEMINI_EXTRACTION_DEFAULT is False` in `apps/workers/extraction.py`.

@@ -285,7 +285,7 @@ function MoneyWarning() {
           </InfoTip>
         </li>
         <li>It reaches every agent without a model of its own.</li>
-        <li>The client can change it too. Your change is recorded against your admin account.</li>
+        <li>The client can change it too.</li>
       </ul>
     </NoticeBox>
   );

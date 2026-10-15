@@ -349,8 +349,7 @@ function CloseForm({
             className={FIELD}
           />
           <span className={FIELD_HINT}>
-            Required, recorded verbatim in the audit log AND quoted in the email the client
-            receives. Write it as something they can read: it is the only answer their notice
+            Required, and quoted in the email the client receives. Write it as something they can read: it is the only answer their notice
             gives to the only question it raises.
           </span>
         </div>

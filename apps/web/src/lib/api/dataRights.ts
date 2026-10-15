@@ -147,7 +147,6 @@ export function useDeletionRequests(
       query.state.data?.some((request) => request.status === "pending")
         ? ERASURE_POLL_MS
         : false,
-    refetchOnWindowFocus: true,
   });
 }
 
@@ -168,7 +167,6 @@ export function useDeletionRequest(
       apiRequest<DeletionRequest>(session, `/v1/compliance/deletion-requests/${requestId}`),
     refetchInterval: (query) =>
       query.state.data?.status === "pending" ? ERASURE_POLL_MS : false,
-    refetchOnWindowFocus: true,
   });
 }
 

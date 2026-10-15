@@ -970,6 +970,9 @@ class RestoreDrill:
                 "INSERT INTO outbound_pledge_acceptances (id, tenant_id, pledge_version, "
                 "text_sha256, accepted_by_user_id) VALUES "
                 f"('{_uuid7()}', '{tenant}', 1, '{'0' * 64}', '{user}')",
+                "INSERT INTO copilot_consents (id, tenant_id, disclosure_version, "
+                "text_sha256, accepted_by_user_id) VALUES "
+                f"('{_uuid7()}', '{tenant}', '1', '{'0' * 64}', '{user}')",
                 # `campaign_id` is left NULL deliberately: the ONE update its trigger
                 # permits is the `ON DELETE SET NULL` that clears a non-null campaign, so
                 # a NULL here means the probe's `SET tenant_id = tenant_id` meets the

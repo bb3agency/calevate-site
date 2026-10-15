@@ -151,7 +151,7 @@ export function ErasurePanel({
             }}
             className={FIELD}
           />
-          <span className={FIELD_HINT}>Recorded verbatim in the audit log, beside who asked for it.</span>
+          <span className={FIELD_HINT}>Required.</span>
         </div>
 
         <div>

@@ -106,8 +106,8 @@ export function MovePanel({
               className={FIELD}
             />
             <span className={FIELD_HINT}>
-              Required, and recorded verbatim in the audit log. Somebody will have to answer
-              &quot;why is this account stopped&quot; later.
+              Required. Somebody will have to answer &quot;why is this account stopped&quot;
+              later.
             </span>
           </div>
         )}

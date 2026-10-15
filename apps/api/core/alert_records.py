@@ -43,8 +43,8 @@ alerts — a pool on a daemon thread that spends its life blocked on SMTP would 
 idle connections against the database this alarm may be reporting on.
 
 **HARD RULE 6.** `detail` and `ids` are redacted HERE, with `core/logging.redact_mapping` —
-the same call `alerting._body` makes before an email leaves the building, for the same
-reason: `detail` is authored by us but routinely carries an upstream error string, and an
+the same call `alert_email.compose_alert` makes before an email leaves the building, for
+the same reason: `detail` is authored by us but routinely carries an upstream error string, and an
 id kwarg is whatever the call site passed. A row in this table is read on a screen, exported
 by an operator and quoted into an incident note; it is the last place to trust a caller.
 """
@@ -104,7 +104,8 @@ ON CONFLICT (fingerprint) WHERE cleared_at IS NULL DO UPDATE SET
     severity     = EXCLUDED.severity,
     service      = EXCLUDED.service
 RETURNING id, (xmax = 0) AS opened, platform_alerts.emailed AS already_emailed,
-    extract(epoch FROM now() - platform_alerts.emailed_at) AS emailed_age_s
+    extract(epoch FROM now() - platform_alerts.emailed_at) AS emailed_age_s,
+    platform_alerts.first_seen_at, platform_alerts.last_seen_at, platform_alerts.occurrences
 """
 
 _MARK_EMAILED = """
@@ -127,6 +128,11 @@ class RecordOutcome:
     #: Seconds since this episode was last mailed, or None if it never was. Read only for a
     #: code in `alarm_severity.REPEAT_WHILE_OPEN_S`, to decide whether a reminder is due.
     emailed_age_s: float | None = None
+    #: The episode as the row now holds it, for the mail's "first seen / last seen /
+    #: occurrences". None only from a test double that does not return them.
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    occurrences: int | None = None
 
 
 def _dsn() -> str | None:
@@ -204,6 +210,9 @@ def record(
         opened=bool(row[1]),
         already_emailed=bool(row[2]),
         emailed_age_s=float(row[3]) if row[3] is not None else None,
+        first_seen_at=row[4],
+        last_seen_at=row[5],
+        occurrences=int(row[6]),
     )
 
 
@@ -284,28 +293,6 @@ def close_open(fingerprint: str) -> ClosedEpisode | None:
     )
 
 
-def clear_message(episode: Any, *, app_env: str, status: str) -> tuple[str, str]:
-    """`(subject, body)` of the one-line "it cleared" mail. ONE composer for both closers.
-
-    `episode` is anything with `ClosedEpisode`'s attributes — the sweep passes its SQL row.
-    `status` says WHY it is over: a quiet period, or a recovery the caller observed.
-    """
-    minutes = (episode.last_seen_at - episode.first_seen_at).total_seconds() / 60
-    body = "\n".join(
-        [
-            f"stage:   {episode.stage}",
-            f"code:    {episode.code}",
-            f"service: {episode.service}",
-            f"status:  CLEARED — {status}",
-            f"lasted:  {minutes:.0f} minute(s), {episode.occurrences} occurrence(s)",
-            "",
-            "Nothing is required. The full history is on /admin/ops/alerts.",
-        ]
-    )
-    subject = f"[calevate/{app_env}/{episode.service}] {episode.code} cleared"
-    return subject, body
-
-
 def forget_all() -> None:
     """TEST SEAM. Empty `platform_alerts` so a suite's episodes do not leak between tests.
 
@@ -344,7 +331,6 @@ __all__ = [
     "RECORD_TIMEOUT_S",
     "ClosedEpisode",
     "RecordOutcome",
-    "clear_message",
     "close_open",
     "forget_all",
     "mark_emailed",

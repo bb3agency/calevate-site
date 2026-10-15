@@ -11,7 +11,8 @@ claim this feature makes to a client rather than an implementation detail:
   device reading it sees the first device's turns;
 * it ends when their LAST session ends — and **not** when one of several ends, which is
   the half the two decisions pull against and the half a naive implementation gets wrong;
-* what is stored is redacted, so a phone number a person typed does not reach a column.
+* a client's turn is stored as said once the account turned Pip on (D-788), and an
+  operator's is redacted.
 """
 
 from __future__ import annotations
@@ -234,9 +235,11 @@ async def test_a_conversation_is_capped_from_the_front() -> None:
     assert page.has_more is True
 
 
-async def test_a_number_a_person_typed_does_not_reach_a_column() -> None:
-    """The compliance property the whole store rests on. `redact()` runs on the way in,
-    so the phone-keyed §12 erasure has nothing to find and neither does a database dump."""
+async def test_a_client_turn_keeps_the_number_and_an_operators_does_not() -> None:
+    """D-788: the person's next question is answered from the stored turns, so a client's
+    are kept as said (a caller's erasure by number still finds them,
+    `workers/retention._erase_copilot_turns`). The admin table is platform-scoped and
+    outside every tenant's erasure, so an operator's turn stays redacted."""
     tenant_id, user_id = await _tenant_with_user()
     run = datetime.now(UTC)
     async with tenant_session(tenant_id) as session:
@@ -254,8 +257,33 @@ async def test_a_number_a_person_typed_does_not_reach_a_column() -> None:
             session, realm=transcript.CLIENT, owner_id=user_id, run_started_at=run
         )
     stored = " ".join(turn.content for turn in page.turns)
-    assert "9876543210" not in stored
-    assert "scan" in stored
+    assert "+919876543210" in stored
+
+    admin_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', 'superadmin', now(), now())"
+            ),
+            {"id": admin_id},
+        )
+        await transcript.append_exchange(
+            session,
+            realm=transcript.ADMIN,
+            owner_id=admin_id,
+            tenant_id=None,
+            run_started_at=run,
+            screen_route="/admin/tenants",
+            question="call +919876543210 back about the scan",
+            answer="I have noted it.",
+        )
+        operator = await transcript.load(
+            session, realm=transcript.ADMIN, owner_id=admin_id, run_started_at=run
+        )
+    said = " ".join(turn.content for turn in operator.turns)
+    assert "9876543210" not in said
+    assert "scan" in said
 
 
 async def test_signing_out_one_device_does_not_end_the_run() -> None:

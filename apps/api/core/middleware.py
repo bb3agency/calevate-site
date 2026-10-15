@@ -469,12 +469,9 @@ def _shed_problem(status: PlatformStatus) -> ProblemError:
         code="service_load_shed",
         title="Temporarily unavailable",
         # 503 is the ONE status allowed to keep its detailed message (§3).
-        detail=(
-            "Calevate is briefly not accepting this request while we manage a spike "
-            "in load. Please try again shortly."
-        ),
+        detail="Calevate is very busy for a moment and could not take this. Try again shortly.",
         status=503,
-        remediation="Retry shortly; the operations team has been notified.",
+        remediation="Try again in a minute. Our team already knows.",
         headers={"Retry-After": str(_RETRY_AFTER_FLOOR_S)},
     )
 
@@ -807,6 +804,18 @@ class UnhandledExceptionMiddleware:
             await unhandled_problem_response(str(scope.get("path", "")), exc)(scope, receive, send)
 
 
+#: How long a browser may reuse a CORS preflight answer (D-787). The console is a separate
+#: origin and every read carries `X-Org-Slug`, so every read is preflighted, and the cache
+#: is keyed per URL (Fetch Standard §4.9: an entry holds the URL; read 15 Oct 2026). At
+#: Starlette's default of 600 s a dashboard re-sent ~20 OPTIONS every ten minutes. Two
+#: hours is Chromium's ceiling (MDN, Access-Control-Max-Age: "Chromium (starting in v76)
+#: caps at 2 hours (7200 seconds)", read 15 Oct 2026); a longer value buys nothing there.
+#: A cached answer only lets the browser SEND the request: the response's own
+#: `Access-Control-Allow-Origin` is still decided per request, and a write still meets
+#: `CookieCsrfMiddleware`'s Origin check, so a narrowed allowlist binds at once.
+CORS_PREFLIGHT_MAX_AGE_S = 7200
+
+
 class RealmCorsMiddleware(CORSMiddleware):
     """Starlette's CORS, with admin-realm paths answered from the admin origins only.
 
@@ -927,6 +936,7 @@ def install_middleware(
         console_origins=console_origins,
         apex_path_prefixes=APEX_CREDENTIALED_PREFIXES,
         allow_credentials=True,
+        max_age=CORS_PREFLIGHT_MAX_AGE_S,
         # PUT WAS MISSING AND FIVE ROUTES WERE UNREACHABLE FROM A BROWSER: `PUT
         # /v1/billing/caps` (a client's own spend cap), `PUT …/feature-flags/{flag}`,
         # `PUT /v1/ops/config/{key}`, `PUT /v1/ops/secrets/{key}` — which is how a vendor

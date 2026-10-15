@@ -114,7 +114,7 @@ export default function LifecyclePage({
           <p>
             {move.data.changed
               ? `This account is now ${move.data.status}. The dial gate reads it from the next request.`
-              : `This account was already ${move.data.status}. Nothing changed, and no audit row was written.`}
+              : `This account was already ${move.data.status}. Nothing changed.`}
           </p>
         </NoticeBox>
       )}

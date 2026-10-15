@@ -89,8 +89,7 @@ export function failureCopy(error: unknown): {
       "This screen stopped before it could finish. Nothing you were looking at has been " +
       "changed or lost.",
     remediation:
-      "Try again. If it keeps happening, move on to another screen and tell us — quote " +
-      "the reference below if there is one.",
+      "Try again. If it keeps happening, open another screen and contact us.",
     reference: digest || null,
   };
 }
@@ -148,7 +147,7 @@ export function FailureScreen({
         {remediation && <p className="mt-2">{remediation}</p>}
         {reference && (
           <p className="mt-3 text-xs">
-            Support reference: <MonoValue>{reference}</MonoValue>
+            Error code <MonoValue>{reference}</MonoValue>
           </p>
         )}
       </NoticeBox>

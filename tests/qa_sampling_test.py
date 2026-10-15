@@ -50,6 +50,7 @@ from apps.api.quality import sampling
 from apps.api.quality.models import QA_SAMPLE_RATE
 from apps.api.quality.sampling import (
     QA_VERDICTS,
+    QueueFilter,
     draw_week_sample,
     ist_week_start,
     list_samples,
@@ -390,8 +391,8 @@ async def test_a_verdict_is_recorded_once_audited_and_never_overwritten() -> Non
 
     # And it leaves the pending queue, which is what makes the list a work list.
     async with tenant_session(tenant_id) as session:
-        pending = {row.id for row in await list_samples(session, pending_only=True)}
-        every = {row.id for row in await list_samples(session, pending_only=False)}
+        pending = {row.id for row in await list_samples(session)}
+        every = {row.id for row in await list_samples(session, flt=QueueFilter(status="all"))}
     assert sample.id not in pending
     assert sample.id in every
 
@@ -467,6 +468,97 @@ async def test_the_queue_row_carries_no_phone_number_or_transcript() -> None:
     assert "9876543210" not in body
     assert "phone" not in body
     assert "number is" not in body
+
+
+# --- The queue at scale: filters, exact totals, pages ---------------------------------
+
+
+async def _queue(token: str, **params: Any) -> Any:
+    async with _client() as http:
+        response = await http.get(
+            QUEUE_PATH,
+            params={k: str(v) for k, v in params.items()},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def test_the_queue_filters_by_client_status_verdict_and_week_with_exact_totals() -> None:
+    tenant_a = await _tenant()
+    tenant_b = await _tenant()
+    await _drawn(tenant_a, count=40)  # 2 drawn
+    await _drawn(tenant_b, count=40)
+    async with tenant_session(tenant_a) as session:
+        reviewed = (await list_samples(session))[0]
+    token = await _make_admin()
+    async with _client() as http:
+        posted = await http.post(
+            f"{QUEUE_PATH}/{reviewed.id}/review",
+            json={"verdict": "concern"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert posted.status_code == 200, posted.text
+    week = ist_week_start(LAST_WEEK).isoformat()
+
+    every = await _queue(token, tenant_id=tenant_a, status="all")
+    assert every["total"] == 2
+    assert {row["tenant_id"] for row in every["items"]} == {str(tenant_a)}
+
+    waiting = await _queue(token, tenant_id=tenant_a)
+    assert waiting["total"] == 1
+    assert [row["verdict"] for row in waiting["items"]] == [None]
+
+    concern = await _queue(token, tenant_id=tenant_a, status="reviewed", verdict="concern")
+    assert [row["id"] for row in concern["items"]] == [str(reviewed.id)]
+    assert (await _queue(token, tenant_id=tenant_a, status="all", verdict="defect"))["total"] == 0
+
+    assert (await _queue(token, tenant_id=tenant_a, status="all", week=week))["total"] == 2
+    assert (await _queue(token, tenant_id=tenant_a, status="all", week="2001-01-01"))["total"] == 0
+
+    # The picker is not narrowed by the filter: tenant B is offered while A is selected.
+    clients = {row["tenant_id"]: row for row in every["clients"]}
+    assert clients[str(tenant_a)]["waiting"] == 1
+    assert clients[str(tenant_a)]["sampled"] == 2
+    assert clients[str(tenant_b)]["waiting"] == 2
+    assert week in every["weeks"]
+    assert every["waiting_total"] >= 3
+
+
+async def test_pages_of_the_queue_are_disjoint_and_in_draw_order() -> None:
+    tenant_id = await _tenant()
+    await _drawn(tenant_id, count=60)  # 3 drawn
+    token = await _make_admin()
+
+    first = await _queue(token, tenant_id=tenant_id, limit=2)
+    second = await _queue(token, tenant_id=tenant_id, limit=2, offset=2)
+    assert first["total"] == second["total"] == 3
+    ranks = [row["selection_rank"] for row in first["items"] + second["items"]]
+    assert ranks == [1, 2, 3]
+    ids = [row["id"] for row in first["items"] + second["items"]]
+    assert len(set(ids)) == 3
+
+
+async def test_the_merged_queue_is_ordered_week_then_client_then_rank() -> None:
+    """The merge across tenants keeps one client's week together, oldest week first."""
+    for _ in range(2):
+        await _drawn(await _tenant(), count=40)
+    token = await _make_admin()
+    body = await _queue(token, status="all", limit=100)
+    keys = [
+        (row["week_start"], row["tenant_name"].casefold(), row["selection_rank"], row["id"])
+        for row in body["items"]
+    ]
+    assert keys == sorted(keys)
+
+
+async def test_a_page_larger_than_the_ceiling_is_refused() -> None:
+    token = await _make_admin()
+    async with _client() as http:
+        response = await http.get(
+            QUEUE_PATH, params={"limit": "101"}, headers={"Authorization": f"Bearer {token}"}
+        )
+    assert response.status_code == 422
 
 
 # --- 6. Hard rule 1 -----------------------------------------------------------------

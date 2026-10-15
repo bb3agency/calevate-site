@@ -593,7 +593,7 @@ describe("the typed confirmation on a consequential act", () => {
     expect(container.textContent).toContain(
       "add and remove admins, including you",
     );
-    expect(container.textContent).toContain("Recorded in the audit log");
+    expect(container.textContent).toContain("Give a reason below.");
   });
 });
 

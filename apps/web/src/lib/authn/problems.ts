@@ -160,14 +160,14 @@ const SIGN_IN_COPY: Record<string, string> = {
     "We sent a code moments ago. Use the one in your latest email, or send another when the timer ends.",
   [AUTHN_CODES.tooManyAttempts]:
     "Too many attempts. Wait a few minutes before trying again.",
-  [AUTHN_CODES.rateLimited]: "Too many requests. Wait a moment and try again.",
+  [AUTHN_CODES.rateLimited]: "Too many tries. Wait a moment and try again.",
   [AUTHN_CODES.googleSignInUnavailable]:
     "Signing in with Google is not switched on yet. Use your email address and password.",
   [AUTHN_CODES.googleUnreachable]: "Google did not answer just now. Try again in a moment.",
   [AUTHN_CODES.disabled]:
     "Sign-in is switched off. Contact whoever operates this service.",
   [AUTHN_CODES.crossSiteRequest]:
-    "This request was blocked because it did not come from a Calevate console. Open the console directly rather than through a link or an embedded frame.",
+    "We blocked this because it did not come from a Calevate page. Open Calevate directly, not through a link or a page that embeds it.",
   [AUTHN_CODES.unauthorized]: "You are signed out. Sign in again to continue.",
   [AUTHN_CODES.secondFactorRequired]:
     "This sign-in still needs its emailed code.",

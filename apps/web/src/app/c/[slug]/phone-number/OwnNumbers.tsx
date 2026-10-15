@@ -118,7 +118,7 @@ export function firstPeriodSentence(period: FirstPeriod, inrPerMonth: string | n
     case "trial":
       return `${monthly ?? "The monthly charge"}. Free during your trial; charging starts at the first renewal after it.`;
     case "replayed":
-      return "Your earlier request already bought this number.";
+      return "Your earlier try already bought this number.";
     default:
       return monthly === null ? "" : `${monthly}.`;
   }

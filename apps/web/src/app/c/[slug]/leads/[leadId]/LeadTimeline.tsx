@@ -134,10 +134,9 @@ export function LeadTimeline({
         {impersonating && (
           <p className="text-xs text-ink-muted">
             {/* D-587: a view-as session can change this lead. What the reader needs to know
-                is no longer "you cannot" but "this is not anonymous" — the shell's amber
-                banner says the same thing, and this line says it where the controls are. */}
-            You are working inside this account as an operator. Every change here is logged
-            against you.
+                is no longer "you cannot" but "you are acting as an operator", said where the
+                controls are. */}
+            You are working inside this account as an operator.
           </p>
         )}
       </section>

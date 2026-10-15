@@ -121,7 +121,9 @@ const QUESTIONS: { q: string; a: string }[] = [
       "your team is your choice: roles decide who sees the CRM at all, and downloading " +
       "the whole contact list is a separate permission that writes an audit entry naming " +
       "who took it. Transcripts are stricter still: they come back with numbers, IDs and " +
-      "card details stripped out, and reading the raw text takes that same audited role.",
+      "card details stripped out, and reading the raw text takes that same audited role. " +
+      "Calevate's own staff can also see your account to run and support the service, " +
+      "and Pip reads your data in full once your account owner turns it on.",
   },
   {
     q: "Can we get our leads out again?",

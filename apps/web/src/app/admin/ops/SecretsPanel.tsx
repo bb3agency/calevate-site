@@ -595,9 +595,8 @@ function SecretForm({
       </div>
 
       <p className="text-meta text-ink-muted">
-        Recorded in the audit log against your admin account, and an alert is sent — an
-        installed credential is what an attacker with an admin session would replace, so
-        every one of these is watched.
+        Saving sends an alert, because an installed credential is what an attacker with an
+        admin session would replace.
       </p>
     </form>
   );

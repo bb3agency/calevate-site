@@ -243,7 +243,9 @@ Models (per-agent config, BYOK):
     invented here and none is in the code** — OPERATIONS §2 gate 16f.
   - **Dashboard AI** (user-triggered, over the REDACTED copy) — same resource, same
     region, same constants. Every rule D-127 wrote (G-1..G-7: redaction before the call,
-    no raw PII, the disclosed Sarvam fallback) is unchanged and now binds Azure.
+    no raw PII, the disclosed Sarvam fallback) is unchanged and now binds Azure, except
+    for Pip after the account owner turns it on (D-788): its primary model then receives
+    what is typed, attached and read by its tools unmasked; the standby stays masked.
   - **First post-call extraction** — **`GEMINI_EXTRACTION_DEFAULT is False` (D-127 G-7):
     Sarvam runs it permanently**, because that pass reads the RAW transcript and G-2
     forbids raw PII reaching a general-purpose model vendor. D-410 does not move it.

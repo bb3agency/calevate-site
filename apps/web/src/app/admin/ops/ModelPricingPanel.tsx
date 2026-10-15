@@ -218,6 +218,18 @@ function verdict(price: ModelPrice): {
   tone: "ok" | "warn" | "neutral";
 } {
   if (price.offerable) return { label: "Available to customers", tone: "ok" };
+  // Refused on calls; Pip, photo reading and the dashboard assists use it once it has a key
+  // and a price (D-786).
+  if (price.off_call_only) {
+    if (price.credential_installed && (price.price_attested || price.reference_verified))
+      return { label: "Not for calls: key and price in place", tone: "ok" };
+    return {
+      label: price.credential_installed
+        ? "Not for calls: needs a price"
+        : "Not for calls: needs a vendor key",
+      tone: "warn",
+    };
+  }
   // MERIT FIRST. "Needs a vendor key and a price" is a to-do list, and printing one for a
   // model this repository refuses on merit reads as three steps from available when it is
   // not reachable at all. `neutral`, not `warn`: nothing here is wrong or waiting on
@@ -331,7 +343,9 @@ function ModelPriceRow({
       {price.withheld_reason != null ? (
         <div className="mt-2 border-l-2 border-line py-1 pl-3">
           <p className="text-meta font-medium text-ink">
-            Not offered on this platform — a price will not change that
+            {price.off_call_only
+              ? "Not offered for calls. Pip, photo reading and the dashboard assists use it once its price is confirmed."
+              : "Not offered on this platform — a price will not change that"}
           </p>
           <p className="mt-1 text-meta leading-relaxed text-ink-muted">
             {price.withheld_reason}

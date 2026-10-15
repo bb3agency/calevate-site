@@ -223,10 +223,6 @@ export function SpendCapPanel({
                   that job, not a substitute for it. It never moves a counter, never
                   touches another client, and never affects inbound calls.
                 </p>
-                <p className="mt-1 text-meta text-ink-muted">
-                  Recorded in the audit log against your admin account, and confirmed
-                  against this client only.
-                </p>
               </div>
             </div>
 

@@ -733,8 +733,8 @@ function WithdrawForm({ pending, onDone }: { pending: PendingCard; onDone: () =>
         />
         {valid.error("withdrawReason")}
         <span className={FIELD_HINT}>
-          Saved with the withdrawal and in the audit log. The card itself stays in the
-          history — nothing is deleted — so both facts remain readable later.
+          Saved with the withdrawal. The card itself stays in the history (nothing is
+          deleted), so both remain readable later.
         </span>
       </label>
 
@@ -1036,8 +1036,8 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
         />
         {valid.error("reason")}
         <span className={FIELD_HINT}>
-          Saved on the card and in the audit log, so whoever reads these rates next year
-          knows what they were answering.
+          Saved on the card, so whoever reads these rates next year knows what they were
+          answering.
         </span>
       </label>
 

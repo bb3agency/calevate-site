@@ -866,9 +866,9 @@ export function ProblemNotice({
       {problem === null && (
         /* A plain `Error` thrown by a screen reaches this arm, never a transport failure
            (those arrive as `TransportProblem`). So it names no cause and promises no
-           outcome. */
+           outcome: the screen's own sentence above says what did not happen. */
         <p className="break-words text-ink-muted">
-          No reply reached this page, so we could not confirm what happened. Check your connection and try again.
+          Try again in a moment. If it keeps happening, contact us.
         </p>
       )}
       {problem?.fields?.length ? (
@@ -891,8 +891,11 @@ export function ProblemNotice({
             </button>
           )}
           {ours && problem.traceId && (
+            /* Secondary on purpose: the sentence and the action lead, and this is only what
+               support asks for. The full id stays in the text (one click selects it) because
+               it is what our request log is searched by. */
             <p className="break-words text-meta text-ink-faint">
-              Reference <span className="break-all font-mono">{problem.traceId}</span>
+              Error code <span className="select-all break-all font-mono">{problem.traceId}</span>
             </p>
           )}
         </div>

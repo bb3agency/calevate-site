@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { UserRound } from "lucide-react";
 
 import {
   NoticeBox,
@@ -172,12 +171,6 @@ export function ReadinessScreen({
           ) : null,
         )
       )}
-
-      <p className="flex items-start gap-2 text-meta text-ink-muted">
-        <UserRound aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        Reading this screen is recorded against you in the audit log, like every other read
-        of one client&apos;s own state.
-      </p>
     </div>
   );
 }

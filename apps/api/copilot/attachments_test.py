@@ -21,7 +21,7 @@ from uuid import UUID
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.api_security_test import _make_tenant
+from tests.conftest import make_tenant_with_pip as _make_tenant
 
 from apps.api.billing import ai_quota
 from apps.api.copilot import attachments, service, session_run
@@ -576,6 +576,39 @@ async def test_uploads_are_refused_when_no_bucket_is_configured(
         )
     assert response.status_code == 503
     assert response.json()["type"].endswith("copilot_uploads_unavailable")
+
+
+@pytest.mark.parametrize("configured", [True, False])
+@pytest.mark.parametrize("realm", ["client", "admin"])
+async def test_the_conversation_read_says_whether_files_can_be_attached(
+    monkeypatch: pytest.MonkeyPatch, realm: str, configured: bool
+) -> None:
+    async def run(*, realm: str, subject_id: UUID) -> datetime:
+        return RUN
+
+    monkeypatch.setattr(session_run, "current_run_start", run)
+    FakeStore().install(monkeypatch)
+    monkeypatch.setattr(storage, "uploads_configured", lambda: configured)
+    if realm == "client":
+        _, slug, token = await _make_tenant()
+        path, headers = "/v1/copilot/conversation", {"X-Org-Slug": slug}
+        upload_path = UPLOADS
+    else:
+        _, token = await _make_operator()
+        path, headers = "/v1/admin/copilot/conversation", {}
+        upload_path = "/v1/admin/copilot/uploads"
+    headers["Authorization"] = f"Bearer {token}"
+    async with _client() as http:
+        read = await http.get(path, headers=headers)
+        upload = await http.post(
+            upload_path,
+            content=b"Tea 20",
+            headers={**headers, "X-Upload-Name": "notes.txt", "Content-Type": "text/plain"},
+        )
+    assert read.status_code == 200, read.text
+    assert read.json()["uploads_available"] is configured
+    # The flag and the refusal are one predicate: a false flag is exactly a refused upload.
+    assert (upload.status_code == 503) is not configured
 
 
 async def test_a_file_is_served_back_to_its_owner_only_with_safe_headers(store: FakeStore) -> None:

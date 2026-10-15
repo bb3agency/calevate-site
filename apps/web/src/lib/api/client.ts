@@ -246,23 +246,30 @@ export class TransportProblem extends ApiProblem {
     { method, path, correlationId }: { method: string; path: string; correlationId: string },
   ) {
     const reason = classify(cause);
-    // A read changes nothing, so "whether that was done" is a question it cannot raise —
+    // A read changes nothing, so "whether that went through" is a question it cannot raise:
     // on a card that failed to load it reads as though the person had asked for an action.
+    // A write is the opposite: the server may have done it and had its answer withheld, so
+    // its words send the person to look before repeating it, never "nothing happened".
     const isRead = method === "GET" || method === "HEAD";
+    const interrupted = reason === "cancelled";
     super(0, {
       kind: "transient",
       type: `urn:calevate:browser/transport_${reason}`,
-      title: "No reply reached this page",
-      detail:
-        reason === "cancelled"
-          ? "That request was stopped before a reply arrived, so we could not confirm what happened."
-          : isRead
-            ? "No reply reached this page, so this could not be loaded."
-            : "No reply reached this page, so we could not confirm whether that was done.",
-      remediation:
-        reason === "cancelled"
-          ? "Try again without leaving the page."
-          : "Try again. If it keeps happening, send us the reference below — it is in our logs if the request reached us.",
+      title: isRead ? "This did not load" : "We could not confirm that went through",
+      detail: isRead
+        ? interrupted
+          ? "This stopped loading before it finished."
+          : "This did not load."
+        : interrupted
+          ? "This was interrupted, so we could not confirm it went through."
+          : "We could not confirm that went through.",
+      remediation: isRead
+        ? interrupted
+          ? "Stay on this page and try again."
+          : "Try again in a moment. If it keeps happening, contact us."
+        : interrupted
+          ? "Check whether it did before you try again, and stay on this page until it finishes."
+          : "Check whether it did before you try again. If it keeps happening, contact us.",
       retryable: true,
       // `ProblemNotice` renders this as the support reference for `transient`, and it is
       // the id the request was SENT with, so it is greppable in the API's `request` log
@@ -341,12 +348,13 @@ export class TimeoutProblem extends ApiProblem {
     super(0, {
       kind: "transient",
       type: "urn:calevate:browser/request_timeout",
-      title: "Calevate did not answer in time",
+      title: "This took too long",
       // `Math.max(1, …)` so a sub-second budget — which only a test has a reason to set —
       // cannot produce "did not answer within 0 seconds", a sentence that reads as a bug
       // report rather than as an explanation.
-      detail: `Calevate did not answer within ${Math.max(1, Math.round(timeoutMs / 1000))} seconds, so we stopped waiting.`,
-      remediation: "Check your connection and try again.",
+      detail: `No answer after ${Math.max(1, Math.round(timeoutMs / 1000))} seconds, so we stopped waiting.`,
+      // Not "nothing happened": we stopped listening, not the server (see above).
+      remediation: "Check your internet connection and try again. If you were saving something, check whether it went through first.",
       retryable: true,
     });
     this.name = "TimeoutProblem";
@@ -1107,7 +1115,7 @@ function transportProblem(status: number): Record<string, unknown> {
   if (status === 429)
     return {
       kind: "rate_limited",
-      detail: "Too many requests from this account just now.",
+      detail: "Too many tries from this account just now.",
       remediation: "Wait a minute and try again.",
       retryable: true,
     };

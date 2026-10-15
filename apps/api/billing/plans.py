@@ -220,9 +220,9 @@ def parse_billing_month(month: str) -> tuple[int, int]:
         raise ProblemError(
             kind="validation",
             code="invalid_billing_month",
-            title="Invalid billing month",
+            title="We could not read that billing month",
             detail="A billing month looks like 2026-07 (YYYY-MM, IST).",
-            remediation="Use YYYY-MM, or omit the parameter for the current month.",
+            remediation="Use a month like 2026-07, or leave it out for the current month.",
         )
     year, _, mon = month.partition("-")
     return int(year), int(mon)

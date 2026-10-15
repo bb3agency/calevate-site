@@ -59,7 +59,7 @@ export function RawTranscriptControl({
         onClick={onToggle}
         title={
           access.allowed
-            ? "Shows the full text, personal details included. Opening it is recorded in your audit log."
+            ? "Shows the full text, personal details included."
             : (access.reason ?? undefined)
         }
         className="press inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:enabled:hover:bg-white/5"
@@ -199,7 +199,7 @@ export function DownloadRecordingButton({ session, callId }: { session: Session;
         disabled={download.isPending}
         aria-busy={download.isPending || undefined}
         aria-label="Download recording"
-        title="Download recording. Saving a copy is recorded in your audit log."
+        title="Download recording"
         className={SECONDARY_BUTTON_SM}
       >
         <Icon

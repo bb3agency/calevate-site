@@ -285,13 +285,12 @@ export function CorrectionForm({
                 ones, exactly as an empty wallet does, until you add credit back. The
                 answer comes back with the result rather than being guessed here.
               </p>
-              <p className="mt-1 text-meta text-ink-muted">
-                Recorded in the audit log against your admin account with the reason you
-                type above, in the same transaction as the money.
-                {debit
-                  ? " Taking credit away also sends the confirmation header the route demands for this direction."
-                  : ""}
-              </p>
+              {debit && (
+                <p className="mt-1 text-meta text-ink-muted">
+                  Taking credit away also sends the confirmation header the route demands for this
+                  direction.
+                </p>
+              )}
             </div>
           </div>
 

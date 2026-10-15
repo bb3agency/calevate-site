@@ -100,8 +100,7 @@ export function RecordingCard({
           }}
         />
         <p className="text-meta text-ink-faint">
-          Opening this recording was recorded in your audit log. The link is private to this
-          page and is refreshed automatically while you listen.
+          The link is private to this page and is refreshed automatically while you listen.
         </p>
       </div>
     );
@@ -119,7 +118,6 @@ export function RecordingCard({
           <AudioLines aria-hidden className="h-4 w-4" />
           {recording.isPending ? "Preparing…" : "Listen to this call"}
         </button>
-        <span className="text-meta text-ink-faint">Opening the recording is recorded in your audit log.</span>
       </div>
     </div>
   );

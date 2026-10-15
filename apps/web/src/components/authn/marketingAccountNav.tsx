@@ -30,6 +30,7 @@
 
 import { ArrowRight, LayoutDashboard } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { CLIENT_CONSOLE_PATH, CLIENT_SIGN_IN_PATH, clientAuthn } from "@/lib/authn/clientAuthn";
 import { useRealmSession } from "@/lib/authn/useRealmSession";
@@ -67,12 +68,18 @@ export function MarketingAccountNav({ ctaHref, ctaLabel }: MarketingAccountNavPr
   // that can send them to fix it.
   const signedIn = status === "ready" && session !== null;
 
-  if (!signedIn) {
-    return (
-      // NAMED, because the page now renders four navigation landmarks (this one, the
-      // header's section nav, the header's menu and the footer's legal list) and axe's
-      // `landmark-unique` rule is about a screen-reader user moving between them by name.
-      <nav aria-label="Account" className="flex items-center gap-2">
+  // BOTH STATES ARE ALWAYS RENDERED, stacked in one grid cell, so the slot is as wide as
+  // the wider of the two from the first paint and the answer landing moves nothing else in
+  // the header. The answer then cross-fades the two layers (opacity and visibility, the
+  // base duration); reduced motion swaps them instantly. Rendering only the current state
+  // reflowed the row when a signed-in visitor's answer arrived, a second change on a page
+  // that had already loaded. The server and a no-script visitor get the signed-out layer.
+  return (
+    // NAMED, because the page now renders four navigation landmarks (this one, the
+    // header's section nav, the header's menu and the footer's legal list) and axe's
+    // `landmark-unique` rule is about a screen-reader user moving between them by name.
+    <nav aria-label="Account" className="grid">
+      <AccountLayer shown={!signedIn}>
         <Link href={CLIENT_SIGN_IN_PATH} className={LINK}>
           Sign in
         </Link>
@@ -80,27 +87,50 @@ export function MarketingAccountNav({ ctaHref, ctaLabel }: MarketingAccountNavPr
           {ctaLabel}
           <ArrowRight aria-hidden className="h-3.5 w-3.5" />
         </Link>
-      </nav>
-    );
-  }
-
-  return (
-    <nav aria-label="Account" className="flex items-center gap-2">
-      {/* `/c`, not `/c/<slug>`: this component has a session and no slug, and the junction
-          is what turns one into the other. Linking anywhere else would mean a second
-          `/v1/me` read here purely to build an href.
-          ABSOLUTE, because this nav renders on the APEX, which serves `/c` and refuses
-          `/c/<slug>` — so the bare path reached the junction and died at its destination. */}
-      <Link href={clientConsoleUrl(CLIENT_CONSOLE_PATH)} className={PRIMARY}>
-        <LayoutDashboard aria-hidden className="h-3.5 w-3.5" />
-        Go to your console
-      </Link>
-      {/* The account screen, reachable but secondary. NOT a sign-out: this is a marketing
-          page, and putting the one destructive session control next to a call to action
-          is how somebody ends a session they meant to open. `/auth/account` owns that. */}
-      <Link href="/auth/account" className={LINK} aria-label="Your account">
-        Account
-      </Link>
+      </AccountLayer>
+      <AccountLayer shown={signedIn}>
+        {/* `/c`, not `/c/<slug>`: this component has a session and no slug, and the junction
+            is what turns one into the other. Linking anywhere else would mean a second
+            `/v1/me` read here purely to build an href.
+            ABSOLUTE, because this nav renders on the APEX, which serves `/c` and refuses
+            `/c/<slug>` — so the bare path reached the junction and died at its destination. */}
+        {/* "Console" below `sm`: the slot is as wide as the wider state, so this state
+            must be no wider than the signed-out one there, or the shared 320px row loses
+            the logo for every visitor. */}
+        <Link
+          href={clientConsoleUrl(CLIENT_CONSOLE_PATH)}
+          className={PRIMARY}
+          aria-label="Go to your console"
+        >
+          <LayoutDashboard aria-hidden className="hidden h-3.5 w-3.5 sm:block" />
+          <span className="sm:hidden">Console</span>
+          <span className="hidden sm:inline">Go to your console</span>
+        </Link>
+        {/* The account screen, reachable but secondary. NOT a sign-out: this is a marketing
+            page, and putting the one destructive session control next to a call to action
+            is how somebody ends a session they meant to open. `/auth/account` owns that. */}
+        <Link href="/auth/account" className={LINK} aria-label="Your account">
+          Account
+        </Link>
+      </AccountLayer>
     </nav>
+  );
+}
+
+/**
+ * One of the two stacked states. The hidden one is `invisible` (so it keeps its width but
+ * is not painted, announced or clicked), `inert` (out of the tab order even before the
+ * stylesheet applies) and `aria-hidden`, so the landmark only ever holds one set of links.
+ */
+function AccountLayer({ shown, children }: { shown: boolean; children: ReactNode }) {
+  return (
+    <div
+      className={`col-start-1 row-start-1 flex items-center gap-2 justify-self-end ease-out motion-safe:transition-[opacity,visibility] motion-safe:duration-(--duration-base) ${
+        shown ? "visible opacity-100" : "invisible opacity-0"
+      }`}
+      {...(shown ? {} : { inert: true, "aria-hidden": true })}
+    >
+      {children}
+    </div>
   );
 }

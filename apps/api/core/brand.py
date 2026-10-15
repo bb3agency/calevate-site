@@ -37,6 +37,14 @@ LINE: Final = "#e2e8f0"
 TEXT: Final = "#171a1c"
 TEXT_MUTED: Final = "#475569"
 TEXT_FAINT: Final = "#64748b"
+#: Mirror `--danger`, `--danger-soft`, `--danger-line`: the state that needs action now.
+DANGER: Final = "#be123c"
+DANGER_SOFT: Final = "#fff1f2"
+DANGER_LINE: Final = "#fecdd3"
+#: Mirror `--warn`, `--warn-soft`, `--warn-line`: a caution worth reading, not an outage.
+WARN: Final = "#92400e"
+WARN_SOFT: Final = "#fffbeb"
+WARN_LINE: Final = "#fde68a"
 
 #: The body stack. `-apple-system` and `BlinkMacSystemFont` resolve to SF/Segoe on the
 #: two clients that render most of our mail; `Helvetica Neue` and `Arial` cover the rest
@@ -57,6 +65,9 @@ __all__ = [
     "BRAND",
     "BRAND_SOFT",
     "BRAND_STRONG",
+    "DANGER",
+    "DANGER_LINE",
+    "DANGER_SOFT",
     "FONT_MONO",
     "FONT_STACK",
     "LINE",
@@ -65,4 +76,7 @@ __all__ = [
     "TEXT",
     "TEXT_FAINT",
     "TEXT_MUTED",
+    "WARN",
+    "WARN_LINE",
+    "WARN_SOFT",
 ]

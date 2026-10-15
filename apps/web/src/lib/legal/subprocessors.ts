@@ -118,7 +118,10 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "hears.",
     receives:
       "The raw, unredacted transcript. This is the one path that must see raw text: a " +
-      "callback-number field needs the actual digits.",
+      "callback-number field needs the actual digits. As the assistant's standby it " +
+      "receives only the assistant conversation's text, with phone numbers, email " +
+      "addresses and identity numbers replaced by markers — never a file a user " +
+      "attached and never anything the assistant read in the client's account.",
     location:
       "An Indian company, and NOT India for the data. Its published privacy policy " +
       "states that personal data may be transferred to and processed in countries " +
@@ -190,16 +193,17 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "only, is given none of the assistant's look-up tools, cannot read a client's " +
       "leads, calls or campaigns, and cannot fill in a form or propose a change.",
     receives:
-      "The redacted transcript of a call a client asks us to re-read, what a client's " +
-      "user types, and what the assistant looks up in that client's own account to " +
-      "answer them: lead names and statuses, recent calls with their already-redacted " +
-      "summaries, campaign and agent names, counts, and the client's own knowledge " +
-      "content. Phone numbers reach it as markers, and no raw transcript and no " +
-      "extraction payload is sent at all. The one exception is a file a client's user " +
-      "attaches to a question (pictures, PDFs and the text found in them, and the text of " +
-      "text, CSV, Word, Excel and PowerPoint files): it is sent whole and unredacted, so a number or a name in it " +
-      "arrives as it is (section 3.5). The second provider is not used. Nothing " +
-      "from the in-app assistant reaches it. None of them receives the recording.",
+      "Nothing from a client's account until its account owner has turned the in-app " +
+      "assistant on. After that, unmasked: what the client's users type; the files they " +
+      "attach to a question (pictures, PDFs and the text found in them, and the text of " +
+      "text, CSV, Word, Excel and PowerPoint files); and what the assistant reads in that " +
+      "client's own account to answer them — leads and contacts with their phone " +
+      "numbers and contact details, calls with their full transcripts and summaries, " +
+      "campaign and agent names, counts, and the client's own knowledge content " +
+      "(section 3.5). The third provider and the default provider receive all of it; " +
+      "the standby receives only masked conversation text (the post-call extraction " +
+      "row). The second provider is not used. Nothing from the in-app assistant " +
+      "reaches it. None of them receives the recording.",
     location:
       "Outside India for all three. The default provider: United States — its East US 2 " +
       "region, by configuration. This has moved twice: until 19 August 2026 the language " +
@@ -214,8 +218,11 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "place while the condition above holds.",
     status:
       "Core for the third provider while the condition above holds, and for the default " +
-      "provider when it does not or the third cannot answer. The second provider " +
-      "receives nothing.",
+      "provider when it does not or the third cannot answer. Our account with the third " +
+      "provider is a paid one, and its published terms for its paid service say it does " +
+      "not use prompts, files or responses to improve its products, and keeps them for a " +
+      "limited time only to detect misuse of its service. The second provider receives " +
+      "nothing.",
   },
   {
     key: "hosting",
@@ -813,22 +820,30 @@ export const SUBPROCESSORS: LegalDocument = {
                 "the changes a person asks for: one that can be taken back and reaches " +
                 "nobody is made at once with an Undo, and anything that calls someone, " +
                 "spends money, publishes, deletes or changes the do-not-call list still " +
-                "waits for a person to confirm it. What it sends to a provider to do " +
-                "that is the same kind of data described next — ids, names, statuses " +
-                "and redacted text — never a full phone number.",
+                "waits for a person to confirm it. Since 15 October 2026 it is off for " +
+                "every client account until that account's owner turns it on, once, by " +
+                "ticking a box in the assistant's panel after reading a short statement " +
+                "of what it sends; we record who ticked it, when, and which version of " +
+                "the statement they saw, and ask again if the statement changes " +
+                "materially. Our own staff's assistant in our administration console " +
+                "needs no tick and masks nothing.",
             },
             {
               kind: "para",
               text:
-                "What that means for this page is a change to what the language-model " +
-                "provider on the assistant leg receives, and the language-model row " +
-                "above says it: what a person types, plus names, statuses, counts and " +
-                "already-redacted call summaries from the account. A phone number " +
-                "reaches that provider as a marker rather than as digits, and no raw " +
-                "transcript and no extracted-field payload is sent on this leg at all — " +
-                "those are properties of the code rather than instructions in a prompt, " +
-                "which matters because a prompt is not an access control. As for the " +
-                "assistant, a provider serves it only where somebody here has read " +
+                "Once the owner has turned it on, what the language-model providers on " +
+                "the assistant leg receive is unmasked, and the language-model row above " +
+                "says it: what a person types, the files they attach, and what the " +
+                "assistant reads in the account to answer — leads and contacts with " +
+                "their phone numbers and contact details, and calls with their full " +
+                "transcripts and summaries. Every read of a full transcript writes an " +
+                "audit entry. The one exception is the standby, the post-call " +
+                "extraction company, whose own terms permit training: it is sent only " +
+                "the conversation's text with phone numbers, email addresses and " +
+                "identity numbers replaced by markers, never a file and never anything " +
+                "the assistant read — a property of the code rather than an " +
+                "instruction in a prompt, which matters because a prompt is not an " +
+                "access control. As for the assistant, a provider serves it only where somebody here has read " +
                 "that provider's " +
                 "own published position on training with what it receives, and, where " +
                 "the answer depends on which plan our account is on, recorded that " +
@@ -838,14 +853,17 @@ export const SUBPROCESSORS: LegalDocument = {
             {
               kind: "para",
               text:
-                "The assistant also now keeps something, and the product's own code and " +
-                "its own on-screen wording both said it kept nothing until this was " +
-                "corrected. It stores what a client's user asked and what it answered, " +
-                "per person, and an hourly job reads a run of those back to a language " +
-                "model to distil short durable facts about the business. Identifiers are " +
-                "stripped before anything is written; that pass catches numbers, not " +
-                "names. Those records are deleted after 180 days and entirely when an " +
-                "account closes. Section 3.2 of the Privacy Policy describes them, " +
+                "The assistant also keeps something. It stores what a client's user " +
+                "asked, as they typed it, and what it answered, per person; that record " +
+                "is deleted when the user's last signed-in session ends or expires, when " +
+                "they start again, when the client's transcript retention period runs " +
+                "out, when the account closes, and, for anything containing a caller's " +
+                "phone number, when that caller's erasure request runs. An hourly job " +
+                "reads a run of those back to a language model to distil short durable " +
+                "notes about the business, and the instructions of routines a user " +
+                "saves are kept too. Identifiers are stripped before those notes and " +
+                "instructions are written; that pass catches numbers, not names. The " +
+                "notes are deleted after 180 days and entirely when an account closes. Section 3.2 of the Privacy Policy describes them, " +
                 "section 9 carries the period, and section 12.4 states the one thing an " +
                 "erasure request does not do with them.",
             },
@@ -860,9 +878,9 @@ export const SUBPROCESSORS: LegalDocument = {
                 "if the PDF itself cannot be — " +
                 "and our service streams what arrives into the object-storage provider's " +
                 "private storage without opening it, then sends it as it is to the " +
-                "language-model provider answering that question. This is the one thing " +
-                "the assistant sends that is NOT redacted first: a number, a name or " +
-                "anything else in an attached file reaches the provider whole. We do not " +
+                "language-model provider answering that question, unredacted: a number, " +
+                "a name or anything else in an attached file reaches the provider whole, " +
+                "and the standby is never sent one. We do not " +
                 "review attached files, redact them or scan them for malware. The client, " +
                 "as Data Fiduciary, decides what its people may attach and is responsible " +
                 "for having the right to share it (Terms of Service, clause 5; Data " +

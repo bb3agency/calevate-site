@@ -249,6 +249,9 @@ class ModelOfferability:
     #: Carried as the REASON rather than a boolean so the panel can say WHY without
     #: re-deriving it. `unofferable_reason` writes those sentences; this passes them on.
     withheld_reason: str | None
+    #: Withheld from calls but permitted on our text legs off calls (`LlmModelSpec.
+    #: off_call_only`, D-786): for these rows a price DOES change something.
+    off_call_only: bool
     #: The catalogue figure is a first-hand vendor reading (`LlmPrice.evidence.verified`) —
     #: billable with no attestation. True for Azure, False for the OpenAI/Google legs.
     reference_verified: bool
@@ -302,6 +305,7 @@ async def model_offerability(
             # withheld on merit AND missing a key would report only the key — which is
             # the half a price screen can act on and the half that is not true.
             withheld_reason=spec.withdrawn_reason if not spec.selectable else None,
+            off_call_only=spec.off_call_only,
         )
     return result
 

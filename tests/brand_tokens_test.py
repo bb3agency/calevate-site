@@ -34,6 +34,12 @@ MIRRORED: tuple[tuple[str, str], ...] = (
     ("TEXT", "--text"),
     ("TEXT_MUTED", "--text-muted"),
     ("TEXT_FAINT", "--text-faint"),
+    ("DANGER", "--danger"),
+    ("DANGER_SOFT", "--danger-soft"),
+    ("DANGER_LINE", "--danger-line"),
+    ("WARN", "--warn"),
+    ("WARN_SOFT", "--warn-soft"),
+    ("WARN_LINE", "--warn-line"),
 )
 
 

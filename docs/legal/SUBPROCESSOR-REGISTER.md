@@ -115,7 +115,9 @@ category rows say the same facts without the names. Evidence classes follow hard
   standby for the in-app assistant if no other provider can answer, where it answers in
   prose only, is given no look-up tools, cannot read leads, calls or campaigns and cannot
   fill a form or propose a change. It hears no calls and synthesises no voice.
-- Receives: the raw, unredacted transcript (a callback-number field needs the digits).
+- Receives: the raw, unredacted transcript (a callback-number field needs the digits). As the
+  assistant's standby (D-788): only the conversation's text with phone numbers, email addresses
+  and identity numbers replaced by markers; never an attached file, never a tool result.
 - Location: India for the COMPANY; not India for the data. Its privacy policy ("Cross-Border
   Data Transfers") says personal data may be transferred to and processed outside India,
   naming US cloud infrastructure (AWS, GCP, Azure) and analytics providers, EU model and
@@ -169,10 +171,13 @@ category rows say the same facts without the names. Evidence classes follow hard
 - The in-app assistant (including the fallback for a client whose own model cannot serve
   the assistant, and the hourly memory distillation job). The hosted voice platform runs
   the in-call model with its own providers, so Microsoft receives no call turns.
-- Receives: the redacted transcript a client asks to have re-read, what a user types, and
-  look-up results (lead names and statuses, redacted call summaries, campaign and agent
-  names, counts, knowledge).
-  Phone numbers reach it as markers; no raw transcript or extraction payload.
+- Receives (D-788, 15 Oct 2026): nothing from a client account until its owner ticks the
+  assistant's consent box; after that, UNMASKED: what a user types, files they attach (D-781),
+  and look-up results (leads and contacts with phone numbers and contact details, calls with
+  full raw transcripts and unredacted summaries, campaign and agent names, counts, knowledge).
+  Each raw-transcript read writes an audit entry. The admin console's assistant is never
+  masked and needs no tick. Public page: privacy 24, terms 18, DPA 16, sub-processors 23, all
+  MATERIAL (`docs/evidence/pip-consent-2026-10.md`).
 - Location: United States, East US 2, by configuration. Vertex asia-south1 until 19 Aug
   2026; Azure South India 19-22 Aug 2026; East US 2 since 22 Aug 2026 (D-449). The endpoint
   names no region; gates 20/20c are human attestations.
@@ -188,8 +193,16 @@ category rows say the same facts without the names. Evidence classes follow hard
 
 - The in-app assistant only while a recorded confirmation holds that our Google account is
   on a no-training plan with nothing opted back in. Receives the same as Microsoft's
-  dashboard leg; never a raw transcript, extraction payload, raw phone number or recording.
-  Location: global; the developer API names no region.
+  dashboard leg, unmasked after the owner's tick (D-788); never a recording.
+  Location: global; the developer API names no region. Its terms say paid-service prompts
+  "may be stored transiently or cached in any country in which Google or its agents maintain
+  facilities".
+- Terms: ai.google.dev/gemini-api/terms (last updated 2026-04-28, effective 23 Mar 2026): for
+  Paid Services Google does not use prompts (including system instructions, cached content and
+  files) or responses to improve its products; it logs them for a limited time only to detect
+  Prohibited Use Policy violations; processing is under its processor data processing terms.
+  EVIDENCE: VERIFIED-VENDOR-DOCS, read by the lead and relayed 15 Oct 2026. That the production
+  key belongs to a paid, billing-enabled Google Cloud project is FOUNDER-ATTESTED (15 Oct 2026).
 
 ### Hostinger (hosting)
 

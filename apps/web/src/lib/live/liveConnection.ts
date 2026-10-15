@@ -6,8 +6,14 @@
  *
  * - A burst of notes becomes ONE refetch per query: notes are gathered for `coalesceMs`
  *   from the first one and flushed together.
- * - `ready` (and `resync`) refetch every live family on screen, because nothing that
- *   changed while the stream was closed was announced to this tab.
+ * - `ready` refetches what this tab read BEFORE the stream was opened, because nothing that
+ *   changed while it was closed was announced. A read that started after the open is left
+ *   alone: on a page load that is every read on screen, and refetching them all doubled
+ *   the requests of every first paint. A change committed between such a read and the
+ *   server's subscribe (the time the open takes) is the same miss as a lost note, and the
+ *   safety poll (`liveStatus.LIVE_SAFETY_POLL_MS`) bounds both.
+ * - `resync` and a dropped stream refetch every live family on screen: notes were lost
+ *   while the tab held data it believed current.
  * - A dropped stream reconnects after a full-jitter backoff (1 s doubling to 30 s), so a
  *   restarted server is not met by every open tab in the same second. A planned close
  *   (`max_age`) reconnects at once. 401/403 stop it: the ordinary requests on screen get
@@ -23,12 +29,16 @@ import { ALL_LIVE_FAMILIES, familiesFor, isLiveTopic, type LiveTopic } from "./t
 export interface LiveConnectionDeps {
   /** Open the stream; resolves when the server ends it, rejects on failure or abort. */
   open: (signal: AbortSignal, onEvent: (event: SseEvent) => void) => Promise<void>;
-  /** Refetch every query in these families. */
-  invalidate: (families: ReadonlySet<string>) => void;
+  /**
+   * Refetch every query in these families or, given `readBefore` (epoch ms), only those
+   * whose data was read before that instant.
+   */
+  invalidate: (families: ReadonlySet<string>, readBefore?: number) => void;
   /** The stream became healthy (`ready` seen) or stopped being so. */
   onHealth: (healthy: boolean) => void;
   isVisible: () => boolean;
   random?: () => number;
+  now?: () => number;
   coalesceMs?: number;
   hiddenGraceMs?: number;
 }
@@ -52,6 +62,7 @@ export class LiveConnection {
   constructor(deps: LiveConnectionDeps) {
     this.deps = {
       random: Math.random,
+      now: Date.now,
       coalesceMs: 400,
       hiddenGraceMs: 30_000,
       ...deps,
@@ -116,11 +127,11 @@ export class LiveConnection {
     }, this.deps.coalesceMs);
   }
 
-  private catchUp(): void {
+  private catchUp(readBefore?: number): void {
     this.pending.clear();
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
-    this.deps.invalidate(ALL_LIVE_FAMILIES);
+    this.deps.invalidate(ALL_LIVE_FAMILIES, readBefore);
   }
 
   private connect(): void {
@@ -128,13 +139,14 @@ export class LiveConnection {
     this.retryTimer = null;
     const abort = new AbortController();
     this.abort = abort;
+    const openedAt = this.deps.now();
     let closedReason: string | null = null;
 
     const onEvent = (event: SseEvent) => {
       if (event.event === "ready") {
         this.attempt = 0;
         this.setHealthy(true);
-        this.catchUp();
+        this.catchUp(openedAt);
         return;
       }
       if (event.event === "resync") {

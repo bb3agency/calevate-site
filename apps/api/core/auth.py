@@ -69,7 +69,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.write_guard import guard_agent_write
 from apps.api.authn.cookies import read_token
 from apps.api.authn.sessions import session_still_live, verify_session
-from apps.api.authn.subjects import load_subject
+from apps.api.authn.subjects import Subject, load_subject, load_subject_in
 from apps.api.compliance.audit import write_audit
 from apps.api.core.context import (
     IMPERSONATE_HEADER,
@@ -284,14 +284,18 @@ def _credential(request: Request, realm: Realm) -> str:
 
 
 async def _live_subject(verified: VerifiedCaller) -> UUID:
-    """The client-realm subject's id, re-proving on THIS request that they may sign in.
+    """The client-realm subject's id, re-proving on THIS request that they may sign in."""
+    return _require_live(verified, await load_subject(verified.realm, verified.subject_id))
+
+
+def _require_live(verified: VerifiedCaller, subject: Subject | None) -> UUID:
+    """The subject's id, or the refusal every failed credential produces.
 
     `load_subject` returns `None` for absent, hard-deleted and deactivated alike and has no
     way to say which (`authn/subjects.py` explains why that uniformity is a property of the
-    return type rather than of whoever remembered). The refusal it produces is therefore
-    the one every failed credential produces.
+    return type rather than of whoever remembered).
     """
-    if await load_subject(verified.realm, verified.subject_id) is None:
+    if subject is None:
         log.info("auth_subject_not_live", extra={"realm": verified.realm})
         raise ProblemError.unauthorized("Your session is not valid. Sign in again.")
     return verified.subject_id
@@ -313,16 +317,20 @@ async def _load_client_principal(verified: VerifiedCaller, org_slug: str | None)
     refusal for a member who accepted an invite in one tab and opened the console in
     another (D-124's whole subject).
     """
-    user_id = await _live_subject(verified)
-
     # Set inside the session below when the resolution came back empty BECAUSE the
     # account is closed; stays None on every other path. Declared here rather than
     # relied on to exist, so the refusal below reads as one decision instead of two
     # branches that happen to be in step.
     closed: object | None = None
 
-    # Now, and only now, a session that can see THIS user's memberships.
-    async with user_session(user_id) as session:
+    # A session that can see THIS user's memberships, and nothing is read from them until
+    # the user is proved live. One transaction for both reads rather than a connection
+    # each: this runs on every request, and a checkout is a pre-ping, a BEGIN, the GUCs
+    # and a COMMIT before the one indexed row it exists to read.
+    async with user_session(verified.subject_id) as session:
+        user_id = _require_live(
+            verified, await load_subject_in(session, verified.realm, verified.subject_id)
+        )
         params: dict[str, object] = {"uid": user_id}
         sql = (
             "SELECT m.tenant_id, m.role, o.slug FROM memberships m "

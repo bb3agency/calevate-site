@@ -1,5 +1,13 @@
 # Evidence — a direct Gemini adapter: does the objection that removed it still hold?
 
+> ⚠ **SUPERSEDED IN PART — 15 October 2026, D-786.** Google's models page (updated 2026-10-13)
+> no longer lists `gemini-3.5-flash` (its deprecations page, updated 2026-10-12, names
+> `gemini-3.6-flash` as the replacement), so every figure for that id below is history. The
+> same pages limit Gemini 2.5 to projects that used it before and recommend `gemini-3.5-flash-lite`
+> or `gemini-3.8-flash` for new ones; Pip now defaults to `gemini-3.1-flash-lite` and
+> `gemini-3.5-flash-lite`. Prices and dates as read are in `calevate_shared/engine.py` and
+> `model_lifecycle.py` and in ROADMAP D-786.
+
 > ⚠ **SUPERSEDED IN PART — 22 August 2026, D-449.** This lane re-tests a removal whose
 > residency half rested on the product having an India-inference requirement. D-449 moved
 > the declared posture to `us-azure-openai` / `eastus2` and withdrew the India warranty, so

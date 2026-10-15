@@ -204,7 +204,7 @@ async def test_a_condition_that_clears_says_so_once_and_only_if_it_had_mailed(
     await sweep_alert_clears({})
 
     assert len(transport.sent) == 2, "the page's clear is announced"
-    assert "cleared" in transport.sent[1]["subject"]
+    assert "Cleared: " in transport.sent[1]["subject"]
     assert A_PAGE in transport.sent[1]["subject"]
     for code in (A_PAGE, AN_ATTENTION):
         (row,) = await _episodes(code)
@@ -249,7 +249,7 @@ async def test_a_condition_that_comes_back_after_clearing_mails_again(
     alerting.alert("ROUTE_HANDLER", A_PAGE, detail="and again")
     _drain()
 
-    onsets = [m for m in transport.sent if "cleared" not in m["subject"]]
+    onsets = [m for m in transport.sent if "Cleared: " not in m["subject"]]
     assert len(onsets) == 2, "a genuine recurrence is a new episode and mails"
     assert len(await _episodes(A_PAGE)) == 2
 

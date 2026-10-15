@@ -5,13 +5,20 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { Suspense } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
 import QaSamplingPage from "@/app/admin/qa-sampling/page";
-import type { QaSample } from "@/lib/api/qaSamples";
+import {
+  DEFAULT_FILTERS,
+  nextWaitingPath,
+  queuePath,
+  type QaQueuePage,
+  type QaSample,
+} from "@/lib/api/qaSamples";
 
 import { browserOffline, problem, stubApi } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
@@ -96,195 +103,332 @@ const CALL = {
   extraction_valid: true,
 };
 
+const QUEUE = queuePath(DEFAULT_FILTERS);
+const NEXT = nextWaitingPath({ client: null, week: null });
+
+const CLIENT = {
+  tenant_id: "t1",
+  tenant_name: "Sri Traders",
+  tenant_slug: "sri-traders",
+  waiting: 1,
+  sampled: 2,
+};
+
+function page(items: QaSample[], over: Partial<QaQueuePage> = {}): QaQueuePage {
+  return {
+    items,
+    total: items.length,
+    offset: 0,
+    limit: 50,
+    waiting_total: items.filter((row) => row.verdict === null).length,
+    clients: [CLIENT],
+    weeks: ["2026-08-03"],
+    ...over,
+  };
+}
+
 describe("the QA sampling queue", () => {
-  it("shows the draw's own evidence, not just the calls", async () => {
-    const { container } = await renderAdminRoute(<QaSamplingPage />, {
-      "/v1/admin/qa-samples?pending=true": [SAMPLE],
+  afterEach(() => window.history.replaceState(null, "", "/"));
+
+  it("leads with the work and one button that starts it", async () => {
+    const { container } = await renderAdminRoute(<QaSamplingPage />, { [QUEUE]: page([SAMPLE]) });
+    await screen.findByText("1 call waiting for review");
+    const start = screen.getByRole("link", { name: /Start reviewing/ });
+    expect(start.getAttribute("href")).toBe("/admin/qa-sampling/s1");
+    // The draw's evidence: what makes 5% a claim somebody can check.
+    expect(container.textContent).toContain("Week of 3 Aug 2026");
+    expect(container.textContent).toContain("Pick #1 of 2 from 40 calls");
+  });
+
+  it("puts each client's calls under its name, with that client's count", async () => {
+    const other: QaSample = {
+      ...SAMPLE,
+      id: "s2",
+      tenant_id: "t2",
+      tenant_name: "Raghava Organics",
+      tenant_slug: "raghava",
+      agent_name: "Orders",
+    };
+    await renderAdminRoute(<QaSamplingPage />, {
+      [QUEUE]: page([SAMPLE, other], {
+        clients: [
+          CLIENT,
+          { ...CLIENT, tenant_id: "t2", tenant_name: "Raghava Organics", tenant_slug: "raghava", waiting: 2, sampled: 3 },
+        ],
+      }),
     });
-    await screen.findByText("Sri Traders");
-    // The frame and the rank: what makes 5% a claim somebody can check.
-    expect(container.textContent).toContain("40 calls that week");
-    expect(container.textContent).toContain("#1 of 2");
-    expect(container.textContent).toContain("5% sampled");
-    expect(container.textContent).toContain("2026-08-03");
+    const heading = await screen.findByRole("heading", { name: "Raghava Organics" });
+    expect(heading.parentElement?.textContent).toContain("2 of 3 to review, all weeks");
+    const row = screen.getByRole("link", { name: /Raghava Organics, Orders/ });
+    expect(row.getAttribute("href")).toBe("/admin/qa-sampling/s2");
+    // The slug path is not printed on the row.
+    expect(row.textContent).not.toContain("/c/raghava");
+  });
+
+  it("reads the filters from the URL and sends them to the server", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/admin/qa-sampling?client=t1&status=reviewed&verdict=defect&week=2026-08-03",
+    );
+    const filtered = queuePath({
+      ...DEFAULT_FILTERS,
+      client: "t1",
+      status: "reviewed",
+      verdict: "defect",
+      week: "2026-08-03",
+    });
+    const { calls } = await renderAdminRoute(<QaSamplingPage />, {
+      [filtered]: page([{ ...SAMPLE, verdict: "defect", reviewed_at: "2026-08-11T05:00:00Z" }]),
+      [nextWaitingPath({ client: "t1", week: "2026-08-03" })]: page([]),
+    });
+    await screen.findByText("Defect");
+    expect(calls.map((call) => call.path)).toContain(filtered);
+    expect(filtered).toContain("tenant_id=t1");
+    expect(filtered).toContain("verdict=defect");
+    // Nothing waiting under this client and week, so there is nothing to start.
+    await waitFor(() =>
+      expect(calls.map((call) => call.path)).toContain(nextWaitingPath({ client: "t1", week: "2026-08-03" })),
+    );
+    expect(screen.queryByRole("link", { name: /Start reviewing/ })).toBeNull();
+  });
+
+  it("pages on the server and says how many there are", async () => {
+    await renderAdminRoute(<QaSamplingPage />, {
+      [QUEUE]: page([SAMPLE], { total: 120, waiting_total: 120 }),
+    });
+    await screen.findByText(/of 120 calls/);
+    expect(screen.getByRole("navigation", { name: "Queue pages" })).toBeTruthy();
   });
 
   it("refuses rather than claiming everything has been reviewed", async () => {
     const { container } = await renderAdminRoute(<QaSamplingPage />, {
-      "/v1/admin/qa-samples?pending=true": problem(401, {
-        title: "Unauthorized",
-      }),
+      [QUEUE]: problem(401, { title: "Unauthorized" }),
     });
     await screen.findByText("The sampling queue could not be read");
-    expect(container.textContent).not.toContain(
-      "Every sampled call has been reviewed",
-    );
+    expect(container.textContent).not.toContain("Every picked call has been reviewed");
   });
 
-  it("says an empty queue is the GOOD state", async () => {
-    const { container } = await renderAdminRoute(<QaSamplingPage />, {
-      "/v1/admin/qa-samples?pending=true": [],
-    });
-    await screen.findByText("Every sampled call has been reviewed");
+  it("says an empty queue is the GOOD state, and what happens next", async () => {
+    const { container } = await renderAdminRoute(<QaSamplingPage />, { [QUEUE]: page([]) });
+    await screen.findByText("Every picked call has been reviewed");
+    expect(container.textContent).toContain("Monday at 07:20 IST");
     expect(container.textContent).not.toContain("could not be read");
   });
 
-  it("carries no phone number and no transcript on the list", async () => {
-    const { container } = await renderAdminRoute(<QaSamplingPage />, {
-      "/v1/admin/qa-samples?pending=true": [SAMPLE],
+  it("says a filtered empty view is the filters, and offers to clear them", async () => {
+    window.history.replaceState(null, "", "/admin/qa-sampling?client=t1");
+    await renderAdminRoute(<QaSamplingPage />, {
+      [queuePath({ ...DEFAULT_FILTERS, client: "t1" })]: page([], { waiting_total: 4 }),
     });
-    await screen.findByText("Sri Traders");
+    await screen.findByText("No calls match these filters");
+    expect(screen.getByRole("button", { name: "Clear the filters" })).toBeTruthy();
+  });
+
+  it("carries no phone number and no transcript on the list", async () => {
+    const { container } = await renderAdminRoute(<QaSamplingPage />, { [QUEUE]: page([SAMPLE]) });
+    await screen.findByText("1 call waiting for review");
     expect(container.textContent).not.toContain("+91");
     expect(container.textContent).not.toContain("Namaskaram");
+  });
+
+  it("finds a client by typing its name", async () => {
+    await renderAdminRoute(<QaSamplingPage />, {
+      [QUEUE]: page([SAMPLE], {
+        clients: [CLIENT, { ...CLIENT, tenant_id: "t2", tenant_name: "Raghava Organics", tenant_slug: "raghava" }],
+      }),
+    });
+    await screen.findByText("1 call waiting for review");
+    const box = screen.getByRole("combobox", { name: "Client" });
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "ragh" } });
+    const options = within(screen.getByRole("listbox", { name: "Client" })).getAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0]?.textContent).toContain("Raghava Organics");
+  });
+
+  it("does not report the sampling queue reviewed over a read the browser never made", async () => {
+    browserOffline();
+    const { container } = await renderAdminRoute(<QaSamplingPage />, { [QUEUE]: page([SAMPLE]) });
+    expect(container.textContent).not.toContain("Every picked call has been reviewed");
+    expect(container.textContent).toContain("The sampling queue could not be read");
   });
 });
 
 describe("reviewing a sampled call", () => {
-  const routes = (over: Record<string, unknown> = {}) => ({
-    "/v1/admin/qa-samples/s1": { sample: SAMPLE, call: CALL },
-    ...over,
-  });
+  afterEach(() => window.history.replaceState(null, "", "/"));
+
+  const NEXT_SAMPLE: QaSample = {
+    ...SAMPLE,
+    id: "s2",
+    tenant_name: "Raghava Organics",
+    agent_name: "Orders",
+  };
+  const open = (over: Record<string, unknown> = {}) =>
+    renderAdminRoute(<QaSampleReviewPage params={routeParams({ sampleId: "s1" })} />, {
+      "/v1/admin/qa-samples/s1": { sample: SAMPLE, call: CALL },
+      ...over,
+    });
+  const record = async (verdict: RegExp) => {
+    fireEvent.click(await screen.findByRole("radio", { name: verdict }));
+    fireEvent.click(screen.getByRole("button", { name: "Record verdict" }));
+  };
 
   it("renders the redacted transcript and says that is what it is", async () => {
-    const { container } = await renderAdminRoute(
-      <QaSampleReviewPage params={routeParams({ sampleId: "s1" })} />,
-      routes(),
-    );
+    const { container } = await open();
     await screen.findByText("Namaskaram, Sri Clinic.");
     expect(container.textContent).toContain("[phone ••10]");
     expect(container.textContent).toContain("are hidden in this transcript");
-    // The reviewer is told the read is on the record BEFORE they read it.
-    expect(container.textContent).toContain("recorded in the audit log");
+    // Founder, 15 Oct 2026: no audit notices in the UI. The read is still audited server-side.
+    expect(container.textContent).not.toMatch(/audit log|against your name/);
+  });
+
+  it("lists what to check before the reviewer reads", async () => {
+    await open();
+    const heading = await screen.findByRole("heading", { name: "What to check" });
+    const text = heading.parentElement?.textContent ?? "";
+    expect(text).toContain("say it is an AI");
+    expect(text).toContain("wrong or made up");
+    expect(text).toContain("anything personal left visible");
   });
 
   it("offers no way to see the unredacted text", async () => {
-    const { container } = await renderAdminRoute(
-      <QaSampleReviewPage params={routeParams({ sampleId: "s1" })} />,
-      routes(),
-    );
+    const { container } = await open();
     await screen.findByText("Namaskaram, Sri Clinic.");
     // Hard rule 5 has ONE raw path in this product and it is not on this screen. Asserted
-    // rather than assumed, because a convenience toggle here is the likeliest way a
-    // second one gets built.
-    // Asserted over the CONTROLS, not the prose: the notice on this screen says the word
-    // "unredacted" in order to promise there is no such view, and a text search would
-    // match the promise itself.
-    const controls = screen
-      .queryAllByRole("button")
-      .map((node) => node.textContent ?? "");
+    // over the CONTROLS, not the prose: the notice says what is hidden.
+    const controls = screen.queryAllByRole("button").map((node) => node.textContent ?? "");
     for (const control of controls) {
       expect(control).not.toMatch(/raw|unredacted|full text/i);
     }
     expect(container.querySelector('[href*="transcript/raw"]')).toBeNull();
   });
 
-  it("shows why THIS call was drawn, including the seed", async () => {
-    const { container } = await renderAdminRoute(
-      <QaSampleReviewPage params={routeParams({ sampleId: "s1" })} />,
-      routes(),
-    );
-    await screen.findByText(/Drawn #1 of 2/);
-    expect(container.textContent).toContain("t1:2026-08-03");
+  it("shows why THIS call was picked, with the seed behind its info", async () => {
+    await open();
+    await screen.findByText(/Pick #1 of 2/);
+    fireEvent.click(screen.getByRole("button", { name: /How this call was picked/ }));
+    await screen.findByText("t1:2026-08-03");
   });
 
-  it("records a verdict and then stops offering the buttons", async () => {
-    const { container, calls } = await renderAdminRoute(
-      <QaSampleReviewPage params={routeParams({ sampleId: "s1" })} />,
-      routes({
-        "POST /v1/admin/qa-samples/s1/review": {
-          ...SAMPLE,
-          verdict: "clean",
-          reviewed_at: "x",
-        },
-        "/v1/admin/qa-samples?pending=true": [],
-      }),
-    );
-    await screen.findByText("Clean");
-    fireEvent.click(screen.getByRole("button", { name: /Clean/ }));
+  it("offers the verdicts as a radio group and records nothing until asked", async () => {
+    const { calls } = await open();
+    const group = await screen.findByRole("radiogroup", { name: "What did this call show?" });
+    expect(within(group).getAllByRole("radio")).toHaveLength(3);
+    const button = screen.getByRole("button", { name: "Record verdict" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
 
-    await waitFor(() =>
-      expect(calls.some((call) => call.method === "POST")).toBe(true),
-    );
+    fireEvent.click(within(group).getByRole("radio", { name: /Concern/ }));
+    expect((within(group).getByRole("radio", { name: /Concern/ }) as HTMLInputElement).checked).toBe(true);
+    expect(button.disabled).toBe(false);
+    // A choice is not a verdict: nothing has been sent.
+    expect(calls.some((call) => call.method === "POST")).toBe(false);
+  });
+
+  it("records a Clean verdict once and offers the next call", async () => {
+    const { container, calls } = await open({
+      "POST /v1/admin/qa-samples/s1/review": { ...SAMPLE, verdict: "clean", reviewed_at: "x" },
+      [NEXT]: page([NEXT_SAMPLE]),
+    });
+    await record(/Clean/);
+
+    await waitFor(() => expect(calls.some((call) => call.method === "POST")).toBe(true));
     const posted = calls.find((call) => call.method === "POST");
     expect(posted?.path).toBe("/v1/admin/qa-samples/s1/review");
     expect(posted?.body).toContain("clean");
-    // And the verdict, once recorded, is not offered again from this screen.
-    await waitFor(() =>
-      expect(container.textContent).toContain("A verdict is written once"),
+
+    const next = await screen.findByRole("link", { name: /Next call to review/ });
+    expect(next.getAttribute("href")).toBe("/admin/qa-sampling/s2");
+    expect(container.textContent).toContain("Recorded as Clean");
+    // Write-once: the choices are gone, and a Clean call has nothing to follow up.
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.queryByText("Follow it up")).toBeNull();
+    // Recording does not re-read the call: that read is audited, and one opening is one row.
+    expect(calls.filter((call) => call.path === "/v1/admin/qa-samples/s1")).toHaveLength(1);
+  });
+
+  it("says all caught up when nothing else is waiting", async () => {
+    await open({
+      "POST /v1/admin/qa-samples/s1/review": { ...SAMPLE, verdict: "clean", reviewed_at: "x" },
+      [NEXT]: page([]),
+    });
+    await record(/Clean/);
+    await screen.findByText("All caught up");
+    expect(screen.getByRole("link", { name: "Back to the queue" }).getAttribute("href")).toBe(
+      "/admin/qa-sampling",
     );
   });
 
-  it("shows the refusal when somebody else reviewed it first", async () => {
-    const { container } = await renderAdminRoute(
-      <QaSampleReviewPage params={routeParams({ sampleId: "s1" })} />,
-      routes({
-        "POST /v1/admin/qa-samples/s1/review": problem(409, {
-          title: "Conflicting request",
-          detail: "This call was already reviewed as 'defect'.",
-        }),
-      }),
+  it("follows a Concern up through the client's own screens and Pip", async () => {
+    await open({
+      "POST /v1/admin/qa-samples/s1/review": { ...SAMPLE, verdict: "concern", reviewed_at: "x" },
+      [NEXT]: page([NEXT_SAMPLE]),
+    });
+    await record(/Concern/);
+
+    const setup = await screen.findByRole("link", { name: /Reception agent's set-up, as the client sees it/ });
+    const setupUrl = new URL(setup.getAttribute("href") ?? "", "http://x");
+    expect(setupUrl.pathname).toBe("/admin/view-as");
+    expect(setupUrl.searchParams.get("slug")).toBe("sri-traders");
+    expect(setupUrl.searchParams.get("path")).toBe("/agents/a1");
+
+    const callLink = screen.getByRole("link", { name: /this call in the client's dashboard/ });
+    expect(new URL(callLink.getAttribute("href") ?? "", "http://x").searchParams.get("path")).toBe(
+      "/calls/c1",
     );
-    await screen.findByText("Clean");
-    fireEvent.click(screen.getByRole("button", { name: /Clean/ }));
+
+    const ask = screen.getByRole("button", { name: /Ask Pip about this call/ });
+    // The prompt names the client and the agent, never the caller.
+    expect(ask.getAttribute("title")).toContain("Sri Traders");
+    expect(ask.getAttribute("title")).not.toContain("+91");
+    expect(await screen.findByRole("link", { name: /Next call to review/ })).toBeTruthy();
+  });
+
+  it("keeps the next call inside the queue's client and week", async () => {
+    window.history.replaceState(null, "", "/admin/qa-sampling/s1?client=t1&week=2026-08-03");
+    const scoped = nextWaitingPath({ client: "t1", week: "2026-08-03" });
+    const { calls } = await open({
+      "POST /v1/admin/qa-samples/s1/review": { ...SAMPLE, verdict: "clean", reviewed_at: "x" },
+      [scoped]: page([NEXT_SAMPLE]),
+    });
+    await record(/Clean/);
+    const next = await screen.findByRole("link", { name: /Next call to review/ });
+    expect(calls.map((call) => call.path)).toContain(scoped);
+    expect(next.getAttribute("href")).toBe("/admin/qa-sampling/s2?client=t1&week=2026-08-03");
+  });
+
+  it("shows the refusal when somebody else reviewed it first", async () => {
+    await open({
+      "POST /v1/admin/qa-samples/s1/review": problem(409, {
+        title: "Conflicting request",
+        detail: "This call was already reviewed as 'defect'.",
+      }),
+    });
+    await record(/Clean/);
     await screen.findByText(/already reviewed/);
-    // The buttons stay: the reviewer needs to see what happened, not a screen that went
-    // quiet under their click.
-    expect(container.textContent).toContain("Concern");
+    // The choices stay: the reviewer needs to see what happened, not a panel gone quiet.
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
   });
 
   it("refuses instead of rendering an empty review when the call cannot be read", async () => {
     const { container } = await renderAdminRoute(
       <QaSampleReviewPage params={routeParams({ sampleId: "s1" })} />,
-      {
-        "/v1/admin/qa-samples/s1": problem(503, {
-          title: "Service unavailable",
-        }),
-      },
+      { "/v1/admin/qa-samples/s1": problem(503, { title: "Service unavailable" }) },
     );
     await screen.findByText(/could not be read, so it cannot be reviewed/);
-    // No verdict buttons under a call nobody could read: a verdict recorded against an
-    // unread call is worse than no review at all.
-    expect(screen.queryByRole("button", { name: /Defect/ })).toBeNull();
+    // No verdicts under a call nobody could read.
+    expect(screen.queryByRole("radio")).toBeNull();
     expect(container.textContent).not.toContain("Namaskaram");
   });
 
   it("shows a recorded verdict as recorded, and does not offer a second one", async () => {
-    const { container } = await renderAdminRoute(
-      <QaSampleReviewPage params={routeParams({ sampleId: "s1" })} />,
-      {
-        "/v1/admin/qa-samples/s1": {
-          sample: { ...SAMPLE, verdict: "defect" },
-          call: CALL,
-        },
-      },
-    );
-    await screen.findByText(/Recorded as/);
-    expect(container.textContent).toContain("A verdict is written once");
-    expect(screen.queryByRole("button", { name: /Concern/ })).toBeNull();
-  });
-
-  /**
-   * THE PAUSED QUERY — the state that is neither loading nor failed.
-   *
-   * TanStack does not start a fetch it believes cannot succeed: with the default
-   * `networkMode: "online"` it parks the query (`fetchStatus: "paused"`), so
-   * `isLoading` — which is `isPending && isFetching` — is FALSE, `error` is null and
-   * `data` is undefined. A two-armed ladder therefore walks past both arms into its data
-   * branch with nothing in it. `browserOffline()` flips the library's own switch rather
-   * than mocking anything, so this is the branch a dropped connection actually produces.
-   */
-  it("does not report the sampling queue reviewed over a read the browser never made", async () => {
-    browserOffline();
-    const { container } = await renderAdminRoute(<QaSamplingPage />, {
-      "/v1/admin/qa-samples?pending=true": [SAMPLE],
+    await renderAdminRoute(<QaSampleReviewPage params={routeParams({ sampleId: "s1" })} />, {
+      "/v1/admin/qa-samples/s1": { sample: { ...SAMPLE, verdict: "defect" }, call: CALL },
+      [NEXT]: page([]),
     });
-
-    expect(container.textContent).not.toContain(
-      "Every sampled call has been reviewed",
-    );
-    expect(container.textContent).toContain(
-      "The sampling queue could not be read",
-    );
+    await screen.findByText(/Recorded as/);
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.getByText("Follow it up")).toBeTruthy();
   });
 });
 

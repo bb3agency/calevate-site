@@ -18,7 +18,7 @@ from typing import Any, cast
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.agents import lifecycle, test_conversations
+from apps.api.agents import assist_leg, lifecycle, test_conversations
 from apps.api.agents.llm_models import install_dashboard_data_use_reader
 from apps.api.agents.service import AgentRow, in_call_model
 from apps.api.core.errors import ProblemError
@@ -28,7 +28,7 @@ from apps.api.engine.catalogue import CatalogueModel
 from apps.workers import agent_test_ai, chat, script_assist
 from apps.workers import agent_test_conversations as worker
 from apps.workers.extraction import TenantModelLeg
-from calevate_shared.engine import PLATFORM_RULES_TAIL_HEADER
+from calevate_shared.engine import COPILOT_FAST_MODEL_DEFAULT, PLATFORM_RULES_TAIL_HEADER
 from scripts import judge_calibration as calibration
 from tests.agent_test_loop_test import BRIEF
 from tests.hosted_voice_fakes import HostingEngine
@@ -57,7 +57,7 @@ def gemini(monkeypatch: pytest.MonkeyPatch, azure: Any) -> Any:
     monkeypatch.setattr(azure, "gemini_api_key", "g-test", raising=False)
     install_dashboard_data_use_reader(lambda: frozenset({"google"}))
     monkeypatch.setattr(
-        agent_test_ai, "offerable_models", lambda: frozenset({"gemini-2.5-flash-lite"})
+        assist_leg, "off_call_offerable_models", lambda: frozenset({COPILOT_FAST_MODEL_DEFAULT})
     )
     return azure
 
@@ -188,7 +188,7 @@ def test_a_gemini_agent_is_judged_off_gemini(gemini: Any) -> None:
 
 def test_an_openai_family_agent_is_judged_on_gemini_when_it_may_be(gemini: Any) -> None:
     leg = agent_test_ai.judge_leg(None, agent_model="GPT-OSS 120B", quota_exhausted=False)
-    assert leg is not None and leg.model == "gemini-2.5-flash-lite" and leg.serves_dashboard
+    assert leg is not None and leg.model == COPILOT_FAST_MODEL_DEFAULT and leg.serves_dashboard
 
 
 def test_with_no_other_family_the_judge_stays_and_never_drops_to_the_standby(

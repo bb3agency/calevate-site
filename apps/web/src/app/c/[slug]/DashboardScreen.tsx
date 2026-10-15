@@ -7,8 +7,12 @@ import { Section } from "@/components/console/section";
 import { Metric, MetricRow } from "@/components/console/metric";
 import { useAgentStats, useAgents } from "@/lib/api/agents";
 import { useAttention } from "@/lib/api/attention";
+import { useBusinessProfile } from "@/lib/api/businessProfile";
 import { useCampaigns } from "@/lib/api/campaigns";
+import { useForwarding } from "@/lib/api/forwarding";
+import { useLineIncidents } from "@/lib/api/healer";
 import { useCalls, useDashboard, useUsage, useWriteAccess } from "@/lib/api/hooks";
+import { useKnowledgeGaps } from "@/lib/api/knowledgeGaps";
 import { useClientRealm } from "@/lib/api/session";
 import { activeTrial, trialEndsAt, useWallet } from "@/lib/api/wallet";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -84,6 +88,21 @@ export function DashboardScreen({ slug }: { slug: string }) {
   const creditAccess = useWriteAccess(session, "org:manage", "add credit");
   const agentAccess = useWriteAccess(session, "org:manage", "create an agent");
   const campaignAccess = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
+  /*
+   * THE NOTICES' READS START WITH THE DASHBOARD'S, not after it. The line notice, the setup
+   * checklist, the existing-number prompt and "where your agents struggled" each read their
+   * own query, and each mounts only once the dashboard has answered; left to themselves,
+   * their requests would leave a round trip late and each card would push the page down.
+   * Calling the same hooks here (same keys, so no second request) starts them in parallel,
+   * and the skeleton below waits for them, so the page arrives in one paint. A failed
+   * notice read does not hold the page: only a read still in flight does.
+   */
+  const notices = [
+    useLineIncidents(session),
+    useBusinessProfile(session),
+    useForwarding(session),
+    useKnowledgeGaps(session, { status: "open", limit: 20 }),
+  ];
 
   /*
    * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
@@ -199,7 +218,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
     apply: noFill,
   });
 
-  if (dashboard.isLoading) {
+  if (dashboard.isLoading || notices.some((notice) => notice.isLoading)) {
     return (
       <div className="space-y-6">
         <Skeleton rows={4} />
@@ -233,7 +252,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
         <LineNotice session={session} href={href(`/c/${slug}/settings/line-protection`)} />
         <SetupChecklist />
         <ExistingNumberPrompt session={session} href={href} />
-        <TrialCallPanel slug={slug} />
+        <TrialCallPanel slug={slug} trial={data.trial} />
       </div>
 
       {/* FIRST, WHAT TO ACT ON (founder, REDESIGN-2): the queue, hot leads, calls that

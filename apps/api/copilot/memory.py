@@ -10,12 +10,11 @@ THE THREE THINGS THAT ARE DIFFERENT FROM A NAIVE MEMORY STORE, in the order they
 
 1. **REDACTION ON THE WAY IN, not only in logs.** Hard rule 6 governs log lines; this is
    stricter because it PERSISTS. `redacted_content` runs `workers.redaction.redact` — the
-   same primitive `pipeline.py`, `run_assist` and `copilot/sanitize.assert_redacted` use —
-   over every string before it reaches a column. That is belt AND braces: the route already
-   refuses a request `redact()` still changes, so nothing personal should arrive here at
-   all; what this catches is the half the route CANNOT check, which is the model's own
-   output. A model that invents a phone-shaped number in an answer would otherwise put it
-   in a durable row.
+   same primitive `pipeline.py` and `run_assist` use — over every string before it reaches
+   a column. Since D-788 a question can carry a caller's number to the model (the account
+   turned Pip on), and a memory outlives the conversation by months, so this is the only
+   thing keeping that number out of a 180-day row: data minimisation the consent did not
+   change.
 
    ⚠ **AND THE LIMIT OF THAT IS WORTH STATING RATHER THAN LEAVING FOR SOMEONE TO FIND.**
    `redact()` recognises IDENTIFIERS — phone numbers, email addresses, Aadhaar, PAN, card
@@ -154,11 +153,24 @@ def redacted_content(*parts: str) -> str:
         return ""
     result = redact(joined)
     if result.changed:
-        # KINDS, never the text and never the value (hard rule 6). This line is how an
-        # operator learns the input guard is being reached from the model side, which is
-        # the one direction `sanitize.assert_redacted` cannot see.
+        # KINDS, never the text and never the value (hard rule 6).
         log.warning("copilot_memory_redacted_on_write", extra={"kinds": len(result.kinds)})
-    cleaned = result.text.strip()
+    return _capped(result.text)
+
+
+def stored_content(*parts: str) -> str:
+    """The parts, joined and capped, NOT redacted: a conversation turn's form (D-788).
+
+    A turn is stored as said because the person's next question is answered from it (the
+    history window), and the account turned Pip on to allow exactly that. It lives only as
+    long as the conversation (`transcript.py`), and a caller's erasure by number still finds
+    it. Distilled memories keep `redacted_content`: they outlive the conversation."""
+    joined = "\n".join(part.strip() for part in parts if part and part.strip())
+    return _capped(joined) if joined.strip() else ""
+
+
+def _capped(content: str) -> str:
+    cleaned = content.strip()
     if len(cleaned) > MAX_CONTENT_CHARS:
         cleaned = cleaned[: MAX_CONTENT_CHARS - 1].rstrip() + "…"
     return cleaned

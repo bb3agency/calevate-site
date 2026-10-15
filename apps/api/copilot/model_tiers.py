@@ -4,7 +4,8 @@ THE FOUNDER'S DECISION: the assistant's model is tiered by TASK, set in the cons
 Gemini only at first. A fast model answers and looks things up; a stronger one plans
 multi-step requests and background jobs. Both are console settings
 (`copilot_fast_model`, `copilot_planning_model`, typed to the Google leg), never constants,
-and a setting is used only while its model is in `offerable_models()` — selectable,
+and a setting is used only while its model is in `off_call_offerable_models()` — permitted
+for the assistant (D-786: Gemini 3 models refused on calls are permitted here),
 credential installed, price attested — and its data-use attestation is recorded. Anything
 else falls to the next rung of the ONE selector (`workers/extraction.assist_capability`)
 and the person is told whose answer it is (D-127 G-6).
@@ -35,9 +36,9 @@ from __future__ import annotations
 import re
 from typing import Final, Literal
 
-from apps.api.agents.llm_models import offerable_models, tenant_dashboard_leg, unofferable_reason
+from apps.api.agents.assist_leg import google_leg_for
 from apps.api.core.settings import get_settings
-from apps.workers.extraction import GOOGLE_PROVIDER, TenantModelLeg
+from apps.workers.extraction import TenantModelLeg
 
 ModelTier = Literal["fast", "planning"]
 
@@ -98,24 +99,9 @@ def tier_model(tier: ModelTier) -> str:
 
 
 def tier_leg(tier: ModelTier) -> TenantModelLeg:
-    """This tier's model as the selector's leg — or a leg that says why it cannot serve.
-
-    `offerable_models()` is asked FIRST: `serves_dashboard` answers the data-use question
-    and not the price one, and an unpriced model that answered would raise on the metering
-    path after the provider had been paid (hard rule 7). An unofferable model is therefore
-    handed to the selector as a leg that does not serve, with the operator's ground — the
-    selector then substitutes and discloses.
-    """
-    model = tier_model(tier)
-    if model not in offerable_models():
-        return TenantModelLeg(
-            model=model,
-            provider=GOOGLE_PROVIDER,
-            serves_dashboard=False,
-            blocked_reason=unofferable_reason(model) or "this model is not offerable here",
-            account_chose_model=False,
-        )
-    return tenant_dashboard_leg(model=model, source="platform")
+    """This tier's model as the selector's leg, or a leg that says why it cannot serve
+    (`agents/assist_leg.google_leg_for`: key and attested price first, hard rule 7)."""
+    return google_leg_for(tier_model(tier))
 
 
 __all__ = [

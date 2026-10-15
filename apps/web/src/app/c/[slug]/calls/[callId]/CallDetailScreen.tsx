@@ -232,7 +232,7 @@ export function CallDetailScreen({
         label: "Which transcript is showing",
         value:
           showRaw && raw.data?.transcript !== undefined
-            ? "the raw one, opened deliberately and audited"
+            ? "the raw one, opened deliberately"
             : "the redacted one",
       },
       { key: "recording_loaded", label: "Is the player loaded?", value: audioLoaded ? "yes" : "no" },

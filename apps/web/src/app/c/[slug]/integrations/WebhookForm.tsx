@@ -183,8 +183,7 @@ export function WebhookForm({
                       Sends the FULL transcript — every phone number, ID and OTP spoken on the
                       call — to your endpoint in the clear. Only turn this on if your system is
                       allowed to hold that data. Turning it on needs the same permission as
-                      reading a raw transcript, and every delivery that carries it is written to
-                      your audit log.
+                      reading a raw transcript.
                     </span>
                   </span>
                 </label>

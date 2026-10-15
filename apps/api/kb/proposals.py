@@ -144,7 +144,7 @@ def proposable_refusal(name: str, body: str) -> str | None:
 
     THE OFFENDING VALUE IS NEVER NAMED. This string reaches a log line and the model's next
     prompt, and naming it would put the personal value into both — which is the thing being
-    prevented (hard rule 6; the argument `copilot/sanitize.assert_redacted` makes at length).
+    prevented (hard rule 6).
     """
     if not name.strip() or len(name) > MAX_NAME_CHARS:
         return (

@@ -145,7 +145,7 @@ describe("the admin command palette", () => {
     const options = await screen.findAllByRole("option");
     await vi.waitFor(() => expect(screen.getAllByRole("option")[0].textContent).toBe("Overview"));
     expect(options.length).toBeGreaterThan(0);
-    expect(screen.getByRole("option", { name: /View Sri Traders as client \(logged\)/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /View Sri Traders as client$/})).toBeTruthy();
   });
 });
 

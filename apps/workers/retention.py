@@ -2253,12 +2253,10 @@ async def _delete_in_batches(session: AsyncSession, sql: str, params: dict[str, 
 
 # THE COPILOT CONVERSATION, REACHED BY THE NUMBER (D-540).
 #
-# ⚠ **THIS ARM USUALLY MATCHES NOTHING, AND THAT IS THE DESIGN RATHER THAN A DEFECT.**
-# `copilot/transcript.py` puts every turn through `redact()` before it reaches a column,
-# so a caller's number is not supposed to be in there at all. What this catches is the
-# residue: a number a person typed in a shape the redactor's patterns do not recognise,
-# and a model that invented a phone-shaped string in an answer. Both are exactly the case
-# where a §12 request must still reach the row.
+# THIS ARM IS HOW A STORED NUMBER IS FOUND. Since D-788 a turn is stored as said once the
+# account turned Pip on (`copilot/transcript.py`), so a question that names a caller's
+# number keeps it until the conversation ends; a §12 request arriving first reaches it
+# here.
 #
 # A DELETE WHERE `_KB_SUBJECT_MATCH_SQL` ONLY COUNTS, and the difference is whose text it
 # is. A knowledge document is the CLIENT'S OWN business content — a price list that
@@ -2764,9 +2762,7 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         )
 
         # THE CONSOLE CONVERSATION (D-540), reached by the same number. See
-        # `_erase_copilot_turns`: it usually matches nothing, because these rows are
-        # redacted on the way in, and it exists for the residue that is exactly the case a
-        # §12 request must still reach.
+        # `_erase_copilot_turns`: turns are stored as said since D-788.
         copilot_turns_erased = await _erase_copilot_turns(session, phone=phone)
 
         # THE QUEUED AND DEAD-LETTERED JOBS (P6.7). Keyed on the number and NOT on the

@@ -4,8 +4,8 @@
  * A crash inside the OPERATOR console, with the console still around it.
  *
  * This boundary sits under `app/admin/layout.tsx`, so it replaces the failing SCREEN and
- * not the shell: the sidebar, the header and the "Cross-client · every action is audited"
- * marker all survive, and the operator's next click is a normal navigation rather than a
+ * not the shell: the sidebar and the header
+ * all survive, and the operator's next click is a normal navigation rather than a
  * page reload. Without it the nearest boundary is `app/error.tsx`, whose exits are the
  * marketing homepage and the client console — the wrong realm for someone who was halfway
  * through a tenant's ledger.

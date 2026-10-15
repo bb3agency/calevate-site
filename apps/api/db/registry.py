@@ -402,6 +402,9 @@ TENANT_TABLES = [
     # DELETEd whole by tenant erasure with the account's objects, and the bucket's 30-day
     # lifecycle rule is the backstop. NOT append-only.
     "copilot_uploads",
+    # An account owner turning Pip on (migration b4d7e2a9c815, D-788): who accepted which
+    # disclosure version, when, over which text. Append-only — see APPEND_ONLY_TABLES.
+    "copilot_consents",
     # The assistant's activity log and its background jobs (migration e6c2a9d41f07,
     # D-694). Tenant data: what the assistant did in this account, the redacted arguments
     # and the prior state it can restore, the Approvals inbox, and the progress of jobs it
@@ -1143,6 +1146,8 @@ APPEND_ONLY_TABLES = [
     # The no-cold-calls pledge (D-692): who accepted which version, when, over which text.
     # A consent record for `legal_acceptances`' reason — an edited acceptance proves nothing.
     "outbound_pledge_acceptances",
+    # The owner turning Pip on (D-788), for the pledge's reason one line up.
+    "copilot_consents",
     # The engine-facing config snapshot and the worker's report of what it loaded (D-592,
     # migration d4e1c7a09b35). Append-only for `platform_model_prices`' reason, pointed at
     # EVIDENCE instead of money: a version somebody could edit would let today's

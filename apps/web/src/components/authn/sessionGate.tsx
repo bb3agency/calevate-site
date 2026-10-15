@@ -97,7 +97,7 @@ export function SessionGate({
    * The document's one `main`, when this gate is the document.
    *
    * The heading is `sr-only`: the branches below each carry their own visible title, and
-   * a second visible heading over "No reply reached this page" would be design noise —
+   * a second visible heading over "This did not load" would be design noise —
    * but a document with no level-one heading gives a screen-reader user no way to name
    * where they are, which is what `page-has-heading-one` is about.
    */

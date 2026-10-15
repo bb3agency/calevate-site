@@ -122,10 +122,10 @@ describe("the request deadline", () => {
     // The sentence a person can act on — the seconds waited, said in words, not an
     // `AbortError` and not "Something went wrong".
     expect(screen.getByRole("alert").textContent).toContain(
-      "did not answer within 70 seconds",
+      "No answer after 70 seconds",
     );
     expect(
-      screen.getByText("Check your connection and try again."),
+      screen.getByText(/^Check your internet connection and try again./),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Try again$/ })).toBeTruthy();
     // WHAT IT MUST NOT SAY. We stopped listening; we did not stop the server. A POST that

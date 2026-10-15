@@ -335,10 +335,10 @@ describe("the integration logs when the read did not answer (§52)", () => {
     // Neither empty state may be stated about a request that was never sent.
     expect(container.textContent).not.toContain("No endpoints yet");
     expect(container.textContent).not.toContain("Nothing sent yet");
-    // Both cards say we could not reach the server instead.
+    // Both cards say they did not load instead.
     expect(
       screen.getAllByText(
-        "No reply reached this page, so we could not confirm what happened. Check your connection and try again.",
+        "Try again in a moment. If it keeps happening, contact us.",
       ).length,
     ).toBeGreaterThanOrEqual(2);
   });

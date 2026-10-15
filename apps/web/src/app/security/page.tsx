@@ -255,7 +255,9 @@ export default function SecurityPage() {
                   Inside your own account it is your team who sees your callers, and
                   which of them is your choice: roles decide who reads the CRM at
                   all, and downloading the whole contact list is a separate
-                  permission that writes an audit entry naming who took it.
+                  permission that writes an audit entry naming who took it. Calevate’s
+                  own staff can also see your account, to run and support the
+                  service, and are bound by confidentiality.
                 </p>
                 <p>
                   {/* apps/workers/retention.py — RECORDING_FLOOR_DAYS = 90 and the

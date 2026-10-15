@@ -112,7 +112,7 @@ async def whatsapp_events(request: Request) -> WhatsAppHookAckOut:
             kind="validation",
             code="whatsapp_hook_not_json",
             title="Notification is not JSON",
-            detail="This endpoint accepts JSON notifications only.",
+            detail="Only JSON notifications are accepted here.",
         ) from exc
 
     events = extract_events(payload)[:MAX_EVENTS_PER_DELIVERY]

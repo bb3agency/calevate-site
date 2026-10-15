@@ -9,7 +9,6 @@ import type { Wallet } from "@/lib/api/wallet";
 import { activeTrialBlock, agentRow } from "./fixtures/sharedReads";
 import {
   browserOffline,
-  noReply,
   problem,
   renderClientPage,
   stillLoading,
@@ -657,7 +656,7 @@ describe("the money tile says which kind of nothing it is showing", () => {
     // Neither empty state, and no tile pretending to a figure.
     expect(container.textContent).not.toContain("No call history yet");
     expect(container.textContent).not.toContain("No calls yet");
-    expect(container.textContent).toContain("No reply reached this page");
+    expect(container.textContent).toContain("If it keeps happening, contact us.");
   });
 });
 
@@ -937,8 +936,6 @@ describe("this week", () => {
         minutes_left: null,
         trial: activeTrialBlock({ test_calls_only: true }),
       }),
-      // The trial's own test-call panel is not what this test is about.
-      "/v1/trial": noReply(),
     });
     const buttons = await actions(card);
     expect(buttons[0]).toEqual({ name: "Add credit", primary: true });
@@ -956,5 +953,75 @@ describe("this week", () => {
     const card = (await screen.findByRole("heading", { name: "This week" })).closest("section") as HTMLElement;
     const buttons = await actions(card);
     expect(buttons.map((b) => b.name)).toEqual(["See calls"]);
+  });
+});
+
+/**
+ * ONE PAINT (D-787). The trial card comes with the dashboard read, and the notices above
+ * the figures start their reads with it instead of after it, so nothing arrives a round
+ * trip late and pushes the page down.
+ */
+describe("the dashboard arrives in one paint", () => {
+  const TRIAL = {
+    on_trial: true,
+    status: "active",
+    ends_at: "2026-10-20T17:28:00Z",
+    days_remaining: 3,
+    free_minutes: 30,
+    minutes_used: 4,
+    minutes_left: 26,
+    calls_today: 2,
+    daily_cap: 10,
+    max_call_seconds: 180,
+    pledge_accepted: true,
+    can_call: true,
+    blocked_reason: null,
+  };
+
+  it("renders the trial card from the dashboard read, with no read of its own", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/dashboard": { ...EMPTY_DASHBOARD, trial: TRIAL },
+        "/v1/billing/wallet": wallet({ trial: activeTrialBlock({ test_calls_only: true }) }),
+      }),
+    );
+    await screen.findByText("Calls today");
+    expect(screen.getByText("Your free trial")).toBeTruthy();
+    expect(screen.getByText("26 of 30")).toBeTruthy();
+    expect(calls.some((call) => call.path === "/v1/trial")).toBe(false);
+  });
+
+  it("shows no trial card for an account that is not on one", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({ "/v1/dashboard": { ...EMPTY_DASHBOARD, trial: { on_trial: false } } }),
+    );
+    await screen.findByText("Calls today");
+    expect(container.textContent).not.toContain("Your free trial");
+  });
+
+  it("asks for the notices with the dashboard, not after it", async () => {
+    const { calls } = await renderClientPage(page, routes({ "/v1/dashboard": stillLoading() }));
+    const asked = new Set(calls.map((call) => call.path));
+    for (const path of [
+      "/v1/healer/incidents?days=30&limit=20",
+      "/v1/business-profile",
+      "/v1/forwarding",
+      "/v1/knowledge-gaps?status=open&limit=20",
+    ]) {
+      expect(asked.has(path), path).toBe(true);
+    }
+  });
+
+  it("holds the skeleton until the notices above the figures are known", async () => {
+    const { calls, container } = await renderClientPage(
+      page,
+      routes({ "/v1/business-profile": stillLoading() }),
+    );
+    await waitFor(() => expect(calls.some((call) => call.path === "/v1/dashboard")).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByText("Calls today")).toBeNull();
+    expect(container.querySelector(".animate-pulse")).not.toBeNull();
   });
 });

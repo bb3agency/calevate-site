@@ -74,7 +74,8 @@ def test_every_catalogue_model_has_a_price_class() -> None:
         "gemini-2.5-flash": "plus",
         "gemini-2.5-flash-lite": "standard",
         "gemini-3.1-flash-lite": "plus",
-        "gemini-3.5-flash": "pro",
+        "gemini-3.5-flash-lite": "plus",
+        "gemini-3.8-flash": "pro",
     }
 
 

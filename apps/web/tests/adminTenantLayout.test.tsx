@@ -92,17 +92,16 @@ describe("the client header", () => {
     expect(header?.textContent).toContain("managed");
   });
 
-  it("says the view-as link is LOGGED where a keyboard user reads it, never read-only", async () => {
+  it("labels the view-as link plainly, never read-only", async () => {
     /**
      * Moved from adminTenantDetail.test.tsx with the link. D-587 lets a view-as session
-     * change the account, so "(read-only)" would be a promise the product breaks; what
-     * stays true is that everything viewed and changed is recorded against the operator,
-     * and that belongs in the label, not only in a `title`. The `view=admin` marker selects
+     * change the account, so "(read-only)" would be a promise the product breaks. The
+     * `view=admin` marker selects
      * the impersonating credential and grants nothing (lib/api/session.tsx).
      */
     await render();
 
-    const link = await screen.findByRole("link", { name: /View as client \(logged\)/ });
+    const link = await screen.findByRole("link", { name: /^View as client$/});
     // D-730: through the operator console's start page, which asks for a code.
     expect(link.getAttribute("href")).toBe(`/admin/view-as?slug=${SLUG}`);
     expect(screen.queryByRole("link", { name: /read-only/i })).toBeNull();

@@ -62,17 +62,20 @@ from apps.api.copilot import (
     undo,
     write_tools,
 )
+from apps.api.copilot import consent as consent_module
 from apps.api.copilot import prompt as prompt_module
+from apps.api.copilot.consent import require_consent
 from apps.api.copilot.context import live_state_block, viewer_for
 from apps.api.copilot.fair_use import require_copilot_fair_use
 from apps.api.copilot.identity import ASSISTANT_NAME
-from apps.api.copilot.sanitize import assert_redacted
 from apps.api.copilot.schemas import (
     CopilotActionOut,
     CopilotActionPageOut,
     CopilotAskIn,
     CopilotConfirmIn,
     CopilotConfirmOut,
+    CopilotConsentIn,
+    CopilotConsentOut,
     CopilotConversationClearedOut,
     CopilotConversationOut,
     CopilotDoneEvent,
@@ -85,12 +88,13 @@ from apps.api.copilot.schemas import (
     CopilotTurnIds,
     CopilotUndoOut,
 )
+from apps.api.copilot.tools import Unmasked
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.rbac import permission_meta
+from apps.api.core.rbac import permission_meta, role_has
 from apps.api.core.settings import get_settings
 from apps.api.crm.assist import ASSIST_FEATURE_COPILOT, meter_assist
 from apps.api.db.base import uuid7
@@ -302,42 +306,19 @@ async def ask_copilot(
     #: The files this question names (D-781), and their bytes for this one call.
     uploads: tuple[attachments.Upload, ...] = ()
     try:
-        # 1. THE SUBJECT, before the money. A payload that still carries personal
-        #    values cannot be sent to the provider at any price, and finding that out
-        #    after the ceiling check would answer a client at their limit with "add
-        #    ₹500" for a request the money would not have helped with.
-        # THE QUESTION IS JUDGED SEPARATELY FROM THE SCREEN, and only because the
-        # message differs. A person who typed a phone number into the ask box is doing
-        # the obvious thing, not making a mistake, and deserves a sentence they can act
-        # on; a browser that forgot to substitute a placeholder is a defect and deserves
-        # one an operator can. The rule refusing both is exactly the same.
-        assert_redacted(payload.question, authored=True)
-        # THE GUARD IS RUN OVER THE RENDERED SCREEN, NOT OVER A HAND-LISTED SUBSET OF THE
-        # PAYLOAD, and that change closed a live leak rather than tidying one up.
-        #
-        # It used to enumerate: history, fact VALUES, field values, field labels, field
-        # help. `render_screen` also emits the screen title and route, fact KEYS and
-        # LABELS, field IDS, and — the one that mattered — every `<option>` value and
-        # label. `campaigns/page.tsx` declares its "Calling from" select with
-        # `label: number.e164`, so a phone number in E.164 was reaching Azure on every
-        # question asked from the campaigns screen, past a guard whose entire job is that
-        # it cannot. An enumeration that has to be kept in step with a renderer is the
-        # defect class this repo treats as a defect; the renderer's own output cannot
-        # drift from itself.
-        #
-        # Rendered ONCE here and rendered again inside `service.run_copilot`. That is a
-        # deliberate cost: threading the block through the streaming path would put a
-        # prompt fragment in the route's vocabulary, and the alternative — guarding a
-        # subset — is the bug above.
-        screen = prompt_module.render_screen(payload)
-        prompt_module.assert_screen_fits(screen)
-        assert_redacted(screen, *(turn.content for turn in payload.history))
+        # 1. THE SUBJECT'S SIZE, before the money. What it may CONTAIN is the consent
+        #    check's question, inside the gate below (D-788): an account whose owner turned
+        #    Pip on sends what its people type as they typed it.
+        prompt_module.assert_screen_fits(prompt_module.render_screen(payload))
 
         # 2. THE GATE. It RAISES — `ai_quota_exceeded` is what opens the wallet dialog
         #    (G-5), `ai_paused_platform_wide` is the brake — so a refusal reaches the
         #    client before a token is spent. Its own session, opened and closed here:
         #    everything below this line costs money and holds no connection.
         async with tenant_session(tenant_id) as gate_session:
+            # 1a. PIP IS ON FOR THIS ACCOUNT (D-788), or nothing below runs. First, so a
+            #     locked account is told who can unlock it before anything is spent.
+            await require_consent(gate_session, tenant_id=tenant_id)
             # 1b. THE FILES THIS QUESTION NAMES (D-781): this person's, ready, within the
             #     limits — checked before the money, like the subject. They are NOT
             #     redacted: the founder chose to send an attachment to the model whole, and
@@ -406,10 +387,8 @@ async def ask_copilot(
     # `facts` is already defined as "read-only context the browser volunteers" and
     # `prompt.py` already fences it; a recalled memory is read-only context of exactly that
     # kind, so it needs no new prompt section, no new schema field and no change to the
-    # tool loop. Appended AFTER `assert_redacted` deliberately: this text has been through
-    # `redact()` on the way IN (`memory.redacted_content` is the only writer), so
-    # re-running the guard over it would only be able to fail on a row the database should
-    # not contain, in the middle of answering somebody.
+    # tool loop. It went through `redact()` on the way IN (`memory.redacted_content` is the
+    # only writer): memories stay minimised after consent (D-788).
     if remembered:
         payload = payload.model_copy(
             update={
@@ -716,7 +695,12 @@ async def ask_copilot(
             # no tenant, agent or source argument: the model can put a question in a tool
             # call and nothing else, so there is no argument it can send that reaches
             # another account's knowledge.
-            tool_context=service.ToolContext(tenant_id=tenant_id, role=principal.role),
+            tool_context=service.ToolContext(
+                tenant_id=tenant_id,
+                role=principal.role,
+                # The gate above refused an account that has not turned Pip on.
+                unmasked=Unmasked(actor=principal, ip=client_request_ip(request)),
+            ),
             live=live,
             # WHO THE ACTIONS RUN AS, and it is the verified principal itself rather than
             # a narrowing of it (D-500). `write_tools.actor_for` still performs that
@@ -992,6 +976,10 @@ async def load_copilot_conversation(
             detail="This credential is not a client-realm user, so it has no conversation.",
             remediation=f"Sign in to your own dashboard and open {ASSISTANT_NAME} there.",
         )
+    consent_state = consent_module.consent_out(
+        await consent_module.read_consent(session, tenant_id=principal.tenant_id),
+        can_accept=_may_turn_pip_on(principal),
+    )
     run_started_at = await session_run.current_run_start(
         realm="client", subject_id=principal.user_id
     )
@@ -999,7 +987,12 @@ async def load_copilot_conversation(
         # No live session, on a request that authenticated: only reachable if the session
         # ended between the auth dependency and this line. Answering with the empty page
         # is right — the conversation is over — and the next append will not resurrect it.
-        return CopilotConversationOut(turns=[], has_more=False)
+        return CopilotConversationOut(
+            turns=[],
+            has_more=False,
+            uploads_available=attachments.uploads_available(),
+            consent=consent_state,
+        )
     page = await transcript.load(
         session,
         realm=transcript.CLIENT,
@@ -1009,7 +1002,71 @@ async def load_copilot_conversation(
         before=transcript.turn_cursor(before),
     )
     return transcript.conversation_out(
-        page, answering=await live_sync.is_answering("client", principal.user_id)
+        page,
+        uploads_available=attachments.uploads_available(),
+        consent=consent_state,
+        answering=await live_sync.is_answering("client", principal.user_id),
+    )
+
+
+def _may_turn_pip_on(principal: Principal) -> bool:
+    """The account owner, signed in as themselves: `POST /v1/copilot/consent`'s own rule,
+    asked here so the panel shows the checkbox only to somebody the route will accept."""
+    return (
+        principal.role is not None
+        and role_has(principal.role, "org:manage")
+        and principal.client_user_id is not None
+    )
+
+
+@router.post(
+    "/copilot/consent",
+    response_model=CopilotConsentOut,
+    status_code=201,
+    openapi_extra=permission_meta("org:manage"),
+    summary=f"Turn {ASSISTANT_NAME} on for this account (the account owner, once)",
+    description=(
+        f"Records that the account owner read the disclosure {ASSISTANT_NAME} shows and "
+        f"turned {ASSISTANT_NAME} on for everyone on the account, with the version and a "
+        "hash of the exact text, in an append-only record and the audit log. Only the "
+        "account owner can do it, and an impersonated session cannot. A version or text "
+        "that is no longer current is refused rather than recorded."
+    ),
+)
+async def accept_copilot_consent(
+    payload: CopilotConsentIn,
+    session: Annotated[AsyncSession, Depends(db)],
+    request: Request,
+    principal: Principal = Depends(requires("org:manage", realm="client")),
+) -> CopilotConsentOut:
+    assert principal.tenant_id is not None
+    person = principal.client_user_id
+    # Unreachable through `requires(..., realm="client")`, which refuses a view-as session
+    # outright and resolves a member; the type is `UUID | None`, and an acceptance
+    # attributed to nobody is the one row this record must never hold.
+    assert person is not None
+    ip = client_request_ip(request)
+    consent_id = await consent_module.record_consent(
+        session,
+        tenant_id=principal.tenant_id,
+        user_id=person,
+        version=payload.version,
+        text_sha256=payload.text_sha256,
+        ip=ip,
+    )
+    await write_audit(
+        session,
+        action="copilot.consent_accepted",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="copilot_consent",
+        object_id=str(consent_id),
+        ip=ip,
+        summary={"version": payload.version, "text_sha256": payload.text_sha256},
+    )
+    return consent_module.consent_out(
+        await consent_module.read_consent(session, tenant_id=principal.tenant_id),
+        can_accept=False,
     )
 
 

@@ -70,6 +70,9 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         # The reminder registry is read the same way, and the real one names codes this
         # miniature tree never raises.
         monkeypatch.setattr(guard, "REPEATING", {})
+        # Every `page` above has its plain-language summary, so the summary check has its
+        # own controls at the bottom of this file.
+        monkeypatch.setattr(guard, "SUMMARISED", {"thing_broke": object(), "host_thing": object()})
 
     return _use
 
@@ -363,3 +366,29 @@ def test_an_index_row_that_promises_the_wrong_loudness_fails(sandbox: Any, tmp_p
     )
     failures = guard.evaluate()
     assert any("SEVERITY DISAGREES: the alarm index says `thing_broke`" in f for f in failures)
+
+
+def test_a_page_without_a_plain_language_summary_fails(sandbox: Any, tmp_path: Path) -> None:
+    """A `page` mails, and its mail leads with `alarm_guide.ALARM_SUMMARIES`. Without an
+    entry the operator's subject line is a bare code again."""
+    sandbox()
+    _tree(tmp_path, alarms=_ONE_ALARM + _METRIC, index_rows=_ROW + _HOST_ROW, metrics=_METRIC_ROW)
+    failures = guard.summary_failures({"thing_broke": {"apps/mod.py"}}, {"thing_broke": "page"}, {})
+    assert any("PAGES WITHOUT A SUMMARY: `thing_broke`" in f for f in failures)
+
+
+def test_a_summary_for_a_code_that_does_not_mail_fails(sandbox: Any, tmp_path: Path) -> None:
+    """Text for a mail that is never sent goes stale unseen."""
+    sandbox()
+    failures = guard.summary_failures(
+        {"thing_broke": {"apps/mod.py"}},
+        {"thing_broke": "attention"},
+        {"thing_broke": object(), "gone_code": object()},
+    )
+    assert any("DOES NOT MAIL: ALARM_SUMMARIES names `thing_broke`" in f for f in failures)
+    assert any("`gone_code`" in f and "never raised" in f for f in failures)
+
+
+def test_the_real_summaries_cover_every_real_page() -> None:
+    """The registry against the live tree: what CI runs, asserted without the sandbox."""
+    assert guard.summary_failures() == []

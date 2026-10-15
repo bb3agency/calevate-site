@@ -323,6 +323,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # D-697, the shared free-trial number. A failed lend refuses one test call (the client
     # is told to try again); a trial number recorded to a client is left alone by the sweep.
     "trial_line_lend_failed": "attention",
+    # Both are recorded only: `trial_line_lend_failed` and `engine_dial_setup_refused`
+    # already raise the alarm for the same failure.
+    "engine_agent_phone_not_held": "record",
+    "trial_call_not_placed": "record",
     "trial_number_recorded_to_client": "attention",
     "engine_business_details_lapsed": "attention",
     # D-691, a person-level write the client's own workspace did not take. Our own list and
@@ -699,6 +703,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "platform_secret_removed": "attention",
     "platform_config_never_loaded": "attention",
     "platform_config_stale": "attention",
+    # A stored console value no longer validates and the code default runs instead.
+    "platform_config_row_invalid": "attention",
     # An operator is standing at the console doing this on purpose.
     "maintenance_drain_forced": "attention",
     "maintenance_voice_unsupported": "record",

@@ -78,7 +78,7 @@ export function LotOrigin({ lot }: { lot: CreditLot }) {
         <>
           {" "}
           · sold at <span className="font-mono">{lot.override_of_pack_id}</span>&apos;s rates by an
-          operator — recorded in the audit log
+          operator
         </>
       ) : null}
     </>

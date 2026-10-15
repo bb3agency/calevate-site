@@ -21,7 +21,7 @@ FOUR PROPERTIES, EACH OF WHICH IS A CONSTRAINT ON WHAT MAY GO IN HERE.
 2. **NOTHING IN IT IDENTIFIES A PERSON.** No phone number, no lead name, no transcript,
    not even a campaign name — hard rule 6's instinct applied to a prompt instead of a log
    line. This is stronger than sanitising would be: by construction the block carries no
-   tenant-authored string at all, so there is nothing for `assert_redacted` to catch and
+   tenant-authored string at all, so there is nothing for a redaction pass to catch and
    nothing for an injected instruction to ride in on. The renderer still escapes and
    strips (`prompt.xml_attr`, which is `strip_invisible` + `quoteattr`) because that
    property must survive the next person who adds a field, not because today's fields

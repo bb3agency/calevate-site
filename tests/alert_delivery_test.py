@@ -41,7 +41,7 @@ class RecordingTransport:
 
     def __init__(self, *, succeed: bool = True) -> None:
         self.succeed = succeed
-        self.sent: list[dict[str, str]] = []
+        self.sent: list[dict[str, Any]] = []
         self.threads: list[str] = []
         self.arrived = threading.Event()
 
@@ -50,7 +50,7 @@ class RecordingTransport:
         # alternative, `workers/email_render`). A double whose signature has drifted from
         # the Protocol stops being evidence about the real call — which is what
         # `tests/auth_email_delivery_test` exists to catch.
-        self.sent.append({"to": to, "subject": subject, "body": body})
+        self.sent.append({"to": to, "subject": subject, "body": body, "html": html})
         self.threads.append(threading.current_thread().name)
         self.arrived.set()
         return self.succeed
@@ -85,7 +85,7 @@ def _fire(code: str = PAGING_CODE, **ids: str) -> None:
     alerting.alert("WORKER_DELIVERY", code, detail="delivery ladder exhausted", **ids)
 
 
-def _delivered(recorder: RecordingTransport, expected: int = 1) -> list[dict[str, str]]:
+def _delivered(recorder: RecordingTransport, expected: int = 1) -> list[dict[str, Any]]:
     assert alerting.flush_alerts(timeout=5.0), "alert delivery did not drain"
     assert len(recorder.sent) == expected, f"expected {expected} deliveries, got {recorder.sent}"
     return recorder.sent
@@ -104,6 +104,7 @@ def test_an_alert_is_delivered_to_the_operator(transport: RecordingTransport) ->
     assert "WORKER_DELIVERY" in message["body"]
     assert "019f-abc" in message["body"]
     assert "019f-def" in message["body"]
+    assert message["html"] is not None and "019f-abc" in message["html"], "multipart: HTML too"
 
 
 def test_nothing_is_delivered_when_no_operator_address_is_configured(
@@ -324,7 +325,7 @@ def test_a_page_the_bucket_refuses_is_still_recorded_on_the_console(
     clock["t"] += 3600.0 / alerting.ALERT_BUDGET_PER_HOUR + 1
     alerting.alert("WORKER_STALL", "postcall_pipeline_stalled", detail="no jobs in 15m")
     assert alerting.flush_alerts(timeout=5.0)
-    assert transport.sent[-1]["subject"].endswith("postcall_pipeline_stalled")
+    assert transport.sent[-1]["subject"].endswith("(postcall_pipeline_stalled)")
     assert "1 further occurrence" in transport.sent[-1]["body"]
     assert "postcall_pipeline_stalled x2" in transport.sent[-1]["body"]
 
@@ -508,4 +509,6 @@ def test_a_transcript_shaped_detail_is_truncated_not_forwarded(
 
     (message,) = _delivered(transport)
     assert "truncated" in message["body"]
-    assert len(message["body"]) < 1_000
+    # Capped by `redact_mapping`: at most the first repetitions of the phrase survive.
+    assert message["body"].count("i want an appointment") < 5
+    assert message["html"].count("i want an appointment") < 5

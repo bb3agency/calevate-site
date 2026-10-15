@@ -1,7 +1,4 @@
-"""The two guards, in both directions.
-
-OWASP GenAI LLM Top 10 2026 LLM01 #5 (invisible characters) and D-127 G-2 (redaction).
-"""
+"""Invisible characters, in both directions (OWASP GenAI LLM Top 10 2026 LLM01 #5)."""
 
 from __future__ import annotations
 
@@ -11,13 +8,11 @@ from pydantic import ValidationError
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot import service
 from apps.api.copilot.sanitize import (
-    assert_redacted,
     clean_value,
     has_invisible,
     strip_invisible,
 )
 from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
-from apps.api.core.errors import ProblemError
 
 #: One character from each of the three families the stripper covers. Written as escapes,
 #: for the reason `sanitize._INVISIBLE` is: a literal here would be invisible in this
@@ -99,146 +94,6 @@ def test_clean_value_leaves_non_strings_alone() -> None:
     assert clean_value(True) is True
     assert clean_value(3.5) == 3.5
     assert clean_value(None) is None
-
-
-# --- the redaction guard --------------------------------------------------------------
-
-
-def test_a_question_that_redact_still_changes_is_refused() -> None:
-    """D-127 G-2, as a structural check rather than a promise. `run_assist` wears the same
-    belt at `workers/extraction.py` and it caught the mistake its author predicted."""
-    with pytest.raises(ProblemError) as raised:
-        assert_redacted("call them back on 9876500123")
-    assert raised.value.code == "copilot_input_not_redacted"
-    assert raised.value.status == 422  # the `validation` kind's default (`core/errors`)
-
-
-def test_the_refusal_never_echoes_the_value_it_refused() -> None:
-    """Naming the offending value would put the personal value in a problem body, which is
-    the thing being prevented."""
-    with pytest.raises(ProblemError) as raised:
-        assert_redacted("ravi@example.com")
-    body = raised.value.as_problem()
-    assert "ravi@example.com" not in repr(body)
-
-
-def test_redacted_placeholder_text_passes() -> None:
-    """What the browser is supposed to send. No exception, no return value — the guard's
-    whole contract is "it did not raise"."""
-    assert_redacted("call them back on [REDACTED]", "Monday opens", "")
-
-
-# --- the redaction guard covers the WHOLE rendered screen, not a hand-listed subset ---
-#
-# The guard used to enumerate: history, fact values, field values, field labels, field
-# help. Every string below reaches the model through `render_screen` and NONE of them was
-# on that list, so each of these cases passes against the enumeration and is refused
-# against the rendered block. The option-label case is not hypothetical: the campaigns
-# screen declared its "Calling from" select with the number's E.164 as the label.
-
-
-def _guard(payload: CopilotAskIn) -> None:
-    """What `routes.py` runs before the money: the guard over the rendered screen."""
-    assert_redacted(prompt_module.render_screen(payload))
-
-
-@pytest.mark.parametrize(
-    ("what", "overrides"),
-    [
-        (
-            "an option label",
-            {
-                "fields": [
-                    {
-                        "id": "campaign-number",
-                        "label": "Calling from",
-                        "type": "select",
-                        "value": None,
-                        "writable": True,
-                        "options": [{"value": "u-1", "label": "+919876543210 (140 series)"}],
-                    }
-                ]
-            },
-        ),
-        (
-            "an option value",
-            {
-                "fields": [
-                    {
-                        "id": "campaign-number",
-                        "label": "Calling from",
-                        "type": "select",
-                        "value": None,
-                        "writable": True,
-                        "options": [{"value": "+919876543210", "label": "The clinic line"}],
-                    }
-                ]
-            },
-        ),
-        (
-            "a field id",
-            {
-                "fields": [
-                    {"id": "lead-+919876543210", "label": "Lead", "type": "text", "value": None}
-                ]
-            },
-        ),
-        (
-            "the screen title",
-            {
-                "screen": {
-                    "route": "/c/x/leads",
-                    "title": "Lead +919876543210",
-                    "realm": "client",
-                }
-            },
-        ),
-        (
-            "the screen route",
-            {"screen": {"route": "/c/x/leads/+919876543210", "title": "Lead", "realm": "client"}},
-        ),
-        (
-            "a fact label",
-            {"facts": [{"key": "line", "label": "+919876543210", "value": "primary"}]},
-        ),
-        (
-            "a fact key",
-            {"facts": [{"key": "+919876543210", "label": "Line", "value": "primary"}]},
-        ),
-    ],
-)
-def test_a_personal_value_anywhere_in_the_screen_is_refused(
-    what: str, overrides: dict[str, object]
-) -> None:
-    with pytest.raises(ProblemError) as refusal:
-        _guard(_screen(**overrides))
-    assert refusal.value.code == "copilot_input_not_redacted", what
-
-
-def test_an_ordinary_screen_still_passes_the_whole_block_guard() -> None:
-    """The negative control: guarding MORE must not start refusing real screens. The
-    shapes here are the ones the console actually declares — a masked number, a series,
-    a uuid option value."""
-    _guard(
-        _screen(
-            fields=[
-                {
-                    "id": "campaign-number",
-                    "label": "Calling from",
-                    "type": "select",
-                    "value": None,
-                    "writable": True,
-                    "options": [
-                        {
-                            "value": "0198f0d0-0000-7000-8000-000000000000",
-                            "label": "\u202610 (140 series)",
-                        }
-                    ],
-                }
-            ],
-            facts=[{"key": "vertical", "label": "Vertical template", "value": "clinic"}],
-        )
-    )
 
 
 # --- the one field on this wire that reaches a durable column -------------------------

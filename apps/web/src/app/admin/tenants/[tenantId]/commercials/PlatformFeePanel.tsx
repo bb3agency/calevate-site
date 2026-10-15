@@ -139,7 +139,7 @@ function WaiverForm({ tenantId, fee }: { tenantId: string; fee: AdminPlatformFee
             className={FIELD}
           />
         </div>
-        <span className={FIELD_HINT}>Recorded verbatim in the audit log.</span>
+        <span className={FIELD_HINT}>Required.</span>
       </div>
       <ActionButton type="submit" loading={waiver.isPending} disabled={tooShort || !write.allowed}>
         Waive the platform fee

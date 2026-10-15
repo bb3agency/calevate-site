@@ -36,9 +36,10 @@
  * copy arrives.
  */
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "@/lib/api/client";
+import type { components } from "@/lib/api/schema";
 
 import type { CopilotTurn } from "./useCopilotConversation";
 
@@ -70,6 +71,8 @@ interface ConversationBody {
   has_more: boolean;
   /** Absent from a server older than D-782, which never says. */
   answering?: boolean;
+  uploads_available?: boolean;
+  consent?: PipConsent;
 }
 
 /** One read of the stored conversation. */
@@ -78,9 +81,33 @@ export interface StoredConversation {
   turns: CopilotTurn[];
   /** Pip is still answering a question this person asked, here or on another device. */
   answering: boolean;
+  /**
+   * Files can be attached to a question. False until a server says true, so the panel
+   * never starts an upload the server would refuse while the body is still arriving.
+   */
+  uploadsAvailable: boolean;
+  /**
+   * Whether Pip is on for this account (D-788), or `null` when the server did not say. The
+   * panel shows the owner's step or the locked sentence while it is `required` or
+   * `outdated`; the server refuses an ask either way.
+   */
+  consent: PipConsent | null;
 }
 
-export const EMPTY_CONVERSATION: StoredConversation = { turns: [], answering: false };
+/** The server's `CopilotConsentOut`: what the owner reads, and whether this person may tick. */
+export type PipConsent = components["schemas"]["CopilotConsentOut"];
+
+/** Pip is locked for this account until the owner turns it on. */
+export function pipLocked(consent: PipConsent | null | undefined): boolean {
+  return consent?.status === "required" || consent?.status === "outdated";
+}
+
+export const EMPTY_CONVERSATION: StoredConversation = {
+  turns: [],
+  answering: false,
+  uploadsAvailable: false,
+  consent: null,
+};
 
 /**
  * The stored conversation as the panel's own turn shape, oldest first.
@@ -107,6 +134,8 @@ export async function loadConversation(
       wire: turn.content,
     })),
     answering: body.answering === true,
+    uploadsAvailable: body.uploads_available === true,
+    consent: body.consent ?? null,
   };
 }
 
@@ -187,4 +216,28 @@ export function newTurnId(now: number = Date.now()): string {
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+const CONSENT_PATH = "/v1/copilot/consent";
+
+/**
+ * The account owner turning Pip on (D-788). It echoes the version and hash the panel showed,
+ * so a panel opened before the words changed cannot accept words the owner never read. The
+ * stored conversation takes the answer at once, so the panel unlocks without a second read;
+ * every other member's panel reads it when it opens or its tab regains focus.
+ */
+export function useTurnPipOn(session: Session) {
+  const queries = useQueryClient();
+  return useMutation({
+    mutationFn: (consent: Pick<PipConsent, "version" | "text_sha256">) =>
+      apiRequest<PipConsent>(session, CONSENT_PATH, {
+        method: "POST",
+        body: { version: consent.version, text_sha256: consent.text_sha256 },
+      }),
+    onSuccess: (fresh) =>
+      queries.setQueryData<StoredConversation>(
+        conversationKey(session.orgSlug, "client"),
+        (current) => ({ ...(current ?? EMPTY_CONVERSATION), consent: fresh }),
+      ),
+  });
 }

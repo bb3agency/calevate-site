@@ -677,7 +677,7 @@ describe("the version history when the read did not answer (§52)", () => {
 
     await waitFor(() =>
       expect(container.textContent).toContain(
-        "No reply reached this page, so we could not confirm what happened. Check your connection and try again.",
+        "Try again in a moment. If it keeps happening, contact us.",
       ),
     );
     // Never "No prompt versions yet" off a request that never left the browser.

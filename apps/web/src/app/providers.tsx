@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
 import { ApiProblem } from "@/lib/api/client";
+import { liveStaleTime } from "@/lib/live/liveStatus";
 
 /**
  * Query defaults, chosen from the API's error contract rather than from taste.
@@ -18,7 +19,7 @@ export function Providers({ children }: { children: ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 10_000,
+            staleTime: liveStaleTime,
             retry: (failureCount, error) => {
               if (error instanceof ApiProblem) return error.retryable && failureCount < 2;
               return failureCount < 2;

@@ -73,6 +73,7 @@ import sys
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
+from apps.api.core.alarm_guide import ALARM_SUMMARIES as _ALARM_SUMMARIES
 from apps.api.core.alarm_severity import ALARM_SEVERITY as _ALARM_SEVERITY
 from apps.api.core.alarm_severity import ALARM_SEVERITY_FAMILIES as _FAMILIES
 from apps.api.core.alarm_severity import REPEAT_WHILE_OPEN_S as _REPEAT_WHILE_OPEN_S
@@ -758,6 +759,37 @@ def repeat_failures(
     return failures
 
 
+SUMMARISED: dict[str, object] = dict(_ALARM_SUMMARIES)
+
+
+def summary_failures(
+    raised: dict[str, set[str]] | None = None,
+    classified: dict[str, str] | None = None,
+    summarised: dict[str, object] | None = None,
+) -> list[str]:
+    """Every raised `page` has a plain-language summary, and every summary is for one.
+
+    The summary is the headline and "who is affected" of the alert email
+    (`core/alarm_guide.ALARM_SUMMARIES`). A `page` without one mails a bare code; a summary
+    for a code that does not mail is text nobody will read, waiting to go stale.
+    """
+    raised = raised_codes()[0] if raised is None else raised
+    registry = CLASSIFIED if classified is None else classified
+    entries = SUMMARISED if summarised is None else summarised
+    pages = {code for code in raised if registry.get(code) == "page"}
+    failures = [
+        f"PAGES WITHOUT A SUMMARY: `{code}` mails and has no entry in "
+        "apps/api/core/alarm_guide.ALARM_SUMMARIES. Add its headline and who it affects."
+        for code in sorted(pages - set(entries))
+    ]
+    failures += [
+        f"SUMMARY FOR A CODE THAT DOES NOT MAIL: ALARM_SUMMARIES names `{code}`, which is "
+        f"`{registry.get(code)}`{'' if code in raised else ' and never raised'}. Remove it."
+        for code in sorted(set(entries) - pages)
+    ]
+    return failures
+
+
 def evaluate() -> list[str]:
     failures: list[str] = []
     codes, stages, scan_failures = raised_codes()
@@ -806,6 +838,7 @@ def evaluate() -> list[str]:
     failures.extend(stage_disagreements(stages, documented_stages()))
     failures.extend(severity_failures(codes, CLASSIFIED))
     failures.extend(repeat_failures(codes, CLASSIFIED))
+    failures.extend(summary_failures(codes, CLASSIFIED))
     failures.extend(broken_runbook_citations())
     failures.extend(dangling_names({*codes, *documented, *metrics, *documented_metric_names}))
     return failures

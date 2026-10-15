@@ -111,6 +111,7 @@ from typing import Final, Literal, get_args
 
 from calevate_shared.engine import (
     LLM_MODELS,
+    OFF_CALL_LLM_MODELS,
     SELECTABLE_LLM_MODELS,
     LlmProvider,
     leg_for_model,
@@ -391,7 +392,7 @@ CLIENT_UNAVAILABLE_REASON: Final = (
 )
 
 
-def _operator_unofferable_reason(model: str) -> str | None:
+def _operator_unofferable_reason(model: str, *, off_call: bool = False) -> str | None:
     """The OPERATOR ground — which of the three conditions failed, named so an operator can
     act on it. `unofferable_reason` is the audience-aware wrapper; this is its truth.
 
@@ -404,8 +405,11 @@ def _operator_unofferable_reason(model: str) -> str | None:
     the same refusal `bind_model` makes, because a model with no leg has no credential to
     check and no price to attest, and answering "not offered" would imply the question made
     sense.
+
+    `off_call` widens only the merit condition, to `OFF_CALL_LLM_MODELS` (D-786); the
+    key and the billable price are asked exactly as for a call.
     """
-    if model not in SELECTABLE_LLM_MODELS:
+    if model not in (OFF_CALL_LLM_MODELS if off_call else SELECTABLE_LLM_MODELS):
         spec = LLM_MODELS.get(model)
         # A withdrawn model carries its own sentence and it is a better one than any generic
         # phrasing here: it names the trap, the price or the unread page that withheld it.
@@ -420,7 +424,9 @@ def _operator_unofferable_reason(model: str) -> str | None:
     return None
 
 
-def unofferable_reason(model: str, *, audience: LlmReasonAudience = "operator") -> str | None:
+def unofferable_reason(
+    model: str, *, audience: LlmReasonAudience = "operator", off_call: bool = False
+) -> str | None:
     """Why `model` cannot be offered here, or `None` when it can — in the AUDIENCE's language.
 
     `None` MEANS THE SAME THING FOR BOTH AUDIENCES: offerability is one fact, so this returns
@@ -433,7 +439,7 @@ def unofferable_reason(model: str, *, audience: LlmReasonAudience = "operator") 
     Default `"operator"` so every existing caller — the guards, the publish path, `offerable_
     models`, the tests — keeps its current behaviour unchanged; the client realm opts in.
     """
-    reason = _operator_unofferable_reason(model)
+    reason = _operator_unofferable_reason(model, off_call=off_call)
     if reason is None or audience == "operator":
         return reason
     return CLIENT_UNAVAILABLE_REASON
@@ -464,6 +470,22 @@ def offerable_models() -> frozenset[str]:
     is the only place the failure is free.
     """
     return frozenset(model for model in SELECTABLE_LLM_MODELS if unofferable_reason(model) is None)
+
+
+#: The console settings that choose the assistant's models, judged by
+#: `off_call_offerable_models` rather than `offerable_models` wherever they are shown.
+ASSISTANT_MODEL_SETTINGS: Final = frozenset({"copilot_fast_model", "copilot_planning_model"})
+
+
+def off_call_offerable_models() -> frozenset[str]:
+    """The models our text legs off calls (Pip, photo reading, the dashboard assists) may run
+    right now: `offerable_models()`'s three
+    conditions with the merit one widened to `OFF_CALL_LLM_MODELS` (D-786), so a Gemini 3
+    model refused on calls can serve them once its key is installed and its price attested.
+    """
+    return frozenset(
+        model for model in OFF_CALL_LLM_MODELS if unofferable_reason(model, off_call=True) is None
+    )
 
 
 # --- MAY THE DASHBOARD ASSIST RUN ON THIS LEG? ---------------------------------------
@@ -938,6 +960,7 @@ def validate_llm_model(
 
 
 __all__ = [
+    "ASSISTANT_MODEL_SETTINGS",
     "CLIENT_DASHBOARD_UNAVAILABLE_REASON",
     "CLIENT_UNAVAILABLE_REASON",
     "DASHBOARD_ADDRESSABLE_PROVIDERS",
@@ -968,6 +991,7 @@ __all__ = [
     "install_dashboard_data_use_reader",
     "install_llm_credential_reader",
     "installed_llm_providers",
+    "off_call_offerable_models",
     "offerable_models",
     "platform_default_model",
     "quoted_inr_per_minute",

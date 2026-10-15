@@ -16,7 +16,9 @@ solved. See `ExtractedText.needs_confirmation`.
 this product already holds can read a document photograph. Three legs are declared —
 `azure_openai`, `openai`, `google` — plus Sarvam on the speech leg.
 
-**CHOSEN: `gemini-2.5-flash` on the existing Google leg**, over
+**CHOSEN: a Gemini model on the existing Google leg** (`engine.DOCUMENT_OCR_MODEL`:
+`gemini-2.5-flash` until D-786 moved it to `gemini-3.5-flash-lite`, which a new Google
+project can call and which costs the same $0.30/$2.50), over
 `google_openai_compat_base_url()`, through `apps/workers/chat.py` — the same transport,
 the same dialect and the same `gemini_api_key` the dashboard copilot already uses (D-478).
 No new client, no new host literal, no new credential.
@@ -117,6 +119,7 @@ from calevate_shared.engine import (
     DOCUMENT_OCR_MODEL,
     LLM_MODELS,
     google_openai_compat_base_url,
+    keeps_default_temperature,
 )
 
 from apps.api.agents.llm_models import client_content_data_use_reason, unofferable_reason
@@ -130,7 +133,7 @@ log = get_logger(__name__)
 #: The model that reads the photographs, read back from the catalogue that declares it.
 #:
 #: NOT SPELLED HERE. `calevate_shared.engine.DOCUMENT_OCR_MODEL` carries both the id and the
-#: argument for choosing the dearer of the two 2.5 flash models, for the reason
+#: argument for the choice, for the reason
 #: `tests/sarvam_model_identifier_test.py` states over every model identifier in this tree:
 #: a literal at the call site is a second source of truth that drifts the day the catalogue
 #: id changes, on a leg where a stale id is a silent 404. Re-exported under the module's own
@@ -262,7 +265,7 @@ def ocr_leg() -> chat.ChatLeg:
     terms = client_content_data_use_reason(LLM_MODELS[DOCUMENT_OCR_MODEL].provider)
     if terms is not None:
         raise OcrUnavailableError(reason=terms)
-    reason = unofferable_reason(DOCUMENT_OCR_MODEL)
+    reason = unofferable_reason(DOCUMENT_OCR_MODEL, off_call=True)
     if reason is not None:
         raise OcrUnavailableError(reason=reason)
     api_key = get_settings().gemini_api_key
@@ -406,8 +409,10 @@ async def _transcribe(
                 leg,
                 [message],
                 timeout_s=OCR_TIMEOUT_S,
-                # Transcription, not composition: there is one right answer on the page.
-                temperature=0,
+                # Transcription, not composition: there is one right answer on the page, so
+                # 0 — except on a model whose vendor warns a lowered temperature loops
+                # (`engine.TEMPERATURE_KEEP_DEFAULT`), where none is sent.
+                temperature=None if keeps_default_temperature(leg.wire_model) else 0,
                 max_tokens=OCR_MAX_OUTPUT_TOKENS,
                 client=http,
             )
@@ -496,7 +501,8 @@ def estimated_page_cost_usd(model: str) -> Decimal:
       `_IMAGE_TOKENS` doubles it rather than taking the vendor's smallest case.
     * output is the transcription itself: `_TRANSCRIPT_TOKENS`, a dense page of text.
 
-    At `gemini-2.5-flash`'s published $0.30 / $2.50 that is about half a US cent a page —
+    At the published $0.30 / $2.50 (2.5 Flash then, 3.5 Flash-Lite now) that is about half a US
+    cent a page —
     well under a rupee — so `MAX_OCR_IMAGES` caps a source an order of magnitude below
     anything worth rationing. Which is the point of computing it: it says that a PAGE
     COUNT is the right lever (it bounds abuse and worker time) and a rupee budget is not.

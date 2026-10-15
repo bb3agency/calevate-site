@@ -111,7 +111,7 @@ describe("the root error boundary", () => {
   it("shows a digest as a quotable support reference", () => {
     render(<RootError error={crash("boom", "d1g35t")} reset={vi.fn()} />);
     expect(screen.getAllByText("d1g35t").length).toBe(1);
-    expect(document.body.textContent).toContain("Support reference");
+    expect(document.body.textContent).toContain("Error code");
   });
 
   it("offers a working retry and a way out of the screen", async () => {

@@ -77,10 +77,10 @@ from apps.api.copilot import (
     write_tools,
 )
 from apps.api.copilot import prompt as prompt_module
+from apps.api.copilot.consent import ADMIN_UNMASKED, consent_out
 from apps.api.copilot.context import live_state_block
 from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.copilot.routes import action_out
-from apps.api.copilot.sanitize import assert_redacted
 from apps.api.copilot.schemas import (
     AdminCopilotAskIn,
     CopilotActionPageOut,
@@ -95,6 +95,7 @@ from apps.api.copilot.schemas import (
     CopilotTurnIds,
     CopilotUndoOut,
 )
+from apps.api.copilot.tools import Unmasked
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
@@ -294,15 +295,9 @@ async def ask_admin_copilot(
     #: The files this question names (D-781).
     uploads: tuple[attachments.Upload, ...] = ()
     try:
-        # 1. THE SUBJECT, before the money — and this guard is not softened for the admin
-        #    realm even though an operator legitimately sees more than a client does. What
-        #    it protects is not the OPERATOR'S eyes, it is what leaves this deployment for
-        #    a vendor's: a phone number in a screen block reaches Azure whoever is looking
-        #    at it, and D-127 G-1's rule is about the wire, not about the audience.
-        assert_redacted(payload.question, authored=True)
-        screen = prompt_module.render_screen(payload)
-        prompt_module.assert_screen_fits(screen)
-        assert_redacted(screen, *(turn.content for turn in payload.history))
+        # 1. THE SUBJECT'S SIZE. Not its content: the admin console's Pip is never masked
+        #    for the model and never asks for consent (D-788, the founder's exemption).
+        prompt_module.assert_screen_fits(prompt_module.render_screen(payload))
 
         tenant_id = await _viewed_tenant(principal, payload.tenant_id)
 
@@ -346,10 +341,8 @@ async def ask_admin_copilot(
 
     # MEMORY REACHES THE MODEL AS A `fact`, which is the seam the client route already
     # established: `facts` is defined as read-only context the browser volunteers and
-    # `prompt.py` already fences it. Appended AFTER `assert_redacted` deliberately — this
-    # text went through `redact()` on the way IN (`memory.redacted_content` is the only
-    # writer), so re-running the guard could only fail on a row the database should not
-    # contain, in the middle of answering somebody.
+    # `prompt.py` already fences it. It went through `redact()` on the way IN
+    # (`memory.redacted_content` is the only writer): memories stay minimised (D-788).
     if remembered:
         payload = payload.model_copy(
             update={
@@ -572,7 +565,12 @@ async def ask_admin_copilot(
             # account tools refuse with a sentence saying no account is open. The role is
             # what `tools.run_read_tool` judges the tool's own permission against — the
             # platform tools declare `admin:tenants`, which no client role holds.
-            tool_context=service.ToolContext(tenant_id=tenant_id, role=principal.role),
+            tool_context=service.ToolContext(
+                tenant_id=tenant_id,
+                role=principal.role,
+                # Never masked (D-788): a raw transcript read is audited under this operator.
+                unmasked=Unmasked(actor=principal, ip=client_request_ip(request)),
+            ),
             live=live,
             # THE VERIFIED PRINCIPAL, passed whole — the loop narrows it to a `ToolActor`
             # itself (`write_tools.actor_for`, the one place that narrowing happens) and
@@ -720,8 +718,15 @@ async def load_admin_copilot_conversation(
     """
     operator = _operator_id(principal)
     run_started_at = await session_run.current_run_start(realm="admin", subject_id=operator)
+    # The admin console's Pip never asks (D-788).
+    consent = consent_out(ADMIN_UNMASKED, can_accept=False)
     if run_started_at is None:
-        return CopilotConversationOut(turns=[], has_more=False)
+        return CopilotConversationOut(
+            turns=[],
+            has_more=False,
+            uploads_available=attachments.uploads_available(),
+            consent=consent,
+        )
     async with untenanted_session() as session:
         page = await transcript.load(
             session,
@@ -732,7 +737,10 @@ async def load_admin_copilot_conversation(
             before=transcript.turn_cursor(before),
         )
     return transcript.conversation_out(
-        page, answering=await live_sync.is_answering("admin", operator)
+        page,
+        uploads_available=attachments.uploads_available(),
+        consent=consent,
+        answering=await live_sync.is_answering("admin", operator),
     )
 
 

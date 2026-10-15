@@ -4046,7 +4046,19 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/qa-sampling/page.tsx",
     realm: "admin",
     element: () => <QaSamplingPage />,
-    routes: { "/v1/admin/qa-samples?pending=true": [QA_SAMPLE] },
+    routes: {
+      "/v1/admin/qa-samples?status=waiting&order=oldest&limit=50&offset=0": {
+        items: [QA_SAMPLE],
+        total: 1,
+        offset: 0,
+        limit: 50,
+        waiting_total: 1,
+        clients: [
+          { tenant_id: QA_SAMPLE.tenant_id, tenant_name: QA_SAMPLE.tenant_name, tenant_slug: QA_SAMPLE.tenant_slug, waiting: 1, sampled: 1 },
+        ],
+        weeks: [QA_SAMPLE.week_start],
+      },
+    },
   },
   {
     file: "admin/qa-sampling/[sampleId]/page.tsx",

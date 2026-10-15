@@ -279,7 +279,7 @@ function ResetDialog({
         {applies.sentence}
       </p>
       {high && field.control.risk_reason && <p>{field.control.risk_reason}</p>}
-      <p>The audit log records this as a return to the default.</p>
+      <p>This returns the setting to its default.</p>
       {revert.error && <WriteFailure error={revert.error} actionLabel={label} />}
       {high && (
         <TypedConfirmation

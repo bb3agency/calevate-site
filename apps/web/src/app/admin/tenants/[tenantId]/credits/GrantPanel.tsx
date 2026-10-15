@@ -157,7 +157,7 @@ export function GrantPanel({
         <Field
           label="How much to give"
           id="grant-amount"
-          hint={`Digits only, in rupees — between ${formatRupeeRate(MIN_GRANT_INR)} and ${formatRupeeRate(MAX_GRANT_INR)} per grant. A larger gift is granted in parts, each separately confirmed and separately audited.`}
+          hint={`Digits only, in rupees — between ${formatRupeeRate(MIN_GRANT_INR)} and ${formatRupeeRate(MAX_GRANT_INR)} per grant. A larger gift is granted in parts, each confirmed separately.`}
           error={amountProblem}
         >
           <input
@@ -183,7 +183,7 @@ export function GrantPanel({
         <Field
           label="Why"
           id="grant-reason"
-          hint="Your own words, on the ledger entry and in the audit trail. This is the field a later review of an unexplained credit is looking for."
+          hint="Your own words, saved on the ledger entry. This is the field a later review of an unexplained credit is looking for."
           error={null}
         >
           <textarea

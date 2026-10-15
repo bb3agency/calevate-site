@@ -299,7 +299,7 @@ def test_an_agent_runs_its_own_offerable_choice_else_the_default(
     monkeypatch.setattr(own_model, "offerable_own_models", lambda: ("gemini-2.5-flash",))
     assert own_model_for("byok:gemini-2.5-flash") == "gemini-2.5-flash"
     default = get_settings().thinnest_own_model_default
-    assert own_model_for("byok:gemini-3.5-flash") == default
+    assert own_model_for("byok:gemini-3.8-flash") == default
     assert own_model_for(None) == default
 
 

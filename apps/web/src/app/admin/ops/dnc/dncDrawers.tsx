@@ -110,8 +110,7 @@ export function SuppressForm({
               covers.
             </p>
             <p className="mt-1 text-meta text-ink-muted">
-              Recorded in the audit log under your admin account, together with the reason
-              you type below — as counts, never as the numbers themselves.
+              Give a reason below.
             </p>
           </div>
         </div>
@@ -183,7 +182,7 @@ export function SuppressForm({
           </label>
           {valid.error("reason")}
           <p className={`${FIELD_HINT} flex items-center gap-1`}>
-            Goes into the audit log.
+            Required.
             <InfoTip label="The reason">
               It is the record of who refused these numbers for the whole platform, and on
               whose instruction — the answer someone will need a year from now.
@@ -285,8 +284,7 @@ export function ReleaseConfirm({
             {entry.source ? dncSourceCopy(entry.source).label : "no source was recorded"}.
           </p>
           <p className="mt-1 text-meta text-ink-muted">
-            Recorded in the audit log under your admin account. The only way back is to add the
-            number again.
+            The only way back is to add the number again.
           </p>
         </div>
       </div>

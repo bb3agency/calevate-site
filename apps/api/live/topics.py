@@ -250,6 +250,10 @@ QUIET_TABLES: Final[dict[str, str]] = {
     "admin_copilot_conversation_turns": _PERSONAL,
     "copilot_uploads": _PERSONAL,
     "admin_copilot_uploads": _PERSONAL,
+    "copilot_consents": (
+        "read with the conversation, which every panel re-reads when it opens and when its "
+        "tab regains focus (D-788); the conversation topic stays one person's"
+    ),
     "caller_chunks": _DERIVED + " (`caller_memories`)",
     "kb_chunks": _DERIVED + " (`kb_sources`, `kb_documents`)",
     "kb_retrieval_logs": "a read log; writing one is a read, not a change",

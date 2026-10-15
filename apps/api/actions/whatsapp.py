@@ -204,13 +204,13 @@ async def _record_spoken(
     tenant_id: UUID,
     phone_e164: str,
     spoken: SpokenConsent,
-    status: str,
+    consent: Literal["granted", "declined"],
 ) -> None:
     await record_messaging_consent(
         session,
         tenant_id=tenant_id,
         raw_phone=phone_e164,
-        status=status,
+        status=consent,
         source=SPOKEN_CONSENT_SOURCE,
         call_id=spoken.call_id,
         evidence={
@@ -225,7 +225,7 @@ async def _record_spoken(
     )
     log.info(
         "whatsapp_spoken_consent_recorded",
-        extra={"tenant_id": str(tenant_id), "status": status, "action_id": str(spoken.action_id)},
+        extra={"tenant_id": str(tenant_id), "status": consent, "action_id": str(spoken.action_id)},
     )
 
 
@@ -308,7 +308,7 @@ async def _apply_spoken(
                 tenant_id=tenant_id,
                 phone_e164=phone_e164,
                 spoken=spoken,
-                status="declined",
+                consent="declined",
             )
         raise WhatsAppCallerDeclinedError()
     if on_file:
@@ -320,7 +320,7 @@ async def _apply_spoken(
         )
         raise WhatsAppConsentNotAskedError()
     await _record_spoken(
-        session, tenant_id=tenant_id, phone_e164=phone_e164, spoken=spoken, status="granted"
+        session, tenant_id=tenant_id, phone_e164=phone_e164, spoken=spoken, consent="granted"
     )
 
 

@@ -432,8 +432,8 @@ function FlagRow({
             {result.changed ? (
               <>
                 Changed from <span className="font-medium">{result.before.enabled ? "on" : "off"}</span>{" "}
-                to <span className="font-medium">{result.after.enabled ? "on" : "off"}</span>, and
-                audited. It applies from this client&apos;s next request.
+                to <span className="font-medium">{result.after.enabled ? "on" : "off"}</span>. It
+                applies from this client&apos;s next request.
               </>
             ) : (
               <>

@@ -134,14 +134,23 @@ copy the body.
 
 ## 4. Redaction
 
-* The model sees redacted data only. `sanitize.assert_redacted` guards the request; keep
-  phone numbers, emails and identity numbers out of every tool result. Name a person's
-  record by id; let the server resolve a number itself (see `dnc_add`).
+* **Consent decides (D-788).** Pip runs on a client account only after its owner turned it
+  on (`copilot/consent.py`; the ask, upload and job paths refuse `copilot_consent_required`
+  before), and the admin console never asks. Every run then carries
+  `ToolContext.unmasked`, and `tools._clean` skips `redact()` while it is set, so a tool
+  result reaches the model as stored. A tool that reads RAW transcript text must write the
+  `transcript.read_raw` audit row with `context.unmasked.actor` and `.ip` in the same
+  session, as `call_detail` does. Without `unmasked` (a test, an eval) `_clean` still masks:
+  never return a value that `_clean` would not see.
+* Never send a tool result, a file or the raw question to the Sarvam standby;
+  `service.masked_messages` masks everything that leg receives.
+* Name a person's record by id where you can; let the server resolve a number itself (see
+  `dnc_add`).
 * Strip invisible characters from anything you interpolate (`strip_invisible`).
 * The action log stores `args` through `workers.redaction.redact` (ids untouched) and
   never stores a refusal's arguments. Do not put a value into a refusal reason.
 * Log ids and tool names only (hard rule 6).
-* **One exception (D-781): files a person attaches.** A picture or the text of an attached
+* **Files a person attaches (D-781).** A picture or the text of an attached
   file reaches the model whole and unredacted (`copilot/attachments.py`), fenced in
   `<attachment>` like screen content, and never reaches the Sarvam standby. A tool must not
   read, store or log an attachment; the transcript keeps only `[N files attached]`.

@@ -10,7 +10,7 @@ it — so the only thing that can notice is a clock looking at `last_seen_at`.
 **A CLEAR IS WORTH A MESSAGE OF ITS OWN.** "The FX feed is back" and "the archiver is
 succeeding again" are things the person who was woken at 3am is owed; an alerting system
 that only ever tells you about onsets leaves every incident open in the reader's head. One
-line, to the same mailbox, and only for an episode that actually WOKE somebody — a `page`
+message, to the same mailbox, and only for an episode that actually WOKE somebody — a `page`
 that was emailed. Clearing an `attention` or a `record` silently is the point of those
 rungs, and mailing a clear for something whose onset was never mailed would be the
 noise this decision exists to remove, arriving from the other direction.
@@ -34,7 +34,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from apps.api.core.alert_records import clear_message
+from apps.api.core.alert_email import compose_clear
 from apps.api.core.alerting import ALERT_CLEAR_AFTER_S
 from apps.api.core.logging import get_logger
 from apps.api.db.session import untenanted_session
@@ -96,11 +96,9 @@ async def sweep_alert_clears(ctx: dict[str, Any]) -> str:
 
 
 async def _announce_clear(row: Any) -> bool:
-    """One plain-text line to the alert mailbox. Returns whether it landed.
+    """The cleared mail (`core/alert_email.compose_clear`), on the onset's transport.
 
-    PLAIN TEXT and the same transport as the onset, for `core/alerting._deliver`'s stated
-    reason: this reader greps, forwards and pastes, and a multipart alternative renders as
-    a mess in all three. Best effort — a clear notice that cannot be sent is a log line,
+    Returns whether it landed. Best effort — a clear notice that cannot be sent is a log line,
     never an exception that leaves the rest of the batch unannounced.
     """
     from apps.api.core.settings import get_settings
@@ -110,7 +108,7 @@ async def _announce_clear(row: Any) -> bool:
     recipient = settings.alerts_email or None
     if not recipient:
         return False
-    subject, body = clear_message(
+    message = compose_clear(
         row,
         app_env=settings.app_env,
         status=f"no further occurrence for {ALERT_CLEAR_AFTER_S / 60:.0f} minutes",
@@ -119,7 +117,11 @@ async def _announce_clear(row: Any) -> bool:
         # Off the event loop: `send` is blocking socket I/O (smtplib, or a sync httpx
         # POST) and this job shares its loop with the outbox and dispatch ticks.
         return await asyncio.to_thread(
-            get_transport().send, to=recipient, subject=subject, body=body
+            get_transport().send,
+            to=recipient,
+            subject=message.subject,
+            body=message.text,
+            html=message.html,
         )
     except Exception as exc:  # pragma: no cover - transport failures are logged, not raised
         log.warning("alert_clear_notice_failed", extra={"reason": type(exc).__name__})

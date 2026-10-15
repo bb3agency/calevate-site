@@ -522,8 +522,8 @@ def _cross_site() -> ProblemError:
     return ProblemError(
         kind="permission",
         code="cross_site_request",
-        title="Request blocked",
-        detail="This request did not come from a Calevate console.",
+        title="We blocked this to keep your account safe",
+        detail="This did not come from a Calevate page.",
         remediation="Sign in from the Calevate dashboard and try again.",
     )
 

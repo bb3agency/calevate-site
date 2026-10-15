@@ -1092,11 +1092,15 @@ describe("what each document must contain", () => {
     // stated in the same table as every other category rather than in a footnote.
     expect(privacy).toMatch(/What the in-app assistant remembers/);
     expect(privacy).toMatch(/180 days/);
-    // The ERASURE LIMIT (privacy §12.4). Disclosed BEFORE the certificate carries it, and
-    // marked as such — FOLLOW-UP-12 closes the mechanism half. If somebody adds the
+    // The ERASURE LIMIT (privacy §12.4). Since D-788 an erasure deletes stored conversation
+    // turns holding the number; the distilled notes are still not searched, and that half
+    // is disclosed BEFORE the certificate carries it (FOLLOW-UP-12). If somebody adds the
     // `ERASURE_LIMITATIONS` entry, this assertion is what tells them to drop the marker.
     expect(privacy).toMatch(
-      /an erasure does not search what the in-app assistant remembers/,
+      /conversations with the in-app assistant are searched for\s+the number/,
+    );
+    expect(privacy).toMatch(
+      /The notes the assistant distils from those conversations are\s+NOT searched/,
     );
 
     // PROPOSES, NEVER PERFORMS — the promise the write tools have to keep, in the two
@@ -1152,6 +1156,64 @@ describe("what each document must contain", () => {
     expect(textOf(bySlug("subprocessors"))).toMatch(
       /provider serves it only where somebody here has read/,
     );
+  });
+
+  /**
+   * THE ASSISTANT IS UNMASKED ONCE THE OWNER TURNS IT ON, AND OUR STAFF SEE EVERYTHING (D-788).
+   *
+   * Until D-788 four documents promised that a phone number reached the assistant's model
+   * as a marker and that no raw transcript was sent. After the owner's tick both are false,
+   * so the old sentences are refused and the new facts are pinned: the tick, the unmasked
+   * scope, the masked standby, the staff-access disclosure that replaced "need-to-know",
+   * and the responsibility clauses in the two documents a client is bound by.
+   */
+  it("states the owner's tick, the unmasked scope, staff access and who is responsible", () => {
+    const privacy = textOf(bySlug("privacy"));
+    const dpa = textOf(bySlug("dpa"));
+    const terms = textOf(bySlug("terms"));
+    const subprocessors = textOf(bySlug("subprocessors"));
+
+    for (const [slug, text] of Object.entries({ privacy, dpa, terms, subprocessors })) {
+      expect(text, `/legal/${slug} still says numbers reach the model as markers`).not.toMatch(
+        /(?:number|numbers) reach(?:es)? (?:it|that provider) as (?:a )?markers?/i,
+      );
+      expect(text, `/legal/${slug} still says no raw transcript is sent`).not.toMatch(
+        /no raw\s+transcript/i,
+      );
+      expect(text, `/legal/${slug} still claims need-to-know access`).not.toMatch(
+        /need-to-know/i,
+      );
+    }
+
+    // The tick, and what it releases.
+    expect(privacy).toMatch(/off for every account until the account owner turns it on/);
+    expect(privacy).toMatch(/We record who ticked it, when, and which\s+version/);
+    expect(dpa).toMatch(/That tick is your\s+documented instruction to send, unmasked/);
+    expect(terms).toMatch(/that tick is your instruction to us to send,\s+unmasked/);
+    // The standby whose terms permit training stays masked.
+    expect(subprocessors).toMatch(
+      /As the assistant's standby it receives only the assistant conversation's text/,
+    );
+    // The paid-tier no-training position, stated as the provider's published terms.
+    expect(subprocessors).toMatch(
+      /published terms for its paid service say it does\s+not use prompts, files or responses/,
+    );
+
+    // Staff access, in all three documents the founder named.
+    for (const text of [privacy, dpa, terms]) {
+      expect(text).toMatch(
+        /Every Calevate administrator and staff member who works on the service (?:can see|can\s+see)/,
+      );
+      expect(text).toMatch(/not limited to particular people/);
+      expect(text).toMatch(/run, support, secure and fix the service/);
+    }
+
+    // Who is responsible: the client's list, our "not responsible" clause, and our own duties.
+    expect(terms).toMatch(/Calevate is not responsible for: the personal data you put/);
+    expect(dpa).toMatch(/Calevate is not responsible for: that data/);
+    expect(terms).toMatch(/Nothing\s+in this clause limits a duty the law places on us/);
+    expect(dpa).toMatch(/Nothing in this Addendum limits a duty the law places on us/);
+    expect(terms).toMatch(/the account owner's decision\s+to turn it on/);
   });
 
   it("resolves every clause reference in the published prose", () => {

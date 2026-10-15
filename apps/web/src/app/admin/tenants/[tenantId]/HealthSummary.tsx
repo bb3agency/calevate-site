@@ -148,7 +148,7 @@ export function HealthSummary({ tenant }: { tenant: TenantSummary }) {
                 label={`${failedCalls} of the last ${calls.data?.length ?? RECENT_CALLS} calls failed`}
                 detail="See the calls below; open one as the client for its detail."
                 href={viewAsHref(tenant.slug, "/calls")}
-                cta="Open calls as the client (logged)"
+                cta="Open calls as the client"
               />
             )}
           </ul>
@@ -183,7 +183,7 @@ export function HealthSummary({ tenant }: { tenant: TenantSummary }) {
         title="Last calls"
         action={
           <a href={viewAsHref(tenant.slug, "/calls")} className={TEXT_ACTION}>
-            All calls (logged)
+            All calls
           </a>
         }
       >
@@ -224,7 +224,7 @@ export function HealthSummary({ tenant }: { tenant: TenantSummary }) {
       <Section title="Quick actions" description="Each opens the screen that does it, with its own confirmation.">
         <div className="flex flex-wrap gap-x-6 gap-y-2">
           <a href={viewAsHref(tenant.slug)} className={TEXT_ACTION}>
-            View as client (logged)
+            View as client
             <ArrowRight aria-hidden className="h-3.5 w-3.5" />
           </a>
           {prepaid && (

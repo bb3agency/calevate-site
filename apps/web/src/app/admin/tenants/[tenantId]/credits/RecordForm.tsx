@@ -319,11 +319,6 @@ export function RecordForm({
               lines stay on the ledger for ever, and the client may already have spent the
               money.
             </p>
-            <p className="mt-1 text-meta text-ink-muted">
-              Recorded in the audit log against your admin account, in the same
-              transaction as the money: a credit with no audit row is not a possible
-              state.
-            </p>
           </div>
         </div>
 

@@ -64,7 +64,7 @@ def test_a_question_carrying_personal_data_is_refused_not_stripped(question: str
     """Hard rule 6, at the one place it would otherwise be broken durably: a cache key is a
     string operators grep and dump, and a cached value is prose we read back.
 
-    REFUSED, not stripped — `sanitize.assert_redacted`'s doctrine. A guard that silently
+    REFUSED, not stripped — `run_assist`'s input guard's doctrine. A guard that silently
     repairs its input teaches its caller nothing and hides the defect that produced it.
     """
     with pytest.raises(QuestionNotCacheableError) as refused:

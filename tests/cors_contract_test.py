@@ -31,7 +31,7 @@ from pathlib import Path
 import pytest
 from apps.api.core.bootstrap import DEFAULT_CORS_ORIGINS, MARKETING_ORIGIN
 from apps.api.core.console_links import ADMIN_CONSOLE_BASE, CONSOLE_BASE
-from apps.api.core.middleware import install_middleware
+from apps.api.core.middleware import CORS_PREFLIGHT_MAX_AGE_S, install_middleware
 from apps.api.core.rbac import ADMIN_ORIGIN_PREFIXES, iter_api_routes
 from apps.api.main import app
 from fastapi import FastAPI
@@ -195,6 +195,23 @@ async def test_the_preflight_the_browser_actually_sends_succeeds(
         h.strip().lower() for h in response.headers["access-control-allow-headers"].split(",")
     }
     assert set(headers.split(",")) <= allowed_headers
+
+
+@pytest.mark.parametrize("path", ["/v1/dashboard", "/v1/admin/tenants"])
+async def test_a_preflight_answer_is_reusable_for_two_hours(path: str) -> None:
+    """Every console read is preflighted, once per URL per max-age (D-787)."""
+    origin = ADMIN_CONSOLE_BASE if path.startswith(ADMIN_ORIGIN_PREFIXES) else ORIGIN
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        response = await http.options(
+            path,
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "x-org-slug",
+            },
+        )
+    assert response.status_code == 200, response.text
+    assert response.headers["access-control-max-age"] == str(CORS_PREFLIGHT_MAX_AGE_S) == "7200"
 
 
 def test_a_wildcard_origin_cannot_be_installed_alongside_credentials() -> None:

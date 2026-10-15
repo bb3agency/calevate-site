@@ -1160,6 +1160,32 @@ html:has([data-marketing-root]) body {
 [data-marketing-root] [data-stage="in"] .mk-s5 { animation-delay: 300ms; }
 [data-marketing-root] [data-stage="in"] .mk-s6 { animation-delay: 360ms; }
 
+/*
+ * THE HERO ENTRANCE (home/hero.tsx, why/pageHero.tsx): the first viewport's copy rises in
+ * on first paint, from classes in the server HTML.
+ *
+ * CSS rather than GSAP because anything above the fold is painted by the server before the
+ * bundle arrives. A `gsap.from()` there runs at hydration, after that paint, so it snaps the
+ * finished hero back to its start frame and plays it again: the page appears, vanishes and
+ * appears. A keyframe starts with the first paint, and hydration reuses the same nodes, so
+ * there is nothing to replay.
+ *
+ * Only under `no-preference` and `forced-colors: none`: everyone else gets the resting
+ * frame because the rule never applies, so the page needs no reset to look finished. If the
+ * stylesheet fails, nothing here applies and the copy is simply visible. 60ms per step,
+ * the `mk-s*` stagger, so the group reads as one gesture.
+ */
+@media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+  [data-marketing-root] .mk-hero-in {
+    animation: mk-sim-step 0.5s var(--ease-out-strong) both;
+  }
+  [data-marketing-root] .mk-hero-in.mk-h2 { animation-delay: 60ms; }
+  [data-marketing-root] .mk-hero-in.mk-h3 { animation-delay: 120ms; }
+  [data-marketing-root] .mk-hero-in.mk-h4 { animation-delay: 180ms; }
+  [data-marketing-root] .mk-hero-in.mk-h5 { animation-delay: 240ms; }
+  [data-marketing-root] .mk-hero-in.mk-h6 { animation-delay: 300ms; }
+}
+
 /* Ambient loops only. Pausing every animation under the attribute would also freeze a
    one-shot entrance on its first frame if it started while the figure was off screen. */
 [data-marketing-root] [data-offscreen] .mk-eq,

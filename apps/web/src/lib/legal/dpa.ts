@@ -80,6 +80,30 @@ export const DPA: LegalDocument = {
             "before you may engage us at all.",
         },
         {
+          kind: "list",
+          items: [
+            "As Data Fiduciary you, not we, are responsible for: having a lawful basis " +
+              "for, and giving the notice the law requires to, the people whose data you " +
+              "put into Calevate — your callers, leads and contacts; what you and your " +
+              "people type into the in-app assistant, attach to it or ask it to read; " +
+              "turning the assistant on, because the account owner's tick is your " +
+              "instruction to process that data with AI models (clause 2); and your own " +
+              "use of the answers it gives.",
+            "Calevate is not responsible for: that data, how it was collected and your " +
+              "lawful basis for it; your notices to and consents from your callers, leads " +
+              "and contacts; your instructions, including turning the assistant on; what " +
+              "your people enter into the assistant; and the decisions you take on what " +
+              "the assistant or an agent produces. You warrant those matters, and the " +
+              "indemnity in clause 14.2 of the Terms of Service covers them.",
+            "What we are responsible for, and do: we process your data lawfully and only " +
+              "on your documented instructions, keep it secure (clause 4), delete it on " +
+              "schedule (clause 8), notify you of a personal data breach as clause 7 and " +
+              "the law require, and use only the sub-processors we disclose (clause 5). " +
+              "Nothing in this Addendum limits a duty the law places on us as your Data " +
+              "Processor that cannot be limited by contract.",
+          ],
+        },
+        {
           kind: "para",
           text:
             "For your own account data — the identities of your users, your organisation " +
@@ -183,12 +207,27 @@ export const DPA: LegalDocument = {
               "confirmation, subject to the same permission checks and the same " +
               "compliance gates as the equivalent button, that carries it out. Anything " +
               "it does on your account is therefore your instruction and not ours.",
+            "The assistant is off for your account until your account owner turns it " +
+              "on by ticking a box in its panel, once, for the whole account; we record " +
+              "who ticked it, when, and the version of the statement they were shown, " +
+              "and ask again if that statement changes materially. That tick is your " +
+              "documented instruction to send, unmasked, to the language-model providers " +
+              "that answer the assistant: what your people type, the files they attach, " +
+              "and what it reads in your account to answer them — your callers', leads' " +
+              "and contacts' phone numbers and contact details, and full call transcripts " +
+              "with their summaries. Every read of a full transcript writes an audit " +
+              "entry. The provider that answers first does so on a paid service whose " +
+              "published terms say it does not use prompts, files or responses to " +
+              "improve its products. The standby that answers only when no other " +
+              "provider can — the post-call extraction company, whose terms permit " +
+              "training (above) — is sent only the conversation's text with phone " +
+              "numbers, email addresses and identity numbers replaced by markers, and " +
+              "never a file or anything the assistant read in your account.",
             "Files your users attach to the in-app assistant are your instruction too. We " +
               "store each one privately, for the user who attached it, and send it as it is " +
               "to the assistant's language-model provider to answer the question it was " +
-              "attached to, and for nothing else. Unlike the rest of what the assistant " +
-              "sends, an attached file is not redacted first, and we do not review it or " +
-              "scan it for malware. As Data Fiduciary you are responsible for what is " +
+              "attached to, and for nothing else. An attached file is not redacted, and " +
+              "we do not review it or scan it for malware. As Data Fiduciary you are responsible for what is " +
               "attached and for having a lawful basis, and any notice and consent the law " +
               "requires, for the personal data in it; please ask your users not to attach " +
               "personal data a question does not need. Our own obligations are unchanged: " +
@@ -217,14 +256,20 @@ export const DPA: LegalDocument = {
               "attaches to the operator sign-in realm and not to the person signing in, " +
               "so there is no account it does not apply to, and the audit entries below " +
               "are written by the same code whoever triggers them.",
-            "Access is on a need-to-know basis, granted by role, and the map from every " +
-              "endpoint to the permission it requires is asserted when the service starts " +
-              "rather than reviewed by eye.",
-            "Our operators may view your account read-only, in order to support you. That " +
-              "access requires multi-factor authentication enforced by the server, plus a " +
-              "short-lived signed grant naming that one operator and your account, and it " +
-              "cannot make changes. Two audit entries are written: one when the authority " +
-              "is issued, one when data is actually read.",
+            "Every Calevate administrator and staff member who works on the service can " +
+              "see all of your data — calls, recordings, transcripts, leads, contacts and " +
+              "your people's conversations with the in-app assistant — including through " +
+              "our own staff's assistant in our administration console, which reads it " +
+              "unmasked. That access is not limited to particular people or particular " +
+              "clients. It is bound by the confidentiality above, it is recorded, and we " +
+              "use it only to run, support, secure and fix the service. The map from " +
+              "every endpoint to the permission it requires is asserted when the service " +
+              "starts rather than reviewed by eye.",
+            "Viewing your own screens as you see them is read-only, in order to support " +
+              "you. It requires multi-factor authentication enforced by the server, plus " +
+              "a short-lived signed grant naming that one person and your account, and " +
+              "it cannot make changes. Two audit entries are written: one when the " +
+              "authority is issued, one when data is actually read.",
             "Reading an unredacted transcript, or the exact body delivered to your own " +
               "system, is a higher permission and always writes an audit entry.",
             "Setting your account up and administering it is a different thing from that " +
@@ -445,16 +490,18 @@ export const DPA: LegalDocument = {
           kind: "para",
           text:
             "The in-app assistant keeps its own record of what your people asked it and " +
-            "the business facts it distilled from those conversations. Those records are " +
-            "about your users rather than about your callers, so they sit outside this " +
-            "Addendum's subject matter — but they are stated here because they are new, " +
-            "because they are personal data of your people, and because you should not " +
-            "have to find them in a release note. Identifiers are stripped before they " +
-            "are written, they are held per person, they are deleted after 180 days on " +
-            "the same nightly job as everything else, and every one of them is deleted " +
-            "when your account is closed. Section 9 of the Privacy Policy carries the " +
-            "period alongside the others, and section 12.4 states the one thing an " +
-            "erasure request does not do with them.",
+            "what it answered, held per person and kept as typed, so it can contain your " +
+            "callers' personal data. That record is deleted when the person's last " +
+            "signed-in session ends or expires, when they start again, when your " +
+            "transcript retention period runs out, when your account is closed, and, for " +
+            "any stored question or answer containing a caller's phone number, when that " +
+            "caller's erasure request runs. The short notes about your business it " +
+            "distils from those conversations, and the instructions of routines your " +
+            "people save, have identifiers stripped before they are written, are held " +
+            "per person, are deleted after 180 days on the same nightly job as " +
+            "everything else, and are all deleted when your account is closed. Section 9 " +
+            "of the Privacy Policy carries the periods alongside the others, and section " +
+            "12.4 states the one thing an erasure request does not do with the notes.",
         },
         {
           kind: "callout",
@@ -771,13 +818,14 @@ export const DPA: LegalDocument = {
                 "Client's dashboard, which reads the Client's own records — leads, " +
                 "calls, campaigns, agents and knowledge content — to answer the " +
                 "questions the Client's own users put to it, and which proposes changes " +
-                "for one of those users to confirm. From the account that leg sees names, " +
-                "statuses, counts and already-redacted call summaries; it is not given raw " +
-                "transcripts, raw numbers or extraction payloads. The one exception is a " +
-                "file a user attaches to a question (pictures, PDFs and the text found in " +
-                "them, and the text of text, CSV, Word, Excel and PowerPoint files), which " +
-                "is sent whole and unredacted, " +
-                "as clause 2 describes.",
+                "for one of those users to confirm. It runs only after the Client's " +
+                "account owner has turned it on (clause 2). From then on, what a user " +
+                "types, the files they attach (pictures, PDFs and the text found in them, " +
+                "and the text of text, CSV, Word, Excel and PowerPoint files) and what the " +
+                "assistant reads in the account — including phone numbers, contact details " +
+                "and full call transcripts with their summaries — are sent unmasked to the " +
+                "language-model providers that answer it, except its standby, which " +
+                "receives only masked conversation text, as clause 2 describes.",
             ],
             [
               "Purpose",
@@ -792,8 +840,9 @@ export const DPA: LegalDocument = {
                 "budget, stated requirement, preferred time, callback number and " +
                 "anything else the Client chooses); lead records and their history; consent " +
                 "and opt-out records; contact rows uploaded by the Client, including any " +
-                "additional columns in the Client's file. Whatever a Client's user puts in a file " +
-                "they attach to the in-app assistant, which the Client decides.",
+                "additional columns in the Client's file. Whatever a Client's user types into the " +
+                "in-app assistant or puts in a file they attach to it, which the Client " +
+                "decides, and the assistant's answers.",
             ],
             [
               "Special categories",
@@ -859,21 +908,25 @@ export const DPA: LegalDocument = {
                   "token that does not evidence a second factor is refused; so is one that " +
                   "says nothing about one.",
                 "Role-based permissions. Client roles are owner and staff; staff cannot " +
-                  "reach billing, organisation settings, unredacted transcripts, or exports " +
-                  "containing unredacted data. The endpoint-to-permission map is asserted " +
+                  "reach billing, organisation settings, unredacted transcripts on a screen, " +
+                  "or exports containing unredacted data. The endpoint-to-permission map is asserted " +
                   "at start-up in four directions, including that every declared permission " +
                   "is actually held by some role.",
                 "Two capabilities inside a Client account are stated separately because " +
-                  "they moved. Staff may open the in-app assistant, which spends the " +
-                  "account's AI allowance and is therefore treated as a change-making " +
-                  "permission rather than a read. Staff may curate the knowledge the " +
+                  "they moved. Staff may open the in-app assistant once the account owner " +
+                  "has turned it on, which spends the account's AI allowance and is " +
+                  "therefore treated as a change-making permission rather than a read; it " +
+                  "reads full transcripts to answer whoever asks it, and each such read is " +
+                  "audited. Staff may curate the knowledge the " +
                   "Client's agents answer from ONLY in an account whose owner has " +
                   "switched that on; it is off for every account until an owner turns " +
                   "it on, staff cannot turn it on for themselves, and an operator " +
                   "viewing the account cannot turn it on either.",
-                "Operator access to a client account is read-only, requires a short-lived " +
-                  "signed grant bound to that operator and that client, is revoked " +
-                  "instantly by sign-out or role change, and is audited twice.",
+                "Every Calevate administrator and staff member who works on the service " +
+                  "can see all of a Client's data (clause 3). Viewing a Client's own screens " +
+                  "is read-only, requires a short-lived signed grant bound to that person " +
+                  "and that Client, is revoked instantly by sign-out or role change, and is " +
+                  "audited twice.",
                 "Invitations are single-use, expire in 72 hours, are stored hashed, and are " +
                   "burned on use.",
               ],

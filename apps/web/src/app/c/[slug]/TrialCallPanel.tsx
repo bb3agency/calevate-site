@@ -16,8 +16,7 @@ import { RowLink } from "@/components/console/checklist";
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import { useClientRealm } from "@/lib/api/session";
-import { usePlaceTrialCall, useTrialPanel, type TrialPanel } from "@/lib/api/trialCalls";
-import { useShellWallet } from "@/lib/api/wallet";
+import { usePlaceTrialCall, type TrialPanel } from "@/lib/api/trialCalls";
 
 import { TestCallTranscript } from "./TestCallTranscript";
 
@@ -30,24 +29,18 @@ import { TestCallTranscript } from "./TestCallTranscript";
  * business, its own phone number, answering calls and calling its leads — opens once it
  * adds credit, and the panel says so in that order.
  *
- * Renders NOTHING while the read is in flight and for an account that is not on a trial:
- * this panel is for the few accounts on a trial, and a placeholder on every other
- * dashboard would be noise. A failed read is said, because a trial account that cannot see
- * its panel cannot place a test call.
+ * The trial comes WITH the dashboard read (`DashboardOut.trial`, D-787) rather than from its
+ * own `GET /v1/trial`, so the card renders in the same paint as the rest of the dashboard:
+ * a read of its own would be a second round trip, and a card that arrives late pushes the
+ * dashboard down. Renders NOTHING for an account that is not on a trial — a placeholder on
+ * every other dashboard would be noise — and the dashboard says its own read's failure.
  */
-export function TrialCallPanel({ slug }: { slug: string }) {
-  const { session, href } = useClientRealm();
-  // Asked only of an account the shell's wallet read says is on a test-calls-only trial, so
-  // every other dashboard sends no request for it.
-  const onTrial = useShellWallet(session)?.trial?.test_calls_only === true;
-  const panel = useTrialPanel(session, onTrial);
-  if (panel.error) {
-    return <ProblemNotice error={panel.error} onRetry={() => void panel.refetch()} />;
-  }
-  if (!onTrial || panel.isLoading || panel.data === undefined || !panel.data.on_trial) return null;
+export function TrialCallPanel({ slug, trial }: { slug: string; trial: TrialPanel | null | undefined }) {
+  const { href } = useClientRealm();
+  if (!trial?.on_trial) return null;
   return (
     <TrialCallCard
-      trial={panel.data}
+      trial={trial}
       creditsHref={href(`/c/${slug}/billing?tab=credits`)}
       verifyHref={href(`/c/${slug}/verify-business`)}
     />

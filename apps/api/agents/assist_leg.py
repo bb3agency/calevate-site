@@ -27,11 +27,18 @@ which call they opened, with no sentence anywhere explaining why.
 
 from __future__ import annotations
 
+from calevate_shared.engine import leg_for_model
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.llm_models import resolve_llm_model, tenant_dashboard_leg
-from apps.workers.extraction import TenantModelLeg
+from apps.api.agents.llm_models import (
+    off_call_offerable_models,
+    resolve_llm_model,
+    tenant_dashboard_leg,
+    unofferable_reason,
+)
+from apps.api.core.settings import get_settings
+from apps.workers.extraction import GOOGLE_PROVIDER, TenantModelLeg
 
 #: The account's own choice. `id` is not needed — nothing here quotes a plan or a price.
 _ORG_MODEL = "SELECT default_llm_model FROM organizations WHERE deleted_at IS NULL"
@@ -65,7 +72,38 @@ async def account_assist_leg(session: AsyncSession) -> TenantModelLeg:
     # running the platform default, would be silently moved onto Azure with no disclosure,
     # because `serves_dashboard` was never consulted. The leg is still passed; only the
     # sentence changes.
+    if leg_for_model(resolved.model).provider == GOOGLE_PROVIDER:
+        return google_assist_leg()
     return tenant_dashboard_leg(model=resolved.model, source=resolved.source)
 
 
-__all__ = ["account_assist_leg"]
+def google_assist_leg() -> TenantModelLeg:
+    """The Google arm of the dashboard assists, on the assistant's fast model (D-786).
+
+    NOT the account's own Gemini id. Under ThinnestAI an account's model is only an id
+    (the engine runs its own), so what this leg sends to Google on OUR key is a platform
+    choice, and the account default, `gemini-2.5-flash-lite`, 404s on a Google project that
+    never used 2.5 (ai.google.dev/gemini-api/docs/models, updated 2026-10-13)."""
+    return google_leg_for(get_settings().copilot_fast_model)
+
+
+def google_leg_for(model: str) -> TenantModelLeg:
+    """`model` as a Google dashboard leg, or a leg that says why it cannot serve.
+
+    `off_call_offerable_models()` is asked first (key and attested price, hard rule 7):
+    `serves_dashboard` answers only the data-use question, and an unpriced model that
+    answered would raise on the meter after Google was paid. The selector then
+    substitutes and discloses."""
+    if model not in off_call_offerable_models():
+        return TenantModelLeg(
+            model=model,
+            provider=GOOGLE_PROVIDER,
+            serves_dashboard=False,
+            blocked_reason=unofferable_reason(model, off_call=True)
+            or "this model is not offerable here",
+            account_chose_model=False,
+        )
+    return tenant_dashboard_leg(model=model, source="platform")
+
+
+__all__ = ["account_assist_leg", "google_assist_leg", "google_leg_for"]

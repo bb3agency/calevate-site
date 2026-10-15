@@ -47,7 +47,6 @@ import {
   AdminSessionProvider,
   useAdminSessionRow,
 } from "@/lib/authn/adminSession";
-import { StatusPill } from "@/components/console/statusPill";
 
 /**
  * Admin realm shell — `admin.calevate.tech`.
@@ -490,12 +489,6 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
 
         <div className="flex shrink-0 items-center gap-2 lg:gap-4">
           <AdminCommandPalette />
-          {/* The marker, at every route. Not a `NoticeBox`: that component is a verdict about
-              something the reader must act on, and this is a standing statement about the
-              session, so it is a warn dot and a muted line rather than a tinted capsule. */}
-          <span className="hidden sm:inline-flex">
-            <StatusPill tone="warn">Cross-client · every action is audited</StatusPill>
-          </span>
           <HeldCount />
         </div>
       </div>

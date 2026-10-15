@@ -165,8 +165,8 @@ export function CallCapChoice({ agentId, state }: { agentId: string; state: Pend
               : `${formatCallCap(parsed)} per call.`}
             {/* A failed `lanes` read removes this input's bounds, so it says so. */}
             {lanes.isError
-              ? " The allowed range could not be read, so this box is unbounded here; the" +
-                " server will still refuse a value outside it."
+              ? " The allowed range did not load, so this box shows no limit; a value outside" +
+                " it will still be refused when you save."
               : ""}{" "}
             {NEXT_CALL_NOTE}
           </span>

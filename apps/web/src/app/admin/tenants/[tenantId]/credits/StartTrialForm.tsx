@@ -260,9 +260,7 @@ export function StartTrialForm({
             trial only puts its calls on us.
           </p>
           <p className="mt-1 text-meta text-ink-muted">
-            Recorded in the audit log against your admin account with the reason you type
-            above, in the same transaction as the trial. Their agents are told straight
-            away, so a client whose line stopped for an empty wallet starts answering again
+            Their agents are told straight away, so a client whose line stopped for an empty wallet starts answering again
             without anyone republishing anything.
           </p>
         </div>

@@ -26,21 +26,21 @@ for the facts that matter" split (see `MAX_STORED_TURNS` for the citation).
 
 ═══ WHAT IS STORED ═══
 
-The REDACTED form of every turn, always. `apps/web/src/lib/copilot/redaction.ts` replaces
-screen field values that look like identifiers with placeholders before a question leaves
-the browser and restores them for DISPLAY only; what lands here is the wire form, put
-through `memory.redacted_content`'s same `redact()` pass. The consequence is visible and
-is the right trade: a turn re-read after a reload shows `«PHONE_1»` where the live one
-showed the digits. The digits were never ours to keep — storing them would put a caller's
-number in a durable row, which is exactly the thing the phone-keyed §12 erasure then has
-to be able to find, on a table whose whole safety argument is that it holds no identifier.
+A client's turn AS SAID, since D-788 (an operator's stays redacted, `append_turn`): a
+question that names a caller's number keeps the number, and so does the answer. A client
+account reaches this only after its owner turned Pip on,
+and the history window that answers the person's next question is read from these rows,
+so a masked copy would make "call that number back" unanswerable one turn later. The
+screen's own field values are still the wire form (`apps/web/src/lib/copilot/
+redaction.ts` substitutes placeholders the browser restores for display), so a turn
+re-read after a reload can show `«PHONE_1»` where the live one showed a screen's digits.
 
-⚠ **THE LIMIT OF THAT, STATED RATHER THAN LEFT TO BE DISCOVERED** — `copilot/memory.py`
-records the same one and it applies here identically. `redact()` recognises IDENTIFIERS,
-not PROPER NOUNS, so a staff member who types "what did Lakshmi's enquiry say" leaves a
-first name in a row. Three things reach it and none of them is a name match: the run
-clearing below (usually within hours), the `transcript` retention clock, and tenant
-offboarding, which DELETEs every row unconditionally.
+What reaches a stored number, every one of them a deletion: the run clearing below
+(usually within hours), "start again", the `transcript` retention clock, tenant
+offboarding (every row), and a caller's §12 erasure, which deletes any turn whose digits
+contain the number (`workers/retention._erase_copilot_turns`). A NAME is reached only by
+the first four; no digit-keyed arm can match one, and the published erasure limitations
+say so. Distilled memories are NOT stored this way (`memory.redacted_content`).
 
 ═══ THE LIFETIME ═══
 
@@ -61,8 +61,12 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.copilot.memory import redacted_content
-from apps.api.copilot.schemas import CopilotConversationOut, CopilotStoredTurnOut
+from apps.api.copilot.memory import redacted_content, stored_content
+from apps.api.copilot.schemas import (
+    CopilotConsentOut,
+    CopilotConversationOut,
+    CopilotStoredTurnOut,
+)
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.transition import _identifier
@@ -353,13 +357,13 @@ async def append_exchange(
     blob because a prompt reads it as one fact; a transcript is rendered as bubbles, and a
     panel that had to split a blob back into two would be parsing prose we wrote.
 
-    Each half is redacted INDEPENDENTLY, so one empty half does not take the other with
-    it: an answer that redacted down to nothing must still leave the question the person
-    asked on screen, or the panel shows a reply to a message that is not there.
+    Each half is stored INDEPENDENTLY, so one empty half does not take the other with it:
+    an empty answer must still leave the question the person asked on screen, or the panel
+    shows a reply to a message that is not there.
 
     It never raises and never refuses. The request has been answered and metered by the
     time this runs, and losing a turn is strictly better than turning a delivered answer
-    into a 500 — `redacted_content` is written to the same contract.
+    into a 500 — `stored_content` is written to the same contract.
     """
     written = 0
     halves: tuple[tuple[Literal["user", "assistant"], str], ...] = (
@@ -400,10 +404,12 @@ async def append_turn(
     run ends (D-782), each in its own transaction, so another device sees the question
     while Pip is still answering it. The id is the browser's when it sent one, which is what
     lets the device that asked recognise its own turns in the stored page instead of
-    counting them. Same contract as `append_exchange`: redacted, never raises on content,
-    and an empty redaction stores nothing.
+    counting them. Same contract as `append_exchange`: never raises on content, and an empty
+    turn stores nothing. A client turn is stored as said (D-788, the module docstring); an
+    operator's is redacted, because the admin table is platform-scoped, outside every
+    tenant's erasure, and registered as holding no caller's data.
     """
-    content = redacted_content(spoken)
+    content = stored_content(spoken) if realm is CLIENT else redacted_content(spoken)
     if not content:
         return False
     result = await session.execute(
@@ -459,9 +465,17 @@ def turn_cursor(before: str | None) -> UUID | None:
         return None
 
 
-def conversation_out(page: ConversationPage, *, answering: bool = False) -> CopilotConversationOut:
+def conversation_out(
+    page: ConversationPage,
+    *,
+    uploads_available: bool,
+    consent: CopilotConsentOut,
+    answering: bool = False,
+) -> CopilotConversationOut:
     return CopilotConversationOut(
         answering=answering,
+        uploads_available=uploads_available,
+        consent=consent,
         turns=[
             CopilotStoredTurnOut(
                 id=str(turn.id),

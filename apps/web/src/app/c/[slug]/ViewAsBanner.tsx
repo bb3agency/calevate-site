@@ -16,8 +16,7 @@ export function ViewAsBanner({ slug }: { slug: string }) {
     return (
       <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-warn px-4 py-1.5 text-center text-xs font-semibold text-white">
         <span>
-          Viewing as {me.data.organization?.name ?? slug}. Every page view is logged, and
-          anything you change here is recorded against you, not this account.
+          Viewing as {me.data.organization?.name ?? slug}.
         </span>
         {/* THE WAY OUT, and it belongs HERE rather than in the sidebar. There was none at
             all: an operator who had finished looking could only know to edit the URL, and

@@ -371,7 +371,7 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
 
           <Section
             title="Slowest calls"
-            description="By each call's slow reply. Opening one views it as the client, which is audited."
+            description="By each call's slow reply. Opening one views it as the client."
           >
             {report.worst_calls.length === 0 ? (
               <EmptyState align="start" message="No measured calls in this window" />

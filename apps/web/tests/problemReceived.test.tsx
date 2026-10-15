@@ -7,8 +7,8 @@ import { apiRequest, devSession } from "@/lib/api/client";
 import { noReply, problem, stubApi } from "./harness";
 
 /*
- * A refusal the server SENT speaks for itself; "No reply reached this page" is said only
- * when no reply did. The two were confused on the Voices page's Refresh: a 502 carrying an
+ * A refusal the server SENT speaks for itself; "We could not confirm that went through" is said only
+ * when no reply arrived. The two were confused on the Voices page's Refresh: a 502 carrying an
  * `engine_capability_absent` problem was reported to an operator as a lost reply, which
  * sent them to debug the network for a refusal the API had explained.
  */
@@ -41,7 +41,7 @@ describe("a problem response that arrived", () => {
     expect(alert.textContent).toContain("The voice platform cannot do that");
     expect(alert.textContent).toContain("The voice platform in use does not provide: tts.");
     expect(alert.textContent).toContain("Nothing needs fixing on this account.");
-    expect(alert.textContent).not.toMatch(/No reply reached this page/);
+    expect(alert.textContent).not.toMatch(/We could not confirm that went through/);
   });
 
   it("prints a title once when the problem carries no separate detail", async () => {
@@ -53,12 +53,15 @@ describe("a problem response that arrived", () => {
 });
 
 describe("a request that got no reply", () => {
-  it("says no reply reached the page, and that whether it was done is unknown", async () => {
+  it("says it could not confirm the write went through, and to check before retrying", async () => {
     stubApi({ [`POST ${PATH}`]: noReply() });
     render(<ProblemNotice error={await failure()} />);
 
     expect(screen.getByRole("alert").textContent).toContain(
-      "No reply reached this page, so we could not confirm whether that was done.",
+      "We could not confirm that went through.",
+    );
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Check whether it did before you try again.",
     );
   });
 });

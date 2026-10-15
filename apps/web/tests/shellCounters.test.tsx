@@ -158,9 +158,10 @@ describe("the client shell's attention bell", () => {
     });
 
     const link = await screen.findByLabelText(
-      "Needs attention: we could not read your queue",
+      "Needs attention: we couldn't check for new items. Open to try again.",
     );
-    expect(link.textContent).toContain("?");
+    expect(link.getAttribute("title")).toContain("couldn't check");
+    expect(link.querySelector("[data-testid=attention-unchecked]")).toBeTruthy();
   });
 
   it("counts what the server sent when the server answered", async () => {
@@ -265,7 +266,8 @@ describe("the client shell's live-calls pill", () => {
       [LIVE_CALLS_PATH]: problem(503, { title: "Service unavailable" }),
     });
     expect(
-      await screen.findByRole("link", { name: "Live calls: we could not check just now" }),
+      await screen.findByRole("link", { name: /^Live calls: couldn't check/ }),
     ).toBeTruthy();
+    expect(screen.getByText("couldn't check", { exact: false })).toBeTruthy();
   });
 });

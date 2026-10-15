@@ -253,9 +253,8 @@ export function RestatementForm({
               entry” above, which is bounded by what this entry put in.
             </p>
             <p className="mt-1 text-meta text-ink-muted">
-              Recorded in the audit log against your admin account with the reason you type
-              above, in the same transaction as the money. The confirmation the route
-              demands carries the exact total, so it cannot be reused for a different one.
+              The confirmation carries the exact total, so it cannot be reused for a different
+              one.
             </p>
           </div>
         </div>

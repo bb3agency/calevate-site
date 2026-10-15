@@ -368,7 +368,7 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
 
     await waitFor(() =>
       expect(container.textContent).toContain(
-        "No reply reached this page, so we could not confirm what happened. Check your connection and try again.",
+        "Try again in a moment. If it keeps happening, contact us.",
       ),
     );
     expect(container.textContent).not.toContain(

@@ -515,7 +515,7 @@ describe("the client detail screen", () => {
     expect(text).toContain("₹1.08");
   });
 
-  // The view-as link moved to the tenant layout's header (D-661); its "(logged), never
+  // The view-as link moved to the tenant layout's header (D-661); its "never
   // read-only" assertion moved with it, to adminTenantLayout.test.tsx.
 
   it("formats margin money without ever parsing it, and keeps 'not billed yet' out of 0%", async () => {

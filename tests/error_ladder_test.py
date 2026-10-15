@@ -203,7 +203,7 @@ async def test_the_routers_own_404_does_not_tell_the_caller_to_check_their_accou
     assert unknown_path.status_code == 404, unknown_path.text
     body = unknown_path.json()
     _assert_ladder(body, expect_status=404, where="router 404")
-    assert "URL" in body["remediation"], body
+    assert "address" in body["remediation"], body
 
 
 async def test_a_missing_row_is_a_404_with_the_row_shaped_remediation() -> None:

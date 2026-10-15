@@ -225,6 +225,42 @@ async def verify_kyc_and_pledge_for_tests(tenant_id: uuid.UUID) -> None:
             )
 
 
+async def turn_pip_on_for_tests(tenant_id: uuid.UUID) -> None:
+    """The account owner turning Pip on (D-788), through the production writer with the
+    current disclosure's version and hash, so it softens no gate:
+    `tests/pip_consent_test.py` proves the refusal by leaving it out. Idempotent."""
+    from apps.api.copilot.consent import (
+        DISCLOSURE_TEXT_SHA256,
+        DISCLOSURE_VERSION,
+        read_consent,
+        record_consent,
+    )
+    from apps.api.db.session import tenant_session
+
+    async with tenant_session(tenant_id) as session:
+        if (await read_consent(session, tenant_id=tenant_id)).unmasked:
+            return
+    user_id = await _owner_of(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await record_consent(
+            session,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            version=DISCLOSURE_VERSION,
+            text_sha256=DISCLOSURE_TEXT_SHA256,
+            ip=None,
+        )
+
+
+async def make_tenant_with_pip(role: str = "owner") -> tuple[uuid.UUID, str, str]:
+    """`tests.api_security_test._make_tenant`, with Pip turned on for the account."""
+    from tests.api_security_test import _make_tenant
+
+    made = await _make_tenant(role)
+    await turn_pip_on_for_tests(made[0])
+    return made
+
+
 #: A business profile complete enough for an agent to go live (D-695): open round the
 #: clock, one address, one service, one person to hand a caller to. Round-the-clock hours
 #: keep the after-hours flag and the handover rota out of the way of a test about

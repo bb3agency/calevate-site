@@ -58,6 +58,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.authn.models import AUTHN_REALMS
 from apps.api.core.logging import get_logger
@@ -133,11 +134,20 @@ async def load_subject(realm: str, subject_id: UUID) -> Subject | None:
     allowlist. The caller cannot tell which and must not need to — see the module
     docstring on `auth.service.ts:996`.
     """
-    _refuse_unknown_realm(realm)
     async with untenanted_session() as session:
-        row = (
-            await session.execute(text(_statement(realm, "id = :sid")), {"sid": subject_id})
-        ).first()
+        return await load_subject_in(session, realm, subject_id)
+
+
+async def load_subject_in(session: AsyncSession, realm: str, subject_id: UUID) -> Subject | None:
+    """`load_subject` on a session the caller already holds.
+
+    For the per-request principal read (`core/auth._load_client_principal`), which checks
+    liveness in the same transaction as the membership lookup rather than opening a
+    connection of its own for one indexed row. `users` carries no row policy, so any
+    session reads it alike.
+    """
+    _refuse_unknown_realm(realm)
+    row = (await session.execute(text(_statement(realm, "id = :sid")), {"sid": subject_id})).first()
     if row is None:
         # An id that resolves to nothing is either a stale token or a deleted account.
         # Logged because the OPERATOR wants to know a reset link outlived its account;
@@ -254,6 +264,7 @@ __all__ = [
     "Subject",
     "create_verified_client",
     "load_subject",
+    "load_subject_in",
     "mark_email_verified",
     "resolve_by_email",
 ]

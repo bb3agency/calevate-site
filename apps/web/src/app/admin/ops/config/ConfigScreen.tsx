@@ -144,7 +144,7 @@ function ConfigFrame({
     <div className="max-w-4xl space-y-8 pb-12">
       <div className="space-y-3">
         <p className="flex items-center gap-1 text-body text-ink-muted">
-          Changes are recorded in the audit log with your reason. Stored keys are never shown.
+          Each change needs a reason. Stored keys are never shown.
           <InfoTip label="Platform configuration">
             <p>
               These are the settings you can change without logging into the server, and the

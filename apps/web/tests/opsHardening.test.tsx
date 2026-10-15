@@ -272,6 +272,7 @@ const MODEL_PRICES: ModelPrices = {
       reference_output_usd_per_mtok: "0.60",
       reference_verified: true,
       withheld_reason: null,
+      off_call_only: false,
     },
   ],
   as_of: "2026-08-23T00:00:00Z",

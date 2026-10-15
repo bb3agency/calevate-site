@@ -802,6 +802,7 @@ LlmModelTrapName = Literal[
     "temperature-must-be-one",
     "max-tokens-becomes-max-completion-tokens",
     "thinking-tokens-share-the-reply-budget",
+    "temperature-keep-default",
 ]
 
 
@@ -854,6 +855,33 @@ TEMPERATURE_MUST_BE_ONE: Final = LlmModelTrap(
         ),
     ),
 )
+
+#: Gemini 3 accepts a temperature but Google warns against lowering it, so a caller of ours
+#: OMITS the field on these models and the default (1.0) applies (D-786).
+TEMPERATURE_KEEP_DEFAULT: Final = LlmModelTrap(
+    name="temperature-keep-default",
+    what_breaks=(
+        "a temperature below the default 1.0 'may lead to unexpected behavior, such as "
+        "looping or degraded performance'; send none and the default applies"
+    ),
+    evidence=Evidence(
+        source="ai.google.dev/gemini-api/docs/gemini-3 (page updated 2026-10-09 UTC)",
+        read_on=date(2026, 10, 15),
+        verified=True,
+        note=(
+            "VENDOR-PUBLISHED: 'For all Gemini 3 models, we strongly recommend keeping the "
+            "temperature parameter at its default value of 1.0.'"
+        ),
+    ),
+)
+
+
+def keeps_default_temperature(model: str) -> bool:
+    """Must a request on `model` leave `temperature` out? False for an id the catalogue
+    does not know (an Azure deployment id, a Sarvam model)."""
+    spec = LLM_MODELS.get(model)
+    return spec is not None and TEMPERATURE_KEEP_DEFAULT in spec.traps
+
 
 #: ON A GPT-5 MODEL THE TOKEN CAP CHANGES ITS NAME AND ITS MEANING.
 #:
@@ -1010,16 +1038,25 @@ OpenAIDirectModel = Literal["gpt-5.4-mini", "gpt-5.6-luna"]
 
 #: THE MODELS this platform may configure into a **Google (Gemini) direct** leg — the
 #: engine-documented **budget tier** across both live generations, two of them OFFERED and
-#: two of them PRESENT-BUT-REFUSED.
+#: three refused on calls and offered only to our own text legs.
 #:
 #: **WHY THE BUDGET TIER AND NOTHING ABOVE IT** — the same rule that shapes every Literal
 #: here, stated once at `LLM_MODELS`: ~90% of an in-call LLM bill is INPUT tokens, because
 #: TRD §6.1 resends the whole conversation every turn. `gemini-2.5-pro` ($1.25/$10.00) and
 #: `gemini-3.1-pro` ($2.00/$12.00) are on the engine's supported list and are deliberately
 #: ABSENT from this Literal: a flagship on a per-minute budget is not a premium option, it
-#: is a different product. `gemini-3.5-flash-lite` is absent for a different reason — it is
-#: in the engine's OSS thinking-level map but NOT on its published supported-model page, and
-#: this repository ships no identifier the vendor has not documented.
+#: is a different product.
+#:
+#: **THE 3.x ROWS SERVE THE IN-APP ASSISTANT, NOT CALLS (D-786).** Google lists
+#: `gemini-3.8-flash`, `gemini-3.5-flash-lite` and `gemini-3.1-flash-lite` as stable and tells
+#: new projects to use "3.5 Flash-Lite or 3.8 Flash", while access to the 2.5 models is
+#: limited "to users who have actively used them in the past"
+#: (ai.google.dev/gemini-api/docs/models, updated 2026-10-13). A text answer in a dashboard
+#: survives a thinking floor that a phone call does not, so these are `off_call_only`:
+#: refused on calls by the trap below, offered to our own text legs (Pip, photo reading and
+#: the dashboard assists). `gemini-3.5-flash` is gone: Google's
+#: deprecations page names `gemini-3.6-flash` as its replacement and the models page no
+#: longer lists it (both read 15 Oct 2026), so a request naming it 404s.
 #:
 #: **WHICH TWO ARE OFFERED, AND THE GROUND IS THE TRAP RATHER THAN THE CALENDAR.** D-456
 #: withheld this whole leg and gave two grounds; exactly one of them survives contact with
@@ -1038,7 +1075,7 @@ OpenAIDirectModel = Literal["gpt-5.4-mini", "gpt-5.6-luna"]
 #:   (ai.google.dev/gemini-api/docs/openai, updated 2026-09-02, read 27 Sep 2026). Without
 #:   it `gemini-2.5-flash` thinks dynamically by default
 #:   (ai.google.dev/gemini-api/docs/generate-content/thinking, updated 2026-09-25).
-#: * `gemini-3.1-flash-lite` and `gemini-3.5-flash` are **REFUSED**, and the ground is
+#: * every `gemini-3.*` is **REFUSED on calls**, and the ground is
 #:   correctness rather than price or residency. On `gemini-3.*` the engine sends
 #:   `thinking_level` instead, whose vendor enum has **no zero at all** — `MINIMAL` is the
 #:   floor (`types.py:364-376`) — the value is unreachable from any config key
@@ -1049,14 +1086,13 @@ OpenAIDirectModel = Literal["gpt-5.4-mini", "gpt-5.6-luna"]
 #:   `gemini_llm.py:461-465`, which logs and yields NOTHING, no retry and no filler — and on
 #:   a phone call that is dead air. See `docs/evidence/llm-multi-provider-2026-08.md` §C.2.
 #:
-#: **NEITHER SAFE MODEL HAS AN ANNOUNCED RETIREMENT.** Google's deprecations page (dated
-#: 13 Aug 2026) lists both GA identifiers with no shutdown date; the 16 Oct 2026 date that
-#: gets quoted at this leg belongs to dated PREVIEW snapshots this repository has never
-#: shipped. Google publishes shutdown dates as the EARLIEST possible retirement rather than
-#: a commitment, so "none announced" is the strongest state an identifier can be in and is
-#: not a guarantee. The successors being unsafe means there is no named migration target —
-#: `MODEL_LIFECYCLE[...].replacement` is `None` on both rather than pointing at a model
-#: nobody may run.
+#: **NEITHER SAFE MODEL HAS AN ANNOUNCED RETIREMENT, BUT A NEW PROJECT CANNOT CALL EITHER.**
+#: Google's deprecations page lists both GA identifiers with no shutdown date and says it is
+#: "limiting access to the 2.5 models to users who have actively used them in the past"
+#: (ai.google.dev/gemini-api/docs/deprecations, updated 2026-10-12, read 15 Oct 2026): not
+#: retired, but a Google project that never used 2.5 gets 404. The 3.x successors are unsafe
+#: on calls, so there is no named in-call migration target and
+#: `MODEL_LIFECYCLE[...].replacement` is `None` on both.
 #:
 #: The refusal above is what makes the alternative a CHECKED fact instead of a memory: a leg
 #: with no models is inert, and `check_model_residency` check 7 fails one no model names — a
@@ -1065,7 +1101,8 @@ GoogleDirectModel = Literal[
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
     "gemini-3.1-flash-lite",
-    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
 ]
 
 #: The three Literals as one set of VALUES — derived with `get_args`, never a fourth list
@@ -1150,26 +1187,38 @@ LlmTier = Literal["standard", "plus", "pro"]
 #: A literal spelled at the worker is a second source of truth that drifts the day the
 #: catalogue id changes, on a leg where a stale id is a silent 404.
 #:
-#: **`gemini-2.5-flash` AND NOT THE PLATFORM DEFAULT ABOVE**, which is the cheaper sibling
-#: and would be the reflex choice. Reading unfamiliar script off a photograph taken by hand
-#: in a shop is a perception task at the hard end of what a small model does; at Google's
-#: published rates a page is a fraction of a rupee on EITHER model, so the saving is
-#: rounding and the risk is a client's price list transcribed wrongly. When the cheaper leg
-#: buys nothing measurable, buy the accuracy.
+#: **`gemini-3.5-flash-lite` (D-786)**, the larger of the Flash-Lite models a new Google
+#: project can call: a project that never used 2.5 gets 404 on `gemini-2.5-flash`
+#: (ai.google.dev/gemini-api/docs/models, updated 2026-10-13). Same input price as the 2.5
+#: Flash it replaces, one rate for every input modality, $0.30/$2.50
+#: (ai.google.dev/gemini-api/docs/pricing, updated 2026-10-14). Reading unfamiliar script off
+#: a hand-held photograph is the hard end of what a small model does, so the cheaper
+#: 3.1 Flash-Lite is not taken for a saving that is rounding on a page. Refused on calls like
+#: every Gemini 3, so the gate is `unofferable_reason(..., off_call=True)`, and no
+#: temperature is sent (`TEMPERATURE_KEEP_DEFAULT`).
 #:
 #: It is not a `Settings` knob: a per-deployment OCR model is a variable nobody would tune
 #: and one more thing that could differ between two installations debugging the same
 #: complaint. It is offerability-gated instead (`document_ocr.ocr_leg`), which is the live
 #: half — and the same Google key and attested price the default above waits on.
-DOCUMENT_OCR_MODEL: Final[LlmModelName] = "gemini-2.5-flash"
+DOCUMENT_OCR_MODEL: Final[LlmModelName] = "gemini-3.5-flash-lite"
 
 #: The in-app assistant's default models by task (D-694): the fast one answers and looks
 #: things up, the planning one takes multi-step requests. Live settings default to these.
-COPILOT_FAST_MODEL_DEFAULT: Final[GoogleDirectModel] = "gemini-2.5-flash-lite"
-COPILOT_PLANNING_MODEL_DEFAULT: Final[GoogleDirectModel] = "gemini-2.5-flash"
+#:
+#: Both are models a NEW Google project can call (D-786; a project that never used 2.5 gets
+#: 404 on it, ai.google.dev/gemini-api/docs/models, updated 2026-10-13). Fast is
+#: `gemini-3.1-flash-lite`, the cheapest of those at $0.25/$1.50 per 1M tokens; planning is
+#: `gemini-3.5-flash-lite`, Google's recommended Flash-Lite at $0.30/$2.50, the price the 2.5
+#: Flash planning tier paid, where `gemini-3.8-flash` is $0.75/$3.75 and doubles on 1 Jan 2027
+#: (ai.google.dev/gemini-api/docs/pricing, updated 2026-10-14). Founder's choice, 15 Oct 2026.
+COPILOT_FAST_MODEL_DEFAULT: Final[GoogleDirectModel] = "gemini-3.1-flash-lite"
+COPILOT_PLANNING_MODEL_DEFAULT: Final[GoogleDirectModel] = "gemini-3.5-flash-lite"
 
 #: The model our own Google key runs on ThinnestAI when an agent names none (D-764): one that
-#: can switch thinking off, which no Gemini 3 model can.
+#: can switch thinking off, which no Gemini 3 model can. ⚠ Google limits 2.5 to projects that
+#: used it before (D-786), so on a new project this default 404s; it stays until the founder
+#: decides the in-call model, and `thinnest_own_model` is off.
 THINNEST_OWN_MODEL_DEFAULT: Final[GoogleDirectModel] = "gemini-2.5-flash-lite"
 
 
@@ -1268,8 +1317,18 @@ class LlmModelSpec:
     selectable: bool
     #: Why not — REQUIRED when `selectable` is False, refused when it is True.
     withdrawn_reason: str | None
+    #: Refused on calls but permitted on our own text legs off calls (Pip, photo reading, the
+    #: dashboard assists), whose answer is text in
+    #: a dashboard: a thinking floor costs it latency and output tokens, not dead air
+    #: (D-786). Only meaningful on a model that is not `selectable`, which already serves both.
+    off_call_only: bool = False
 
     def __post_init__(self) -> None:
+        if self.off_call_only and self.selectable:
+            raise ValueError(
+                f"{self.model!r} is selectable and off_call_only. A selectable model already "
+                "serves the assistant; the flag would hide which of the two decisions holds."
+            )
         if self.selectable and self.withdrawn_reason is not None:
             raise ValueError(
                 f"{self.model!r} is selectable and also carries a withdrawn_reason. One of "
@@ -1379,6 +1438,18 @@ _GOOGLE_PRICE_EVIDENCE: Final = Evidence(
         "level is a money problem as well as a silence problem; and AUDIO input is metered "
         "separately and dearer on every row. Our leg sends TEXT (Sarvam does the STT), so the "
         "text row is the right one and a future speech-to-speech path must re-read this."
+    ),
+)
+
+_GOOGLE_PRICE_EVIDENCE_2026_10: Final = Evidence(
+    source="ai.google.dev/gemini-api/docs/pricing (page updated 2026-10-14 UTC)",
+    read_on=date(2026, 10, 15),
+    verified=False,
+    note=(
+        "VENDOR-PUBLISHED, paid tier, standard (not batch or flex), text input; output "
+        "includes thinking tokens. NOT `verified=True` so the figure cannot reach "
+        "unit_cost_paid without an operator attestation: the 3.6/3.8 Flash rows double on "
+        "1 Jan 2027 ($1.50/$7.50), a step a constant would miss."
     ),
 )
 
@@ -1510,7 +1581,7 @@ LLM_MODELS: Final[dict[str, LlmModelSpec]] = {
             output_usd_per_mtok=Decimal("1.50"),
             evidence=_GOOGLE_PRICE_EVIDENCE,
         ),
-        traps=(THINKING_TOKENS_SHARE_THE_REPLY_BUDGET,),
+        traps=(THINKING_TOKENS_SHARE_THE_REPLY_BUDGET, TEMPERATURE_KEEP_DEFAULT),
         selectable=False,
         withdrawn_reason=(
             "THINKING_TOKENS_SHARE_THE_REPLY_BUDGET is UNMITIGABLE on this family and the "
@@ -1528,26 +1599,46 @@ LLM_MODELS: Final[dict[str, LlmModelSpec]] = {
             "the vendor shipping a zero on thinking_level or the engine exposing the knob — "
             "neither is ours. docs/evidence/llm-multi-provider-2026-08.md §C.2."
         ),
+        off_call_only=True,
     ),
-    "gemini-3.5-flash": LlmModelSpec(
-        model="gemini-3.5-flash",
+    "gemini-3.5-flash-lite": LlmModelSpec(
+        model="gemini-3.5-flash-lite",
         provider="google",
         price=LlmPrice(
-            input_usd_per_mtok=Decimal("1.50"),
-            output_usd_per_mtok=Decimal("9.00"),
-            evidence=_GOOGLE_PRICE_EVIDENCE,
+            input_usd_per_mtok=Decimal("0.30"),
+            output_usd_per_mtok=Decimal("2.50"),
+            evidence=_GOOGLE_PRICE_EVIDENCE_2026_10,
         ),
-        traps=(THINKING_TOKENS_SHARE_THE_REPLY_BUDGET,),
+        traps=(THINKING_TOKENS_SHARE_THE_REPLY_BUDGET, TEMPERATURE_KEEP_DEFAULT),
         selectable=False,
         withdrawn_reason=(
-            "refused twice over, and either ground alone would do it. Same unmitigable "
-            "thinking-level trap as gemini-3.1-flash-lite — see that entry for the four "
-            "primary sources — AND it is out of the per-minute cost tier this product can "
-            "carry: $1.50/$9.00 is 10x the shipped default on input and 15x on output, on a "
-            "leg where ~90% of the bill is input because TRD §6.1 resends the whole "
-            "conversation every turn. The engine calls it the 'latest generation'; on a "
-            "voice bill that is a flagship wearing a flash name."
+            "Refused on calls for gemini-3.1-flash-lite's reason: thinking cannot be switched "
+            "off on Gemini 3 ('Reasoning cannot be turned off for Gemini 2.5 Pro or 3 "
+            "models', ai.google.dev/gemini-api/docs/openai, updated 2026-10-14), and on a "
+            "call a turn spent thinking is dead air. Its floor is 'minimal' "
+            "(ai.google.dev/gemini-api/docs/thinking, updated 2026-10-14). Offered to the "
+            "assistant (D-786)."
         ),
+        off_call_only=True,
+    ),
+    "gemini-3.8-flash": LlmModelSpec(
+        model="gemini-3.8-flash",
+        provider="google",
+        price=LlmPrice(
+            input_usd_per_mtok=Decimal("0.75"),
+            output_usd_per_mtok=Decimal("3.75"),
+            evidence=_GOOGLE_PRICE_EVIDENCE_2026_10,
+        ),
+        traps=(THINKING_TOKENS_SHARE_THE_REPLY_BUDGET, TEMPERATURE_KEEP_DEFAULT),
+        selectable=False,
+        withdrawn_reason=(
+            "Refused on calls twice over: thinking cannot be switched off on Gemini 3 and "
+            "this model's lowest level is 'low', not 'minimal' "
+            "(ai.google.dev/gemini-api/docs/thinking, updated 2026-10-14); and at "
+            "$0.75/$3.75, doubling to $1.50/$7.50 on 1 Jan 2027, it is out of the per-minute "
+            "tier a voice bill carries. Offered to the assistant (D-786)."
+        ),
+        off_call_only=True,
     ),
 }
 
@@ -1568,6 +1659,13 @@ LLM_MODELS: Final[dict[str, LlmModelSpec]] = {
 #: constant alone would offer a model with no key behind it.
 SELECTABLE_LLM_MODELS: Final[frozenset[str]] = frozenset(
     name for name, spec in LLM_MODELS.items() if spec.selectable
+)
+
+#: What our own text legs off calls may run on merit: every selectable model plus the
+#: `off_call_only` ones (D-786). Condition (1) of `agents/llm_models.off_call_offerable_
+#: models()`, whose other two conditions (a key, a billable price) are the same as for calls.
+OFF_CALL_LLM_MODELS: Final[frozenset[str]] = frozenset(
+    name for name, spec in LLM_MODELS.items() if spec.selectable or spec.off_call_only
 )
 
 #: Gemini identifiers no shipped module may name. `tests/sarvam_model_identifier_test.py`
@@ -1591,6 +1689,8 @@ GEMINI_RETIRED_LLMS: Final = frozenset(
         "gemini-2.0-flash",
         "gemini-2.0-flash-lite",
         "gemini-2.5-pro",
+        # Withdrawn by Google, replaced by gemini-3.6-flash (D-786); a request naming it 404s.
+        "gemini-3.5-flash",
     }
 )
 

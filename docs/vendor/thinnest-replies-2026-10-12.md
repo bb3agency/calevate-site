@@ -563,6 +563,19 @@ runs" (`api-reference/agents/create-agent.md:1364-1368`, snapshot 2026-10-13).
 >     the steps, the per-call variables and the caller memory? Is the part that is the same on
 >     every call sent first, so it can be cached, and what does `cachedInputTokens` count?
 >
+> **Placing calls** (added 15 Oct 2026, after our free-trial test calls were refused)
+> 14. What exactly makes an agent one that "answers the phone" for Place Call (`409
+>     calling_not_set_up`, `404 agent_not_found`)? Is it `answersCalls: true` with `phone` in
+>     `voice.surfaces`? Our trial agents have no number of their own: one shared number's line
+>     is an agent with Answer calls off, and each test call lends the number to the trial
+>     agent as `callingAgent`. After we sent `surfaces: []` to agents without a number, every
+>     test call got `calling_not_set_up`. We now set `surfaces: ["phone"]` on the agent right
+>     after lending it the number. Is that the intended way, and does a lent number count as a
+>     number "to call from" for `phone_number_required`?
+> 15. Does lending a number (`callingAgent`) add `phone` to the borrowing agent's surfaces by
+>     itself, and does it stay when the number is lent to another agent? Can an agent with
+>     `phone` but no number of its own ever answer an inbound call?
+>
 > Thanks,
 > Umesh
 

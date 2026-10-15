@@ -69,9 +69,7 @@ describe("the operator console under an MFA refusal", () => {
     // REPLACES rather than sits above. If the shell rendered underneath, every panel on
     // it would answer its own 403 and the page would be a list of failures.
     expect(container.textContent).not.toContain("console body");
-    expect(container.textContent).not.toContain(
-      "Cross-client · every action is audited",
-    );
+    expect(container.querySelector('[aria-label="Open navigation"]')).toBeNull();
   });
 
   it("prints the API's own remediation rather than a sentence of its own", async () => {

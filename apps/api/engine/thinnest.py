@@ -828,6 +828,9 @@ def _dial_refusal(exc: EngineRejectedError) -> ProblemError:
     on its sentence (errors.md:18-37). A code we do not know keeps the status's generic
     meaning, which is the ladder's own reading of it."""
     code = exc.vendor_code
+    setup = code in _DIAL_SETUP_CODES or (
+        code == "carrier_unavailable" and exc.vendor_status == 502
+    )
     if code == IDEMPOTENCY_IN_PROGRESS_CODE:
         # The first request with this key is still being processed (errors.md:164) and may
         # yet place the call, so this 409 proves nothing was placed: the dial is unconfirmed.
@@ -857,7 +860,7 @@ def _dial_refusal(exc: EngineRejectedError) -> ProblemError:
             detail=f"ThinnestAI refused a dial because the workspace balance cannot pay for "
             f"a call{reason}; no call is placed until it is topped up",
         )
-    elif code in _DIAL_SETUP_CODES or (code == "carrier_unavailable" and exc.vendor_status == 502):
+    elif setup:
         alert(
             "CORE_LOGIC",
             "engine_dial_setup_refused",
@@ -865,15 +868,17 @@ def _dial_refusal(exc: EngineRejectedError) -> ProblemError:
             "phone provider is not set up to place this call, so every such dial fails "
             "until it is fixed",
         )
+    refusal = exc
     if code in _DIAL_NOT_PLACED_CODES and not exc.request_refused:
-        return EngineRejectedError(
+        refusal = EngineRejectedError(
             status=exc.vendor_status,
             vendor_error=exc.vendor_error,
             refused_statuses=frozenset({exc.vendor_status}),
             vendor_code=code,
             vendor_reason=exc.vendor_reason,
         )
-    return exc
+    refusal.setup_refused = setup
+    return refusal
 
 
 def _clone_refusal(exc: EngineRejectedError) -> ProblemError:
@@ -1205,7 +1210,7 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
             elif key == "maxReplyTokens":
                 same = _same_whole_number(want, have)
             elif key == "voice.surfaces":
-                same = _same_words(want, have, ordered=False)
+                same = _same_surfaces(want, have)
             elif key in ("voice.thinkingLines", "voice.endPhrases"):
                 same = _same_words(want, have, ordered=True)
             elif key == "voice.nudgePhrase":
@@ -1263,6 +1268,17 @@ def _same_words(wanted: list[str], held: Any, *, ordered: bool) -> bool:
     have = [item.strip() for item in held]
     want = [item.strip() for item in wanted]
     return have == want if ordered else sorted(set(have)) == sorted(set(want))
+
+
+def _same_surfaces(wanted: list[str], held: Any) -> bool:
+    """`voice.surfaces` read back as the places we sent. A `phone` we did not send is not
+    drift: the platform holds it only while the agent has a number to answer or call from
+    (update-agent `voice.surfaces`), and an agent lent the shared trial number for a test
+    call gets it at the dial (`call_out_on_phone`). Repairing it away would leave that agent
+    unable to place its next call; F1 is about the website button and WhatsApp."""
+    if isinstance(held, list) and "phone" not in wanted:
+        held = [item for item in held if item != "phone"]
+    return _same_words(wanted, held, ordered=False)
 
 
 def _same_hundredths(wanted: Any, held: Any) -> bool:
@@ -2018,6 +2034,37 @@ class ThinnestEngine:
             workspace=None,
             json={"voice": {"answersCalls": on}},
         )
+
+    async def call_out_on_phone(self, ref: str) -> None:
+        """Give an agent that has just been lent a number the `phone` surface, so the
+        platform counts it as an agent that "answers the phone" and lets it place a call.
+
+        `POST /calls` refuses with 409 `calling_not_set_up` ("No agent in this workspace
+        answers the phone") or 404 `agent_not_found` when the agent it names does not
+        (calls/place-call, docs.thinnest.ai read 15 Oct 2026). An agent with no number of its
+        own is published with `surfaces: []` (F1), and the platform accepts `phone` only once
+        it has "a number to answer or call from" (agents/update-agent `voice.surfaces`, same
+        day), so this runs after the lend. It answers nothing inbound: the number's line is
+        another agent, and the lent agent "calls out on it without answering it"
+        (phone-numbers/update-phone-number `callingAgent`)."""
+        raw, workspace = self._at(ref)
+        row = await self._request(
+            "PATCH",
+            f"/agents/{raw}",
+            route="/agents/{ref}",
+            workspace=workspace,
+            json={"voice": {"surfaces": ["phone"]}},
+        )
+        voice = row.get("voice")
+        surfaces = voice.get("surfaces") if isinstance(voice, dict) else None
+        if not isinstance(surfaces, list) or "phone" not in surfaces:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_agent_phone_not_held",
+                title="The agent could not be set to place phone calls",
+                detail="The voice platform did not keep the phone line on the calling agent.",
+                remediation="Try again; if it repeats, check the agent in the platform console.",
+            )
 
     # --- the forwarding verification call (D-746) --------------------------------------
 

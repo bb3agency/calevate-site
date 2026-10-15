@@ -290,6 +290,10 @@ class ModelPriceOut(BaseModel):
     #: usually the more useful fact (dead air mid-call, a 10x cost tier, a vendor page
     #: nobody has read). `LlmModelSpec.withdrawn_reason`.
     withheld_reason: str | None
+    #: Withheld from calls (`withheld_reason` says why) but used by Pip, photo reading and the
+    #: dashboard assists once
+    #: its key and price are in place (D-786), so for these rows the price form matters.
+    off_call_only: bool
     #: The attested figures, USD per million tokens, as strings. `null` until attested.
     input_usd_per_mtok: str | None
     output_usd_per_mtok: str | None
@@ -716,6 +720,7 @@ def _row(
         price_attested=offer.price_attested,
         offerable=offer.offerable,
         withheld_reason=offer.withheld_reason,
+        off_call_only=offer.off_call_only,
         input_usd_per_mtok=str(attested.input_usd_per_mtok) if attested else None,
         output_usd_per_mtok=str(attested.output_usd_per_mtok) if attested else None,
         effective_from=attested.effective_from.isoformat() if attested else None,

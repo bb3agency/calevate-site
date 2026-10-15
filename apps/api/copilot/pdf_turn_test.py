@@ -16,7 +16,11 @@ from typing import Any
 
 import httpx
 import pytest
-from calevate_shared.engine import google_native_base_url, google_openai_compat_base_url
+from calevate_shared.engine import (
+    PLATFORM_DEFAULT_LLM_MODEL,
+    google_native_base_url,
+    google_openai_compat_base_url,
+)
 
 from apps.api.copilot import attachments, service
 from apps.api.copilot.schemas import CopilotAskIn
@@ -25,7 +29,7 @@ from apps.api.core.settings import get_settings
 from apps.workers import chat, gemini_native
 from apps.workers.extraction import AssistCapability, TenantModelLeg
 
-MODEL = "gemini-2.5-flash-lite"
+MODEL = PLATFORM_DEFAULT_LLM_MODEL
 PDF_B64 = "JVBERi0xLjcKJeLjz9M="  # "%PDF-1.7\n%..."
 
 

@@ -242,6 +242,11 @@ class ModelLifecycle:
     offered_in_region: frozenset[DeploymentType]
     retirement: Evidence
     availability: Evidence
+    #: A vendor limit on WHO may call a model that is not retired, in one sentence with its
+    #: source, or None when none is published. Separate from the stance because Google's
+    #: 2.5 limit (prior users only, D-786) is neither a shutdown nor its absence: an old
+    #: project keeps working and a new one gets 404.
+    access_restriction: str | None = None
 
     @property
     def deployment_types_apply(self) -> bool:
@@ -318,6 +323,21 @@ _FOUNDER_READ_ON: Final = date(2026, 8, 23)
 #: so a reader meets the URLs, the page dates and the corrections in one place.
 _FOUNDER: Final = (
     "docs/evidence/llm-multi-provider-2026-08.md ADDENDUM (VENDOR-PUBLISHED, founder-relayed)"
+)
+
+#: Google's models and deprecations pages, read 15 Oct 2026 (D-786).
+_GOOGLE_READ_ON: Final = date(2026, 10, 15)
+_GOOGLE_DEPRECATIONS: Final = (
+    "ai.google.dev/gemini-api/docs/deprecations (page updated 2026-10-12 UTC)"
+)
+
+#: VENDOR-PUBLISHED, on both the models page (updated 2026-10-13) and the deprecations page
+#: (updated 2026-10-12), read 15 Oct 2026.
+_GOOGLE_25_PRIOR_USERS_ONLY: Final = (
+    "Google is 'limiting access to the 2.5 models to users who have actively used them in "
+    "the past' and tells new projects to use '3.5 Flash-Lite or 3.8 Flash' "
+    "(ai.google.dev/gemini-api/docs/models, updated 2026-10-13, read 2026-10-15): a Google "
+    "project that never called 2.5 gets 404 on it."
 )
 
 #: THE CATALOGUE'S LIFECYCLE, keyed by the same identifiers as `LLM_MODEL_NAMES` — every
@@ -530,7 +550,8 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
         version="2.5 GA",
         retires_on=None,
         retirement_stance="none-announced",
-        stage="GA",
+        stage="GA, restricted to prior users",
+        access_restriction=_GOOGLE_25_PRIOR_USERS_ONLY,
         # NO REPLACEMENT IS NAMED, because there is no successor anything could be
         # configured onto: every `gemini-3.*` model is refused in `LLM_MODELS` on the
         # vendor's own "do not support full thinking-off", and `gemini-3.6-flash` — the
@@ -540,12 +561,13 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
         replacement=None,
         offered_in_region=frozenset(),
         retirement=Evidence(
-            source="ai.google.dev/gemini-api/docs/deprecations (page dated 2026-08-13 UTC)",
-            read_on=_FOUNDER_READ_ON,
+            source="ai.google.dev/gemini-api/docs/deprecations (page updated 2026-10-12 UTC)",
+            read_on=_GOOGLE_READ_ON,
             verified=True,
             note=(
-                "VENDOR-PUBLISHED, founder-relayed (2026-08-23): Google's own deprecations "
-                "page lists the GA identifier with NO shutdown date. ⚠ IT SUPERSEDES A WRONG "
+                "VENDOR-PUBLISHED: Google's own deprecations page lists the GA identifier "
+                "with NO shutdown date, 'not deprecated' and served 'until further notice' "
+                "(read 2026-10-15; first founder-relayed 2026-08-23). ⚠ IT SUPERSEDES A WRONG "
                 "DATE THAT WAS IN THIS FILE — 2026-10-16, REPORTED from search summaries, "
                 "which conflated the GA id with dated preview snapshots "
                 "(`gemini-2.5-flash-preview-05-20` shut 2025-11-18, "
@@ -580,16 +602,18 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
         version="2.5 GA",
         retires_on=None,
         retirement_stance="none-announced",
-        stage="GA",
+        stage="GA, restricted to prior users",
+        access_restriction=_GOOGLE_25_PRIOR_USERS_ONLY,
         replacement=None,
         offered_in_region=frozenset(),
         retirement=Evidence(
-            source="ai.google.dev/gemini-api/docs/deprecations (page dated 2026-08-13 UTC)",
-            read_on=_FOUNDER_READ_ON,
+            source="ai.google.dev/gemini-api/docs/deprecations (page updated 2026-10-12 UTC)",
+            read_on=_GOOGLE_READ_ON,
             verified=True,
             note=(
-                "VENDOR-PUBLISHED, founder-relayed (2026-08-23): listed GA with no shutdown "
-                "date. ⚠ THE ROW IT REPLACES WAS THE WEAKEST IN THE FILE AND SAID SO — its "
+                "VENDOR-PUBLISHED: listed GA with no shutdown date, 'not deprecated' (read "
+                "2026-10-15; first founder-relayed 2026-08-23). ⚠ THE ROW IT REPLACES WAS "
+                "THE WEAKEST IN THE FILE AND SAID SO — its "
                 "2026-10-16 was not even a reading of this identifier, it was an INFERENCE "
                 "from the '2.5 wave'. Both the inference and the date it inferred from were "
                 "wrong. That an entry which honestly labelled itself an inference still "
@@ -612,64 +636,82 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
             ),
         ),
     ),
-    # The two 3.x rows exist so the refusal is a dated, checked record rather than a memory,
-    # and so `check_model_residency` check 7 keeps seeing a leg its models name. Neither is
-    # selectable, so an `unread` stance is legitimate here and costs nothing.
+    # The 3.x rows: refused on calls (thinking cannot be switched off), offered to the in-app
+    # assistant (D-786). Dates and replacements are Google's deprecations page, read
+    # 15 Oct 2026; Google publishes a shutdown date as the EARLIEST possible retirement.
     "gemini-3.1-flash-lite": ModelLifecycle(
         model="gemini-3.1-flash-lite",
         provider="google",
         version="3.1",
-        retires_on=None,
-        retirement_stance="unread",
-        stage="unread",
-        replacement=None,
+        retires_on=date(2027, 5, 7),
+        retirement_stance="dated",
+        stage="Stable",
+        replacement="gemini-3.5-flash-lite",
         offered_in_region=frozenset(),
         retirement=Evidence(
-            source="ai.google.dev/gemini-api/docs/deprecations (NOT READ for this identifier)",
-            read_on=_FOUNDER_READ_ON,
-            verified=False,
+            source=_GOOGLE_DEPRECATIONS,
+            read_on=_GOOGLE_READ_ON,
+            verified=True,
             note=(
-                "UNKNOWN, and deliberately left so. The founder's reading covered the two GA "
-                "2.5 identifiers; nobody has read this one, and a tracker figure would be the "
-                "class of evidence that produced the 2026-10-16 error two rows up. It does "
-                "not matter yet: this model is refused on a correctness ground the vendor "
-                "states in its own words, so a date would not make it choosable."
+                "VENDOR-PUBLISHED: released 2026-05-07, shutdown 2027-05-07, replacement "
+                "gemini-3.5-flash-lite. The assistant's fast default (D-786), so this is "
+                "the date that model setting has to move by."
             ),
         ),
         availability=Evidence(
-            source="bolna-findings/mirror/pages/providers/llm-model/gemini.md:37",
-            read_on=_READ_ON,
+            source="ai.google.dev/gemini-api/docs/models (page updated 2026-10-13 UTC)",
+            read_on=_GOOGLE_READ_ON,
             verified=True,
-            note=(
-                "VERIFIED-VENDOR-DOCS: on the engine's supported list, 'Budget, high-volume "
-                "agents; fastest in Gemini 3 family'. The engine WILL accept the identifier — "
-                "which is exactly why it needs a withdrawn_reason rather than an omission."
-            ),
+            note="VENDOR-PUBLISHED: listed Stable.",
         ),
     ),
-    "gemini-3.5-flash": ModelLifecycle(
-        model="gemini-3.5-flash",
+    "gemini-3.5-flash-lite": ModelLifecycle(
+        model="gemini-3.5-flash-lite",
         provider="google",
         version="3.5",
         retires_on=None,
-        retirement_stance="unread",
-        stage="unread",
+        retirement_stance="none-announced",
+        stage="Stable",
         replacement=None,
         offered_in_region=frozenset(),
         retirement=Evidence(
-            source="ai.google.dev/gemini-api/docs/deprecations (NOT READ for this identifier)",
-            read_on=_FOUNDER_READ_ON,
-            verified=False,
-            note="UNKNOWN, same as gemini-3.1-flash-lite and for the same reason.",
+            source=_GOOGLE_DEPRECATIONS,
+            read_on=_GOOGLE_READ_ON,
+            verified=True,
+            note="VENDOR-PUBLISHED: released 2026-07-21, no shutdown date announced.",
         ),
         availability=Evidence(
-            source="bolna-findings/mirror/pages/providers/llm-model/gemini.md:35",
-            read_on=_READ_ON,
+            source="ai.google.dev/gemini-api/docs/models (page updated 2026-10-13 UTC)",
+            read_on=_GOOGLE_READ_ON,
             verified=True,
             note=(
-                "VERIFIED-VENDOR-DOCS: on the engine's supported list, 'Latest generation; "
-                "stable'. Refused on TWO grounds rather than one — the unmitigable thinking "
-                "level and a $1.50/$9.00 price that is 10x the shipped default on input."
+                "VENDOR-PUBLISHED: listed Stable, and one of the two models Google names for "
+                "new projects."
+            ),
+        ),
+    ),
+    "gemini-3.8-flash": ModelLifecycle(
+        model="gemini-3.8-flash",
+        provider="google",
+        version="3.8",
+        retires_on=None,
+        retirement_stance="none-announced",
+        stage="Stable",
+        replacement=None,
+        offered_in_region=frozenset(),
+        retirement=Evidence(
+            source=_GOOGLE_DEPRECATIONS,
+            read_on=_GOOGLE_READ_ON,
+            verified=True,
+            note="VENDOR-PUBLISHED: released 2026-09-02, no shutdown date announced.",
+        ),
+        availability=Evidence(
+            source="ai.google.dev/gemini-api/docs/models (page updated 2026-10-13 UTC)",
+            read_on=_GOOGLE_READ_ON,
+            verified=True,
+            note=(
+                "VENDOR-PUBLISHED: listed Stable, and one of the two models Google names for "
+                "new projects."
             ),
         ),
     ),

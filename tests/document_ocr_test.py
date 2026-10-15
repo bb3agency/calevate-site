@@ -42,7 +42,7 @@ from calevate_shared.document_ingest import (
     OcrUnavailableError,
     OcrUnusableError,
 )
-from calevate_shared.engine import DOCUMENT_OCR_MODEL
+from calevate_shared.engine import DOCUMENT_OCR_MODEL, keeps_default_temperature
 
 _JPEG = b"\xff\xd8\xff\xe0 pretend this is a photograph of a menu"
 
@@ -88,7 +88,7 @@ def _offerable(monkeypatch: pytest.MonkeyPatch) -> None:
     The data-use one is third and is the one a reader is most likely to think belongs to
     another surface: it is the gate on a client's own content reaching a vendor at all, and
     a photographed price list is content of exactly that kind."""
-    monkeypatch.setattr(document_ocr, "unofferable_reason", lambda _model: None)
+    monkeypatch.setattr(document_ocr, "unofferable_reason", lambda _model, **_kw: None)
     monkeypatch.setattr(document_ocr, "client_content_data_use_reason", lambda _provider: None)
     monkeypatch.setattr(get_settings(), "gemini_api_key", "gk-test", raising=False)
 
@@ -114,7 +114,7 @@ def test_no_ocr_until_somebody_has_attested_what_this_vendor_does_with_it(
         lambda _provider: "nobody has attested this vendor's data-use position",
     )
     monkeypatch.setattr(
-        document_ocr, "unofferable_reason", lambda _model: "no attested price on file"
+        document_ocr, "unofferable_reason", lambda _model, **_kw: "no attested price on file"
     )
     with pytest.raises(OcrUnavailableError) as refusal:
         document_ocr.ocr_leg()
@@ -298,8 +298,10 @@ async def test_the_image_travels_as_a_data_uri_beside_the_transcription_prompt()
         await ocr_images([_image()], client=client)
     body = json.loads(seen[0].content)
     assert body["model"] == DOCUMENT_OCR_MODEL
-    # One right answer on the page: this is transcription, not composition.
-    assert body["temperature"] == 0
+    # Gemini 3 (D-786): Google warns a temperature below the default 1.0 can loop, so none
+    # is sent and the default applies.
+    assert "temperature" not in body
+    assert keeps_default_temperature(DOCUMENT_OCR_MODEL)
     parts = body["messages"][0]["content"]
     assert parts[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
     assert "do not translate" in parts[0]["text"]
@@ -389,7 +391,7 @@ def test_no_ocr_without_an_offerable_model_because_that_is_where_hard_rule_7_liv
     without the attestation would deliver work it cannot bill — an UNMETERED cost, not a
     free one. Refusing at the leg is the only place that failure is free."""
     monkeypatch.setattr(
-        document_ocr, "unofferable_reason", lambda _model: "no attested price on file"
+        document_ocr, "unofferable_reason", lambda _model, **_kw: "no attested price on file"
     )
     with pytest.raises(OcrUnavailableError) as refusal:
         ocr_leg()

@@ -91,31 +91,28 @@ _RETRYABLE: frozenset[ErrorKind] = frozenset({"dependency", "transient"})
 # to a client who cannot be told to "check the identifier" — and an explicit
 # `remediation=` still wins, so every sentence already written stays exactly as written.
 #
-# Each line is what the READER can do, never what we would do: "give our team the support
-# reference" is an action a person can take, "the team has been alerted" is not. The
-# reference is called that, and not the trace id, because that is what the console labels
-# it and a person quoting it should not have to translate.
+# Each line is what the READER can do, never what we would do: "contact us" is an action a
+# person can take, "the team has been alerted" is not. The trace id is not part of the
+# instruction: the console prints it on its own quiet "Error code" line for support, so the
+# sentence stays about the person and not about our logs.
 _DEFAULT_REMEDIATION: dict[ErrorKind, str] = {
     "validation": "Fix what is listed here, then try again.",
-    "auth": "Sign in again — your session may have ended, or this account cannot be used here.",
+    "auth": "Sign in again. Your session may have ended, or this account cannot be used here.",
     "permission": (
         "Ask an owner of the account to give you access, or do this from an account that "
         "already has it."
     ),
     "not_found": "Check what you are looking for, and that you are in the right account.",
-    "conflict": "Reload the page — something changed since you opened it — then try again.",
+    "conflict": "Something changed since you opened this. Reload the page, then try again.",
     "business_rule": (
         "Change what you are doing so it fits the rule described here, then try again."
     ),
     "dependency": (
-        "A service we rely on could not complete this. Wait a minute and try again. If it keeps "
-        "happening, give our team the support reference shown with this message."
+        "We could not finish this just now. Wait a minute and try again. If it keeps "
+        "happening, contact us."
     ),
     "transient": "Wait a few seconds, then try again.",
-    "internal": (
-        "Try again in a moment. If it keeps happening, give our team the support reference "
-        "shown with this message."
-    ),
+    "internal": "Try again in a moment. If it keeps happening, contact us.",
 }
 
 
@@ -666,10 +663,7 @@ def install_error_handlers(app: FastAPI) -> None:
         # you are in the right account", and a 405 lands on `business_rule`'s "change what
         # you are doing" when the thing to change is how the caller is calling.
         by_status_remediation: dict[int, str] = {
-            404: (
-                "Check the URL. If you got here from inside Calevate, give our team the "
-                "support reference shown with this message."
-            ),
+            404: "Check the address. If a link inside Calevate brought you here, contact us.",
             405: "Use the method this address accepts — /docs lists them.",
         }
         # STARLETTE'S OWN TITLES ARE NOT SENTENCES A PERSON READS: an unknown address

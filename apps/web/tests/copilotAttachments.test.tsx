@@ -7,9 +7,11 @@ import { API_BASE, type Session } from "@/lib/api/client";
 import {
   ATTACHED_MARKER,
   MAX_FILE_BYTES,
+  UPLOADS_UNAVAILABLE,
   kindOf,
   prepareFile,
   refusalFor,
+  roomRefusal,
   splitMarker,
 } from "@/lib/copilot/attachments";
 import { OfficeTextError, officeText } from "@/lib/copilot/officeText";
@@ -193,23 +195,37 @@ class StubXhr {
   send(body: Blob | FormData): void {
     xhrCalls.push({ url: this.url, headers: { ...this.headers }, body });
     uploadCount += 1;
+    const id = `00000000-0000-7000-8000-00000000000${uploadCount}`;
     const name = decodeURIComponent(this.headers["X-Upload-Name"] ?? "file");
-    queueMicrotask(() => {
-      this.status = 201;
-      this.responseText = JSON.stringify({
-        id: `00000000-0000-7000-8000-00000000000${uploadCount}`,
-        file_name: name,
-        kind: "document",
-        content_type: "text/plain",
-        size_bytes: 5,
-        status: "ready",
-      });
+    const reply = () => {
+      if (uploadRefusal !== null) {
+        this.status = Number(uploadRefusal.status);
+        this.responseText = JSON.stringify(uploadRefusal);
+      } else {
+        this.status = 201;
+        this.responseText = JSON.stringify({
+          id,
+          file_name: name,
+          kind: "document",
+          content_type: "text/plain",
+          size_bytes: 5,
+          status: "ready",
+        });
+      }
       this.events.dispatchEvent(new Event("load"));
-    });
+    };
+    if (heldUploads !== null) heldUploads.push(reply);
+    else queueMicrotask(reply);
   }
 }
 
+/** A problem every upload is answered with instead of 201, when a test sets it. */
+let uploadRefusal: Record<string, unknown> | null = null;
+/** Replies a test releases itself, when it sets this; otherwise uploads answer at once. */
+let heldUploads: (() => void)[] | null = null;
+
 const askBodies: Record<string, unknown>[] = [];
+let uploadsOffered = true;
 const deletes: string[] = [];
 
 function stubFetch() {
@@ -236,7 +252,7 @@ function stubFetch() {
         );
       }
       if (path.startsWith("/v1/copilot/conversation")) {
-        return new Response(JSON.stringify({ turns: [], has_more: false, answering: false }), {
+        return new Response(JSON.stringify({ turns: [], has_more: false, answering: false, uploads_available: uploadsOffered }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -274,7 +290,13 @@ function fileInput(): HTMLInputElement {
   return input;
 }
 
+function attachButton(): HTMLElement {
+  return screen.getByRole("button", { name: "Attach files" });
+}
+
 async function attach(...files: File[]) {
+  // The paperclip is offered once the conversation read says files can be attached.
+  await waitFor(() => expect(attachButton().getAttribute("aria-disabled")).toBeNull());
   await act(async () => {
     fireEvent.change(fileInput(), { target: { files } });
   });
@@ -287,6 +309,9 @@ beforeEach(() => {
   askBodies.length = 0;
   deletes.length = 0;
   uploadCount = 0;
+  uploadsOffered = true;
+  uploadRefusal = null;
+  heldUploads = null;
   window.localStorage.clear();
   vi.stubGlobal("XMLHttpRequest", StubXhr);
   stubFetch();
@@ -339,6 +364,7 @@ describe("attaching files in Pip's panel", () => {
 
   it("TAKES A PASTED FILE, and leaves pasted text to the box", async () => {
     renderPanel();
+    await waitFor(() => expect(attachButton().getAttribute("aria-disabled")).toBeNull());
     const box = screen.getByLabelText("Your question about this screen");
     await act(async () => {
       fireEvent.paste(box, { clipboardData: { files: [text("pasted.txt")] } });
@@ -384,6 +410,83 @@ describe("attaching files in Pip's panel", () => {
     await attach(text("a.txt"));
     await screen.findByText("Attached");
     await expectNoA11yViolations(container, "Pip panel with an attached file");
+  });
+});
+
+describe("when files can't be attached", () => {
+  it("DISABLES THE PAPERCLIP with a plain sentence, and no file can be picked, dropped or pasted", async () => {
+    uploadsOffered = false;
+    const picker = vi.spyOn(HTMLInputElement.prototype, "click");
+    renderPanel();
+    const reason = await screen.findByText(UPLOADS_UNAVAILABLE);
+    expect(reason.textContent).toBe("Attaching files isn't available yet. You can still ask Pip in words.");
+    const button = attachButton();
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(button.getAttribute("aria-describedby")).toBe(reason.id);
+    expect(fileInput().disabled).toBe(true);
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(picker).not.toHaveBeenCalled();
+    picker.mockRestore();
+
+    await act(async () => {
+      fireEvent.paste(screen.getByLabelText("Your question about this screen"), {
+        clipboardData: { files: [text("pasted.txt")] },
+      });
+    });
+    expect((await screen.findByRole("alert")).textContent).toBe(UPLOADS_UNAVAILABLE);
+    expect(screen.queryByText("pasted.txt")).toBeNull();
+    expect(xhrCalls).toHaveLength(0);
+  });
+
+  it("SAYS THE SAME SENTENCE when the server refuses one as unavailable, with no Retry", async () => {
+    uploadRefusal = {
+      status: 503,
+      type: "https://calevate.tech/problems/copilot_uploads_unavailable",
+      title: "Files can't be attached right now",
+      detail: "File storage for Pip isn't available at the moment.",
+      kind: "dependency",
+    };
+    renderPanel();
+    await attach(text("late.txt"));
+    const item = (await screen.findByText("late.txt")).closest("li")!;
+    await waitFor(() => expect(item.textContent).toContain(UPLOADS_UNAVAILABLE));
+    expect(item.textContent).not.toMatch(/connection|No reply/i);
+    expect(screen.queryByRole("button", { name: "Try late.txt again" })).toBeNull();
+    // What the refusal taught holds for the panel: the paperclip is withdrawn too.
+    expect(attachButton().getAttribute("aria-disabled")).toBe("true");
+  });
+});
+
+describe("refusals the browser makes before a body is sent", () => {
+  it("streams at most two files at once; the rest wait their turn", async () => {
+    heldUploads = [];
+    renderPanel();
+    await attach(text("a.txt"), text("b.txt"), text("c.txt"));
+    await screen.findByText("Waiting to send…");
+    expect(xhrCalls).toHaveLength(2);
+    await act(async () => {
+      heldUploads!.shift()!();
+    });
+    await waitFor(() => expect(xhrCalls).toHaveLength(3));
+    await act(async () => {
+      for (const reply of heldUploads!.splice(0)) reply();
+    });
+    await waitFor(() => expect(screen.getAllByText("Attached")).toHaveLength(3));
+  });
+
+  it("refuses a file that would take the message past its total or its pictures-and-PDFs bytes", () => {
+    const mb = 1024 * 1024;
+    expect(roomRefusal("a.txt", { total: 10 * mb, inline: 0 }, [{ total: 40 * mb, inline: 0 }])).toBeNull();
+    expect(roomRefusal("a.txt", { total: 11 * mb, inline: 0 }, [{ total: 40 * mb, inline: 0 }])).toMatch(
+      /add up to 50 MB/,
+    );
+    expect(roomRefusal("b.pdf", { total: 8 * mb, inline: 7 * mb }, [{ total: 8 * mb, inline: 8 * mb }])).toMatch(
+      /pictures and PDFs on one message can add up to 14 MB/,
+    );
+    // A document adds no inline bytes, so a message full of pictures still takes it.
+    expect(roomRefusal("c.txt", { total: mb, inline: 0 }, [{ total: 14 * mb, inline: 14 * mb }])).toBeNull();
   });
 });
 

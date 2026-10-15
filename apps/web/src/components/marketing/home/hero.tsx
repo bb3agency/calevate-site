@@ -2,7 +2,6 @@ import Link from "next/link";
 
 import { ArrowRight, Check } from "lucide-react";
 
-import { HeroStagger } from "@/components/marketing/motion";
 import {
   CTA_LABEL,
   CTA_PRIMARY,
@@ -23,8 +22,10 @@ import { HeroProduct } from "./mockups/heroProduct";
  * developer-tool landing pages found centred compositions the large majority).
  *
  * Kept from every version before this one, because each was paid for once:
- * - the phone headline is 40px (at 48px in a 320px box it set to four lines and pushed
- *   the call to action off the first screen);
+ * - the phone headline is at most 40px (at 48px in a 320px box it set to four lines and
+ *   pushed the call to action off the first screen), and fluid below that: the
+ *   unbreakable "nobody answered." run is about 8.3em wide, so 10.2vw keeps it inside the
+ *   20px gutters from 320px (32.6px type) and reaches 40px at about 390px;
  * - the audience sentence comes BEFORE the button — `publicLanding.test.tsx` pins the
  *   ORDER, since the words may change and the order is what regressed;
  * - the highlighted phrase and its full stop are one unbreakable run, or a lone "." wraps
@@ -35,6 +36,9 @@ import { HeroProduct } from "./mockups/heroProduct";
  *   (`apps/api/crm/schemas.py`) and the calendar action (`apps/api/actions/models.py`).
  *   They sit in the slot a landing page normally fills with borrowed proof, and they are
  *   not a claim about anybody else.
+ *
+ * The entrance is the `mk-hero-in` CSS stagger in `globals.css`, never GSAP: this block is
+ * painted by the server, and a script entrance would replay it at hydration.
  */
 
 const HERO_CLAIMS: readonly string[] = [
@@ -54,20 +58,18 @@ export function Hero() {
         keeps `z-below` inside it rather than behind the page's own background.
       */}
       <div aria-hidden className="pointer-events-none absolute inset-0 z-below">
-        <div className="mk-grid-lines absolute inset-0" />
+        <div className="mk-grid-lines absolute inset-0" />
       </div>
 
       <div className={`${SHELL} relative pt-10 pb-16 sm:pt-16 sm:pb-24 lg:pt-20`}>
-        <HeroStagger className="mx-auto flex max-w-5xl flex-col items-center text-center">
+        <div className="mx-auto flex max-w-5xl flex-col items-center text-center">
           <p
-            data-hero-item
-            className="text-sm font-medium text-ink-muted"
+            className="mk-hero-in mk-h1 text-sm font-medium text-ink-muted"
           >
             Telugu-first · Hindi · English
           </p>
           <h1
-            data-hero-item
-            className="mt-6 max-w-4xl text-[2.5rem] leading-[1.05] font-semibold tracking-tight text-balance text-ink sm:mt-7 sm:text-6xl sm:leading-[1.02] lg:text-[4.5rem]"
+            className="mk-hero-in mk-h2 mt-6 max-w-4xl text-[length:clamp(2rem,10.2vw,2.5rem)] leading-[1.05] font-semibold tracking-tight text-balance text-ink sm:mt-7 sm:text-6xl sm:leading-[1.02] lg:text-[4.5rem]"
           >
             Never miss a lead because{" "}
             <span className="whitespace-nowrap">
@@ -82,17 +84,16 @@ export function Hero() {
             </span>
           </h1>
           <p
-            data-hero-item
-            className="mt-6 max-w-2xl text-xl text-pretty text-ink-muted sm:mt-7 sm:text-2xl"
+            className="mk-hero-in mk-h3 mt-6 max-w-2xl text-xl text-pretty text-ink-muted sm:mt-7 sm:text-2xl"
           >
             Calevate answers your calls, follows up on every enquiry, works out who is worth
             your team’s time, and turns each conversation into a lead they can act on.
           </p>
-          <p data-hero-item className="mt-4 max-w-2xl text-base text-pretty text-ink-muted sm:text-lg">
+          <p className="mk-hero-in mk-h4 mt-4 max-w-2xl text-base text-pretty text-ink-muted sm:text-lg">
             Built Telugu-first for clinics, property offices, insurance advisors and coaching
             centres across Andhra Pradesh and Telangana.
           </p>
-          <div data-hero-item className="mt-9 flex flex-wrap items-center justify-center gap-3">
+          <div className="mk-hero-in mk-h5 mt-9 flex flex-wrap items-center justify-center gap-3">
             <Link href="/signup" className={CTA_PRIMARY}>
               {CTA_LABEL}
               <ArrowRight aria-hidden className={NUDGE_ARROW} />
@@ -102,8 +103,7 @@ export function Hero() {
             </Link>
           </div>
           <ul
-            data-hero-item
-            className="mt-8 flex flex-col items-start gap-y-3 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-6"
+            className="mk-hero-in mk-h6 mt-8 flex flex-col items-start gap-y-3 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-6"
           >
             {HERO_CLAIMS.map((claim) => (
               <li key={claim} className="flex items-center gap-2 text-base font-medium text-ink-muted">
@@ -112,7 +112,7 @@ export function Hero() {
               </li>
             ))}
           </ul>
-        </HeroStagger>
+        </div>
 
         <div className="relative mx-auto mt-12 max-w-7xl sm:mt-16">
           <HeroProduct />

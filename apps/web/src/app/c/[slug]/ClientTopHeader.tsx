@@ -66,21 +66,27 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
             href={href(`/c/${slug}/attention`)}
             aria-label={
               attention.error != null
-                ? "Needs attention: we could not read your queue"
+                ? "Needs attention: we couldn't check for new items. Open to try again."
                 : waiting !== undefined && waiting > 0
                   ? `Needs attention: ${formatCountOf(waiting, "item")}`
                   : "Needs attention"
+            }
+            title={
+              attention.error != null
+                ? "We couldn't check for new items. Open to try again."
+                : undefined
             }
             className="press relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 dark:hover:bg-white/5"
           >
             <Bell className="h-4 w-4" />
             {attention.error != null ? (
+              /* A plain warn dot, not a "?": the link's label and title carry the meaning
+                 in words, and a lone glyph read as a riddle. */
               <span
-                title="We could not read what needs your attention. Open the list to try again."
-                className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-warn px-1 text-[9px] font-bold text-white"
-              >
-                ?
-              </span>
+                aria-hidden
+                data-testid="attention-unchecked"
+                className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface bg-warn"
+              />
             ) : (
               waiting !== undefined &&
               waiting > 0 && (

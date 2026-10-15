@@ -481,6 +481,10 @@ export interface paths {
          *     Files with macros, older Office formats, ZIPs, audio and anything else are refused with a
          *     sentence saying what to do; so is a body whose first bytes are not what its type says.
          *
+         *     When files cannot be stored this answers 503 `copilot_uploads_unavailable`; the
+         *     conversation read says so beforehand in `uploads_available`, so a browser never starts
+         *     such an upload.
+         *
          *     Nothing in the file is opened, scanned or reviewed: it is stored privately and sent to
          *     Pip's AI provider as it is. Requires `copilot:admin`.
          */
@@ -1388,7 +1392,7 @@ export interface paths {
         };
         /**
          * The weekly QA spot-check queue — 5% of calls per client
-         * @description Calls drawn for review, newest week first and in the draw's own order. Each row carries the frame it came from — the week, the number of calls in it, the number drawn — and the seed the order was computed from, so the sample can be recomputed and checked by anyone. `pending` (default) shows only calls nobody has reviewed yet. No transcript text and no phone number appear on this list.
+         * @description Calls drawn for review, filtered and paged. Each row carries the frame it came from — the week, the number of calls in it, the number drawn — and the seed the order was computed from, so the sample can be recomputed and checked by anyone. `status=waiting` (default) shows only calls nobody has reviewed yet; `order=oldest` (default) puts the longest-waiting week first. `total` is exact across every client. No transcript text and no phone number appear on this list.
          */
         get: operations["list_qa_samples_v1_admin_qa_samples_get"];
         put?: never;
@@ -6663,6 +6667,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/copilot/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn Pip on for this account (the account owner, once)
+         * @description Records that the account owner read the disclosure Pip shows and turned Pip on for everyone on the account, with the version and a hash of the exact text, in an append-only record and the audit log. Only the account owner can do it, and an impersonated session cannot. A version or text that is no longer current is refused rather than recorded.
+         */
+        post: operations["accept_copilot_consent_v1_copilot_consent_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/copilot/conversation": {
         parameters: {
             query?: never;
@@ -6898,6 +6922,10 @@ export interface paths {
          *     `X-Upload-Text-Of` naming the PDF: Pip reads that only when the PDF itself cannot be read.
          *     Files with macros, older Office formats, ZIPs, audio and anything else are refused with a
          *     sentence saying what to do; so is a body whose first bytes are not what its type says.
+         *
+         *     When files cannot be stored this answers 503 `copilot_uploads_unavailable`; the
+         *     conversation read says so beforehand in `uploads_available`, so a browser never starts
+         *     such an upload.
          *
          *     Nothing in the file is opened, scanned or reviewed: it is stored privately and sent to
          *     Pip's AI provider as it is. Requires `copilot:use`.
@@ -14924,6 +14952,43 @@ export interface components {
             tool: string;
         };
         /**
+         * CopilotConsentIn
+         * @description Echoes what the panel showed, so a panel opened before a new version cannot accept
+         *     words the owner never saw.
+         */
+        CopilotConsentIn: {
+            /** Text Sha256 */
+            text_sha256: string;
+            /** Version */
+            version: string;
+        };
+        /**
+         * CopilotConsentOut
+         * @description Whether Pip is on for this account, and what the owner reads to turn it on (D-788).
+         *
+         *     `status` is `accepted` or `not_required` (the admin console) when Pip may answer;
+         *     `required` and `outdated` lock it. `can_accept` says whether THIS person may turn it on:
+         *     the account owner, signed in as themselves. The text is served rather than kept in the
+         *     browser so the words shown and the hash recorded cannot come from two places.
+         */
+        CopilotConsentOut: {
+            /** Accepted At */
+            accepted_at: string | null;
+            /** Can Accept */
+            can_accept: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "required" | "outdated" | "not_required";
+            /** Text */
+            text: string;
+            /** Text Sha256 */
+            text_sha256: string;
+            /** Version */
+            version: string;
+        };
+        /**
          * CopilotConversationClearedOut
          * @description `DELETE /v1/copilot/conversation` — what "start again" forgot.
          *
@@ -14955,6 +15020,7 @@ export interface components {
              * @default false
              */
             answering: boolean;
+            consent: components["schemas"]["CopilotConsentOut"];
             /**
              * Has More
              * @default false
@@ -14965,6 +15031,8 @@ export interface components {
              * @default []
              */
             turns: components["schemas"]["CopilotStoredTurnOut"][];
+            /** Uploads Available */
+            uploads_available: boolean;
         };
         /**
          * CopilotFact
@@ -14988,11 +15056,10 @@ export interface components {
          *     half into a write the server permits.
          *
          *     `redacted` says the browser has substituted a placeholder for a value it considers
-         *     personal and will substitute the real one back locally. It is a DECLARATION, not a
-         *     permission: `sanitize.assert_redacted` re-runs `redact()` over the whole payload and
-         *     refuses it if anything still matches, so a field the browser forgot to mark is caught
-         *     by the guard rather than by nothing (D-127 G-2, the same belt `run_assist` wears at
-         *     `workers/extraction.py`).
+         *     personal and will substitute the real one back locally, so the model can name the
+         *     field's value by its placeholder. The server no longer refuses a screen that still
+         *     carries one (D-788: Pip runs only on accounts whose owner turned it on, and the admin
+         *     console is exempt).
          */
         CopilotField: {
             /** Help */
@@ -15861,6 +15928,7 @@ export interface components {
             sentiment_split?: {
                 [key: string]: number;
             };
+            trial?: components["schemas"]["TrialPanelOut"] | null;
         };
         /**
          * DayHours
@@ -20907,6 +20975,8 @@ export interface components {
             input_usd_per_mtok: string | null;
             /** Model */
             model: string;
+            /** Off Call Only */
+            off_call_only: boolean;
             /** Offerable */
             offerable: boolean;
             /** Output Usd Per Mtok */
@@ -22521,6 +22591,51 @@ export interface components {
             number_id: string;
             /** Replayed */
             replayed: boolean;
+        };
+        /**
+         * QaQueueClient
+         * @description One client with anything drawn, and where its queue stands — the client picker's
+         *     rows and the group headers on the queue.
+         */
+        QaQueueClient: {
+            /** Sampled */
+            sampled: number;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Tenant Name */
+            tenant_name: string;
+            /** Tenant Slug */
+            tenant_slug: string;
+            /** Waiting */
+            waiting: number;
+        };
+        /**
+         * QaQueuePage
+         * @description One page of the filtered queue, with exact totals.
+         *
+         *     `total` counts every row the filter matches across every client, not the rows on this
+         *     page, so "40 of 312" is a true sentence. `clients` and `weeks` are what the filters
+         *     offer, and are not narrowed by the filter: a reviewer picking a different client needs
+         *     to see the other clients.
+         */
+        QaQueuePage: {
+            /** Clients */
+            clients: components["schemas"]["QaQueueClient"][];
+            /** Items */
+            items: components["schemas"]["QaSampleOut"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+            /** Waiting Total */
+            waiting_total: number;
+            /** Weeks */
+            weeks: string[];
         };
         /**
          * QaReport
@@ -30578,9 +30693,18 @@ export interface operations {
     list_qa_samples_v1_admin_qa_samples_get: {
         parameters: {
             query?: {
-                /** @description only calls nobody has reviewed yet */
-                pending?: boolean;
+                /** @description waiting, reviewed or all */
+                status?: "waiting" | "reviewed" | "all";
+                /** @description only calls given this verdict */
+                verdict?: ("clean" | "concern" | "defect") | null;
+                /** @description only this client's calls */
+                tenant_id?: string | null;
+                /** @description only this draw week (its IST Monday) */
+                week?: string | null;
+                /** @description oldest or newest week first */
+                order?: "oldest" | "newest";
                 limit?: number;
+                offset?: number;
             };
             header?: never;
             path?: never;
@@ -30594,7 +30718,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QaSampleOut"][];
+                    "application/json": components["schemas"]["QaQueuePage"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -39779,6 +39903,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CopilotConfirmOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    accept_copilot_consent_v1_copilot_consent_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopilotConsentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotConsentOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

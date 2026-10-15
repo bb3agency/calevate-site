@@ -12,11 +12,16 @@ import {
   AttachmentError,
   MAX_FILES,
   MAX_PICTURES,
+  UPLOADS_UNAVAILABLE,
+  UploadSlots,
+  bytesOf,
+  isUploadsUnavailable,
   kindOf,
   markNoticeSeen,
   noticeSeen,
   prepareFile,
   removeUpload,
+  roomRefusal,
   splitMarker,
   uploadPrepared,
   type AttachmentKind,
@@ -45,7 +50,7 @@ export interface TrayItem {
   key: string;
   name: string;
   kind: AttachmentKind;
-  status: "preparing" | "uploading" | "ready" | "failed";
+  status: "preparing" | "waiting" | "uploading" | "ready" | "failed";
   /** 0–100 while uploading, when the browser can measure it. */
   progress: number | null;
   thumb: string | null;
@@ -61,18 +66,36 @@ const nextKey = () => `attachment-${(keys += 1)}`;
 
 function sentence(error: unknown): string {
   if (error instanceof AttachmentError) return error.message;
+  if (isUploadsUnavailable(error)) return UPLOADS_UNAVAILABLE;
   if (error instanceof ApiProblem) {
     return [error.message, error.remediation].filter(Boolean).join(" ");
   }
   return "The file couldn't be sent. Check your connection and try again.";
 }
 
-/** The tray's state and what it can do. One per panel. */
-export function useAttachmentTray(session: Session, realm: "client" | "admin") {
+/**
+ * The tray's state and what it can do. One per panel.
+ *
+ * `offered` is the server's `uploads_available` (undefined until the conversation has been
+ * read). Nothing is uploaded unless it is true, and every refusal the server can make
+ * before reading a body is made here first — the file and picture counts, the type, each
+ * file's size, the message's total and inline bytes, and how many stream at once — because
+ * a refusal sent while the body is still streaming can reach the browser as a reset stream
+ * instead of as the refusal.
+ */
+export function useAttachmentTray(session: Session, realm: "client" | "admin", offered: boolean | undefined) {
   const [items, setItems] = useState<TrayItem[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState(false);
+  // Set when the server refused an upload as unavailable after offering it: the setting
+  // changed under an open panel. It holds for the life of the panel.
+  const [withdrawn, setWithdrawn] = useState(false);
+  const available = offered === undefined ? undefined : offered && !withdrawn;
   const controllers = useRef(new Map<string, AbortController>());
+  const slots = useRef(new UploadSlots());
+  // The bytes each prepared file adds to the message, by tray key, kept in a ref so two
+  // files finishing preparation together cannot both claim the same room.
+  const held = useRef(new Map<string, { total: number; inline: number }>());
 
   const patch = useCallback((key: string, change: Partial<TrayItem>) => {
     setItems((current) => current.map((item) => (item.key === key ? { ...item, ...change } : item)));
@@ -82,11 +105,20 @@ export function useAttachmentTray(session: Session, realm: "client" | "admin") {
     async (key: string, file: File) => {
       const controller = new AbortController();
       controllers.current.set(key, controller);
+      let slot = false;
       try {
         patch(key, { status: "preparing", error: null, progress: null });
         const prepared = await prepareFile(file);
         if (controller.signal.aborted) return;
-        patch(key, { status: "uploading", thumb: prepared.thumb, progress: 0 });
+        const bytes = bytesOf(prepared);
+        const others = [...held.current].filter(([other]) => other !== key).map(([, value]) => value);
+        const refusal = roomRefusal(file.name, bytes, others);
+        if (refusal !== null) throw new AttachmentError(refusal);
+        held.current.set(key, bytes);
+        patch(key, { status: "waiting", thumb: prepared.thumb });
+        await slots.current.acquire(controller.signal);
+        slot = true;
+        patch(key, { status: "uploading", progress: 0 });
         const stored = await uploadPrepared(session, realm, prepared, {
           signal: controller.signal,
           onProgress: ({ loaded, total }) =>
@@ -95,11 +127,15 @@ export function useAttachmentTray(session: Session, realm: "client" | "admin") {
         patch(key, { status: "ready", id: stored.id, progress: 100 });
       } catch (error) {
         if (controller.signal.aborted) return;
+        held.current.delete(key);
+        if (isUploadsUnavailable(error)) setWithdrawn(true);
         const retryable =
           !(error instanceof AttachmentError) &&
+          !isUploadsUnavailable(error) &&
           (!(error instanceof ApiProblem) || error.retryable || error.status === 0);
         patch(key, { status: "failed", error: sentence(error), progress: null, retryable });
       } finally {
+        if (slot) slots.current.release();
         controllers.current.delete(key);
       }
     },
@@ -109,6 +145,11 @@ export function useAttachmentTray(session: Session, realm: "client" | "admin") {
   const add = useCallback(
     (files: File[]) => {
       if (files.length === 0) return;
+      if (available !== true) {
+        // A drop or a paste: the paperclip itself is already disabled.
+        setProblem(UPLOADS_UNAVAILABLE);
+        return;
+      }
       setProblem(null);
       const room = MAX_FILES - items.length;
       let pictures = items.filter((item) => item.kind === "picture").length;
@@ -146,13 +187,14 @@ export function useAttachmentTray(session: Session, realm: "client" | "admin") {
       setItems((current) => [...current, ...taken]);
       for (const item of taken) void send(item.key, item.file);
     },
-    [items, send],
+    [available, items, send],
   );
 
   const remove = useCallback(
     (key: string) => {
       const item = items.find((candidate) => candidate.key === key);
       controllers.current.get(key)?.abort();
+      held.current.delete(key);
       setItems((current) => current.filter((candidate) => candidate.key !== key));
       setProblem(null);
       // Deleted at once on the server too. If that request fails the file is still
@@ -175,6 +217,7 @@ export function useAttachmentTray(session: Session, realm: "client" | "admin") {
     const ready = items
       .filter((item) => item.status === "ready" && item.id !== null)
       .map((item) => ({ id: item.id as string, name: item.name, kind: item.kind, thumb: item.thumb }));
+    held.current.clear();
     setItems([]);
     setProblem(null);
     return ready;
@@ -192,21 +235,32 @@ export function useAttachmentTray(session: Session, realm: "client" | "admin") {
     [],
   );
 
-  const busy = items.some((item) => item.status === "preparing" || item.status === "uploading");
+  const busy = items.some((item) => item.status === "preparing" || item.status === "waiting" || item.status === "uploading");
   const ready = items.filter((item) => item.status === "ready").length;
-  return { items, problem, notice, busy, ready, add, remove, retry, take, dismissNotice };
+  return { items, problem, notice, busy, ready, available, add, remove, retry, take, dismissNotice };
 }
 
-/** The paperclip: a labelled button over a hidden file input. */
+/**
+ * The paperclip: a labelled button over a hidden file input.
+ *
+ * `available` is false while uploads cannot be used, and `undefined` while that is not
+ * yet known. Either way the picker cannot open; only a known "no" says so, in a sentence
+ * beside the paperclip. `aria-disabled` rather than `disabled` in that case, so the button
+ * stays focusable and a screen reader reaches the sentence it is described by.
+ */
 export function AttachButton({
   onFiles,
   disabled,
+  available,
 }: {
   onFiles: (files: File[]) => void;
   disabled: boolean;
+  available: boolean | undefined;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const id = useId();
+  const reasonId = useId();
+  const withheld = available !== true;
   return (
     <>
       <input
@@ -215,6 +269,7 @@ export function AttachButton({
         type="file"
         multiple
         accept={ACCEPT}
+        disabled={disabled || withheld}
         // `hidden`, not `sr-only`: the labelled button below is the control a person and a
         // screen reader reach, and it opens this input with `click()`.
         hidden
@@ -226,14 +281,23 @@ export function AttachButton({
       />
       <button
         type="button"
-        onClick={() => input.current?.click()}
+        onClick={() => {
+          if (!withheld) input.current?.click();
+        }}
         disabled={disabled}
+        aria-disabled={withheld || undefined}
+        aria-describedby={available === false ? reasonId : undefined}
         aria-label="Attach files"
-        title="Attach files: pictures, PDFs, text, CSV, Word, Excel or PowerPoint"
-        className={QUIET_ICON_BUTTON}
+        title={withheld ? undefined : "Attach files: pictures, PDFs, text, CSV, Word, Excel or PowerPoint"}
+        className={`${QUIET_ICON_BUTTON} aria-disabled:cursor-not-allowed aria-disabled:text-ink-faint aria-disabled:hover:bg-transparent`}
       >
         <Paperclip aria-hidden className="h-4 w-4" />
       </button>
+      {available === false && (
+        <p id={reasonId} className="min-w-0 px-1 text-meta text-ink-muted">
+          {UPLOADS_UNAVAILABLE}
+        </p>
+      )}
     </>
   );
 }
@@ -262,6 +326,8 @@ function statusLine(item: TrayItem): string {
   switch (item.status) {
     case "preparing":
       return "Getting ready…";
+    case "waiting":
+      return "Waiting to send…";
     case "uploading":
       return item.progress === null ? "Sending…" : `Sending ${item.progress}%`;
     case "ready":

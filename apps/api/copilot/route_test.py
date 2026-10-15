@@ -37,7 +37,7 @@ import pytest
 from calevate_shared.engine import AZURE_OPENAI_DEFAULT_MODEL
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.api_security_test import _make_tenant
+from tests.conftest import make_tenant_with_pip as _make_tenant
 
 from apps.api.billing import ai_quota, rates
 from apps.api.copilot import fair_use as copilot_fair_use
@@ -442,26 +442,6 @@ async def test_a_tenant_at_its_ceiling_is_refused_before_the_provider_is_reached
     # handler would have written on a non-streamed route (BACKEND-PATTERNS §3).
     assert problem["remediation"]
     assert await _usage_rows(tenant_id) == []
-
-
-async def test_an_unredacted_payload_is_refused_before_the_gate_and_before_the_provider(
-    azure_only: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """SUBJECT before GATE. A payload that still carries personal values cannot be sent at
-    any price, and finding that out after the ceiling check would answer a client at their
-    limit with "add ₹500" for a request the money would not have helped with."""
-    tenant_id, slug, token = await _make_tenant()
-    await _at_the_ceiling(tenant_id, monkeypatch)
-    reached = _fake_provider(monkeypatch)
-    body = {**BODY, "question": "call them back on 9876500123"}
-
-    async with _client() as http:
-        events = await _events(http, token, slug, body)
-
-    assert reached == []
-    assert [name for name, _ in events] == ["error"]
-    # The SUBJECT refusal, not the ceiling one — which is what proves the order.
-    assert events[0][1]["type"].endswith("/copilot_input_not_redacted")
 
 
 # --- 4. what the model asked for is re-checked here --------------------------------------

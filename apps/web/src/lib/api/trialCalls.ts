@@ -12,6 +12,7 @@ import { useRef } from "react";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
+import { queryKeys } from "./hooks";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -54,6 +55,8 @@ export function usePlaceTrialCall(session: Session) {
     onSuccess: (_result, { agentId, number }) => {
       held.current.delete(attemptOf(agentId, number));
       void client.invalidateQueries({ queryKey: trialPanelKey(session.orgSlug) });
+      // The dashboard's trial card reads the trial from the dashboard read (D-786).
+      void client.invalidateQueries({ queryKey: queryKeys.dashboard(session.orgSlug) });
       void client.invalidateQueries({ queryKey: ["calls", session.orgSlug] });
     },
   });

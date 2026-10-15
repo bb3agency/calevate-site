@@ -26,6 +26,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from apps.api.agents.trial_panel import TrialPanelOut
+
 LeadStatus = Literal["new", "contacted", "interested", "hot", "won", "lost"]
 #: How a lead came to us. Stable machine words; plain labels are the screen's job.
 LeadSource = Literal["inbound_call", "webhook", "campaign", "manual", "test_call", "outbound_call"]
@@ -1059,6 +1061,10 @@ class DashboardOut(Strict):
     # last week been" and "what did each day look like" — and a chart that had to agree
     # with a headline number would have to lie about one of them.
     daily_7d: list[DashboardDayOut]
+    # The free-trial card, carried here so it renders with the rest of the dashboard
+    # rather than after a second round trip to `GET /v1/trial` (D-787). The same builder
+    # serves both. Null only for a reader without `org:read`, which that route requires.
+    trial: TrialPanelOut | None = None
 
 
 # --- panels that used to answer `dict[str, Any]` --------------------------------

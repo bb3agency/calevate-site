@@ -10,7 +10,6 @@ import { MonoValue, dncSourceCopy } from "@/app/admin/ops/opsLanguage";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { Drawer } from "@/components/console/drawer";
 import { EmptyState } from "@/components/console/emptyState";
-import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { RowMenu } from "@/components/console/rowMenu";
 import { CopyButton } from "@/components/interior/copy-button";
@@ -161,10 +160,7 @@ export function DncScreen() {
           <>
             These are the numbers Calevate will not dial for anyone. A number here overrides
             every client&apos;s own do-not-call list, is checked before every single call, and
-            no client can add or remove it.{" "}
-            <InfoTip label="Who changed what">
-              Every change you make is recorded in the audit log under your admin account.
-            </InfoTip>
+            no client can add or remove it.
           </>
         }
         actions={

@@ -394,7 +394,6 @@ export function useLeadsUnderLens(
     queryFn: () =>
       apiRequest<LeadListWithColumns>(session, "/v1/leads/search", { method: "POST", body }),
     refetchInterval: livePoll(SLOW_INTERVAL_MS),
-    refetchOnWindowFocus: true,
     placeholderData: keepPreviousData,
   });
 }

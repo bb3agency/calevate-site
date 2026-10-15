@@ -25,6 +25,7 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
+from apps.api.engine.vendor_http import EngineRejectedError
 from sqlalchemy import text
 from tests.trial_test_calls_test import TRIAL_NUMBER, _trial_call_row, _trial_tenant
 
@@ -207,6 +208,33 @@ async def test_a_dial_whose_outcome_is_unknown_is_never_retried_on_its_key(
     with pytest.raises(ProblemError) as in_flight:
         await _place(principal, agent_id, key)
     assert in_flight.value.code == "idempotent_request_in_flight"
+
+
+async def test_a_dial_refused_for_our_own_set_up_says_so_plainly_and_frees_the_key(
+    line: Line, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The client can fix nothing here and the alarm has paged us, so the sentence says the
+    problem is ours and names no provider (D-679)."""
+    _tenant_id, agent_id, principal = await _account(line)
+
+    async def _not_set_up(*_: Any, **__: Any) -> str:
+        refused = EngineRejectedError(
+            status=409, refused_statuses=frozenset({409}), vendor_code="calling_not_set_up"
+        )
+        refused.setup_refused = True
+        raise refused
+
+    monkeypatch.setattr(agents_service, "dispatch_call", _not_set_up)
+    key = str(uuid.uuid4())
+    with pytest.raises(ProblemError) as refused:
+        await _place(principal, agent_id, key)
+    problem = refused.value
+    assert problem.code == trial_calls.TRIAL_CALL_NOT_PLACED
+    assert "on our side" in problem.detail
+    assert "thinnest" not in f"{problem.title} {problem.detail}".lower()
+    with pytest.raises(ProblemError) as again:
+        await _place(principal, agent_id, key)
+    assert again.value.code == trial_calls.TRIAL_CALL_NOT_PLACED
 
 
 async def test_a_failure_that_may_have_rung_keeps_the_key(
