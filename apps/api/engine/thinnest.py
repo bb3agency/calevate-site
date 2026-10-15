@@ -3018,7 +3018,8 @@ class ThinnestEngine:
         raise engine_lacks("tts", engine=self.name)
 
     async def list_hosted_voices(self) -> HostedVoiceListing:
-        """`GET /voices` in our own workspace: every voice, with its price band. Not paged;
+        """`GET /voices` in the workspace the caller opened (`in_workspace`; our developer
+        workspace by default): every voice, with its price band. Not paged;
         Studio voices and our clones (`mine: true`) are listed on the Pro plan and above only,
         so a lower plan answers standard and premium voices and no Studio ones; "every voice
         speaks every supported language" (snapshots/2026-10-07b/pages/api-reference/voices/
@@ -3029,7 +3030,11 @@ class ThinnestEngine:
         preview or lock field and every id listed is one an agent can be set to, so it is not
         expected here below Pro. A row in a tier we do not read is counted in `unread_bands`
         rather than dropped silently. Which band may be sold is the caller's decision
-        (`agents/hosted_voices.py`)."""
+        (`agents/hosted_voices.py`).
+
+        In a customer workspace our clones are listed with `sharedFromDeveloper: true`
+        instead of `mine` (snapshots/2026-10-15/pages/api-reference/voices/
+        list-voices.md:442-453, :579-589), so either marks one of ours."""
         data = await self._request("GET", "/voices", route="/voices", workspace=workspace_of(None))
         voices: list[HostedVoice] = []
         unread: Counter[str] = Counter()
@@ -3041,12 +3046,14 @@ class ThinnestEngine:
             if band is None:
                 unread[str(row.get("tier"))] += 1
                 continue
+            shared = row.get("sharedFromDeveloper") is True
             voices.append(
                 HostedVoice(
                     voice_id=voice_id,
                     label=label,
                     source="engine",
-                    is_custom=row.get("mine") is True,
+                    is_custom=row.get("mine") is True or shared,
+                    shared_from_developer=shared,
                     language=_str(row.get("accent")),
                     description=_str(row.get("description")),
                     band=band,
@@ -3065,8 +3072,10 @@ class ThinnestEngine:
         then the library up to 2,000 voices, and `complete` is false when the provider was
         slow and the list may be short (docs.thinnest.ai api-reference/bring-your-own-keys/
         list-byok-voices, read 12 Oct 2026). Anything but `complete: true` is reported as
-        short, so the sync withdraws nothing on it. No field marks which voices are our
-        clones, so none is marked (`HostedVoice.is_custom` stays False here)."""
+        short, so the sync withdraws nothing on it. `own` marks a voice of our own provider
+        account (on Cartesia, the voices our account owns) rather than its library, and is
+        `is_custom` here (snapshots/2026-10-15/pages/api-reference/bring-your-own-keys/
+        list-byok-voices.md:731-739)."""
         data = await self._request(
             "GET", "/byok/voices", route="/byok/voices", workspace=workspace_of(None)
         )
@@ -3076,6 +3085,7 @@ class ThinnestEngine:
                 voice_id=voice_id,
                 label=label,
                 source="byok",
+                is_custom=row.get("own") is True,
                 language=_str(row.get("language")),
                 # `gender` is "its gender, when the provider says" (list-byok-voices.md:576-580).
                 gender=_str(row.get("gender")),

@@ -62,7 +62,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.clone_copies import forget_clone, keep_clone_sample
 from apps.api.agents.engine_catalogue_routes import PREVIEW_RESPONSES, stored_preview_response
 from apps.api.agents.hosted_voices import (
     MAX_AGENTS_ON_VOICE,
@@ -95,6 +94,7 @@ from apps.api.agents.hosted_voices import (
     withdraw_hosted_voice,
 )
 from apps.api.agents.own_model import ensure_own_model_workspace, own_model_readiness
+from apps.api.agents.shared_clones import forget_clone
 from apps.api.agents.studio_voices import (
     StudioReadiness,
     prepare_studio,
@@ -1077,22 +1077,8 @@ async def create_clone(
         language=clone.language or language,
         description=description,
     )
-    # The recording is kept, sealed, so the clone can be made again in a client's own voice
-    # workspace (D-693): a clone belongs to the workspace that made it.
-    # Best effort: the clone exists at the platform and must be recorded either way. Without
-    # the sample it can still be spoken in our workspace; a client workspace is then refused
-    # by name (`voice_clone_sample_missing`) until the voice is cloned again.
-    try:
-        await keep_clone_sample(
-            session,
-            voice_id=row.voice_id,
-            filename=sample.filename or "sample",
-            content_type=content_type,
-            language=language,
-            data=data,
-        )
-    except Exception as exc:
-        log.warning("voice_clone_sample_not_kept", extra={"reason": type(exc).__name__})
+    # The recording is not kept: every client workspace speaks this clone as shared, never
+    # through a copy made from it (D-797), so we hold no person's voice we do not use.
     # The consents are the operator's legal attestations: who, when, and the two promises,
     # in the same transaction as the row.
     await _audit(
@@ -1153,8 +1139,9 @@ async def _try_vendor_preview(session: AsyncSession, *, voice_id: str, url: str)
     summary="Delete one of our cloned voices (step-up confirmed, audited)",
     description=(
         "Deletes the clone on the voice platform, which forgets it everywhere and moves "
-        "every agent on it to a standard voice; it cannot be undone. Refused with "
-        "`voice_clone_in_use` while live agents here are on it, unless `confirm=true`. "
+        "every agent on it, in our workspace and in every client's, to a standard voice; it "
+        "cannot be undone. Refused with `voice_clone_in_use` while live agents of any client "
+        "are on it, unless `confirm=true`. "
         "Requires `X-Confirm-Action: delete_voice_clone:<voice_id>`."
     ),
 )
@@ -1185,21 +1172,25 @@ async def delete_clone(
             code="voice_clone_in_use",
             title="Live agents are speaking this voice",
             detail=(
-                f"{live} live agent(s) are on this voice. Deleting it moves them to the "
-                "platform's standard voice on their next call."
+                f"{live} live agent(s) across our clients are on this voice. Deleting it moves "
+                "every agent on it, in every client's workspace, to the platform's standard "
+                "voice at once."
             ),
             remediation="Move those agents to another voice first, or delete with confirm=true.",
         )
+    # The vendor moves every agent speaking the shared clone, ours and every customer's
+    # (channels/voice-clone.md:124-126 of the 2026-10-15 snapshot).
     moved = await engine.delete_voice_clone(row.clone_id)
     await withdraw_hosted_voice(session, voice_id=voice_id)
-    # Its copies in clients' own workspaces and the kept recording go with it (D-693).
+    # Pre-D-797 copies in clients' workspaces and their kept recording go with it, and the
+    # agents still on a copy are moved too, so they are counted.
     sample_key = (
         await session.execute(
             text("SELECT sample_object_key FROM platform_voice_catalog WHERE voice_id = :v"),
             {"v": voice_id},
         )
     ).scalar()
-    await forget_clone(engine, voice_id=voice_id, sample_key=sample_key)
+    moved += await forget_clone(engine, voice_id=voice_id, sample_key=sample_key)
     await _audit(
         session,
         request,

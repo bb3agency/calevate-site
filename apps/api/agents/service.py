@@ -2188,7 +2188,8 @@ async def _in_client_workspace(
     trial: bool = False,
 ) -> AgentConfig:
     """`config` with the client's own workspace, where a NEW vendor agent is made, and the
-    voice as that workspace names it (D-693). Unchanged on an engine without customer
+    voice as that workspace names it (one of our clones is its shared clone, D-797).
+    Unchanged on an engine without customer
     workspaces. A tenant whose workspace is not active is refused: nothing of a client's is
     created in our developer workspace, except a FREE-TRIAL account's agent (D-697), which
     has no workspace until the account pays and calls from the shared trial number there.
@@ -2198,21 +2199,15 @@ async def _in_client_workspace(
     workspace = await resolve_workspace(session, tenant_id)
     if workspace is None:
         raise workspace_not_provisioned()
-    update: dict[str, Any] = {"engine_workspace": workspace}
-    catalogue_voice = agent.get("engine_voice_id")
-    if config.engine_voice_id and isinstance(catalogue_voice, str):
-        from apps.api.agents.clone_copies import workspace_voice_id
+    from apps.api.agents.shared_clones import voice_in_workspace
 
-        copy = await workspace_voice_id(
-            session,
-            engine,
-            tenant_id=tenant_id,
-            voice_id=catalogue_voice,
-            workspace=workspace,
-        )
-        if copy is not None:
-            update["engine_voice_id"] = copy
-    return config.model_copy(update=update)
+    return await voice_in_workspace(
+        session,
+        engine,
+        catalogue_voice=agent.get("engine_voice_id"),
+        config=config.model_copy(update={"engine_workspace": workspace}),
+        workspace=workspace,
+    )
 
 
 async def _studio_in_client_workspace(

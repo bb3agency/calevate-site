@@ -87,6 +87,10 @@ class HostedVoice(BaseModel):
     source: HostedVoiceSource
     #: Cloned by our account rather than taken from a shared catalogue.
     is_custom: bool = False
+    #: Listed in a customer workspace as one of OUR developer workspace's clones, which every
+    #: customer's agents may speak (`sharedFromDeveloper`, snapshots/2026-10-15/pages/
+    #: api-reference/voices/list-voices.md:579-589). Never set in our developer workspace.
+    shared_from_developer: bool = False
     #: The language or accent the listing names, as a tag (`hi`, `en-IN`), when it names one.
     language: str | None = None
     description: str | None = None

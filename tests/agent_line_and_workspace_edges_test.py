@@ -1,8 +1,8 @@
 """The dial-path seams of D-693..D-701 the flow tests leave alone: every way the healer's
 line hold can end (gone, not answering, already silent, forwarded, unsupported, refused
 on a republish, nothing to lift), the developer-workspace retirement on closure, numbers
-re-pointed at a recreated agent, a cloned voice renamed into the client's workspace, an
-experiment arm moved out of our workspace, and the unregistered calling number."""
+re-pointed at a recreated agent, an experiment arm moved out of our workspace, and the
+unregistered calling number."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.agents import clone_copies
 from apps.api.agents import service as agents_service
 from apps.api.campaigns import engine_numbers
 from apps.api.core.errors import ProblemError
@@ -30,7 +29,7 @@ from tests.thinnest_engine_seams_test import (  # noqa: F401 - pytest fixtures
     attested,
     no_webhook,
 )
-from tests.workspace_support import give_own_workspace, workspace_of
+from tests.workspace_support import workspace_of
 
 pytestmark = [pytest.mark.rls]
 
@@ -232,40 +231,6 @@ async def test_numbers_bound_to_a_recreated_agent_are_pointed_at_it(
         )
         await agents_service._resync_agent_numbers(session, agent_id=agent_id)
     assert synced == [ids[0]], "a released number is not re-pointed"
-
-
-async def test_a_cloned_voice_is_sent_as_its_copy_in_the_clients_workspace(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tenant_id, agent_id = await _tenant_agent()
-    workspace = await give_own_workspace(tenant_id)
-    asked: list[dict[str, Any]] = []
-
-    async def _copy(_session: Any, _engine: Any, **kwargs: Any) -> str:
-        asked.append(kwargs)
-        return "vendor-copy-1"
-
-    monkeypatch.setattr(clone_copies, "workspace_voice_id", _copy)
-    config = AgentConfig(
-        tenant_id=str(tenant_id),
-        agent_id=str(agent_id),
-        name="clone",
-        direction="inbound",
-        system_prompt="x",
-        opening_line="Hello",
-        engine_voice_id="vendor-dev-1",
-    )
-    async with tenant_session(tenant_id) as session:
-        out = await agents_service._in_client_workspace(
-            session,
-            HostingEngine(),
-            tenant_id=tenant_id,
-            agent={"engine_voice_id": "engine:clone-1"},  # type: ignore[arg-type]
-            config=config,
-        )
-    assert out.engine_workspace == workspace
-    assert out.engine_voice_id == "vendor-copy-1"
-    assert asked == [{"tenant_id": tenant_id, "voice_id": "engine:clone-1", "workspace": workspace}]
 
 
 async def test_an_experiment_arm_in_our_workspace_is_recreated_in_the_clients(

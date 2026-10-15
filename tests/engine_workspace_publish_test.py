@@ -6,23 +6,23 @@
   workspace on its next publish, under a new id: its old route stays live until the commit,
   its knowledge claims go so the D-689 catch-up re-attaches everything, and the old vendor
   agent is deleted only afterwards, by `retire_moved_engine_agent`, never while a call is on it.
-* One of our clones is cloned again into the client's workspace from the sealed sample.
+* A client agent on one of our clones speaks the shared clone its workspace lists (D-797),
+  and is refused when that workspace does not list it under our id.
 * On an engine without workspaces none of this is reached.
 """
 
 from __future__ import annotations
 
-import json
 import uuid
 from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.agents import clone_copies
 from apps.api.agents import service as agents_service
+from apps.api.agents import shared_clones
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.engine.catalogue import VoiceClone, VoiceCloneSample
+from apps.api.engine.catalogue import HostedVoice
 from apps.api.engine.fake import FakeEngine
 from apps.api.engine.thinnest_workspace import current_workspace
 from apps.api.tenancy import engine_workspace as resolver
@@ -210,112 +210,183 @@ async def test_the_old_agent_waits_for_its_live_call_then_is_deleted(
     assert active is False
 
 
-# --- clones -----------------------------------------------------------------------------
+# --- clones (D-797) ---------------------------------------------------------------------
+# Inside a customer workspace `GET /voices` lists each of our developer clones with
+# `sharedFromDeveloper: true` (snapshots/2026-10-15/pages/api-reference/voices/
+# list-voices.md:495-500, :579-589), and its agents speak it directly.
 
 
-class _CloningEngine(HostingEngine):
-    """Records the workspace each clone was made in, and can refuse at the vendor's limit."""
+def _shared(voice_id: str, label: str = "Brand voice (from your developer)") -> HostedVoice:
+    return HostedVoice(
+        voice_id=voice_id,
+        label=label,
+        source="engine",
+        is_custom=True,
+        shared_from_developer=True,
+        language="en-IN",
+        band="studio",
+    )
+
+
+async def _copies(tenant_id: UUID) -> int:
+    async with tenant_session(tenant_id) as session:
+        return int(
+            (
+                await session.execute(
+                    text("SELECT count(*) FROM engine_voice_clone_copies WHERE tenant_id = :t"),
+                    {"t": tenant_id},
+                )
+            ).scalar_one()
+        )
+
+
+async def test_a_client_agent_on_our_clone_is_published_on_the_shared_clone(
+    attested: set[str],  # noqa: F811
+    no_webhook: None,  # noqa: F811
+    hosted_rows: CatalogueRows,
+) -> None:
+    tenant_id, agent_id = await _agent()
+    vendor = f"clone-{uuid.uuid4().hex[:8]}"
+    voice = await hosted_rows.add("engine", vendor_id=vendor, clone_id=f"vc_{vendor}")
+    await _set_columns(tenant_id, agent_id, voice, "prana-voice")
+    workspace = workspace_of(UUID(str(tenant_id)))
+    engine = HostingEngine()
+    engine.hosted_in[workspace] = [_shared("anika-standard", "Anika"), _shared(vendor)]
+    with selected(engine):
+        ref = await _publish(tenant_id, agent_id)
+    sent = engine.sent[-1]
+    assert (sent.engine_workspace, sent.engine_voice_id) == (workspace, vendor)
+    assert scope_of(ref) == workspace
+    assert engine.clones == {}, "nothing is cloned in the client's workspace"
+    assert await _copies(UUID(str(tenant_id))) == 0
+
+
+async def test_a_client_agent_on_our_clone_is_refused_when_its_workspace_does_not_share_it(
+    attested: set[str],  # noqa: F811
+    no_webhook: None,  # noqa: F811
+    hosted_rows: CatalogueRows,
+) -> None:
+    """Under another id the entry may or may not be our clone: no documented field links
+    the two, so it is refused rather than guessed at, and nothing reaches the vendor."""
+    tenant_id, agent_id = await _agent()
+    vendor = f"clone-{uuid.uuid4().hex[:8]}"
+    voice = await hosted_rows.add("engine", vendor_id=vendor, clone_id=f"vc_{vendor}")
+    await _set_columns(tenant_id, agent_id, voice, "prana-voice")
+    engine = HostingEngine()
+    engine.hosted_in[workspace_of(UUID(str(tenant_id)))] = [_shared(f"other-{vendor}")]
+    with selected(engine), pytest.raises(ProblemError) as refused:
+        await _publish(tenant_id, agent_id)
+    assert refused.value.code == shared_clones.SHARED_CLONE_NOT_LISTED
+    assert engine.sent == [] and engine.clones == {}
+    assert await _copies(UUID(str(tenant_id))) == 0
+
+
+def _listed_shared(vendor: str) -> list[HostedVoice]:
+    return [_shared(vendor)]
+
+
+def _listed_nothing(vendor: str) -> list[HostedVoice]:
+    # A plan below Pro lists no Studio voice, shared clones included (list-voices.md:450-453).
+    return []
+
+
+def _listed_other_id(vendor: str) -> list[HostedVoice]:
+    return [_shared(f"x-{vendor}")]
+
+
+def _listed_not_shared(vendor: str) -> list[HostedVoice]:
+    return [_shared(vendor).model_copy(update={"shared_from_developer": False})]
+
+
+@pytest.mark.parametrize(
+    ("listed", "resolves"),
+    [
+        (_listed_shared, True),
+        (_listed_nothing, False),
+        (_listed_other_id, False),
+        (_listed_not_shared, False),
+    ],
+)
+async def test_the_shared_clone_is_resolved_from_the_client_workspaces_own_listing(
+    hosted_rows: CatalogueRows,
+    listed: Any,
+    resolves: bool,
+) -> None:
+    vendor = f"clone-{uuid.uuid4().hex[:8]}"
+    voice = await hosted_rows.add("engine", vendor_id=vendor, clone_id=f"vc_{vendor}")
+    # Our developer workspace lists it as ours; only the client workspace's listing counts.
+    engine = HostingEngine(hosted=[_shared(vendor)])
+    engine.hosted_in["org_shared-test"] = listed(vendor)
+    async with tenant_session(uuid.uuid4()) as session:
+        if resolves:
+            held = await shared_clones.client_voice_id(
+                session, engine, voice_id=voice, workspace="org_shared-test"
+            )
+            assert held == vendor
+            return
+        with pytest.raises(ProblemError) as refused:
+            await shared_clones.client_voice_id(
+                session, engine, voice_id=voice, workspace="org_shared-test"
+            )
+    assert refused.value.code == shared_clones.SHARED_CLONE_NOT_LISTED
+
+
+async def test_a_voice_that_is_not_our_clone_is_the_same_id_everywhere(
+    hosted_rows: CatalogueRows,
+) -> None:
+    voice = await hosted_rows.add("engine", vendor_id=f"asha-{uuid.uuid4().hex[:6]}")
+    async with tenant_session(uuid.uuid4()) as session:
+        for catalogue_id in (voice, "engine:not-in-catalogue"):
+            assert (
+                await shared_clones.client_voice_id(
+                    session, HostingEngine(), voice_id=catalogue_id, workspace="org_x"
+                )
+                is None
+            )
+
+
+class _SettingsEngine(HostingEngine):
+    """Holds each agent's voice as the vendor would, and compares and repairs only that."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.made_in: list[str | None] = []
-        self.where: dict[str, str | None] = {}
-        self.at_limit = False
+        self.held: dict[str, str | None] = {}
 
-    async def create_voice_clone(self, sample: VoiceCloneSample) -> VoiceClone:
-        if self.at_limit:
-            raise ProblemError.business_rule("voice_clone_limit_reached", "full")
-        clone = await super().create_voice_clone(sample)
-        self.made_in.append(current_workspace())
-        self.where[clone.voice_id] = current_workspace()
-        return clone
+    async def settings_drift(self, ref: str, cfg: AgentConfig) -> list[str]:
+        return ["voice"] if self.held.get(ref) != cfg.engine_voice_id else []
 
-    async def list_voice_clones(self) -> list[VoiceClone]:
-        here = current_workspace()
-        return [c for c in self.clones.values() if self.where.get(c.voice_id) == here]
+    async def repair_settings(self, ref: str, cfg: AgentConfig, drifted: Any) -> None:
+        self.held[ref] = cfg.engine_voice_id
 
 
-async def test_our_clone_is_cloned_again_into_a_clients_workspace_from_the_kept_sample(
-    monkeypatch: pytest.MonkeyPatch,
+async def test_the_drift_sweep_moves_an_agent_off_its_old_copy_and_then_holds_still(
+    hosted_rows: CatalogueRows,
 ) -> None:
-    import apps.workers.storage as storage
+    from apps.api.agents.engine_settings import check_agent_settings
 
-    stored: dict[str, bytes] = {}
-
-    async def _store(*, key: str, data: bytes) -> str:
-        stored[key] = data
-        return key
-
-    async def _read(key: str) -> bytes | None:
-        return stored.get(key)
-
-    monkeypatch.setattr(storage, "store_voice_clone_sample", _store)
-    monkeypatch.setattr(storage, "read_voice_clone_sample", _read)
-    voice_id = f"engine:clone-{uuid.uuid4().hex[:8]}"
-    async with untenanted_session() as session:
-        await session.execute(
-            text(
-                "INSERT INTO platform_voice_catalog (voice_id, engine_voice_id, label, tts_model, "
-                "provider, synced_at, engine_clone_id, is_custom) VALUES (:v, 'dev-voice', "
-                "'Founder voice', 'engine', 'thinnest', now(), 'vc_dev', true)"
-            ),
-            {"v": voice_id},
+    tenant_id, agent_id = await _agent()
+    tenant, agent = UUID(str(tenant_id)), UUID(str(agent_id))
+    vendor = f"clone-{uuid.uuid4().hex[:8]}"
+    voice = await hosted_rows.add("engine", vendor_id=vendor, clone_id=f"vc_{vendor}")
+    await _set_columns(tenant_id, agent_id, voice, "prana-voice")
+    workspace = workspace_of(tenant)
+    ref = f"ag_1@{workspace}"
+    engine = _SettingsEngine()
+    engine.held[ref] = "copy-made-before-d797"
+    engine.hosted_in[workspace] = [_shared(vendor)]
+    with selected(engine):
+        first = await check_agent_settings(tenant_id=tenant, agent_id=agent, engine_agent_ref=ref)
+        second = await check_agent_settings(tenant_id=tenant, agent_id=agent, engine_agent_ref=ref)
+        # The workspace stops listing it: the sweep checks nothing it cannot resolve and never
+        # "repairs" the agent onto an id that workspace does not hold.
+        engine.hosted_in[workspace] = []
+        engine.held[ref] = "standard-voice"
+        unlisted = await check_agent_settings(
+            tenant_id=tenant, agent_id=agent, engine_agent_ref=ref
         )
-        key = await clone_copies.keep_clone_sample(
-            session,
-            voice_id=voice_id,
-            filename="me.mp3",
-            content_type="audio/mpeg",
-            language="te",
-            data=b"RECORDING-OF-A-VOICE",
-        )
-    assert b"RECORDING-OF-A-VOICE" not in stored[key], "kept sealed, never in clear"
-    assert json.loads(stored[key])["content_type"] == "audio/mpeg"
-
-    from tests.engine_workspace_test import _tenant
-
-    tenant_id = await _tenant()
-    workspace = await give_own_workspace(tenant_id)
-    engine = _CloningEngine()
-    async with tenant_session(tenant_id) as session:
-        copy = await clone_copies.workspace_voice_id(
-            session, engine, tenant_id=tenant_id, voice_id=voice_id, workspace=workspace
-        )
-        again = await clone_copies.workspace_voice_id(
-            session, engine, tenant_id=tenant_id, voice_id=voice_id, workspace=workspace
-        )
-    assert copy is not None and copy == again
-    assert engine.made_in == [workspace], "made once, in the client's own workspace"
-    [made] = engine.clones.values()
-    assert made.label == clone_copies.copy_name("Founder voice", voice_id)
-    assert len(made.label) <= clone_copies.NAME_MAX
-
-    other_tenant = await _tenant()
-    other_ws = await give_own_workspace(other_tenant)
-    engine.at_limit = True
-    async with tenant_session(other_tenant) as session:
-        with pytest.raises(ProblemError) as refused:
-            await clone_copies.workspace_voice_id(
-                session, engine, tenant_id=other_tenant, voice_id=voice_id, workspace=other_ws
-            )
-    assert refused.value.code == "voice_clone_workspace_limit"
-
-
-async def test_a_voice_that_is_not_our_clone_is_the_same_id_everywhere() -> None:
-    from tests.engine_workspace_test import _tenant
-
-    tenant_id = await _tenant()
-    async with tenant_session(tenant_id) as session:
-        assert (
-            await clone_copies.workspace_voice_id(
-                session,
-                HostingEngine(),
-                tenant_id=tenant_id,
-                voice_id="engine:not-in-catalogue",
-                workspace="org_x",
-            )
-            is None
-        )
+    assert first is not None and (first.drifted, first.repaired) == (("voice",), True)
+    assert second is not None and second.drifted == ()
+    assert unlisted is None and engine.held[ref] == "standard-voice"
 
 
 # --- an engine without workspaces is unchanged -------------------------------------------
@@ -354,7 +425,7 @@ async def test_an_engine_without_workspaces_never_reads_one_and_its_config_is_un
     assert agents_service._moves_workspace("fake:t:a", cfg) is False
 
 
-async def test_deleting_our_clone_deletes_its_copies_in_client_workspaces(
+async def test_deleting_our_clone_deletes_its_old_copies_and_counts_their_agents(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import apps.api.tenancy.engine_workspace as resolver_module
@@ -383,15 +454,8 @@ async def test_deleting_our_clone_deletes_its_copies_in_client_workspaces(
     class _Deleting(HostingEngine):
         async def delete_voice_clone(self, clone_id: str) -> int:
             deleted_in.append((current_workspace(), clone_id))
-            return 0
+            return 3
 
-    assert await clone_copies.forget_clone(_Deleting(), voice_id=voice_id, sample_key=None) == 1
+    assert await shared_clones.forget_clone(_Deleting(), voice_id=voice_id, sample_key=None) == 3
     assert deleted_in == [(workspace, "vc_copy")]
-    async with tenant_session(tenant_id) as session:
-        left = (
-            await session.execute(
-                text("SELECT count(*) FROM engine_voice_clone_copies WHERE voice_id = :v"),
-                {"v": voice_id},
-            )
-        ).scalar_one()
-    assert left == 0
+    assert await _copies(tenant_id) == 0

@@ -90,6 +90,9 @@ class HostingEngine(FakeEngine):
     ) -> None:
         super().__init__(name="thinnest", capabilities=THINNEST_CAPABILITIES, **kw)
         self.hosted = hosted or []
+        #: `GET /voices` as a customer workspace answers it, where our clones are listed
+        #: `sharedFromDeveloper`; a workspace not here lists `hosted`.
+        self.hosted_in: dict[str, list[HostedVoice]] = {}
         #: Voices listed in a tier the adapter does not read, by the vendor's word.
         self.unread_bands: dict[str, int] = {}
         self.own_key = own_key or []
@@ -162,7 +165,9 @@ class HostingEngine(FakeEngine):
         self.deleted.append(ref)
 
     async def list_hosted_voices(self) -> HostedVoiceListing:
-        return HostedVoiceListing(voices=self.hosted, unread_bands=self.unread_bands)
+        workspace = current_workspace()
+        voices = self.hosted_in.get(workspace, self.hosted) if workspace else self.hosted
+        return HostedVoiceListing(voices=voices, unread_bands=self.unread_bands)
 
     async def list_own_key_voices(self) -> HostedVoiceListing:
         self.own_keys_listed += 1

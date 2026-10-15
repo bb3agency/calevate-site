@@ -17,7 +17,7 @@ Every job here is reached through the outbox or a cron, and every one is idempot
 * `submit_engine_business_details` sends the client's verified details to its workspace.
 * `sweep_engine_workspaces` walks every client workspace each day, bounded and resumable:
   its business-details application read back (an expired one sent again), and whether the
-  clone copies we recorded for it are still there.
+  pre-D-797 clone copies we recorded for it are still there.
 * `offboard_engine_workspace` runs when an account closes: numbers released
   (`?confirm=release`), agents deleted, the customer deleted (refused by the vendor while it
   still holds a rented number, so the numbers go first).
@@ -392,8 +392,10 @@ async def _business_details_leg(tenant_id: UUID, tally: dict[str, int]) -> None:
 async def _clone_leg(
     engine: object, tenant_id: UUID, workspace: str, tally: dict[str, int]
 ) -> None:
-    """Every clone copy we recorded for this workspace is still there; a copy the vendor no
-    longer holds is forgotten, so the next publish on that voice makes it again."""
+    """Every pre-D-797 clone copy we recorded for this workspace is still there; a copy the
+    vendor no longer holds is forgotten, so deleting our clone (`shared_clones.forget_clone`)
+    does not try to delete it again. Nothing records a new copy: client agents speak our
+    clones as shared (D-797)."""
     if not isinstance(engine, HostsVoices):
         return
     async with tenant_session(tenant_id) as session:
@@ -456,11 +458,11 @@ async def sync_engine_call_lines(ctx: dict[str, Any], payload: dict[str, Any]) -
 
 async def sweep_engine_workspaces(ctx: dict[str, Any]) -> str:
     """Daily. For each active client workspace, bounded and resumable: its business-details
-    application, and whether the clone copies we recorded for it are still there. Its calls at
-    once are read back and a value changed in the vendor's console is set again (F7). Whether a
-    Studio workspace is still on our Cartesia key is the hourly `studio_voice_key.
-    sweep_studio_workspaces` (D-717). One workspace's failure is logged and the walk goes
-    on."""
+    application, and whether the pre-D-797 clone copies we recorded for it are still there.
+    Its calls at once are read back and a value changed in the vendor's console is set again
+    (F7). Whether a Studio workspace is still on our Cartesia key is the hourly
+    `studio_voice_key.sweep_studio_workspaces` (D-717). One workspace's failure is logged and
+    the walk goes on."""
     if not engine_has_workspaces():
         return "not_applicable"
     engine = get_engine()

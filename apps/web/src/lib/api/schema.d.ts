@@ -10210,7 +10210,7 @@ export interface paths {
         post: operations["create_clone_v1_ops_voices_clones_post"];
         /**
          * Delete one of our cloned voices (step-up confirmed, audited)
-         * @description Deletes the clone on the voice platform, which forgets it everywhere and moves every agent on it to a standard voice; it cannot be undone. Refused with `voice_clone_in_use` while live agents here are on it, unless `confirm=true`. Requires `X-Confirm-Action: delete_voice_clone:<voice_id>`.
+         * @description Deletes the clone on the voice platform, which forgets it everywhere and moves every agent on it, in our workspace and in every client's, to a standard voice; it cannot be undone. Refused with `voice_clone_in_use` while live agents of any client are on it, unless `confirm=true`. Requires `X-Confirm-Action: delete_voice_clone:<voice_id>`.
          */
         delete: operations["delete_clone_v1_ops_voices_clones_delete"];
         options?: never;

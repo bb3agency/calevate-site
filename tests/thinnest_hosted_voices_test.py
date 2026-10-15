@@ -120,13 +120,23 @@ async def test_own_key_voices_are_read_with_their_provider() -> None:
                 {
                     "provider": {"id": "cartesia", "label": "Cartesia"},
                     "model": "sonic-3",
+                    # `own` is required on every voice; on Cartesia our account's own voices
+                    # are listed first (snapshots/2026-10-15/pages/api-reference/
+                    # bring-your-own-keys/list-byok-voices.md:731-739).
                     "items": [
-                        {"id": "cv-1", "name": "Meera", "language": "hi", "sample": None},
+                        {
+                            "id": "cv-1",
+                            "name": "Meera",
+                            "language": "hi",
+                            "sample": None,
+                            "own": True,
+                        },
                         {
                             "id": "cv-2",
                             "name": "Arjun",
                             "language": "en",
                             "sample": "https://x/a.mp3",
+                            "own": False,
                         },
                     ],
                 }
@@ -135,9 +145,9 @@ async def test_own_key_voices_are_read_with_their_provider() -> None:
     )
     listing = await _engine(vendor).list_own_key_voices()
     assert listing.provider == "cartesia"
-    assert [(v.voice_id, v.source, v.sample_url) for v in listing.voices] == [
-        ("cv-1", "byok", None),
-        ("cv-2", "byok", "https://x/a.mp3"),
+    assert [(v.voice_id, v.source, v.sample_url, v.is_custom) for v in listing.voices] == [
+        ("cv-1", "byok", None, True),
+        ("cv-2", "byok", "https://x/a.mp3", False),
     ]
 
 
@@ -150,14 +160,13 @@ async def test_an_own_key_listing_is_whole_only_when_the_platform_says_so(
 ) -> None:
     """One answer, no paging parameters; `complete: false` when Cartesia was slow
     (docs.thinnest.ai list-byok-voices, read 12 Oct 2026). A missing flag is short too: only
-    a listing the platform vouches for may withdraw a voice. Our clones come first but carry
-    no field saying so, so none is marked as ours."""
+    a listing the platform vouches for may withdraw a voice."""
     vendor = _Vendor(
         {
             ("GET", "/byok/voices", None): _ok(
                 {
                     "provider": {"id": "cartesia", "label": "Cartesia"},
-                    "items": [{"id": "own-1", "name": "Our clone", "language": "te"}],
+                    "items": [{"id": "own-1", "name": "Our clone", "language": "te", "own": True}],
                     **flag,
                 }
             )
@@ -166,7 +175,37 @@ async def test_an_own_key_listing_is_whole_only_when_the_platform_says_so(
     listing = await _engine(vendor).list_own_key_voices()
     assert listing.complete is complete
     assert [request.url.params.get("cursor") for request in vendor.seen] == [None]
-    assert listing.voices[0].is_custom is False
+
+
+async def test_a_customer_workspace_lists_our_clone_as_shared_from_us() -> None:
+    """Inside a customer workspace our clone carries `sharedFromDeveloper: true` and no
+    `mine` (snapshots/2026-10-15/pages/api-reference/voices/list-voices.md:442-453, example
+    :495-500, schema :579-589); the request carries that workspace's header."""
+    vendor = _Vendor(
+        {
+            ("GET", "/voices", _CLIENT_WS): _ok(
+                {
+                    "items": [
+                        {"id": "anj", "name": "Anjali", "accent": "hi", "tier": "standard"},
+                        {
+                            "id": "7e2b5c90-4d1a-4f63-8b7e-2c9a0d6f1e48",
+                            "name": "Brand voice (from your developer)",
+                            "accent": "en-IN",
+                            "tier": "studio",
+                            "description": None,
+                            "sharedFromDeveloper": True,
+                        },
+                    ]
+                }
+            )
+        }
+    )
+    with in_workspace(_CLIENT_WS):
+        listing = await _engine(vendor).list_hosted_voices()
+    assert [(v.voice_id, v.is_custom, v.shared_from_developer) for v in listing.voices] == [
+        ("anj", False, False),
+        ("7e2b5c90-4d1a-4f63-8b7e-2c9a0d6f1e48", True, True),
+    ]
 
 
 async def test_an_own_key_listing_without_a_provider_names_none() -> None:

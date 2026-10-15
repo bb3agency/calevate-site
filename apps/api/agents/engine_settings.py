@@ -24,6 +24,7 @@ from typing import Final, Protocol, runtime_checkable
 from uuid import UUID
 
 from calevate_shared.engine import AgentConfig, EngineAgentRef
+from calevate_shared.engine_scope import is_customer_workspace, scope_of
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -129,6 +130,7 @@ async def check_agent_settings(
     (not evidence of drift; the next tick asks again)."""
     from apps.api.agents.handoff import spec_for
     from apps.api.agents.service import _load_agent, _to_config
+    from apps.api.agents.shared_clones import voice_in_workspace
     from apps.api.healer.protection import healer_holds_line
 
     engine = get_engine()
@@ -143,7 +145,19 @@ async def check_agent_settings(
                 return None
             row = await _load_agent(session, tenant_id, agent_id)
             handoff, _duty = await spec_for(session, dict(row))
-        config = _to_config(tenant_id, row, engine=engine, handoff=handoff)
+            config = _to_config(tenant_id, row, engine=engine, handoff=handoff)
+            # In a client's workspace one of our clones is spoken under the id that
+            # workspace lists for it, as the publish sent it (`shared_clones`). An agent
+            # still on a pre-D-797 copy reads as voice drift and is repaired onto it.
+            workspace = scope_of(engine_agent_ref)
+            if is_customer_workspace(workspace):
+                config = await voice_in_workspace(
+                    session,
+                    engine,
+                    catalogue_voice=row.get("engine_voice_id"),
+                    config=config,
+                    workspace=str(workspace),
+                )
         drifted = await settings.settings_drift(engine_agent_ref, config)
     except ProblemError as exc:
         log.info(
