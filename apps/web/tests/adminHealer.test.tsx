@@ -1,10 +1,11 @@
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import OpsHealerPage from "@/app/admin/ops/healer/page";
 import type { HealerAction, HealerIncident, HealerOverview } from "@/lib/api/opsHealer";
 import openapi from "@/lib/api/openapi.json";
+import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
 import { renderAdminRoute } from "./adminRoute";
 
@@ -31,6 +32,7 @@ const OUTBOX = "019f1000-0000-7000-8000-0000000000o1";
 function incident(over: Partial<HealerIncident>): HealerIncident {
   return {
     id: MONEY,
+    ref: "000000m1",
     playbook: "money_review",
     trigger_code: "engine_charge_mismatch",
     scope: "platform",
@@ -56,6 +58,8 @@ function incident(over: Partial<HealerIncident>): HealerIncident {
     group: "Money: needs your review",
     automatic: false,
     progress: "Not fixable automatically, handed to you",
+    finding:
+      "3 of 14 charged calls differ since 09 Oct 19:12 IST. premium: we hold ₹2.50/min, charges imply ₹2.75/min. One rate explains all. Alarm open.",
     ...over,
   };
 }
@@ -64,6 +68,8 @@ const INCIDENTS: HealerIncident[] = [
   incident({}),
   incident({
     id: OUTBOX,
+    ref: "000000o1",
+    finding: null,
     playbook: "outbox_replay",
     trigger_code: "outbox_dead_letter",
     state: "resolved",
@@ -82,6 +88,8 @@ const INCIDENTS: HealerIncident[] = [
   }),
   incident({
     id: "019f1000-0000-7000-8000-0000000000w1",
+    ref: "000000w1",
+    finding: null,
     playbook: "engine_webhooks",
     trigger_code: "engine_webhook_sweep_incomplete",
     state: "mitigated",
@@ -278,10 +286,45 @@ describe("auto-healer screen in plain words", () => {
     expect(post?.headers["X-Confirm-Action"]).toBe(`resolve_heal_incident:${MONEY}`);
   });
 
+  it("hands Pip each open problem by its ref, prefilled and not sent", async () => {
+    const asked: AssistantRequest[] = [];
+    function Listener() {
+      useAssistantRequests((request) => asked.push(request));
+      return null;
+    }
+    render(<Listener />);
+    const { calls } = await renderAdminRoute(<OpsHealerPage />, routes());
+    await settle();
+    const money = row("Call charges don't match our records");
+    fireEvent.click(within(money).getByRole("button", { name: /^Ask Pip to fix this: / }));
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.prompt).toContain("(ref 000000m1)");
+    expect(asked[0]?.prompt).toContain("Call charges don't match our records");
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+    const closed = row("Background jobs failed after every retry");
+    expect(within(closed).queryByRole("button", { name: /Ask Pip/ })).toBeNull();
+  });
+
+  it("shows Pip's finding on an open money problem as a quiet notice", async () => {
+    await renderAdminRoute(<OpsHealerPage />, routes());
+    await settle();
+    const money = row("Call charges don't match our records");
+    const finding = within(money).getByText(/charges imply ₹2\.75\/min/);
+    expect(finding.closest("[data-notice='neutral']")).toBeTruthy();
+    expect(money.textContent).toContain("Pip found:");
+  });
+
+  it("presents the healer as Pip's work", async () => {
+    await renderAdminRoute(<OpsHealerPage />, routes());
+    await settle();
+    expect(screen.getByText(/Pip watches the platform/)).toBeTruthy();
+    expect(screen.getByText("What Pip did")).toBeTruthy();
+  });
+
   it("the API contract carries the plain words on every incident", () => {
     const schemas = (openapi as { components: { schemas: Record<string, { required?: string[] }> } })
       .components.schemas;
-    for (const field of ["kind", "group", "automatic", "progress"]) {
+    for (const field of ["ref", "kind", "group", "automatic", "progress"]) {
       expect(schemas.IncidentOut?.required).toContain(field);
     }
     expect(schemas.IncidentKindOut?.required).toEqual(

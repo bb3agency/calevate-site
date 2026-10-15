@@ -135,6 +135,22 @@ const GOOGLE_PICKER_SCRIPT_SOURCES = [
   "https://apis.google.com/_/scs/",
 ];
 const GOOGLE_PICKER_FRAME_ORIGIN = "https://docs.google.com";
+/**
+ * Meta's Embedded Signup (D-784), loaded only when a client owner presses Connect WhatsApp
+ * (`lib/facebookSignup.ts`). Meta names the script `https://connect.facebook.net/en_US/sdk.js`
+ * (embedded-signup/implementation.md, read 15 Oct 2026), admitted by path for the reason the
+ * Google entry is. The SDK's own frames and calls go to `www.facebook.com` and
+ * `graph.facebook.com`; Meta publishes no CSP list, so any further origin a real signup
+ * reports is added here (OPERATIONS gate W-4).
+ */
+const FACEBOOK_SDK_SCRIPT_SOURCES = [
+  "https://connect.facebook.net/en_US/sdk.js",
+  // The loader pulls the SDK proper from here: measured in a browser on 15 Oct 2026 (D-784),
+  // `https://connect.facebook.net/en_US/bundle/sdk.js/` after `en_US/sdk.js`.
+  "https://connect.facebook.net/en_US/bundle/",
+];
+const FACEBOOK_ORIGINS = ["https://www.facebook.com", "https://web.facebook.com"];
+const FACEBOOK_GRAPH_ORIGIN = "https://graph.facebook.com";
 
 /** The collector's path in `apps/api` (`apps/api/security/routes.py`). One spelling. */
 export const CSP_REPORT_PATH = "/reports/v1/csp";
@@ -232,19 +248,24 @@ export function buildContentSecurityPolicy(
 ): string {
   const apiOrigin = opts.apiOrigin ?? apiConnectOrigin();
   const media = opts.mediaOrigin ?? mediaOrigin();
-  const connect = ["'self'", apiOrigin, ...RAZORPAY_CONNECT_ORIGINS].filter(Boolean).join(" ");
+  const connect = ["'self'", apiOrigin, ...RAZORPAY_CONNECT_ORIGINS, FACEBOOK_GRAPH_ORIGIN, ...FACEBOOK_ORIGINS].filter(Boolean).join(" ");
   const mediaSources = ["'self'", media].filter(Boolean).join(" ");
   // The second of the two refusals: asking for it in production does not get it.
   const evalSource = opts.devEval && process.env.NODE_ENV !== "production" ? " 'unsafe-eval'" : "";
   const directives = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}'${evalSource} ${RAZORPAY_CHECKOUT_ORIGIN} ${GOOGLE_PICKER_SCRIPT_SOURCES.join(" ")}`,
+    `script-src 'self' 'nonce-${nonce}'${evalSource} ${RAZORPAY_CHECKOUT_ORIGIN} ${GOOGLE_PICKER_SCRIPT_SOURCES.join(" ")} ${FACEBOOK_SDK_SCRIPT_SOURCES.join(" ")}`,
     "style-src 'self' 'unsafe-inline'",
-    `img-src 'self' data: blob: ${RAZORPAY_IMAGE_ORIGIN}`,
+    `img-src 'self' data: blob: ${RAZORPAY_IMAGE_ORIGIN} ${FACEBOOK_ORIGINS[0]}`,
     "font-src 'self'",
+    // pdf.js reads an attached PDF's text in a worker the bundler serves from our own origin
+    // (`lib/copilot/pdfText.ts`, D-781). Without this, `worker-src` falls back to
+    // `script-src`, which also admits the payment, picker and SDK origins; naming `'self'`
+    // alone is narrower than what applied before. No `blob:`.
+    "worker-src 'self'",
     `connect-src ${connect}`,
     `media-src ${mediaSources}`,
-    `frame-src ${RAZORPAY_CHECKOUT_ORIGIN} ${RAZORPAY_API_ORIGIN} ${GOOGLE_PICKER_FRAME_ORIGIN}`,
+    `frame-src ${RAZORPAY_CHECKOUT_ORIGIN} ${RAZORPAY_API_ORIGIN} ${GOOGLE_PICKER_FRAME_ORIGIN} ${FACEBOOK_ORIGINS.join(" ")}`,
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'none'",

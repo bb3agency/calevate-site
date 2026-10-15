@@ -155,7 +155,7 @@ export function ConsentProvenanceAnswer({
 
   return (
     <form
-      className="space-y-4 rounded-md bg-surface-muted p-4"
+      className="space-y-4 border-l-2 border-line pl-4"
       noValidate
       onSubmit={valid.onSubmit(() => {
         if (!source || !iso) return;

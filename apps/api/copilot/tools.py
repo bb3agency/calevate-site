@@ -1203,11 +1203,10 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="leads_search",
         description=(
-            "This account's leads, newest first, optionally filtered to one status, AND "
-            "the total number of leads with a count for every status. Returns the name, "
-            "status, call count, masked phone and owner of each row. Use it to answer HOW "
-            "MANY leads there are as well as who has been captured and what state they "
-            "are in — it always reports the totals, even when it returns no rows."
+            "This account's leads, newest first, optionally filtered to one status, and "
+            "always the total with a count for every status, even with no rows. Each row: "
+            "name, status, call count, masked phone, owner. Use it for how many leads there "
+            "are and who they are; for what a lead asked for, use `leads_semantic_search`."
         ),
         parameters={
             "type": "object",
@@ -1275,10 +1274,10 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         name="calls_recent",
         description=(
             "This account's most recent calls, newest first: when, direction, status, "
-            "length, which agent took it, its outcome tag and a short redacted summary. "
-            "Use it to answer questions about what has been happening on the phone. Filter "
-            "by status to find the calls a person means by 'missed' — no_answer, busy, "
-            "failed or voicemail — or the ones that connected (completed)."
+            "length, agent, outcome tag and a short redacted summary. Filter by status for "
+            "'missed' calls (no_answer, busy, failed, voicemail) or connected ones "
+            "(completed). For one call in full use `call_detail`, for calls in progress "
+            "`calls_live`, and for what callers said `search_calls`."
         ),
         parameters={
             "type": "object",
@@ -1348,11 +1347,11 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="search_knowledge",
         description=(
-            "Look up what THIS account's live voice agents tell callers — the business "
-            "facts and approved knowledge compiled into their scripts (opening hours, "
-            "address, services and prices, staff, policies). Use it whenever the person "
-            "asks what their agent says or knows about something. It cannot see the "
-            "screen, other accounts, or anything not yet approved and published."
+            "Look up what this account's live voice agents tell callers: the approved "
+            "business facts and knowledge in their scripts (opening hours, address, "
+            "services and prices, staff, policies). Use it whenever the person asks what "
+            "their agent says or knows; what callers themselves asked is `search_calls`. "
+            "It cannot see the screen, other accounts, or anything not yet published."
         ),
         parameters={
             "type": "object",

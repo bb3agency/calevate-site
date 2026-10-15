@@ -166,7 +166,13 @@ export function AssistPanel({
         title={write.reason ?? (written < 10 ? "Write a little more first." : undefined)}
         onClick={ask}
       >
-        {assist.isPending ? "Thinking…" : fromQuestions ? "Draft my script" : "Suggest the change"}
+        {assist.isPending ? (
+          <span className="text-shimmer">Thinking…</span>
+        ) : fromQuestions ? (
+          "Draft my script"
+        ) : (
+          "Suggest the change"
+        )}
       </button>
       {assist.isPending && (
         <p role="status" className="text-meta text-ink-muted">

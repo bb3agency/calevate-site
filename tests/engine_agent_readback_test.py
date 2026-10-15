@@ -13,10 +13,10 @@ from apps.api.core.errors import ProblemError
 from apps.api.engine.fake import FakeEngine
 from calevate_shared.engine import (
     CLIENT_SCRIPT_OPEN,
-    PLATFORM_RULES_PREAMBLE,
     TRUTHFUL_ANSWER_DIRECTIVE,
     AgentConfig,
     KBSourceRef,
+    platform_rules_preamble,
 )
 
 
@@ -65,7 +65,7 @@ async def test_fake_read_back_carries_the_opening_line_the_way_an_engine_holds_i
     rules are now stated FIRST as well as last, because the floor was enforced as
     presence and not as precedence: a client script could tell the agent to deny being an
     AI and every containment check still passed. So the prompt opens with
-    `PLATFORM_RULES_PREAMBLE` and the opening line follows it.
+    `platform_rules_preamble` and the opening line follows it.
 
     What this test is actually about is unchanged and is now checked more precisely: the
     opening line is CARRIED and sits ahead of the client's script, so the notice a caller
@@ -76,7 +76,7 @@ async def test_fake_read_back_carries_the_opening_line_the_way_an_engine_holds_i
     ref = await engine.create_agent(cfg)
     prompt = (await engine.get_agent(ref)).system_prompt
     assert prompt is not None
-    assert prompt.startswith(PLATFORM_RULES_PREAMBLE)
+    assert prompt.startswith(platform_rules_preamble(cfg))
     assert cfg.opening_line in prompt
     assert prompt.index(cfg.opening_line) < prompt.index(CLIENT_SCRIPT_OPEN)
     assert prompt.rstrip().endswith(TRUTHFUL_ANSWER_DIRECTIVE.rstrip())

@@ -90,3 +90,10 @@ allowBuilds:
 # a nested one in apps/web with `ignoredBuiltDependencies` — it makes apps/web a
 # second workspace root and breaks `pnpm -C apps/web <script>`. Delete it if it
 # reappears after a scaffold/upgrade.
+
+# pdfjs-dist (D-781) declares `@napi-rs/canvas` OPTIONAL: it is a native canvas for running
+# pdf.js under Node, prebuilt per platform. Pip only runs pdf.js in the browser, to read a
+# PDF's text, so the binary is never needed and is not installed: no prebuilt native code
+# enters the tree for a feature that does not use it (hard rule 9).
+ignoredOptionalDependencies:
+  - "@napi-rs/canvas"

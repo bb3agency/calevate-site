@@ -1,13 +1,8 @@
-"""The hold queue — the half of two R-11 mitigations that was missing: DISCOVERY.
+"""The hold queue — the half of the KYC mitigation that was missing: DISCOVERY.
 
-Two gates shipped without a way for the human they depend on to find their work:
-
-* `kyc_records` — a self-serve tenant cannot dial until ops records a verification;
-* `first_campaign_reviews` — a self-serve tenant's campaigns are all refused until ops
-  releases the account.
-
-Both hold an account until a person acts, and neither told the person. An operator
-learned an account was waiting when the client emailed, which makes the mitigation
+`kyc_records` shipped without a way for the human it depends on to find their work: a
+self-serve tenant cannot dial until ops records a verification, and nothing told ops. An
+operator learned an account was waiting when the client emailed, which makes the mitigation
 depend on the client complaining — a support queue, not a control. These tests pin the
 properties that turn it back into one.
 
@@ -15,16 +10,16 @@ properties that turn it back into one.
    WHICH gate each is waiting on, without knowing the tenant's id in advance.
 2. **Hard rule 1 is the design, not an afterthought.** The queue is a cross-tenant read
    from the admin realm and it widens NOTHING: `app.admin` still cannot see a row of
-   `kyc_records` or `first_campaign_reviews`, and a client-realm session still sees
+   `kyc_records`, and a client-realm session still sees
    exactly zero rows of another tenant. The isolation is the per-tenant
    `tenant_session` the queue opens, exactly as `admin.service.tenant_overview` counts
    calls (migration b57e2f9c4a13's scope, kept).
 3. **Hard rule 6.** The queue lists ACCOUNTS, not people: no phone number, no document
-   reference, no signatory, and no reviewer's free-text note — any of which could carry
+   reference, no signatory, and no rejection reason — any of which could carry
    a person into an ops list that has no reason to hold one.
 4. **One predicate.** "Is this tenant waiting?" is answered by the same
-   `kyc_blocker` / `first_campaign_hold_blocker` the dial gate and the launch preview
-   ask, so the queue can never disagree with the refusal the client is seeing.
+   `kyc_blocker` the dial gate and the launch preview ask, so the queue can never
+   disagree with the refusal the client is seeing.
 5. **D-22.** It is a read, so it is readable with a read permission.
 
 Run: uv run pytest -q tests/ops_hold_queue_test.py
@@ -49,7 +44,7 @@ QUEUE_PATH = "/v1/admin/compliance/holds"
 # A CIN is 21 characters — a KYC record needs a real registry shape.
 CIN = "U74999TG2026PTC123456"
 SIGNATORY = "Padmavathi Rao"
-REVIEW_NOTE = "Read the list, the script and the disclosure line. Bought list — refused."
+REJECTION_REASON = "The CIN on file belongs to a different company than the signup names."
 
 
 def _client() -> AsyncClient:
@@ -91,8 +86,8 @@ async def _make_member(tenant_id: uuid.UUID, role: str = "owner") -> str:
 
 
 async def _tenant(plan_tier: str = "self_serve") -> dict[str, Any]:
-    """A tenant on the given motion. Nothing else: the queue asks two questions and
-    neither needs an agent, a number or a campaign."""
+    """A tenant on the given motion. Nothing else: the queue asks one question and it
+    does not need an agent, a number or a campaign."""
     created = await admin_service.create_organization(
         name="Queue Motors",
         slug=f"queue-{uuid.uuid4().hex[:8]}",
@@ -114,7 +109,7 @@ async def _tenant(plan_tier: str = "self_serve") -> dict[str, Any]:
     return created
 
 
-async def _verify_kyc(org: dict[str, Any]) -> None:
+async def _record_kyc(org: dict[str, Any], *, status: str = "verified") -> None:
     """Through the audited ops route, never by writing the row."""
     token = await _make_admin("superadmin")
     async with _client() as http:
@@ -125,25 +120,14 @@ async def _verify_kyc(org: dict[str, Any]) -> None:
                 "X-Confirm-Action": f"record_kyc:{org['id']}",
             },
             json={
-                "status": "verified",
+                "status": status,
                 "entity_type": "private_limited",
                 "document_kind": "cin",
                 "document_ref": CIN,
                 "signatory_name": SIGNATORY,
                 "evidence_ref": "ops-ticket-4471",
+                "rejection_reason": REJECTION_REASON if status == "rejected" else None,
             },
-        )
-    assert response.status_code == 200, response.text
-
-
-async def _decide(org: dict[str, Any], *, decision: str, note: str = REVIEW_NOTE) -> None:
-    """Release (or refuse) the account the way ops does: admin realm, audited."""
-    token = await _make_admin()
-    async with _client() as http:
-        response = await http.post(
-            f"/v1/admin/tenants/{org['id']}/first-campaign-review",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"decision": decision, "note": note},
         )
     assert response.status_code == 200, response.text
 
@@ -172,25 +156,21 @@ async def test_an_operator_can_find_the_accounts_waiting_on_a_human() -> None:
     """
     nothing_filed = await _tenant("self_serve")
     kyc_done = await _tenant("self_serve")
-    await _verify_kyc(kyc_done)
+    await _record_kyc(kyc_done)
     managed = await _tenant("managed")
 
     response = await _queue()
     assert response.status_code == 200, response.text
 
-    waiting_on_both = _row(response, nothing_filed)
-    assert waiting_on_both is not None, "a brand-new self-serve account is held twice over"
-    assert set(waiting_on_both["holds"]) == {"kyc_missing", "first_campaign_review_pending"}
+    waiting = _row(response, nothing_filed)
+    assert waiting is not None, "a brand-new self-serve account waits for its KYC"
+    assert waiting["holds"] == ["kyc_missing"]
 
-    waiting_on_review = _row(response, kyc_done)
-    assert waiting_on_review is not None
-    assert waiting_on_review["holds"] == ["first_campaign_review_pending"], (
-        "a verified account still waits for the first-campaign release, and only for it"
-    )
+    assert _row(response, kyc_done) is None, "a verified account is not waiting on anyone"
 
     assert _row(response, managed) is None, (
-        "neither gate applies to a managed tenant (SELF_SERVE_TIERS), so a queue that "
-        "listed one would send an operator to do work that does not exist"
+        "the queue is the self-serve work list (SELF_SERVE_TIERS); a managed client's KYC "
+        "review is listed by the KYC review queue"
     )
 
 
@@ -199,22 +179,20 @@ async def test_a_refusal_keeps_the_account_in_the_queue_and_names_the_refusal() 
     somebody has to chase it. It is a different rule from "nobody has looked yet", and
     the queue says which."""
     org = await _tenant("self_serve")
-    await _verify_kyc(org)
-    await _decide(org, decision="rejected")
+    await _record_kyc(org, status="rejected")
 
     row = _row(await _queue(), org)
     assert row is not None, "a refused account is not a finished account"
-    assert row["holds"] == ["first_campaign_review_rejected"]
+    assert row["holds"] == ["kyc_not_verified"]
 
 
-async def test_clearing_both_gates_takes_the_account_off_the_queue() -> None:
+async def test_clearing_the_gate_takes_the_account_off_the_queue() -> None:
     """The queue empties itself. A work list that keeps finished work is one an operator
     stops reading."""
     org = await _tenant("self_serve")
     assert _row(await _queue(), org) is not None
 
-    await _verify_kyc(org)
-    await _decide(org, decision="approved")
+    await _record_kyc(org)
 
     assert _row(await _queue(), org) is None
 
@@ -222,8 +200,8 @@ async def test_clearing_both_gates_takes_the_account_off_the_queue() -> None:
 async def test_the_queue_says_how_long_the_account_has_been_waiting() -> None:
     """Signup time, ascending: the oldest untouched account is the one at the top.
 
-    Not a `waiting_since` derived per gate — an account is waiting from the moment it
-    signed up, and the two gates are both "since you arrived, nobody has looked".
+    Not a `waiting_since` per record — an account is waiting from the moment it signed
+    up: "since you arrived, nobody has looked".
     """
     older = await _tenant("self_serve")
     newer = await _tenant("self_serve")
@@ -249,14 +227,13 @@ async def test_the_queue_lists_accounts_and_never_a_person() -> None:
     surface in the console holding the narrowest data.
     """
     org = await _tenant("self_serve")
-    await _verify_kyc(org)
-    await _decide(org, decision="rejected")
+    await _record_kyc(org, status="rejected")
 
     response = await _queue()
     body = response.text
     assert CIN not in body, "a business-registry document reference is not queue data"
     assert SIGNATORY not in body, "the signatory is a person"
-    assert REVIEW_NOTE not in body, "a reviewer's free text can carry anything into a list"
+    assert REJECTION_REASON not in body, "a reviewer's free text can carry anything"
 
     row = _row(response, org)
     assert row is not None
@@ -266,7 +243,7 @@ async def test_the_queue_lists_accounts_and_never_a_person() -> None:
 # ------------------------------------------------------------------------ hard rule 1
 
 
-async def test_the_admin_guc_still_cannot_read_either_compliance_table() -> None:
+async def test_the_admin_guc_still_cannot_read_kyc_records() -> None:
     """The claim the design rests on: nothing was widened.
 
     The queue is a cross-tenant READ built out of per-tenant RLS sessions, so
@@ -275,19 +252,14 @@ async def test_the_admin_guc_still_cannot_read_either_compliance_table() -> None
     record because the policy never let it.
     """
     org = await _tenant("self_serve")
-    await _verify_kyc(org)
-    await _decide(org, decision="approved")
+    await _record_kyc(org)
 
     async with admin_session() as session:
         kyc = (await session.execute(text("SELECT count(*) FROM kyc_records"))).scalar()
-        reviews = (
-            await session.execute(text("SELECT count(*) FROM first_campaign_reviews"))
-        ).scalar()
         orgs = (await session.execute(text("SELECT count(*) FROM organizations"))).scalar()
 
     assert orgs and orgs >= 1, "the directory is what app.admin is for"
     assert kyc == 0, "app.admin must NOT unlock KYC records"
-    assert reviews == 0, "app.admin must NOT unlock first-campaign reviews"
 
 
 async def test_a_client_realm_session_sees_zero_rows_of_another_tenant() -> None:
@@ -300,19 +272,12 @@ async def test_a_client_realm_session_sees_zero_rows_of_another_tenant() -> None
     """
     org_a = await _tenant("self_serve")
     org_b = await _tenant("self_serve")
-    await _verify_kyc(org_a)
-    await _decide(org_a, decision="approved")
+    await _record_kyc(org_a)
 
     async with tenant_session(uuid.UUID(str(org_b["id"]))) as session:
         kyc = (
             await session.execute(
                 text("SELECT count(*) FROM kyc_records WHERE tenant_id = :tid"),
-                {"tid": org_a["id"]},
-            )
-        ).scalar()
-        reviews = (
-            await session.execute(
-                text("SELECT count(*) FROM first_campaign_reviews WHERE tenant_id = :tid"),
                 {"tid": org_a["id"]},
             )
         ).scalar()
@@ -322,7 +287,7 @@ async def test_a_client_realm_session_sees_zero_rows_of_another_tenant() -> None
                 {"tid": org_a["id"]},
             )
         ).scalar()
-    assert (kyc, reviews, orgs) == (0, 0, 0), "tenant B sees nothing of tenant A"
+    assert (kyc, orgs) == (0, 0), "tenant B sees nothing of tenant A"
 
     token = await _make_member(uuid.UUID(str(org_b["id"])))
     async with _client() as http:
@@ -374,21 +339,20 @@ async def test_the_queue_refuses_a_client_realm_token_even_with_the_permission()
 
 
 async def test_the_queue_asks_the_same_predicate_the_dial_gate_does() -> None:
-    """One implementation. The queue's rule names ARE the blockers' rule names, so a
-    change to either gate's condition moves the queue with it — and a queue built from
-    its own SQL, which is the shape that drifts, would fail this."""
+    """One implementation. The queue's rule names ARE the blocker's rule names, so a
+    change to the gate's condition moves the queue with it — and a queue built from its
+    own SQL, which is the shape that drifts, would fail this."""
     from apps.api.admin.holds import read_tenant_holds
-    from apps.api.compliance.service import first_campaign_hold_blocker, kyc_blocker
+    from apps.api.compliance.service import kyc_blocker
 
     org = await _tenant("self_serve")
     tenant_id = uuid.UUID(str(org["id"]))
     async with tenant_session(tenant_id) as session:
         holds = await read_tenant_holds(session, tenant_id=tenant_id)
         kyc = await kyc_blocker(session, tenant_id=tenant_id)
-        review = await first_campaign_hold_blocker(session, tenant_id=tenant_id)
 
-    assert kyc is not None and review is not None
-    assert holds.rules == (kyc[0], review[0])
+    assert kyc is not None
+    assert holds.rules == (kyc[0],)
     assert holds.held is True
 
 
@@ -400,7 +364,7 @@ async def test_the_tenant_directory_carries_the_same_flag() -> None:
     'is this tenant waiting' query, written in SQL for the list, would eventually have.
     """
     org = await _tenant("self_serve")
-    await _verify_kyc(org)
+    await _record_kyc(org, status="rejected")
     token = await _make_admin()
 
     async with _client() as http:
@@ -408,7 +372,7 @@ async def test_the_tenant_directory_carries_the_same_flag() -> None:
             f"/v1/admin/tenants/{org['id']}", headers={"Authorization": f"Bearer {token}"}
         )
     assert record.status_code == 200, record.text
-    assert record.json()["holds"] == ["first_campaign_review_pending"]
+    assert record.json()["holds"] == ["kyc_not_verified"]
 
     row = _row(await _queue(token), org)
     assert row is not None and row["holds"] == record.json()["holds"]

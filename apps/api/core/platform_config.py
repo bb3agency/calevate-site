@@ -317,6 +317,10 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "db_statement_timeout_ms": AppliesRule(LIVE),
     "object_store_endpoint": AppliesRule(LIVE),  # workers/storage._client(), per call
     "object_store_bucket": AppliesRule(LIVE),  # workers/storage, per call
+    # Pip's uploads (D-781): `workers/storage._upload_client()` rebuilds on any change.
+    "copilot_upload_bucket": AppliesRule(LIVE),
+    "copilot_upload_access_key_id": AppliesRule(LIVE),
+    "copilot_upload_secret_access_key": AppliesRule(LIVE),
     # WHICH email transport this deployment sends through. `live`, and checked rather
     # than assumed: `core/transport.get_transport()` resolves it through
     # `calevate_shared.config.email_transport_reason()` on EVERY send and builds a fresh
@@ -726,6 +730,15 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "hubspot_oauth_client_id": AppliesRule(LIVE),
     "hubspot_oauth_client_secret": AppliesRule(LIVE),
     "hubspot_oauth_redirect_uri": AppliesRule(LIVE),
+    # WhatsApp Embedded Signup (D-784). Read inline by `whatsapp/signup.py` on every
+    # client screen load and every connect, and by the Meta webhook receiver on every
+    # delivery; nothing caches them.
+    "meta_app_id": AppliesRule(LIVE),
+    "meta_app_secret": AppliesRule(LIVE),
+    "whatsapp_signup_config_id": AppliesRule(LIVE),
+    "whatsapp_webhook_verify_token": AppliesRule(LIVE),
+    "whatsapp_onboarding_weekly_limit": AppliesRule(LIVE),
+    "whatsapp_coexistence_enabled": AppliesRule(LIVE),
 }
 
 #: The classification a field with no entry gets. Fail-safe by construction.

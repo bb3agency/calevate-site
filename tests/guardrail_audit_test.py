@@ -598,6 +598,9 @@ class TestRlsCoverage:
             # D-694: the ADMIN assistant's activity log, exempt for the reason above —
             # an operator acting on PLATFORM state, with `viewing_tenant_id` as context.
             "admin_copilot_actions",
+            # D-781: the files an operator attached to the admin assistant, owned by
+            # `admin_user_id`; `viewing_tenant_id` is context, as above.
+            "admin_copilot_uploads",
             # The state behind `engine_error_spike` (OPERATIONS §4): one row per
             # (engine, minute) of vendor server errors. Platform state for the same
             # reason `platform_state` is — the engine is answering or it is not, for
@@ -1164,6 +1167,8 @@ class TestRedactionExposure:
             "TestActionOut.payload",
             # D-694: an assistant action's canonical arguments, redacted on write.
             "CopilotActionOut.args",
+            # D-784: the `extras` Meta's signup window takes, built from constants.
+            "WhatsAppSignupOut.extras",
             "LeadOut.data",
             "CallDetailOut.extraction",
             "SubjectExportLeadOut.data",

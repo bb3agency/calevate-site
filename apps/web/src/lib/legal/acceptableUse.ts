@@ -409,8 +409,7 @@ export const ACCEPTABLE_USE: LegalDocument = {
                 "been submitted or what was submitted has not been verified, the answer " +
                 "is the same and the calls wait — and every account must pass it before buying a " +
                 "phone number, because the obligation attaches to the telecom connection. " +
-                "The first campaign on a self-serve or trial account is reviewed by a " +
-                "person before it runs. Do not open a " +
+                "Do not open a " +
                 "second account to get around a hold: the hold is on the account and a " +
                 "new one is a breach of the Terms.",
             },

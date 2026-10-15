@@ -1553,7 +1553,7 @@ Other exports: `useTaskSteps({ steps, current, failed })` -> `{ rows, complete, 
 - Two live regions can announce the same completion twice ("All N steps complete" and "Run complete", l.224-229).
 - Hard-coded `emerald-*`, `red-*`, `stone-*` and shimmer hex `#78716c`/`#1c1917` (l.149, 160, 194).
 - Error state does not accept a reason string.
-**Already in Calevate:** yes — vendored, local diff: tone/colour classes moved to tokens (`text-ink`, `text-ink-muted`, `text-ink-faint`); used in: nothing (`tests/componentConsumers.test.ts:70`, awaiting a decision).
+**Already in Calevate:** yes — vendored, local diff: tone/colour classes moved to tokens (`text-ink`, `text-ink-muted`, `text-ink-faint`); the spinner stops turning under reduced motion; each row carries its status in sr-only words; `hold` (`"paused"`/`"stopped"`) draws a held step with its own glyph instead of a spinner or an error; `size="md"` is the body-size list a screen's primary surface uses, showing the active step's meta too (15 Oct 2026). Used in: the copilot job card (`components/copilot/JobProgress.tsx`), knowledge uploads (`knowledge/UploadList.tsx`), and a launched campaign's progress (`campaigns/CampaignRun.tsx`, D-773).
 **Fit for Calevate consoles:** agent publish flow (compose prompt -> push to engine -> compliance verify), KB document ingestion (upload -> chunk -> embed), campaign launch compliance gate checks, tenant provisioning in admin.
 **Verdict: ADOPT** — already themed; stop the spinner under reduced motion and add sr-only status text per row when wiring it to publish/ingest.
 
@@ -1739,7 +1739,7 @@ Other exports: `useWizard({ total, index, defaultIndex, onIndexChange, onComplet
 - When `complete` turns true the Next button unmounts (l.376); if it held focus, focus falls to `body`.
 - `if (!step) return null` (l.201-202) with an empty `steps` array renders nothing silently.
 - Hard-coded `bg-stone-800`, `#4568FF`/`#93B0FF` focus (l.241, 288, 395).
-**Already in Calevate:** yes — vendored, local diff: colour classes to tokens (`bg-brand-strong`, `text-ink`, `border-line`, brand focus) and `touch:h-11` on the action row/buttons; used in: nothing (`tests/componentConsumers.test.ts:72`, awaiting a decision; `components/copilot/CopilotPanel.tsx:290` only cites it in a comment).
+**Already in Calevate:** yes — vendored, local diff: colour classes to tokens (`bg-brand-strong`, `text-ink`, `border-line`, brand focus) and `touch:h-11` on the action row/buttons. The ADAPT fixes (15 Oct 2026): `canAdvance` gates Next and Finish; `height="auto"` sizes the panel to its step (enter only, no overlapping exit); `framed={false}` drops the card; resting shadows removed; step names beside the tiles from `sm`; `finishing`, `advanceDisabled` and `extraActions` (a Cancel). Used in: the New campaign flow (`campaigns/NewCampaignFlow.tsx`).
 **Fit for Calevate consoles:** agent creation (vertical template -> voice -> script -> extraction schema -> publish), campaign creation (audience -> DLT/compliance -> schedule -> review), tenant onboarding in admin.
 **Verdict: ADAPT** — good focus and ARIA handling, but it needs a per-step validation gate, content-driven height and focus handling on completion before it can host the agent or campaign wizard.
 

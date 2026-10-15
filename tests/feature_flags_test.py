@@ -787,7 +787,7 @@ async def test_the_read_names_who_set_it_and_why() -> None:
 # `flags/registry.py` states it in capitals — **"a flag must never gate a compliance
 # control"** — names the controls (`campaigns.service.launch_blockers`,
 # `compliance.service.check_dispatch`, DNC, the disclosure line, calling hours, the
-# first-campaign hold, the KYC gates), and grounds it in hard rule 5: "never add a bypass
+# pledge, the KYC gates), and grounds it in hard rule 5: "never add a bypass
 # 'for testing'... a per-tenant switch that can turn a TRAI/DPDP control off for one client
 # is that bypass with better manners."
 #

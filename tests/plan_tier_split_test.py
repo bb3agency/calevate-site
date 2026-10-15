@@ -13,11 +13,11 @@ easy to get wrong. `plan_tier` answers TWO questions that had identical answers 
     `prepaid` and is now the common case;
   * **did a stranger open this account unattended?** — `compliance.service
     .SELF_SERVE_TIERS`, which does NOT, because that is what the subscriber-KYC dial gate
-    (D-47) and the first-campaign hold (D-51) key on.
+    (D-47) keyed on and what the admin hold queue still draws.
 
 `SELF_SERVE_TIERS` was literally `= PREPAID_TIERS` before this change. Had it stayed an
 alias, the migration that moved every existing tenant onto prepaid would have refused
-every one of their dials with `kyc_missing` and held every campaign for review — a
+every one of their dials with `kyc_missing` — a
 platform-wide outage delivered as a billing change. Half the assertions here exist to make
 that re-derivation fail loudly.
 
@@ -39,7 +39,6 @@ from apps.api.compliance.service import (
     SELF_SERVE_TIERS,
     check_dispatch,
     credits_exhausted,
-    first_campaign_hold_blocker,
     kyc_blocker,
 )
 from apps.api.db.session import admin_session, tenant_session
@@ -100,8 +99,8 @@ def test_every_unattended_signup_tier_is_also_prepaid() -> None:
 def test_the_default_tier_does_not_pick_up_the_identity_gates() -> None:
     """The half that would have turned this billing change into an outage.
 
-    `kyc_blocker` and `first_campaign_hold_blocker` exist because on the self-serve motion
-    the applicant is a stranger (D-47/D-51). An operator who creates a client has met them,
+    The stranger-signup gates exist because on the self-serve motion the applicant is a
+    stranger (D-47). An operator who creates a client has met them,
     so the tier every operator-created account now gets must NOT be in that set.
     """
     assert DEFAULT_PLAN_TIER not in SELF_SERVE_TIERS
@@ -176,7 +175,7 @@ async def test_a_topped_up_account_is_not_stopped_by_credits() -> None:
 
 
 async def test_a_prepaid_account_is_not_held_by_the_stranger_gates() -> None:
-    """Asked of the two predicates directly, because `check_dispatch` returns only the
+    """Asked of the predicate directly, because `check_dispatch` returns only the
     FIRST refusal: with an empty wallet, `no_credits` would mask a `kyc_missing` that the
     tenant was never supposed to get. KYC outranks credits in that ladder, so a
     regression here would show up as a client told to top up when topping up cannot
@@ -184,7 +183,6 @@ async def test_a_prepaid_account_is_not_held_by_the_stranger_gates() -> None:
     tenant_id = await _tenant()
     async with tenant_session(tenant_id) as session:
         assert await kyc_blocker(session, tenant_id=tenant_id) is None
-        assert await first_campaign_hold_blocker(session, tenant_id=tenant_id) is None
 
 
 async def test_the_dial_gate_refuses_an_inbound_agent_for_its_direction_not_its_wallet() -> None:

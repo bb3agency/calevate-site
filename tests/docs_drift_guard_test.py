@@ -123,12 +123,12 @@ class TestWiring:
 
     def test_it_knows_the_rule_names_the_gates_emit(self) -> None:
         """Both shapes: the `LaunchBlocker(...)`/`DispatchDecision(rule=...)` constructors
-        and the `(rule, reason)` pairs `kyc_blocker` and `first_campaign_hold_blocker`
-        return. Missing the second shape would make §3's KYC and first-review bullets
+        and the `(rule, reason)` pairs `kyc_blocker` and `outbound_pledge_blocker`
+        return. Missing the second shape would make §3's KYC and pledge bullets
         unverifiable."""
         rules = guard.emitted_rule_names()
         assert {"tm_registration_missing", "spend_cap", "dnc"} <= rules
-        assert {"kyc_missing", "kyc_not_verified", "first_campaign_review_pending"} <= rules
+        assert {"kyc_missing", "kyc_not_verified", "kyc_digilocker_required"} <= rules
 
     def test_it_reads_the_real_rate_zone_table(self) -> None:
         zones = guard.doc_rate_zones()

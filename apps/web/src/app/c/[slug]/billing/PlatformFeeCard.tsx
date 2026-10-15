@@ -170,7 +170,11 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
             soon as it arrives.
           </NoticeBox>
         )}
-        {stage.at === "verifying" && <p className="text-meta text-ink-muted">Checking the payment…</p>}
+        {stage.at === "verifying" && (
+          <p className="text-meta text-ink-muted">
+            <span className="text-shimmer">Checking the payment…</span>
+          </p>
+        )}
         {stage.at === "received" && (
           <NoticeBox tone="ok" title="Payment received">
             Thank you. The fee shows as paid as soon as the payment is confirmed, usually within

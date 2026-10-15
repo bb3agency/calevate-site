@@ -31,6 +31,10 @@ a phone-shaped run of digits and is refused. That is the designed trade — the 
 is a server that decides for itself which caller data is fine to forward to a US
 processor, which is the decision D-127 removed from every surface — and the refusal names
 the fix, which is the browser's placeholder substitution.
+
+ONE INPUT IS NOT GUARDED HERE, BY DECISION (D-781): a file the person attached. Its text and
+pictures reach the model whole, because masking text inside a picture needs a model to read
+it first; the founder chose to send it and to say so. `copilot/attachments.py` owns it.
 """
 
 from __future__ import annotations

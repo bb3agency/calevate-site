@@ -98,7 +98,7 @@ export function AssistCard({ session, callId }: { session: Session; callId: stri
           disabled={!write.allowed || assist.isPending}
           onClick={() => assist.mutate()}
         >
-          {assist.isPending ? "Reading the call…" : "Write a second reading"}
+          {assist.isPending ? <span className="text-shimmer">Reading the call…</span> : "Write a second reading"}
         </button>
 
         {/* Loading is a skeleton. Not a spinner in the button alone: the answer lands in

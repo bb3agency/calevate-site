@@ -37,8 +37,7 @@ organizations(id, name, slug UNIQUE CHECK (slug ~ '^[a-z0-9-]{3,40}$') IMMUTABLE
     -- The four names answer TWO questions and the pairs are NOT the same set:
     --   pays from a wallet   -> prepaid, self_serve, trial  (billing/rates.PREPAID_TIERS)
     --   opened by a stranger -> self_serve, trial           (compliance.SELF_SERVE_TIERS,
-    --                                                        the KYC dial gate D-47 and
-    --                                                        the first-campaign hold D-51)
+    --                                                        the admin hold queue)
     -- `prepaid` (D-521) is what every new account gets and what every existing account
     -- was migrated to (a8d3f61c04e7); `managed` is invoiced on a retainer and is set
     -- deliberately by an operator (POST /v1/admin/tenants/{id}/plan-tier).
@@ -1367,28 +1366,11 @@ first_campaign_reviews(id, tenant_id UNIQUE → organizations ON DELETE RESTRICT
   decided_by_admin_id → admin_users NULL, decided_at NOT NULL,
   CHECK (decision_source <> 'operator' OR decided_by_admin_id IS NOT NULL),
   CHECK (length(btrim(decision_note)) >= 3))
-  -- R-11's manual review of a self-serve account's FIRST campaign (D-51, migration
-  -- c4d9e18a72b6). One mutable row per tenant, standard §1 RLS created with the table.
-  -- READ THE ABSENCE: there is no `pending` status and no row until a human decides, so
-  -- "no row" IS held. A stored `pending` would be a second representation of one fact
-  -- that can disagree with the absence, and the reader fails CLOSED to held on an
-  -- unscoped session (the shape `kyc.NOT_RECORDED` uses).
-  -- The hold is on the ACCOUNT, which is the whole design: a `campaigns.review_required`
-  -- flag is defeated by launching a second campaign or deleting the flagged one, and
-  -- neither is an attack. `reviewed_campaign_id` is therefore EVIDENCE of what an
-  -- operator read — SET NULL on delete, because losing the pointer must not change
-  -- whether the account is cleared.
-  -- Read by `compliance.service.first_campaign_hold_blocker` as
-  -- `first_campaign_review_pending` / `first_campaign_review_rejected`, asked by BOTH
-  -- `launch_blockers` and `dispatch_blockers` (so a withdrawn release stops a RUNNING
-  -- campaign) and deliberately NOT by `check_dispatch`, which also serves the D-21
-  -- single-lead button. Mutable and absent from APPEND_ONLY_TABLES for the same reason as
-  -- `kyc_records` and `dlt_registrations`: this is current state, and the immutable
-  -- history is `audit_log`. `decision_source` keeps the migration's grandfathering
-  -- honest — self-serve tenants that had already launched are backfilled as
-  -- `migration_backfill`, so a NULL decider is self-describing rather than an anonymous
-  -- release, and the CHECK makes an operator release that cannot name its operator
-  -- unstorable.
+  -- NO LONGER READ OR WRITTEN (D-783, 15 Oct 2026); dropped in a later release. It held
+  -- the D-51 manual review of a self-serve account's first campaign (migration
+  -- c4d9e18a72b6): one mutable row per tenant, standard §1 RLS, absence meaning held. The
+  -- founder removed the review; no gate asks it and no route reads or writes it. The
+  -- decisions it recorded are also in `audit_log` (`first_campaign_review.decided`).
 consent_ledger(id, tenant_id, call_id, phone_e164,
   purpose ENUM[recording,callback,marketing,messaging],
   status ENUM[granted,declined,withdrawn], captured_at, evidence JSONB,

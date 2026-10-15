@@ -1006,9 +1006,9 @@ async def test_an_acceptance_attributed_to_nobody_is_refused_at_the_handler() ->
         ),
         ("kyc_blocker", ("kyc_missing", "No verification on file."), "kyc_missing"),
         (
-            "first_campaign_hold_blocker",
-            ("first_campaign_hold", "Held for review."),
-            "first_campaign_hold",
+            "outbound_pledge_blocker",
+            ("outbound_pledge_missing", "No pledge accepted."),
+            "outbound_pledge_missing",
         ),
     ],
 )

@@ -53,6 +53,12 @@
     "core5_tool_call": [
       "capture_miss"
     ],
+    "en_agent_property_enquiry": [
+      "capture_miss"
+    ],
+    "hi_agent_callback_in_the_evening": [
+      "capture_miss"
+    ],
     "hindi_mixed_callback_time": [
       "capture_miss",
       "outcome"

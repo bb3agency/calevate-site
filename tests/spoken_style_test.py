@@ -216,6 +216,7 @@ def test_test_callers_are_written_in_the_caller_style() -> None:
         lead_fields=(),
         hand_over="off",
         call_backs=False,
+        call_is_recorded=True,
     )
     text = brief_text(brief)
     assert "Tags and fillers callers use" in text and "కదా" in text

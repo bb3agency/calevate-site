@@ -14,16 +14,24 @@
  * claims is fine; deciding from them is not.
  *
  * **We hold no token to decode**, so the defect is structurally out of reach here, and the
- * equivalent check is stronger rather than merely different: `rotateSession()` returns the
- * server's own `SessionOut`, freshly re-read from the subject row (`_session_out` in
- * `apps/api/authn/routes.py`, which exists precisely so a deactivation bites on the next
+ * equivalent check is stronger rather than merely different: extending reads the server's
+ * own `SessionOut` (`GET /session`), freshly re-read from the subject row (`_session_out`
+ * in `apps/api/authn/routes.py`, which exists precisely so a deactivation bites on the next
  * request), and this component accepts the extension only if that answer still says
  * `realm: "admin"` with the second factor complete. A deactivated operator pressing "stay
  * signed in" is signed out by it.
  *
- * The rotation goes through `adminAuthn.rotateSession`, which is the single-flight — the
- * one legitimate rotation caller in the app, and the reason `realm.ts` has a barrier
- * around it at all.
+ * ## Extending is a read, not a rotation
+ *
+ * The read verifies the session, and verification slides the idle bound, which is all an
+ * extension needs. It used to call `session/refresh`, which ROTATES the cookie: a request
+ * already in flight with the old cookie, from another tab or the change stream's reconnect,
+ * then reads as a replayed token, and reuse detection revokes the whole session family
+ * (`sessions.verify_session`). Rotation is for privilege changes, and staying signed in is
+ * not one.
+ *
+ * The same read runs once a minute while the operator is active (`onActive`), so the
+ * server's idle clock follows the person and not the polling; see `useIdleTimeout.ts`.
  */
 
 import { useCallback, useRef, useState } from "react";
@@ -83,7 +91,7 @@ export function AdminIdleTimeoutModal({ session }: { session: AuthnSession | nul
    *
    * It was `failed: boolean`, and the panel rendered one sentence for it: "the request
    * did not reach Calevate. Check your connection and try again." That sentence is a
-   * CLAIM ABOUT THE NETWORK, and it was printed for every rejection `rotateSession` can
+   * CLAIM ABOUT THE NETWORK, and it was printed for every rejection the extension can
    * produce — including the one that matters most, a 401 saying the session is already
    * gone. An operator whose session had expired (a slept laptop is the ordinary way: the
    * warning runs on `setTimeout`, which does not advance while a machine is suspended, so
@@ -125,6 +133,12 @@ export function AdminIdleTimeoutModal({ session }: { session: AuthnSession | nul
     },
     onLogout: endSession,
     enabled,
+    onActive: () => {
+      void adminAuthn.readSession().catch((error: unknown) => {
+        // Already ended on the server: say so now rather than at the next warning.
+        if (isSessionGone(error)) endSession();
+      });
+    },
   });
 
   const visible = deadline !== null;
@@ -133,7 +147,7 @@ export function AdminIdleTimeoutModal({ session }: { session: AuthnSession | nul
     setExtending(true);
     setFailure(null);
     void adminAuthn
-      .rotateSession()
+      .readSession()
       .then((session) => {
         // The server's answer, re-read from the subject row. See the file docstring.
         if (session.realm === "admin" && session.mfa_complete) {
@@ -221,7 +235,7 @@ export function AdminIdleTimeoutModal({ session }: { session: AuthnSession | nul
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" className={PRIMARY_BUTTON} disabled={extending} onClick={extend}>
             <RefreshCw aria-hidden className="h-4 w-4" />
-            {extending ? "Extending…" : "Stay signed in"}
+            {extending ? <span className="text-shimmer">Extending…</span> : "Stay signed in"}
           </button>
           <button type="button" className={DANGER_BUTTON} disabled={extending} onClick={endSession}>
             <LogOut aria-hidden className="h-4 w-4" />

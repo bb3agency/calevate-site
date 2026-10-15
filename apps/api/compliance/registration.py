@@ -132,8 +132,8 @@ async def pe_registration_blocker(
 ) -> tuple[str, str] | None:
     """`(rule, reason)` if this client's DLT entity blocks their outbound, else None.
 
-    SEC-COMP §3's first bullet, CLIENT half — the same shape `kyc_blocker` and
-    `first_campaign_hold_blocker` return, so every caller composes them identically.
+    SEC-COMP §3's first bullet, CLIENT half — the same shape `kyc_blocker`
+    returns, so every caller composes them identically.
 
     It lives HERE rather than inside `campaigns.service._entity_blockers`, where it was
     written, because the condition is a fact about the TENANT and not about a campaign:

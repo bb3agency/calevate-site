@@ -1303,6 +1303,17 @@ belonging to a relative or colleague is not the caller's own; **VALUES, EXACTLY*
 the caller, keep the script and the caller's own relative time, digits in the order spoken
 and `null` if one digit is unclear, enum values verbatim and only when meant.
 
+The prompt names the AGENT's language (`agents.language_primary`, then `languages_extra`;
+`te-IN` when none is given) rather than assuming Telugu, fences the transcript with
+`End of transcript.` and repeats the output rule after it. Both model legs send the same
+strict `json_schema` (`workers/extraction.build_response_schema`, with the key-moments list
+when the request asks for moments) and fall back to `json_object` on a 400, logged as
+`sarvam_json_schema_unsupported` / `azure_json_schema_unsupported`. The Sarvam leg states
+`reasoning_effort` explicitly (`SARVAM_EXTRACTION_REASONING_EFFORT`, `low`, the vendor
+default every pass has run on), so a vendor default change cannot move its cost. Whether
+`off` extracts as well for fewer tokens is UNMEASURED until a credentialed golden run
+(`scripts.eval --provider sarvam --provider sarvam_reasoning_off`) settles it (D-780).
+
 ## 8. Post-Call Pipeline (workers; idempotent; keyed by call_id)
 
 On ThinnestAI the engine's signed webhooks (`call.completed`, `call.analysed`; verified in

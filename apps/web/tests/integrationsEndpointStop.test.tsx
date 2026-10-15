@@ -8,6 +8,7 @@ import IntegrationsPage from "@/app/c/[slug]/integrations/page";
 import type { Endpoint } from "@/lib/api/integrations";
 
 import { problem, renderClientPage } from "./harness";
+import { WHATSAPP_OFF_ROUTES } from "./fixtures/whatsapp";
 
 /**
  * INT-1 — stopping an outbound endpoint, which is the most expensive mis-click in this
@@ -76,6 +77,7 @@ function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": OWNER,
     "/v1/integrations/credentials": [],
+    ...WHATSAPP_OFF_ROUTES,
     "/v1/integrations/connections/status": {
       google_calendar: false,
       zoho_crm: false,
@@ -100,6 +102,7 @@ describe("stopping an endpoint is confirmed, named and explained", () => {
     await renderClientPage(<IntegrationsPage />, {
       ...routes({
         "/v1/integrations/credentials": [],
+        ...WHATSAPP_OFF_ROUTES,
         "/v1/integrations/connections/status": {
           google_calendar: false,
           zoho_crm: false,
@@ -230,6 +233,7 @@ describe("stopping an endpoint is confirmed, named and explained", () => {
     const { container } = await renderClientPage(<IntegrationsPage />, {
       ...routes({
         "/v1/integrations/credentials": [],
+        ...WHATSAPP_OFF_ROUTES,
         "/v1/integrations/connections/status": {
           google_calendar: false,
           zoho_crm: false,

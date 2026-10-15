@@ -368,6 +368,14 @@ class Settings(BaseSettings):
     object_store_endpoint: str = Field(max_length=255)
     object_store_bucket: str = Field(max_length=63)
 
+    # PIP'S UPLOADS BUCKET AND ITS OWN CREDENTIAL (D-781). A bucket of their own, signed by
+    # an R2 API token scoped to that bucket alone: the browser PUTs to a presigned URL, and
+    # a presigned URL shows the signing access-key id to the uploader (the secret is never
+    # sent). Unset means attaching files to Pip is refused. Runbook: runbooks/pip-uploads.md.
+    copilot_upload_bucket: str | None = Field(default=None, max_length=63)
+    copilot_upload_access_key_id: str | None = Field(default=None, max_length=128)
+    copilot_upload_secret_access_key: str | None = None
+
     # Public base URL of the voice-runtime deployable. It is baked into every agent's
     # config at publish time, so it must be the address the ENGINE can reach — not the
     # API's — and changing it means re-publishing every agent.
@@ -766,6 +774,31 @@ class Settings(BaseSettings):
     hubspot_oauth_client_id: str | None = Field(default=None, max_length=256)
     hubspot_oauth_client_secret: str | None = Field(default=None, max_length=512)
     hubspot_oauth_redirect_uri: str | None = Field(default=None, max_length=512)
+
+    # --- WhatsApp through Meta's Embedded Signup (D-784) ------------------------------
+    # Calevate's OWN Meta app, through which every client connects their own WhatsApp
+    # Business Account with Calevate as the Tech Provider. Until the founder completes
+    # Meta's business verification, app review and access verification and sets these,
+    # the client's WhatsApp screen shows the paste-a-key path instead of a broken button
+    # (`whatsapp/signup.signup_availability`). The app secret signs Meta's webhooks and
+    # exchanges each client's signup code; it seals into `platform_secrets` by its name
+    # fragment, as does the webhook verify token.
+    meta_app_id: str | None = Field(default=None, max_length=32, pattern=r"^[0-9]{5,32}$")
+    meta_app_secret: str | None = None
+    #: The Embedded Signup configuration made in Facebook Login for Business > Configurations.
+    whatsapp_signup_config_id: str | None = Field(
+        default=None, max_length=32, pattern=r"^[0-9]{5,32}$"
+    )
+    #: The string pasted into App Dashboard > WhatsApp > Configuration > Verify token.
+    whatsapp_webhook_verify_token: str | None = None
+    #: Meta's rolling 7-day cap on new business customers: 10 by default, 200 once business
+    #: verification, app review and access verification are complete
+    #: (embedded-signup/overview.md, read 15 Oct 2026). Raised here by the operator when Meta
+    #: raises it; the client screen stops offering signup when the week's count reaches it.
+    whatsapp_onboarding_weekly_limit: int = Field(default=10, ge=1, le=100000)
+    #: Offer clients on the WhatsApp Business app Meta's coexistence signup (send-only).
+    #: Off until Meta confirms it is available for Indian numbers (OPERATIONS gate W-6).
+    whatsapp_coexistence_enabled: bool = False
 
     # The DEPLOYMENT id — what the API actually addresses, and NOT the model name.
     #

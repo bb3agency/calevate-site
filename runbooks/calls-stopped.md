@@ -23,11 +23,8 @@ because every outbound line in the pool is in use (`carrier_lines_busy`, D-663) 
 
 **Campaign, or every outbound path?** The call-this-lead button, the instant-lead
 callback and the campaign dispatcher all pass the same gate, so a cause that blocks one
-blocks all three. Causes 8, 10 and 11 are campaign-only — 11 because the first-campaign
-hold is asked by `launch_blockers` and `dispatch_blockers` and deliberately NOT by
-`check_dispatch`, which is also the single-lead paths (`compliance/first_campaign.py`
-states the residual that leaves). If the client's callbacks work and only the campaign is
-quiet, start at cause 11 in step 4, then step 5.
+blocks all three. Causes 8 and 10 are campaign-only. If the client's callbacks work and
+only the campaign is quiet, start at step 5.
 
 Ground rules: production access goes through the audited admin path — distinct role,
 always-audited queries (SECURITY-COMPLIANCE.md §"Admin access path"). Read-only SELECTs.
@@ -53,7 +50,7 @@ is not, it is the only one.
 
 ---
 
-## The eleven causes, and who can clear each
+## The causes, and who can clear each
 
 | # | Cause | Where it lives | Cleared by |
 |---|---|---|---|
@@ -67,7 +64,7 @@ is not, it is the only one.
 | 8 | The client's PE registration / TM link | `dlt_registrations` | ops record it; the registrar decides it |
 | 9 | Subscriber KYC not verified | `kyc_records.status`, self-serve/trial only | ops record it (`POST /v1/admin/tenants/{id}/kyc`); the client cannot self-verify |
 | 10 | Consent provenance, template, number, DNC | `campaigns.consent_source`, `dlt_templates`, `phone_numbers`, `dnc_list` | mixed — see step 5 |
-| 11 | First campaign not yet released by a human | `first_campaign_reviews`, self-serve/trial only | ops only (`POST /v1/admin/tenants/{id}/first-campaign-review`); the client cannot release itself |
+| 11 | *Removed.* The first-campaign manual review (D-51) was removed by D-783 (15 Oct 2026); nothing refuses on it now | `first_campaign_reviews`, kept unread until a later release drops it | n/a |
 
 Work them in the order below, which is cheapest-and-most-likely first, not in the order
 of the table.
@@ -280,13 +277,13 @@ Remediation is a top-up, and what you can honestly promise depends on whether th
 deployment takes online payments at all — see `topup-payments.md` before telling a
 client "just pay online".
 
-## 4. Causes 9 and 11 — the two holds that wait on a human at Calevate
+## 4. Cause 9 — the hold that waits on a human at Calevate
 
-These two are different in kind from everything above. Nothing is broken, no ceiling was
-hit, and the client cannot fix it however much they want to: **we have not done something
-yet.** Both are R-11 mitigations, both apply to `self_serve` and `trial` only
-(`SELF_SERVE_TIERS`, `apps/api/compliance/service.py`), and both are cleared by an
-audited admin action and by nothing else.
+This is different in kind from everything above. Nothing is broken, no ceiling was hit,
+and the client cannot fix it however much they want to: **we have not done something
+yet.** It is an R-11 mitigation, cleared by an audited admin action and by nothing else.
+The queue below lists `self_serve` and `trial` accounts (`SELF_SERVE_TIERS`,
+`apps/api/compliance/service.py`).
 
 **Ask the queue first — it answers "is a human the blocker?" for every account at once:**
 
@@ -294,20 +291,19 @@ audited admin action and by nothing else.
 GET /v1/admin/compliance/holds        # admin realm, org:read
 → [{"tenant_id": "...", "name": "...", "slug": "...", "plan_tier": "self_serve",
     "signed_up_at": "2026-08-01T09:12:44Z",
-    "holds": ["kyc_missing", "first_campaign_review_pending"]}]
+    "holds": ["kyc_missing"]}]
 ```
 
 `apps/api/admin/holds_routes.py`. Oldest signup first, because that is the triage order.
 `org:read` and not `admin:tenants` deliberately, so a read-only "view as client"
 impersonation session (D-22) can still look; the realm is what separates admin from
 client here, not the permission. It is read-only and writes no audit row — every
-decision taken FROM it writes its own. An account held by both gates appears once with
-both rules, and the strings are the same rule names the client's screen and
+decision taken FROM it writes its own. The strings are the same rule names the client's screen and
 `/launch-check` use, so you and the client are naming one condition identically.
 
 An empty list means no account is waiting on us. If the client is not on it, their
-problem is one of the other nine causes — the queue is exhaustive for causes 9 and 11
-and says nothing about the rest.
+problem is one of the other causes — the queue is exhaustive for cause 9 on
+self-serve and trial accounts and says nothing about the rest.
 
 ### Cause 9 — subscriber KYC
 
@@ -342,64 +338,12 @@ self-serve and trial only, but BUYING a number is gated for every tier with no
 is admin-settable, so a legal control keyed on it would be one support ticket from being
 switched off. A managed tenant therefore keeps dialling but cannot buy a new number.
 
-### Cause 11 — the first campaign is held for review
+### Cause 11 — removed
 
-BRD §245's last self-serve control: **the first campaign of every self-serve account is
-read by a person before it dials** (`apps/api/compliance/first_campaign.py`). Two things
-about it surprise people, and both are deliberate:
-
-- **The hold is on the ACCOUNT, not on a campaign.** While an account is unreleased,
-  *every* campaign it owns is refused, not only the first — so launching a second one, or
-  deleting the first, changes nothing. Once released, no campaign is refused on this rule
-  again.
-- **Absence is the held state.** There is no "pending" row. A tenant with no
-  `first_campaign_reviews` row has not been reviewed, which is where every new account
-  starts, so a client who says "my account looks fine" is reading a screen that says
-  exactly that.
-
-It refuses in **two** places, which is why a client can hit it after a successful launch:
-`launch_blockers` at the button, and `dispatch_blockers` on **every dispatch tick** — so
-withdrawing a release stops a running campaign mid-list rather than letting it finish.
-A campaign blocked this way is invisible in the tick's counters; see step 6.
-
-The client's own view — ask them to read it, it is the fastest way to agree on facts:
-
-```
-GET /v1/compliance/first-campaign-review        # org:read, the client's own realm
-→ {"held": true, "rule": "first_campaign_review_pending", "reason": "...",
-   "status": null, "decision_note": null, "reviewed_campaign_id": null,
-   "decided_at": null}
-```
-
-| rule | What it means | Who clears it |
-|---|---|---|
-| `first_campaign_review_pending` | No decision row: nobody at Calevate has looked yet | ops, after reading the list, the script and the disclosure line |
-| `first_campaign_review_rejected` | A reviewer looked and refused; `decision_note` is their words, and the client is shown them | ops, after the client fixes what the note names |
-
-Releasing (or refusing) it is admin-realm, audited as `first_campaign_review.decided`,
-and names the tenant in the path:
-
-```
-POST /v1/admin/tenants/{tenant_id}/first-campaign-review     # admin:tenants
-{"decision": "approved",
- "note": "read the 240-contact list, the script and the disclosure line; source is their own webform",
- "reviewed_campaign_id": "<the campaign you actually read>"}
-```
-
-`apps/api/compliance/first_campaign_routes.py`. The note is required and refused under
-three characters (`first_campaign_review_note_required`) — a release nobody can account
-for later is the audit finding this record exists to avoid. `reviewed_campaign_id` is
-evidence, not mechanism: it is checked against the tenant's own campaigns and deleting it
-later does not re-hold the account. The route upserts, so a release can be **withdrawn**
-when complaints arrive and granted again; the history is `audit_log`, not this row.
-
-Two things this hold does NOT do, so you do not send a client down the wrong path:
-
-- **Inbound is unaffected**, like every gate in this runbook.
-- **Single manual calls still go out.** The D-21 "call this lead" button and the
-  instant-lead callback go through `check_dispatch`, which does not ask this question —
-  they are one call to a lead who just raised their hand, not a campaign. A held account
-  that says "but we called someone yesterday" is describing the design.
+The first-campaign manual review (D-51) was removed by D-783 (founder, 15 Oct 2026). No
+gate asks it, the client read route and the admin release route are gone, and the `first_campaign_reviews` rows are kept unread until a later release
+drops the table. A self-serve or trial account's campaign launches once KYC, the pledge,
+the agreements and the money gates pass.
 
 ---
 
@@ -426,7 +370,6 @@ The rule names, from `launch_blockers` (`apps/api/campaigns/service.py`):
 | `consent_provenance_missing` | Nobody has declared where this list came from | client: `POST /v1/campaigns/{id}/consent-provenance` (`leads:dispatch`, audited, **draft campaigns only**) |
 | `consent_source_refused` | The declared source is `purchased_list` — the only member of `REFUSED_CONSENT_SOURCES` | not clearable by re-declaring: the list itself is the problem |
 | `agent_not_live` / `agent_missing` / `agent_inbound_only` / `disclosure_missing` | The agent may not place calls | client publishes / fixes the agent |
-| `first_campaign_review_pending` / `_rejected` | The account has not been released for campaign calling (step 4) | ops only |
 | `spend_cap` / `no_credits` | Steps 2 and 3 | see above |
 | `dlt_template_missing` / `_not_approved` / `_mismatch` | The registered voice template | registrar; recording approval is an audited admin action |
 | `number_missing` / `number_series_mismatch` / `number_not_registered` | The calling header | ops + TSP |
@@ -447,10 +390,7 @@ facts while a campaign runs** and `resume` is a bare CAS with no gate.
 The dispatcher asks the standing subset every tick, once per campaign, inside the
 claiming transaction (`dispatch_blockers`, `apps/workers/campaign_dispatch.py`). It
 carries the DLT entity, PE, TM-link, consent-provenance, template and number rules —
-the same rule names as step 5 — **plus the first-campaign hold** (step 4, cause 11),
-which is the one tenant-level rule in that list and the one that can appear on a
-campaign that launched cleanly last week: a release we withdrew stops the campaign at
-the next tick rather than letting it dial to the end of its list.
+the same rule names as step 5.
 
 **This refusal is invisible in the tick's return string.** A campaign blocked here
 contributes `{"dialled": 0, "blocked": 0, "exhausted": 0}`, so the tick reports
@@ -571,9 +511,9 @@ if the engine is down.
   the recompute rides with it: move the ceiling, then press **Recompute this client's
   spend cap** on `/admin/tenants/{tenant_id}` (step 2). There is a route and a screen for
   this now, so there is no longer any reason to reach for the UPDATE.
-- **Never clear a hold with SQL.** Neither `kyc_records` nor `first_campaign_reviews` is
-  a flag to flip: the value of both rows is that a named person recorded what they
-  checked, and the audited routes write that record. An account released by an UPDATE is
+- **Never clear a hold with SQL.** `kyc_records` is not a flag to flip: the value of the
+  row is that a named person recorded what they checked, and the audited routes write
+  that record. An account released by an UPDATE is
   an account released by nobody.
 - **Never introduce a bypass**, not for a demo, not for one tenant, not for an hour.
   There is no bypass flag on the compliance gate by design (`compliance/service.py` —

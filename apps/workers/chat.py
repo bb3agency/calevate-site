@@ -184,6 +184,12 @@ def usage_from_body(body: Mapping[str, Any]) -> TokenUsage | None:
 #:   this dialect (see `stream` for the evidence and its limit).
 ChatDialect = Literal["openai", "sarvam", "google"]
 
+#: How hard a reasoning model thinks before it answers. `off` is sent as JSON `null`,
+#: which is how Sarvam disables thinking; omitting the key instead leaves the vendor
+#: default (`low` on Sarvam), which is a different request. Sarvam documents the key
+#: for `sarvam-105b` (docs.sarvam.ai chat-completion overview, read 14 Oct 2026).
+ReasoningEffort = Literal["low", "medium", "high", "off"]
+
 
 @dataclass(frozen=True, slots=True)
 class ChatLeg:
@@ -248,6 +254,10 @@ class ChatOutcome:
     tool_calls: tuple[ToolCall, ...] = ()
     finish_reason: str | None = None
     usage: TokenUsage | None = None
+    #: The model turn exactly as Gemini's NATIVE API returned it (`workers/gemini_native.py`),
+    #: thought signatures included, so a tool-calling loop can replay it unchanged. Empty on
+    #: every other leg.
+    native_parts: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,6 +331,7 @@ def _request_body(
     tool_choice: str | Mapping[str, Any] | None,
     stream: bool,
     max_tokens: int | None = None,
+    reasoning_effort: ReasoningEffort | None = None,
 ) -> dict[str, Any]:
     """The request, with every optional key OMITTED rather than sent as null.
 
@@ -342,6 +353,8 @@ def _request_body(
         body["max_tokens"] = max_tokens
     if response_format is not None:
         body["response_format"] = dict(response_format)
+    if reasoning_effort is not None:
+        body["reasoning_effort"] = None if reasoning_effort == "off" else reasoning_effort
     if tools:
         body["tools"] = [dict(tool) for tool in tools]
         if tool_choice is not None:
@@ -462,6 +475,7 @@ async def complete(
     tool_choice: str | Mapping[str, Any] | None = None,
     max_tokens: int | None = None,
     client: httpx.AsyncClient | None = None,
+    reasoning_effort: ReasoningEffort | None = None,
 ) -> ChatOutcome:
     """One blocking chat completion. RAISES `httpx.HTTPStatusError` on a non-2xx.
 
@@ -493,6 +507,7 @@ async def complete(
                 tool_choice=tool_choice,
                 stream=False,
                 max_tokens=max_tokens,
+                reasoning_effort=reasoning_effort,
             ),
         )
     finally:
@@ -812,6 +827,7 @@ __all__ = [
     "ChatMessage",
     "ChatOutcome",
     "EmbeddingOutcome",
+    "ReasoningEffort",
     "StreamEvent",
     "TokenUsage",
     "ToolCall",

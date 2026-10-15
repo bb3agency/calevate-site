@@ -16,7 +16,13 @@ from apps.api.core.alerting import record_live_publish_failure
 from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis
 from apps.api.live.schemas import LiveChange
-from apps.api.live.topics import OPERATOR_CHANNEL, TENANT_TOPICS, Topic, tenant_channel
+from apps.api.live.topics import (
+    OPERATOR_CHANNEL,
+    TENANT_TOPICS,
+    Topic,
+    person_channel,
+    tenant_channel,
+)
 
 log = get_logger(__name__)
 
@@ -57,4 +63,16 @@ async def publish_changes(tenant_id: UUID | None, topics: Iterable[Topic]) -> No
         )
 
 
-__all__ = ["publish_changes"]
+async def publish_conversation_note(realm: str, person_id: UUID) -> None:
+    """Tell ONE person's open windows that their Pip conversation moved (D-782), on their
+    own channel and never on their account's. The note is the same shape as every other — a
+    topic and an instant — with no tenant id, no turn id and no text. Never raises."""
+    body = LiveChange(topic="conversation", at=datetime.now(UTC)).model_dump_json()
+    try:
+        await get_redis().publish(person_channel(realm, person_id), body)
+    except Exception as exc:
+        record_live_publish_failure(reason=type(exc).__name__)
+        log.warning("live_publish_failed", extra={"error": type(exc).__name__, "notes": 1})
+
+
+__all__ = ["publish_changes", "publish_conversation_note"]

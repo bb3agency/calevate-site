@@ -80,6 +80,30 @@ class BoundedByConstruction:
 
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    # --- clients' WhatsApp (D-784) ---------------------------------------------------------
+    "GET /v1/whatsapp": BoundedByConstruction(
+        by=(
+            "accounts are read with `LIMIT` `whatsapp/accounts.MAX_ACCOUNTS_PER_TENANT` x 3 "
+            "and a WABA is live on one client at a time (`ux_whatsapp_accounts_live_waba`)."
+        )
+    ),
+    **{
+        key: BoundedByConstruction(
+            by=(
+                "templates are capped per account at `whatsapp/templates."
+                "MAX_TEMPLATES_PER_ACCOUNT` by the writer, and the list reads with `LIMIT` "
+                "that times `whatsapp/accounts.MAX_ACCOUNTS_PER_TENANT`; a template's blanks "
+                "are at most `templates.MAX_VARIABLES`."
+            )
+        )
+        for key in ("GET /v1/whatsapp/templates", "POST /v1/whatsapp/templates")
+    },
+    "GET /v1/admin/whatsapp": BoundedByConstruction(
+        by=(
+            "clients are read with `LIMIT` `whatsapp/admin_routes.MAX_CLIENTS` and each "
+            "client's accounts with `whatsapp/accounts.list_accounts`' `LIMIT`."
+        )
+    ),
     # --- call handling (D-751, F3, F9): filler lines and the sound choices -----------------
     **{
         key: BoundedByConstruction(

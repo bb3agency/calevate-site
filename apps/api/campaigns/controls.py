@@ -186,7 +186,7 @@ async def delete_draft(
     (they cascade). A draft with a history keeps its row and becomes `cancelled`, because
     deleting it would either orphan its calls (`calls.campaign_id` is no foreign key) or
     try to null the campaign pointer on an append-only evidence row
-    (`preference_scrub_runs`, `first_campaign_reviews`), which the ledger trigger refuses.
+    (`preference_scrub_runs`), which the ledger trigger refuses.
     That happens to a repeating campaign that ran and was then unscheduled back to draft.
 
     The row is locked first, so a concurrent launch either finds it gone or waits.
@@ -197,8 +197,6 @@ async def delete_draft(
                 "SELECT c.status, c.launched_at IS NOT NULL "
                 "  OR EXISTS (SELECT 1 FROM calls k WHERE k.campaign_id = c.id) "
                 "  OR EXISTS (SELECT 1 FROM preference_scrub_runs p WHERE p.campaign_id = c.id) "
-                "  OR EXISTS (SELECT 1 FROM first_campaign_reviews r "
-                "             WHERE r.reviewed_campaign_id = c.id) "
                 "FROM campaigns c WHERE c.id = :cid FOR UPDATE OF c"
             ),
             {"cid": campaign_id},

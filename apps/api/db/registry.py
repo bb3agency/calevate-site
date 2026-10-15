@@ -32,6 +32,7 @@ from apps.api.reliability import models as reliability_models
 from apps.api.retrieval import models as retrieval_models
 from apps.api.teach import models as teach_models
 from apps.api.tenancy import models as tenancy_models
+from apps.api.whatsapp import models as whatsapp_models
 
 __all__ = [
     "APPEND_ONLY_TABLES",
@@ -63,6 +64,7 @@ __all__ = [
     "retrieval_models",
     "teach_models",
     "tenancy_models",
+    "whatsapp_models",
 ]
 
 # Every table that carries tenant_id and gets the FORCEd tenant_isolation policy.
@@ -253,9 +255,8 @@ TENANT_TABLES = [
     # paperwork and the carrier's decision on it — read by the number-acquisition gate
     # and by the dispatch gate for a number we supplied.
     "carrier_compliance_applications",
-    # The human release of a self-serve account's first campaign (R-11's last
-    # mitigation). Tenant data — what a reviewer decided about this account — read by
-    # the campaign launch gate and by every dispatch tick.
+    # The retired first-campaign review (D-51, removed by D-783). Nothing reads or writes
+    # it; it stays registered, with its RLS, until the release that drops it.
     "first_campaign_reviews",
     # One row per tenant per feature flag they are OFF the platform default for
     # (SURFACES §1, migration 3a91c7e04d58). Tenant data in the sense that matters here:
@@ -395,6 +396,12 @@ TENANT_TABLES = [
     # retention category on the same clock as call transcripts, and DELETEd whole by
     # tenant erasure. NOT append-only: every one of those three is a deletion.
     "copilot_conversation_turns",
+    # The files a person attached to Pip (migration f3c8a1d27e94, D-781): a name, a type, a
+    # size and the key of an object in the private uploads bucket — never the bytes. Per
+    # tenant AND per user; deleted with the conversation (session end, "start again"),
+    # DELETEd whole by tenant erasure with the account's objects, and the bucket's 30-day
+    # lifecycle rule is the backstop. NOT append-only.
+    "copilot_uploads",
     # The assistant's activity log and its background jobs (migration e6c2a9d41f07,
     # D-694). Tenant data: what the assistant did in this account, the redacted arguments
     # and the prior state it can restore, the Approvals inbox, and the progress of jobs it
@@ -427,6 +434,12 @@ TENANT_TABLES = [
     "forwarded_lines",
     "forwarding_tests",
     "save_number_messages",
+    # A client's own WhatsApp Business Account connected through Meta's Embedded Signup and
+    # the message templates submitted to it (D-784, migration c8e5a2f7d914). The account's
+    # read policy also admits the one row a verified Meta webhook names
+    # (`db/session.whatsapp_waba_session`); writes are own-tenant only.
+    "whatsapp_accounts",
+    "whatsapp_templates",
 ]
 
 # Tables deliberately OUTSIDE tenant isolation, with reasons — the RLS coverage
@@ -764,6 +777,14 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "the client table uses, it CASCADEs away with the operator's account, and it is "
         "cleared when that operator's last session ends — which on this realm is an "
         "8-hour absolute bound, shorter than any retention period we publish."
+    ),
+    "admin_copilot_uploads": (
+        "platform-scoped, admin realm only (D-781). The files an OPERATOR attached to the "
+        "admin console assistant — a name, a type, a size and an object key in the private "
+        "uploads bucket, never the bytes — the admin-realm twin of `copilot_uploads`, whose "
+        "`user_id` is a foreign key to `users`. `viewing_tenant_id` is context, SET NULL on "
+        "tenant delete. Deleted when that operator's last session ends, CASCADEs away with "
+        "the operator's account, and the bucket's 30-day lifecycle rule is the backstop."
     ),
     "admin_copilot_actions": (
         "platform-scoped, admin realm only (D-694). The ADMIN assistant's activity log for "

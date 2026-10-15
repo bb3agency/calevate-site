@@ -11,6 +11,7 @@ import type { ActionTool, IntegrationCredential } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
 
 import { renderClientPage } from "./harness";
+import { WHATSAPP_OFF_ROUTES } from "./fixtures/whatsapp";
 import { relPosix } from "./repoPaths";
 import { blankComments } from "./sourceScan";
 
@@ -67,6 +68,7 @@ describe("removing a saved credential", () => {
       <ConnectedAccounts session={SESSION} canWrite />,
       {
         "/v1/integrations/credentials": [CREDENTIAL],
+        ...WHATSAPP_OFF_ROUTES,
         "/v1/integrations/connections/status": {
           google_calendar: false,
           zoho_crm: false,
@@ -104,6 +106,7 @@ describe("removing a saved credential", () => {
       <ConnectedAccounts session={SESSION} canWrite />,
       {
         "/v1/integrations/credentials": [CREDENTIAL],
+        ...WHATSAPP_OFF_ROUTES,
         "/v1/integrations/connections/status": {
           google_calendar: false,
           zoho_crm: false,
@@ -176,6 +179,7 @@ describe("editing a configured action", () => {
     const { calls } = await renderClientPage(
       <ToolRow tool={STORED} agentId="agent-1" session={SESSION} />,
       {
+        ...WHATSAPP_OFF_ROUTES,
         "/v1/integrations/connections/status": {
           google_calendar: false,
           zoho_crm: false,
@@ -220,6 +224,7 @@ describe("editing a configured action", () => {
     const { calls } = await renderClientPage(
       <ToolRow tool={STORED} agentId="agent-1" session={SESSION} />,
       {
+        ...WHATSAPP_OFF_ROUTES,
         "/v1/integrations/connections/status": {
           google_calendar: false,
           zoho_crm: false,

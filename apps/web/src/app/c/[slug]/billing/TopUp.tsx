@@ -260,7 +260,7 @@ export function TopUp({ session }: { session: Session }) {
       {stage.at === "blocked" && <ProblemNotice error={stage.problem} />}
       {stage.at === "verifying" && (
         <p role="status" className="text-body text-ink-muted">
-          Confirming your payment…
+          <span className="text-shimmer">Confirming your payment…</span>
         </p>
       )}
 

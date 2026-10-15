@@ -104,10 +104,15 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "admin_client_standing": _l("Checking the client's standing", "Checked the client's standing"),
     "platform_halt_outbound": _l("Halting outgoing calls", "Halted outgoing calls"),
     "admin_kyc_review": _l("Recording the verification decision", "Recorded the decision"),
-    "admin_first_campaign_decide": _l("Recording the campaign decision", "Recorded the decision"),
     "admin_workspace_provision": _l("Setting up the workspace", "Set up the workspace"),
     "admin_number_release": _l("Releasing the number", "Released the number"),
     "admin_voice_set": _l("Changing the voice", "Changed the voice"),
+    "healer_incidents": _l("Checking the healer's problems", "Checked the healer's problems"),
+    "healer_incident": _l("Reading the problem's history", "Read the problem's history"),
+    "healer_money_review": _l("Comparing charges with our records", "Compared the charges"),
+    "healer_retry": _l("Running the repair again", "Ran the repair again"),
+    "healer_resolve": _l("Marking the problem handled", "Marked the problem handled"),
+    "healer_attest_rate": _l("Recording the rate you read", "Recorded the rate"),
 }
 
 UNKNOWN: Final[StepLabel] = _l("Trying something", "Tried something it could not do")

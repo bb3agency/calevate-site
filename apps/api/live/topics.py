@@ -23,6 +23,7 @@ Topic = Literal[
     "callbacks",
     "calls",
     "campaigns",
+    "conversation",
     "dnc",
     "healer",
     "integrations",
@@ -34,6 +35,11 @@ Topic = Literal[
     "quality",
     "wallet",
 ]
+
+#: Topics that belong to ONE PERSON rather than to an account (D-782). A person's Pip
+#: conversation is theirs alone, so its notes go to that person's channel and never to the
+#: tenant or operator channel, where every colleague's open panel would hear them.
+PERSON_TOPICS: Final[frozenset[Topic]] = frozenset({"conversation"})
 
 #: Topics a client's own stream can carry. The rest describe the platform, not one
 #: client, and only the operator stream carries them.
@@ -77,7 +83,6 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     # campaigns
     "campaigns": "campaigns",
     "campaign_contacts": "campaigns",
-    "first_campaign_reviews": "campaigns",
     "preference_scrub_runs": "campaigns",
     "dlt_registrations": "campaigns",
     "dlt_templates": "campaigns",
@@ -167,14 +172,14 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "inbound_webhooks": "integrations",
     "outbound_webhooks": "integrations",
     "webhook_deliveries": "integrations",
+    "whatsapp_accounts": "integrations",
+    "whatsapp_templates": "integrations",
     # the assistant
     "copilot_actions": "assistant",
     "copilot_jobs": "assistant",
     "copilot_routines": "assistant",
     "copilot_routine_runs": "assistant",
-    "copilot_conversation_turns": "assistant",
     "admin_copilot_actions": "assistant",
-    "admin_copilot_conversation_turns": "assistant",
     # quality
     "qa_reports": "quality",
     "qa_call_samples": "quality",
@@ -219,6 +224,10 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
 _DERIVED = "derived from rows another table already announces"
 _MACHINERY = "delivery and retry machinery; no screen lists it"
 _SECRET = "credential material; no screen may be told it moved"
+_PERSONAL = (
+    "one person's Pip conversation; announced on that person's own channel by "
+    "`copilot/live_sync.py`, never to the whole account"
+)
 
 #: Tables whose writes announce nothing, with the reason. A new table goes in one map or
 #: the other; the test refuses a table in neither.
@@ -237,10 +246,15 @@ QUIET_TABLES: Final[dict[str, str]] = {
     "retention_worklist": _MACHINERY,
     "copilot_memories": "the assistant's private recall; no screen lists it",
     "admin_copilot_memories": "the assistant's private recall; no screen lists it",
+    "copilot_conversation_turns": _PERSONAL,
+    "admin_copilot_conversation_turns": _PERSONAL,
+    "copilot_uploads": _PERSONAL,
+    "admin_copilot_uploads": _PERSONAL,
     "caller_chunks": _DERIVED + " (`caller_memories`)",
     "kb_chunks": _DERIVED + " (`kb_sources`, `kb_documents`)",
     "kb_retrieval_logs": "a read log; writing one is a read, not a change",
     "call_engine_latency": "no writer since D-770; dropped in a later release",
+    "first_campaign_reviews": "no writer since D-783; dropped in a later release",
 }
 
 #: Redis channel names. The tenant channel carries one client's notes; the operator
@@ -253,12 +267,20 @@ def tenant_channel(tenant_id: object) -> str:
     return f"{CHANNEL_PREFIX}tenant:{tenant_id}"
 
 
+def person_channel(realm: str, person_id: object) -> str:
+    """One signed-in person's channel. The realm is part of the name because a `users.id`
+    and an `admin_users.id` are two id spaces."""
+    return f"{CHANNEL_PREFIX}person:{realm}:{person_id}"
+
+
 __all__ = [
     "CHANNEL_PREFIX",
     "OPERATOR_CHANNEL",
+    "PERSON_TOPICS",
     "QUIET_TABLES",
     "TABLE_TOPICS",
     "TENANT_TOPICS",
     "Topic",
+    "person_channel",
     "tenant_channel",
 ]

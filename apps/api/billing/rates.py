@@ -2511,8 +2511,8 @@ def committed_plan_margin(
 #: to be an alias of this name. That one answers a different question — "did a stranger
 #: sign this account up unattended?" — and keeps its two members, because `prepaid` is a
 #: tier an OPERATOR creates for a client they have met. Aliasing them again would put the
-#: subscriber-KYC dial gate (D-47) and the first-campaign hold (D-51) in front of every
-#: client on the platform, which is not what either control is for.
+#: stranger-signup hold queue (`admin/holds.py`) in front of every client on the
+#: platform, which is not what it is for.
 PREPAID_TIERS: Final = ("prepaid", "self_serve", "trial")
 
 

@@ -23,6 +23,18 @@ from apps.api.actions.service import LoadedTool, _to_spec
 from apps.api.compliance.consent import MessagingConsent
 from apps.api.compliance.service import DispatchDecision
 
+
+@pytest.fixture(autouse=True)
+def _no_captured_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The AiSensy send reads the caller's captured name from `leads`; these unit tests run
+    on a `_FakeSession`, so the read is stubbed to "none captured"."""
+
+    async def _none(session: Any, *, tool: Any, phone_e164: str) -> None:
+        return None
+
+    monkeypatch.setattr(execution, "_recipient_name", _none)
+
+
 # --------------------------------------------------------------- declaration ----
 
 
@@ -93,7 +105,8 @@ def test_build_aisensy_puts_key_in_body_and_campaign_as_template() -> None:
         "apiKey": "AKEY",
         "campaignName": "price_list_campaign",
         "destination": "+919000000000",
-        "userName": "Calevate",
+        # No captured name: the recipient's number, never our name (D-784).
+        "userName": "+919000000000",
         "templateParams": ["Rs 500"],
     }
 

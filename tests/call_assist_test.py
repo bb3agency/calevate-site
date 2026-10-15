@@ -339,6 +339,25 @@ async def test_the_model_is_sent_the_redacted_turns_and_never_the_raw_column(
     assert "Namaskaram" in sent, "the agent's turn is part of the conversation the model reads"
 
 
+async def test_the_model_is_told_the_language_the_agent_speaks(
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tenant_id, slug, token = await _make_tenant()
+    call_id = await _call_with_transcript(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(text("UPDATE agents SET language_primary = 'hi-IN'"))
+    azure = FakeAzure()
+    use_fake_azure(monkeypatch, azure)
+
+    async with _client() as http:
+        response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
+
+    assert response.status_code == 200, response.text
+    sent = azure.sent.content.decode()
+    assert "The call is in Hindi" in sent
+    assert "The call is in Telugu" not in sent
+
+
 async def test_a_turn_whose_redacted_copy_still_holds_a_number_is_refused_before_the_model(
     azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -742,14 +761,14 @@ async def test_an_azure_outage_answers_with_sarvam_and_the_disclosure_reaches_th
     spend_before = await _platform_spend()
 
     async def _azure_down(
-        self: AzureOpenAIExtractor, spec: ExtractionSchemaSpec, transcript: str
+        self: AzureOpenAIExtractor, spec: ExtractionSchemaSpec, transcript: str, **_: Any
     ) -> dict[str, Any]:
         raise httpx.ConnectError("azure is unreachable")
 
     sarvam_saw: list[str] = []
 
     async def _sarvam_run(
-        self: SarvamExtractor, spec: ExtractionSchemaSpec, transcript: str
+        self: SarvamExtractor, spec: ExtractionSchemaSpec, transcript: str, **_: Any
     ) -> dict[str, Any]:
         sarvam_saw.append(transcript)
         return {"summary": "Ravi wants a Tuesday slot.", "sentiment": "neutral"}
@@ -856,12 +875,12 @@ async def test_a_sarvam_fallback_is_unmetered_without_waking_an_operator(
     monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
 
     async def _azure_down(
-        self: AzureOpenAIExtractor, spec: ExtractionSchemaSpec, transcript: str
+        self: AzureOpenAIExtractor, spec: ExtractionSchemaSpec, transcript: str, **_: Any
     ) -> dict[str, Any]:
         raise httpx.ConnectError("azure is unreachable")
 
     async def _sarvam_run(
-        self: SarvamExtractor, spec: ExtractionSchemaSpec, transcript: str
+        self: SarvamExtractor, spec: ExtractionSchemaSpec, transcript: str, **_: Any
     ) -> dict[str, Any]:
         return {"summary": "Sarvam answered."}
 

@@ -49,7 +49,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.actions.schema import ParamSpec
+from apps.api.actions.schema import CALLER_AGREED_ARG, CALLER_WORDS_ARG, ParamSpec
 from apps.api.actions.service import LoadedTool, in_call_tools
 from apps.api.core.alerting import alert
 from apps.api.core.envelope import Envelope, seal, unseal
@@ -223,6 +223,32 @@ CALLER_LOOKUP_TIMING: Final = (
 )
 
 
+#: Appended to every action that sends the caller a WhatsApp (a message or a payment link),
+#: with the two parameters below (D-784). The instruction lives in the action, not the
+#: platform prompt: it is read exactly when the model is about to send, and it costs the
+#: in-call prompt budget nothing (`tests/agent_prompt_budget_test.py`).
+WHATSAPP_CONSENT_TIMING: Final = (
+    " Before you call this, ask the caller in their own language: 'Shall I send this on "
+    "WhatsApp to this number?' Call it only after they answer, and pass their answer."
+)
+WHATSAPP_CONSENT_PARAMS: Final = (
+    ActionParam(
+        CALLER_AGREED_ARG,
+        "yes ONLY if you asked 'Shall I send this on WhatsApp to this number?' on this "
+        "call and the caller clearly said yes; no if they said no. Never yes without asking.",
+        True,
+    ),
+    ActionParam(
+        CALLER_WORDS_ARG,
+        "The caller's own reply to that question, word for word in the language they "
+        "said it, for example 'haan, bhej do'. Never invent it.",
+        True,
+    ),
+)
+#: The kinds that send the caller a WhatsApp.
+WHATSAPP_SENDING_KINDS: Final = frozenset({"whatsapp", "payment_link"})
+
+
 def is_client_action(engine: str, url: str) -> bool:
     return f"{ACTIONS_PATH}/{engine}/{CLIENT_LEAF}/" in url
 
@@ -277,12 +303,16 @@ async def client_definitions(
             if spec.source == "ai"
         )
         lookup = tool.kind == "caller_lookup"
+        sends_whatsapp = tool.kind in WHATSAPP_SENDING_KINDS
+        if sends_whatsapp:
+            params = (*params, *WHATSAPP_CONSENT_PARAMS)
         out.append(
             ActionDefinition(
                 name=tool.name,
                 description=(
                     tool.description.strip()
                     + (CALLER_LOOKUP_TIMING if lookup else "")
+                    + (WHATSAPP_CONSENT_TIMING if sends_whatsapp else "")
                     + CLIENT_DESCRIPTION_SUFFIX
                 ),
                 url=client_action_url(engine, engine_agent_ref, tool.name),

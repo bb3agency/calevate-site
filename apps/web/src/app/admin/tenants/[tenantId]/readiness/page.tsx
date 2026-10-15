@@ -19,14 +19,6 @@ import { ReadinessScreen, type RuleScreen } from "./ReadinessScreen";
 const RULE_SCREENS: Record<string, RuleScreen> = {
   kyc_missing: { href: (id) => `/admin/tenants/${id}/kyc`, cta: "Record verification" },
   kyc_not_verified: { href: (id) => `/admin/tenants/${id}/kyc`, cta: "Record verification" },
-  first_campaign_review_pending: {
-    href: (id) => `/admin/tenants/${id}/first-campaign-review`,
-    cta: "Review the first campaign",
-  },
-  first_campaign_review_rejected: {
-    href: (id) => `/admin/tenants/${id}/first-campaign-review`,
-    cta: "Review the first campaign",
-  },
   national_dnd_scrub_missing: {
     href: (id) => `/admin/tenants/${id}/dnd-scrub`,
     cta: "Record the scrub",

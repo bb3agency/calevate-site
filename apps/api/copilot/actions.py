@@ -440,15 +440,18 @@ def action_schema(name: str, description: str, properties: dict[str, Any]) -> di
 #: Said at the end of every TIER 2 tool's description. The confirmation trigger is in code —
 #: this sentence is not what makes it true — but a model that believes it has ACTED will tell
 #: the person it has, and that lie is the one thing the code cannot prevent.
+#: Short because it is repeated on every confirm tool in the cacheable tool array (D-779);
+#: the system prompt explains the two kinds once, and this labels which one a tool is.
 PROPOSES_ONLY: Final = (
-    " This does NOT do it. It shows the person exactly what would change and waits for them "
-    "to confirm. Say that you have suggested it, never that you have done it."
+    " Confirm-first: this only proposes; the person sees the change and confirms it. "
+    "Say you suggested it, never that you did it."
 )
 
 #: Said at the end of every TIER 1 tool's description. The opposite sentence, for the
 #: opposite reason: an action that really has run must not be described as a suggestion, or
-#: the person goes looking for a Confirm button that will never appear.
+#: the person goes looking for a Confirm button that will never appear. "Undo" is true of
+#: every such tool because `ActionTool.__post_init__` refuses an immediate tool without one.
 DOES_IT: Final = (
-    " This DOES it, immediately — there is no confirmation step. Only call it when the "
-    "person has asked for it. Afterwards, say plainly what you did and where to find it."
+    " Immediate: this does it at once, with an Undo on the receipt. Call it only when "
+    "asked, then say what you did and where to find it."
 )

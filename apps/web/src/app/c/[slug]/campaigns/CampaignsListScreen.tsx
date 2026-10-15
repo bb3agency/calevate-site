@@ -36,6 +36,21 @@ import { TrialLockNotice } from "../TrialLockNotice";
 import { LIST_PROVENANCE_COPY } from "./blockerCopy";
 import { CampaignStatusPill, ReachBar } from "./campaignStatus";
 
+/**
+ * How far a row has got. A campaign that has not started has no progress to draw, so it
+ * says how many people are on it rather than "0 of 342 reached" under an empty bar.
+ */
+function RowProgress({ campaign }: { campaign: CampaignSummary }) {
+  if (campaign.status === "draft" || campaign.status === "scheduled") {
+    return (
+      <span className="whitespace-nowrap text-xs tabular-nums text-ink-muted">
+        {formatCount(campaign.contacts)} {campaign.contacts === 1 ? "person" : "people"} on the list
+      </span>
+    );
+  }
+  return <ReachBar reached={campaign.connected} total={campaign.contacts} />;
+}
+
 const PAGE_SIZE = 25;
 
 /** The status tabs, in the order a campaign moves through them. */
@@ -100,7 +115,7 @@ export function CampaignsListScreen({ slug }: { slug: string }) {
     {
       id: "reach",
       header: "Reached",
-      cell: (row) => <ReachBar reached={row.connected} total={row.contacts} />,
+      cell: (row) => <RowProgress campaign={row} />,
       flash: (row) => `${row.connected}/${row.contacts}`,
       hideBelow: "sm",
     },
@@ -114,14 +129,16 @@ export function CampaignsListScreen({ slug }: { slug: string }) {
       ),
       hideBelow: "md",
     },
-    {
+    ...(data?.items.some((row) => row.status === "running" || row.status === "paused") ? [{
       id: "actions",
       header: "Actions",
       align: "right",
+      // On a phone the row is a stacked card and its Pause lives on the campaign page.
+      hideBelow: "sm",
       cell: (row) => (
         <RowActions campaign={row} canWrite={write.allowed} refusal={refusal} onError={setRowError} />
       ),
-    },
+    } satisfies DataColumn<CampaignSummary>] : []),
   ];
 
   return (
@@ -227,7 +244,7 @@ function NameCell({ campaign, href }: { campaign: CampaignSummary; href: string 
         </span>
       </p>
       <div className="mt-1.5 sm:hidden">
-        <ReachBar reached={campaign.connected} total={campaign.contacts} />
+        <RowProgress campaign={campaign} />
       </div>
       {note && (
         <StatusPill tone={note.tone} wrap className="mt-1">

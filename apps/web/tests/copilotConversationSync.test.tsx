@@ -32,9 +32,9 @@ vi.mock("next/navigation", () => ({
 }));
 
 /**
- * MULTI-DEVICE, THE FOUNDER'S ANSWER (D-542): *refresh when you return to the tab*.
- *
- * Not live push. What has to be true is three things, and each is one test here: coming
+ * MULTI-DEVICE, THE FLOOR UNDER THE LIVE STREAM. D-542 made *refresh when you return to
+ * the tab* the whole sync; D-782 added live push (`copilotLiveSync.test.tsx`) and kept this
+ * as the floor for a window whose stream is closed. What has to be true here: coming
  * back to the tab shows what the other device said; a refetch NEVER lands while an answer
  * is streaming, because it would replace the list with a page taken before the question
  * was asked and the person would watch their own message vanish; and a history that fails
@@ -257,11 +257,17 @@ function stubAskAndConversation(
   pages: { id: string; role: string; content: string }[][],
 ) {
   let read = 0;
+  // The ids the browser sent as `turn_ids`; a page entry whose id is "$question" or
+  // "$answer" is stored under them, as the server stores it (D-782).
+  const ids: Record<string, string> = {};
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input).replace(API_BASE, "");
       if (path.startsWith("/v1/copilot/ask")) {
+        const asked = JSON.parse(String(init?.body)) as { turn_ids: Record<string, string> };
+        ids.question = asked.turn_ids.question;
+        ids.answer = asked.turn_ids.answer;
         return sse([
           `event: text\ndata: ${JSON.stringify({ delta: answer })}\n\n`,
           'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
@@ -274,6 +280,7 @@ function stubAskAndConversation(
           JSON.stringify({
             turns: turns.map((turn) => ({
               ...turn,
+              id: turn.id.startsWith("$") ? ids[turn.id.slice(1)] : turn.id,
               screen_route: "/c/[slug]/leads",
               said_at: "2026-09-05T08:00:00+00:00",
             })),
@@ -338,21 +345,13 @@ describe("the refresh after an exchange", () => {
   it("SHOWS A STORED EXCHANGE ONCE — the server's copy replaces the local one, never doubles it", async () => {
     // The other direction, and the one a naive merge gets wrong: the same exchange is now
     // in the local list AND in the page the refresh brings back. Two bubbles saying the
-    // same thing is the failure that never heals, which is why the reconciliation counts
-    // what the server has LEARNED since the last page rather than matching text.
+    // same thing is the failure that never heals, which is why the merge matches the ids
+    // this device minted and the server stored the turns under (D-782), never the text.
     stubAskAndConversation("Eleven.", [
       [],
       [
-        {
-          id: "0198f000-0000-7000-8000-000000000001",
-          role: "user",
-          content: "how many leads",
-        },
-        {
-          id: "0198f000-0000-7000-8000-000000000002",
-          role: "assistant",
-          content: "Eleven.",
-        },
+        { id: "$question", role: "user", content: "how many leads" },
+        { id: "$answer", role: "assistant", content: "Eleven." },
       ],
     ]);
 
@@ -477,10 +476,11 @@ describe("the transcript's keys", () => {
     expect(screen.getByText("Eleven.")).toBe(before);
   });
 
-  it("NEVER SENDS the client-only key, which the server has no row for", async () => {
-    // `localKey` exists to give the panel a stable React key WITHOUT inventing a
-    // server-facing `id` — the merge reconciles by counting against the server's own ids,
-    // and a key we minted appearing on the wire would be this browser asserting a row.
+  it("SENDS the ids its question and answer will be stored under, and replays only text", async () => {
+    // The device that asks mints the two turn ids (D-782) so it can recognise its own
+    // turns in the stored page. They travel as `turn_ids`, one pair per question, and the
+    // replayed `history` stays role and text — an id there would be a field the server's
+    // `CopilotTurn` refuses.
     const bodies: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -532,12 +532,19 @@ describe("the transcript's keys", () => {
     }
 
     expect(bodies.length).toBe(2);
-    // The second ask replays the first exchange as `history`, which is where a leaked
-    // key would show up.
-    expect(bodies[1]).toContain("how many leads");
-    for (const body of bodies) {
-      expect(body).not.toContain("localKey");
-      expect(body).not.toContain("local-");
-    }
+    const sent = bodies.map(
+      (body) =>
+        JSON.parse(body) as {
+          turn_ids: { question: string; answer: string };
+          history: Record<string, unknown>[];
+        },
+    );
+    const uuid7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    const all = sent.flatMap((body) => [body.turn_ids.question, body.turn_ids.answer]);
+    for (const id of all) expect(id).toMatch(uuid7);
+    expect(new Set(all).size).toBe(4);
+    // The second ask replays the first exchange as `history`: text and role only.
+    expect(sent[1].history[0]).toEqual({ role: "user", content: "how many leads" });
+    for (const turn of sent[1].history) expect(Object.keys(turn).sort()).toEqual(["content", "role"]);
   });
 });

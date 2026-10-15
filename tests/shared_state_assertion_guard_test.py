@@ -104,8 +104,8 @@ UNSCOPED_COUNT_REASONS: dict[tuple[str, str], str] = {
         "Same shape as admin_security_test.py."
     ),
     ("ops_hold_queue_test.py", "organizations"): (
-        "`orgs >= 1`, a floor, beside `== 0` on `kyc_records` and "
-        "`first_campaign_reviews`. Another suite's tenant can only raise the floor, and "
+        "`orgs >= 1`, a floor, beside `== 0` on `kyc_records`. "
+        "Another suite's tenant can only raise the floor, and "
         "the zero assertions are the RLS fail-closed direction, which a concurrent "
         "writer cannot invert."
     ),

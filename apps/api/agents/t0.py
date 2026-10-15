@@ -40,10 +40,10 @@ mini-suite), and a client pasting an FAQ is not that gate. The predicate is ther
 the same one `agents/prompts.py` uses: live agents are pushed, everything else keeps
 the new version on our side until someone deliberately publishes it.
 
-**What does not fit stays in the engine KB.** PROMPT-GUIDE §2 budgets the whole prompt
-at ~2,500 tokens and says that when [T0 FACTS] pushes past it "facts move to RAG —
-that's the signal, not an invitation to trim guardrails". So the knowledge half is
-capped (`KNOWLEDGE_CHAR_BUDGET`) and a source that does not fit is skipped WHOLE rather
+**What does not fit stays in the engine KB.** PROMPT-GUIDE §2 keeps the whole prompt far
+below the engine's box and says that when facts push past budget "they move to the
+knowledge base; that is the signal, not an invitation to trim guardrails". So the knowledge
+half is capped (`KNOWLEDGE_CHAR_BUDGET`) and a source that does not fit is skipped WHOLE rather
 than cut mid-sentence: the same source is attached to the engine's KB by the same
 publish, so what T0 drops is still answerable at T3 — one retrieval slower, not lost.
 Cutting a source in half would instead leave the agent reading out a truncated price.

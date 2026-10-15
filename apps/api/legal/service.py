@@ -114,8 +114,8 @@ def outstanding_slugs(accepted: dict[str, Acceptance]) -> list[str]:
 async def agreements_blocker(session: AsyncSession, *, tenant_id: UUID) -> tuple[str, str] | None:
     """`(rule, reason)` if unaccepted agreements stop this organisation's outbound, else None.
 
-    Returns the PAIR rather than a bool for the reason `kyc_blocker` and
-    `first_campaign_hold_blocker` do: the launch preview, the dispatch tick and the dial
+    Returns the PAIR rather than a bool for the reason `kyc_blocker`
+    does: the launch preview, the dispatch tick and the dial
     gate must name the condition identically. There is only ONE failure here — some
     blocking document has not been accepted at its current version — because the client's
     next action is the same whichever document it is, and the screen that lists them by

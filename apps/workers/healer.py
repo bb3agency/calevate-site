@@ -38,12 +38,13 @@ from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.health import SPIKE_THRESHOLD, PlatformStatus, ReportsPlatformStatus
-from apps.api.healer import health, incidents, ledger, notices, proposals, protection
+from apps.api.healer import health, incidents, ledger, money, notices, proposals, protection
 from apps.api.healer.incidents import Incident
 from apps.api.healer.playbooks import (
     AGENT_HEALTH_DEGRADED,
     AGENT_LINE_BROKEN,
     ENGINE_PLATFORM_OUTAGE,
+    MONEY_REVIEW,
     PLAYBOOK_BY_JOB,
     PLAYBOOK_BY_KEY,
     PLAYBOOK_BY_TRIGGER,
@@ -80,6 +81,8 @@ MIN_HOLD: Final = timedelta(minutes=30)
 ESCALATED_RECHECK_S: Final = 6 * 60 * 60
 #: How long an incident with no calls since its repair waits before closing as quiet.
 QUIET_CLOSE: Final = timedelta(hours=2)
+#: How often a money incident's evidence is read again: the charge sweep's own cadence.
+MONEY_RECHECK_S: Final = 60 * 60
 
 #: The alarm codes the scorer raises itself; their incidents are opened by the scorer
 #: with the agent they are about, never from the alarm episode, which names only one.
@@ -156,20 +159,26 @@ async def _open_from_alarms(tally: Counter[str]) -> None:
         rows = (
             await session.execute(
                 text(
-                    "SELECT code, ids FROM platform_alerts WHERE cleared_at IS NULL "
+                    "SELECT code, ids, last_seen_at FROM platform_alerts WHERE cleared_at IS NULL "
                     "AND code = ANY(CAST(:codes AS text[]))"
                 ),
                 {"codes": codes},
             )
         ).all()
-        for code, ids in rows:
+        for code, ids, last_seen_at in rows:
             playbook = PLAYBOOK_BY_TRIGGER[str(code)]
             tenant = (
                 _uuid((ids or {}).get("tenant_id")) if playbook.blast_radius == "tenant" else None
             )
+            key = incidents.dedupe_key(playbook.key, code, tenant)
+            if await incidents.resolved_since(session, key, last_seen_at):
+                # Closed after the alarm's last occurrence: the episode is still waiting out
+                # its quiet hour, and reopening would repeat a repair that already worked.
+                tally["already_resolved"] += 1
+                continue
             _, opened = await incidents.open_incident(
                 session,
-                key=incidents.dedupe_key(playbook.key, code, tenant),
+                key=key,
                 playbook=playbook.key,
                 trigger_code=str(code),
                 scope="tenant" if tenant else "platform",
@@ -443,7 +452,7 @@ async def _paused(incident: Incident) -> None:
     await _advance(incident, state=incident.state, next_in_s=300, outcome="paused")  # type: ignore[arg-type]
 
 
-async def _escalate(incident: Incident, *, why: str) -> None:
+async def _escalate(incident: Incident, *, why: str, recheck_s: int = ESCALATED_RECHECK_S) -> None:
     alert(
         "WORKER_TERMINAL",
         "healer_needs_person",
@@ -463,15 +472,59 @@ async def _escalate(incident: Incident, *, why: str) -> None:
         alarm_code=incident.trigger_code,
         detail=why,
     )
-    await _advance(incident, state="escalated", next_in_s=ESCALATED_RECHECK_S, outcome="escalated")
+    await _advance(incident, state="escalated", next_in_s=recheck_s, outcome="escalated")
 
 
 async def _escalate_only(incident: Incident) -> None:
-    """Money and anything else the healer must not touch: page once, wait for a person."""
+    """A playbook the healer must not act on and has no evidence for: page once, wait for a
+    person."""
     if incident.state == "open":
         await _escalate(incident, why="the healer does not act on this; a person must")
     else:
         await _advance(incident, state="escalated", next_in_s=ESCALATED_RECHECK_S)
+
+
+async def _money_review(incident: Incident) -> None:
+    """Hand a charge alarm to a person WITH its evidence, then re-read the evidence hourly
+    and close the incident once the calls show the problem is over (`MoneyEvidence.
+    settled`). Nothing is attested, restated or re-priced here: a rate is the operator's to
+    attest (hard rules 7 and 11), which Pip prepares for them to confirm."""
+    try:
+        evidence = await money.gather(since=incident.opened_at - money.LOOKBACK)
+    except Exception as exc:
+        log.warning(
+            "healer_money_evidence_failed",
+            extra={"incident_id": str(incident.id), "reason": type(exc).__name__},
+        )
+        if incident.state == "open":
+            await _escalate(
+                incident,
+                why="the healer does not act on money, and its evidence could not be read",
+                recheck_s=MONEY_RECHECK_S,
+            )
+        else:
+            await _advance(incident, state="escalated", next_in_s=MONEY_RECHECK_S)
+        return
+    finding = evidence.summary()
+    if incident.state == "open":
+        await _escalate(incident, why=finding, recheck_s=MONEY_RECHECK_S)
+        return
+    settled = evidence.settled(incident.trigger_code, after=incident.opened_at)
+    async with untenanted_session() as session:
+        last = (await ledger.latest_findings(session, [incident.id])).get(incident.id)
+    if settled or last != finding:
+        await _record(
+            playbook=incident.playbook,
+            step="verify",
+            outcome="ok" if settled else "failed",
+            incident_id=incident.id,
+            alarm_code=incident.trigger_code,
+            detail=finding,
+        )
+    if settled:
+        await _advance(incident, state="resolved", next_in_s=None, outcome="verified")
+    else:
+        await _advance(incident, state="escalated", next_in_s=MONEY_RECHECK_S)
 
 
 async def _wait_for_person(incident: Incident) -> None:
@@ -492,23 +545,30 @@ def _generic(act: Act, verify: Verify) -> Callable[[Incident], Awaitable[None]]:
             await _act(incident, act)
             return
         ok = await verify(incident)
-        await _record(
-            playbook=playbook.key,
-            step="verify",
-            outcome="ok" if ok else "failed",
-            incident_id=incident.id,
-            attempt=incident.attempts,
-            tenant_id=incident.tenant_id,
-            alarm_code=incident.trigger_code,
-        )
+        if ok or incident.state != "escalated":
+            # An escalated incident is re-checked every cooldown; only the check that
+            # clears it is worth a ledger row.
+            await _record(
+                playbook=playbook.key,
+                step="verify",
+                outcome="ok" if ok else "failed",
+                incident_id=incident.id,
+                attempt=incident.attempts,
+                tenant_id=incident.tenant_id,
+                alarm_code=incident.trigger_code,
+            )
         if ok:
             await _advance(incident, state="resolved", next_in_s=None, outcome="verified")
         elif incident.state == "mitigated" and incident.attempts < playbook.max_attempts:
             await _act(incident, act)
         elif incident.state == "mitigated":
-            await _escalate(incident, why=f"{incident.attempts} repair(s) did not clear it")
+            await _escalate(
+                incident,
+                why=f"{incident.attempts} repair(s) did not clear it",
+                recheck_s=playbook.cooldown_s,
+            )
         else:
-            await _advance(incident, state="escalated", next_in_s=ESCALATED_RECHECK_S)
+            await _advance(incident, state="escalated", next_in_s=playbook.cooldown_s)
 
     return step
 
@@ -732,9 +792,13 @@ async def _agent_repair(incident: Incident) -> None:
         )
         await _advance(incident, state="mitigated", next_in_s=playbook.cooldown_s, attempted=True)
     elif incident.state == "mitigated":
-        await _escalate(incident, why="the agent is still below its baseline after repairs")
+        await _escalate(
+            incident,
+            why="the agent is still below its baseline after repairs",
+            recheck_s=playbook.cooldown_s,
+        )
     else:
-        await _advance(incident, state="escalated", next_in_s=ESCALATED_RECHECK_S)
+        await _advance(incident, state="escalated", next_in_s=playbook.cooldown_s)
 
 
 async def _last_step_at(incident_id: UUID, step: str) -> datetime | None:
@@ -1047,7 +1111,7 @@ _STEPS: Final[dict[str, Callable[[Incident], Awaitable[None]]]] = {
     "agent_repair": _agent_repair,
     "line_protection": _line_protection,
     "engine_outage": _engine_outage,
-    "money_review": _escalate_only,
+    MONEY_REVIEW: _money_review,
     "status_post": _wait_for_person,
 }
 

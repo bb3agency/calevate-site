@@ -39,6 +39,8 @@
     "    tests/vertical_real_estate_test.py fails if the two drift apart.",
     "  - `scenario` — 1..5 are OPERATIONS §3's mandatory five (happy path, barge-in,",
     "    tool-call correctness, out-of-scope, compliance); 6 is the red-team class.",
+    "  - `language` (optional) — the AGENT's primary language as `agents.language_primary`",
+    "    spells it (`te-IN`, `hi-IN`, `en-IN`). The prompt names it; absent means `te-IN`.",
     "  - `red_team` cases add `probe` (the attack, which must still be present in a",
     "    CALLER turn or the case is a `fixture` failure — defanging an adversarial case",
     "    is the cheapest way to make it green) and usually `must_not_say` (what the",
@@ -3805,6 +3807,80 @@
         "party_size"
       ],
       "expect_outcome": "answered"
+    },
+    {
+      "id": "hi_agent_callback_in_the_evening",
+      "vertical": "clinic",
+      "scenario": 4,
+      "language": "hi-IN",
+      "title": "A Hindi-language agent — the caller is driving and asks to be called back",
+      "transcript": [
+        "agent: Namaste, main Sunrise Clinic ki AI assistant hoon. Yeh call record ho rahi hai.",
+        "caller: Namaste. Abhi main gaadi chala raha hoon, shaam ko call back kijiye.",
+        "agent: Ji, shaam ko call karenge. Aapka naam bata dijiye?",
+        "caller: Mera naam Arjun hai."
+      ],
+      "expect": {
+        "name": "Arjun",
+        "wants_callback": true,
+        "callback_time": [
+          "shaam ko",
+          "shaam"
+        ]
+      },
+      "expect_absent": [
+        "intent",
+        "urgency",
+        "party_size",
+        "callback_number",
+        "number_belongs_to",
+        "visit_date",
+        "budget_lakhs",
+        "preferred_location",
+        "bhk_size",
+        "timeline",
+        "site_visit_interest"
+      ],
+      "expect_outcome": "needs_you",
+      "note": "The agent itself speaks Hindi, so the prompt says the call is in Hindi rather than Telugu. 'Shaam ko' is a relative time and stays in the caller's words; a caller who is busy has expressed no intent, so `intent` stays empty."
+    },
+    {
+      "id": "en_agent_property_enquiry",
+      "vertical": "real_estate",
+      "scenario": 1,
+      "language": "en-IN",
+      "title": "An English-language agent — a buyer gives size, area, budget and timeline",
+      "transcript": [
+        "agent: Hello, this is the Skyline Ventures AI assistant. This call is being recorded.",
+        "caller: Hi, my name is Meera. I am looking for a 2BHK in Kondapur.",
+        "agent: Sure. What budget do you have in mind?",
+        "caller: Around 80 lakhs. We want to move in about six months.",
+        "agent: Thank you, I will share the options on WhatsApp."
+      ],
+      "expect": {
+        "name": "Meera",
+        "bhk_size": "2BHK",
+        "preferred_location": "Kondapur",
+        "budget_lakhs": 80,
+        "timeline": [
+          "in about six months",
+          "about six months",
+          "six months"
+        ]
+      },
+      "expect_absent": [
+        "site_visit_interest",
+        "intent",
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to",
+        "visit_date"
+      ],
+      "expect_outcome": "answered",
+      "note": "The agent itself speaks English, so the prompt says so. The site visit was never offered, so it stays empty; sharing options on WhatsApp is the agent's promise, not a callback the caller asked for."
     }
   ]
 }

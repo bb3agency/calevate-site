@@ -23,6 +23,7 @@ from typing import Final
 from uuid import UUID
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Computed,
     ForeignKey,
@@ -272,6 +273,88 @@ class AdminCopilotConversationTurn(_ConversationTurnColumns, PKMixin, TimestampM
     )
     viewing_tenant_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("organizations.id", ondelete="SET NULL")
+    )
+
+
+#: The largest file Pip stores (`attachments.MAX_FILE_BYTES`), as the schema's CHECK.
+MAX_UPLOAD_BYTES: Final = 20 * 1024 * 1024
+
+
+class _UploadColumns:
+    """The columns both realms' uploads share (migration `f3c8a1d27e94`, D-781). Split by
+    realm for `_ConversationTurnColumns`' reason. The bytes are in the uploads bucket under
+    `object_key`; this row holds no content."""
+
+    run_started_at: Mapped[datetime] = mapped_column(nullable=False)
+    file_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    stored_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    object_key: Mapped[str] = mapped_column(String(300), nullable=False, unique=True)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column()
+
+
+_UPLOAD_CHECKS: Final = (
+    "status IN ('uploading', 'ready')",
+    "stored_type IN ('image/jpeg', 'application/pdf', 'text/plain', 'text/csv')",
+    f"size_bytes IS NULL OR (size_bytes > 0 AND size_bytes <= {MAX_UPLOAD_BYTES})",
+    "(status = 'ready') = (size_bytes IS NOT NULL)",
+    "length(btrim(file_name)) > 0",
+    "text_of IS NULL OR stored_type = 'text/plain'",
+)
+
+
+class CopilotUpload(_UploadColumns, PKMixin, TimestampMixin, Base):
+    """One file a client-realm person attached to Pip."""
+
+    __tablename__ = "copilot_uploads"
+    __table_args__ = (
+        CheckConstraint(_UPLOAD_CHECKS[0], name="status_enum"),
+        CheckConstraint(_UPLOAD_CHECKS[1], name="stored_type_enum"),
+        CheckConstraint(_UPLOAD_CHECKS[2], name="size_bounds"),
+        CheckConstraint(_UPLOAD_CHECKS[3], name="ready_has_size"),
+        CheckConstraint(_UPLOAD_CHECKS[4], name="file_name_not_blank"),
+        CheckConstraint(_UPLOAD_CHECKS[5], name="text_of_is_text"),
+        Index("ix_copilot_uploads_tenant_user", "tenant_id", "user_id", "created_at"),
+        Index("ix_copilot_uploads_text_of", "text_of"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    #: The PDF this row is the browser-extracted text of (D-781).
+    text_of: Mapped[UUID | None] = mapped_column(
+        ForeignKey("copilot_uploads.id", ondelete="CASCADE")
+    )
+
+
+class AdminCopilotUpload(_UploadColumns, PKMixin, TimestampMixin, Base):
+    """One file an operator attached to Pip in the admin console. No tenant and no RLS,
+    for `AdminCopilotConversationTurn`'s reason."""
+
+    __tablename__ = "admin_copilot_uploads"
+    __table_args__ = (
+        CheckConstraint(_UPLOAD_CHECKS[0], name="status_enum"),
+        CheckConstraint(_UPLOAD_CHECKS[1], name="stored_type_enum"),
+        CheckConstraint(_UPLOAD_CHECKS[2], name="size_bounds"),
+        CheckConstraint(_UPLOAD_CHECKS[3], name="ready_has_size"),
+        CheckConstraint(_UPLOAD_CHECKS[4], name="file_name_not_blank"),
+        CheckConstraint(_UPLOAD_CHECKS[5], name="text_of_is_text"),
+        Index("ix_admin_copilot_uploads_user", "admin_user_id", "created_at"),
+        Index("ix_admin_copilot_uploads_text_of", "text_of"),
+    )
+
+    admin_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="CASCADE"), nullable=False
+    )
+    viewing_tenant_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="SET NULL")
+    )
+    text_of: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_copilot_uploads.id", ondelete="CASCADE")
     )
 
 

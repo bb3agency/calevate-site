@@ -51,7 +51,9 @@ from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.compliance.audit import write_audit
 from apps.api.copilot import (
     action_log,
+    attachments,
     jobs,
+    live_sync,
     memory,
     model_tiers,
     service,
@@ -80,6 +82,7 @@ from apps.api.copilot.schemas import (
     CopilotJobPageOut,
     CopilotJobProgressOut,
     CopilotTextEvent,
+    CopilotTurnIds,
     CopilotUndoOut,
 )
 from apps.api.core.auth import client_request_ip, requires
@@ -90,6 +93,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
 from apps.api.crm.assist import ASSIST_FEATURE_COPILOT, meter_assist
+from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 
 log = get_logger(__name__)
@@ -174,6 +178,36 @@ def _error_event(problem: ProblemError) -> ServerSentEvent:
     written. One problem shape for the whole platform (BACKEND-PATTERNS §3), whether it
     left through a status line or through a stream."""
     return ServerSentEvent(event="error", data=problem.as_problem())
+
+
+async def _store_question(
+    *,
+    tenant_id: UUID,
+    owner_id: UUID,
+    run_started_at: datetime,
+    route: str,
+    question: str,
+    turn_id: UUID,
+) -> None:
+    """Store the question before the answer exists (D-782), in its own short transaction.
+
+    A failure is logged and the answer still runs: the person is waiting on the answer, and
+    a question missing from the stored copy is the smaller loss."""
+    try:
+        async with tenant_session(tenant_id) as session:
+            await transcript.append_turn(
+                session,
+                realm=transcript.CLIENT,
+                turn_id=turn_id,
+                owner_id=owner_id,
+                tenant_id=tenant_id,
+                run_started_at=run_started_at,
+                screen_route=route,
+                role="user",
+                spoken=question,
+            )
+    except Exception:
+        log.exception("copilot_question_store_failed", extra={"tenant_id": str(tenant_id)})
 
 
 @router.post(
@@ -265,6 +299,8 @@ async def ask_copilot(
     assert principal.tenant_id is not None
     tenant_id = principal.tenant_id
 
+    #: The files this question names (D-781), and their bytes for this one call.
+    uploads: tuple[attachments.Upload, ...] = ()
     try:
         # 1. THE SUBJECT, before the money. A payload that still carries personal
         #    values cannot be sent to the provider at any price, and finding that out
@@ -302,6 +338,18 @@ async def ask_copilot(
         #    client before a token is spent. Its own session, opened and closed here:
         #    everything below this line costs money and holds no connection.
         async with tenant_session(tenant_id) as gate_session:
+            # 1b. THE FILES THIS QUESTION NAMES (D-781): this person's, ready, within the
+            #     limits — checked before the money, like the subject. They are NOT
+            #     redacted: the founder chose to send an attachment to the model whole, and
+            #     the composer and the legal documents say so.
+            if payload.attachments:
+                assert principal.user_id is not None
+                uploads = await attachments.for_question(
+                    gate_session,
+                    attachments.CLIENT,
+                    owner=principal.user_id,
+                    ids=payload.attachments,
+                )
             # THE ASSISTANT IS FREE, UP TO A DAILY FAIR-USE CAP (D-694). The platform brake
             # still applies; the monthly AI allowance and the wallet do not.
             await require_copilot_fair_use(gate_session, tenant_id=tenant_id)
@@ -331,6 +379,8 @@ async def ask_copilot(
                 if principal.realm == "client" and principal.user_id is not None
                 else ()
             )
+        # The bytes, read into memory for this one call and never written anywhere.
+        attached = await attachments.load(uploads)
     except ProblemError as refusal:
         yield _error_event(refusal)
         return
@@ -462,6 +512,11 @@ async def ask_copilot(
         # still require a spend (a `copilot.ask` row with no act behind it is what that
         # guard was protecting), and the TRANSCRIPT requires only that words reached them.
         async with tenant_session(tenant_id) as record_session:
+            # THE FILES WENT OUT WITH THIS QUESTION (D-781): they stop counting against the
+            # next message's limits. They stay readable until the conversation ends.
+            await attachments.mark_sent(
+                record_session, attachments.CLIENT, ids=[upload.id for upload in uploads]
+            )
             if spends:
                 # ONE `meter_assist` PER SPEND, EACH UNDER ITS OWN `ref`. The first keeps the
                 # ref minted before the run so an operator correlating a log line to a ledger
@@ -543,6 +598,9 @@ async def ask_copilot(
                         # WHICH SCREEN THIS ANSWER OPENED, or None. A name, never a route.
                         "navigated_to": navigated,
                         "job_id": started_job,
+                        # HOW MANY FILES the person attached (D-781). A count: a file name
+                        # is the person's own text and can be a customer's.
+                        "attachment_count": sum(1 for upload in uploads if upload.text_of is None),
                     },
                 )
             # 5. THE MEMORY, in the SAME transaction as the meter and the audit, and that
@@ -574,16 +632,19 @@ async def ask_copilot(
                 # NO `spends` CONDITION ON THIS ONE — see the note above the session. A
                 # turn the person can scroll back to is owed for any answer they were shown,
                 # and the spend-free ones (the identity short-circuit) are answers.
+                # THE QUESTION IS ALREADY STORED (D-782, `_store_question` before the run);
+                # this is the answer, under the id the asking device minted for it.
                 if run_started_at is not None:
-                    await transcript.append_exchange(
+                    await transcript.append_turn(
                         record_session,
                         realm=transcript.CLIENT,
+                        turn_id=turn_ids.answer,
                         owner_id=principal.user_id,
                         tenant_id=tenant_id,
                         run_started_at=run_started_at,
                         screen_route=payload.screen.route,
-                        question=payload.question,
-                        answer=answered,
+                        role="assistant",
+                        spoken=answered,
                     )
                 # THE MEMORY DOES KEEP THE SPEND CONDITION, and the asymmetry is deliberate:
                 # its `meta` names the leg that answered, which only a spend knows, and the
@@ -607,6 +668,32 @@ async def ask_copilot(
                         },
                     )
 
+    # EVERY DEVICE OF THIS PERSON SEES THE QUESTION NOW, NOT WITH THE ANSWER (D-782). The
+    # question is stored in its own short transaction before the run, then the person's
+    # other windows are told Pip is answering; the answer is stored in `_record` beside the
+    # meter, and `_finish` settles the "answering" mark on every way out of the run.
+    turn_ids = payload.turn_ids or CopilotTurnIds(question=uuid7(), answer=uuid7())
+    owner = principal.user_id if principal.realm == "client" else None
+    syncs = owner is not None and run_started_at is not None
+    if owner is not None and run_started_at is not None:
+        await _store_question(
+            tenant_id=tenant_id,
+            owner_id=owner,
+            run_started_at=run_started_at,
+            route=payload.screen.route,
+            # The files are stored as a count, never a name (`attachments.placeholder`).
+            question=attachments.transcript_question(payload.question, uploads),
+            turn_id=turn_ids.question,
+        )
+        await live_sync.answer_started("client", owner, turn_ids.answer)
+
+    async def _finish() -> None:
+        try:
+            await _record()
+        finally:
+            if syncs and owner is not None:
+                await live_sync.answer_settled("client", owner, turn_ids.answer)
+
     try:
         async for event in service.run_copilot(
             payload,
@@ -615,6 +702,8 @@ async def ask_copilot(
             tenant_leg=tenant_leg,
             quota_exhausted=False,
             allow_azure=get_settings().copilot_azure_fallback,
+            # What the attached files contribute, read above for this one call (D-781).
+            attached=attached,
             # WHO IS ASKING, for the read tools — the RETRIEVAL PORT INCLUDED. The tenant
             # id is what scopes the RLS session each tool opens for itself AND what scopes
             # the retrieval cache's keyspace; the role is what `tools.run_read_tool` judges
@@ -732,7 +821,7 @@ async def ask_copilot(
         # disconnect is recorded, and the extraordinary one is LOGGED rather than silent —
         # which is what an operator needs to tell "nobody was charged" from "we cannot say".
         try:
-            await asyncio.shield(_record())
+            await asyncio.shield(_finish())
         except Exception:
             log.exception("copilot_meter_failed", extra={"tenant_id": str(tenant_id)})
 
@@ -830,11 +919,10 @@ The conversation you are already having with the assistant, so it survives a ref
 navigation, and a browser you closed yesterday afternoon.
 
 **It belongs to YOU, not to one device.** Sign in on a phone while a desktop tab is open
-and both show the same thread — the desktop's copy simply does not know about the phone's
-newest turn until it reads this again, which is the whole of the concurrency story here:
-there is no realtime channel and none is needed (see `load_copilot_conversation`). The
-console re-reads it when its tab gets focus and after every exchange (D-542), so the two
-converge the moment either is looked at.
+and both show the same thread. A question is stored the moment it is asked and its answer
+when it is finished; each time, your own `GET /v1/live` stream (and only yours) gets a
+`conversation` note, and the console reads this again (D-782). `answering` is true while
+Pip is still answering a question you asked on any device.
 
 **It ends when your LAST session ends.** Signing out on one device does not take the
 thread away from another, but signing out of the last one does, and so does letting the
@@ -881,17 +969,12 @@ async def load_copilot_conversation(
     What support CAN see of an assistant answer is what has always been reviewable: the
     `copilot.ask` audit row, naming the screen, the spend and any change the answer made.
 
-    **LOAD ON MOUNT AND APPEND LOCALLY — THERE IS NO REALTIME SYNC, DELIBERATELY.** The
-    question was asked and answered rather than assumed: what does a second device see?
-    It sees everything up to the moment it loaded, and its own turns after that. Two
-    devices used at once therefore diverge until one of them reloads, and the reason that
-    is acceptable — where it would not be for, say, a shared lead list — is that this is
-    ONE PERSON'S conversation with an assistant, and a person is not usually typing into
-    two devices simultaneously. Buying convergence would mean a socket or a poll on every
-    open panel (D-24 chose polling for changing state and this is not changing state), for
-    a case that costs a reload when it happens. What is NOT left to chance is the store:
-    both devices write to the same rows, so nothing is lost, and the second device's next
-    load shows the first device's turns in their real order.
+    **EVERY DEVICE STAYS IN STEP THROUGH THE LIVE STREAM (D-782, replacing D-542's
+    refresh-on-focus).** Each write to this person's conversation sends a `conversation`
+    note on their own live channel (`copilot/live_sync.py`); their open windows re-read
+    this route. Both devices write to the same rows, and the stored `created_at, id`
+    order is the one order every device renders, so two devices asking at once both keep
+    their turns, interleaved as the server stored them.
 
     **THE STALE RUN IS CLEARED BY THIS READ**, in this transaction, before anything is
     returned — see `transcript.load`. That is one of the two places "their last session
@@ -925,7 +1008,9 @@ async def load_copilot_conversation(
         limit=limit,
         before=transcript.turn_cursor(before),
     )
-    return transcript.conversation_out(page)
+    return transcript.conversation_out(
+        page, answering=await live_sync.is_answering("client", principal.user_id)
+    )
 
 
 @router.delete(
@@ -935,7 +1020,6 @@ async def load_copilot_conversation(
     summary="Start again — forget this conversation on every device",
 )
 async def clear_copilot_conversation(
-    session: Annotated[AsyncSession, Depends(db)],
     principal: Principal = Depends(requires("copilot:use")),
 ) -> CopilotConversationClearedOut:
     """Forget this person's whole conversation.
@@ -948,8 +1032,9 @@ async def clear_copilot_conversation(
     (`copilot/write_tools.py`), and neither is touched by this.
 
     It clears every device, because there is one conversation and it belongs to the
-    person. A second device discovers it on its next load, which is the same contract as
-    every other turn.
+    person. The person's other windows are told once the delete has COMMITTED (D-782) —
+    which is why this handler opens its own session rather than taking `Depends(db)`,
+    whose commit runs after the handler returns.
     """
     # THE SAME GUARD AS `load_copilot_conversation`, INCLUDING `tenant_id`, and the point is
     # that it is the same one. This handler checked `user_id` alone, which meant the two
@@ -966,7 +1051,13 @@ async def clear_copilot_conversation(
             detail="This credential is not a client-realm user, so it has no conversation.",
             remediation=f"Sign in to your own dashboard and open {ASSISTANT_NAME} there.",
         )
-    cleared = await transcript.clear(session, realm=transcript.CLIENT, owner_id=principal.user_id)
+    async with tenant_session(principal.tenant_id) as session:
+        cleared = await transcript.clear(
+            session, realm=transcript.CLIENT, owner_id=principal.user_id
+        )
+        # And every file they attached (D-781): objects first, then rows.
+        await attachments.clear_owner(session, attachments.CLIENT, owner=principal.user_id)
+    await live_sync.conversation_changed("client", principal.user_id)
     return CopilotConversationClearedOut(cleared=cleared)
 
 

@@ -571,6 +571,46 @@ async def test_pause_and_resume_are_compare_and_swap() -> None:
     assert progress["total"] == 3
 
 
+async def test_progress_counts_the_people_waiting_for_another_try() -> None:
+    """`pending` covers both the never-called and the tried-and-waiting; the screen's
+    progress steps need them apart, and only a campaign that can still dial has anyone
+    waiting."""
+    tenant_id, _, campaign_id = await _ready_campaign()
+    soon = datetime.now(UTC) + timedelta(minutes=30)
+    later = soon + timedelta(minutes=60)
+    async with tenant_session(tenant_id) as session:
+        await service.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
+        ids = (
+            (
+                await session.execute(
+                    text("SELECT id FROM campaign_contacts WHERE campaign_id = :c ORDER BY id"),
+                    {"c": campaign_id},
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for contact_id, at in ((ids[0], later), (ids[1], soon)):
+            await session.execute(
+                text(
+                    "UPDATE campaign_contacts SET attempts = 1, next_attempt_at = :at "
+                    "WHERE id = :id"
+                ),
+                {"at": at, "id": contact_id},
+            )
+        progress = await service.campaign_progress(session, campaign_id)
+        assert progress["retries_waiting"] == 2
+        assert progress["next_retry_at"] == soon
+        assert progress["contacts"]["pending"] == 3
+
+        await service.set_campaign_status(
+            session, campaign_id=campaign_id, to_status="cancelled", from_statuses=("running",)
+        )
+        stopped = await service.campaign_progress(session, campaign_id)
+    assert stopped["retries_waiting"] == 0
+    assert stopped["next_retry_at"] is None
+
+
 async def test_pausing_a_campaign_in_another_state_names_that_state() -> None:
     """The 409 branch. A draft is not a paused campaign and not an absent one, and the
     message has to say which — "cannot move from draft to paused" is a sentence an

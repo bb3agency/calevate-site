@@ -4,8 +4,8 @@
     PUT /v1/admin/tenants/{tenant_id}/feature-flags/{flag}   give them a position, or clear it
 
 Admin realm only. There is deliberately NO client-realm read: a flag is our operational
-decision about a client, not a document the client holds — unlike their KYC record or
-their first-campaign review, both of which the client can read because they describe the
+decision about a client, not a document the client holds — unlike their KYC record,
+which the client can read because it describes the
 client's own compliance state and the client is expected to act on them.
 
 WHO MAY DO WHAT, AND WHY THE TWO HALVES DIFFER
@@ -17,7 +17,7 @@ read would hide a client's configuration from the support session that is lookin
 client. `org:read` is held by both admin roles.
 
 **The write is `admin:tenants`** — the permission every other per-tenant admin mutation
-carries (KYC verification, the first-campaign release, DLT registration, commercial
+carries (KYC verification, DLT registration, commercial
 terms). Checked against the role table rather than assumed: `ops:manage` is superadmin-
 only and is the PLATFORM surface — the big red switch, the load-shed mode, the DLQ
 replay, our own TM registration — every one of which acts on all tenants at once.

@@ -41,7 +41,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.rbac import Permission, permission_meta
 from apps.api.live.hub import Subscription, get_hub
 from apps.api.live.schemas import LiveClosed, LiveReady, LiveResync
-from apps.api.live.topics import OPERATOR_CHANNEL, tenant_channel
+from apps.api.live.topics import OPERATOR_CHANNEL, person_channel, tenant_channel
 
 log = get_logger(__name__)
 
@@ -69,7 +69,8 @@ A `text/event-stream` of change notes for the caller's own account. Events:
 * `change` · `{"topic": "calls", "at": "<instant>"}` — something in that family changed.
   Refetch the queries that show it. Topics: account, agents, assistant, callbacks, calls,
   campaigns, dnc, healer, integrations, knowledge, knowledge_gaps, leads, numbers,
-  quality, wallet.
+  quality, wallet. `conversation` is the caller's OWN Pip conversation; it is sent only to
+  that person's streams, never to anyone else on the account.
 * `resync` · `{"reason": "subscription_restored"|"fell_behind"}` — notes may have been
   missed. Refetch what is on screen.
 * `closed` · `{"reason": "session_ended"|"max_age"|"shutting_down"}` — the server ended
@@ -82,8 +83,9 @@ A note never carries a row id, a name, a phone number, an amount or any text. Re
 
 _ADMIN_DESCRIPTION = """\
 The operator console's change stream: every account's notes, each with its `tenant_id`,
-plus the platform's own topics (`alerts`, `platform`, `healer`, `quality`). Same events and
-rules as `GET /v1/live`. Requires an operator session.\
+plus the platform's own topics (`alerts`, `platform`, `healer`, `quality`) and the
+operator's own `conversation`. Same events and rules as `GET /v1/live`. Requires an
+operator session.\
 """
 
 
@@ -127,7 +129,9 @@ async def _stream(
 ) -> AsyncIterator[ServerSentEvent]:
     hub = get_hub()
     person = (principal.realm, principal.user_id)
-    sub = hub.subscribe(channel)
+    # The account's channel and the caller's own: a person's Pip conversation (D-782) is
+    # announced only to them, so no colleague on the same account hears it move.
+    sub = hub.subscribe(channel, person_channel(principal.realm, principal.user_id))
     _open[person] += 1
     try:
         if not await hub.wait_connected(CONNECT_WAIT_S):

@@ -856,6 +856,16 @@
         "additionalProperties": false,
         "description": "`POST /v1/admin/copilot/ask` \u2014 the client body plus WHICH ACCOUNT IS OPEN (D-499).\n\n`tenant_id` is the account whose admin page the operator is looking at, or null on a\nplatform screen. It scopes three things and nothing else: which tenant the account read\ntools run under, which tenant's live business state is composed, and which memories are\neligible for recall (`copilot/admin_memory.py`).\n\n**IT IS NOT AN AUTHORIZATION INPUT AND IT IS NOT A PAYER.** The payer is always the\nplatform ledger \u2014 an operator never spends a client's allowance (D-499) \u2014 so no body\nfield here can move anyone's bill. And it widens nothing: every route serving this\npermission is admin-realm, and both admin roles hold `admin:tenants`, so an operator\nnaming an account here reaches exactly what the console's own tenant page would show\nthem. It is still validated to be a real, undeleted account before it is used, because\na silently-ignored id would let a screen believe it had scoped the assistant when it\nhad not.\n\n**INSIDE A VIEW-AS SESSION THE HEADER WINS.** `Principal.tenant_id` from an\nimpersonation grant is proven by a second factor and audited; this field is a claim in a\nbody. The route takes the principal's when there is one and never reconciles the two.",
         "properties": {
+          "attachments": {
+            "default": [],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Attachments",
+            "type": "array"
+          },
           "facts": {
             "default": [],
             "items": {
@@ -903,6 +913,16 @@
               }
             ],
             "title": "Tenant Id"
+          },
+          "turn_ids": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CopilotTurnIds"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1725,6 +1745,266 @@
           }
         },
         "title": "AdminReplaceIn",
+        "type": "object"
+      },
+      "AdminWhatsAppAccountOut": {
+        "additionalProperties": false,
+        "properties": {
+          "account_alert": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Alert"
+          },
+          "connected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected At"
+          },
+          "display_phone_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Phone Number"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_event_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Event At"
+          },
+          "last_send_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Send Error"
+          },
+          "messaging_limit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Messaging Limit"
+          },
+          "name_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name Status"
+          },
+          "onboarding": {
+            "title": "Onboarding",
+            "type": "string"
+          },
+          "quality_rating": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Rating"
+          },
+          "setup_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Error"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "templates_approved": {
+            "title": "Templates Approved",
+            "type": "integer"
+          },
+          "templates_pending": {
+            "title": "Templates Pending",
+            "type": "integer"
+          },
+          "templates_rejected": {
+            "title": "Templates Rejected",
+            "type": "integer"
+          },
+          "verified_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Name"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "onboarding",
+          "display_phone_number",
+          "verified_name",
+          "name_status",
+          "quality_rating",
+          "messaging_limit",
+          "setup_error",
+          "account_alert",
+          "last_send_error",
+          "last_event_at",
+          "connected_at",
+          "templates_approved",
+          "templates_pending",
+          "templates_rejected"
+        ],
+        "title": "AdminWhatsAppAccountOut",
+        "type": "object"
+      },
+      "AdminWhatsAppClientOut": {
+        "additionalProperties": false,
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/AdminWhatsAppAccountOut"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "name",
+          "slug",
+          "accounts"
+        ],
+        "title": "AdminWhatsAppClientOut",
+        "type": "object"
+      },
+      "AdminWhatsAppOut": {
+        "additionalProperties": false,
+        "properties": {
+          "app_secret_set": {
+            "title": "App Secret Set",
+            "type": "boolean"
+          },
+          "callback_path": {
+            "title": "Callback Path",
+            "type": "string"
+          },
+          "clients": {
+            "items": {
+              "$ref": "#/components/schemas/AdminWhatsAppClientOut"
+            },
+            "title": "Clients",
+            "type": "array"
+          },
+          "coexistence": {
+            "title": "Coexistence",
+            "type": "boolean"
+          },
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "last_event_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Event At"
+          },
+          "verify_token_set": {
+            "title": "Verify Token Set",
+            "type": "boolean"
+          },
+          "week_count": {
+            "title": "Week Count",
+            "type": "integer"
+          },
+          "weekly_limit": {
+            "title": "Weekly Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "configured",
+          "app_secret_set",
+          "verify_token_set",
+          "coexistence",
+          "week_count",
+          "weekly_limit",
+          "last_event_at",
+          "callback_path",
+          "clients"
+        ],
+        "title": "AdminWhatsAppOut",
         "type": "object"
       },
       "AgentCallHandlingIn": {
@@ -11019,6 +11299,16 @@
         "additionalProperties": false,
         "description": "`POST /v1/copilot/ask`.",
         "properties": {
+          "attachments": {
+            "default": [],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Attachments",
+            "type": "array"
+          },
           "facts": {
             "default": [],
             "items": {
@@ -11054,6 +11344,16 @@
           },
           "screen": {
             "$ref": "#/components/schemas/CopilotScreen"
+          },
+          "turn_ids": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CopilotTurnIds"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -11134,6 +11434,11 @@
         "additionalProperties": false,
         "description": "`GET /v1/copilot/conversation` \u2014 one page of the live conversation, oldest first.\n\nA conversation is a LIST, so it is paged and it has a ceiling: `limit` is bounded at\nthe route and the store itself caps a conversation at `transcript.MAX_STORED_TURNS`.\n`has_more` says whether older turns exist BEFORE this page \u2014 the panel pages backwards\nfrom the newest, which is the direction a chat is read.\n\nAn empty `turns` is the ordinary answer, not an error: a person who has not asked\nanything this sign-in has no conversation, and neither does one whose previous run of\nsessions has ended.",
         "properties": {
+          "answering": {
+            "default": false,
+            "title": "Answering",
+            "type": "boolean"
+          },
           "has_more": {
             "default": false,
             "title": "Has More",
@@ -11857,6 +12162,28 @@
         "title": "CopilotTurn",
         "type": "object"
       },
+      "CopilotTurnIds": {
+        "additionalProperties": false,
+        "description": "The two turn ids one question will be stored under.",
+        "properties": {
+          "answer": {
+            "format": "uuid",
+            "title": "Answer",
+            "type": "string"
+          },
+          "question": {
+            "format": "uuid",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "answer"
+        ],
+        "title": "CopilotTurnIds",
+        "type": "object"
+      },
       "CopilotUndoOut": {
         "additionalProperties": false,
         "description": "What an Undo did. `detail` is the sentence to show.",
@@ -11880,6 +12207,60 @@
           "detail"
         ],
         "title": "CopilotUndoOut",
+        "type": "object"
+      },
+      "CopilotUploadOut": {
+        "additionalProperties": false,
+        "description": "One stored upload. `id` is what `CopilotAskIn.attachments` names; the bytes are read\nback only through `GET /v1/copilot/uploads/{id}/content`, by the person who sent them.",
+        "properties": {
+          "content_type": {
+            "title": "Content Type",
+            "type": "string"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "picture",
+              "pdf",
+              "document"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "status": {
+            "const": "ready",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "file_name",
+          "kind",
+          "content_type",
+          "size_bytes",
+          "status"
+        ],
+        "title": "CopilotUploadOut",
         "type": "object"
       },
       "CostBreakdownOut": {
@@ -17279,170 +17660,6 @@
         "title": "FieldLimit",
         "type": "object"
       },
-      "FirstCampaignDecisionIn": {
-        "additionalProperties": false,
-        "properties": {
-          "decision": {
-            "enum": [
-              "approved",
-              "rejected"
-            ],
-            "title": "Decision",
-            "type": "string"
-          },
-          "note": {
-            "maxLength": 2000,
-            "title": "Note",
-            "type": "string"
-          },
-          "reviewed_campaign_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reviewed Campaign Id"
-          }
-        },
-        "required": [
-          "decision",
-          "note"
-        ],
-        "title": "FirstCampaignDecisionIn",
-        "type": "object"
-      },
-      "FirstCampaignDecisionOut": {
-        "additionalProperties": false,
-        "properties": {
-          "decided_at": {
-            "format": "date-time",
-            "title": "Decided At",
-            "type": "string"
-          },
-          "reviewed_campaign_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reviewed Campaign Id"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          },
-          "tenant_id": {
-            "format": "uuid",
-            "title": "Tenant Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "tenant_id",
-          "status",
-          "reviewed_campaign_id",
-          "decided_at"
-        ],
-        "title": "FirstCampaignDecisionOut",
-        "type": "object"
-      },
-      "FirstCampaignHoldOut": {
-        "additionalProperties": false,
-        "description": "Whether this account's campaigns are waiting on a human, and what was decided.\n\n`held` and `reason` come from the SAME predicate the launch gate calls\n(`first_campaign_hold_blocker`), so this screen cannot tell a client they are clear\nwhile the launch button says otherwise.",
-        "properties": {
-          "decided_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Decided At"
-          },
-          "decision_note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Decision Note"
-          },
-          "held": {
-            "title": "Held",
-            "type": "boolean"
-          },
-          "reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reason"
-          },
-          "reviewed_campaign_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reviewed Campaign Id"
-          },
-          "rule": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rule"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Status"
-          }
-        },
-        "required": [
-          "held",
-          "rule",
-          "reason",
-          "status",
-          "decision_note",
-          "reviewed_campaign_id",
-          "decided_at"
-        ],
-        "title": "FirstCampaignHoldOut",
-        "type": "object"
-      },
       "FlagStateOut": {
         "additionalProperties": false,
         "properties": {
@@ -19979,6 +20196,17 @@
             ],
             "title": "Escalated At"
           },
+          "finding": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finding"
+          },
           "group": {
             "title": "Group",
             "type": "string"
@@ -20054,6 +20282,10 @@
             ],
             "title": "Public Title"
           },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
           "resolved_at": {
             "anyOf": [
               {
@@ -20104,6 +20336,7 @@
         },
         "required": [
           "id",
+          "ref",
           "playbook",
           "trigger_code",
           "scope",
@@ -29882,6 +30115,18 @@
               }
             ]
           },
+          "next_retry_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Retry At"
+          },
           "not_calling": {
             "items": {
               "$ref": "#/components/schemas/BlockerOut"
@@ -29940,6 +30185,11 @@
                 "type": "null"
               }
             ]
+          },
+          "retries_waiting": {
+            "default": 0,
+            "title": "Retries Waiting",
+            "type": "integer"
           },
           "retry_policy": {
             "$ref": "#/components/schemas/RetryPolicyOut"
@@ -44042,6 +44292,609 @@
         "title": "WebhookAck",
         "type": "object"
       },
+      "WhatsAppAccountOut": {
+        "additionalProperties": false,
+        "properties": {
+          "account_alert": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Alert"
+          },
+          "connected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected At"
+          },
+          "display_phone_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Phone Number"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_event_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Event At"
+          },
+          "last_send_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Send Error"
+          },
+          "messaging_limit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Messaging Limit"
+          },
+          "name_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name Status"
+          },
+          "onboarding": {
+            "title": "Onboarding",
+            "type": "string"
+          },
+          "quality_rating": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Rating"
+          },
+          "registered": {
+            "title": "Registered",
+            "type": "boolean"
+          },
+          "setup_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Error"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "templates_submitted": {
+            "title": "Templates Submitted",
+            "type": "boolean"
+          },
+          "verified_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Name"
+          },
+          "webhooks_subscribed": {
+            "title": "Webhooks Subscribed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "onboarding",
+          "display_phone_number",
+          "verified_name",
+          "name_status",
+          "quality_rating",
+          "messaging_limit",
+          "registered",
+          "webhooks_subscribed",
+          "setup_error",
+          "templates_submitted",
+          "account_alert",
+          "last_send_error",
+          "last_event_at",
+          "connected_at"
+        ],
+        "title": "WhatsAppAccountOut",
+        "type": "object"
+      },
+      "WhatsAppConnectIn": {
+        "additionalProperties": false,
+        "properties": {
+          "business_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[0-9]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Id"
+          },
+          "code": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "event": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Event",
+            "type": "string"
+          },
+          "phone_number_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[0-9]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Number Id"
+          },
+          "state": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
+          },
+          "waba_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[0-9]+$",
+            "title": "Waba Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "code",
+          "event",
+          "waba_id"
+        ],
+        "title": "WhatsAppConnectIn",
+        "type": "object"
+      },
+      "WhatsAppConnectOut": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/WhatsAppAccountOut"
+          },
+          "failed_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Step"
+          },
+          "pin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pin"
+          }
+        },
+        "required": [
+          "account",
+          "pin",
+          "failed_step"
+        ],
+        "title": "WhatsAppConnectOut",
+        "type": "object"
+      },
+      "WhatsAppHookAckOut": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "duplicate": {
+            "title": "Duplicate",
+            "type": "integer"
+          },
+          "received": {
+            "title": "Received",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "received",
+          "accepted",
+          "duplicate"
+        ],
+        "title": "WhatsAppHookAckOut",
+        "type": "object"
+      },
+      "WhatsAppOverviewOut": {
+        "additionalProperties": false,
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/WhatsAppAccountOut"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "setup": {
+            "$ref": "#/components/schemas/WhatsAppSetupOut"
+          }
+        },
+        "required": [
+          "setup",
+          "accounts"
+        ],
+        "title": "WhatsAppOverviewOut",
+        "type": "object"
+      },
+      "WhatsAppSetupOut": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "coexistence": {
+            "title": "Coexistence",
+            "type": "boolean"
+          },
+          "payment_method_url": {
+            "title": "Payment Method Url",
+            "type": "string"
+          },
+          "pricing_url": {
+            "title": "Pricing Url",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "available",
+          "reason",
+          "coexistence",
+          "pricing_url",
+          "payment_method_url"
+        ],
+        "title": "WhatsAppSetupOut",
+        "type": "object"
+      },
+      "WhatsAppSignupIn": {
+        "additionalProperties": false,
+        "properties": {
+          "choice": {
+            "enum": [
+              "new",
+              "business_app",
+              "grant_access"
+            ],
+            "title": "Choice",
+            "type": "string"
+          }
+        },
+        "required": [
+          "choice"
+        ],
+        "title": "WhatsAppSignupIn",
+        "type": "object"
+      },
+      "WhatsAppSignupOut": {
+        "additionalProperties": false,
+        "properties": {
+          "app_id": {
+            "title": "App Id",
+            "type": "string"
+          },
+          "config_id": {
+            "title": "Config Id",
+            "type": "string"
+          },
+          "extras": {
+            "additionalProperties": true,
+            "title": "Extras",
+            "type": "object"
+          },
+          "graph_version": {
+            "title": "Graph Version",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "app_id",
+          "config_id",
+          "graph_version",
+          "extras"
+        ],
+        "title": "WhatsAppSignupOut",
+        "type": "object"
+      },
+      "WhatsAppTemplateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "body": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "category": {
+            "enum": [
+              "UTILITY",
+              "MARKETING"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "language": {
+            "maxLength": 16,
+            "minLength": 2,
+            "title": "Language",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/WhatsAppTemplateVariableIn"
+            },
+            "maxItems": 10,
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "account_id",
+          "name",
+          "language",
+          "category",
+          "body"
+        ],
+        "title": "WhatsAppTemplateIn",
+        "type": "object"
+      },
+      "WhatsAppTemplateOut": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "category_changed_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Changed To"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          },
+          "rejection_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Code"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "variables": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "account_id",
+          "name",
+          "language",
+          "category",
+          "body",
+          "variables",
+          "origin",
+          "purpose",
+          "status",
+          "rejection_code",
+          "category_changed_to",
+          "submitted_at",
+          "decided_at"
+        ],
+        "title": "WhatsAppTemplateOut",
+        "type": "object"
+      },
+      "WhatsAppTemplateVariableIn": {
+        "additionalProperties": false,
+        "properties": {
+          "example": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Example",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "example"
+        ],
+        "title": "WhatsAppTemplateVariableIn",
+        "type": "object"
+      },
       "WordsIn": {
         "additionalProperties": false,
         "properties": {
@@ -45053,6 +45906,111 @@
         ]
       }
     },
+    "/hooks/v1/meta/whatsapp": {
+      "get": {
+        "operationId": "whatsapp_verify_hooks_v1_meta_whatsapp_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "hub.mode",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hub.Mode"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hub.verify_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hub.Verify Token"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hub.challenge",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hub.Challenge"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Meta's webhook subscription handshake for clients' WhatsApp accounts",
+        "tags": [
+          "whatsapp"
+        ]
+      },
+      "post": {
+        "operationId": "whatsapp_events_hooks_v1_meta_whatsapp_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppHookAckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Clients' WhatsApp account events from Meta, X-Hub-Signature-256 verified",
+        "tags": [
+          "whatsapp"
+        ]
+      }
+    },
     "/hooks/v1/razorpay": {
       "post": {
         "description": "Signature first, money last.\n\nNothing is read out of this payload until the HMAC verifies, and nothing durable is\nwritten until the tenant resolves \u2014 so a forged or malformed event leaves no row at\nall, not even an inbox trace it could later be replayed from.\n\nTwo layers of duplicate protection, deliberately:\n\n1. the durable inbox, claimed on `payment.captured:<payment id>` with a hash of the\n   NORMALIZED facts (not the raw body), so a redelivery whose envelope gained a\n   field still dedupes, while the same payment id arriving with a different amount\n   is the conflict `claim_inbox_event` is designed to shout about;\n2. the ledger's own `ref`, checked under the per-tenant credit lock inside\n   `credit_captured_payment`. This one is the guarantee: inbox rows are per\n   delivery and can be swept, a ledger row is permanent.\n\nThe claim and the credit share ONE transaction, which is what makes a failure\nrecoverable: a crash after the claim rolls the claim back too, so the provider's\nretry is processed rather than answered \"duplicate\" forever (the failure mode\n`reliability/service.py` documents against the retired Clerk mirror).",
@@ -45223,7 +46181,7 @@
     },
     "/v1/admin/compliance/holds": {
       "get": {
-        "description": "Every self-serve account that cannot dial until someone at Calevate acts, oldest signup first: identity verification not recorded, or the first campaign not yet released. An account held by both gates appears once with both rules. Clearing a gate removes the account from this list. Read-only \u2014 the decisions are recorded through the audited routes on each account.",
+        "description": "Every self-serve account that cannot dial until someone at Calevate acts, oldest signup first: identity verification not recorded or not yet verified. Clearing the gate removes the account from this list. Read-only \u2014 the decision is recorded through the audited routes on each account.",
         "operationId": "list_held_tenants_v1_admin_compliance_holds_get",
         "responses": {
           "200": {
@@ -45247,7 +46205,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Accounts held for a human decision \u2014 KYC and first-campaign review (R-11)",
+        "summary": "Accounts held for a human decision \u2014 subscriber KYC (R-11)",
         "tags": [
           "admin"
         ],
@@ -45563,6 +46521,187 @@
         "summary": "The operator's own conversation with the admin assistant \u2014 durable, paged",
         "tags": [
           "copilot"
+        ],
+        "x-calevate-permission": "copilot:admin"
+      }
+    },
+    "/v1/admin/copilot/uploads": {
+      "post": {
+        "description": "Attach one file to Pip's next question. The body IS the file \u2014 not a form \u2014\nwith `Content-Type` set to the type the browser produced, and `X-Upload-Name` set to the\nname the person chose, percent-encoded.\n\nAllowed: pictures (JPG, PNG, WebP, HEIC \u2014 re-drawn by the browser as `image/jpeg`, which\ndrops their location and camera data), text and CSV (`text/plain`, `text/csv`), and Word,\nExcel and PowerPoint files the browser has turned into `text/plain`, and PDFs\n(`application/pdf`, sent as they are). Up to 20 MB a file, 5 MB a picture and 14 MB a PDF;\nup to 5 files, 2 of them pictures, 50 MB in all and 14 MB of pictures and PDFs together, on\none message. For a PDF the browser also sends the text it found in it, as `text/plain` with\n`X-Upload-Text-Of` naming the PDF: Pip reads that only when the PDF itself cannot be read.\nFiles with macros, older Office formats, ZIPs, audio and anything else are refused with a\nsentence saying what to do; so is a body whose first bytes are not what its type says.\n\nNothing in the file is opened, scanned or reviewed: it is stored privately and sent to\nPip's AI provider as it is. Requires `copilot:admin`.",
+        "operationId": "upload_admin_file_v1_admin_copilot_uploads_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Upload-Name",
+            "required": true,
+            "schema": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "title": "X-Upload-Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Content-Type",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "title": "Content-Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Content-Length",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Content-Length"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Upload-Text-Of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Upload-Text-Of"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/pdf": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/jpeg": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "text/csv": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotUploadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Attach a file for Pip (admin console)",
+        "tags": [
+          "admin-copilot"
+        ],
+        "x-calevate-permission": "copilot:admin"
+      }
+    },
+    "/v1/admin/copilot/uploads/{file_id}": {
+      "delete": {
+        "operationId": "remove_admin_file_v1_admin_copilot_uploads__file_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Remove an attached file (admin console)",
+        "tags": [
+          "admin-copilot"
+        ],
+        "x-calevate-permission": "copilot:admin"
+      }
+    },
+    "/v1/admin/copilot/uploads/{file_id}/content": {
+      "get": {
+        "operationId": "download_admin_file_v1_admin_copilot_uploads__file_id__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One of your own attached files (admin console)",
+        "tags": [
+          "admin-copilot"
         ],
         "x-calevate-permission": "copilot:admin"
       }
@@ -46433,7 +47572,7 @@
     },
     "/v1/admin/live": {
       "get": {
-        "description": "The operator console's change stream: every account's notes, each with its `tenant_id`,\nplus the platform's own topics (`alerts`, `platform`, `healer`, `quality`). Same events and\nrules as `GET /v1/live`. Requires an operator session.",
+        "description": "The operator console's change stream: every account's notes, each with its `tenant_id`,\nplus the platform's own topics (`alerts`, `platform`, `healer`, `quality`) and the\noperator's own `conversation`. Same events and rules as `GET /v1/live`. Requires an\noperator session.",
         "operationId": "admin_live_changes_v1_admin_live_get",
         "responses": {
           "200": {
@@ -50978,57 +52117,6 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
-    "/v1/admin/tenants/{tenant_id}/first-campaign-review": {
-      "post": {
-        "description": "Records that a person at Calevate reviewed this account's first campaign. `approved` releases the account: this rule never blocks another of its campaigns. `rejected` keeps it held and shows the client the reason. Upserts, so a release can be withdrawn when complaints arrive and granted again afterwards \u2014 every call writes its own audit entry, so the history is the ledger rather than this row.",
-        "operationId": "decide_v1_admin_tenants__tenant_id__first_campaign_review_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "tenant_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Tenant Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/FirstCampaignDecisionIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FirstCampaignDecisionOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Release (or refuse) a self-serve account's campaign calling \u2014 R-11's hold",
-        "tags": [
-          "admin"
-        ],
-        "x-calevate-permission": "admin:tenants"
-      }
-    },
     "/v1/admin/tenants/{tenant_id}/invitations": {
       "get": {
         "description": "The keys to this client's account that exist in somebody's inbox right now. This is what makes the duplicate refusal actionable: minting a second live token for one address is refused, and an operator who did not issue the first one needs to be able to see and cancel it.",
@@ -53171,6 +54259,34 @@
         "tags": [
           "admin",
           "compliance"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/whatsapp": {
+      "get": {
+        "operationId": "whatsapp_admin_v1_admin_whatsapp_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminWhatsAppOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Clients' WhatsApp: weekly onboarding count, accounts, templates and webhook health",
+        "tags": [
+          "whatsapp"
         ],
         "x-calevate-permission": "admin:tenants"
       }
@@ -60582,35 +61698,6 @@
         "x-calevate-permission": "org:read"
       }
     },
-    "/v1/compliance/first-campaign-review": {
-      "get": {
-        "description": "Calevate reviews the first campaign of every self-serve account before it dials \u2014 the contact list, the script and the disclosure line. This says whether that review is still outstanding, and what was decided once it is done. An account nobody has reviewed yet gets `held: true` with a null `status` and a 200; managed accounts are never held. Read-only: the release is recorded by Calevate operations.",
-        "operationId": "read_hold_v1_compliance_first_campaign_review_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FirstCampaignHoldOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Is this account's first campaign still waiting on a human? (R-11)",
-        "tags": [
-          "compliance"
-        ],
-        "x-calevate-permission": "org:read"
-      }
-    },
     "/v1/compliance/kyc": {
       "get": {
         "description": "What Calevate has verified about this business. Read-only: Indian telecom rules make the subscriber's identity something the provider verifies, never something the subscriber asserts, so verification is recorded by Calevate operations. `number_purchase_available` is always false \u2014 Calevate does not supply telephone numbers; the client takes the connection on their own operator account. A business with nothing on file yet gets `recorded: false` and a 200.",
@@ -61480,7 +62567,7 @@
     },
     "/v1/copilot/conversation": {
       "delete": {
-        "description": "Forget this person's whole conversation.\n\n**NO `audit_log` ROW, AND THAT IS HARD RULE 6 RATHER THAN AN OMISSION.** An audit\nentry naming \"this person cleared their assistant conversation\" records nothing anyone\ncan act on and puts a per-person behavioural trail on the compliance chain; the rows\nit describes carry a client's staff prose and are deliberately not durable. What IS\naudited is every ANSWER (`copilot.ask`) and every CHANGE the assistant made\n(`copilot/write_tools.py`), and neither is touched by this.\n\nIt clears every device, because there is one conversation and it belongs to the\nperson. A second device discovers it on its next load, which is the same contract as\nevery other turn.",
+        "description": "Forget this person's whole conversation.\n\n**NO `audit_log` ROW, AND THAT IS HARD RULE 6 RATHER THAN AN OMISSION.** An audit\nentry naming \"this person cleared their assistant conversation\" records nothing anyone\ncan act on and puts a per-person behavioural trail on the compliance chain; the rows\nit describes carry a client's staff prose and are deliberately not durable. What IS\naudited is every ANSWER (`copilot.ask`) and every CHANGE the assistant made\n(`copilot/write_tools.py`), and neither is touched by this.\n\nIt clears every device, because there is one conversation and it belongs to the\nperson. The person's other windows are told once the delete has COMMITTED (D-782) \u2014\nwhich is why this handler opens its own session rather than taking `Depends(db)`,\nwhose commit runs after the handler returns.",
         "operationId": "clear_copilot_conversation_v1_copilot_conversation_delete",
         "responses": {
           "200": {
@@ -61507,7 +62594,7 @@
         "x-calevate-permission": "copilot:use"
       },
       "get": {
-        "description": "The conversation you are already having with the assistant, so it survives a refresh, a\nnavigation, and a browser you closed yesterday afternoon.\n\n**It belongs to YOU, not to one device.** Sign in on a phone while a desktop tab is open\nand both show the same thread \u2014 the desktop's copy simply does not know about the phone's\nnewest turn until it reads this again, which is the whole of the concurrency story here:\nthere is no realtime channel and none is needed (see `load_copilot_conversation`). The\nconsole re-reads it when its tab gets focus and after every exchange (D-542), so the two\nconverge the moment either is looked at.\n\n**It ends when your LAST session ends.** Signing out on one device does not take the\nthread away from another, but signing out of the last one does, and so does letting the\nlast one expire.\n\nTurns come back oldest first, at most `limit` of them, newest page first: pass the `id`\nof the oldest turn you hold as `before` to page backwards. `has_more` says whether\nanything older exists. `content` is the REDACTED form \u2014 a screen value that looked like a\nphone number was replaced by a placeholder before the question ever left the browser, and\nthe placeholder is what was stored.\n\nRequires `copilot:use`.",
+        "description": "The conversation you are already having with the assistant, so it survives a refresh, a\nnavigation, and a browser you closed yesterday afternoon.\n\n**It belongs to YOU, not to one device.** Sign in on a phone while a desktop tab is open\nand both show the same thread. A question is stored the moment it is asked and its answer\nwhen it is finished; each time, your own `GET /v1/live` stream (and only yours) gets a\n`conversation` note, and the console reads this again (D-782). `answering` is true while\nPip is still answering a question you asked on any device.\n\n**It ends when your LAST session ends.** Signing out on one device does not take the\nthread away from another, but signing out of the last one does, and so does letting the\nlast one expire.\n\nTurns come back oldest first, at most `limit` of them, newest page first: pass the `id`\nof the oldest turn you hold as `before` to page backwards. `has_more` says whether\nanything older exists. `content` is the REDACTED form \u2014 a screen value that looked like a\nphone number was replaced by a placeholder before the question ever left the browser, and\nthe placeholder is what was stored.\n\nRequires `copilot:use`.",
         "operationId": "load_copilot_conversation_v1_copilot_conversation_get",
         "parameters": [
           {
@@ -61991,6 +63078,187 @@
           }
         },
         "summary": "When a routine ran, and what became of each run",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/uploads": {
+      "post": {
+        "description": "Attach one file to Pip's next question. The body IS the file \u2014 not a form \u2014\nwith `Content-Type` set to the type the browser produced, and `X-Upload-Name` set to the\nname the person chose, percent-encoded.\n\nAllowed: pictures (JPG, PNG, WebP, HEIC \u2014 re-drawn by the browser as `image/jpeg`, which\ndrops their location and camera data), text and CSV (`text/plain`, `text/csv`), and Word,\nExcel and PowerPoint files the browser has turned into `text/plain`, and PDFs\n(`application/pdf`, sent as they are). Up to 20 MB a file, 5 MB a picture and 14 MB a PDF;\nup to 5 files, 2 of them pictures, 50 MB in all and 14 MB of pictures and PDFs together, on\none message. For a PDF the browser also sends the text it found in it, as `text/plain` with\n`X-Upload-Text-Of` naming the PDF: Pip reads that only when the PDF itself cannot be read.\nFiles with macros, older Office formats, ZIPs, audio and anything else are refused with a\nsentence saying what to do; so is a body whose first bytes are not what its type says.\n\nNothing in the file is opened, scanned or reviewed: it is stored privately and sent to\nPip's AI provider as it is. Requires `copilot:use`.",
+        "operationId": "upload_file_v1_copilot_uploads_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Upload-Name",
+            "required": true,
+            "schema": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "title": "X-Upload-Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Content-Type",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "title": "Content-Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Content-Length",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Content-Length"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Upload-Text-Of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Upload-Text-Of"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/pdf": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/jpeg": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "text/csv": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotUploadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Attach a file for Pip \u2014 the body is the file, streamed to storage",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/uploads/{file_id}": {
+      "delete": {
+        "operationId": "remove_file_v1_copilot_uploads__file_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Remove an attached file \u2014 deleted from storage at once",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/uploads/{file_id}/content": {
+      "get": {
+        "operationId": "download_file_v1_copilot_uploads__file_id__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One of your own attached files, streamed back to you and nobody else",
         "tags": [
           "copilot"
         ],
@@ -66790,7 +68058,7 @@
     },
     "/v1/live": {
       "get": {
-        "description": "A `text/event-stream` of change notes for the caller's own account. Events:\n\n* `ready` \u00b7 `{\"heartbeat_s\": 20, \"max_age_s\": 1800}` \u2014 open. Refetch what is on screen.\n* `change` \u00b7 `{\"topic\": \"calls\", \"at\": \"<instant>\"}` \u2014 something in that family changed.\n  Refetch the queries that show it. Topics: account, agents, assistant, callbacks, calls,\n  campaigns, dnc, healer, integrations, knowledge, knowledge_gaps, leads, numbers,\n  quality, wallet.\n* `resync` \u00b7 `{\"reason\": \"subscription_restored\"|\"fell_behind\"}` \u2014 notes may have been\n  missed. Refetch what is on screen.\n* `closed` \u00b7 `{\"reason\": \"session_ended\"|\"max_age\"|\"shutting_down\"}` \u2014 the server ended\n  the stream. Reopen after `max_age`; after `session_ended` the next ordinary request\n  says what to do.\n\nA note never carries a row id, a name, a phone number, an amount or any text. Requires\n`org:read`; a view-as session receives the viewed account's notes.",
+        "description": "A `text/event-stream` of change notes for the caller's own account. Events:\n\n* `ready` \u00b7 `{\"heartbeat_s\": 20, \"max_age_s\": 1800}` \u2014 open. Refetch what is on screen.\n* `change` \u00b7 `{\"topic\": \"calls\", \"at\": \"<instant>\"}` \u2014 something in that family changed.\n  Refetch the queries that show it. Topics: account, agents, assistant, callbacks, calls,\n  campaigns, dnc, healer, integrations, knowledge, knowledge_gaps, leads, numbers,\n  quality, wallet. `conversation` is the caller's OWN Pip conversation; it is sent only to\n  that person's streams, never to anyone else on the account.\n* `resync` \u00b7 `{\"reason\": \"subscription_restored\"|\"fell_behind\"}` \u2014 notes may have been\n  missed. Refetch what is on screen.\n* `closed` \u00b7 `{\"reason\": \"session_ended\"|\"max_age\"|\"shutting_down\"}` \u2014 the server ended\n  the stream. Reopen after `max_age`; after `session_ended` the next ordinary request\n  says what to do.\n\nA note never carries a row id, a name, a phone number, an amount or any text. Requires\n`org:read`; a view-as session receives the viewed account's notes.",
         "operationId": "live_changes_v1_live_get",
         "responses": {
           "200": {
@@ -71748,6 +73016,258 @@
           "crm"
         ],
         "x-calevate-permission": "billing:read"
+      }
+    },
+    "/v1/whatsapp": {
+      "get": {
+        "operationId": "overview_v1_whatsapp_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppOverviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This account's WhatsApp: whether Meta signup is available, and connected numbers",
+        "tags": [
+          "whatsapp"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/whatsapp/accounts/{account_id}/disconnect": {
+      "post": {
+        "operationId": "disconnect_v1_whatsapp_accounts__account_id__disconnect_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppAccountOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Stop sending from this WhatsApp account and delete its key",
+        "tags": [
+          "whatsapp"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/whatsapp/accounts/{account_id}/finish": {
+      "post": {
+        "operationId": "finish_v1_whatsapp_accounts__account_id__finish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppConnectOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Retry the WhatsApp set-up steps that did not finish",
+        "tags": [
+          "whatsapp"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/whatsapp/connect": {
+      "post": {
+        "operationId": "connect_v1_whatsapp_connect_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WhatsAppConnectIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppConnectOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Finish connecting WhatsApp: exchange Meta's code, register the number",
+        "tags": [
+          "whatsapp"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/whatsapp/signup": {
+      "post": {
+        "operationId": "begin_signup_v1_whatsapp_signup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WhatsAppSignupIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppSignupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Begin connecting WhatsApp through Meta's Embedded Signup",
+        "tags": [
+          "whatsapp"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/whatsapp/templates": {
+      "get": {
+        "operationId": "list_templates_v1_whatsapp_templates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WhatsAppTemplateOut"
+                  },
+                  "title": "Response List Templates V1 Whatsapp Templates Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Message templates in this account's connected WhatsApp accounts",
+        "tags": [
+          "whatsapp"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "operationId": "create_template_v1_whatsapp_templates_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WhatsAppTemplateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppTemplateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Write a message template and send it to Meta for review",
+        "tags": [
+          "whatsapp"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     }
   }

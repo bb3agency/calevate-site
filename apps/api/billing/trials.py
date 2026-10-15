@@ -21,10 +21,10 @@ third, TEMPORARY one: is this account, right now, inside a period we agreed to f
 The two are orthogonal in both directions, which is what settles it. A `managed` client on
 a retainer can be given a fortnight on us (the founder said "any client"). A `trial`-tier
 self-serve signup is a stranger who pays from a wallet and has no funded period at all —
-which is precisely the account `SELF_SERVE_TIERS` exists to hold KYC and a first-campaign
-review over. Folding the clock into the tier would have made `plan_tier` mean three things,
+which is precisely the account `SELF_SERVE_TIERS` names. Folding the clock into the tier
+would have made `plan_tier` mean three things,
 and the third would have silently changed the answers to the other two: putting a client on
-a trial would have withdrawn `prepaid`'s exemption from the KYC and first-campaign gates,
+a trial would have moved the account across the tier line the hold queue draws,
 i.e. turned a commercial gift into a compliance regression. Nothing in this module reads or
 writes `plan_tier`, and nothing that reads `plan_tier` reads this.
 
@@ -49,7 +49,7 @@ them learning what a trial is; and there stays exactly one definition of "this a
 not dial for want of money".
 
 **ONLY THE CREDIT GATE.** KYC, the agreements, the spend cap, calling hours, DNC, consent,
-the AI disclosure, the India-only destination, the DLT chain and the first-campaign hold
+the AI disclosure, the India-only destination and the DLT chain
 all still bite, unchanged. A trial is a BILLING state. There is no reading of "everything is
 on us" that reaches TRAI.
 

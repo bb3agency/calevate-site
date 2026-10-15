@@ -256,7 +256,7 @@ async def national_dnd_blocker(
 ) -> tuple[str, str] | None:
     """`(rule, reason)` if the national preference scrub blocks this campaign, else None.
 
-    Returns the PAIR for the reason `kyc_blocker` and `first_campaign_hold_blocker` do:
+    Returns the PAIR for the reason `kyc_blocker` does:
     "nobody has scrubbed this list" and "the scrub has aged out" are different facts
     with the same remedy but very different urgency, and the launch preview, the
     dispatch tick and the ops console must name them identically.

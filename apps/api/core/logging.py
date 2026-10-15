@@ -146,7 +146,8 @@ _URL_SECRET_RE = re.compile(
     r"(\b(?:" + "|".join(re.escape(p) for p in _URL_SECRET_PARAMS) + r")=)[^&\s\"'#]*"
 )
 _STASH = "\x00"
-_MAX_FREE_TEXT = 200
+#: The longest free text `redact_mapping` keeps; anything longer is cut and marked.
+MAX_FREE_TEXT = 200
 
 # A traceback is bounded by LINE COUNT rather than by characters (see
 # `redact_exception`). A recursion error renders a thousand identical frames and a log
@@ -183,8 +184,8 @@ def redact_text(value: str) -> str:
     # Truncation runs LAST, on the restored text, so the cap measures what a reader
     # will actually see rather than the placeholder form.
     masked = _mask(value)
-    if len(masked) > _MAX_FREE_TEXT:
-        masked = masked[:_MAX_FREE_TEXT] + "…[truncated]"
+    if len(masked) > MAX_FREE_TEXT:
+        masked = masked[:MAX_FREE_TEXT] + "…[truncated]"
     return masked
 
 
@@ -415,6 +416,7 @@ def get_logger(name: str) -> logging.Logger:
 
 __all__ = [
     "LOG_TIMEZONE",
+    "MAX_FREE_TEXT",
     "MESSAGE_WITHHELD",
     "REDACTED",
     "REDACT_KEYS",

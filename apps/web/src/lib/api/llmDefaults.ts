@@ -19,7 +19,7 @@
  * `lib/api/admin.ts` exists to prevent (TRD §11, D-177).
  *
  * WHAT IS SHARED IS VOCABULARY, NEVER SESSION LOGIC, and that is the arrangement
- * `lib/api/admin.ts` already has with `kyc.ts`, `holds.ts` and `firstCampaign.ts`: the
+ * `lib/api/admin.ts` already has with `kyc.ts` and `holds.ts`: the
  * wire SHAPES (`OrganizationLlmDefaults`, `SetOrganizationLlmDefaultIn`) and the pure
  * catalogue reads (`modelOption`, `platformDefaultOption`) are imported from the
  * client-realm module so that an operator and a client are looking at the same document

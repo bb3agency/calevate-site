@@ -128,6 +128,13 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "ops:manage",
     ),
     AdminScreen(
+        "/admin/ops/whatsapp",
+        "Clients' WhatsApp",
+        "Platform",
+        "Meta's weekly onboarding limit, the Meta set-up, webhooks and each client's numbers.",
+        "admin:tenants",
+    ),
+    AdminScreen(
         "/admin/operators",
         "Admin accounts",
         "Platform",

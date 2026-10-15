@@ -1114,8 +1114,7 @@ async def tenant_overview(
 
     `holds` rides that SAME per-tenant session (`admin.holds.read_tenant_holds`), so
     the directory says which clients are waiting on a human without a second pass and
-    without either compliance table being widened for `app.admin`. This is where
-    `compliance/first_campaign_routes.py` said the flag belonged; the work QUEUE at
+    without `kyc_records` being widened for `app.admin`. The work QUEUE at
     `/v1/admin/compliance/holds` is the same predicate, filtered and ordered for triage —
     and it has ALWAYS pre-filtered its candidate set by tier for the reason this function
     now does. The two surfaces disagreeing about which accounts can even be held was the
@@ -1176,22 +1175,18 @@ async def tenant_overview(
                 )
             ).first()
             # THE PRE-FILTER `held_tenants` HAS ALWAYS APPLIED, and this surface did not
-            # (D-218). `kyc_blocker` and `first_campaign_hold_blocker` both open with
-            # `plan_tier_of(...) not in SELF_SERVE_TIERS -> None`, so for a managed account
-            # `read_tenant_holds` issues two `SELECT plan_tier FROM organizations` round
-            # trips — one per blocker, for a tier THIS LOOP IS ALREADY HOLDING — to arrive
-            # at "nothing holds this client", once per account, on the widest-read screen
-            # in the console. Measured: 0.95 ms of a 3.3 ms account, the largest of the
-            # four terms. A self-serve account is still asked and still pays, which is
-            # correct: there the reads decide something.
+            # (D-218). The holds badge is drawn on the self-serve tier line the work queue
+            # uses, so a managed account is answered here from the tier this loop is
+            # already holding instead of with a per-account round trip on the widest-read
+            # screen in the console. Measured: 0.95 ms of a 3.3 ms account, the largest of
+            # the four terms.
             #
             # `SELF_SERVE_TIERS` is IMPORTED, never re-spelled, and it is a filter on the
             # CANDIDATE SET rather than a second copy of the rule — exactly the
             # distinction `admin/holds.py::_DIRECTORY` argues for its own use of the same
-            # constant. The blocker still decides for every account this lets through,
-            # and an account it excludes is one both blockers would have answered `None`
-            # for on their own first line. If the tier line ever moves, it moves in
-            # `compliance/service.py` and both surfaces follow it.
+            # constant. The blocker still decides for every account this lets through.
+            # If the tier line ever moves, it moves in `compliance/service.py` and both
+            # surfaces follow it.
             holds = (
                 await read_tenant_holds(scoped, tenant_id=tenant_id)
                 if org[5] in SELF_SERVE_TIERS

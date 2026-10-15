@@ -101,7 +101,7 @@ export function LeadPicker({
             : `${formatCount(pool.data.matching)} ${pool.data.matching === 1 ? "lead matches" : "leads match"}. Anyone on your do-not-call list is skipped when the campaign starts.`
           : pool.error
             ? "We could not count the matching leads."
-            : "Counting matching leads…"}
+            : <span className="text-shimmer">Counting matching leads…</span>}
       </p>
     </div>
   );

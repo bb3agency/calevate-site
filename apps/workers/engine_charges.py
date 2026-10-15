@@ -20,7 +20,7 @@ only: the client is billed off minutes at its own rate and no reader of client m
 carries `meta.topup_fee`, so only rows from before the fix lack it), which is why it runs at
 the top of this sweep rather than as a script someone has to remember: the comparison below
 needs it done first, and once the backlog is restated each run finds nothing. A call's cost
-is its minute row plus its compensating rows (`_minute_cost_rows`), in both comparisons.
+is its minute row plus its compensating rows (`minute_cost_rows`), in both comparisons.
 
 THE FEE WAS OVERSTATED UNTIL 12 OCT 2026. The fee was read as 10% on pay-as-you-go and 9% on
 Pro (D-723); ThinnestAI then stated 2.36% on every plan (`billing/rates.THINNEST_TOPUP_FEE`).
@@ -135,7 +135,7 @@ _ROUTE_SQL = text(
 )
 
 
-def _minute_cost_rows(prefix: str = "") -> str:
+def minute_cost_rows(prefix: str = "") -> str:
     """The rows a call's engine-minute cost is: its metered minute, any fee restatement and
     any fee correction."""
     return (
@@ -148,7 +148,7 @@ def _minute_cost_rows(prefix: str = "") -> str:
 _METERED_SQL = text(
     "SELECT c.id, sum(u.qty * u.unit_cost_paid), bool_or(u.unit_cost_paid IS NULL) "
     "FROM calls c JOIN usage_events u ON u.call_id = c.id AND u.tenant_id = c.tenant_id "
-    f"AND {_minute_cost_rows('u.')} WHERE c.engine_call_id = :ecid GROUP BY c.id"
+    f"AND {minute_cost_rows('u.')} WHERE c.engine_call_id = :ecid GROUP BY c.id"
 )
 
 
@@ -190,8 +190,8 @@ _SET_CHARGE_SQL = text(
 )
 _CALL_COSTS_SQL = text(
     "SELECT "
-    f"sum(qty * unit_cost_paid) FILTER (WHERE {_minute_cost_rows()}), "
-    f"bool_or(unit_cost_paid IS NULL) FILTER (WHERE {_minute_cost_rows()}), "
+    f"sum(qty * unit_cost_paid) FILTER (WHERE {minute_cost_rows()}), "
+    f"bool_or(unit_cost_paid IS NULL) FILTER (WHERE {minute_cost_rows()}), "
     "count(*) FILTER (WHERE unit_type = 'platform_min'), "
     "max(meta->>'engine_rate_key') FILTER (WHERE unit_type = 'platform_min'), "
     "count(*) FILTER (WHERE unit_type = 'tts_kchars'), "
@@ -283,6 +283,17 @@ _ENGINE_TENANTS_SQL = text(
     "SELECT DISTINCT tenant_id FROM engine_agent_routes WHERE engine = :engine ORDER BY tenant_id"
 )
 
+
+async def engine_tenants(engine: str) -> list[UUID]:
+    """Every tenant with an agent route on `engine`, through the route bridge `db/registry`
+    exempts for exactly this resolution."""
+    async with untenanted_session() as session:
+        return [
+            UUID(str(row))
+            for row in (await session.execute(_ENGINE_TENANTS_SQL, {"engine": engine})).scalars()
+        ]
+
+
 #: Priced minute rows of an attested-minute engine metered without the fee and not yet
 #: restated. Unqualified columns are the outer row's, which `_ROW_COST_SQL` relies on.
 _WITHOUT_FEE_SQL = text(
@@ -372,11 +383,7 @@ async def restate_minutes_without_fee(engine: str) -> int:
     fee = topup_fee(engine)
     if fee == 0:
         return 0
-    async with untenanted_session() as session:
-        tenants = [
-            UUID(str(row))
-            for row in (await session.execute(_ENGINE_TENANTS_SQL, {"engine": engine})).scalars()
-        ]
+    tenants = await engine_tenants(engine)
     restated = 0
     for tenant_id in tenants:
         try:
@@ -521,11 +528,7 @@ async def correct_overstated_fees(engine: str) -> int:
     fee = topup_fee(engine)
     if fee == 0:
         return 0
-    async with untenanted_session() as session:
-        tenants = [
-            UUID(str(row))
-            for row in (await session.execute(_ENGINE_TENANTS_SQL, {"engine": engine})).scalars()
-        ]
+    tenants = await engine_tenants(engine)
     corrected = 0
     for tenant_id in tenants:
         try:

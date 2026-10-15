@@ -44,6 +44,8 @@ export function progressFixture(over: Partial<CampaignProgress> = {}): CampaignP
     concurrency: 3,
     contacts: {},
     total: 0,
+    retries_waiting: 0,
+    next_retry_at: null,
     ...over,
   };
 }

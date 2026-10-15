@@ -172,7 +172,10 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
 
       {testing && (
         <div role="status" aria-live="polite" className="space-y-2">
-          <p className="text-body text-ink-muted">Writing practice callers and talking to your agent. This takes a minute or two.</p>
+          <p className="text-body text-ink-muted">
+            <span className="text-shimmer">Writing practice callers and talking to your agent.</span> This takes a
+            minute or two.
+          </p>
           <Skeleton rows={3} />
         </div>
       )}
@@ -289,7 +292,9 @@ function FixPanel({
   if (improving) {
     return (
       <div role="status" aria-live="polite" className="space-y-2">
-        <p className="text-body text-ink">Working out fixes for {count === 1 ? "1 test" : `${count} tests`}…</p>
+        <p className="text-body text-ink">
+          <span className="text-shimmer">Working out fixes for {count === 1 ? "1 test" : `${count} tests`}…</span>
+        </p>
         <p className="text-meta text-ink-muted">This takes up to two minutes. You can leave this screen; the fixes wait here.</p>
       </div>
     );

@@ -90,7 +90,7 @@ export function HandWritten({
               convert.mutate({ raw_text: text }, { onSuccess: setProposal });
             }}
           >
-            {convert.isPending ? "Reading your script…" : "Turn this into steps"}
+            {convert.isPending ? <span className="text-shimmer">Reading your script…</span> : "Turn this into steps"}
           </button>
           <p className="text-meta text-ink-muted">
             You review every step before anything is replaced. Uses your AI allowance.

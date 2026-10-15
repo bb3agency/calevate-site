@@ -46,7 +46,7 @@ from uuid import UUID
 from arq import Retry
 from sqlalchemy import text
 
-from apps.api.copilot import session_run, transcript
+from apps.api.copilot import attachments, session_run, transcript
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
@@ -122,7 +122,19 @@ async def sweep_ended_conversations(ctx: dict[str, Any]) -> str:
         raise
 
     swept = 0
+    files = 0
     for tenant_id in tenants:
+        # THE FILES THEY ATTACHED TO PIP (D-781), in a transaction of their own: a store that
+        # does not answer must not roll back the conversation's own deletion.
+        try:
+            async with tenant_session(tenant_id) as session:
+                files += await attachments.sweep_ended(
+                    session, attachments.CLIENT, live=list(live_clients)
+                )
+        except Exception as failure:
+            log.warning(
+                "copilot_upload_sweep_tenant_failed", extra={"error": type(failure).__name__}
+            )
         try:
             async with tenant_session(tenant_id) as session:
                 result = await session.execute(
@@ -142,6 +154,14 @@ async def sweep_ended_conversations(ctx: dict[str, Any]) -> str:
     # tenant and no policy (`db/registry.py` holds the standing justification). It is not
     # in the worklist and cannot be: `retention_worklist` is keyed on a tenant, and these
     # rows belong to the platform.
+    try:
+        async with untenanted_session() as session:
+            files += await attachments.sweep_ended(
+                session, attachments.ADMIN, live=list(live_operators)
+            )
+    except Exception as failure:
+        log.warning("copilot_upload_sweep_admin_failed", extra={"error": type(failure).__name__})
+
     admin_swept = 0
     try:
         async with untenanted_session() as session:
@@ -155,7 +175,7 @@ async def sweep_ended_conversations(ctx: dict[str, Any]) -> str:
             extra={"error": type(failure).__name__},
         )
 
-    return f"swept {swept} client turn(s), {admin_swept} operator turn(s)"
+    return f"swept {swept} client turn(s), {admin_swept} operator turn(s), {files} attached file(s)"
 
 
 __all__ = ["TRANSCRIPT_SWEEP_MINUTE", "WORKLIST_REASON", "sweep_ended_conversations"]

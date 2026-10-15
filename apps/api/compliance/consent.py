@@ -107,6 +107,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.callbacks.service import GRACE, cancel_for_phones
 from apps.api.compliance.models import (
+    AGENT_RECORDED_CONSENT_SOURCES,
+    CALL_BOUND_CONSENT_SOURCES,
     CALLBACK_CONSENT_WITHDRAWN_REASON,
     CALLBACK_PURPOSE,
     CONSENT_SOURCES,
@@ -149,6 +151,8 @@ GRANT_CAPABLE_SOURCES = tuple(
     for source in CONSENT_SOURCES
     if source not in WITHDRAWAL_ONLY_CONSENT_SOURCES
     and source not in RECORDING_ONLY_CONSENT_SOURCES
+    # Recorded by the WhatsApp action on a call, never offered on the consent screen.
+    and source not in AGENT_RECORDED_CONSENT_SOURCES
 )
 
 #: The recording-notice basis, named once. It is written by the post-call pipeline and by
@@ -673,7 +677,7 @@ def _assert_grant_is_evidenced(
                 "message id the customer's agreement came from."
             ),
         )
-    if source == "inbound_call_verbal" and call_id is None:
+    if source in CALL_BOUND_CONSENT_SOURCES and call_id is None:
         raise ProblemError.business_rule(
             "consent_verbal_grant_needs_call",
             "A spoken opt-in has to name the call it was spoken on.",

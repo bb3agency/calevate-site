@@ -97,7 +97,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
@@ -110,6 +110,7 @@ from calevate_shared.engine import (
     azure_openai_base_url,
 )
 from calevate_shared.extraction import (
+    MODEL_MOMENT_KINDS,
     OUTCOME_HINTS,
     ExtractionField,
     ExtractionOutput,
@@ -257,15 +258,14 @@ def _first_json_object(text: str) -> dict[str, Any]:
     """Models wrap JSON in prose and fences no matter how firmly you ask. Take the
     first balanced object rather than failing the whole extraction on a stray ```.
 
-    A RECOVERY, and a recovery is strictly weaker than a constraint — which is why the
-    Azure path carries a constraint TOO (`build_azure_response_schema`) rather than
-    instead. Under Structured Outputs this function has nothing left to do and runs as a
-    no-op; it stays on that path because the strict form is documented rather than
-    observed on our own resource, and the degrade that covers that gap lands here. It
-    remains load-bearing for Sarvam, whose chat API publishes
-    `response_format: {"type": "json_object"}` but no per-request schema, and for the
-    offline runner. Deleting it because "the schema guarantees JSON now" would remove the
-    only thing holding up the path taken when the schema is refused."""
+    A RECOVERY, and a recovery is strictly weaker than a constraint — which is why both
+    model legs carry a constraint TOO (`build_response_schema`) rather than instead.
+    Under Structured Outputs this function has nothing left to do and runs as a no-op; it
+    stays because the strict form is documented by both vendors but not yet observed on
+    our own key or resource, and the degrade to `json_object` that covers that gap
+    (`_ask_strict_then_plain`) lands here. Deleting it because "the schema guarantees JSON
+    now" would remove the only thing holding up the path taken when the schema is
+    refused."""
     fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     candidate = fenced.group(1) if fenced else None
     if candidate is None:
@@ -290,8 +290,33 @@ def _first_json_object(text: str) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+#: Which `reasoning_effort` the Sarvam extraction pass sends. Sarvam thinks by default at
+#: `low`, bills the thinking as completion tokens, and is switched off with `null`
+#: (`off` here); docs.sarvam.ai/api-reference-docs/api-guides-tutorials/chat-completion/
+#: overview, read 14 Oct 2026. `low` is the value every pass has run on so far, so it is
+#: the explicit default: a change of the vendor's default can no longer move our cost.
+#:
+#: Whether `off` extracts as well for less money is UNMEASURED. Settle it on the golden
+#: set with a Sarvam key, never by guessing:
+#:
+#:     uv run python -m scripts.eval --client=ci --provider sarvam \
+#:         --provider sarvam_reasoning_off --evidence <path>.md
+#:
+#: and compare `restraint` and `capture_wrong` (both unwaivable), field accuracy and the
+#: output tokens per case. Change this value only on that evidence.
+SARVAM_EXTRACTION_REASONING_EFFORT: Final[chat.ReasoningEffort] = "low"
+
+
 class SarvamExtractor:
-    """D-36 default. Sarvam's chat API is OpenAI-compatible."""
+    """D-36 default. Sarvam's chat API is OpenAI-compatible.
+
+    It sends the same strict JSON schema as the Azure leg (`build_response_schema`).
+    Sarvam documents `response_format: {"type": "json_schema", ...}` on `/v1` for
+    `sarvam-105b` and calls it the recommended mode (docs.sarvam.ai/api-reference-docs/
+    api-guides-tutorials/chat-completion/overview, read 14 Oct 2026, VERIFIED-VENDOR-DOCS).
+    It is not yet observed on our key, so a 400 degrades to `json_object` exactly as on
+    Azure (`_ask_strict_then_plain`), and the log line says so.
+    """
 
     def __init__(
         self,
@@ -299,9 +324,11 @@ class SarvamExtractor:
         model: str = SARVAM_DEFAULT_LLM,
         *,
         timeout_s: float = EXTRACTION_TIMEOUT_S,
+        reasoning_effort: chat.ReasoningEffort = SARVAM_EXTRACTION_REASONING_EFFORT,
     ) -> None:
         self._api_key = api_key
         self.model_name = model
+        self._reasoning_effort = reasoning_effort
         # INJECTED RATHER THAN READ, and defaulted to the post-call number so every
         # existing caller keeps the behaviour it had. The user-triggered path passes
         # `ASSIST_TIMEOUT_S` because it is one of TWO legs behind an edge deadline; the
@@ -326,6 +353,8 @@ class SarvamExtractor:
 
     #: This runner can be asked for key moments in the same request (`extract_call`).
     reads_moments: Final = True
+    #: This runner can be told the agent's language(s) (`extract_call`).
+    reads_languages: Final = True
 
     async def run(
         self,
@@ -333,6 +362,7 @@ class SarvamExtractor:
         transcript: str,
         *,
         moments: MomentsBrief | None = None,
+        languages: Sequence[str] = (),
     ) -> dict[str, Any]:
         # ONE chat client for the whole repository (`workers/chat.py`). The empty-`choices`
         # arm that used to live here — the provider declining to answer, which indexed
@@ -340,19 +370,34 @@ class SarvamExtractor:
         # `extract_call`'s ladder and fails the whole post-call job — is now that module's
         # `_message_of`, so both legs and every future one inherit it.
         self.last_usage = None
-        outcome = await chat.complete(
-            self._leg,
-            [
-                {
-                    "role": "user",
-                    "content": build_extraction_prompt(spec, transcript, moments=moments),
-                }
-            ],
-            timeout_s=self._timeout_s,
-            temperature=0,
-            response_format={"type": "json_object"},
-            max_tokens=EXTRACTION_MAX_TOKENS,
+        prompt = build_extraction_prompt(spec, transcript, moments=moments, languages=languages)
+
+        async def ask(response_format: Mapping[str, Any]) -> chat.ChatOutcome:
+            return await chat.complete(
+                self._leg,
+                [{"role": "user", "content": prompt}],
+                timeout_s=self._timeout_s,
+                temperature=0,
+                response_format=response_format,
+                max_tokens=EXTRACTION_MAX_TOKENS,
+                reasoning_effort=self._reasoning_effort,
+            )
+
+        outcome, degraded = await _ask_strict_then_plain(
+            ask, build_response_schema(spec, moments=moments is not None)
         )
+        if degraded:
+            log.warning(
+                "sarvam_json_schema_unsupported",
+                extra={
+                    "model": self.model_name,
+                    "consequence": (
+                        "Sarvam refused Structured Outputs, so the extraction ran on "
+                        "json_object: valid JSON, but no model-side guarantee that it "
+                        "matches the agent's extraction schema."
+                    ),
+                },
+            )
         # Before the truncation check: a truncated answer was still paid for.
         self.last_usage = outcome.usage
         if outcome.finish_reason == "length":
@@ -371,7 +416,7 @@ class SarvamExtractor:
 #: format would make the model INVENT a calendar date for "tomorrow morning" to satisfy the
 #: type, which is the one thing this whole path is built not to do. Strict mode does not
 #: support `format` anyway — the product argument and the vendor constraint agree.
-_AZURE_TYPES: Final[dict[str, str]] = {
+_SCHEMA_TYPES: Final[dict[str, str]] = {
     "text": "string",
     "number": "number",
     "bool": "boolean",
@@ -382,7 +427,7 @@ _AZURE_TYPES: Final[dict[str, str]] = {
 #: The keys every extraction returns regardless of schema (TRD §7). NOT nullable:
 #: these are what `ExtractionOutput` always carries, and a model omitting one is a
 #: malformed answer rather than an empty field.
-_AZURE_FIXED_PROPERTIES: Final[dict[str, dict[str, Any]]] = {
+_FIXED_PROPERTIES: Final[dict[str, dict[str, Any]]] = {
     "summary": {"type": "string"},
     "headline": {"type": "string"},
     "next_step": {"type": "string"},
@@ -396,10 +441,10 @@ _AZURE_FIXED_PROPERTIES: Final[dict[str, dict[str, Any]]] = {
 #: spelled here rather than derived from a tenant's anything — and it is a LABEL, not an
 #: identity: the schema itself differs per agent, so a name that tried to identify one
 #: would be a second, wronger version of `extraction_schemas.version`.
-AZURE_SCHEMA_NAME: Final = "calevate_call_extraction"
+RESPONSE_SCHEMA_NAME: Final = "calevate_call_extraction"
 
 
-def _azure_property(field: ExtractionField) -> dict[str, Any]:
+def _schema_property(field: ExtractionField) -> dict[str, Any]:
     """One schema field as a strict-mode property. Nullable, always.
 
     NULLABILITY IS A TYPE UNION HERE, not a `nullable` keyword — that is Vertex's OpenAPI
@@ -411,7 +456,7 @@ def _azure_property(field: ExtractionField) -> dict[str, Any]:
     can satisfy — `enum` restricts to the listed members, so a `null` permitted by the
     type union would be forbidden by the enum one line below it.
     """
-    prop: dict[str, Any] = {"type": [_AZURE_TYPES[field.type], "null"]}
+    prop: dict[str, Any] = {"type": [_SCHEMA_TYPES[field.type], "null"]}
     if field.type == "enum" and field.enum_values:
         prop["enum"] = [*field.enum_values, None]
     # `description` here is Azure's OWN JSON-schema property key (their wire contract); the
@@ -422,8 +467,31 @@ def _azure_property(field: ExtractionField) -> dict[str, Any]:
     return prop
 
 
-def build_azure_response_schema(spec: ExtractionSchemaSpec) -> dict[str, Any]:
+#: The `moments` list, as `calevate_shared.extraction._moments_section` asks for it. Only
+#: in the schema when the request asks for moments; `clean_moment_candidates` still
+#: validates each entry, because the schema has no bounds (strict mode keywords, below).
+_MOMENTS_PROPERTY: Final[dict[str, Any]] = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "line": {"type": "integer"},
+            "kind": {"type": "string", "enum": sorted(MODEL_MOMENT_KINDS)},
+            "field": {"type": ["string", "null"]},
+            "label": {"type": "string"},
+            "importance": {"type": "integer"},
+        },
+        "required": ["line", "kind", "field", "label", "importance"],
+        "additionalProperties": False,
+    },
+}
+
+
+def build_response_schema(spec: ExtractionSchemaSpec, *, moments: bool = False) -> dict[str, Any]:
     """The strict JSON Schema that makes valid, schema-shaped JSON a MODEL-SIDE guarantee.
+
+    Both model legs send it: Azure (below) and Sarvam (`SarvamExtractor`). `moments` adds
+    the key-moments list for a request that asks for it.
 
     THE GUARANTEE IS BACK, and this function is the whole of it. Azure documents
     Structured Outputs (`response_format: {"type": "json_schema", "strict": true}`) on
@@ -451,7 +519,7 @@ def build_azure_response_schema(spec: ExtractionSchemaSpec) -> dict[str, Any]:
     2. **`additionalProperties: false`.** A chatty model cannot bolt an extra key on. This
        is strictly better than the old behaviour, where `validate_extraction` dropped
        unknown keys AFTER paying for them.
-    3. **A reduced keyword set.** No `format`, no `pattern`, no bounds — see `_AZURE_TYPES`
+    3. **A reduced keyword set.** No `format`, no `pattern`, no bounds — see `_SCHEMA_TYPES`
        for why that costs this path nothing.
 
     ORDER IS PROPERTY ORDER, and it is load-bearing rather than cosmetic. Generation is
@@ -471,12 +539,11 @@ def build_azure_response_schema(spec: ExtractionSchemaSpec) -> dict[str, Any]:
     prompt: `ai_assist_ktok_in` (D-137) has to be what the vendor charged for, and the
     schema is the part of that number nobody would have thought to add up.
     """
+    fixed = {**_FIXED_PROPERTIES, **({"moments": _MOMENTS_PROPERTY} if moments else {})}
     properties: dict[str, Any] = {
-        field.key: _azure_property(field)
-        for field in spec.fields
-        if field.key not in _AZURE_FIXED_PROPERTIES
+        field.key: _schema_property(field) for field in spec.fields if field.key not in fixed
     }
-    properties.update(_AZURE_FIXED_PROPERTIES)
+    properties.update(fixed)
     return {
         "type": "object",
         "properties": properties,
@@ -484,6 +551,44 @@ def build_azure_response_schema(spec: ExtractionSchemaSpec) -> dict[str, Any]:
         "required": list(properties),
         "additionalProperties": False,
     }
+
+
+async def _ask_strict_then_plain(
+    ask: Callable[[Mapping[str, Any]], Awaitable[chat.ChatOutcome]], schema: dict[str, Any]
+) -> tuple[chat.ChatOutcome, bool]:
+    """Ask under Structured Outputs; on a 400, ask once more for plain `json_object`.
+
+    Returns the outcome and whether it came from the degraded ask. Any other status, and
+    a 400 on the retry, raise the ORIGINAL refusal: if the 400 was really something else
+    (a content filter, a malformed body) the retry earns the same refusal, and the first
+    one is the right diagnosis.
+
+    THE TRIGGER IS ANY 400 rather than a reading of the error body. What a vendor says
+    when it refuses `json_schema` is exactly what we have not observed, so a
+    discriminator keyed on `error.code` would be a guess about the payload in doubt. A
+    400 is refused at request validation: no model time, no tokens, a few milliseconds.
+
+    NOT MEMOISED. A flag remembering "this leg refuses strict" would save one cheap round
+    trip and would be process-global state that goes stale the moment the vendor starts
+    accepting it, locking the leg into the weaker promise with nothing to notice.
+    """
+    try:
+        return (
+            await ask(
+                {
+                    "type": "json_schema",
+                    "json_schema": {"name": RESPONSE_SCHEMA_NAME, "strict": True, "schema": schema},
+                }
+            ),
+            False,
+        )
+    except httpx.HTTPStatusError as refusal:
+        if refusal.response.status_code != 400:
+            raise
+        try:
+            return await ask({"type": "json_object"}), True
+        except httpx.HTTPStatusError as retry_refusal:
+            raise refusal from retry_refusal
 
 
 #: `TokenUsage` AND `usage_from_body` NOW LIVE IN `workers/chat.py`, and are re-exported
@@ -546,7 +651,7 @@ class AzureOpenAIExtractor:
     provided schema" — the same class of promise Vertex's `responseSchema` made, and it
     matters more than it sounds: this schema IS a client's CRM columns, so best-effort
     JSON parsing would be a product-visible regression rather than an internal one. See
-    `build_azure_response_schema` for the three constraints strict mode adds and why none
+    `build_response_schema` for the three constraints strict mode adds and why none
     of them changes how an extraction schema is expressed.
 
     AND IT DEGRADES RATHER THAN FAILING, because the paragraph above is documented and
@@ -647,11 +752,9 @@ class AzureOpenAIExtractor:
             extra={"status": status, "model": self.model_name, "deployment": self._deployment},
         )
 
-    async def _ask(
-        self, spec: ExtractionSchemaSpec, transcript: str, *, response_format: dict[str, Any]
-    ) -> chat.ChatOutcome:
-        """One chat completion through the ONE client. The two callers below differ only
-        in `response_format`.
+    async def _ask(self, prompt: str, response_format: Mapping[str, Any]) -> chat.ChatOutcome:
+        """One chat completion through the ONE client. The strict ask and its degraded
+        retry differ only in `response_format`.
 
         `follow_redirects=False`, the empty-`choices` arm and the `usage` read all live in
         `workers/chat.py` now: a redirect off the region-pinned host is a residency
@@ -666,7 +769,7 @@ class AzureOpenAIExtractor:
                 wire_model=self._deployment,
                 dialect="openai",
             ),
-            [{"role": "user", "content": build_extraction_prompt(spec, transcript)}],
+            [{"role": "user", "content": prompt}],
             timeout_s=self._timeout_s,
             temperature=0,
             response_format=response_format,
@@ -674,46 +777,22 @@ class AzureOpenAIExtractor:
             client=self._client,
         )
 
-    async def run(self, spec: ExtractionSchemaSpec, transcript: str) -> dict[str, Any]:
+    #: This runner can be told the agent's language(s) (`extract_call`).
+    reads_languages: Final = True
+
+    async def run(
+        self, spec: ExtractionSchemaSpec, transcript: str, *, languages: Sequence[str] = ()
+    ) -> dict[str, Any]:
+        prompt = build_extraction_prompt(spec, transcript, languages=languages)
         try:
-            outcome = await self._ask(
-                spec,
-                transcript,
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": AZURE_SCHEMA_NAME,
-                        "strict": True,
-                        "schema": build_azure_response_schema(spec),
-                    },
-                },
+            outcome, degraded = await _ask_strict_then_plain(
+                lambda response_format: self._ask(prompt, response_format),
+                build_response_schema(spec),
             )
         except httpx.HTTPStatusError as refusal:
-            if refusal.response.status_code != 400:
-                self._log_refusal(refusal.response.status_code)
-                raise
-            # THE DEGRADE, and its trigger is deliberately ANY 400 rather than a reading
-            # of the error body. The thing we cannot verify is exactly what this resource
-            # says when it refuses `json_schema`, so a discriminator keyed on `error.code`
-            # or `error.param` would be a guess about the very payload in doubt — and
-            # guessing wrong means an outage on a documented feature. A 400 is refused at
-            # request validation: no model time, no tokens, a few milliseconds. So we
-            # simply ask again the weaker way.
-            #
-            # NOT MEMOISED, and that is the rejected alternative worth naming: a flag
-            # remembering "this deployment refuses strict" would save one cheap round trip
-            # per assist and would (a) be process-global mutable state needing a reset
-            # seam for tests, and (b) go stale the moment the deployment is upgraded —
-            # locking a fixed resource into the weak promise forever, with nothing to
-            # notice. Paying milliseconds to re-ask is the cheaper mistake.
-            try:
-                outcome = await self._ask(spec, transcript, response_format={"type": "json_object"})
-            except httpx.HTTPStatusError as retry_refusal:
-                # If the 400 was really something else (a content filter, a malformed
-                # body), the retry earns the same refusal and the ORIGINAL one is what is
-                # reported and raised, which is the right diagnosis.
-                self._log_refusal(refusal.response.status_code)
-                raise refusal from retry_refusal
+            self._log_refusal(refusal.response.status_code)
+            raise
+        if degraded:
             log.warning(
                 "azure_json_schema_unsupported",
                 extra={
@@ -1856,6 +1935,7 @@ async def run_assist(
     *,
     tenant_leg: TenantModelLeg | None = None,
     quota_exhausted: bool = False,
+    languages: Sequence[str] = (),
 ) -> AssistResult:
     """Run ONE user-triggered assist over REDACTED call text (D-127 G-2, G-6, G-7).
 
@@ -1934,7 +2014,9 @@ async def run_assist(
         # deadline around both.
         extractor = azure_extractor(timeout_s=ASSIST_TIMEOUT_S)
         if extractor is not None:
-            output = await extract_call(spec, redacted_transcript, extractor=extractor)
+            output = await extract_call(
+                spec, redacted_transcript, extractor=extractor, languages=languages
+            )
             failure = output.errors.get(MODEL_FAILURE)
             if failure is None:
                 # A schema-invalid FIELD is still an answer (`valid=False`, per-field
@@ -1978,6 +2060,7 @@ async def run_assist(
         # slow. Giving it the post-call 30s here is what used to push the pair past the
         # edge deadline and replace this answer with a 504.
         extractor=SarvamExtractor(settings.sarvam_api_key, timeout_s=ASSIST_TIMEOUT_S),
+        languages=languages,
     )
     return AssistResult(output=output, capability=capability, usage=spent)
 
@@ -2053,21 +2136,33 @@ async def _run(
     spec: ExtractionSchemaSpec,
     transcript: str,
     moments: MomentsBrief | None,
+    languages: Sequence[str],
 ) -> dict[str, Any]:
-    """One `run`, asking for key moments in the same request when the runner can.
+    """One `run`, with the key-moments brief and the agent's languages when the runner
+    reads them.
 
-    Only a runner that declares `reads_moments` is handed the brief: the offline baseline
-    has no model to ask, and the `Extractor` protocol stays two arguments for every test
-    double and harness that implements it.
+    Each is handed only to a runner that declares it (`reads_moments`, `reads_languages`):
+    the offline baseline has no model to ask, and the `Extractor` protocol stays two
+    arguments for every test double and harness that implements it.
     """
+    context: dict[str, Any] = {}
     if moments is not None and getattr(runner, "reads_moments", False):
-        return await cast(_ReadsMoments, runner).run(spec, transcript, moments=moments)
+        context["moments"] = moments
+    if languages and getattr(runner, "reads_languages", False):
+        context["languages"] = tuple(languages)
+    if context:
+        return await cast(_ReadsContext, runner).run(spec, transcript, **context)
     return await runner.run(spec, transcript)
 
 
-class _ReadsMoments(Protocol):
+class _ReadsContext(Protocol):
     async def run(
-        self, spec: ExtractionSchemaSpec, transcript: str, *, moments: MomentsBrief | None = None
+        self,
+        spec: ExtractionSchemaSpec,
+        transcript: str,
+        *,
+        moments: MomentsBrief | None = None,
+        languages: Sequence[str] = (),
     ) -> dict[str, Any]: ...
 
 
@@ -2077,8 +2172,12 @@ async def extract_call(
     *,
     extractor: Extractor | None = None,
     moments: MomentsBrief | None = None,
+    languages: Sequence[str] = (),
 ) -> ExtractionOutput:
     """Run one extraction pass and validate it against the schema.
+
+    `languages` is the agent's language(s), primary first, as `agents.language_primary`
+    and `languages_extra` spell them; empty means the prompt's default.
 
     A model failure does NOT fail the call: an extraction row still lands with
     `valid=False` and the error, so the call, the lead and the metering all survive an
@@ -2103,13 +2202,13 @@ async def extract_call(
     provider = _provider_of(runner)
     try:
         if provider is None:
-            raw = await _run(runner, spec, transcript, moments)
+            raw = await _run(runner, spec, transcript, moments, languages)
         else:
             # The provider-health hook sits HERE, around the whole `run`, and not around
             # each HTTP request: Azure's 400 → `json_object` degrade is two requests and
             # one answer, and only the answer says whether the leg works.
             async with provider_health.watch("extraction", provider):
-                raw = await _run(runner, spec, transcript, moments)
+                raw = await _run(runner, spec, transcript, moments, languages)
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
         # IndexError/TypeError belong here with the rest: a provider response whose
         # shape we did not expect is a MODEL failure, and this ladder exists so a model
@@ -2151,13 +2250,13 @@ async def extract_call(
 __all__ = [
     "ASSIST_QUOTA_ENFORCED",
     "AZURE_PROVIDER",
-    "AZURE_SCHEMA_NAME",
     "GEMINI_EXTRACTION_DEFAULT",
     "GOOGLE_PROVIDER",
     "MODEL_FAILURE",
     "NO_CREDENTIAL_REASON",
     "PROVIDER_UNAVAILABLE_REASON",
     "QUOTA_EXHAUSTED_REASON",
+    "RESPONSE_SCHEMA_NAME",
     "SARVAM_PROVIDER",
     "TENANT_PROVIDER_UNSUPPORTED_REASON",
     "AssistCapability",
@@ -2172,7 +2271,7 @@ __all__ = [
     "assist_unavailable",
     "azure_credentials",
     "azure_extractor",
-    "build_azure_response_schema",
+    "build_response_schema",
     "extract_call",
     "get_extractor",
     "model_answered",

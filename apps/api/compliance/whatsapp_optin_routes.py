@@ -78,7 +78,7 @@ from apps.api.db.session import tenant_session
 
 router = APIRouter(prefix="/v1/compliance/whatsapp-alerts", tags=["compliance"])
 # Its own `/v1/admin/tenants/{tenant_id}/...` prefix, like every other per-tenant admin
-# surface whose table lives in the compliance package (`first_campaign_routes`).
+# surface whose table lives in the compliance package (`national_dnd_routes`).
 admin_router = APIRouter(
     prefix="/v1/admin/tenants/{tenant_id}/whatsapp-alerts", tags=["admin", "compliance"]
 )
@@ -401,7 +401,7 @@ async def record_for_client(
     request: Request,
     principal: Operator,
 ) -> AlertOptInOut:
-    """Same family and shape as `first_campaign_routes.decide`: `admin:tenants`, tenant
+    """Same family and shape as `kyc_routes.record_kyc_verification`: `admin:tenants`, tenant
     in the PATH, and the tenant-table work done inside `tenant_session(tenant_id)` so
     RLS is what isolates it rather than a WHERE clause."""
     # `requires(..., realm="admin")` resolved this principal against `admin_users`, so

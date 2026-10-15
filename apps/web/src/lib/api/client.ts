@@ -881,18 +881,28 @@ export interface UploadProgress {
 export async function apiUpload<T>(
   session: Session,
   path: string,
-  form: FormData,
+  form: FormData | Blob,
   {
     onProgress,
     signal,
     timeoutMs = UPLOAD_TIMEOUT_MS,
     confirmAction,
+    uploadName,
+    uploadTextOf,
   }: {
     onProgress?: (progress: UploadProgress) => void;
     signal?: AbortSignal;
     timeoutMs?: number;
     /** The step-up confirmation `sendRequest` sends, for a multipart write that needs one. */
     confirmAction?: string;
+    /**
+     * A RAW-BODY upload's file name (Pip's attachments, D-781): the body is a `Blob` and
+     * the browser writes its `Content-Type` from `blob.type`; the name travels
+     * percent-encoded in a header, never in the URL, where it would reach access logs.
+     */
+    uploadName?: string;
+    /** For the text a browser took out of a PDF (D-781): the id of that PDF. */
+    uploadTextOf?: string;
   } = {},
 ): Promise<T> {
   const identity = identityHeaders(session);
@@ -905,6 +915,8 @@ export async function apiUpload<T>(
   const correlationId = newCorrelationId();
   headers["X-Correlation-Id"] = correlationId;
   if (confirmAction) headers["X-Confirm-Action"] = confirmAction;
+  if (uploadName !== undefined) headers["X-Upload-Name"] = encodeURIComponent(uploadName);
+  if (uploadTextOf !== undefined) headers["X-Upload-Text-Of"] = uploadTextOf;
   return await withDeadline<T>(
     (deadlineSignal) =>
       new Promise<T>((resolve, reject) => {

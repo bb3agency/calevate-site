@@ -116,7 +116,27 @@ export type WizardStepsProps = {
   onComplete?: () => void;
 
   complete?: boolean;
-  height?: number;
+  /**
+   * A fixed panel height in px (the original catalogue shape, for short steps), or
+   * "auto": the panel is as tall as its step, which a real form step needs.
+   */
+  height?: number | "auto";
+  /**
+   * Asked before Next moves on (and before Finish runs). Return false to stay, after
+   * showing the step's own errors: the gate the catalogue copy lacked.
+   */
+  canAdvance?: (index: number) => boolean;
+  /** Draw the panel without its card (border, shadow, inset), on the page's own ground. */
+  framed?: boolean;
+  /** Finish is in flight: the button stays put, disabled, saying so. */
+  finishing?: boolean;
+  finishingLabel?: string;
+  /** Disables Next and Finish, e.g. while the person may not write. */
+  advanceDisabled?: boolean;
+  /** Rendered between Back and Next, e.g. a Cancel text action. */
+  extraActions?: ReactNode;
+  /** The current step's name above the rail. Off when each step heads itself. */
+  showCurrentLabel?: boolean;
   backLabel?: string;
   nextLabel?: string;
   finishLabel?: string;
@@ -134,6 +154,13 @@ export function WizardSteps({
   onComplete,
   complete = false,
   height = 184,
+  canAdvance,
+  framed = true,
+  finishing = false,
+  finishingLabel = "Working…",
+  advanceDisabled = false,
+  extraActions,
+  showCurrentLabel = true,
   backLabel = "Back",
   nextLabel = "Next",
   finishLabel = "Finish",
@@ -203,6 +230,12 @@ export function WizardSteps({
 
   const step = steps[at];
   if (!step) return null;
+  const auto = height === "auto";
+  const advance = () => {
+    if (canAdvance && !canAdvance(at)) return;
+    if (!isLast) intent.current = "panel";
+    next();
+  };
 
   const position = `Step ${at + 1} of ${total}: ${step.label}`;
 
@@ -211,6 +244,7 @@ export function WizardSteps({
       <p aria-live="polite" className="sr-only">
         {position}
       </p>
+      {showCurrentLabel && (
       <span
         aria-hidden
         className="mb-2 grid select-none text-[13px] font-medium text-ink"
@@ -227,6 +261,7 @@ export function WizardSteps({
           </motion.span>
         ))}
       </span>
+      )}
       <ol
         ref={listRef}
         aria-label={label}
@@ -239,7 +274,7 @@ export function WizardSteps({
           const tile = (
             <motion.span
               aria-hidden
-              className={`grid size-7 place-items-center rounded-[8px] border text-[11.5px] font-medium tabular-nums shadow-[0_1px_2px_rgba(28,25,23,0.06),0_4px_10px_-8px_rgba(28,25,23,0.45)] transition-colors duration-150 dark:shadow-[0_1px_6px_rgba(0,0,0,0.45)] ${
+              className={`grid size-7 place-items-center rounded-[8px] border text-[11.5px] font-medium tabular-nums transition-colors duration-150 ${
                 done
                   ? "border-brand-strong bg-brand-strong text-white"
                   : here
@@ -272,6 +307,17 @@ export function WizardSteps({
             </motion.span>
           );
 
+          const name = (
+            <span
+              aria-hidden
+              className={`hidden whitespace-nowrap pl-2 pr-1 text-[13px] sm:inline ${
+                here ? "font-medium text-ink" : done ? "text-ink-muted" : "text-ink-faint"
+              }`}
+            >
+              {s.label}
+            </span>
+          );
+
           return (
             <li key={s.id} className="flex flex-1 items-center gap-1 last:flex-none">
 
@@ -288,21 +334,23 @@ export function WizardSteps({
                     intent.current = "list";
                     goTo(i);
                   }}
-                  className="rounded-[8px] outline-none focus-visible:shadow-[0_0_0_1.5px_var(--brand)] dark:focus-visible:shadow-[0_0_0_1.5px_var(--brand-bright)]"
+                  className="inline-flex items-center rounded-[8px] outline-none touch:min-h-11 focus-visible:ring-2 focus-visible:ring-brand"
                 >
                   {tile}
+                  {name}
                 </button>
               ) : (
-                <span>
+                <span className="inline-flex items-center">
                   <span className="sr-only">{`Step ${i + 1} of ${total}: ${s.label}`}</span>
                   {tile}
+                  {name}
                 </span>
               )}
 
               {i < total - 1 ? (
                 <span
                   aria-hidden
-                  className="relative h-[3px] flex-1 overflow-hidden rounded-[2px] bg-ink/[0.06] shadow-[inset_0_1px_2px_rgba(28,25,23,0.07)] dark:shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]"
+                  className="relative h-[3px] flex-1 overflow-hidden rounded-[2px] bg-ink/[0.06]"
                 >
                   <motion.span
                     className="absolute inset-0 origin-left rounded-[2px] bg-brand"
@@ -321,9 +369,36 @@ export function WizardSteps({
         tabIndex={-1}
         role="group"
         aria-label={position}
-        style={{ height }}
-        className="relative overflow-hidden rounded-[11px] border border-line bg-surface shadow-[0_1px_2px_rgba(28,25,23,0.06),0_4px_10px_-8px_rgba(28,25,23,0.45)] outline-none transition-[border-color,box-shadow] duration-150 focus-visible:border-brand dark:shadow-[0_1px_6px_rgba(0,0,0,0.45)] dark:focus-visible:border-brand-bright"
+        style={auto ? undefined : { height }}
+        className={`relative outline-none ${auto ? "" : "overflow-hidden"} ${
+          framed
+            ? "rounded-[11px] border border-line bg-surface transition-[border-color] duration-150 focus-visible:border-brand dark:focus-visible:border-brand-bright"
+            : "rounded-sm focus-visible:ring-2 focus-visible:ring-brand"
+        }`}
       >
+        {auto ? (
+          // A step as tall as its content cannot overlap the outgoing one, so it only
+          // enters (a short slide from the side it came from) and the old step leaves at
+          // once: the right asymmetry for a form, where the new fields are what matter.
+          <motion.div
+            key={complete ? "__complete" : step.id}
+            custom={direction}
+            variants={variants}
+            initial="enter"
+            animate="center"
+            transition={panelTransition}
+            className={framed ? "p-4" : ""}
+          >
+            {complete ? (
+              <div className="py-6">
+                <p className="text-body font-medium text-ink">{completeLabel}</p>
+                <p className="text-meta text-ink-muted">{completeHint}</p>
+              </div>
+            ) : (
+              step.content
+            )}
+          </motion.div>
+        ) : (
         <AnimatePresence initial={false} custom={direction}>
           <motion.div
             key={complete ? "__complete" : step.id}
@@ -351,8 +426,9 @@ export function WizardSteps({
             )}
           </motion.div>
         </AnimatePresence>
+        )}
       </div>
-      <div className="mt-3 flex h-9 touch:h-11 items-center gap-3">
+      <div className={`flex flex-wrap items-center gap-3 ${auto ? "mt-8 border-t border-line pt-5" : "mt-3"}`}>
         <AnimatePresence initial={false}>
           {isFirst ? null : (
             <motion.button
@@ -369,22 +445,21 @@ export function WizardSteps({
                 intent.current = "panel";
                 back();
               }}
-              className="h-9 touch:h-11 rounded-[9px] border border-line bg-surface px-3 text-[13px] font-medium text-ink outline-none transition-[border-color,box-shadow] duration-150 hover:border-ink/20 focus-visible:border-brand focus-visible:shadow-[0_1px_2px_rgba(28,25,23,0.08),0_10px_20px_-14px_rgba(22,160,93,0.6)] dark:focus-visible:border-brand-bright dark:focus-visible:shadow-[0_10px_20px_-14px_rgba(34,197,94,0.5)]"
+              className="h-9 touch:h-11 rounded-[9px] border border-line bg-surface px-3 text-[13px] font-medium text-ink outline-none transition-[border-color] duration-150 hover:border-ink/20 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
             >
               {backLabel}
             </motion.button>
           )}
         </AnimatePresence>
+        {extraActions ? <div className="ml-auto flex items-center gap-3">{extraActions}</div> : null}
         <AnimatePresence initial={false}>
           {complete ? null : (
             <motion.button
               key="advance"
               type="button"
               aria-label={isLast ? finishLabel : nextLabel}
-              onClick={() => {
-                if (!isLast) intent.current = "panel";
-                next();
-              }}
+              disabled={advanceDisabled || finishing}
+              onClick={advance}
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{
@@ -395,7 +470,7 @@ export function WizardSteps({
                   : { duration: 0.14, ease: EXIT_EASE },
               }}
               transition={reduced ? { duration: 0 } : CROSSFADE}
-              className="ml-auto grid h-9 touch:h-11 place-items-center rounded-[9px] bg-brand-strong px-3.5 text-[13px] font-medium text-white outline-none transition-colors duration-150 hover:bg-brand-deep focus-visible:shadow-[inset_0_0_0_1.5px_var(--brand-deep)]"
+              className={`${extraActions ? "" : "ml-auto"} grid h-9 touch:h-11 place-items-center rounded-[9px] bg-brand-strong px-3.5 text-[13px] font-medium text-white outline-none transition-colors duration-150 [&:not(:disabled)]:hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-ink/[0.08] disabled:text-ink-faint focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2`}
             >
               <span aria-hidden className="invisible col-start-1 row-start-1">
                 {finishLabel.length > nextLabel.length ? finishLabel : nextLabel}
@@ -416,7 +491,7 @@ export function WizardSteps({
                 animate={{ opacity: isLast ? 1 : 0 }}
                 transition={reduced ? { duration: 0 } : CROSSFADE}
               >
-                {finishLabel}
+                {isLast && finishing ? finishingLabel : finishLabel}
               </motion.span>
             </motion.button>
           )}

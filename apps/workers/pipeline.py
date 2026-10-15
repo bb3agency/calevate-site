@@ -127,6 +127,7 @@ from apps.api.compliance.optout import (
     record_call_optout,
 )
 from apps.api.compliance.service import credits_exhausted
+from apps.api.compliance.spoken_consent import check_call as check_spoken_consent
 from apps.api.core.alerting import (
     alert,
     record_pipeline_lag,
@@ -1264,6 +1265,20 @@ async def _post_call_stages(
         outcome = await _maybe_record_opt_out(tenant_id, call_id, snapshot, opt_out_signal)
         set_span_attributes(stage, outcome=outcome)
 
+    # STEP 2e — an in-call WhatsApp opt-in the agent reported (D-784) is checked against
+    # what the caller actually said. A string match on turns already in hand, like 2b; an
+    # unconfirmed one is audited and alarmed, never silently kept.
+    if snapshot.transcript:
+        with span("pipeline.spoken_consent", call_id=str(call_id)) as stage:
+            async with tenant_session(tenant_id) as session:
+                unconfirmed = await check_spoken_consent(
+                    session,
+                    tenant_id=tenant_id,
+                    call_id=call_id,
+                    caller_turns=[t.text for t in snapshot.transcript if t.speaker == "caller"],
+                )
+            set_span_attributes(stage, unconfirmed=unconfirmed)
+
     # STEP 3 — extraction against the agent's schema.
     (
         spec,
@@ -1345,7 +1360,11 @@ async def _post_call_stages(
             # call, only the extra output tokens, metered below with the rest.
             brief = await _load_moments_brief(tenant_id, agent_id)
             extraction = await extract_call(
-                spec, transcript_text, extractor=extractor, moments=brief
+                spec,
+                transcript_text,
+                extractor=extractor,
+                moments=brief,
+                languages=await _agent_languages(tenant_id, agent_id),
             )
             extraction_model = extractor.model_name
             await _meter_extraction(
@@ -1935,6 +1954,24 @@ async def _load_moments_brief(tenant_id: UUID, agent_id: UUID) -> MomentsBrief:
         agent_goal=goal,
         script_steps=[name for name in names if name][:_BRIEF_MAX_STEPS],
     )
+
+
+async def _agent_languages(tenant_id: UUID, agent_id: UUID) -> tuple[str, ...]:
+    """The agent's languages, primary first, for the extraction prompt to name; empty for
+    an agent this tenant cannot see, which leaves the prompt on its default."""
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT language_primary, languages_extra FROM agents "
+                    "WHERE id = :aid AND tenant_id = :tid"
+                ),
+                {"aid": agent_id, "tid": tenant_id},
+            )
+        ).first()
+    if row is None:
+        return ()
+    return (str(row[0]), *(str(code) for code in row[1] or ()))
 
 
 #: `action_invocations.status` values that mean the action did what it is for

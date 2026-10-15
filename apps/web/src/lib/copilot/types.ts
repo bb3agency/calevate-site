@@ -183,8 +183,8 @@ export function asText(value: CopilotFillItem["value"]): string {
  * statuses and a filter or two. They still declare themselves, because a launcher that is
  * absent on nineteen screens out of thirty teaches a person the assistant does not exist,
  * and because the copilot's read tools can answer "why is this campaign held" perfectly
- * well from a screen whose only contribution is "you are on the campaign-review screen and
- * the verdict says pending".
+ * well from a screen whose only contribution is "you are on the campaign screen and
+ * the launch check says held".
  *
  * A named export rather than `apply: () => {}` written out at each of those call sites:
  * one spelling means a reader can tell "this screen has nothing to fill" from "this screen

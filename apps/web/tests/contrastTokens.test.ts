@@ -159,6 +159,26 @@ describe("the light palette", () => {
 });
 
 /**
+ * `text-shimmer` sweeps a label from its own colour to one band colour and back. Every
+ * in-between frame is a gamma-sRGB mix of two dark stops, which is never lighter than the
+ * lighter stop, so the frames hold AA if the band colour does on every ground a working
+ * label is painted on. The band colour is read from the utility itself, so changing it
+ * there is what this checks.
+ */
+describe("the text shimmer's band", () => {
+  const utility = CSS.slice(CSS.indexOf("@utility text-shimmer {"));
+  const band = utility.match(/currentColor 35%,\s*var\(--([a-z-]+)\) 50%/);
+  if (!band) throw new Error("text-shimmer's band stop not found in globals.css");
+  for (const ground of ["surface", "app", "surface-muted", "brand-soft", "warn-soft"]) {
+    it(`renders --${band[1]} on --${ground} at AA`, () => {
+      expect(contrast(token(":root {", band[1]), token(":root {", ground))).toBeGreaterThanOrEqual(
+        AA_NORMAL_TEXT,
+      );
+    });
+  }
+});
+
+/**
  * The status tones (warn, danger) carry text and icons, so they are held to the text
  * threshold on the surfaces they are painted on, including their own tinted ground.
  */

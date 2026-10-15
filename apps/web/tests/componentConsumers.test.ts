@@ -63,7 +63,6 @@ const AWAITING_A_DECISION = [
   "interior/sticky-header",
   "interior/streaming-text",
   "interior/tree-view",
-  "interior/wizard-steps",
 ];
 
 function filesUnder(dir: string): string[] {

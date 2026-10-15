@@ -267,6 +267,9 @@ _READ_ONLY_WIDENING_GUCS: dict[str, str] = {
     "app.user_id": "user_session() — 'which tenants may this user enter?'",
     "app.invite_hash": "invite_session() — the one invitation whose token the caller holds",
     "app.ingest_webhook_id": "ingest_config_session() — the one ingest config named in the URL",
+    "app.whatsapp_waba_id": (
+        "whatsapp_waba_session() — the one WhatsApp account a signed Meta webhook names"
+    ),
     "app.admin": "admin_session() — the tenant directory, enumerate only",
 }
 

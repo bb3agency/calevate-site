@@ -145,6 +145,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hooks/v1/meta/whatsapp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Meta's webhook subscription handshake for clients' WhatsApp accounts */
+        get: operations["whatsapp_verify_hooks_v1_meta_whatsapp_get"];
+        put?: never;
+        /** Clients' WhatsApp account events from Meta, X-Hub-Signature-256 verified */
+        post: operations["whatsapp_events_hooks_v1_meta_whatsapp_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hooks/v1/razorpay": {
         parameters: {
             query?: never;
@@ -266,8 +284,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Accounts held for a human decision — KYC and first-campaign review (R-11)
-         * @description Every self-serve account that cannot dial until someone at Calevate acts, oldest signup first: identity verification not recorded, or the first campaign not yet released. An account held by both gates appears once with both rules. Clearing a gate removes the account from this list. Read-only — the decisions are recorded through the audited routes on each account.
+         * Accounts held for a human decision — subscriber KYC (R-11)
+         * @description Every self-serve account that cannot dial until someone at Calevate acts, oldest signup first: identity verification not recorded or not yet verified. Clearing the gate removes the account from this list. Read-only — the decision is recorded through the audited routes on each account.
          */
         get: operations["list_held_tenants_v1_admin_compliance_holds_get"];
         put?: never;
@@ -433,6 +451,75 @@ export interface paths {
          *     clearing happened, by whom and how much — never what was said.
          */
         delete: operations["clear_admin_copilot_conversation_v1_admin_copilot_conversation_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/copilot/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attach a file for Pip (admin console)
+         * @description Attach one file to Pip's next question. The body IS the file — not a form —
+         *     with `Content-Type` set to the type the browser produced, and `X-Upload-Name` set to the
+         *     name the person chose, percent-encoded.
+         *
+         *     Allowed: pictures (JPG, PNG, WebP, HEIC — re-drawn by the browser as `image/jpeg`, which
+         *     drops their location and camera data), text and CSV (`text/plain`, `text/csv`), and Word,
+         *     Excel and PowerPoint files the browser has turned into `text/plain`, and PDFs
+         *     (`application/pdf`, sent as they are). Up to 20 MB a file, 5 MB a picture and 14 MB a PDF;
+         *     up to 5 files, 2 of them pictures, 50 MB in all and 14 MB of pictures and PDFs together, on
+         *     one message. For a PDF the browser also sends the text it found in it, as `text/plain` with
+         *     `X-Upload-Text-Of` naming the PDF: Pip reads that only when the PDF itself cannot be read.
+         *     Files with macros, older Office formats, ZIPs, audio and anything else are refused with a
+         *     sentence saying what to do; so is a body whose first bytes are not what its type says.
+         *
+         *     Nothing in the file is opened, scanned or reviewed: it is stored privately and sent to
+         *     Pip's AI provider as it is. Requires `copilot:admin`.
+         */
+        post: operations["upload_admin_file_v1_admin_copilot_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/copilot/uploads/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove an attached file (admin console) */
+        delete: operations["remove_admin_file_v1_admin_copilot_uploads__file_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/copilot/uploads/{file_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One of your own attached files (admin console) */
+        get: operations["download_admin_file_v1_admin_copilot_uploads__file_id__content_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -753,8 +840,9 @@ export interface paths {
         /**
          * Live change notes across every account, for the operator console
          * @description The operator console's change stream: every account's notes, each with its `tenant_id`,
-         *     plus the platform's own topics (`alerts`, `platform`, `healer`, `quality`). Same events and
-         *     rules as `GET /v1/live`. Requires an operator session.
+         *     plus the platform's own topics (`alerts`, `platform`, `healer`, `quality`) and the
+         *     operator's own `conversation`. Same events and rules as `GET /v1/live`. Requires an
+         *     operator session.
          */
         get: operations["admin_live_changes_v1_admin_live_get"];
         put?: never;
@@ -2226,26 +2314,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/tenants/{tenant_id}/first-campaign-review": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Release (or refuse) a self-serve account's campaign calling — R-11's hold
-         * @description Records that a person at Calevate reviewed this account's first campaign. `approved` releases the account: this rule never blocks another of its campaigns. `rejected` keeps it held and shows the client the reason. Upserts, so a release can be withdrawn when complaints arrive and granted again afterwards — every call writes its own audit entry, so the history is the ledger rather than this row.
-         */
-        post: operations["decide_v1_admin_tenants__tenant_id__first_campaign_review_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/tenants/{tenant_id}/invitations": {
         parameters: {
             query?: never;
@@ -2939,6 +3007,23 @@ export interface paths {
          * @description For an opt-in given during onboarding rather than on the settings screen. A grant must carry the reference of the document or ticket the client agreed in, and the row names the operator who recorded it.
          */
         post: operations["record_for_client_v1_admin_tenants__tenant_id__whatsapp_alerts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/whatsapp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Clients' WhatsApp: weekly onboarding count, accounts, templates and webhook health */
+        get: operations["whatsapp_admin_v1_admin_whatsapp_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6073,26 +6158,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/compliance/first-campaign-review": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Is this account's first campaign still waiting on a human? (R-11)
-         * @description Calevate reviews the first campaign of every self-serve account before it dials — the contact list, the script and the disclosure line. This says whether that review is still outstanding, and what was decided once it is done. An account nobody has reviewed yet gets `held: true` with a null `status` and a 200; managed accounts are never held. Read-only: the release is recorded by Calevate operations.
-         */
-        get: operations["read_hold_v1_compliance_first_campaign_review_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/compliance/kyc": {
         parameters: {
             query?: never;
@@ -6611,11 +6676,10 @@ export interface paths {
          *     navigation, and a browser you closed yesterday afternoon.
          *
          *     **It belongs to YOU, not to one device.** Sign in on a phone while a desktop tab is open
-         *     and both show the same thread — the desktop's copy simply does not know about the phone's
-         *     newest turn until it reads this again, which is the whole of the concurrency story here:
-         *     there is no realtime channel and none is needed (see `load_copilot_conversation`). The
-         *     console re-reads it when its tab gets focus and after every exchange (D-542), so the two
-         *     converge the moment either is looked at.
+         *     and both show the same thread. A question is stored the moment it is asked and its answer
+         *     when it is finished; each time, your own `GET /v1/live` stream (and only yours) gets a
+         *     `conversation` note, and the console reads this again (D-782). `answering` is true while
+         *     Pip is still answering a question you asked on any device.
          *
          *     **It ends when your LAST session ends.** Signing out on one device does not take the
          *     thread away from another, but signing out of the last one does, and so does letting the
@@ -6644,8 +6708,9 @@ export interface paths {
          *     (`copilot/write_tools.py`), and neither is touched by this.
          *
          *     It clears every device, because there is one conversation and it belongs to the
-         *     person. A second device discovers it on its next load, which is the same contract as
-         *     every other turn.
+         *     person. The person's other windows are told once the delete has COMMITTED (D-782) —
+         *     which is why this handler opens its own session rather than taking `Depends(db)`,
+         *     whose commit runs after the handler returns.
          */
         delete: operations["clear_copilot_conversation_v1_copilot_conversation_delete"];
         options?: never;
@@ -6801,6 +6866,75 @@ export interface paths {
         };
         /** When a routine ran, and what became of each run */
         get: operations["list_copilot_routine_runs_v1_copilot_routines__routine_id__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attach a file for Pip — the body is the file, streamed to storage
+         * @description Attach one file to Pip's next question. The body IS the file — not a form —
+         *     with `Content-Type` set to the type the browser produced, and `X-Upload-Name` set to the
+         *     name the person chose, percent-encoded.
+         *
+         *     Allowed: pictures (JPG, PNG, WebP, HEIC — re-drawn by the browser as `image/jpeg`, which
+         *     drops their location and camera data), text and CSV (`text/plain`, `text/csv`), and Word,
+         *     Excel and PowerPoint files the browser has turned into `text/plain`, and PDFs
+         *     (`application/pdf`, sent as they are). Up to 20 MB a file, 5 MB a picture and 14 MB a PDF;
+         *     up to 5 files, 2 of them pictures, 50 MB in all and 14 MB of pictures and PDFs together, on
+         *     one message. For a PDF the browser also sends the text it found in it, as `text/plain` with
+         *     `X-Upload-Text-Of` naming the PDF: Pip reads that only when the PDF itself cannot be read.
+         *     Files with macros, older Office formats, ZIPs, audio and anything else are refused with a
+         *     sentence saying what to do; so is a body whose first bytes are not what its type says.
+         *
+         *     Nothing in the file is opened, scanned or reviewed: it is stored privately and sent to
+         *     Pip's AI provider as it is. Requires `copilot:use`.
+         */
+        post: operations["upload_file_v1_copilot_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/uploads/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove an attached file — deleted from storage at once */
+        delete: operations["remove_file_v1_copilot_uploads__file_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/uploads/{file_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One of your own attached files, streamed back to you and nobody else */
+        get: operations["download_file_v1_copilot_uploads__file_id__content_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8564,7 +8698,8 @@ export interface paths {
          *     * `change` · `{"topic": "calls", "at": "<instant>"}` — something in that family changed.
          *       Refetch the queries that show it. Topics: account, agents, assistant, callbacks, calls,
          *       campaigns, dnc, healer, integrations, knowledge, knowledge_gaps, leads, numbers,
-         *       quality, wallet.
+         *       quality, wallet. `conversation` is the caller's OWN Pip conversation; it is sent only to
+         *       that person's streams, never to anyone else on the account.
          *     * `resync` · `{"reason": "subscription_restored"|"fell_behind"}` — notes may have been
          *       missed. Refetch what is on screen.
          *     * `closed` · `{"reason": "session_ended"|"max_age"|"shutting_down"}` — the server ended
@@ -10533,6 +10668,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/whatsapp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This account's WhatsApp: whether Meta signup is available, and connected numbers */
+        get: operations["overview_v1_whatsapp_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/whatsapp/accounts/{account_id}/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop sending from this WhatsApp account and delete its key */
+        post: operations["disconnect_v1_whatsapp_accounts__account_id__disconnect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/whatsapp/accounts/{account_id}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry the WhatsApp set-up steps that did not finish */
+        post: operations["finish_v1_whatsapp_accounts__account_id__finish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/whatsapp/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finish connecting WhatsApp: exchange Meta's code, register the number */
+        post: operations["connect_v1_whatsapp_connect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/whatsapp/signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Begin connecting WhatsApp through Meta's Embedded Signup */
+        post: operations["begin_signup_v1_whatsapp_signup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/whatsapp/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Message templates in this account's connected WhatsApp accounts */
+        get: operations["list_templates_v1_whatsapp_templates_get"];
+        put?: never;
+        /** Write a message template and send it to Meta for review */
+        post: operations["create_template_v1_whatsapp_templates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -10868,6 +11106,11 @@ export interface components {
          */
         AdminCopilotAskIn: {
             /**
+             * Attachments
+             * @default []
+             */
+            attachments: string[];
+            /**
              * Facts
              * @default []
              */
@@ -10887,6 +11130,7 @@ export interface components {
             screen: components["schemas"]["CopilotScreen"];
             /** Tenant Id */
             tenant_id?: string | null;
+            turn_ids?: components["schemas"]["CopilotTurnIds"] | null;
         };
         /** AdminForwardingOut */
         AdminForwardingOut: {
@@ -11123,6 +11367,79 @@ export interface components {
             agent_ids?: string[] | null;
             /** Business Type */
             business_type?: ("retail" | "local_services" | "automobile" | "clinic" | "real_estate" | "insurance" | "education" | "custom") | null;
+        };
+        /** AdminWhatsAppAccountOut */
+        AdminWhatsAppAccountOut: {
+            /** Account Alert */
+            account_alert: string | null;
+            /** Connected At */
+            connected_at: string | null;
+            /** Display Phone Number */
+            display_phone_number: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Event At */
+            last_event_at: string | null;
+            /** Last Send Error */
+            last_send_error: string | null;
+            /** Messaging Limit */
+            messaging_limit: string | null;
+            /** Name Status */
+            name_status: string | null;
+            /** Onboarding */
+            onboarding: string;
+            /** Quality Rating */
+            quality_rating: string | null;
+            /** Setup Error */
+            setup_error: string | null;
+            /** Status */
+            status: string;
+            /** Templates Approved */
+            templates_approved: number;
+            /** Templates Pending */
+            templates_pending: number;
+            /** Templates Rejected */
+            templates_rejected: number;
+            /** Verified Name */
+            verified_name: string | null;
+        };
+        /** AdminWhatsAppClientOut */
+        AdminWhatsAppClientOut: {
+            /** Accounts */
+            accounts: components["schemas"]["AdminWhatsAppAccountOut"][];
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /** AdminWhatsAppOut */
+        AdminWhatsAppOut: {
+            /** App Secret Set */
+            app_secret_set: boolean;
+            /** Callback Path */
+            callback_path: string;
+            /** Clients */
+            clients: components["schemas"]["AdminWhatsAppClientOut"][];
+            /** Coexistence */
+            coexistence: boolean;
+            /** Configured */
+            configured: boolean;
+            /** Last Event At */
+            last_event_at: string | null;
+            /** Verify Token Set */
+            verify_token_set: boolean;
+            /** Week Count */
+            week_count: number;
+            /** Weekly Limit */
+            weekly_limit: number;
         };
         /**
          * AgentCallHandlingIn
@@ -14544,6 +14861,11 @@ export interface components {
          */
         CopilotAskIn: {
             /**
+             * Attachments
+             * @default []
+             */
+            attachments: string[];
+            /**
              * Facts
              * @default []
              */
@@ -14561,6 +14883,7 @@ export interface components {
             /** Question */
             question: string;
             screen: components["schemas"]["CopilotScreen"];
+            turn_ids?: components["schemas"]["CopilotTurnIds"] | null;
         };
         /**
          * CopilotConfirmIn
@@ -14627,6 +14950,11 @@ export interface components {
          *     sessions has ended.
          */
         CopilotConversationOut: {
+            /**
+             * Answering
+             * @default false
+             */
+            answering: boolean;
             /**
              * Has More
              * @default false
@@ -14952,6 +15280,22 @@ export interface components {
             role: "user" | "assistant";
         };
         /**
+         * CopilotTurnIds
+         * @description The two turn ids one question will be stored under.
+         */
+        CopilotTurnIds: {
+            /**
+             * Answer
+             * Format: uuid
+             */
+            answer: string;
+            /**
+             * Question
+             * Format: uuid
+             */
+            question: string;
+        };
+        /**
          * CopilotUndoOut
          * @description What an Undo did. `detail` is the sentence to show.
          */
@@ -14962,6 +15306,34 @@ export interface components {
             detail: string;
             /** Tool */
             tool: string;
+        };
+        /**
+         * CopilotUploadOut
+         * @description One stored upload. `id` is what `CopilotAskIn.attachments` names; the bytes are read
+         *     back only through `GET /v1/copilot/uploads/{id}/content`, by the person who sent them.
+         */
+        CopilotUploadOut: {
+            /** Content Type */
+            content_type: string;
+            /** File Name */
+            file_name: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "picture" | "pdf" | "document";
+            /** Size Bytes */
+            size_bytes: number | null;
+            /**
+             * Status
+             * @constant
+             */
+            status: "ready";
         };
         /**
          * CostBreakdownOut
@@ -17124,59 +17496,6 @@ export interface components {
             /** Scenarios */
             scenarios: number;
         };
-        /** FirstCampaignDecisionIn */
-        FirstCampaignDecisionIn: {
-            /**
-             * Decision
-             * @enum {string}
-             */
-            decision: "approved" | "rejected";
-            /** Note */
-            note: string;
-            /** Reviewed Campaign Id */
-            reviewed_campaign_id?: string | null;
-        };
-        /** FirstCampaignDecisionOut */
-        FirstCampaignDecisionOut: {
-            /**
-             * Decided At
-             * Format: date-time
-             */
-            decided_at: string;
-            /** Reviewed Campaign Id */
-            reviewed_campaign_id: string | null;
-            /** Status */
-            status: string;
-            /**
-             * Tenant Id
-             * Format: uuid
-             */
-            tenant_id: string;
-        };
-        /**
-         * FirstCampaignHoldOut
-         * @description Whether this account's campaigns are waiting on a human, and what was decided.
-         *
-         *     `held` and `reason` come from the SAME predicate the launch gate calls
-         *     (`first_campaign_hold_blocker`), so this screen cannot tell a client they are clear
-         *     while the launch button says otherwise.
-         */
-        FirstCampaignHoldOut: {
-            /** Decided At */
-            decided_at: string | null;
-            /** Decision Note */
-            decision_note: string | null;
-            /** Held */
-            held: boolean;
-            /** Reason */
-            reason: string | null;
-            /** Reviewed Campaign Id */
-            reviewed_campaign_id: string | null;
-            /** Rule */
-            rule: string | null;
-            /** Status */
-            status: string | null;
-        };
         /** FlagStateOut */
         FlagStateOut: {
             /** Enabled */
@@ -18128,6 +18447,8 @@ export interface components {
             component: ("calls" | "dashboard" | "numbers" | "assistant") | null;
             /** Escalated At */
             escalated_at: string | null;
+            /** Finding */
+            finding?: string | null;
             /** Group */
             group: string;
             /**
@@ -18155,6 +18476,8 @@ export interface components {
             public: boolean;
             /** Public Title */
             public_title: string | null;
+            /** Ref */
+            ref: string;
             /** Resolved At */
             resolved_at: string | null;
             /**
@@ -21930,6 +22253,8 @@ export interface components {
             /** Name */
             name: string;
             national_dnd_scrub?: components["schemas"]["NationalDndScrubOut"] | null;
+            /** Next Retry At */
+            next_retry_at?: string | null;
             /** Not Calling */
             not_calling: components["schemas"]["BlockerOut"][];
             /** Number E164 */
@@ -21939,6 +22264,11 @@ export interface components {
             /** Pause Reason */
             pause_reason: ("person" | "maintenance" | "healer" | "complaint_spike" | "out_of_credit" | "spend_cap") | null;
             recurrence?: components["schemas"]["RecurrenceOut"] | null;
+            /**
+             * Retries Waiting
+             * @default 0
+             */
+            retries_waiting: number;
             retry_policy: components["schemas"]["RetryPolicyOut"];
             /** Schedule Blocked Rules */
             schedule_blocked_rules?: string[];
@@ -27535,6 +27865,185 @@ export interface components {
              */
             status: "credited" | "refunded" | "duplicate" | "failed" | "ignored" | "authorized" | "refund_failed" | "mandate" | "dispute" | "fee_paid";
         };
+        /** WhatsAppAccountOut */
+        WhatsAppAccountOut: {
+            /** Account Alert */
+            account_alert: string | null;
+            /** Connected At */
+            connected_at: string | null;
+            /** Display Phone Number */
+            display_phone_number: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Event At */
+            last_event_at: string | null;
+            /** Last Send Error */
+            last_send_error: string | null;
+            /** Messaging Limit */
+            messaging_limit: string | null;
+            /** Name Status */
+            name_status: string | null;
+            /** Onboarding */
+            onboarding: string;
+            /** Quality Rating */
+            quality_rating: string | null;
+            /** Registered */
+            registered: boolean;
+            /** Setup Error */
+            setup_error: string | null;
+            /** Status */
+            status: string;
+            /** Templates Submitted */
+            templates_submitted: boolean;
+            /** Verified Name */
+            verified_name: string | null;
+            /** Webhooks Subscribed */
+            webhooks_subscribed: boolean;
+        };
+        /** WhatsAppConnectIn */
+        WhatsAppConnectIn: {
+            /** Business Id */
+            business_id?: string | null;
+            /** Code */
+            code: string;
+            /** Event */
+            event: string;
+            /** Phone Number Id */
+            phone_number_id?: string | null;
+            /** State */
+            state: string;
+            /** Waba Id */
+            waba_id: string;
+        };
+        /** WhatsAppConnectOut */
+        WhatsAppConnectOut: {
+            account: components["schemas"]["WhatsAppAccountOut"];
+            /** Failed Step */
+            failed_step: string | null;
+            /** Pin */
+            pin: string | null;
+        };
+        /** WhatsAppHookAckOut */
+        WhatsAppHookAckOut: {
+            /** Accepted */
+            accepted: number;
+            /** Duplicate */
+            duplicate: number;
+            /** Received */
+            received: number;
+        };
+        /** WhatsAppOverviewOut */
+        WhatsAppOverviewOut: {
+            /** Accounts */
+            accounts: components["schemas"]["WhatsAppAccountOut"][];
+            setup: components["schemas"]["WhatsAppSetupOut"];
+        };
+        /** WhatsAppSetupOut */
+        WhatsAppSetupOut: {
+            /** Available */
+            available: boolean;
+            /** Coexistence */
+            coexistence: boolean;
+            /** Payment Method Url */
+            payment_method_url: string;
+            /** Pricing Url */
+            pricing_url: string;
+            /** Reason */
+            reason: string | null;
+        };
+        /** WhatsAppSignupIn */
+        WhatsAppSignupIn: {
+            /**
+             * Choice
+             * @enum {string}
+             */
+            choice: "new" | "business_app" | "grant_access";
+        };
+        /** WhatsAppSignupOut */
+        WhatsAppSignupOut: {
+            /** App Id */
+            app_id: string;
+            /** Config Id */
+            config_id: string;
+            /** Extras */
+            extras: {
+                [key: string]: unknown;
+            };
+            /** Graph Version */
+            graph_version: string;
+            /** State */
+            state: string;
+        };
+        /** WhatsAppTemplateIn */
+        WhatsAppTemplateIn: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Body */
+            body: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "UTILITY" | "MARKETING";
+            /** Language */
+            language: string;
+            /** Name */
+            name: string;
+            /** Variables */
+            variables?: components["schemas"]["WhatsAppTemplateVariableIn"][];
+        };
+        /** WhatsAppTemplateOut */
+        WhatsAppTemplateOut: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Body */
+            body: string;
+            /** Category */
+            category: string;
+            /** Category Changed To */
+            category_changed_to: string | null;
+            /** Decided At */
+            decided_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Language */
+            language: string;
+            /** Name */
+            name: string;
+            /** Origin */
+            origin: string;
+            /** Purpose */
+            purpose: string | null;
+            /** Rejection Code */
+            rejection_code: string | null;
+            /** Status */
+            status: string;
+            /** Submitted At */
+            submitted_at: string | null;
+            /** Variables */
+            variables: {
+                [key: string]: string;
+            }[];
+        };
+        /** WhatsAppTemplateVariableIn */
+        WhatsAppTemplateVariableIn: {
+            /** Example */
+            example: string;
+            /** Label */
+            label: string;
+        };
         /** WordsIn */
         WordsIn: {
             /** Words */
@@ -27973,6 +28482,68 @@ export interface operations {
             };
         };
     };
+    whatsapp_verify_hooks_v1_meta_whatsapp_get: {
+        parameters: {
+            query?: {
+                "hub.mode"?: string | null;
+                "hub.verify_token"?: string | null;
+                "hub.challenge"?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    whatsapp_events_hooks_v1_meta_whatsapp_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppHookAckOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     razorpay_webhook_hooks_v1_razorpay_post: {
         parameters: {
             query?: never;
@@ -28335,6 +28906,105 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CopilotConversationClearedOut"];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    upload_admin_file_v1_admin_copilot_uploads_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Upload-Name": string;
+                "Content-Type": string;
+                "Content-Length"?: number | null;
+                "X-Upload-Text-Of"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/pdf": string;
+                "image/jpeg": string;
+                "text/csv": string;
+                "text/plain": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotUploadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_admin_file_v1_admin_copilot_uploads__file_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    download_admin_file_v1_admin_copilot_uploads__file_id__content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -31659,41 +32329,6 @@ export interface operations {
             };
         };
     };
-    decide_v1_admin_tenants__tenant_id__first_campaign_review_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FirstCampaignDecisionIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FirstCampaignDecisionOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     list_tenant_invitations_v1_admin_tenants__tenant_id__invitations_get: {
         parameters: {
             query?: {
@@ -33008,6 +33643,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AlertOptInOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    whatsapp_admin_v1_admin_whatsapp_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminWhatsAppOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -38427,35 +39091,6 @@ export interface operations {
             };
         };
     };
-    read_hold_v1_compliance_first_campaign_review_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FirstCampaignHoldOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     read_kyc_record_v1_compliance_kyc_get: {
         parameters: {
             query?: never;
@@ -39522,6 +40157,105 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CopilotRoutineRunPageOut"];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    upload_file_v1_copilot_uploads_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Upload-Name": string;
+                "Content-Type": string;
+                "Content-Length"?: number | null;
+                "X-Upload-Text-Of"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/pdf": string;
+                "image/jpeg": string;
+                "text/csv": string;
+                "text/plain": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotUploadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_file_v1_copilot_uploads__file_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    download_file_v1_copilot_uploads__file_id__content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -46369,6 +47103,225 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UsagePanelOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    overview_v1_whatsapp_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppOverviewOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    disconnect_v1_whatsapp_accounts__account_id__disconnect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppAccountOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    finish_v1_whatsapp_accounts__account_id__finish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppConnectOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    connect_v1_whatsapp_connect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WhatsAppConnectIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppConnectOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    begin_signup_v1_whatsapp_signup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WhatsAppSignupIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppSignupOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_templates_v1_whatsapp_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppTemplateOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_template_v1_whatsapp_templates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WhatsAppTemplateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppTemplateOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

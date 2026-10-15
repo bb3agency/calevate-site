@@ -48,9 +48,18 @@ from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.base import uuid7
 from apps.api.forwarding.service import assert_not_forwarded
-from apps.api.healer import incidents, ledger, notices, proposals, protection, wording
+from apps.api.healer import (
+    decisions,
+    incidents,
+    ledger,
+    notices,
+    proposals,
+    protection,
+    wording,
+)
 from apps.api.healer import status as status_page
 from apps.api.healer.playbooks import (
+    MONEY_REVIEW,
     PLAYBOOK_BY_KEY,
     PLAYBOOKS,
     STATUS_POST,
@@ -662,6 +671,8 @@ async def healer_overview(session: GlobalSession, principal: Operator) -> Healer
 
 class IncidentOut(_Out):
     id: UUID
+    #: The last eight hex digits of `id`: what a person reads out and Pip is asked about.
+    ref: str
     playbook: str
     trigger_code: str
     scope: Literal["agent", "tenant", "platform"]
@@ -686,13 +697,17 @@ class IncidentOut(_Out):
     automatic: bool
     #: Where it stands, in one plain line (`wording.progress`).
     progress: str
+    #: The healer's own diagnosis of a problem it cannot fix itself (money: which calls
+    #: differ and by what rate), written when it hands the problem over and on each
+    #: re-check; null when it wrote none.
+    finding: str | None = None
 
 
 class IncidentsOut(_Out):
     items: list[IncidentOut]
 
 
-def _incident_out(i: incidents.Incident) -> IncidentOut:
+def _incident_out(i: incidents.Incident, finding: str | None = None) -> IncidentOut:
     playbook = PLAYBOOK_BY_KEY.get(i.playbook)
     automatic = playbook.automatic if playbook is not None else False
     return IncidentOut(
@@ -705,8 +720,11 @@ def _incident_out(i: incidents.Incident) -> IncidentOut:
             state=i.state,
             attempts=i.attempts,
             last_outcome=i.last_outcome,
+            escalated=i.escalated_at is not None,
         ),
+        finding=finding,
         id=i.id,
+        ref=incidents.short_ref(i.id),
         playbook=i.playbook,
         trigger_code=i.trigger_code,
         scope=i.scope,  # type: ignore[arg-type]
@@ -739,7 +757,10 @@ async def list_incidents(
     limit: int = Query(50, ge=1, le=LIST_MAX, description="How many to return."),
 ) -> IncidentsOut:
     rows = await incidents.list_incidents(session, days=days, limit=limit)
-    return IncidentsOut(items=[_incident_out(i) for i in rows])
+    findings = await ledger.latest_findings(
+        session, [i.id for i in rows if i.playbook == MONEY_REVIEW]
+    )
+    return IncidentsOut(items=[_incident_out(i, findings.get(i.id)) for i in rows])
 
 
 class ActionOut(_Out):
@@ -773,31 +794,22 @@ async def list_actions(
     incident_id: UUID | None = Query(None, description="Only this incident's steps."),
     limit: int = Query(50, ge=1, le=LIST_MAX, description="How many to return."),
 ) -> ActionsOut:
-    rows = (
-        await session.execute(
-            text(
-                "SELECT id, at, incident_id, playbook, step, outcome, attempt, tenant_id, "
-                "agent_id, alarm_code, detail, actor_type FROM heal_actions WHERE "
-                "(CAST(:iid AS uuid) IS NULL OR incident_id = :iid) ORDER BY at DESC LIMIT :limit"
-            ),
-            {"iid": incident_id, "limit": limit},
-        )
-    ).all()
+    rows = await ledger.list_actions(session, incident_id=incident_id, limit=limit)
     return ActionsOut(
         items=[
             ActionOut(
-                id=r[0],
-                at=r[1],
-                incident_id=r[2],
-                playbook=r[3],
-                step=r[4],
-                outcome=r[5],
-                attempt=int(r[6]),
-                tenant_id=r[7],
-                agent_id=r[8],
-                alarm_code=r[9],
-                detail=r[10],
-                actor_type=r[11],
+                id=r.id,
+                at=r.at,
+                incident_id=r.incident_id,
+                playbook=r.playbook,
+                step=r.step,
+                outcome=r.outcome,
+                attempt=r.attempt,
+                tenant_id=r.tenant_id,
+                agent_id=r.agent_id,
+                alarm_code=r.alarm_code,
+                detail=r.detail,
+                actor_type=r.actor_type,
             )
             for r in rows
         ]
@@ -827,10 +839,9 @@ async def resolve_incident(
 ) -> IncidentOut:
     step_up.require(x_confirm_action, resolve_confirmation(incident_id))
     incident = await _incident_or_404(session, incident_id)
-    if incident.resolved_at is None:
-        from apps.workers.healer import restore_by_person
-
-        await restore_by_person(incident, actor_type="admin", actor_id=principal.user_id)
+    await decisions.resolve(
+        session, incident, actor_type="admin", actor_id=principal.user_id, reason=None
+    )
     await write_audit(
         session,
         actor=principal,
@@ -854,13 +865,7 @@ async def retry_incident(
     incident_id: UUID, session: GlobalSession, principal: Operator, request: Request
 ) -> IncidentOut:
     incident = await _incident_or_404(session, incident_id)
-    await session.execute(
-        text(
-            "UPDATE heal_incidents SET next_attempt_at = now(), updated_at = now() "
-            "WHERE id = :id AND resolved_at IS NULL"
-        ),
-        {"id": incident_id},
-    )
+    await decisions.retry(session, incident)
     await write_audit(
         session,
         actor=principal,

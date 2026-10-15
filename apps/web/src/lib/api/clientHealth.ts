@@ -152,7 +152,7 @@ export function signalCopy(rule: string): SignalCopy | null {
  * so an operator reading this board and a client reading their own campaign screen are
  * naming one condition identically.
  *
- * The R-11 gates (`kyc_missing`, `kyc_not_verified`, `first_campaign_review_*`) are
+ * The R-11 gates (`kyc_missing`, `kyc_not_verified`) are
  * deliberately ABSENT: `holds.ts::HOLD_RULES` already carries their operator wording AND
  * the screen that clears each one, and a second table here would be a second set of words
  * for one condition — exactly the drift `admin/holds.py` composes its predicates to avoid,

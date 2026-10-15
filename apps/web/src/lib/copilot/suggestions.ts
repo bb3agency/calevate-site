@@ -77,7 +77,6 @@ function screenOf(route: string): Screen {
     case "agents":
       return deeper ? "agent" : "agents";
     case "campaigns":
-    case "campaign-review":
       return "campaigns";
     case "integrations":
     case "lead-sources":

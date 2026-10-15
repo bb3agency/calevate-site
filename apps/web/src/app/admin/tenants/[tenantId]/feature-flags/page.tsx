@@ -83,8 +83,8 @@ export default function FeatureFlagsPage({
   const tenantQuery = useTenant(tenantId);
   const tenant = tenantQuery.data;
   const flags = useFeatureFlags(tenantId);
-  // The mutation lives HERE rather than inside each row, for the reason the KYC and
-  // first-campaign screens state: a successful write invalidates the list, the row is
+  // The mutation lives HERE rather than inside each row, for the reason the KYC
+  // screen states: a successful write invalidates the list, the row is
   // remounted by its key to pick up the new state, and a mutation held inside it would be
   // remounted with it — taking the confirmation down at the moment the write landed.
   const set = useSetFeatureFlag(tenantId);

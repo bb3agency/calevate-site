@@ -79,10 +79,10 @@ CANDIDATES REJECTED, WITH THE REASON (so nobody re-proposes them)
   home: `billing/plans.py::warn_no_plan_in_effect` logs it on the money path with the
   tenant id. Adding it here would be a second home for one fact, which is where drift
   starts.
-* **The R-11 holds as their own row.** They are on `/admin/holds`, which is a screen with
-  its own triage order (oldest signup first). They appear here only as CAUSES of
-  `outbound_blocked`, from the same `kyc_blocker` and `first_campaign_hold_blocker`
-  predicates `read_tenant_holds` composes — because the question
+* **The KYC hold as its own row.** It is on `/admin/holds`, which is a screen with
+  its own triage order (oldest signup first). It appears here only as a CAUSE of
+  `outbound_blocked`, from the same `kyc_blocker` predicate `read_tenant_holds`
+  composes — because the question
   "can this client dial today" has one true answer and a board that answered it partially
   would be worse than not answering it. The console links the cause names back to that
   queue rather than re-implementing its remedies.
@@ -243,16 +243,14 @@ CAUSE_OWNER: Final[dict[str, Owner | None]] = {
     "kyc_digilocker_required": "client",
     "outbound_pledge_missing": "client",
     "outbound_pledge_outdated": "client",
-    "first_campaign_review_rejected": "client",
     "trial_ended": "client",
     "trial_minutes_used": "client",
     "no_credits": "client",
     "platform_fee_overdue": "client",
-    # Ours. A filed identity record waits for our review, a first campaign for a reviewer;
+    # Ours. A filed identity record waits for our review;
     # a spend cap that has bitten is raised from the account page; a payment dispute is
     # ours to settle with the provider.
     "kyc_not_verified": "calevate",
-    "first_campaign_review_pending": "calevate",
     "spend_cap": "calevate",
     "payment_dispute": "calevate",
 }
@@ -269,9 +267,9 @@ class HealthSignal:
 
     `causes` carries the GATES' own rule names (`spend_cap`, `kyc_missing`,
     `outbound_pledge_missing`, …) and never their `reason` prose. That is the same hard
-    rule 6 line `admin/holds.py` draws and for the same reason: the first-campaign
-    rejection reason interpolates an operator's free text, and free text can carry
-    anything into the widest-read list in the console. The console owns the wording, the
+    rule 6 line `admin/holds.py` draws and for the same reason: a reason can
+    interpolate free text, and free text can carry anything into the widest-read list
+    in the console. The console owns the wording, the
     server owns the facts.
     """
 

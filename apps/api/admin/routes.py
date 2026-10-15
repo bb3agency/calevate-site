@@ -39,6 +39,7 @@ from apps.api.admin import onboarding, service
 from apps.api.admin.business_type import queue_apply as queue_business_type_apply
 from apps.api.agents import service as agents_service
 from apps.api.agents.languages import OfferedLanguage
+from apps.api.agents.live_apply import queue_live_apply
 from apps.api.authn.service import enqueue_invitation_email, find_subject_for_session
 from apps.api.billing import credit_packs
 from apps.api.billing import rates as billing_rates
@@ -526,7 +527,7 @@ class EditTenantIn(BaseModel):
     #: told (see the route).
     billing_email: EmailStr | None = None
     #: WHICH TEMPLATE THIS BUSINESS IS. It picks the extraction schema a new agent is born
-    #: with, decides whether the first-campaign hold and subscriber KYC apply through
+    #: with, decides whether subscriber KYC applies through
     #: `compliance/service`, and — the one an operator will not guess —
     #: `compliance/caller_memory.SPDI_REFUSED_VERTICALS` refuses cross-call memory for a
     #: `clinic`, so moving a client ONTO clinic can withdraw a capability their agents are
@@ -700,6 +701,16 @@ async def edit_tenant(
             # type's lead details on agents that have none. Moving a typed account to
             # another type still leaves its fields alone (D-715): that stays a choice.
             await queue_business_type_apply(scoped, tenant_id=tenant_id)
+        if any(edit.field == "name" for edit in edits):
+            # Every agent's prompt names the business in its role sentence
+            # (`calevate_shared.engine.role_sentence`).
+            await queue_live_apply(
+                scoped,
+                scope="tenant",
+                tenant_id=tenant_id,
+                reason="business_name",
+                requested_by=principal.user_id,
+            )
         if any(edit.field == "billing_email" for edit in edits):
             retargeted = await _pending_account_notices(scoped, tenant_id=tenant_id)
             if retargeted:

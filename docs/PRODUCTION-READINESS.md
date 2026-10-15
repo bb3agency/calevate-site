@@ -930,7 +930,7 @@ recorded as deliberately dead.
 
 After `alembic upgrade head` on a fresh VPS the table is empty, so **every admin-realm request
 403s**: no organization can be created, no platform setting written, no secret stored, no
-first-campaign review decided, no KYC verified. The deploy comes up green and the product is
+KYC verified. The deploy comes up green and the product is
 unreachable. It fails closed, so it is not a security hole — it is a deployment that cannot
 onboard anyone.
 

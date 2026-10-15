@@ -144,12 +144,24 @@ function pasteContacts(text: string): void {
   fireEvent.click(screen.getByRole("button", { name: "Add these rows" }));
 }
 
+/** The create page is four steps; Next checks the step it leaves. */
+function next(): void {
+  fireEvent.click(screen.getByRole("button", { name: "Next" }));
+}
+
+/** Fills the basics and the list, then walks to the review step. */
 async function fillNew(container: HTMLElement, name = "Diwali reminder"): Promise<void> {
   await screen.findByRole("heading", { name: "The basics" });
   fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: name } });
+  next();
+  await screen.findByRole("heading", { name: "Who should we call?" });
   pasteContacts("9876543210,Priya");
   fireEvent.click(consentRadios(container)[0]);
   fireEvent.change(consentDateInput(container), { target: { value: "2026-08-01" } });
+  next();
+  await screen.findByRole("heading", { name: "When should we call?" });
+  next();
+  await screen.findByRole("heading", { name: "Check it, then create it" });
 }
 
 describe("the create page's consent declaration", () => {
@@ -158,14 +170,18 @@ describe("the create page's consent declaration", () => {
     // assertion nobody made, so the page opens empty and refuses to create without one.
     const { container } = await renderClientPage(newCampaignPage(), newRoutes());
     await screen.findByRole("heading", { name: "The basics" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "List" } });
+    next();
+    await screen.findByRole("heading", { name: "Who should we call?" });
     expect(consentRadios(container)).toHaveLength(5);
     expect(consentRadios(container).some((r) => r.checked)).toBe(false);
     expect(consentDateInput(container).value).toBe("");
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "List" } });
     pasteContacts("9876543210");
-    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
+    next();
     expect((await screen.findByRole("alert")).textContent).toContain("Answer both questions about your list");
+    // Still on the step that asks, never moved on to the next one.
+    expect(screen.getByRole("heading", { name: "Who should we call?" })).toBeTruthy();
   });
 
   it("offers Promotional and Service and never Transactional", async () => {
@@ -413,11 +429,13 @@ describe("creating a campaign", () => {
       }),
     );
     await fillNew(rendered.container);
-    fireEvent.click(screen.getByRole("radio", { name: /At a set time/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
+    fireEvent.click(screen.getByRole("button", { name: "Change starts" }));
+    fireEvent.click(await screen.findByRole("radio", { name: /At a set time/ }));
+    next();
     expect((await screen.findByRole("alert")).textContent).toContain("Choose the date and time");
     fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2030-01-15" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
+    next();
+    fireEvent.click(await screen.findByRole("button", { name: "Create campaign" }));
     const armed = await vi.waitFor(() => {
       const call = rendered.calls.find(
         (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/schedule`,
@@ -435,7 +453,8 @@ describe("one campaign's page", () => {
     expect((await screen.findByRole("link", { name: "Edit" })).getAttribute("href")).toBe(
       `/c/acme/campaigns/${CAMPAIGN_ID}/edit`,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Delete…" }));
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Diwali offer" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete…" }));
     expect(screen.getByText("Delete this draft?")).toBeTruthy();
     expect(rendered.calls.some((c) => c.method === "DELETE")).toBe(false);
   });

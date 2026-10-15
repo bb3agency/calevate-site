@@ -51,13 +51,6 @@ Checks, in the order that fails cheapest-first:
 
 Inbound calls never reach this function: the caller initiated them, which is the
 consent-clean property D-38 leads with.
-
-One R-11 predicate in this module is deliberately NOT part of `check_dispatch`:
-`first_campaign_hold_blocker` (the manual review of a self-serve account's first
-campaign) is a CAMPAIGN rule, asked by `campaigns.service.launch_blockers` and
-`dispatch_blockers`. It lives here because this is where the tier line is drawn once;
-its docstring and `compliance/first_campaign.py` say why the single-lead paths are out
-of its scope.
 """
 
 from __future__ import annotations
@@ -88,11 +81,6 @@ from apps.api.callbacks.service import cancel_for_phones
 from apps.api.compliance.caller_ref import ANONYMIZED_PREFIX
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
 from apps.api.compliance.engine_dnc import queue_engine_dnc_push
-from apps.api.compliance.first_campaign import (
-    FIRST_CAMPAIGN_REVIEW_PENDING_REASON,
-    first_campaign_rejected_reason,
-    read_first_campaign_review,
-)
 from apps.api.compliance.kyc import (
     DIGILOCKER_REQUIRED_REASON,
     KYC_MISSING_REASON,
@@ -472,12 +460,13 @@ async def spend_capped(session: AsyncSession, *, tenant_id: UUID) -> bool:
 #
 #   * **`PREPAID_TIERS` — does this account pay from a wallet?** D-521 made that the
 #     default, so it now also contains `prepaid`;
-#   * **`SELF_SERVE_TIERS` — did a STRANGER open this account?** That is what
-#     `first_campaign_hold_blocker` (R-11's manual review of an account nobody vetted)
-#     asks. `kyc_blocker` asked it too until D-692 made KYC an every-tier outbound
-#     precondition. `prepaid` is a tier an OPERATOR types into the wizard for a client
-#     they have met, so it does NOT join this set: had it, the migration that moved every
-#     existing tenant onto prepaid would have held every campaign for review.
+#   * **`SELF_SERVE_TIERS` — did a STRANGER open this account?** The admin hold queue
+#     (`admin/holds.py`) and the directory's holds badge pre-filter on it. `kyc_blocker`
+#     asked it until D-692 made KYC an every-tier outbound precondition, and the
+#     first-campaign hold until D-783 removed it. `prepaid` is a tier an OPERATOR types
+#     into the wizard for a client they have met, so it does NOT join this set: had it,
+#     the migration that moved every existing tenant onto prepaid would have put every
+#     client on the stranger-signup work list.
 #
 # Spelled literally rather than derived from `PREPAID_TIERS` because it is now a
 # DIFFERENT fact, not a copy of one. What the derivation was protecting — that the wallet
@@ -544,7 +533,7 @@ async def credits_exhausted(session: AsyncSession, *, tenant_id: UUID) -> bool:
     # this whole function was extracted to hold.
     #
     # ONLY THIS GATE. KYC, the agreements, the spend cap, calling hours, DNC, consent, the
-    # AI disclosure, the India-only destination, the DLT chain and the first-campaign hold
+    # AI disclosure, the India-only destination, and the DLT chain
     # are all unchanged and all still bite. A trial is a BILLING state; there is no reading
     # of "everything is on us" that reaches TRAI.
     if await trial_billing_active(session, tenant_id=tenant_id):
@@ -587,46 +576,6 @@ async def outbound_pledge_blocker(
     module, beside `kyc_blocker`, the way the launch preview and the dial gate already do.
     """
     return await pledge_blocker(session, tenant_id=tenant_id)
-
-
-async def first_campaign_hold_blocker(
-    session: AsyncSession, *, tenant_id: UUID
-) -> tuple[str, str] | None:
-    """`(rule, reason)` if this account's campaigns are held for manual review, else None.
-
-    R-11's last mitigation (BRD §245, FLOWS §2, D-34): the first campaign of every
-    self-serve account gets a human's eyes before it dials. The shape of "first" — a
-    property of the ACCOUNT, so it cannot be skipped by launching two campaigns or by
-    deleting the reviewed one — is argued in `apps/api/compliance/first_campaign.py`.
-
-    Returns the PAIR rather than a bool for the reason `kyc_blocker` does: "nobody has
-    looked yet" and "a reviewer looked and said no" are different facts with different
-    next actions, and the launch preview and the dispatch tick must name them identically.
-
-    Lives HERE, beside `kyc_blocker` / `spend_capped` / `credits_exhausted`, because this
-    is where the tier line is drawn once (`SELF_SERVE_TIERS`) and because the campaigns
-    module must not grow a second copy of it.
-
-    Deliberately NOT called from `check_dispatch`: that gate is also the D-21 "call this
-    lead" button and the instant-callback webhook, which are single calls to a lead who
-    just raised their hand rather than campaigns. Every document that asks for this
-    control scopes it to the first CAMPAIGN, so it is asked on the campaign paths —
-    `launch_blockers` and `dispatch_blockers` — and `first_campaign.py` states the
-    residual that leaves.
-    """
-    if await plan_tier_of(session, tenant_id) not in SELF_SERVE_TIERS:
-        return None
-    review = await read_first_campaign_review(session, tenant_id=tenant_id)
-    if review.is_released:
-        return None
-    if review.reviewed:
-        # Reviewed and refused. The reviewer's own words, because "not released" with no
-        # reason is the ticket nobody can close.
-        return (
-            "first_campaign_review_rejected",
-            first_campaign_rejected_reason(review.decision_note or ""),
-        )
-    return ("first_campaign_review_pending", FIRST_CAMPAIGN_REVIEW_PENDING_REASON)
 
 
 def dial_refusal_for_agent_status(status: str) -> tuple[str, str] | None:
@@ -1261,7 +1210,6 @@ __all__ = [
     "assert_dispatch_allowed",
     "check_dispatch",
     "credits_exhausted",
-    "first_campaign_hold_blocker",
     "ist_now",
     "kyc_blocker",
     "latest_call_consent",

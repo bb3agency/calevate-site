@@ -24,8 +24,8 @@ import { noFill } from "@/lib/copilot/types";
 /**
  * THE OPS WORK QUEUE: accounts that cannot dial until someone here acts, oldest first.
  *
- * Two R-11 gates hold tenants — subscriber KYC and the first-campaign review — and without
- * this queue an operator found a held account when the client emailed to ask why nothing
+ * Subscriber KYC holds tenants, and without this queue an operator found a held account
+ * when the client emailed to ask why nothing
  * worked, which is worst for the accounts that never complain and simply churn.
  *
  * - **The wait is the headline**, as a banded DURATION, never a date to subtract.

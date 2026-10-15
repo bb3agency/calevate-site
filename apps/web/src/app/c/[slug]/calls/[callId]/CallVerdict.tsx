@@ -62,7 +62,7 @@ function Summary({ detail, view }: { detail: CallDetail; view: CallView }) {
   if (detail.summary_state === "pending" && !detail.summary) {
     return (
       <div role="status" aria-live="polite" className="max-w-prose space-y-2">
-        <p className="text-body text-ink-muted">Writing the summary…</p>
+        <p className="text-body text-ink-muted"><span className="text-shimmer">Writing the summary…</span></p>
         <div aria-hidden className="space-y-2">
           <div className="h-4 w-full animate-pulse rounded bg-ink/[0.06] motion-reduce:animate-none" />
           <div className="h-4 w-2/3 animate-pulse rounded bg-ink/[0.06] motion-reduce:animate-none" />

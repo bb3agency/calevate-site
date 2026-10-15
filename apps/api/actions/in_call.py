@@ -41,6 +41,7 @@ from calevate_shared.calling_window import today_in_india
 from apps.api.actions.execution import CallFacts, ExecutionResult, execute_action
 from apps.api.actions.schema import SheetsConfig
 from apps.api.actions.service import LoadedTool, in_call_tool
+from apps.api.actions.whatsapp import SPOKEN_CONSENT_ARGS, spoken_consent_from_args
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue
 from apps.api.core.redis import get_redis
@@ -61,6 +62,8 @@ CLIENT_ACTION_JOB: Final = "run_client_action"
 
 #: Per action, per call. Absent means unlimited by us (the vendor's thirty still applies).
 PER_CALL_LIMITS: Final[dict[str, int]] = {"whatsapp": 2, "payment_link": 2}
+#: The kinds that send the caller a WhatsApp, and so carry the caller's spoken answer.
+MESSAGING_KINDS: Final = frozenset({"whatsapp", "payment_link"})
 _LIMIT_TTL_S: Final = 3 * 3600
 
 #: Outcomes that mean the client's connection is gone or broken: the agent says it cannot do
@@ -166,6 +169,15 @@ _REFUSAL_SAY: Final[dict[str, str]] = {
         "Nothing was sent: some details are missing. Ask the caller for what 'missing' "
         "names, then call this again."
     ),
+    "consent_not_asked": (
+        "Nothing was sent: you did not ask first. Ask the caller, in their language, "
+        "'Shall I send this on WhatsApp to this number?' and call this again with "
+        "caller_agreed set to their answer and caller_words set to the words they said."
+    ),
+    "caller_declined": (
+        "Nothing was sent: the caller does not want it on WhatsApp. Do NOT send it. Offer to "
+        "give the details aloud instead."
+    ),
     "link_not_sent": (
         "Nothing reached the caller: the payment link could not be sent. Do NOT say it was "
         "sent. Apologise and say the team will send it."
@@ -260,10 +272,18 @@ async def _run_in_call_action(
                 },
             )
             return InCallAnswer("accepted", _ACCEPTED_SAY)
+        spoken = None
+        if tool.kind in MESSAGING_KINDS and call.direction != "test":
+            # The caller's answer to the agent's question travels apart from the template
+            # values, so it can never fill a blank in the message.
+            spoken = spoken_consent_from_args(
+                args, call_id=call.call_id, call_ref=call.call_ref, action_id=tool.id
+            )
         result = await execute_action(
             session,
             tool=tool,
-            received=args,
+            received={k: v for k, v in args.items() if k not in SPOKEN_CONSENT_ARGS},
+            spoken=spoken,
             source="in_call",
             call=call,
             budget_s=LOOKUP_BUDGET_S if tool.kind == "caller_lookup" else IN_CALL_BUDGET_S,
@@ -285,6 +305,7 @@ __all__ = [
     "CLIENT_ACTION_JOB",
     "CONNECTION_BROKEN",
     "IN_CALL_BUDGET_S",
+    "MESSAGING_KINDS",
     "NOT_AVAILABLE_SAY",
     "PER_CALL_LIMITS",
     "InCallAnswer",

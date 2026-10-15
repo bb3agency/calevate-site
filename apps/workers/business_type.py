@@ -227,6 +227,7 @@ async def _suggest(tenant_id: UUID, *, again: bool = False) -> str:
             ref=new_assist_ref(),
             result=answer,
             feature=ASSIST_FEATURE_BUSINESS_TYPE,
+            model=answer.model,
         )
         stored = await record_suggestion(
             session, tenant_id=tenant_id, business_type=business_type, reason=reason

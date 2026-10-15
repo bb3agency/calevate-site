@@ -4,7 +4,7 @@ import { CheckCircle2 } from "lucide-react";
 
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { Section } from "@/components/console/section";
-import { ProblemNotice, Skeleton } from "@/components/ui";
+import { PRIMARY_BUTTON, ProblemNotice, Skeleton } from "@/components/ui";
 import {
   type useCampaignProgress,
   type useLaunchCampaign,
@@ -74,7 +74,14 @@ export function LaunchGate({
   });
 
   return (
-    <Section title={status === "scheduled" ? "Before it starts" : "Before you launch"}>
+    <Section
+      title={status === "scheduled" ? "Before it starts" : "Before you launch"}
+      description={
+        check.data && !check.data.ready && items.length > 0
+          ? "Nothing is called until every item here is done."
+          : undefined
+      }
+    >
       {check.isLoading ? (
         <Skeleton rows={3} />
       ) : check.error ? (
@@ -117,13 +124,16 @@ export function LaunchGate({
               correcting={provenanceRule === "consent_source_refused"}
             />
           )}
-          <button
-            type="button"
-            disabled
-            className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-line bg-surface-muted px-4 py-2 text-sm font-semibold text-ink-faint touch:min-h-11"
-          >
-            Launch campaign
-          </button>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4">
+            <button type="button" disabled className={PRIMARY_BUTTON}>
+              Launch campaign
+            </button>
+            {items.length > 0 && (
+              <p className="text-meta text-ink-muted">
+                Launch opens once {items.length === 1 ? "the item above is" : `the ${items.length} items above are`} done.
+              </p>
+            )}
+          </div>
         </div>
       )}
     </Section>

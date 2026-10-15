@@ -154,6 +154,7 @@ SECTIONS: Final[tuple[Section, ...]] = (
             Subsection("leads", "Lead sources"),
             Subsection("crm", "CRM connections"),
             Subsection("google", "Google: calendars, sign-in and file picker"),
+            Subsection("client_whatsapp", "Clients' WhatsApp (Meta Embedded Signup)"),
         ),
     ),
     Section(
@@ -749,6 +750,31 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "HubSpot OAuth client ID",
         "The platform's HubSpot app that a client's HubSpot connection authorises against.",
     ),
+    "meta_app_id": _m(
+        "integrations",
+        "client_whatsapp",
+        "Meta app ID",
+        "Calevate's Meta app that every client's WhatsApp connection is made through.",
+    ),
+    "whatsapp_signup_config_id": _m(
+        "integrations",
+        "client_whatsapp",
+        "Embedded Signup configuration ID",
+        "From Facebook Login for Business > Configurations in the Meta app dashboard.",
+    ),
+    "whatsapp_onboarding_weekly_limit": _m(
+        "integrations",
+        "client_whatsapp",
+        "New WhatsApp clients per 7 days",
+        "Meta's cap on new business customers in a rolling week: 10, or 200 once Meta has "
+        "approved verification, app review and access verification.",
+    ),
+    "whatsapp_coexistence_enabled": _m(
+        "integrations",
+        "client_whatsapp",
+        "Offer WhatsApp Business app users coexistence",
+        "Off until Meta confirms coexistence for Indian numbers (OPERATIONS gate W-6).",
+    ),
     "hubspot_oauth_redirect_uri": _m(
         "integrations",
         "crm",
@@ -928,6 +954,19 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "storage",
         "Storage bucket",
         "The bucket the platform writes files to.",
+    ),
+    "copilot_upload_bucket": _m(
+        "infrastructure",
+        "storage",
+        "Pip uploads bucket",
+        "The private bucket for files people attach to Pip. Unset turns attachments off.",
+    ),
+    "copilot_upload_access_key_id": _m(
+        "infrastructure",
+        "storage",
+        "Pip uploads access key ID",
+        "The ID of the R2 token scoped to the Pip uploads bucket only. Its secret is set "
+        "under credentials.",
     ),
     # ---- observability ---------------------------------------------------------------
     "otel_exporter_otlp_endpoint": _m(

@@ -41,8 +41,12 @@ export interface CopilotAskBody {
   fields: WireField[];
   facts: WireFact[];
   history: { role: "user" | "assistant"; content: string }[];
+  /** Files uploaded for THIS question (`POST /v1/copilot/uploads`), by id (D-781). */
+  attachments?: string[];
   /** Admin realm only: the client account the page is about (`adminTenantOf`). */
   tenant_id?: string;
+  /** The ids the stored question and answer will carry (D-782; `newTurnId`). */
+  turn_ids?: { question: string; answer: string };
 }
 
 export interface CopilotStreamHandlers {

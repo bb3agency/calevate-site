@@ -366,7 +366,7 @@ function PublishForm({ view }: { view: LanguageStyle }) {
         disabled={nothing || publish.isPending || reviewer.trim().length < 2}
         className={PRIMARY_BUTTON}
       >
-        {publish.isPending ? "Publishing…" : "Publish to live agents"}
+        {publish.isPending ? <span className="text-shimmer">Publishing…</span> : "Publish to live agents"}
       </button>
       {publish.error ? <WriteFailure error={publish.error} actionLabel="Publish to live agents" /> : null}
       {publish.isSuccess ? (

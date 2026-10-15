@@ -54,10 +54,12 @@ describe("the content-security policy", () => {
 
   it("fails closed to no cross-origin API connect on a malformed api base url", () => {
     // A broken env value must narrow to 'self' for OUR API, never widen the policy; the
-    // only other origins are Razorpay Checkout's own (D-699), which do not depend on it.
+    // only other origins are Razorpay Checkout's own (D-699) and Meta's signup window's
+    // (D-784), neither of which depends on it.
     expect(buildContentSecurityPolicy("N", { apiOrigin: apiConnectOrigin("not a url") })).toContain(
       "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com " +
-        "https://lumberjack-cx.razorpay.com https://lumberjack-metrics.razorpay.com;",
+        "https://lumberjack-cx.razorpay.com https://lumberjack-metrics.razorpay.com " +
+        "https://graph.facebook.com https://www.facebook.com https://web.facebook.com;",
     );
   });
 
@@ -139,5 +141,25 @@ describe("the content-security policy", () => {
     // rollout's exit condition — "once a real session shows no violations" — could never
     // be evaluated by anybody. The flip rests on the audit in the module docstring.
     expect(CSP_HEADER_NAME).toBe("Content-Security-Policy");
+  });
+});
+
+describe("Meta's Embedded Signup under the policy (D-784)", () => {
+  it("admits Meta's SDK by path, never the whole connect.facebook.net origin", () => {
+    const csp = buildContentSecurityPolicy("N", { apiOrigin: "https://api.calevate.tech" });
+    const script = csp.split("; ").find((d) => d.startsWith("script-src")) ?? "";
+    expect(script.split(" ")).toContain("https://connect.facebook.net/en_US/sdk.js");
+    expect(script.split(" ")).not.toContain("https://connect.facebook.net");
+    expect(csp).toContain("https://www.facebook.com");
+  });
+});
+
+describe("the pdf.js worker (D-781)", () => {
+  it("runs from our own origin only: worker-src is 'self', with no blob: and no other host", () => {
+    const csp = buildContentSecurityPolicy("N", { apiOrigin: "https://api.example.test" });
+    const worker = csp.split("; ").find((directive) => directive.startsWith("worker-src"));
+    expect(worker).toBe("worker-src 'self'");
+    // And the script policy that governs everything else is unchanged by it: no eval.
+    expect(csp).not.toMatch(/script-src[^;]*'unsafe-eval'/);
   });
 });

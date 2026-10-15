@@ -44,7 +44,7 @@ router = APIRouter(prefix="/v1/admin/compliance/holds", tags=["admin"])
 
 # `Annotated` aliases rather than `Depends(...)` defaults: B008 is waived only for
 # `**/routes.py`, and this module is `holds_routes.py` — same situation and same
-# resolution as `kyc_routes.py` and `first_campaign_routes.py`.
+# resolution as `kyc_routes.py`.
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 QueueReader = Annotated[Principal, Depends(requires("org:read", realm="admin"))]
 
@@ -57,16 +57,14 @@ class HeldTenantOut(BaseModel):
     tenant_id: UUID
     name: str
     slug: str
-    # Both controls are scoped to the self-serve motion, so this is always `self_serve`
+    # The queue is pre-filtered to the self-serve motion, so this is always `self_serve`
     # or `trial` today. It is on the row because the day a third motion appears, an
     # operator reading this list must not have to guess which line it was drawn on.
     plan_tier: str
     signed_up_at: datetime
-    # The gates' own rule names — `kyc_missing`, `kyc_not_verified`,
-    # `first_campaign_review_pending`, `first_campaign_review_rejected` — the same
-    # vocabulary the client's screen and the launch preview use, so an operator and a
-    # client on the phone are naming one condition the same way. An account can be held
-    # by both gates at once; the list says so rather than picking a winner.
+    # The gate's own rule names — `kyc_missing`, `kyc_not_verified`,
+    # `kyc_digilocker_required` — the same vocabulary the client's screen and the launch
+    # preview use, so an operator and a client on the phone name one condition the same way.
     holds: list[str]
 
 
@@ -85,13 +83,12 @@ def _out(row: HeldTenant) -> HeldTenantOut:
     "",
     response_model=list[HeldTenantOut],
     openapi_extra=permission_meta("org:read"),
-    summary="Accounts held for a human decision — KYC and first-campaign review (R-11)",
+    summary="Accounts held for a human decision — subscriber KYC (R-11)",
     description=(
         "Every self-serve account that cannot dial until someone at Calevate acts, "
-        "oldest signup first: identity verification not recorded, or the first campaign "
-        "not yet released. An account held by both gates appears once with both rules. "
-        "Clearing a gate removes the account from this list. Read-only — the decisions "
-        "are recorded through the audited routes on each account."
+        "oldest signup first: identity verification not recorded or not yet verified. "
+        "Clearing the gate removes the account from this list. Read-only — the decision "
+        "is recorded through the audited routes on each account."
     ),
 )
 async def list_held_tenants(session: AdminSession, principal: QueueReader) -> list[HeldTenantOut]:

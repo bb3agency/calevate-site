@@ -5,8 +5,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiProblem, type Session } from "@/lib/api/client";
 
+import { continuesFrom } from "@/components/live/arrivals";
+
 import { adminTenantOf } from "./adminTenant";
-import { clearConversation, conversationKey, useConversation } from "./conversation";
+import {
+  clearConversation,
+  conversationKey,
+  EMPTY_CONVERSATION,
+  newTurnId,
+  type StoredConversation,
+  useConversation,
+} from "./conversation";
 import { clearFilled, markFilled } from "./highlight";
 import { redactForWire } from "./redaction";
 import { askCopilot, type CopilotAskBody } from "./stream";
@@ -68,34 +77,39 @@ export type CopilotTurn = {
   content: string;
   wire: string;
   /**
-   * The stored row's id, on a turn that came back from the server; absent on one this
-   * device has said and the server has not confirmed.
-   *
-   * It is the RECONCILIATION ANCHOR and nothing else — see the merge in
-   * `useCopilotConversation`. Deliberately not minted client-side for a local turn: an id
-   * this browser invented would be a key the server has never heard of, and the merge
-   * would then be matching our own guesses against its own rows.
+   * The turn's id — the stored row's, and for a turn this device said, the id it minted
+   * and sent as `turn_ids` (D-782), which the server stores the row under. It is how the
+   * merge in `useCopilotConversation` recognises this device's own turns in a stored page,
+   * and the panel's React key, so a bubble keeps its DOM node (and the reader's selection
+   * and scroll position) when its stored copy arrives or the page is trimmed at the front.
    */
   id?: string;
   /**
-   * A REACT KEY, and nothing else. Never sent, never compared against a server row, never
-   * used by the merge — `id` above says why inventing one of those would be wrong, and
-   * this field exists so that the panel's need for a stable key cannot be met by
-   * weakening that rule.
-   *
-   * Minted in `appendTurn` for a turn this device has said. A turn that came back from
-   * the server has a real `id` and does not need one.
-   *
-   * WHY A KEY AT ALL. The transcript is `[...page, ...pending]`, and the page can lose
-   * turns from the FRONT: the server keeps a bounded conversation, so a long one is
-   * trimmed, and the merge's `MAX_SAFE_INTEGER` arm drops every pending turn at once when
-   * the anchor is trimmed away. Under `key={index}` a list that shrinks re-labels every
-   * bubble below the change, so React unmounts and rebuilds each one — the person's text
-   * selection is dropped mid-copy, and the scroll position lands somewhere else because
-   * the nodes it was measured against no longer exist.
+   * How this turn reached the screen while the panel was open: `here` (this device said
+   * it) or `elsewhere` (it arrived from another device or tab through the live stream).
+   * Absent on a turn that was already stored when the panel loaded — those never animate.
+   * Display only; never sent.
    */
-  localKey?: string;
+  fresh?: "here" | "elsewhere";
+  /**
+   * The files this device sent with the question (D-781), for the bubble: a name, a kind
+   * and, for a picture, the small preview made from the cleaned image. Never sent; a stored
+   * turn from elsewhere carries only the server's "[N files attached]" marker.
+   */
+  attachments?: TurnAttachment[];
 };
+
+/** One file shown in a question's bubble. */
+export interface TurnAttachment {
+  name: string;
+  kind: "picture" | "pdf" | "document";
+  thumb: string | null;
+}
+
+/** One file a question carries: its stored id, and what the bubble shows. */
+export interface SentAttachment extends TurnAttachment {
+  id: string;
+}
 
 export interface CopilotBatch {
   /** What to send back through `apply` to undo. Includes the `""` priors. */
@@ -173,7 +187,7 @@ export interface CopilotConversation {
   steps: CopilotStep[];
   /** True when the refusal on screen is the AI allowance ceiling (G-5, client realm). */
   atCeiling: boolean;
-  ask: (question: string) => void;
+  ask: (question: string, files?: SentAttachment[]) => void;
   /**
    * Send the last question again, after a failure the person did not cause.
    *
@@ -242,6 +256,12 @@ export interface CopilotConversation {
   historyUnavailable: boolean;
   /** Ask for the stored conversation again (the panel's Retry). */
   reloadHistory: () => void;
+  /**
+   * Pip is answering a question this person asked on ANOTHER device or tab (D-782). The
+   * question is already in `turns`; the answer arrives with the next live note. False
+   * while this device is asking or has just finished — its own stream is the fresher copy.
+   */
+  answeringElsewhere: boolean;
 }
 
 /** The one code the server uses for the allowance ceiling; `AssistCard` reads the same. */
@@ -282,16 +302,7 @@ export function recentTurns(turns: readonly CopilotTurn[]): CopilotTurn[] {
 
 export const AI_CEILING_CODE = "ai_quota_exceeded";
 
-/**
- * The next client-only React key. A counter and not `crypto.randomUUID()`: this value
- * never leaves the module, never reaches the wire and never has to be unique against
- * anything the server holds — it only has to be unique among the turns one open panel has
- * appended, which a monotonic counter is and which needs no crypto global to exist.
- *
- * Prefixed so it can never be mistaken for a server id in a debugger.
- */
-let localKeys = 0;
-const nextLocalKey = (): string => `local-${(localKeys += 1)}`;
+const NO_TURNS: CopilotTurn[] = [];
 
 export function useCopilotConversation(
   session: Session,
@@ -325,10 +336,10 @@ export function useCopilotConversation(
    * A ref rather than state: it is written on every streamed delta and read only when the
    * stream ends, so a render per token would be the cost of a value nothing renders.
    */
-  const partial = useRef<{ answer: string; wire: string } | null>(null);
+  const partial = useRef<{ answer: string; wire: string; id: string } | null>(null);
   //: The last question sent, for `retry`. Cleared by `reset`, because a forgotten
   //: conversation must not leave a question this panel can still re-send.
-  const lastAsked = useRef<string | null>(null);
+  const lastAsked = useRef<{ question: string; files: SentAttachment[] } | null>(null);
 
   // THE REALM, read once per render from the surface. It is what chooses the endpoint
   // (`conversationPath`), and it is the same value `stream.ts` sends, so a conversation
@@ -336,33 +347,24 @@ export function useCopilotConversation(
   const realm = holder?.read().realm ?? null;
 
   /*
-   * WHAT IS ON SCREEN = THE SERVER'S PAGE + WHAT THIS DEVICE HAS SAID SINCE (D-542).
+   * WHAT IS ON SCREEN = THE SERVER'S PAGE + WHAT THIS DEVICE HAS SAID THAT IT DOES NOT
+   * HOLD YET, MATCHED BY ID (D-782).
    *
-   * The stored conversation was a single fetch on mount into `useState`, and this file
-   * argued for that: a cache "would be a second, staler copy of a list that is already
-   * being mutated in place". The founder's multi-device answer — *refresh when you return
-   * to the tab* — needs the refetch, so the two lists are reconciled here instead, and the
-   * reconciliation is the part worth reading.
+   * Every turn this device says carries an id it minted and sent (`turn_ids`); the server
+   * stores the row under that id. So a local turn leaves `pending` the moment a page holds
+   * its id, and the page decides where it sits — the one order every device renders. That
+   * replaces D-542's counting of "how many turns the server learned since the last page",
+   * which miscounted as soon as two devices talked at once: the other device's turns were
+   * counted as ours, and this device's question vanished until its own copy arrived.
    *
-   * **APPENDING INTO THE CACHE WAS TRIED FIRST AND IS WRONG.** One list, local appends via
-   * `setQueryData`, refetch overwrites: simple, and it deletes answers. The server stores a
-   * turn only for an exchange that SPENT something (`copilot/routes.py::_record` returns
-   * early when `spends` is empty), so a selector refusal — "I cannot see this screen." — is
-   * shown to the person and then wiped off the screen by the refetch that follows it. Four
-   * tests in `copilot.test.tsx` are that exact sentence, and they caught it.
+   * A local turn the server never stores (a refusal before the question was admitted)
+   * stays in `pending` for the panel's life — an answer that vanishes a second after it
+   * arrives is worse than one that was never persisted.
    *
-   * So a local turn is kept UNTIL A SERVER PAGE ACCOUNTS FOR IT, counted rather than
-   * matched. `anchor` is the id of the last turn of the last page we reconciled; the turns
-   * after it in the next page are what the server has learned since, from THIS device or
-   * any other. `pending.length - thatCount` is what it has not learned, and those stay on
-   * screen. No content matching (the redaction makes that unreliable), no ids invented for
-   * a row the server never wrote, and it survives the 200-turn ceiling: the anchor moves
-   * with the page, so a trimmed conversation counts the same way a short one does.
-   *
-   * An anchor that is no longer IN the page — trimmed away between two reads — drops the
-   * pending turns. That is the safe direction: the page is a full one, the server plainly
-   * has more than we do, and a duplicate bubble never heals while a missing one is one
-   * focus away.
+   * `said` keeps what this device showed for each of its turns, so the stored copy — the
+   * REDACTED form, `«PHONE_1»` where the person saw digits — does not replace the text
+   * under the reader when it arrives. `arrived` remembers which turns came from another
+   * device while the panel was open, so the panel can let them in softly.
    */
   const streamInFlight = useCallback(() => inFlight.current !== null, []);
   const stored = useConversation(session, realm, streamInFlight);
@@ -376,47 +378,69 @@ export function useCopilotConversation(
    * over a dropped connection.
    */
   const historyUnavailable = Boolean(stored.error) || !stored.data;
-  const page = useMemo(() => stored.data ?? [], [stored.data]);
+  const page = stored.data?.turns ?? NO_TURNS;
   const [pending, setPending] = useState<CopilotTurn[]>([]);
-  //: The last page we reconciled against: whether we have seen one at all, and the id of
-  //: its last turn. `seen` is separate from `lastId` because an EMPTY page is a real page —
-  //: it says the server holds nothing yet, so everything in the NEXT page is something it
-  //: learned since, and treating "no id" as "no page" is what made an exchange render twice.
-  const anchor = useRef<{ seen: boolean; lastId: string | null }>({ seen: false, lastId: null });
-  const settled = stored.dataUpdatedAt;
-
+  const said = useRef(new Map<string, CopilotTurn>());
+  const arrived = useRef(new Set<string>());
+  //: The ids of the last page this panel COMMITTED, or null before the first one. Read
+  //: while rendering, so an arrival has its entrance class on the frame it first paints.
+  const committed = useRef<ReadonlySet<string> | null>(null);
+  const pageIds = useMemo(
+    () => new Set(page.flatMap((turn) => (turn.id === undefined ? [] : [turn.id]))),
+    [page],
+  );
+  const before = committed.current;
+  if (before !== null) {
+    const fresh = [...pageIds].filter((id) => !before.has(id) && !said.current.has(id));
+    // A few turns joining the page is a live arrival; a page that was replaced wholesale
+    // (an account switch, a failed "Start again" coming back) is a load and never animates.
+    if (fresh.length > 0 && continuesFrom(before, [...pageIds].filter((id) => !said.current.has(id)))) {
+      for (const id of fresh) arrived.current.add(id);
+    }
+  }
   useEffect(() => {
-    if (settled === 0) return;
-    const { seen, lastId } = anchor.current;
-    const at = lastId === null ? -1 : page.findIndex((turn) => turn.id === lastId);
-    const learned = !seen
-      ? // The FIRST page teaches us nothing about what the server has learned since — there
-        // is no "since" yet. The panel has just mounted, so there is normally nothing
-        // pending against it either.
-        0
-      : lastId === null
-        ? page.length
-        : at === -1
-          ? // The anchor was trimmed away between two reads. The server plainly has more
-            // than we do; drop the pending turns rather than risk a duplicate that never
-            // heals.
-            Number.MAX_SAFE_INTEGER
-          : page.length - at - 1;
-    anchor.current = {
-      seen: true,
-      lastId: page.length > 0 ? (page[page.length - 1].id ?? null) : null,
-    };
-    setPending((previous) =>
-      learned <= 0 ? previous : previous.slice(Math.min(previous.length, learned)),
-    );
-  }, [page, settled]);
+    if (stored.data !== undefined) committed.current = pageIds;
+  }, [stored.data, pageIds]);
+  useEffect(() => {
+    if (pageIds.size === 0) return;
+    setPending((previous) => {
+      const kept = previous.filter((turn) => turn.id === undefined || !pageIds.has(turn.id));
+      return kept.length === previous.length ? previous : kept;
+    });
+  }, [pageIds]);
 
-  const turns = useMemo(() => [...page, ...pending], [page, pending]);
+  /*
+   * THIS DEVICE'S OWN ANSWER JUST ENDED and the page on hand may still say `answering`
+   * from a read taken mid-stream. Until the next page lands (the sync fired at the end of
+   * every exchange), "Pip is answering elsewhere" would be about this device's own run.
+   */
+  const [settling, setSettling] = useState(false);
+  useEffect(() => setSettling(false), [stored.dataUpdatedAt]);
 
-  /** Say something on this device. It shows immediately and stays until a server page
-   * accounts for it — which for most exchanges is the sync fired at the end of one. */
+  const turns = useMemo(() => {
+    const shown = page.map((turn): CopilotTurn => {
+      const mine = turn.id === undefined ? undefined : said.current.get(turn.id);
+      if (mine !== undefined) {
+        return {
+          ...turn,
+          content: mine.content,
+          wire: mine.wire,
+          attachments: mine.attachments,
+          fresh: "here",
+        };
+      }
+      return turn.id !== undefined && arrived.current.has(turn.id) ? { ...turn, fresh: "elsewhere" } : turn;
+    });
+    const unstored = pending.filter((turn) => turn.id === undefined || !pageIds.has(turn.id));
+    return [...shown, ...unstored];
+  }, [page, pageIds, pending]);
+
+  /** Say something on this device. It shows at once and gives way to its stored copy,
+   * matched by id, when a page brings it back. */
   const appendTurn = useCallback((turn: CopilotTurn) => {
-    setPending((previous) => [...previous, { ...turn, localKey: nextLocalKey() }]);
+    const mine: CopilotTurn = { ...turn, fresh: "here" };
+    if (mine.id !== undefined) said.current.set(mine.id, mine);
+    setPending((previous) => [...previous, mine]);
   }, []);
 
   /** Pull the server's copy. Fired after an exchange, which is the other half of the
@@ -449,11 +473,15 @@ export function useCopilotConversation(
     // this console asserting a deletion that did not happen.
     if (realm !== null) {
       void clearConversation(session, realm).catch((cause: unknown) => setError(cause));
-      queries.setQueryData<CopilotTurn[]>(conversationKey(session.orgSlug, realm), []);
+      queries.setQueryData<StoredConversation>(
+        conversationKey(session.orgSlug, realm),
+        EMPTY_CONVERSATION,
+      );
     }
     setPending([]);
+    said.current.clear();
+    arrived.current.clear();
     lastAsked.current = null;
-    anchor.current = { seen: false, lastId: null };
     setStreaming(null);
     setAsking(false);
     setError(null);
@@ -478,10 +506,11 @@ export function useCopilotConversation(
     const held = partial.current;
     partial.current = null;
     if (held !== null && held.answer !== "") {
-      appendTurn({ role: "assistant", content: held.answer, wire: held.wire });
+      appendTurn({ role: "assistant", content: held.answer, wire: held.wire, id: held.id });
     }
     setStreaming(null);
     setAsking(false);
+    setSettling(true);
     // NO `setError`: the person asked for this, and a refusal notice about their own
     // click is the console blaming them for using a control it offered.
   }, [appendTurn]);
@@ -497,12 +526,15 @@ export function useCopilotConversation(
   }, [batch, holder]);
 
   const ask = useCallback(
-    (question: string) => {
-      const asked = question.trim();
+    (question: string, files: SentAttachment[] = []) => {
+      // A message may be files alone; the server needs words, so it gets the plain ask.
+      const plural = files.length === 1 ? "file" : "files";
+      const asked =
+        question.trim() || (files.length > 0 ? `Please look at the attached ${plural}.` : "");
       if (asked === "" || holder === null) return;
       // WHAT `retry` RE-SENDS. A ref rather than state: nothing renders from it, and it
       // must be readable by a callback created in an earlier render.
-      lastAsked.current = asked;
+      lastAsked.current = { question: asked, files };
       const surface = holder.read();
 
       inFlight.current?.abort();
@@ -537,7 +569,17 @@ export function useCopilotConversation(
       // A question is what the person chose to type, so its two forms are the same
       // string: this module redacts what the CONSOLE volunteers, never what a person
       // deliberately writes (`redaction.ts` argues that boundary).
-      appendTurn({ role: "user", content: asked, wire: asked });
+      // The ids the server will store this question and its answer under (D-782), so the
+      // stored copies replace these local ones by id rather than doubling them.
+      const turnIds = { question: newTurnId(), answer: newTurnId() };
+      appendTurn({
+        role: "user",
+        content: asked,
+        wire: asked,
+        id: turnIds.question,
+        attachments:
+          files.length > 0 ? files.map(({ name, kind, thumb }) => ({ name, kind, thumb })) : undefined,
+      });
 
       const pass = redactForWire(surface.fields, surface.facts ?? []);
       const body: CopilotAskBody = {
@@ -565,6 +607,8 @@ export function useCopilotConversation(
       };
       const tenantId = adminTenantOf(surface, window.location.pathname);
       if (tenantId !== undefined) body.tenant_id = tenantId;
+      body.turn_ids = turnIds;
+      if (files.length > 0) body.attachments = files.map((file) => file.id);
 
       // Both halves of the answer, built in step: `answer` is what is shown, `answerWire`
       // is what may be replayed as history.
@@ -584,7 +628,7 @@ export function useCopilotConversation(
           onText: (delta) => {
             answerWire += delta;
             answer += pass.restore(delta);
-            partial.current = { answer, wire: answerWire };
+            partial.current = { answer, wire: answerWire, id: turnIds.answer };
             setStreaming(answer);
           },
           onFill: (items) => {
@@ -664,7 +708,7 @@ export function useCopilotConversation(
       )
         .then(() => {
           if (controller.signal.aborted) return;
-          appendTurn({ role: "assistant", content: answer, wire: answerWire });
+          appendTurn({ role: "assistant", content: answer, wire: answerWire, id: turnIds.answer });
           setStreaming(null);
           setAsking(false);
         })
@@ -674,7 +718,7 @@ export function useCopilotConversation(
           // the half-answer would also erase the only explanation of the fields it had
           // already applied.
           if (answer !== "") {
-            appendTurn({ role: "assistant", content: answer, wire: answerWire });
+            appendTurn({ role: "assistant", content: answer, wire: answerWire, id: turnIds.answer });
           }
           setStreaming(null);
           setAsking(false);
@@ -697,7 +741,10 @@ export function useCopilotConversation(
           // rule — "after anything sent locally". It is what makes the turns another
           // device said appear without anybody reloading; the answer that just streamed is
           // already on screen, so nothing about this is on the latency path.
-          if (!controller.signal.aborted) sync();
+          if (!controller.signal.aborted) {
+            setSettling(true);
+            sync();
+          }
         });
     },
     [appendTurn, holder, session, sync, turns],
@@ -719,8 +766,8 @@ export function useCopilotConversation(
    * would be a second charge dressed up as the first one.
    */
   const retry = useCallback(() => {
-    const question = lastAsked.current;
-    if (question !== null) ask(question);
+    const last = lastAsked.current;
+    if (last !== null) ask(last.question, last.files);
   }, [ask]);
 
   const atCeiling = error instanceof ApiProblem && error.code === AI_CEILING_CODE;
@@ -753,6 +800,7 @@ export function useCopilotConversation(
     loading: stored.isPending && stored.fetchStatus === "fetching",
     historyUnavailable,
     reloadHistory: () => void stored.refetch(),
+    answeringElsewhere: stored.data?.answering === true && !asking && !settling,
     ask,
     retry,
     stop,

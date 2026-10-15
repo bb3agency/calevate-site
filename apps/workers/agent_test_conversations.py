@@ -23,14 +23,17 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
-from typing import Any, Final
+from typing import Any, Final, cast
 from uuid import UUID
 
+import httpx
 from calevate_shared.call_script import upgrade_to_v2
+from calevate_shared.engine import VoiceEngine
 from sqlalchemy import text
 
 from apps.api.agents import script_builder
 from apps.api.agents.assist_leg import account_assist_leg
+from apps.api.agents.service import AgentRow, in_call_model
 from apps.api.agents.specimen_scenarios import specimen_scenarios
 from apps.api.agents.test_conversations import (
     ASSIST_FEATURE_TEST_GENERATE,
@@ -66,6 +69,7 @@ from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
+from apps.api.engine.catalogue import HoldsCatalogue
 from apps.api.engine.hosted_platform import hosted_agent_limits
 from apps.api.engine.test_chat import RunsTestChat, TestChatTool
 from apps.workers.agent_test_ai import (
@@ -73,6 +77,9 @@ from apps.workers.agent_test_ai import (
     generate_scenarios,
     improvement_record,
     judge_conversations,
+    judge_leg,
+    judge_order,
+    model_family,
     propose_improvement,
 )
 from apps.workers.extraction import TenantModelLeg
@@ -146,7 +153,12 @@ async def _meter(tenant_id: UUID, answer: JsonAnswer[Any], feature: str) -> None
     """A completed AI step is money spent: recorded in its own transaction (crm/assist §4)."""
     async with tenant_session(tenant_id) as session:
         await crm_assist.meter_assist(
-            session, tenant_id=tenant_id, ref=new_assist_ref(), result=answer, feature=feature
+            session,
+            tenant_id=tenant_id,
+            ref=new_assist_ref(),
+            result=answer,
+            feature=feature,
+            model=answer.model,
         )
 
 
@@ -309,6 +321,42 @@ async def talk(
     return out
 
 
+async def agent_in_call_model(tenant_id: UUID, agent_id: UUID, engine: VoiceEngine) -> str | None:
+    """The in-call model of the agent under test, by a name that says its maker where one
+    can be read: our own model's id, else the engine model's label from its catalogue. None
+    for the engine's own default, whose maker is not published."""
+    async with tenant_session(tenant_id) as session:
+        row = (
+            (
+                await session.execute(
+                    text("SELECT engine_model_id, engine_voice_id FROM agents WHERE id = :aid"),
+                    {"aid": agent_id},
+                )
+            )
+            .mappings()
+            .first()
+        )
+    if row is None:
+        return None
+    model = in_call_model(cast(AgentRow, dict(row)), engine=engine)
+    if model is None or model_family(model) is not None or not isinstance(engine, HoldsCatalogue):
+        return model
+    try:
+        catalogue = await engine.read_catalogue()
+    except (ProblemError, httpx.HTTPError) as unread:
+        # The judge then keeps the account's leg: an unread name is an unknown family.
+        log.info("agent_tests_model_unread", extra={"error": type(unread).__name__})
+        return model
+    return next((m.label for m in catalogue.models if m.model_id == model), model)
+
+
+def judge_entry(judged: Judged | None) -> dict[str, Any]:
+    """What the judge itself said about one conversation (None: it gave no verdict)."""
+    if judged is None:
+        return {"verdict": None, "reason": None, "fix": None}
+    return {"verdict": judged.verdict, "reason": judged.reason, "fix": judged.fix}
+
+
 async def judge_all(
     brief: AgentBrief,
     scenarios: list[Scenario],
@@ -316,26 +364,48 @@ async def judge_all(
     *,
     tenant_id: UUID,
     tenant_leg: TenantModelLeg | None,
-) -> tuple[dict[str, Judged], str]:
-    """The AI judge's verdicts, and the reason to show where it could not judge."""
+    agent_model: str | None = None,
+    seed: str = "",
+) -> tuple[dict[str, Judged], str, dict[str, dict[str, Any]]]:
+    """The AI judge's verdicts, the reason to show where it could not judge, and per
+    scenario what the judge itself said, on which model and at which position (kept on
+    the result for calibration: the stored verdict may be a hard check's instead)."""
     exhausted = await _allowance_used(tenant_id)
+    order = judge_order(len(scenarios), seed=seed)
     texts = [
-        conversation_text(s, [(t.said, t.reply, t.tools) for t in turns])
-        for s, turns in zip(scenarios, conversations, strict=True)
+        conversation_text(scenarios[i], [(t.said, t.reply, t.tools) for t in conversations[i]])
+        for i in order
     ]
+    leg = judge_leg(tenant_leg, agent_model=agent_model, quota_exhausted=exhausted)
     try:
         answer = await judge_conversations(
             brief,
             texts,
             {s.key for s in scenarios},
-            tenant_leg=tenant_leg,
+            tenant_leg=leg,
             quota_exhausted=exhausted,
         )
     except ProblemError as refused:
         log.info("agent_tests_not_judged", extra={"reason": refused.code})
-        return {}, not_judged_reason(refused.code)
+        return {}, not_judged_reason(refused.code), {}
     await _meter(tenant_id, answer, ASSIST_FEATURE_TEST_JUDGE)
-    return answer.value, LEFT_OUT_REASON
+    agent_family = model_family(agent_model)
+    judge_family = model_family(answer.model)
+    same_family = (
+        None if agent_family is None or judge_family is None else agent_family == judge_family
+    )
+    record = {
+        scenarios[i].key: {
+            **judge_entry(answer.value.get(scenarios[i].key)),
+            "model": answer.model,
+            "agent_model": agent_model,
+            "same_family": same_family,
+            "position": position,
+            "of": len(order),
+        }
+        for position, i in enumerate(order)
+    }
+    return answer.value, LEFT_OUT_REASON, record
 
 
 async def _store_saved_results(
@@ -444,8 +514,14 @@ async def run_agent_test_conversations(
             scenarios=scenarios,
             pause=pause,
         )
-        judged, unjudged_reason = await judge_all(
-            brief, scenarios, conversations, tenant_id=tenant_id, tenant_leg=tenant_leg
+        judged, unjudged_reason, judge_record = await judge_all(
+            brief,
+            scenarios,
+            conversations,
+            tenant_id=tenant_id,
+            tenant_leg=tenant_leg,
+            agent_model=await agent_in_call_model(tenant_id, agent_id, engine),
+            seed=run_id.hex,
         )
     except ProblemError as exc:
         log.warning("agent_tests_failed", extra={"run_id": str(run_id), "reason": exc.code})
@@ -467,6 +543,7 @@ async def run_agent_test_conversations(
                 unjudged_reason=unjudged_reason,
             ),
             "before": before.get(scenario.key),
+            "judge": judge_record.get(scenario.key),
         }
         for scenario, turns in zip(scenarios, conversations, strict=True)
     ]

@@ -25,6 +25,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.rates import ROUNDING
 from apps.api.compliance.optout import OPTOUT_PURPOSE
 from apps.api.core.errors import ProblemError
 from apps.api.crm.outcomes import normalise as normalise_outcome
@@ -266,7 +267,7 @@ async def summary(
                 {"cid": campaign_id},
             )
         ).scalar()
-        spend_inr = Decimal(spent or 0).quantize(Decimal("0.01"))
+        spend_inr = Decimal(spent or 0).quantize(Decimal("0.01"), rounding=ROUNDING)
     connected = counts["connected"]
     return {
         "contacts": sum(counts.values()),

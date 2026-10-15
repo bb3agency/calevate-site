@@ -14,12 +14,12 @@ export function NextSteps({ created }: { created: { id: string; slug: string } }
   return (
     <div className="space-y-6">
       <Section title="What happens next">
-        {/* The account this wizard just created is immediately HELD on three gates that
-            each have a working screen — KYC, commercial terms, first-campaign release —
-            and this card used to name neither, so the account dropped silently into
-            /admin/holds to be discovered later from a queue instead of continued now
-            from the flow that created it (ux-audit F-7). The three links, in the order
-            the holds bite; then the two genuinely-manual items. */}
+        {/* The account this wizard just created is immediately HELD on gates that each
+            have a working screen — KYC and commercial terms — and this card used to name
+            neither, so the account dropped silently into /admin/holds to be discovered
+            later from a queue instead of continued now from the flow that created it
+            (ux-audit F-7). The links, in the order the holds bite; then the
+            genuinely-manual items. */}
         <ol className={`${HAIRLINE_LIST} text-body text-ink-muted [&>li]:py-2.5`}>
           <li className="flex gap-2">
             <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
@@ -55,18 +55,6 @@ export function NextSteps({ created }: { created: { id: string; slug: string } }
                 Set their commercial terms
               </Link>{" "}
               — nothing can be billed until the agreement is recorded
-            </span>
-          </li>
-          <li className="flex gap-2">
-            <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
-            <span>
-              <Link
-                href={`/admin/tenants/${created.id}/first-campaign-review`}
-                className="rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-              >
-                Release their first campaign
-              </Link>{" "}
-              — every new account&apos;s first launch waits on this review
             </span>
           </li>
           <li className="flex gap-2">

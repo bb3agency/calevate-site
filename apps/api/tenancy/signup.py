@@ -40,12 +40,9 @@ step with SEC-COMP §1. What is different is only the CALLER:
 handed out (R-11): its agent is a `draft`, it has no number, and its wallet is empty —
 and the compliance gate already refuses a self-serve tenant with an exhausted wallet.
 Calling requires a verified business (`compliance/kyc.py`, refused at dial time as
-`kyc_missing`) and, for the account's first campaign, a human release
-(`compliance/first_campaign.py`, refused at launch and at every dispatch tick as
-`first_campaign_review_pending`). Neither is anything this module can grant, and both
-are now controls rather than sentences — the hold in particular is a property of the
-ACCOUNT, so a new tenant cannot reach it by launching a second campaign or by deleting
-the first.
+`kyc_missing`) and an accepted no-cold-calls pledge (`outbound_pledge_missing`). Neither
+is anything this module can grant. There is no human review of the first campaign: the
+founder removed it (D-783).
 
 ONE TRANSACTION (the gap that used to be here). This module once let
 `create_organization` commit the tenant root and then wrote the tier and the owner

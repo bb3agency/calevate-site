@@ -58,8 +58,8 @@ export function CampaignStatusPill({
 export function ReachBar({ reached, total }: { reached: number; total: number }) {
   const fraction = total > 0 ? Math.min(1, reached / total) : 0;
   return (
-    <div className="space-y-1 sm:min-w-[7rem]">
-      <p className="text-xs tabular-nums text-ink-muted">
+    <div className="space-y-1 sm:min-w-[8.5rem]">
+      <p className="whitespace-nowrap text-xs tabular-nums text-ink-muted">
         {reached.toLocaleString("en-IN")} of {total.toLocaleString("en-IN")} reached
       </p>
       {total > 0 && (

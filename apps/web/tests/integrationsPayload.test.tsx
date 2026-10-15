@@ -5,6 +5,7 @@ import IntegrationsPage from "@/app/c/[slug]/integrations/page";
 import type { Delivery, Endpoint } from "@/lib/api/integrations";
 
 import { browserOffline, problem, renderClientPage } from "./harness";
+import { WHATSAPP_OFF_ROUTES } from "./fixtures/whatsapp";
 
 /**
  * "What did you send?" on the integrations screen (D-23).
@@ -98,6 +99,7 @@ function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": OWNER,
     "/v1/integrations/credentials": [],
+    ...WHATSAPP_OFF_ROUTES,
     "/v1/integrations/connections/status": {
       google_calendar: false,
       zoho_crm: false,
@@ -349,6 +351,7 @@ describe("the integration logs when the read did not answer (§52)", () => {
     await renderClientPage(page, {
       ...routes({
         "/v1/integrations/credentials": [],
+        ...WHATSAPP_OFF_ROUTES,
         "/v1/integrations/connections/status": {
           google_calendar: false,
           zoho_crm: false,

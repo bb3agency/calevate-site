@@ -300,7 +300,7 @@ async def review_qa_sample(
     # `requires(..., realm="admin")` resolved this principal against `admin_users`, so
     # the id is present — and the CHECK behind this write refuses a verdict that cannot
     # name its reviewer, so a None here would surface as an IntegrityError at commit
-    # instead of a clear failure at the top (the argument `first_campaign_routes` makes).
+    # instead of a clear failure at the top (the argument `kyc_routes` makes).
     assert principal.user_id is not None
     async with tenant_session(tenant_id) as scoped:
         reviewed = await sampling.record_review(

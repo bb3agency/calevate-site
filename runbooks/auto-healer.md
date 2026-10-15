@@ -72,7 +72,42 @@ A playbook ran out of attempts (`outbox_replay`, `engine_webhooks`, `workspace_r
 `agent_repair`) or met something it never acts on (`money_review`). Read the incident's
 ledger rows on `/admin/ops/healer`, fix the cause with the runbook for the alarm that woke
 it (`runbooks/alarm-index.md`), then press "Mark as handled". "Check again now" runs its next step
-on the next tick.
+on the next tick; it is refused (409 `heal_incident_not_retryable`) for a problem the healer
+never acts on and for a repair switched off in configuration.
+
+A handed-over repair is still re-checked on its own cooldown (20 to 60 minutes, the
+playbook's), not every six hours, and closes itself the moment the check passes; the screen
+then says "Cleared on its own after it was handed to you". Failed re-checks of a
+handed-over problem write no ledger rows. A problem closed after its alarm last fired is not
+reopened by that alarm's quiet hour; only a fresh occurrence opens a new one (D-776).
+
+## 4a. Ask Pip to fix it (D-776)
+
+The healer is Pip's work. Every open problem on `/admin/ops/healer` has "Ask Pip to fix
+this", which opens Pip with the problem's ref written in the ask box (nothing is sent until
+you press Ask). Pip reads the problem (`healer_incidents`, `healer_incident`), explains it
+and suggests one of three confirmed actions, each going through the screen's own code:
+
+- `healer_retry`: "Check again now" (`ops:manage`, no step-up).
+- `healer_resolve`: "Mark as handled" with your reason (`ops:manage`, the same step-up
+  word `resolve_heal_incident:<id>`); the reason is written to the ledger.
+- `healer_attest_rate`, money only: attests the voice platform's posted per-minute rate
+  (`platform:config`, step-up `attest_engine_minute_price:<engine>:<rate>`, audit
+  `platform.engine_minute_price_attested`, the same function as the Rates screen) and closes
+  the money problems it explains in the same transaction.
+
+**Money problems (`money_review`).** When the healer hands one over it stores its finding on
+the incident (for example "3 of 14 charged calls differ since 09 Oct 19:12 IST. premium: we
+hold ₹2.50/min, charges imply ₹2.75/min. One rate explains all. Alarm open.") and puts the
+same sentence in the page email. It re-reads the evidence hourly and closes the incident
+itself when the alarm is clear and the calls charged after the newest attestation all match
+(for `engine_charge_unmatched`: when any call since it opened carries a charge). The
+evidence is read only from our own rows: `calls.engine_charged_inr` (recorded by the charge
+reconciler), the minute rows in `usage_events` and `platform_engine_minute_prices`
+(`apps/api/healer/money.py`). Pip's `healer_money_review` lists the calls that differ and
+the posted rate each charge implies. **An implied rate is evidence, never a figure to
+attest.** Read the posted rate in the voice platform's console, type it to Pip, and confirm
+with your second factor. Calls already metered are not re-priced (hard rule 4).
 
 ## 5. Founder actions before every part works
 

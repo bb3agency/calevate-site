@@ -2,7 +2,6 @@ import { type ReactNode } from "react";
 
 import type { NoticeTone } from "@/components/ui";
 import { type CampaignSummary, type PauseReason } from "@/lib/api/campaigns";
-import { FIRST_CAMPAIGN_BLOCKERS } from "@/lib/api/firstCampaign";
 
 /**
  * WHAT THE GATE REFUSED, IN THE CLIENT'S WORDS, and where each refusal is fixed.
@@ -16,8 +15,8 @@ import { FIRST_CAMPAIGN_BLOCKERS } from "@/lib/api/firstCampaign";
  * desk it is on. A rule with no entry falls back to the server's sentence, which is terse
  * but true. `tests/campaignBlockerCopy.test.ts` fails on a key the gate no longer emits.
  *
- * Rules whose server sentence carries the state (KYC, the pledge, the first-campaign hold,
- * the consent age) have no entry: rule-keyed copy would flatten the state the client needs.
+ * Rules whose server sentence carries the state (KYC, the pledge, the consent
+ * age) have no entry: rule-keyed copy would flatten the state the client needs.
  */
 export type BlockerNote = { text: ReactNode; owner?: "calevate" | "client" };
 
@@ -168,8 +167,6 @@ export function blockerDestination(
   if (rule === "platform_fee_overdue") return { href: at("/billing"), label: "Go to Billing" };
   if (rule === "agreements_not_accepted") return { href: at("/agreements"), label: "Read and accept" };
   if (KYC_BLOCKERS.includes(rule)) return { href: at("/verify-business"), label: "Verify your business" };
-  if (FIRST_CAMPAIGN_BLOCKERS.includes(rule))
-    return { href: at("/campaign-review"), label: "Why your first campaign is reviewed" };
   if (rule.startsWith("number_")) return { href: at("/phone-number"), label: "Go to Phone number" };
   if (rule === "agent_not_live" || rule === "agent_inbound_only" || rule === "disclosure_missing")
     return { href: at("/agents"), label: "Go to Agents" };

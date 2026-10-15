@@ -75,7 +75,7 @@ export function ContactResults({
   const pages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
   const all = data ? Object.values(data.counts).reduce((a, b) => a + b, 0) : 0;
 
-  const columns: DataColumn<ContactResult>[] = [
+  const allColumns: DataColumn<ContactResult>[] = [
     {
       id: "person",
       header: "Person",
@@ -121,11 +121,11 @@ export function ContactResults({
     },
     {
       id: "action",
-      header: "Call",
+      header: editable ? "Remove" : "Call",
       align: "right",
       cell: (row) =>
         row.call_id ? (
-          <Link href={href(`/c/${slug}/calls/${row.call_id}`)} className="text-meta font-medium text-ink underline underline-offset-2">
+          <Link href={href(`/c/${slug}/calls/${row.call_id}`)} className="whitespace-nowrap text-meta font-medium text-ink underline underline-offset-2">
             Open call
           </Link>
         ) : editable && row.outcome === "not_called" ? (
@@ -142,31 +142,53 @@ export function ContactResults({
         ) : null,
     },
   ];
+  // Before launch every row would read "Not called yet · 0 of 3 · —": the person and the
+  // way to take them off are all a draft's list has to say.
+  const columns = editable ? allColumns.filter((c) => c.id === "person" || c.id === "action") : allColumns;
+  const shown = OUTCOME_ORDER.filter((o) => (data?.counts[o] ?? 0) > 0);
+  const choose = (next: ContactOutcome | undefined) => {
+    setOutcome(next);
+    setPage(1);
+  };
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div role="group" aria-label="Show people by outcome" className="flex flex-wrap gap-1.5">
-          <FilterChip
-            label={data ? `Everyone ${formatCount(all)}` : "Everyone"}
-            active={outcome === undefined}
-            onClick={() => {
-              setOutcome(undefined);
-              setPage(1);
-            }}
-          />
-          {OUTCOME_ORDER.filter((o) => (data?.counts[o] ?? 0) > 0).map((o) => (
-            <FilterChip
-              key={o}
-              label={`${OUTCOME_WORDS[o]} ${formatCount(data?.counts[o] ?? 0)}`}
-              active={outcome === o}
-              onClick={() => {
-                setOutcome(o);
-                setPage(1);
-              }}
-            />
-          ))}
-        </div>
+        {!editable && (
+          <>
+            {/* Eight chips wrap to three rows on a phone; there it is one native picker. */}
+            <label className="block w-full sm:hidden">
+              <span className="sr-only">Show people by outcome</span>
+              <select
+                value={outcome ?? ""}
+                onChange={(e) => choose((e.target.value || undefined) as ContactOutcome | undefined)}
+                className={FIELD}
+              >
+                <option value="">{data ? `Everyone (${formatCount(all)})` : "Everyone"}</option>
+                {shown.map((o) => (
+                  <option key={o} value={o}>
+                    {OUTCOME_WORDS[o]} ({formatCount(data?.counts[o] ?? 0)})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div role="group" aria-label="Show people by outcome" className="hidden flex-wrap gap-1.5 sm:flex">
+              <FilterChip
+                label={data ? `Everyone ${formatCount(all)}` : "Everyone"}
+                active={outcome === undefined}
+                onClick={() => choose(undefined)}
+              />
+              {shown.map((o) => (
+                <FilterChip
+                  key={o}
+                  label={`${OUTCOME_WORDS[o]} ${formatCount(data?.counts[o] ?? 0)}`}
+                  active={outcome === o}
+                  onClick={() => choose(o)}
+                />
+              ))}
+            </div>
+          </>
+        )}
         <label className="block w-full sm:w-56">
           <span className="sr-only">Search people by name or the end of their number</span>
           <input

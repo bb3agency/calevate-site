@@ -24,6 +24,8 @@ from apps.api.core.settings import get_settings
 #: How far a wrong action could reach: one agent's line, one client, or every client.
 BlastRadius = Literal["agent", "tenant", "platform"]
 
+#: The playbook for the charge alarms: it pages and waits for a person (`healer/money.py`).
+MONEY_REVIEW: Final = "money_review"
 #: Raised by the health score (`healer/health.py`), never by a single call: an agent whose
 #: score sat below its own baseline for `SUSTAINED_WINDOWS` windows.
 AGENT_HEALTH_DEGRADED: Final = "agent_health_degraded"
@@ -203,7 +205,7 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
         blast_radius="platform",
     ),
     Playbook(
-        key="money_review",
+        key=MONEY_REVIEW,
         title="Money: needs your review",
         triggers=("engine_charge_mismatch", "engine_charge_unmatched", "engine_call_cost_variance"),
         action="Open an incident and page. The healer never moves money.",
@@ -257,6 +259,7 @@ __all__ = [
     "AGENT_HEALTH_DEGRADED",
     "AGENT_LINE_BROKEN",
     "ENGINE_PLATFORM_OUTAGE",
+    "MONEY_REVIEW",
     "PLAYBOOKS",
     "PLAYBOOK_BY_JOB",
     "PLAYBOOK_BY_KEY",

@@ -524,6 +524,7 @@ async def assist_script(
             tenant_id=tenant_id,
             ref=ref,
             result=draft,
+            model=draft.model,
             feature=crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT,
         )
         await write_audit(
@@ -1151,6 +1152,7 @@ async def convert_script(
             tenant_id=tenant_id,
             ref=ref,
             result=draft,
+            model=draft.model,
             feature=crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT,
         )
         await write_audit(

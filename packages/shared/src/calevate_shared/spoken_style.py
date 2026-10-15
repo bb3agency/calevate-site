@@ -16,9 +16,13 @@ rather than read, the same way the API installs the attested prices into `billin
 Consumers, kept apart on purpose:
 
 * `register_guidance` is PLATFORM text, composed into every agent's prompt by
-  `engine.compose_engine_prompt`. It stays short (the prompt has an 8,000-character
-  ceiling), so it carries the register line, only the swaps named in `prompt_swaps` and the
-  tags and fillers, and quotes no full sentence: platform text is instructions, not lines to recite.
+  `engine.compose_engine_prompt`. It stays short (every character is read on every turn,
+  `docs/PROMPT-GUIDE.md` §2), so it carries the register line, only the swaps named in
+  `prompt_swaps` and the tags and fillers, and quotes no full sentence: platform text is
+  instructions, not lines to recite.
+* `prompt_example_line` is the one exception: the founder-approved `prompt_examples`
+  (D-778), quoted after the primary language's register as how a turn sounds, never as
+  words to copy.
 * `writer_guidance` is the long form for the models that WRITE spoken lines (the script
   assistant, the test-caller writer): every swap, the number and punctuation rules and two
   or three example exchanges, because a writer copies examples far better than it follows
@@ -61,8 +65,9 @@ OPENING_KEYS: Final = ("inbound", "outbound")
 MAX_TEXT: Final = 600
 MAX_SHORT: Final = 120
 MAX_TURNS: Final = 10
-#: Tags and fillers quoted in the prompt; the rest guide the writers only.
-PROMPT_FILLERS: Final = 6
+#: Tags and fillers quoted in the prompt; the rest guide the writers only. Four since D-778,
+#: whose in-call examples show the commonest tags, so the platform layers stay within cap.
+PROMPT_FILLERS: Final = 4
 #: Keys are short ids a URL can carry: letters, digits, `-` and `_`, or a swap's formal word.
 _ID: Final = re.compile(r"^[a-z0-9_][a-z0-9_-]{0,47}$")
 
@@ -100,6 +105,9 @@ class LanguageStyle:
     punctuation: tuple[str, ...] = ()
     #: The IST date the reviewed set was published, when it was.
     reviewed_on: str | None = None
+    #: Short exchanges the in-call prompt quotes as how a turn sounds (D-778); only the
+    #: founder-approved ones in the file, never the published layer (see `_prompt_examples`).
+    prompt_examples: tuple[tuple[ExampleTurn, ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,7 +314,36 @@ def _build(tag: str, row: Mapping[str, Any]) -> LanguageStyle:
         number_rules=tuple(e.value["text"] for e in by_kind["number_rule"]),
         punctuation=tuple(e.value["text"] for e in by_kind["punctuation"]),
         reviewed_on=reviewed_on,
+        prompt_examples=_prompt_examples(tag, row),
     )
+
+
+#: The status a `prompt_examples` block must carry before any prompt quotes it.
+PROMPT_EXAMPLES_APPROVED: Final = "founder_approved"
+
+
+def _prompt_examples(tag: str, row: Mapping[str, Any]) -> tuple[tuple[ExampleTurn, ...], ...]:
+    """The language's founder-approved in-call examples, or () while they are a draft.
+
+    Read from the file alone rather than as a reviewable entry kind: they reach every live
+    agent's prompt, so they change only with a reviewed deploy, which also moves the
+    platform-prompt revision that re-applies live agents (`agents/live_apply`). The Ops
+    screen's published layer does not cover them.
+    """
+    block = row.get("prompt_examples")
+    if not block or block.get("review") != PROMPT_EXAMPLES_APPROVED:
+        return ()
+    exchanges: list[tuple[ExampleTurn, ...]] = []
+    for exchange in block["exchanges"]:
+        turns: list[ExampleTurn] = []
+        for speaker, said in exchange:
+            if speaker not in ("caller", "agent"):
+                raise ValueError(f"spoken_style.json: {tag} prompt example speaker {speaker!r}")
+            turns.append(
+                ExampleTurn(speaker=speaker, text=_text({"text": said}, "text", MAX_SHORT))
+            )
+        exchanges.append(tuple(turns))
+    return tuple(exchanges)
 
 
 @cache
@@ -343,11 +380,33 @@ def register_guidance(tag: str | None) -> str | None:
     parts = [style.register]
     if style.prompt_swaps:
         swaps = "; ".join(_swap(formal, spoken) for formal, spoken in style.prompt_swaps)
-        parts.append(f"Say it the spoken way: {swaps}.")
+        parts.append(f"Spoken words: {swaps}.")
     if style.fillers:
         said = ", ".join(f.text for f in style.fillers[:PROMPT_FILLERS])
-        parts.append(f"Tags and fillers people use, lightly: {said}.")
+        parts.append(f"Fillers, lightly: {said}.")
     return " ".join(parts)
+
+
+#: How the example line names each side: the agent reading it is "you".
+_WHO: Final[dict[str, str]] = {"caller": "caller", "agent": "you"}
+
+
+def prompt_example_line(tag: str | None) -> str | None:
+    """The language's approved in-call examples as one sentence, or None without any.
+
+    Framed as how a turn sounds and never as words to copy, because a model repeats sample
+    phrases verbatim unless told otherwise (OpenAI Realtime prompting guide, GPT-4.1 guide;
+    `docs/evidence/prompting-practices-2026-10.md` S1, S15). The sides are named in line, in lower
+    case, not as `Caller:` line labels a model could echo, which the test loop fails
+    (`agents/turn_checks`, `speaker_labels`)."""
+    style = style_for(tag)
+    if style is None or not style.prompt_examples:
+        return None
+    said = "; ".join(
+        ", ".join(f'{_WHO[turn.speaker]} "{turn.text}"' for turn in exchange)
+        for exchange in style.prompt_examples
+    )
+    return f"How a turn sounds, never words to copy: {said}."
 
 
 def _swap(formal: str, spoken: str) -> str:
@@ -444,6 +503,7 @@ __all__ = [
     "DEFAULT_EXAMPLES",
     "ENTRY_KINDS",
     "OPENING_KEYS",
+    "PROMPT_EXAMPLES_APPROVED",
     "REGISTER_KEY",
     "EntryKind",
     "ExampleTurn",
@@ -463,6 +523,7 @@ __all__ = [
     "native_reviewed",
     "normalize_value",
     "opening_in",
+    "prompt_example_line",
     "register_guidance",
     "style_for",
     "writer_guidance",

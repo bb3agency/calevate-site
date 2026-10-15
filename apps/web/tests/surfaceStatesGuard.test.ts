@@ -130,9 +130,9 @@ import { beforeAll, describe, expect, it } from "vitest";
  * have somewhere to go" but **"does this component anywhere ask whether the answer
  * arrived"** — `!q.data`, `q.data === undefined`, `Boolean(q.data)`, `q.data ? … : …`, or
  * the same tests on a local that still carries the `undefined`. That test is the only one
- * that separates all three non-answers from an answer, which is why `verification` and
- * `campaign-review` — the two screens that met the paused query first — both spell their
- * refusal `if (q.error || !q.data)`.
+ * that separates all three non-answers from an answer, which is why `verification` — one of
+ * the screens that met the paused query first — spells its refusal
+ * `if (q.error || !q.data)`.
  *
  * Two deliberate narrowings keep it at zero false positives on this tree:
  *
@@ -174,8 +174,7 @@ import { beforeAll, describe, expect, it } from "vitest";
  *   RE-MEASURED, so the next reader inherits the evidence and not the conclusion:
  *   removing the gate on this tree gives **43 hits**, and the reason it is not a
  *   narrowing problem is visible in them — several are the LADDER ITSELF
- *   (`c/[slug]/campaign-review:152 if (hold.error || !hold.data) return <ProblemNotice/>`,
- *   `…/prompt:939 catalogue.error || !catalogue.data ? <ProblemNotice/>`,
+ *   (`…/prompt:939 catalogue.error || !catalogue.data ? <ProblemNotice/>`,
  *   `…/[tenantId]:554 agents.isLoading || !agents.data ? <Skeleton/>`). An ungated rule
  *   would flag its own remedy, which is worse than a rule with a known hole. And
  *   "dominance" is the wrong shape of analysis for this codebase's idiom anyway: the
@@ -280,8 +279,7 @@ const PAUSED_IS_NEITHER =
   "paused query reports `isLoading === false` AND `error === null` with `data === " +
   "undefined` — so neither arm of the ladder is taken and this `[]`/`{}` is what the " +
   "screen states. Ask whether the answer ARRIVED: spell the refusal " +
-  "`if ({query}.error || !{query}.data)`, the way /c/<slug>/verification and " +
-  "/c/<slug>/campaign-review do.";
+  "`if ({query}.error || !{query}.data)`, the way /c/<slug>/verification does.";
 
 const REFUSE_FIRST =
   "Render the failed branch explicitly (ProblemNotice / a sentence naming what could " +

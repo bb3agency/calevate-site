@@ -56,9 +56,9 @@ ORG_STATUSES = ("prospect", "onboarding", "active", "suspended", "churned")
 #     default;
 #   * **did a stranger sign this account up unattended?** — `compliance/service
 #     .SELF_SERVE_TIERS`, which is `self_serve` and `trial` and does NOT include
-#     `prepaid`. It gates subscriber KYC (D-47) and the first-campaign hold (D-51), both
-#     of which exist because on that motion the applicant is a stranger. An operator who
-#     creates a client has met them, so `prepaid` must not pick those gates up.
+#     `prepaid`. It draws the admin hold queue (`admin/holds.py`), which exists because on
+#     that motion the applicant is a stranger. An operator who creates a client has met
+#     them, so `prepaid` must not join it.
 #
 # The two questions had identical answers until D-521, which is why one constant used to
 # serve both. `tests/plan_tier_split_test.py` pins the containment that survives it.

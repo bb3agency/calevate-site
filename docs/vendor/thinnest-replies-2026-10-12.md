@@ -509,7 +509,11 @@ Relayed by the founder. **VENDOR-STATED** unless a snapshot line is cited (paths
 ## 13. Draft of the next email (14 Oct 2026, unsent; the founder sends)
 
 Gathers everything still unanswered from §5 (9 and 11 Oct emails), §9 (12 Oct build), §11.2
-and §11.8 (13 Oct), and §12.2 (14 Oct). Items answered since are left out.
+and §11.8 (13 Oct), and §12.2 (14 Oct). Items answered since are left out. Questions 12 and 13
+are gaps A3 and A10 of `docs/evidence/prompting-practices-2026-10.md`. Its gap A9 (whether they
+speak a filler while a tool runs) is answered by their docs: `thinking`, default true, says a
+short filler when a reply has not started after `thinkingDelayMs`, "for example while an action
+runs" (`api-reference/agents/create-agent.md:1364-1368`, snapshot 2026-10-13).
 
 > **Subject:** Calevate: follow-ups after the per-agent keys release
 >
@@ -549,6 +553,15 @@ and §11.8 (13 Oct), and §12.2 (14 Oct). Items answered since are left out.
 >     training (your "Your data: erasure and training" page says the owner asks support; this is
 >     that request), and confirm in writing once it is done.
 > 11. Any update from Plivo on the TRAI regulation 4 notice.
+>
+> **How the model sees our instructions**
+> 12. When the caller goes quiet, does the model see anything (an empty turn, an event, the
+>     time since they spoke), or do `nudgeAfterSeconds` and `endAfterSilenceSeconds` handle it
+>     entirely outside the model? We will only write a silence rule into our instructions if the
+>     model actually sees the silence.
+> 13. Where do our `instructions` sit in what the model receives, relative to your own rules,
+>     the steps, the per-call variables and the caller memory? Is the part that is the same on
+>     every call sent first, so it can be cached, and what does `cachedInputTokens` count?
 >
 > Thanks,
 > Umesh

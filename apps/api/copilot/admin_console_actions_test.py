@@ -57,10 +57,12 @@ def test_the_new_admin_actions_are_appended_and_confirm_only() -> None:
     assert names[0] == "platform_halt_outbound"
     assert names[1:] == [
         "admin_kyc_review",
-        "admin_first_campaign_decide",
         "admin_workspace_provision",
         "admin_number_release",
         "admin_voice_set",
+        "healer_retry",
+        "healer_resolve",
+        "healer_attest_rate",
     ]
     for tool in admin_actions.ADMIN_ACTIONS:
         assert tool.tier == "confirm", tool.name
@@ -73,8 +75,8 @@ async def test_a_per_client_action_needs_a_clients_page_open() -> None:
     token = await _make_admin()
     with pytest.raises(WriteRefusedError) as refused:
         await admin_actions.plan_admin_action(
-            "admin_first_campaign_decide",
-            json.dumps({"decision": "approved", "note": "Checked the list and script"}),
+            "admin_kyc_review",
+            json.dumps({"decision": "approve", "pan_checked": True}),
             principal=_admin(token),
             viewing_tenant_id=None,
         )
@@ -141,21 +143,6 @@ async def test_a_kyc_rejection_is_proposed_then_recorded_in_the_clients_session(
         ).first()
     assert logged is not None
     assert tuple(logged) == ("done", "confirm")
-
-
-async def test_the_first_campaign_hold_is_released_by_confirm() -> None:
-    token = await _make_admin(role="operator")
-    tenant_id, _slug, _client_token = await _make_tenant()
-    proposal = await admin_actions.plan_admin_action(
-        "admin_first_campaign_decide",
-        json.dumps({"decision": "approved", "note": "Checked the list and the script"}),
-        principal=_admin(token, "operator"),
-        viewing_tenant_id=tenant_id,
-    )
-    await _confirm(token, proposal, role="operator")
-    async with tenant_session(tenant_id) as session:
-        status = (await session.execute(text("SELECT status FROM first_campaign_reviews"))).scalar()
-    assert status == "approved"
 
 
 async def test_an_operator_cannot_curate_voices_and_an_unknown_voice_is_refused() -> None:
@@ -251,4 +238,7 @@ def test_the_admin_reads_are_appended_after_the_first_four() -> None:
         "admin_alerts",
         "admin_voices",
         "admin_client_standing",
+        "healer_incidents",
+        "healer_incident",
+        "healer_money_review",
     ]

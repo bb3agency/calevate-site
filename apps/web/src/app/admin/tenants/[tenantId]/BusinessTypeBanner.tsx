@@ -107,7 +107,7 @@ export function BusinessTypeBanner({ tenantId }: { tenantId: string }) {
         <p className="flex flex-wrap items-center gap-x-3">
           <span>
             {waiting ? (
-              "Asking for a suggestion…"
+              <span className="text-shimmer">Asking for a suggestion…</span>
             ) : pending.suggested_label ? (
               <>
                 Suggested: <span className="font-medium text-ink">{pending.suggested_label}</span>

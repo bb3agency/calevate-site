@@ -232,7 +232,7 @@ export function BasicsStep({
         onChange={form.setClassification}
       />
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid max-w-sm gap-5">
         <label className="block min-w-0">
           <span className={FIELD_LABEL}>Calling from</span>
           <select value={form.numberId} onChange={(e) => form.setNumberId(e.target.value)} className={FIELD}>

@@ -284,6 +284,20 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             "The content you put in: prompts, knowledge documents, extraction schemas and " +
               "uploaded lists. You warrant you have the rights to it, and you keep the " +
               "rights to it.",
+            "What you and your people attach to the in-app assistant: pictures, PDFs (with the " +
+              "text your browser finds in them), and text, spreadsheet, Word, Excel and " +
+              "PowerPoint files. You decide what is attached, " +
+              "and you warrant that you have the right to share it, that you have given any " +
+              "notice and hold any consent the law requires for the personal data in it, and " +
+              "that the question needs it; ask your people not to attach personal data a " +
+              "question does not need. We do not review, redact or scan attached files for " +
+              "malware. They are stored privately and sent as they are to the language-model " +
+              "provider that answers the assistant (section 3.5 of the sub-processor page), " +
+              "and their content and its lawful basis are your responsibility as Data " +
+              "Fiduciary. This does not reduce what we owe you under the Data Processing " +
+              "Addendum: we keep them secure, use them only to answer the question they were " +
+              "attached to, and delete them when the conversation ends and within 30 days at " +
+              "most.",
             "Reviewing what your agent says. It is a language model. It will occasionally " +
               "be wrong, and it speaks in your name.",
             "Reviewing what the in-app assistant proposes before anyone confirms it. It " +
@@ -750,7 +764,9 @@ export const TERMS_OF_SERVICE: LegalDocument = {
                 "You will indemnify us against claims, penalties, fines and reasonable " +
                 "costs arising from: a breach by you of the Acceptable Use Policy; calls " +
                 "placed to people for whom you had no lawful basis; content you supplied " +
-                "for an agent to say or answer from; a failure by you to give a notice or " +
+                "for an agent to say or answer from; files your people attached to the " +
+                "in-app assistant without the right to share them or the notice and " +
+                "consent the law required; a failure by you to give a notice or " +
                 "obtain a consent that the law required of you as Data Fiduciary or as " +
                 "the sender of the call; a breach of the outbound pledge; use of a " +
                 "telephone number not held in your business's name; and any claim that " +

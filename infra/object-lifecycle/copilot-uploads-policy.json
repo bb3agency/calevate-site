@@ -1,0 +1,24 @@
+{
+  "Rules": [
+    {
+      "ID": "copilot-uploads-30-day-backstop",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "copilot-uploads/"
+      },
+      "Expiration": {
+        "Days": 30
+      }
+    },
+    {
+      "ID": "copilot-uploads-abort-incomplete-multipart",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "copilot-uploads/"
+      },
+      "AbortIncompleteMultipartUpload": {
+        "DaysAfterInitiation": 1
+      }
+    }
+  ]
+}

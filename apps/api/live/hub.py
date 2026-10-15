@@ -39,6 +39,9 @@ _BACKOFF_MAX_S: Final = 30.0
 @dataclass(eq=False)
 class Subscription:
     channel: str
+    #: Further channels feeding the same queue — a stream's own person channel beside its
+    #: account's (D-782), so one browser stream hears both in arrival order.
+    also: tuple[str, ...] = ()
     queue: asyncio.Queue[LiveChange] = field(
         default_factory=lambda: asyncio.Queue(maxsize=QUEUE_MAX)
     )
@@ -59,23 +62,25 @@ class LiveHub:
 
     @property
     def listeners(self) -> int:
-        return sum(len(subs) for subs in self._subs.values())
+        return len({sub for subs in self._subs.values() for sub in subs})
 
-    def subscribe(self, channel: str) -> Subscription:
-        sub = Subscription(channel=channel)
-        self._subs.setdefault(channel, set()).add(sub)
+    def subscribe(self, channel: str, *also: str) -> Subscription:
+        sub = Subscription(channel=channel, also=also)
+        for name in (channel, *also):
+            self._subs.setdefault(name, set()).add(sub)
         if self._task is None or self._task.done():
             self._connected.clear()
             self._task = asyncio.get_running_loop().create_task(self._run())
         return sub
 
     def unsubscribe(self, sub: Subscription) -> None:
-        subs = self._subs.get(sub.channel)
-        if subs is None:
-            return
-        subs.discard(sub)
-        if not subs:
-            del self._subs[sub.channel]
+        for name in (sub.channel, *sub.also):
+            subs = self._subs.get(name)
+            if subs is None:
+                continue
+            subs.discard(sub)
+            if not subs:
+                del self._subs[name]
 
     async def wait_connected(self, timeout_s: float) -> bool:
         try:

@@ -27,7 +27,7 @@ import hashlib
 import json
 import os
 import threading
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -1368,8 +1368,306 @@ def presigned_url(
     return str(url)
 
 
+# --- files a person hands Pip (D-781) ---------------------------------------------------
+#
+# A BUCKET OF THEIR OWN, ON A CREDENTIAL OF THEIR OWN. The API streams an upload into the
+# store and back out to its owner; the browser never talks to the store. The credential is
+# a dedicated R2 API token scoped to the uploads bucket alone, with object read and write
+# (`runbooks/pip-uploads.md`), so a leak of it reaches Pip's uploads and no recording,
+# transcript or document. Every helper below uses that client and that bucket; nothing
+# here touches `_client()`.
+#
+# Nothing here parses, decodes or re-encodes an upload: bytes are counted, buffered for
+# one multipart part at most, and sent on. No helper writes to local disk.
+
+COPILOT_UPLOAD_PREFIX = "copilot-uploads"
+
+_upload_client_lock = threading.Lock()
+_cached_upload_client: tuple[str, Any] | None = None
+
+
+class UploadsNotConfiguredError(Exception):
+    """No uploads bucket or no dedicated credential: uploads are refused, never routed to
+    the main bucket on the main credential."""
+
+
+def uploads_configured() -> bool:
+    settings = get_settings()
+    return bool(
+        settings.copilot_upload_bucket
+        and settings.copilot_upload_access_key_id
+        and settings.copilot_upload_secret_access_key
+    )
+
+
+def _upload_client() -> tuple[Any, str]:
+    """The uploads client and bucket. RAISES `UploadsNotConfiguredError` when the bucket or
+    its dedicated credential is missing. Cached on a digest of its inputs, `_client()`'s
+    reasoning."""
+    settings = get_settings()
+    bucket = settings.copilot_upload_bucket
+    key_id = settings.copilot_upload_access_key_id
+    secret = settings.copilot_upload_secret_access_key
+    if not bucket or not key_id or not secret:
+        raise UploadsNotConfiguredError("the Pip uploads bucket is not configured")
+    endpoint = settings.object_store_endpoint
+    region = os.environ.get("AWS_REGION", "auto")
+    fingerprint = hashlib.sha256(
+        "\x00".join((endpoint, region, bucket, key_id, secret)).encode()
+    ).hexdigest()
+
+    global _cached_upload_client
+    cached = _cached_upload_client
+    if cached is not None and cached[0] == fingerprint:
+        return cached[1], bucket
+    with _upload_client_lock:
+        cached = _cached_upload_client
+        if cached is not None and cached[0] == fingerprint:
+            return cached[1], bucket
+        client = boto3.Session(aws_access_key_id=key_id, aws_secret_access_key=secret).client(
+            "s3",
+            endpoint_url=endpoint,
+            region_name=region,
+            config=Config(signature_version="s3v4", retries={"max_attempts": 3}),
+        )
+        _cached_upload_client = (fingerprint, client)
+        return client, bucket
+
+
+def copilot_upload_key(*, scope: str, owner_id: UUID, upload_id: UUID, nonce: str) -> str:
+    """`copilot-uploads/{scope}/{owner}/{upload}-{nonce}` — no filename, no extension.
+
+    `scope` is the tenant id on the client realm and `platform` on the admin one, so an
+    account erasure removes the account's files with one prefix listing, and each person's
+    files sit under their own segment. `nonce` is random, so the key cannot be derived
+    from the upload id.
+    """
+    return f"{COPILOT_UPLOAD_PREFIX}/{scope}/{owner_id}/{upload_id}-{nonce}"
+
+
+def copilot_upload_scope_prefix(scope: str) -> str:
+    """Every Pip upload of one account (or of the platform realm)."""
+    return f"{COPILOT_UPLOAD_PREFIX}/{scope}/"
+
+
+#: One multipart part. S3 requires every part but the last to be at least 5 MiB; 8 MiB keeps
+#: a 20 MB file to three parts and bounds what one upload holds in memory to one part plus
+#: the chunk being read.
+UPLOAD_PART_BYTES = 8 * 1024 * 1024
+
+
+class UploadWriter:
+    """Stream one upload into the uploads bucket with bounded memory and no local disk.
+
+    Bytes are buffered until a part's worth has arrived; a body that ends before the first
+    part is complete becomes ONE `PutObject`, anything longer an S3 multipart upload. The
+    caller counts and checks the bytes as they arrive and calls `abort` the moment one is
+    wrong; an aborted multipart upload is aborted at the store (its parts are discarded),
+    and a crash that leaves one behind is cleared by the bucket's
+    `AbortIncompleteMultipartUpload` rule. Nothing here looks at what the bytes are.
+    """
+
+    def __init__(self, key: str, *, content_type: str) -> None:
+        self.key = key
+        self.content_type = content_type
+        self.size = 0
+        self._buffer = bytearray()
+        self._multipart_id: str | None = None
+        self._parts: list[dict[str, Any]] = []
+
+    async def write(self, chunk: bytes) -> None:
+        self._buffer += chunk
+        self.size += len(chunk)
+        while len(self._buffer) >= UPLOAD_PART_BYTES:
+            part = bytes(self._buffer[:UPLOAD_PART_BYTES])
+            del self._buffer[:UPLOAD_PART_BYTES]
+            await self._send_part(part)
+
+    async def _send_part(self, data: bytes) -> None:
+        def _send() -> None:
+            client, bucket = _upload_client()
+            if self._multipart_id is None:
+                created = client.create_multipart_upload(
+                    Bucket=bucket, Key=self.key, ContentType=self.content_type
+                )
+                self._multipart_id = str(created["UploadId"])
+            number = len(self._parts) + 1
+            sent = client.upload_part(
+                Bucket=bucket,
+                Key=self.key,
+                UploadId=self._multipart_id,
+                PartNumber=number,
+                Body=data,
+            )
+            self._parts.append({"ETag": sent["ETag"], "PartNumber": number})
+
+        await self._call(_send)
+
+    async def finish(self) -> int:
+        """Store what was written. Returns its size."""
+        remainder = bytes(self._buffer)
+        self._buffer = bytearray()
+        if self._multipart_id is None:
+
+            def _put() -> None:
+                client, bucket = _upload_client()
+                client.put_object(
+                    Bucket=bucket, Key=self.key, Body=remainder, ContentType=self.content_type
+                )
+
+            await self._call(_put)
+            return self.size
+        if remainder:
+            await self._send_part(remainder)
+
+        def _complete() -> None:
+            client, bucket = _upload_client()
+            client.complete_multipart_upload(
+                Bucket=bucket,
+                Key=self.key,
+                UploadId=self._multipart_id,
+                MultipartUpload={"Parts": self._parts},
+            )
+
+        await self._call(_complete)
+        return self.size
+
+    async def abort(self) -> None:
+        """Discard everything written. Never raises: it runs on a path that is already
+        refusing, and a leftover multipart upload is the bucket rule's to clear."""
+        self._buffer = bytearray()
+        if self._multipart_id is None:
+            return
+
+        def _abort() -> None:
+            client, bucket = _upload_client()
+            client.abort_multipart_upload(Bucket=bucket, Key=self.key, UploadId=self._multipart_id)
+
+        try:
+            await self._call(_abort)
+        except StorageUnavailableError:
+            log.warning("upload_abort_failed")
+
+    @staticmethod
+    async def _call(work: Callable[[], None]) -> None:
+        try:
+            await asyncio.to_thread(work)
+        except (BotoCoreError, ClientError, UploadsNotConfiguredError) as exc:
+            raise StorageUnavailableError(f"upload write failed: {type(exc).__name__}") from exc
+
+
+#: How much of a download is read from the store per step while it streams to its owner.
+DOWNLOAD_CHUNK_BYTES = 256 * 1024
+
+
+async def upload_chunks(key: str) -> AsyncIterator[bytes] | None:
+    """One upload, streamed from the store in chunks for its owner, or None when it is
+    gone. RAISES `StorageUnavailableError` when the store did not answer."""
+
+    def _open() -> Any:
+        client, bucket = _upload_client()
+        try:
+            return client.get_object(Bucket=bucket, Key=key)["Body"]
+        except ClientError as exc:
+            if str(exc.response.get("Error", {}).get("Code")) in _ABSENT_CODES:
+                return None
+            raise
+
+    try:
+        body = await asyncio.to_thread(_open)
+    except (BotoCoreError, ClientError, UploadsNotConfiguredError) as exc:
+        raise StorageUnavailableError(f"upload read failed: {type(exc).__name__}") from exc
+    if body is None:
+        return None
+
+    async def _stream() -> AsyncIterator[bytes]:
+        try:
+            while True:
+                chunk: bytes = await asyncio.to_thread(body.read, DOWNLOAD_CHUNK_BYTES)
+                if not chunk:
+                    return
+                yield chunk
+        finally:
+            await asyncio.to_thread(body.close)
+
+    return _stream()
+
+
+async def upload_read(key: str, *, max_bytes: int, head_only: bool = False) -> bytes | None:
+    """Up to `max_bytes` of one upload into memory (never to disk), or None when it is gone.
+
+    `head_only` reads the first `max_bytes` with a ranged GET (a signature, or the start of
+    a long text file). Otherwise the whole object is read, and one larger than `max_bytes`
+    RAISES. Bytes, not a parse.
+    """
+
+    def _get() -> bytes | None:
+        client, bucket = _upload_client()
+        try:
+            if head_only:
+                response = client.get_object(
+                    Bucket=bucket, Key=key, Range=f"bytes=0-{max_bytes - 1}"
+                )
+            else:
+                response = client.get_object(Bucket=bucket, Key=key)
+        except ClientError as exc:
+            if str(exc.response.get("Error", {}).get("Code")) in _ABSENT_CODES:
+                return None
+            raise
+        body: bytes = response["Body"].read(max_bytes + 1)
+        if len(body) > max_bytes:
+            if head_only:
+                return body[:max_bytes]
+            raise StorageUnavailableError("upload larger than allowed")
+        return body
+
+    try:
+        return await asyncio.to_thread(_get)
+    except (BotoCoreError, ClientError, UploadsNotConfiguredError) as exc:
+        raise StorageUnavailableError(f"upload read failed: {type(exc).__name__}") from exc
+
+
+async def upload_keys_under(prefix: str) -> list[str]:
+    """Every upload key under one prefix. RAISES on failure (`objects_under`'s contract)."""
+
+    def _list() -> list[str]:
+        client, bucket = _upload_client()
+        found: list[str] = []
+        for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
+            found.extend(str(item["Key"]) for item in page.get("Contents", []))
+        return found
+
+    try:
+        return await asyncio.to_thread(_list)
+    except (BotoCoreError, ClientError, UploadsNotConfiguredError) as exc:
+        raise StorageUnavailableError(f"upload list failed: {type(exc).__name__}") from exc
+
+
+async def delete_uploads(keys: Sequence[str]) -> int:
+    """Delete uploads by key: `delete_objects`' contract, on the uploads bucket."""
+    if not keys:
+        return 0
+
+    def _delete() -> None:
+        client, bucket = _upload_client()
+        for chunk in _chunks(keys, _DELETE_BATCH):
+            response = client.delete_objects(
+                Bucket=bucket, Delete={"Objects": [{"Key": key} for key in chunk], "Quiet": True}
+            )
+            if response.get("Errors"):
+                raise StorageUnavailableError("upload delete refused")
+
+    try:
+        await asyncio.to_thread(_delete)
+    except (BotoCoreError, ClientError, UploadsNotConfiguredError) as exc:
+        raise StorageUnavailableError(f"upload delete failed: {type(exc).__name__}") from exc
+    return len(keys)
+
+
 __all__ = [
+    "COPILOT_UPLOAD_PREFIX",
     "DELIVERY_BODY_PREFIX",
+    "DOWNLOAD_CHUNK_BYTES",
     "ENGINE_PAYLOAD_PREFIX",
     "MAX_RECORDING_BYTES",
     "MAX_RETAINED_BODY_BYTES",
@@ -1377,12 +1675,18 @@ __all__ = [
     "RECORDING_FETCH_DEADLINE_S",
     "RECORDING_REDIRECT_LIMIT",
     "RECORDING_RETRY_DEFER_S",
+    "UPLOAD_PART_BYTES",
     "RecordingLeg",
     "StorageUnavailableError",
+    "UploadWriter",
+    "UploadsNotConfiguredError",
     "archive_payload",
     "build_delivery_body_document",
+    "copilot_upload_key",
+    "copilot_upload_scope_prefix",
     "copy_recording",
     "delete_objects",
+    "delete_uploads",
     "delivery_body_key",
     "delivery_body_subject_prefix",
     "keys_under",
@@ -1395,4 +1699,8 @@ __all__ = [
     "sniff_audio_content_type",
     "store_delivery_body",
     "transfer_recording_key",
+    "upload_chunks",
+    "upload_keys_under",
+    "upload_read",
+    "uploads_configured",
 ]

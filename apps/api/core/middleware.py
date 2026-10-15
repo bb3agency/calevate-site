@@ -81,6 +81,14 @@ CORRELATION_HEADER = "X-Correlation-Id"
 #: else is replaced with a fresh id. The web client sends 32 hex characters.
 _CALLER_CORRELATION_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 MAX_BODY_BYTES = 2 * 1024 * 1024  # 2 MiB; CSV import gets its own streaming route
+#: The routes allowed a bigger body, by exact method and path, and nothing else. Pip's file
+#: upload (D-781) streams its body to object storage and enforces its own per-file and
+#: per-message limits as it reads; this is the outer wall at the per-file limit. Exact
+#: paths, not prefixes, so `/v1/copilot/uploads/{id}` and every other route keep 2 MiB.
+ROUTE_BODY_LIMITS: dict[tuple[str, str], int] = {
+    ("POST", "/v1/copilot/uploads"): 20 * 1024 * 1024,
+    ("POST", "/v1/admin/copilot/uploads"): 20 * 1024 * 1024,
+}
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -296,9 +304,10 @@ class BodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
         path = str(scope.get("path", ""))
+        max_bytes = ROUTE_BODY_LIMITS.get((str(scope.get("method", "")), path), self.max_bytes)
         declared = _headers(scope).get("content-length")
-        if declared and declared.isdigit() and int(declared) > self.max_bytes:
-            await _problem_response(_payload_too_large(self.max_bytes), path)(scope, receive, send)
+        if declared and declared.isdigit() and int(declared) > max_bytes:
+            await _problem_response(_payload_too_large(max_bytes), path)(scope, receive, send)
             return
 
         seen = 0
@@ -310,7 +319,7 @@ class BodyLimitMiddleware:
             message = await receive()
             if message["type"] == "http.request":
                 seen += len(message.get("body", b""))
-                if seen > self.max_bytes:
+                if seen > max_bytes:
                     over_limit = True
                     return {"type": "http.disconnect"}
             return message
@@ -326,7 +335,7 @@ class BodyLimitMiddleware:
         await self.app(scope, counting_receive, guarded_send)
         if over_limit and not responded:
             log.warning("payload_too_large", extra={"route": path, "bytes": seen})
-            await _problem_response(_payload_too_large(self.max_bytes), path)(scope, receive, send)
+            await _problem_response(_payload_too_large(max_bytes), path)(scope, receive, send)
 
 
 class LoadShedMiddleware:
@@ -946,6 +955,11 @@ def install_middleware(
             IMPERSONATE_HEADER,
             IMPERSONATION_GRANT_HEADER,
             "X-Confirm-Action",
+            # Pip's file upload (D-781): the name the person chose, percent-encoded. A
+            # header so a name, which can be a customer's, is never in a URL or a log.
+            "X-Upload-Name",
+            # And, for the text the browser took out of a PDF, the id of that PDF.
+            "X-Upload-Text-Of",
         ],
         expose_headers=[CORRELATION_HEADER, "Idempotent-Replayed", "Retry-After"],
     )
@@ -958,6 +972,7 @@ def install_middleware(
 __all__ = [
     "CORRELATION_HEADER",
     "MAX_BODY_BYTES",
+    "ROUTE_BODY_LIMITS",
     "SECURITY_HEADERS",
     "BodyLimitMiddleware",
     "CookieCsrfMiddleware",

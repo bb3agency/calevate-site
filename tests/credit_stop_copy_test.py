@@ -359,7 +359,7 @@ def test_the_operator_console_states_both_halves_wherever_it_names_the_stop(
 #: SCOPED TO ONE FILE ON PURPOSE, and that is the whole care in this guard. "A self-serve
 #: or trial account" is CORRECT wherever the question is *did a stranger sign this account
 #: up unattended* \u2014 `compliance/service.SELF_SERVE_TIERS`, which is what the
-#: subscriber-KYC dial gate (D-47) and the first-campaign hold (D-51) key on, and both
+#: subscriber-KYC dial gate (D-47) keyed on and the admin hold queue draws, and both
 #: `admin/tenants/[tenantId]/kyc/page.tsx` and `lib/legal/acceptableUse.ts` say it there
 #: and must go on saying it. The credits console asks the OTHER question \u2014 *does this
 #: account pay from a wallet* \u2014 which D-521 split off as `PREPAID_TIERS`, and answering

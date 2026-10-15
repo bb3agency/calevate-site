@@ -250,7 +250,6 @@ def test_the_block_is_small_by_construction() -> None:
             "pe_registration_missing",
             "tm_registration_missing",
             "agreements_not_accepted",
-            "first_campaign_hold",
             "spend_cap",
             "no_credits",
             "national_dnd_scrub_missing",

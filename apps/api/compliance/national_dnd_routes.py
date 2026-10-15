@@ -14,7 +14,7 @@ sessions:
   preference-scrub`) records one national preference scrub of one campaign's list. That
   is TENANT data (evidence about one client's list), so it names its tenant in the path
   and does its work inside `tenant_session` — the house pattern for an admin-realm
-  mutation (`first_campaign_routes.decide`, `kyc_routes.record_kyc_verification`), and
+  mutation (`kyc_routes.record_kyc_verification`), and
   the shape `tests/route_shape_test.py` enforces: an admin-realm mutation that resolved
   its tenant through `tenant_of` would be un-callable by construction (D-22).
 
@@ -345,7 +345,7 @@ async def record_preference_scrub(
     """Tenant in the PATH, work inside `tenant_session` — the house pattern.
 
     The audit row goes on the ADMIN session and the scrub on the tenant one, matching
-    `first_campaign_routes.decide`: the two sessions commit independently, and the order
+    `whatsapp_optin_routes`: the two sessions commit independently, and the order
     here (scrub first, audit second) is the one that can only ever under-report. An
     audit entry for a scrub that failed to commit would be a compliance record of
     something that did not happen.

@@ -293,7 +293,7 @@ class ResendTransport:
     def _refuse(self, status: int, to: str) -> None:
         """Say what an operator has to DO, from the status code alone.
 
-        EVERY `remediation` BELOW FITS IN `logging._MAX_FREE_TEXT` (200 chars). It is
+        EVERY `remediation` BELOW FITS IN `logging.MAX_FREE_TEXT` (200 chars). It is
         run through `redact_mapping` on the way out like every other string a caller
         supplies, and a sentence that overflows loses its TAIL — which is where the
         instruction is. Pinned by `transport_test.py` rather than left to counting.

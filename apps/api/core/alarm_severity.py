@@ -142,6 +142,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "meta_lead_retrieval_deferred": "record",
     "copilot_interrupted": "record",
     "copilot_confirm_unavailable": "record",
+    "copilot_uploads_unavailable": "record",
+    "copilot_attachments_unavailable": "record",
+    "copilot_pdf_unavailable": "record",
     "recording_unavailable": "record",
     "delivery_body_unavailable": "record",
     "qa_report_unreadable": "record",
@@ -494,6 +497,21 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # The once-per-caller "save our number" WhatsApp (D-746) failed every attempt: one caller,
     # one client, never retried.
     "save_number_message_undelivered": "attention",
+    # Clients' own WhatsApp through Meta's Embedded Signup (D-784). One client's sending, a
+    # template or a number at a time: looked at today, not paged. A stranger's bad signature
+    # is noise; a sustained run of them is read on the console like `meta_signature_rejected`.
+    "whatsapp_webhook_signature_rejected": "record",
+    "whatsapp_template_not_usable": "attention",
+    "whatsapp_template_recategorised": "attention",
+    "whatsapp_template_quality_low": "attention",
+    "whatsapp_account_restricted": "attention",
+    "whatsapp_number_quality_dropped": "attention",
+    "whatsapp_message_not_delivered": "attention",
+    "whatsapp_templates_not_submitted": "attention",
+    "whatsapp_onboarding_limit_near": "attention",
+    "whatsapp_spoken_consent_unconfirmed": "attention",
+    # Our queue could not take a verified Meta delivery; Meta redelivers for up to 7 days.
+    "whatsapp_hook_deferred": "attention",
     "hot_lead_whatsapp_rejected": "attention",
     "campaign_escalation_exhausted": "attention",
     "campaign_escalation_rejected": "attention",

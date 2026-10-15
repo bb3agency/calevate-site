@@ -15,8 +15,8 @@ import { browserOffline, problem, renderAdminPage } from "./harness";
  * rather than of a row being wrong:
  *
  * 1. **An unnameable rule must keep its account on the list.** `holdRule` fails VISIBLE
- *    on purpose — the opposite direction from `firstCampaignState`, which fails CLOSED
- *    — and the reason is that these are the only two ends of the same fact: the client
+ *    on purpose — the opposite direction from the client's own gate screens, which
+ *    fail CLOSED — and the reason is that these are the only two ends of the same fact: the client
  *    is refused either way, so the console's job is to make sure a human is told. A row
  *    silently dropped for a rule added after this build shipped is an account that waits
  *    forever, and it is worst for the clients who never complain.
@@ -91,22 +91,6 @@ describe("the hold queue", () => {
     expect(
       screen.getAllByRole("link", { name: "Identity (KYC)" }),
     ).toHaveLength(1);
-  });
-
-  it("offers both remedies when an account is held by both gates", async () => {
-    const { container } = renderAdminPage(<HeldAccountsPage />, {
-      [HOLDS_PATH]: [
-        tenant({ holds: ["kyc_missing", "first_campaign_review_pending"] }),
-      ],
-    });
-
-    await screen.findByText("Sri Traders");
-    // A row that picked one gate would leave the other one's work invisible.
-    expect(screen.getByRole("link", { name: "Identity (KYC)" })).toBeDefined();
-    expect(
-      screen.getByRole("link", { name: "Review & release" }),
-    ).toBeDefined();
-    expect(container.textContent).not.toContain("Open the account");
   });
 
   it("refuses to call a failed read an empty queue", async () => {
@@ -191,17 +175,17 @@ describe("the hold queue", () => {
 
   it("renders no phone number and no reviewer prose", async () => {
     // Hard rule 6 is a property of the payload — `admin/holds.py` drops the blockers'
-    // `reason` strings because a rejection interpolates an operator's free text. This
+    // `reason` strings because a reason can interpolate free text. This
     // screen must not fetch any of it back to fill the gap.
     const { container, calls } = renderAdminPage(<HeldAccountsPage />, {
-      [HOLDS_PATH]: [tenant({ holds: ["first_campaign_review_rejected"] })],
+      [HOLDS_PATH]: [tenant({ holds: ["kyc_not_verified"] })],
     });
 
     await screen.findByText("Sri Traders");
     // One request, to the queue. A second one to a tenant's own screens would be this
     // page quietly widening what an ops list exposes.
     expect(calls.map((c) => c.path)).toEqual([HOLDS_PATH]);
-    expect(container.textContent).toContain("First campaign refused");
+    expect(container.textContent).toContain("Identity not verified");
     expect(container.textContent).not.toMatch(/\+?\d{10}/);
   });
 

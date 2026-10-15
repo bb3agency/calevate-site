@@ -108,9 +108,9 @@ below is kept only because the acquisition motion it names is unchanged. The BIL
 moved underneath it: `prepaid` is now the default tier, every existing account was migrated
 to it, and `managed` is the deliberate exception an operator sets for a client invoiced on a
 retainer. So the **credit wallet, the top-up flow and the runway framing are what nearly
-every client sees**, not a screen reserved for unattended signups — while the KYC gate and
-the first-campaign hold, which really are about a stranger signing up, still apply to
-`self_serve`/`trial` only. Read the two questions separately (DATA-MODEL §2).
+every client sees**, not a screen reserved for unattended signups — while the hold queue, which
+really is about a stranger signing up, still lists `self_serve`/`trial` only (the
+first-campaign hold that also did was removed by D-783). Read the two questions separately (DATA-MODEL §2).
 
 **Self-serve-only screens**
 - **Sign-up + org create**: email/password or Google (FLOWS §2), slug validated against
@@ -288,15 +288,6 @@ Client realm (`/c/<slug>/…`)
   the §2b webhook-activity view and its no-call "test webhook", shipped — plus the Meta
   Lead Ads setup card, `POST /v1/lead-sources/{webhook_id}/meta/setup`, which prints what
   to paste into the Meta App Dashboard) ·
-  **`/campaign-review`** (`GET /v1/compliance/first-campaign-review` — the client's view
-  of R-11's first-campaign hold, D-51. Read-only by construction: there is no mutation in
-  the module, so no 403 trap can be built on it, and the screen says plainly that the
-  release is recorded by Calevate operations. `pending` and `rejected` are different
-  screens — pending is "we will look", rejected carries the reviewer's own words and needs
-  a different next step — and the state helper keys on the server's `held` answer rather
-  than on `status`, failing CLOSED so an unrecognised rule stays held. It states both
-  halves of the account scoping in the client's words, because a client who thinks every
-  campaign needs review will not build a second one) ·
   **`/messaging-consent`** (records what a consumer said about being messaged and looks
   up whether we may; the screen that makes a `recipient_not_opted_in` escalation fixable
   by somebody saying yes) · **`/do-not-call`** (`/v1/dnc`, with removal offered only where
@@ -588,26 +579,18 @@ Admin realm (`/admin/…`)
   under the Telecom Act the subscriber's identity is something the provider verifies,
   never something the subscriber asserts.
 - **The hold queue** (`/admin/holds`; `GET /v1/admin/compliance/holds`) — the ops work
-  list of accounts waiting on a human, covering BOTH R-11 human-decision gates (KYC and
-  the first-campaign review), oldest signup first because that is the triage order. It is
+  list of accounts waiting on a human, covering the R-11 KYC gate (the
+  first-campaign review it also covered was removed by D-783), oldest signup first because that is the triage order. It is
   also surfaced on the tenant directory, so the screen an operator already reads carries
   the flag. Built with **no RLS policy widened**: the directory under the admin session,
   then each tenant's own session asking the ordinary gate (`apps/api/admin/holds.py`
   argues the alternatives). `org:read`, not `admin:tenants` — D-22 forbids gating a GET on
   a permission a view-as session is refused, and the realm is what separates admin from
   client here. The row carries the account, its motion, its signup instant and the rule
-  names, and deliberately NO reason text, signatory or document reference: the rejection
-  reason interpolates an operator's free text, which belongs nowhere near the widest-read
+  names, and deliberately NO reason text, signatory or document reference: a reason can
+  interpolate free text, which belongs nowhere near the widest-read
   list in the console (hard rule 6). Read-only and unaudited by design — every decision
   taken from it writes its own entry.
-- **First-campaign review release** (`/admin/tenants/{id}/first-campaign-review`;
-  `POST /v1/admin/tenants/{tenant_id}/first-campaign-review`,
-  `admin:tenants`, audited, tenant in the PATH) — R-11's last mitigation and the ops half
-  of it (D-51). `approved` releases the ACCOUNT, not the campaign: this rule never blocks
-  another of its campaigns afterwards. `rejected` keeps it held and shows the client the
-  reviewer's words. It upserts, so a release can be withdrawn when complaints arrive and
-  granted again, and the history is `audit_log` rather than this row. No client-realm
-  twin and no request path — absence of a decision IS the held state.
 - **Client DLT Principal Entity registration**
   (`POST /v1/admin/tenants/{tenant_id}/dlt-registration`, `admin:tenants`) — upsert; the
   fact `launch_blockers` reads as `pe_registration_*` / `tm_link_not_active`. Deliberately

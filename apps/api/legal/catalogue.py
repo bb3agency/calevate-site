@@ -429,6 +429,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "hosted voice platform's signed ones. NOT MATERIAL: fewer recipients, and "
                 "nothing anybody receives changes.",
             ),
+            # D-781.
+            Revision(
+                "23",
+                True,
+                "D-781: section 3.2 says a person can attach files to the in-app assistant, "
+                "sent whole and unredacted to its language-model provider, not reviewed or "
+                "scanned, and deleted with the conversation and within 30 days; section 8 "
+                "says they go to the same providers and places. MATERIAL: new personal data "
+                "reaches a provider, unredacted.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -583,6 +593,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "carrier's. NOT MATERIAL: our own call program, which the definition also "
                 "named, is removed.",
             ),
+            # D-781.
+            Revision(
+                "17",
+                True,
+                "D-781: clause 5 makes the client responsible for files its people attach to "
+                "the in-app assistant (the right to share them, notice and consent), and says "
+                "they are not reviewed or scanned and are sent as they are; clause 14.2 adds "
+                "them to the client's indemnity. MATERIAL: a new obligation and a wider "
+                "indemnity.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -641,6 +661,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "regulator that asks, in the words the owner accepts with pledge version 2. "
                 "NOT MATERIAL: the client is asked for less, and the disclosure is accepted "
                 "through the pledge.",
+            ),
+            # D-783.
+            Revision(
+                "7",
+                False,
+                "D-783: section 2.8 no longer says a person reviews the first campaign of a "
+                "self-serve or trial account before it runs; that review was removed. NOT "
+                "MATERIAL: it described a step on Calevate's side, and the client is asked "
+                "for nothing new.",
             ),
         ),
         effective_date="2026-09-02",
@@ -790,6 +819,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "of which the live deployment used, and the callback bullet describes the "
                 "hosted voice platform's signed callbacks. NOT MATERIAL: fewer "
                 "sub-processors, and no warranty narrows.",
+            ),
+            # D-781.
+            Revision(
+                "15",
+                True,
+                "D-781: clause 2 and Annex A say files a client's user attaches to the "
+                "in-app assistant are the client's instruction, sent whole and unredacted to "
+                "its language-model provider, not reviewed or scanned, the client responsible "
+                "as Data Fiduciary, our security and deletion duties unchanged. MATERIAL: the "
+                "description of the processing and the client's duties change.",
             ),
         ),
         effective_date="2026-09-02",
@@ -1023,6 +1062,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "carries the extraction company's location, and section 3.7 covers only the "
                 "hosted voice platform. NOT MATERIAL: none was used on the live deployment, "
                 "and nobody who stays receives more.",
+            ),
+            # D-781.
+            Revision(
+                "22",
+                True,
+                "D-781: the object-storage and language-model rows and section 3.5 say files "
+                "a client's user attaches to the assistant are stored privately and sent whole "
+                "and unredacted, not reviewed or scanned, and deleted within 30 days. "
+                "MATERIAL: a sub-processor receives personal data for a new purpose.",
             ),
         ),
         effective_date="2026-09-02",

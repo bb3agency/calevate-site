@@ -235,15 +235,45 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
 
   it("warns before the server's own idle bound, and lands exactly on it", () => {
     // 25 + 5 = 30 minutes = `REALM_TIMEOUTS["admin"].idle`. The equality is the
-    // justification: the polling console keeps sliding the server's window, so this is
-    // what makes the 30 minutes mean what it says.
+    // justification: the console ends the session when the server would, measured from the
+    // person's activity rather than from request traffic.
     expect(idleWarningAfterMs(30 * 60) + ADMIN_IDLE_LOGOUT_MS).toBe(30 * 60 * 1000);
   });
 
-  it("extends when the refreshed session is still a complete admin session", async () => {
+  it("tells the server the operator is active, at most once a minute, so its idle clock follows them", async () => {
+    // Since live updates (D-774) polling can be five minutes apart and the change stream
+    // never slides the bound, so without this the server ended a present operator's
+    // session before the warning showed, and "Stay signed in" met a session already gone.
+    vi.useFakeTimers();
+    const calls = stubApi({ "GET /v1/auth/admin/session": ADMIN_SESSION });
+    render(<AdminIdleTimeoutModal session={ADMIN_SESSION} />);
+    const reads = () => calls.filter((c) => c.path.endsWith("/v1/auth/admin/session")).length;
+
+    await act(async () => {
+      fireEvent.keyDown(window);
+      fireEvent.mouseMove(window);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(reads()).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+      fireEvent.keyDown(window);
+    });
+    expect(reads()).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+      fireEvent.keyDown(window);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(reads()).toBe(2);
+  });
+
+  it("extends when the re-read session is still a complete admin session", async () => {
     vi.useFakeTimers();
     const calls = stubApi({
-      "POST /v1/auth/admin/session/refresh": ADMIN_SESSION,
+      "GET /v1/auth/admin/session": ADMIN_SESSION,
     });
     const view = render(<AdminIdleTimeoutModal session={ADMIN_SESSION} />);
 
@@ -255,17 +285,20 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    expect(calls.some((c) => c.path.endsWith("/session/refresh"))).toBe(true);
+    expect(calls.some((c) => c.path.endsWith("/v1/auth/admin/session"))).toBe(true);
+    // A read, never a rotation: rotating revoked the whole session whenever another tab's
+    // request was still carrying the old cookie.
+    expect(calls.some((c) => c.path.endsWith("/session/refresh"))).toBe(false);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(view.container.textContent).not.toContain("Still there?");
   });
 
-  it("signs out when the refreshed session is no longer a complete admin session", async () => {
+  it("signs out when the re-read session is no longer a complete admin session", async () => {
     vi.useFakeTimers();
     const calls = stubApi({
-      "POST /v1/auth/admin/session/refresh": {
+      "GET /v1/auth/admin/session": {
         ...ADMIN_SESSION,
         mfa_complete: false,
       },
@@ -288,7 +321,7 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
   it("does NOT sign out when the extension request simply failed", async () => {
     vi.useFakeTimers();
     const calls = stubApi({
-      "POST /v1/auth/admin/session/refresh": problem(503, {
+      "GET /v1/auth/admin/session": problem(503, {
         type: "urn:calevate:internal/unavailable",
         title: "Unavailable",
         detail: "Unavailable",
@@ -335,7 +368,7 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
        are asserted here: the exit is taken, AND the false sentence is not printed. */
     vi.useFakeTimers();
     const calls = stubApi({
-      "POST /v1/auth/admin/session/refresh": problem(401, {
+      "GET /v1/auth/admin/session": problem(401, {
         type: "https://calevate.tech/problems/unauthorized",
         title: "Sign in to continue",
         detail: "This session has ended.",
@@ -393,7 +426,7 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
   it("presses its own button without dismissing itself, and shows the failure", async () => {
     vi.useFakeTimers();
     stubApi({
-      "POST /v1/auth/admin/session/refresh": problem(503, {
+      "GET /v1/auth/admin/session": problem(503, {
         type: "urn:calevate:internal/unavailable",
         title: "Unavailable",
         detail: "Unavailable",
@@ -417,7 +450,7 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
 
   it("restarts the idle clock after an extension the server agreed to", async () => {
     vi.useFakeTimers();
-    stubApi({ "POST /v1/auth/admin/session/refresh": ADMIN_SESSION });
+    stubApi({ "GET /v1/auth/admin/session": ADMIN_SESSION });
     const view = render(<AdminIdleTimeoutModal session={ADMIN_SESSION} />);
 
     await warn();

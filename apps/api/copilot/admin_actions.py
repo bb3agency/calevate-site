@@ -361,96 +361,6 @@ ADMIN_KYC_REVIEW: Final = AdminActionTool(
 )
 
 
-class _FirstCampaignArgs(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    decision: Literal["approved", "rejected"]
-    note: str = Field(min_length=3, max_length=2000)
-
-
-async def _plan_first_campaign(
-    session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
-) -> Plan:
-    from apps.api.compliance.first_campaign import read_first_campaign_review
-
-    parsed = parse_args(_FirstCampaignArgs, args)
-    note = strip_invisible(parsed.note.strip())
-    if len(note) < 3:
-        raise WriteRefusedError("the decision needs a note saying what was reviewed")
-    tenant_id = _viewing(actor)
-    name = await _client_name(session, tenant_id)
-    review = await read_first_campaign_review(session, tenant_id=tenant_id)
-    return Plan(
-        object_id=str(tenant_id),
-        title="Release this client's campaign calling"
-        if parsed.decision == "approved"
-        else "Keep this client's campaign calling held",
-        summary=(
-            f"{'Release' if parsed.decision == 'approved' else 'Hold'} {name}'s campaigns, "
-            f"recording: “{note}”."
-            + (
-                " Their campaigns can then launch."
-                if parsed.decision == "approved"
-                else " They are shown why."
-            )
-        ),
-        current=review.status or "not reviewed",
-        proposed=parsed.decision,
-        cost=None,
-        reversal="The decision can be changed again from the client's page.",
-        args={"decision": parsed.decision, "note": note},
-    )
-
-
-async def _execute_first_campaign(
-    session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
-) -> Executed:
-    """`record_first_campaign_decision` — the first-campaign review button's call."""
-    from apps.api.compliance.first_campaign import record_first_campaign_decision
-
-    parsed = parse_args(_FirstCampaignArgs, args)
-    await record_first_campaign_decision(
-        session,
-        tenant_id=_viewing(actor),
-        status=parsed.decision,
-        note=parsed.note,
-        decided_by_admin_id=actor.admin_user_id,
-    )
-    return Executed(
-        applied=True,
-        detail="Recorded. The client's campaigns are "
-        + ("released." if parsed.decision == "approved" else "still held."),
-        audit_summary={
-            "decision": parsed.decision,
-            "note": parsed.note,
-            "reviewed_campaign_id": None,
-        },
-    )
-
-
-ADMIN_FIRST_CAMPAIGN_DECIDE: Final = AdminActionTool(
-    name="admin_first_campaign_decide",
-    tier="confirm",
-    permission="admin:tenants",
-    object_type="first_campaign_review",
-    audit_action="first_campaign_review.decided",
-    where="on the client's page, under its holds",
-    schema=action_schema(
-        "admin_first_campaign_decide",
-        "Propose releasing (or keeping held) the open client's campaign calling after their "
-        "first campaign was reviewed. The note says what was looked at." + PROPOSES_ONLY,
-        {
-            "decision": {"type": "string", "enum": ["approved", "rejected"]},
-            "note": {"type": "string", "description": "What was reviewed, or what was wrong."},
-        },
-    ),
-    plan=_plan_first_campaign,
-    execute=_execute_first_campaign,
-    confirm_action=None,
-    scope="tenant",
-)
-
-
 class _NoArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -674,14 +584,426 @@ ADMIN_VOICE_SET: Final = AdminActionTool(
 )
 
 
+# --- D-776: Pip works the auto-healer's problems -----------------------------------------
+#
+# Retry and resolve call `healer/decisions`, the functions behind the healer screen's two
+# buttons, with each button's permission, step-up and audit action. The attestation goes
+# through `billing/engine_minutes.attest_engine_minute_price` with the price screen's
+# permission and step-up, and the figure is the operator's: see `_AttestArgs`.
+
+
+async def _open_incident(session: AsyncSession, ref: str) -> Any:
+    from apps.api.healer import incidents
+
+    incident = await incidents.find(session, ref)
+    if incident is None:
+        raise WriteRefusedError(
+            "no healer problem has that reference; take the ref from `healer_incidents`"
+        )
+    if incident.resolved_at is not None:
+        raise WriteRefusedError("that problem is already closed, so there is nothing to do")
+    return incident
+
+
+def _incident_words(incident: Any) -> str:
+    from apps.api.healer import wording
+
+    return wording.incident_kind(incident.trigger_code).title
+
+
+class _IncidentArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    incident: str = Field(min_length=8, max_length=36)
+
+
+async def _plan_healer_retry(
+    session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
+) -> Plan:
+    from apps.api.healer import decisions, wording
+    from apps.api.healer.playbooks import PLAYBOOK_BY_KEY
+
+    del actor
+    parsed = parse_args(_IncidentArgs, args)
+    incident = await _open_incident(session, parsed.incident)
+    refusal = decisions.retry_refusal(incident)
+    if refusal is not None:
+        raise WriteRefusedError(refusal)
+    playbook = PLAYBOOK_BY_KEY[incident.playbook]
+    return Plan(
+        object_id=str(incident.id),
+        title="Run this repair's next step now",
+        summary=(
+            f"“{_incident_words(incident)}”: run {playbook.title.lower()}'s next step on the "
+            f"healer's next minute instead of waiting. {playbook.action} It then checks: "
+            f"{playbook.verify}"
+        ),
+        current=wording.progress(
+            playbook=incident.playbook,
+            automatic=playbook.automatic,
+            state=incident.state,
+            attempts=incident.attempts,
+            last_outcome=incident.last_outcome,
+            escalated=incident.escalated_at is not None,
+        ),
+        proposed="Next step due now",
+        cost=None,
+        reversal=f"Undo: {playbook.undo}",
+        args={"incident": str(incident.id)},
+    )
+
+
+async def _execute_healer_retry(
+    session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
+) -> Executed:
+    """`decisions.retry` — the healer screen's Check again now."""
+    from apps.api.healer import decisions, incidents
+
+    del actor
+    parsed = parse_args(_IncidentArgs, args)
+    incident = await incidents.find(session, parsed.incident)
+    if incident is None:
+        raise ProblemError.not_found("Incident")
+    await decisions.retry(session, incident)
+    return Executed(
+        applied=True,
+        detail="The healer runs its next step within a minute.",
+        audit_summary={"playbook": incident.playbook},
+    )
+
+
+HEALER_RETRY: Final = AdminActionTool(
+    name="healer_retry",
+    tier="confirm",
+    # `POST /v1/ops/healer/incidents/{id}/retry`'s permission; that button asks no step-up.
+    permission="ops:manage",
+    object_type="heal_incident",
+    audit_action="healer.incident_retried",
+    where="on the Auto-healer screen",
+    schema=action_schema(
+        "healer_retry",
+        "Propose running one healer problem's next repair step now instead of waiting for "
+        "its next check (take the ref from `healer_incidents`). Refused for a problem the "
+        "healer never acts on (money, a status post) and for a switched-off repair."
+        + PROPOSES_ONLY,
+        {"incident": {"type": "string", "description": "The problem's ref from the list."}},
+    ),
+    plan=_plan_healer_retry,
+    execute=_execute_healer_retry,
+    confirm_action=None,
+)
+
+
+class _ResolveArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    incident: str = Field(min_length=8, max_length=36)
+    reason: str = Field(min_length=3, max_length=300)
+
+
+async def _plan_healer_resolve(
+    session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
+) -> Plan:
+    from apps.api.healer import decisions
+    from apps.api.healer.playbooks import MONEY_REVIEW
+
+    del actor
+    parsed = parse_args(_ResolveArgs, args)
+    reason = strip_invisible(parsed.reason.strip())
+    if len(reason) < 3:
+        raise WriteRefusedError("closing a problem needs the operator's reason, in their words")
+    incident = await _open_incident(session, parsed.incident)
+    if incident.playbook in decisions.LINE_HOLDING:
+        effect = (
+            "Any client line it is holding is given back and any campaign it paused is "
+            "resumed, so do this only once the cause is fixed."
+        )
+    elif incident.playbook == MONEY_REVIEW:
+        effect = "No money moves and no call is re-priced; the rate in force is unchanged."
+    else:
+        effect = "The healer stops checking it."
+    return Plan(
+        object_id=str(incident.id),
+        title="Mark this problem as handled",
+        summary=f"Close “{_incident_words(incident)}”, recording: “{reason}”. {effect}",
+        current=incident.state,
+        proposed="resolved",
+        cost=None,
+        reversal="A closed problem is not reopened; the healer opens a new one if the alarm "
+        "comes back.",
+        args={"incident": str(incident.id), "reason": reason},
+    )
+
+
+async def _execute_healer_resolve(
+    session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
+) -> Executed:
+    """`decisions.resolve` — the healer screen's Mark as handled."""
+    from apps.api.healer import decisions, incidents
+
+    parsed = parse_args(_ResolveArgs, args)
+    incident = await incidents.find(session, parsed.incident)
+    if incident is None:
+        raise ProblemError.not_found("Incident")
+    closed = await decisions.resolve(
+        session,
+        incident,
+        actor_type="admin",
+        actor_id=actor.admin_user_id,
+        reason=parsed.reason,
+    )
+    return Executed(
+        applied=closed,
+        detail="Marked as handled." if closed else "It was already closed.",
+        audit_summary={
+            "playbook": incident.playbook,
+            "was": incident.state,
+            "reason": parsed.reason,
+        },
+    )
+
+
+def _resolve_confirmation(args: Mapping[str, Any]) -> str:
+    from apps.api.healer.routes import resolve_confirmation
+
+    return resolve_confirmation(UUID(str(args["incident"])))
+
+
+HEALER_RESOLVE: Final = AdminActionTool(
+    name="healer_resolve",
+    tier="confirm",
+    permission="ops:manage",
+    object_type="heal_incident",
+    audit_action="healer.incident_resolved",
+    where="on the Auto-healer screen",
+    schema=action_schema(
+        "healer_resolve",
+        "Propose closing one healer problem as handled, with the operator's reason. A "
+        "problem holding a client's line gives the line back. It needs the operator's "
+        "second factor, as the screen's button does." + PROPOSES_ONLY,
+        {
+            "incident": {"type": "string", "description": "The problem's ref from the list."},
+            "reason": {
+                "type": "string",
+                "description": "Why it is handled, in the operator's own words.",
+            },
+        },
+    ),
+    plan=_plan_healer_resolve,
+    execute=_execute_healer_resolve,
+    confirm_action=_resolve_confirmation,
+)
+
+
+class _AttestArgs(BaseModel):
+    """The figure is the operator's, read in the voice platform's console. Pip may show the
+    rate a charge implies as evidence, and `operator_typed_it` is the same kind of
+    statement `pan_checked` is on the KYC review: the model is told to set it only when the
+    operator typed the figure, the card shows the figure and its source back to them, and
+    their second factor is what attests it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rate_key: str = Field(min_length=1, max_length=32)
+    inr_per_min: str = Field(min_length=1, max_length=32)
+    effective_from: datetime | None = None
+    source_note: str = Field(min_length=3, max_length=500)
+    operator_typed_it: bool
+    resolve: list[str] = Field(default_factory=list, max_length=10)
+
+
+async def _plan_healer_attest(
+    session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
+) -> Plan:
+    from apps.api.billing.engine_minutes import (
+        ATTESTED_MINUTE_ENGINES,
+        ENGINE_RATE_KEYS,
+        attested_minute_prices,
+        cost_with_fee,
+        topup_fee,
+    )
+    from apps.api.core.settings import get_settings
+    from apps.api.healer.money import ist
+    from apps.api.healer.playbooks import MONEY_REVIEW
+    from apps.api.ops.engine_minute_routes import parse_minute_rate
+
+    parsed = parse_args(_AttestArgs, args)
+    engine = get_settings().engine
+    if engine not in ATTESTED_MINUTE_ENGINES:
+        raise WriteRefusedError("this deployment's voice platform is not priced by the minute")
+    if parsed.rate_key not in ENGINE_RATE_KEYS:
+        raise WriteRefusedError(f"the rate key must be one of {', '.join(ENGINE_RATE_KEYS)}")
+    if not parsed.operator_typed_it:
+        raise WriteRefusedError(
+            "a rate is attested only from a figure the operator read in the voice platform's "
+            "console and typed here; ask them for it, never take it from the charges"
+        )
+    try:
+        rate = parse_minute_rate(parsed.inr_per_min)
+    except ProblemError:
+        raise WriteRefusedError(
+            "that is not a per-minute rupee figure; ask the operator to type it, like 2.50"
+        ) from None
+    source = strip_invisible(parsed.source_note.strip())
+    if len(source) < 3:
+        raise WriteRefusedError("say where the operator read the figure")
+    if parsed.effective_from is not None and parsed.effective_from.tzinfo is None:
+        raise WriteRefusedError("the effective time needs a timezone")
+    effective = parsed.effective_from or datetime.now(UTC)
+    if parsed.resolve and not role_has(actor.role, "ops:manage"):
+        raise WriteRefusedError("this operator's role may not close healer problems")
+    closing = []
+    for ref in parsed.resolve:
+        incident = await _open_incident(session, ref)
+        if incident.playbook != MONEY_REVIEW:
+            raise WriteRefusedError("only money problems are closed by attesting a rate")
+        closing.append(incident)
+    held = (await attested_minute_prices(session, engine=engine, at=datetime.now(UTC))).get(
+        parsed.rate_key
+    )
+    fee = topup_fee(engine)
+    titles = "; ".join(f"“{_incident_words(i)}”" for i in closing)
+    return Plan(
+        object_id=f"{engine}:{parsed.rate_key}",
+        title=f"Attest the {parsed.rate_key} rate you read",
+        summary=(
+            f"Record ₹{rate} per billed minute as the voice platform's posted {parsed.rate_key} "
+            f"rate from {ist(effective)}, as you read it at: “{source}”. Calls are then "
+            f"metered at ₹{cost_with_fee(rate, fee=fee)} with the "
+            f"{format((fee * 100).normalize(), 'f')}% top-up fee. "
+            "Calls already metered are not re-priced."
+            + (f" Closes {len(closing)} money problem(s): {titles}." if closing else "")
+        ),
+        current=f"₹{held.inr_per_min}/min" if held else "not attested",
+        proposed=f"₹{rate}/min",
+        cost=None,
+        reversal="An attested rate is never edited; a wrong figure is corrected by attesting "
+        "again from a new time.",
+        args={
+            "rate_key": parsed.rate_key,
+            "inr_per_min": str(rate),
+            "effective_from": effective.isoformat(),
+            "source_note": source,
+            "operator_typed_it": True,
+            "resolve": [str(i.id) for i in closing],
+        },
+    )
+
+
+async def _execute_healer_attest(
+    session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
+) -> Executed:
+    """`attest_engine_minute_price` — the price screen's Attest — then each named money
+    problem closed in the same transaction, so neither lands without the other."""
+    from apps.api.billing.engine_minutes import attest_engine_minute_price
+    from apps.api.core.settings import get_settings
+    from apps.api.healer import decisions, incidents
+    from apps.api.ops.engine_minute_routes import parse_minute_rate
+
+    parsed = parse_args(_AttestArgs, args)
+    engine = get_settings().engine
+    attested = await attest_engine_minute_price(
+        session,
+        engine=engine,
+        rate_key=parsed.rate_key,
+        inr_per_min=parse_minute_rate(parsed.inr_per_min),
+        effective_from=parsed.effective_from or datetime.now(UTC),
+        source_note=parsed.source_note,
+        actor_id=actor.admin_user_id,
+    )
+    closed = []
+    for ref in parsed.resolve:
+        incident = await incidents.find(session, ref)
+        if incident is not None and await decisions.resolve(
+            session,
+            incident,
+            actor_type="admin",
+            actor_id=actor.admin_user_id,
+            reason=f"attested the {parsed.rate_key} rate at ₹{attested.inr_per_min}/min",
+        ):
+            closed.append(str(incident.id))
+    return Executed(
+        applied=True,
+        detail=f"The {parsed.rate_key} rate is attested at ₹{attested.inr_per_min} per minute"
+        + (f", and {len(closed)} money problem(s) are closed." if closed else "."),
+        audit_summary={
+            "engine": engine,
+            "rate_key": parsed.rate_key,
+            "inr_per_min": str(attested.inr_per_min),
+            "effective_from": attested.effective_from.isoformat(),
+            "source_note": attested.source_note,
+            "resolved_incidents": closed,
+        },
+    )
+
+
+def _attest_confirmation(args: Mapping[str, Any]) -> str:
+    from apps.api.core.settings import get_settings
+    from apps.api.ops.engine_minute_routes import engine_minute_confirmation
+
+    return engine_minute_confirmation(get_settings().engine, str(args["rate_key"]))
+
+
+HEALER_ATTEST_RATE: Final = AdminActionTool(
+    name="healer_attest_rate",
+    tier="confirm",
+    # `POST /v1/ops/engine-minute-prices/{engine}/{rate}`'s permission and step-up.
+    permission="platform:config",
+    object_type="platform_engine_minute_prices",
+    audit_action="platform.engine_minute_price_attested",
+    where="on the Rates screen, under engine minute prices",
+    schema=action_schema(
+        "healer_attest_rate",
+        "Propose attesting the voice platform's posted per-minute rate, before its top-up "
+        "fee, to fix a money problem, and close the money problems it explains. The figure "
+        "MUST be one the operator typed after reading it in the voice platform's console: "
+        "never a rate worked back from charges, never a number you chose. It needs the "
+        "operator's second factor." + PROPOSES_ONLY,
+        {
+            "rate_key": {
+                "type": "string",
+                "description": "Which rate: platform, standard, premium, studio, byok_voice "
+                "or byok_llm_voice (the call evidence names it).",
+            },
+            "inr_per_min": {
+                "type": "string",
+                "description": "Rupees per billed minute exactly as the operator typed it.",
+            },
+            "effective_from": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "description": "ISO time with timezone the rate took effect, or null for now.",
+            },
+            "source_note": {
+                "type": "string",
+                "description": "Where the operator read it, in their words.",
+            },
+            "operator_typed_it": {
+                "type": "boolean",
+                "description": "True only if the operator typed this figure themselves.",
+            },
+            "resolve": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Refs of the open money problems this rate explains.",
+            },
+        },
+    ),
+    plan=_plan_healer_attest,
+    execute=_execute_healer_attest,
+    confirm_action=_attest_confirmation,
+)
+
+
 #: Registration order is wire order. New actions APPEND.
 ADMIN_ACTIONS: Final[tuple[AdminActionTool, ...]] = (
     PLATFORM_HALT_OUTBOUND,
     ADMIN_KYC_REVIEW,
-    ADMIN_FIRST_CAMPAIGN_DECIDE,
     ADMIN_WORKSPACE_PROVISION,
     ADMIN_NUMBER_RELEASE,
     ADMIN_VOICE_SET,
+    HEALER_RETRY,
+    HEALER_RESOLVE,
+    HEALER_ATTEST_RATE,
 )
 
 _BY_NAME: Final[dict[str, AdminActionTool]] = {tool.name: tool for tool in ADMIN_ACTIONS}

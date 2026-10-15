@@ -43,6 +43,7 @@ import OpsAlertsPage from "@/app/admin/ops/alerts/page";
 import OpsHealerPage from "@/app/admin/ops/healer/page";
 import PaymentsPage from "@/app/admin/payments/page";
 import ReplyTimesPage from "@/app/admin/ops/reply-times/page";
+import WhatsAppAdminPage from "@/app/admin/ops/whatsapp/page";
 import SpokenStylePage from "@/app/admin/ops/spoken-style/page";
 import VoicesPage from "@/app/admin/ops/voices/page";
 import OperatorsPage from "@/app/admin/operators/page";
@@ -54,7 +55,6 @@ import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/pro
 import FeatureFlagsPage from "@/app/admin/tenants/[tenantId]/feature-flags/page";
 import LlmModelPage from "@/app/admin/tenants/[tenantId]/llm-model/page";
 import TenantCallHandlingPage from "@/app/admin/tenants/[tenantId]/call-handling/page";
-import FirstCampaignReviewPage from "@/app/admin/tenants/[tenantId]/first-campaign-review/page";
 import TenantInvoicePage from "@/app/admin/tenants/[tenantId]/invoice/page";
 import TenantKycPage from "@/app/admin/tenants/[tenantId]/kyc/page";
 import PreferenceScrubPage from "@/app/admin/tenants/[tenantId]/dnd-scrub/page";
@@ -68,7 +68,6 @@ import AiAssistPage from "@/app/c/[slug]/ai-assist/page";
 import AttentionPage from "@/app/c/[slug]/attention/page";
 import CallDetailPage from "@/app/c/[slug]/calls/[callId]/page";
 import CallsPage from "@/app/c/[slug]/calls/page";
-import CampaignReviewPage from "@/app/c/[slug]/campaign-review/page";
 import CampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/page";
 import EditCampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/edit/page";
 import NewCampaignPage from "@/app/c/[slug]/campaigns/new/page";
@@ -137,6 +136,7 @@ import { renderAdminRoute } from "./adminRoute";
 import { hubUsageIdle } from "./billingHub";
 import { workspaceRoutes } from "./copilotWorkspaceFixture";
 import { noReply, problem, renderClientPage, type Routes } from "./harness";
+import { ADMIN_WHATSAPP, WHATSAPP_OFF_ROUTES } from "./fixtures/whatsapp";
 import { adminBusinessProfileFixture, businessProfileFixture } from "./businessProfileFixture";
 import { RATE_CARD_ROUTES } from "./fixtures/rateCard";
 import { LEAD_CALLING_ROUTES } from "./fixtures/leadCalling";
@@ -2792,23 +2792,6 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
-    file: "c/[slug]/campaign-review/page.tsx",
-    realm: "client",
-    element: () => <CampaignReviewPage />,
-    routes: {
-      "/v1/me": ME,
-      "/v1/compliance/first-campaign-review": {
-        required: true,
-        status: "pending",
-        submitted_at: "2026-08-12T09:00:00Z",
-        decided_at: null,
-        reviewer_note: null,
-        campaign_id: "camp-1",
-        campaign_name: "Diwali offer",
-      },
-    },
-  },
-  {
     // The list: status filters, search, rows and pagination.
     file: "c/[slug]/campaigns/page.tsx",
     realm: "client",
@@ -2953,6 +2936,7 @@ const CLIENT_SCREENS: Screen[] = [
     routes: {
       "/v1/me": ME,
       "/v1/integrations/credentials": [],
+      ...WHATSAPP_OFF_ROUTES,
       "/v1/integrations/connections/status": {
         google_calendar: false,
         zoho_crm: false,
@@ -4301,6 +4285,19 @@ const ADMIN_SCREENS: Screen[] = [
     },
   },
   {
+    // Clients' WhatsApp (D-784): a configured app, a week partly used, one connected client.
+    file: "admin/ops/whatsapp/page.tsx",
+    realm: "admin",
+    element: () => <WhatsAppAdminPage />,
+    routes: {
+      "/v1/admin/me": {
+        ...ADMIN_ME,
+        permissions: [...ADMIN_ME.permissions, "admin:tenants"],
+      },
+      "/v1/admin/whatsapp": ADMIN_WHATSAPP,
+    },
+  },
+  {
     // Ops > Spoken style (D-744): one entry of every kind and every status, so the chips,
     // the retired row, the example lines and the publish form are all swept.
     file: "admin/ops/spoken-style/page.tsx",
@@ -4831,24 +4828,6 @@ const ADMIN_SCREENS: Screen[] = [
               "This promotional campaign's list has not been scrubbed against the national customer preference register.",
           },
         ],
-      },
-    },
-  },
-  {
-    file: "admin/tenants/[tenantId]/first-campaign-review/page.tsx",
-    realm: "admin",
-    element: () => <FirstCampaignReviewPage params={tenant} />,
-    routes: {
-      "/v1/campaigns": [CAMPAIGN],
-      ...TENANT_ROUTES,
-      "/v1/compliance/first-campaign-review": {
-        required: true,
-        status: "pending",
-        submitted_at: "2026-08-12T09:00:00Z",
-        decided_at: null,
-        reviewer_note: null,
-        campaign_id: "camp-1",
-        campaign_name: "Diwali offer",
       },
     },
   },

@@ -34,6 +34,7 @@ from calevate_shared.engine import (
     ModelConfig,
     carries_truthful_answer_floor,
     compose_engine_prompt,
+    platform_rules_preamble,
 )
 
 #: The script that motivated the change, written the way a tenant would actually write it.
@@ -86,9 +87,10 @@ def test_the_platform_rules_are_stated_before_and_after_the_client_script() -> N
     it then reads, and is what survives a script long enough to push the ending out of
     attention — the case a tenant reaches by writing a long prompt, with no intent at all.
     """
-    prompt = compose_engine_prompt(_config(HOSTILE_SCRIPT))
+    config = _config(HOSTILE_SCRIPT)
+    prompt = compose_engine_prompt(config)
 
-    assert prompt.startswith(PLATFORM_RULES_PREAMBLE), (
+    assert prompt.startswith(platform_rules_preamble(config)), (
         "the preamble is not first; a client script that redefines the agent would be read "
         "before anything told the model what it may not redefine"
     )
@@ -159,7 +161,8 @@ def test_an_agent_with_no_script_gets_no_empty_fence() -> None:
 
 def test_an_agent_with_neither_script_nor_opening_line_still_carries_the_rules() -> None:
     """Both notices off (D-163) and no script: the floor is not a function of either."""
-    prompt = compose_engine_prompt(_config("", opening=""))
-    assert prompt.startswith(PLATFORM_RULES_PREAMBLE)
+    config = _config("", opening="")
+    prompt = compose_engine_prompt(config)
+    assert prompt.startswith(platform_rules_preamble(config))
     assert carries_truthful_answer_floor(prompt)
     assert "\n\n\n" not in prompt, "an empty limb left a hole in the rendering"

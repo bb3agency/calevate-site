@@ -3,8 +3,8 @@
 WHY THIS EXISTS. Every condition below already had a gate. None of them had a SCREEN:
 `launch_blockers` renders them the moment somebody presses Launch, `check_dispatch`
 renders one of them on a disabled button, and a client who has not yet built a campaign
-had no way to find out that their DLT entity was never linked or that their first campaign
-is waiting on a human. The worst moment to learn what a launch needs is while pressing
+had no way to find out that their DLT entity was never linked or that their identity
+check is waiting on a human. The worst moment to learn what a launch needs is while pressing
 Launch.
 
 THE SET IS THE ORGANISATION-LEVEL ONE, DELIBERATELY, AND THE LINE IS NOT ARBITRARY.
@@ -21,8 +21,8 @@ client's action does not vary by campaign: they cannot scrub anything — it is 
 — so "two of your campaigns are waiting on us" is the whole of the actionable fact.
 
 EVERY REASON COMES FROM THE PREDICATE THAT ALREADY OWNS IT. This module composes
-`account_stopped_blocker`, `kyc_blocker`, `outbound_pledge_blocker`,
-`first_campaign_hold_blocker`, `spend_capped`, `credits_exhausted`,
+`account_stopped_blocker`, `kyc_blocker`, `outbound_pledge_blocker`, `spend_capped`,
+`credits_exhausted`,
 `legal.service.agreements_blocker` and the platform halt — the same functions the gates
 call, returning the same `(rule, reason)` pairs. Nothing here re-derives a verdict, for the
 reason `lib/api/aiQuota.ts` states one level up: a second implementation of a compliance
@@ -49,7 +49,6 @@ from apps.api.compliance.service import (
     SPEND_CAP_REASON,
     account_stopped_blocker,
     credits_exhausted,
-    first_campaign_hold_blocker,
     kyc_blocker,
     outbound_pledge_blocker,
     spend_capped,
@@ -204,19 +203,6 @@ ROW_COPY: dict[str, _Copy] = {
             "link is active nobody may dial on your behalf, whatever else is in order."
         ),
     ),
-    "first_campaign_review_pending": _Copy(
-        title="Your first campaign is with us for review",
-        actor="calevate",
-        next_step=(
-            "Nothing to do at your end. A person here checks the first campaign of every "
-            "self-serve account before it dials."
-        ),
-    ),
-    "first_campaign_review_rejected": _Copy(
-        title="Your first campaign was not released",
-        actor="client",
-        next_step="The reason is beside this item. Fix what it names and ask us to look again.",
-    ),
     "spend_cap": _Copy(
         title="Monthly spending cap reached",
         actor="client",
@@ -323,10 +309,6 @@ async def readiness_rows(
     agreements = await legal_service.agreements_blocker(session, tenant_id=tenant_id)
     if agreements is not None:
         rows.append(_row(*agreements))
-
-    held = await first_campaign_hold_blocker(session, tenant_id=tenant_id)
-    if held is not None:
-        rows.append(_row(*held))
 
     if await spend_capped(session, tenant_id=tenant_id):
         rows.append(_row("spend_cap", SPEND_CAP_REASON))

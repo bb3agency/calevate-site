@@ -11,8 +11,8 @@ import {
 } from "@/lib/api/holds";
 
 /**
- * The ops queue FAILS VISIBLE — the opposite direction from `firstCampaignState`, on
- * purpose, and that opposition is the thing worth pinning down.
+ * The ops queue FAILS VISIBLE — the opposite direction from the client's own gate screens,
+ * on purpose, and that opposition is the thing worth pinning down.
  *
  * The client's screen must never render a held account as clear, so its unknown case
  * stays held. The operator's queue must never render a held account as gone, so its

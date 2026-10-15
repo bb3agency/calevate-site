@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
 
 import { problem, renderClientPage, type Routes } from "./harness";
+import { WHATSAPP_OFF_ROUTES } from "./fixtures/whatsapp";
 
 // Google's picker runs in Google's own iframe; here it answers as if the owner chose a file.
 vi.mock("@/lib/googlePicker", () => ({
@@ -131,6 +132,7 @@ function render(over: Partial<Routes> = {}) {
     "/v1/me": OWNER,
     "/v1/integrations/credentials": [SHEETS_CONNECTION],
     [PICKER_PATH]: PICKER,
+    ...WHATSAPP_OFF_ROUTES,
     "/v1/integrations/connections/status": {
       google_calendar: false,
       google_sheets: true,

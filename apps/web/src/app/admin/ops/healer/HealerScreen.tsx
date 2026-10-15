@@ -7,6 +7,8 @@ import { useState } from "react";
 import { useAdminAccess } from "@/app/admin/access";
 import { lookup } from "@/lib/lookup";
 import { StatusPill } from "@/components/admin/kit";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
+import { PipMark } from "@/components/illustration/pip";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
@@ -16,6 +18,7 @@ import {
   FIELD,
   FIELD_LABEL,
   MonoValue,
+  NOTICE_BAR,
   NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
@@ -37,6 +40,7 @@ import {
   type HealerOverview,
   type StatusComponentKey,
 } from "@/lib/api/opsHealer";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
 const COMPONENTS: { value: StatusComponentKey; label: string }[] = [
   { value: "calls", label: "Phone calls" },
@@ -79,8 +83,10 @@ const OUTCOME_WORDS: Record<HealerAction["outcome"], string> = {
 };
 
 /**
- * The auto-healer, for the operator: whether it is on, where pages go, what it is working
- * on, what each playbook may do, and everything it did. The kill switches are console
+ * The auto-healer, for the operator, as Pip's own repair work (D-776): whether it is on,
+ * where pages go, what it is working on, what each playbook may do, and everything it did.
+ * Each open problem hands Pip its ref, so the operator can ask Pip to investigate and fix it
+ * through Pip's confirmed actions. The kill switches are console
  * settings (`healer_enabled`, `healer_paused_playbooks`); this screen shows them and links
  * to where they are changed rather than being a second writer.
  */
@@ -89,7 +95,17 @@ export function HealerScreen() {
   const overview = useHealerOverview();
   return (
     <div className="max-w-4xl space-y-10 pb-12">
-      <PageHeader description="Problems the platform found, what it fixed on its own, and what needs you." />
+      <PageHeader
+        description={
+          <span className="inline-flex items-start gap-2">
+            <PipMark size={20} className="mt-0.5 shrink-0" />
+            <span>
+              {ASSISTANT_NAME} watches the platform: the problems it found, what it fixed on its
+              own, and what needs you.
+            </span>
+          </span>
+        }
+      />
       {access.refused ? (
         <RestrictionNote reason={access.reason} />
       ) : (
@@ -172,7 +188,7 @@ function Overview({ data }: { data: HealerOverview }) {
           label="Waiting for you"
           value={data.escalated_incidents}
           tone={data.escalated_incidents > 0 ? "warn" : "default"}
-          hint="The healer could not fix these on its own."
+          hint={`${ASSISTANT_NAME} could not fix these on its own.`}
         />
         <Metric
           label="Repairs switched off"
@@ -276,6 +292,15 @@ function IncidentRow({
         {incident.resolved_at && <> · Closed {formatIST(incident.resolved_at)}</>}
         {incident.public && <> · On the status page</>}
       </p>
+      {incident.finding && incident.resolved_at === null && (
+        <p
+          data-notice="neutral"
+          className={`border-l-2 py-1 pl-3 text-meta text-ink ${NOTICE_BAR.neutral}`}
+        >
+          <span className="font-medium">{ASSISTANT_NAME} found: </span>
+          {incident.finding}
+        </p>
+      )}
       {incident.state === "escalated" && (
         <p className="text-meta text-ink">
           <span className="font-medium">What to do: </span>
@@ -284,6 +309,7 @@ function IncidentRow({
       )}
       {incident.resolved_at === null && (
         <div className="flex flex-wrap items-center gap-2 pt-1">
+          <AskAssistant label={`Ask ${ASSISTANT_NAME} to fix this`} prompt={fixPrompt(incident)} />
           {incident.automatic && (
             <button
               type="button"
@@ -307,6 +333,11 @@ function IncidentRow({
               </p>
             )}
             <p>
+              <span className="font-medium text-ink">Ask {ASSISTANT_NAME} to fix this</span>{" "}
+              opens {ASSISTANT_NAME} with this problem. It reads the trail and the evidence,
+              explains it, and suggests the fix; nothing changes until you confirm.
+            </p>
+            <p>
               <span className="font-medium text-ink">Mark as handled</span> closes it. Any
               line it is holding is given back and any campaign it paused is resumed, so do
               this only once the cause is fixed. You confirm first.
@@ -316,6 +347,12 @@ function IncidentRow({
       )}
     </li>
   );
+}
+
+/** What the "Ask Pip to fix this" button writes in Pip's ask box; the ref is what Pip's healer
+ *  tools look the problem up by. */
+export function fixPrompt(incident: HealerIncident): string {
+  return `Look into the healer problem “${incident.kind.title}” (ref ${incident.ref}) and fix what you can.`;
 }
 
 function StatusPost() {
@@ -378,7 +415,7 @@ function StatusPost() {
 
 function Playbooks({ data }: { data: HealerOverview }) {
   return (
-    <Section title="What it can fix">
+    <Section title={`What ${ASSISTANT_NAME} can fix on its own`}>
       <ul className="divide-y divide-line">
         {data.playbooks.map((p) => (
           <li key={p.key} className="space-y-1 py-3 first:pt-0 last:pb-0">
@@ -429,7 +466,7 @@ function Playbooks({ data }: { data: HealerOverview }) {
 function Ledger({ titles }: { titles: Record<string, string> }) {
   const actions = useHealerActions(null);
   return (
-    <Section title="What it did">
+    <Section title={`What ${ASSISTANT_NAME} did`}>
       {actions.error != null && (
         <ProblemNotice error={actions.error} onRetry={() => actions.refetch()} />
       )}

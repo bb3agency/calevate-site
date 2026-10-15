@@ -426,7 +426,14 @@ async def test_every_platform_tool_is_gated_on_a_permission_no_client_role_holds
     # D-698: two boards whose console screens are superadmin-only (`ops:manage`) keep that
     # permission here; widening them to every operator would be the way around the screen
     # this test exists to forbid.
-    superadmin_only = {"admin_alerts", "admin_voices"}
+    superadmin_only = {
+        "admin_alerts",
+        "admin_voices",
+        # D-776: the auto-healer screen is `ops:manage`.
+        "healer_incidents",
+        "healer_incident",
+        "healer_money_review",
+    }
     for tool in admin_tools.ADMIN_READ_TOOLS:
         assert tool.scope == "platform"
         assert not role_has("owner", tool.permission)

@@ -55,7 +55,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Final
+from typing import Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -243,9 +243,12 @@ def _insert_sql(realm: Realm) -> str:
     if realm.context_column is not None:
         columns.append(_identifier(realm.context_column, "context column"))
         values.append(":context")
+    # `ON CONFLICT (id) DO NOTHING` because the id can come from the browser (D-782): a
+    # repeated request with the same turn id stores one row, and an id that is already
+    # somebody else's stores nothing rather than raising.
     return (
         f"INSERT INTO {table} ({', '.join(columns)}, created_at, updated_at) "
-        f"VALUES ({', '.join(values)}, now(), now())"
+        f"VALUES ({', '.join(values)}, now(), now()) ON CONFLICT (id) DO NOTHING"
     )
 
 
@@ -341,11 +344,10 @@ async def append_exchange(
     question: str,
     answer: str,
 ) -> int:
-    """Store one question and its answer. Returns how many rows were written (0, 1 or 2).
-
-    IN THE CALLER'S TRANSACTION, and it must be, for `memory.remember_exchange`'s reason:
-    `copilot/routes.py` calls this inside the session that already writes the meter and
-    the audit, so a stored turn and the record of the answer it came from share a fate.
+    """Store one question and its answer in one transaction, under fresh ids. Returns how
+    many rows were written (0, 1 or 2). The ask routes store the two halves separately
+    through `append_turn` (D-782); this is the whole-exchange form for callers that have
+    both at once.
 
     TWO ROWS, NOT ONE. The memory table stores an exchange as one "Asked: … Answered: …"
     blob because a prompt reads it as one fact; a transcript is rendered as bubbles, and a
@@ -360,29 +362,69 @@ async def append_exchange(
     into a 500 — `redacted_content` is written to the same contract.
     """
     written = 0
-    for role, spoken in (("user", question), ("assistant", answer)):
-        content = redacted_content(spoken)
-        if not content:
-            continue
-        await session.execute(
-            text(_insert_sql(realm)),
-            {
-                "id": uuid7(),
-                "tenant_id": tenant_id,
-                "owner": owner_id,
-                "run": run_started_at,
-                "role": role,
-                "content": content,
-                "route": screen_route[:200],
-                "context": tenant_id,
-            },
+    halves: tuple[tuple[Literal["user", "assistant"], str], ...] = (
+        ("user", question),
+        ("assistant", answer),
+    )
+    for role, spoken in halves:
+        stored = await append_turn(
+            session,
+            realm=realm,
+            turn_id=uuid7(),
+            owner_id=owner_id,
+            tenant_id=tenant_id,
+            run_started_at=run_started_at,
+            screen_route=screen_route,
+            role=role,
+            spoken=spoken,
         )
-        written += 1
-    if written:
-        # AFTER the insert, not before: trimming first would evict a turn to make room and
-        # then leave the conversation one short of its own ceiling.
-        await _drop_stale(session, realm, owner=owner_id, run=run_started_at, keep=MAX_STORED_TURNS)
+        written += int(stored)
     return written
+
+
+async def append_turn(
+    session: AsyncSession,
+    *,
+    realm: Realm,
+    turn_id: UUID,
+    owner_id: UUID,
+    tenant_id: UUID | None,
+    run_started_at: datetime,
+    screen_route: str,
+    role: Literal["user", "assistant"],
+    spoken: str,
+) -> bool:
+    """Store ONE turn under `turn_id`. True when a row was written.
+
+    The ask routes store the question as soon as the gate admits it and the answer when the
+    run ends (D-782), each in its own transaction, so another device sees the question
+    while Pip is still answering it. The id is the browser's when it sent one, which is what
+    lets the device that asked recognise its own turns in the stored page instead of
+    counting them. Same contract as `append_exchange`: redacted, never raises on content,
+    and an empty redaction stores nothing.
+    """
+    content = redacted_content(spoken)
+    if not content:
+        return False
+    result = await session.execute(
+        text(_insert_sql(realm)),
+        {
+            "id": turn_id,
+            "tenant_id": tenant_id,
+            "owner": owner_id,
+            "run": run_started_at,
+            "role": role,
+            "content": content,
+            "route": screen_route[:200],
+            "context": tenant_id,
+        },
+    )
+    if not rowcount_of(result):
+        return False
+    # AFTER the insert, not before: trimming first would evict a turn to make room and
+    # then leave the conversation one short of its own ceiling.
+    await _drop_stale(session, realm, owner=owner_id, run=run_started_at, keep=MAX_STORED_TURNS)
+    return True
 
 
 async def clear(session: AsyncSession, *, realm: Realm, owner_id: UUID) -> int:
@@ -417,8 +459,9 @@ def turn_cursor(before: str | None) -> UUID | None:
         return None
 
 
-def conversation_out(page: ConversationPage) -> CopilotConversationOut:
+def conversation_out(page: ConversationPage, *, answering: bool = False) -> CopilotConversationOut:
     return CopilotConversationOut(
+        answering=answering,
         turns=[
             CopilotStoredTurnOut(
                 id=str(turn.id),
@@ -445,6 +488,7 @@ __all__ = [
     "Realm",
     "StoredTurn",
     "append_exchange",
+    "append_turn",
     "clear",
     "conversation_out",
     "load",

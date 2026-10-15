@@ -609,6 +609,7 @@ async def assist_call(
             # about another module's control flow, made in this one.
             tenant_leg=tenant_leg,
             quota_exhausted=quota.at_ceiling,
+            languages=source.languages,
         )
     except Exception:
         # NOTHING HAS BEEN PAID FOR ON ANY PATH THAT REACHES HERE, so the key is released

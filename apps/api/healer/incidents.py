@@ -237,6 +237,79 @@ async def list_incidents(
     return [_incident(r) for r in rows]
 
 
+def short_ref(incident_id: UUID) -> str:
+    """The last eight hex digits: what a person reads and types for an incident. The tail
+    of a uuid7 is random, whereas its head is the opening millisecond and repeats for
+    incidents opened together."""
+    return incident_id.hex[-8:]
+
+
+async def find(session: AsyncSession, ref: str) -> Incident | None:
+    """The incident a full id or a `short_ref` names, or None (also when a short ref is
+    ambiguous)."""
+    cleaned = ref.strip().lower()
+    try:
+        return await read_incident(session, UUID(cleaned))
+    except ValueError:
+        pass
+    if len(cleaned) != 8 or any(c not in "0123456789abcdef" for c in cleaned):
+        return None
+    rows = (
+        await session.execute(
+            text(
+                f"SELECT {_COLUMNS} FROM heal_incidents "
+                "WHERE right(replace(CAST(id AS text), '-', ''), 8) = :ref LIMIT 2"
+            ),
+            {"ref": cleaned},
+        )
+    ).all()
+    return _incident(rows[0]) if len(rows) == 1 else None
+
+
+async def retry_now(session: AsyncSession, incident_id: UUID) -> bool:
+    """Make an unresolved incident due on the healer's next tick."""
+    result = await session.execute(
+        text(
+            "UPDATE heal_incidents SET next_attempt_at = now(), updated_at = now() "
+            "WHERE id = :id AND resolved_at IS NULL"
+        ),
+        {"id": incident_id},
+    )
+    return bool(getattr(result, "rowcount", 0))
+
+
+async def close_by_person(session: AsyncSession, incident_id: UUID) -> bool:
+    """Resolve an incident a person handled. Lines it holds are given back first, by the
+    caller (`apps/workers/healer.restore_by_person`)."""
+    result = await session.execute(
+        text(
+            "UPDATE heal_incidents SET state = 'resolved', resolved_at = now(), "
+            "last_outcome = 'restored_by_person', updated_at = now() WHERE id = :id "
+            "AND resolved_at IS NULL"
+        ),
+        {"id": incident_id},
+    )
+    return bool(getattr(result, "rowcount", 0))
+
+
+async def resolved_since(session: AsyncSession, key: str, since: datetime) -> bool:
+    """Whether an incident under `key` was resolved at or after `since`.
+
+    An alarm episode stays open for an hour of quiet after its last occurrence
+    (`core/alerting.ALERT_CLEAR_AFTER_S`), longer than a repair's verify window, so without
+    this the episode an incident was just closed for would open it again the next minute."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM heal_incidents WHERE dedupe_key = :k AND resolved_at >= :since "
+                "LIMIT 1"
+            ),
+            {"k": key, "since": since},
+        )
+    ).first()
+    return row is not None
+
+
 __all__ = [
     "CLAIM_LEASE_S",
     "Component",
@@ -245,10 +318,15 @@ __all__ = [
     "State",
     "advance",
     "claim_due",
+    "close_by_person",
     "dedupe_key",
+    "find",
     "list_incidents",
     "open_for",
     "open_incident",
     "read_incident",
+    "resolved_since",
+    "retry_now",
     "set_public",
+    "short_ref",
 ]

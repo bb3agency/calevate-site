@@ -7,7 +7,9 @@ carries an exception's class name and, through a careless call site, could carry
 
 from __future__ import annotations
 
-from typing import Literal
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -98,4 +100,116 @@ async def record(
     return action_id
 
 
-__all__ = ["ActorType", "Outcome", "Step", "record"]
+@dataclass(frozen=True, slots=True)
+class ActionRow:
+    id: UUID
+    at: datetime
+    incident_id: UUID | None
+    playbook: str
+    step: str
+    outcome: Outcome
+    attempt: int
+    tenant_id: UUID | None
+    agent_id: UUID | None
+    alarm_code: str | None
+    detail: str | None
+    actor_type: ActorType
+
+
+_ACTION_COLUMNS = (
+    "id, at, incident_id, playbook, step, outcome, attempt, tenant_id, agent_id, alarm_code, "
+    "detail, actor_type"
+)
+
+
+def _action(r: Any) -> ActionRow:
+    return ActionRow(
+        id=r[0],
+        at=r[1],
+        incident_id=r[2],
+        playbook=str(r[3]),
+        step=str(r[4]),
+        outcome=r[5],
+        attempt=int(r[6]),
+        tenant_id=r[7],
+        agent_id=r[8],
+        alarm_code=r[9],
+        detail=r[10],
+        actor_type=r[11],
+    )
+
+
+async def list_actions(
+    session: AsyncSession, *, incident_id: UUID | None, limit: int
+) -> list[ActionRow]:
+    """The ledger newest first, optionally one incident's steps only."""
+    rows = (
+        await session.execute(
+            text(
+                f"SELECT {_ACTION_COLUMNS} FROM heal_actions WHERE (CAST(:iid AS uuid) IS NULL "
+                "OR incident_id = :iid) ORDER BY at DESC LIMIT :limit"
+            ),
+            {"iid": incident_id, "limit": limit},
+        )
+    ).all()
+    return [_action(r) for r in rows]
+
+
+async def recent_steps(
+    session: AsyncSession, incident_ids: list[UUID], *, per_incident: int
+) -> dict[UUID, list[ActionRow]]:
+    """The newest `per_incident` steps of each incident, newest first, in one statement."""
+    if not incident_ids:
+        return {}
+    rows = (
+        await session.execute(
+            text(
+                f"SELECT {_ACTION_COLUMNS} FROM (SELECT *, row_number() OVER (PARTITION BY "
+                "incident_id ORDER BY at DESC) AS n FROM heal_actions WHERE incident_id = "
+                "ANY(CAST(:ids AS uuid[]))) ranked WHERE n <= :per ORDER BY at DESC"
+            ),
+            {"ids": [str(i) for i in incident_ids], "per": per_incident},
+        )
+    ).all()
+    found: dict[UUID, list[ActionRow]] = {}
+    for row in rows:
+        action = _action(row)
+        assert action.incident_id is not None
+        found.setdefault(action.incident_id, []).append(action)
+    return found
+
+
+#: The steps whose detail is the healer's own reading of an incident it cannot fix: the
+#: evidence it escalated with, and each re-check after.
+FINDING_STEPS: Final = ("escalate", "verify")
+
+
+async def latest_findings(session: AsyncSession, incident_ids: list[UUID]) -> dict[UUID, str]:
+    """The newest finding the healer wrote on each incident, where it wrote one."""
+    if not incident_ids:
+        return {}
+    rows = (
+        await session.execute(
+            text(
+                "SELECT DISTINCT ON (incident_id) incident_id, detail FROM heal_actions "
+                "WHERE incident_id = ANY(CAST(:ids AS uuid[])) AND actor_type = 'healer' "
+                "AND step = ANY(CAST(:steps AS text[])) AND detail IS NOT NULL "
+                "ORDER BY incident_id, at DESC"
+            ),
+            {"ids": [str(i) for i in incident_ids], "steps": list(FINDING_STEPS)},
+        )
+    ).all()
+    return {row[0]: str(row[1]) for row in rows}
+
+
+__all__ = [
+    "FINDING_STEPS",
+    "ActionRow",
+    "ActorType",
+    "Outcome",
+    "Step",
+    "latest_findings",
+    "list_actions",
+    "recent_steps",
+    "record",
+]

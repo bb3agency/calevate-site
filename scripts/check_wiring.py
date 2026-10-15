@@ -114,7 +114,18 @@ _D775_REASON = (
     "under hard rule 8's two-step; closes with the migration that drops the table"
 )
 
+_D783_REASON = (
+    "D-783: the first-campaign manual review, its routes, its gate and its screens were "
+    "removed, which deleted every writer and reader of `first_campaign_reviews`. Kept with "
+    "its rows under hard rule 8's two-step; closes with the migration that drops the table"
+)
+
 UNWIRED_BASELINE: dict[str, str] = {
+    # D-783: one reason, one entry per table-specific column.
+    "FirstCampaignReview.decided_by_admin_id": _D783_REASON,
+    "FirstCampaignReview.decision_note": _D783_REASON,
+    "FirstCampaignReview.decision_source": _D783_REASON,
+    "FirstCampaignReview.reviewed_campaign_id": _D783_REASON,
     # D-775: one reason, one entry per table-specific column.
     "OutboundSenderAttestation.attested_by": _D775_REASON,
     "OutboundSenderAttestation.phone_number_id": _D775_REASON,

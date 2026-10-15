@@ -626,7 +626,7 @@ async def client_action(
         # The call row a background write reads the caller back from (an inbound call has
         # none until its results arrive), and the proof the call is this agent's.
         async with tenant_session(route.tenant_id) as session:
-            await call_locator(route, live, phone)(session)
+            located = await call_locator(route, live, phone)(session)
     except _CallNotMatchedError:
         log.info("engine_action_call_row_not_matched", extra=ids)
         return _answer("caller_not_matched", NOT_MATCHED_SAY)
@@ -635,7 +635,12 @@ async def client_action(
         agent_id=route.agent_id,
         name=name,
         args=args,
-        call=CallFacts(call_ref=live.engine_call_id, caller_e164=phone, direction=live.direction),
+        call=CallFacts(
+            call_ref=live.engine_call_id,
+            caller_e164=phone,
+            direction=live.direction,
+            call_id=located.id,
+        ),
     )
     return JSONResponse(answer.body())
 

@@ -236,8 +236,8 @@ _FIRST_ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
             "Every client account on the platform, newest first: name, slug, status, "
             "vertical, how many live agents, calls in the last 7 days, total leads, when "
             "they last made a call, whether they are spend-capped, and which human-action "
-            "gates are holding them. Use it to answer which clients exist and what state "
-            "an account is in."
+            "gates are holding them. Use it for which clients exist; for one client's "
+            "verification, trial or dialling block use `admin_client_standing`."
         ),
         parameters={
             "type": "object",
@@ -514,6 +514,261 @@ async def _admin_client_standing(
     return _clean("\n".join(lines))
 
 
+# --- D-776: the auto-healer, as Pip's own work ------------------------------------------
+#
+# Every reader below is the healer's own (`healer/incidents`, `healer/ledger`,
+# `healer/wording`, `healer/money`), so Pip and `/admin/ops/healer` cannot describe an
+# incident differently. Incident and call ids are appended OUTSIDE `_clean`: the redactor
+# can read a uuid's digit runs as a phone number.
+
+#: How many steps of each incident the list shows; the full trail is `healer_incident`.
+_LISTED_STEPS: Final = 3
+#: How many calls the money evidence lists one by one.
+_LISTED_CALLS: Final = 10
+
+
+def _age(since: datetime) -> str:
+    hours = int((datetime.now(UTC) - since).total_seconds() // 3600)
+    if hours < 1:
+        return "under an hour"
+    if hours < 48:
+        return f"{hours} hour(s)"
+    return f"{hours // 24} day(s)"
+
+
+def _healer_switches() -> str:
+    from apps.api.core.settings import get_settings
+    from apps.api.healer.playbooks import paused_keys
+
+    settings = get_settings()
+    paused = sorted(paused_keys())
+    return "Auto-healer: " + (
+        ("on" if settings.healer_enabled else "SWITCHED OFF (only the agent settings check runs)")
+        + (f"; paused repairs: {', '.join(paused)}" if paused else "; no repair is paused")
+        + "."
+    )
+
+
+def _step_words(action: Any) -> str:
+    from apps.api.healer.money import ist
+
+    who = "" if action.actor_type == "healer" else f" by {action.actor_type}"
+    return f"{action.step} {action.outcome}{who} {ist(action.at)}" + (
+        f" ({action.detail})" if action.detail else ""
+    )
+
+
+def _incident_line(incident: Any, steps: list[Any], finding: str | None) -> str:
+    from apps.api.healer import incidents, wording
+    from apps.api.healer.money import ist
+    from apps.api.healer.playbooks import PLAYBOOK_BY_KEY
+
+    playbook = PLAYBOOK_BY_KEY.get(incident.playbook)
+    automatic = playbook.automatic if playbook is not None else False
+    kind = wording.incident_kind(incident.trigger_code)
+    progress = wording.progress(
+        playbook=incident.playbook,
+        automatic=automatic,
+        state=incident.state,
+        attempts=incident.attempts,
+        last_outcome=incident.last_outcome,
+        escalated=incident.escalated_at is not None,
+    )
+    tries = (
+        f"{incident.attempts} of {playbook.max_attempts}" if playbook else str(incident.attempts)
+    )
+    body = (
+        f"{playbook.title if playbook else incident.playbook}: {kind.title}. {progress}. "
+        f"Found {ist(incident.opened_at)}, "
+        + (
+            f"closed {ist(incident.resolved_at)}. "
+            if incident.resolved_at
+            else f"open for {_age(incident.opened_at)}. "
+        )
+        + f"Automatic tries: {tries}. What to do: {kind.next_step}"
+        + (f" Last steps: {'; '.join(_step_words(s) for s in steps)}." if steps else "")
+        + (f" Pip's finding: {finding}" if finding else "")
+    )
+    return _clean(body) + f" [ref {incidents.short_ref(incident.id)}]"
+
+
+async def _healer_incidents(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """The healer screen's problem list: `incidents.list_incidents` with each incident's
+    newest steps and, for money, the evidence the healer stored when it handed it over."""
+    del context
+    from apps.api.healer import incidents, ledger
+    from apps.api.healer.playbooks import MONEY_REVIEW
+
+    rows = await incidents.list_incidents(
+        session, days=7, limit=MAX_ROWS, open_only=args.get("include_closed") is not True
+    )
+    steps = await ledger.recent_steps(session, [i.id for i in rows], per_incident=_LISTED_STEPS)
+    findings = await ledger.latest_findings(
+        session, [i.id for i in rows if i.playbook == MONEY_REVIEW]
+    )
+    lines = [_incident_line(i, steps.get(i.id, []), findings.get(i.id)) for i in rows]
+    return (
+        _healer_switches()
+        + "\n"
+        + _listing(
+            lines,
+            shown_of="healer problems",
+            nothing="The healer has no open problem."
+            if args.get("include_closed") is not True
+            else "The healer found no problem in the last 7 days.",
+        )
+    )
+
+
+async def _healer_incident(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """One incident: its plain words, what its playbook may do, every ledger step, the
+    client it is about, and what Pip may propose for it."""
+    del context
+    from sqlalchemy import text
+
+    from apps.api.healer import decisions, incidents, ledger, wording
+    from apps.api.healer.playbooks import MONEY_REVIEW, PLAYBOOK_BY_KEY, may_run
+
+    ref = str(args.get("incident") or "")
+    incident = await incidents.find(session, ref)
+    if incident is None:
+        return _clean(
+            f"No healer problem has the reference “{ref[:40]}”. List them with healer_incidents."
+        )
+    kind = wording.incident_kind(incident.trigger_code)
+    playbook = PLAYBOOK_BY_KEY.get(incident.playbook)
+    trail = await ledger.list_actions(session, incident_id=incident.id, limit=MAX_ROWS)
+    finding = (await ledger.latest_findings(session, [incident.id])).get(incident.id)
+    client = None
+    if incident.tenant_id is not None:
+        client = (
+            await session.execute(
+                text("SELECT name, slug FROM organizations WHERE id = :t"),
+                {"t": incident.tenant_id},
+            )
+        ).first()
+    lines = [
+        _incident_line(incident, [], finding),
+        _clean(f"What it means: {kind.meaning}"),
+    ]
+    if client is not None:
+        lines.append(_clean(f"Client: {client[0]} ({client[1]})."))
+    if playbook is not None:
+        lines.append(
+            _clean(
+                f"The playbook does: {playbook.action} It checks: {playbook.verify} "
+                f"Undo: {playbook.undo} "
+                + (
+                    "It never acts itself."
+                    if not playbook.automatic
+                    else f"It may try {playbook.max_attempts} time(s), "
+                    f"{playbook.cooldown_s // 60} minutes apart; "
+                    + ("it is running." if may_run(playbook.key) else "it is SWITCHED OFF.")
+                )
+            )
+        )
+    lines.append(
+        "Every step, newest first: "
+        + (_clean("; ".join(_step_words(s) for s in trail)) if trail else "none yet")
+        + "."
+    )
+    if incident.resolved_at is None:
+        options = ["healer_resolve (mark it handled, with the operator's reason)"]
+        refusal = decisions.retry_refusal(incident)
+        options.insert(
+            0,
+            "healer_retry (run its next step now)"
+            if refusal is None
+            else f"not healer_retry: {refusal}",
+        )
+        if incident.playbook == MONEY_REVIEW:
+            options.append(
+                "healer_money_review for the call-by-call evidence, then healer_attest_rate "
+                "with the posted rate THE OPERATOR reads in the voice platform's console"
+            )
+        lines.append(_clean("What you can propose: " + "; ".join(options) + "."))
+    return "\n".join(lines)
+
+
+async def _healer_money_review(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """The evidence behind every open money incident at once (`healer/money.gather`), so
+    differences that share one rate are seen as one cause."""
+    del context, args
+    from apps.api.healer import incidents, money
+    from apps.api.healer.playbooks import MONEY_REVIEW
+
+    open_money = [
+        i
+        for i in await incidents.list_incidents(session, days=1, limit=MAX_ROWS, open_only=True)
+        if i.playbook == MONEY_REVIEW
+    ]
+    oldest = min((i.opened_at for i in open_money), default=datetime.now(UTC))
+    evidence = await money.gather(since=oldest - money.LOOKBACK)
+    head = (
+        "Open money problems: "
+        + "; ".join(
+            _clean(f"{i.trigger_code} found {money.ist(i.opened_at)}")
+            + f" [ref {incidents.short_ref(i.id)}]"
+            for i in open_money
+        )
+        if open_money
+        else "No money problem is open; this is the last day's evidence."
+    )
+    rates = (
+        "; ".join(
+            f"{key} ₹{price.inr_per_min}/min from {money.ist(price.effective_from)}, attested "
+            f"{money.ist(price.attested_at)} ({price.source_note})"
+            for key, price in sorted(evidence.rates.items())
+        )
+        or "none attested"
+    )
+    shown = sorted(evidence.differing, key=lambda c: c.at, reverse=True)[:_LISTED_CALLS]
+    calls = [
+        _clean(
+            f"{c.client} · {money.ist(c.at)} · {c.rate_key or 'no rate key'} · "
+            f"{c.billed_minutes if c.billed_minutes is not None else '?'} billed min at "
+            f"₹{c.stamped_rate if c.stamped_rate is not None else '?'}/min · metered "
+            f"₹{c.metered_inr} · charged ₹{c.charged_inr} (₹{c.expected_inr} with the fee)"
+            + (f" · implies ₹{c.implied_rate}/min" if c.implied_rate is not None else "")
+        )
+        + f" [call {c.call_id}]"
+        for c in shown
+    ]
+    cause = evidence.one_cause()
+    guidance = (
+        f"One cause: every differing call is on the {cause.rate_key} rate and implies the "
+        f"same posted rate, first seen {money.ist(cause.first_at)}. "
+        if cause is not None
+        else ""
+    ) + (
+        "An implied rate is worked back from the voice platform's charges: it is evidence, "
+        "NOT an attested figure, and you must never propose it as one. Ask the operator to "
+        "read the posted rate in the voice platform's console and type it, then propose "
+        "healer_attest_rate with THEIR figure, from when the rate changed, naming every "
+        "open money problem it explains."
+        if evidence.differing
+        else ""
+    )
+    return "\n".join(
+        part
+        for part in (
+            head,
+            _clean(evidence.explain()),
+            _clean(f"Rates in force now: {rates}."),
+            ("Calls that differ, newest first:\n" + "\n".join(calls)) if calls else "",
+            _clean(guidance) if guidance else "",
+            f"Read from Calevate's own records at {money.ist(evidence.read_at)}.",
+        )
+        if part
+    )
+
+
 _NO_ARGS: Final[dict[str, Any]] = {
     "type": "object",
     "properties": {},
@@ -546,9 +801,7 @@ ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ),
     ReadTool(
         name="admin_held_accounts",
-        description=(
-            "Accounts whose outbound calling is held, and which hold (KYC, first campaign)."
-        ),
+        description="Accounts whose outbound calling is held on identity verification (KYC).",
         parameters=_NO_ARGS,
         # The console screen declares `org:read`, which every client role also holds; the
         # admin realm's platform tools are gated on a permission no client role holds.
@@ -585,7 +838,7 @@ ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
             "(KYC) status and path, the no-cold-calls pledge, trial and first payment, voice "
             "workspace, whether the owner has joined, what the business profile lacks, and "
             "what blocks outbound calling. Use it for 'is X verified', 'is X still on "
-            "trial', 'why can X not dial'."
+            "trial', 'why can X not dial'; the whole roster is `platform_tenants`."
         ),
         parameters={
             "type": "object",
@@ -601,6 +854,67 @@ ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         permission="admin:tenants",
         scope="platform",
         run=_admin_client_standing,
+    ),
+    ReadTool(
+        name="healer_incidents",
+        description=(
+            "The auto-healer's problems — your own repair work: each one's plain title, "
+            "where it stands, how long it has been open, the automatic tries used, what to "
+            "do, its newest steps, and for money problems the evidence you stored when you "
+            "handed it over. Each line ends with its [ref]. Call this before saying anything "
+            "about what the healer found or fixed."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "include_closed": {
+                    "anyOf": [{"type": "boolean"}, {"type": "null"}],
+                    "description": "True to include problems closed in the last 7 days.",
+                }
+            },
+            "required": ["include_closed"],
+            "additionalProperties": False,
+        },
+        # The healer screen's own permission (`healer/routes.py`, `ops:manage`).
+        permission="ops:manage",
+        scope="platform",
+        run=_healer_incidents,
+    ),
+    ReadTool(
+        name="healer_incident",
+        description=(
+            "One healer problem in full, by its ref: what it means, the client it is about, "
+            "what its playbook may do and whether it is switched off, every step taken, and "
+            "which of healer_retry, healer_resolve and healer_attest_rate you may propose."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "incident": {
+                    "type": "string",
+                    "description": "The problem's ref (8 characters) or its full id.",
+                }
+            },
+            "required": ["incident"],
+            "additionalProperties": False,
+        },
+        permission="ops:manage",
+        scope="platform",
+        run=_healer_incident,
+    ),
+    ReadTool(
+        name="healer_money_review",
+        description=(
+            "The evidence behind every open money problem at once, from our own records: "
+            "charged calls compared with what we metered, the per-minute rates in force, "
+            "the calls that differ with the rate each one's charge implies, and whether one "
+            "rate change explains them all. Use it before explaining a money problem or "
+            "proposing healer_attest_rate."
+        ),
+        parameters=_NO_ARGS,
+        permission="ops:manage",
+        scope="platform",
+        run=_healer_money_review,
     ),
 )
 

@@ -32,7 +32,7 @@ export function VoiceCostModel({ board }: { board: FleetSpend | undefined }) {
   const subtitle = query.error
     ? "The speaking rate could not be read."
     : !rate
-      ? "Reading every client's transcripts…"
+      ? <span className="text-shimmer">Reading every client&apos;s transcripts…</span>
       : rate.measured
         ? `Speaking rate measured from ${formatCount(rate.calls)} calls across ${formatCount(rate.clients)} ${rate.clients === 1 ? "client" : "clients"}.`
         : `Speaking rate not measured yet: ${formatCount(rate.calls)} of ${formatCount(rate.minimum_calls)} calls needed.`;

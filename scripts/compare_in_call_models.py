@@ -79,6 +79,7 @@ class ModelResult:
     hard_failed: int = 0
     problems: Counter[str] = field(default_factory=Counter)
     judged: Counter[str] = field(default_factory=Counter)
+    judge_model: str | None = None
     reply_chars: list[int] = field(default_factory=list)
     transcripts: list[dict[str, Any]] = field(default_factory=list)
 
@@ -146,9 +147,17 @@ async def _converse(
 
 
 async def _judge(
-    tenant_id: UUID, agent_id: UUID, scenarios: list[Scenario], talks: list[list[Turn]]
-) -> dict[str, str]:
-    from apps.workers.agent_test_ai import conversation_text, judge_conversations
+    tenant_id: UUID,
+    agent_id: UUID,
+    scenarios: list[Scenario],
+    talks: list[list[Turn]],
+    *,
+    model_label: str,
+) -> tuple[dict[str, str], str | None]:
+    """The judge's verdicts and the model that gave them. The judge avoids the family of
+    the model under test where another approved leg exists (`agent_test_ai.judge_leg`), so
+    a comparison does not let one model grade its siblings."""
+    from apps.workers.agent_test_ai import conversation_text, judge_conversations, judge_leg
 
     async with tenant_session(tenant_id) as session:
         brief = await load_brief(session, agent_id)
@@ -156,8 +165,13 @@ async def _judge(
         conversation_text(s, [(t.said, t.reply, t.tools) for t in turns])
         for s, turns in zip(scenarios, talks, strict=True)
     ]
-    answer = await judge_conversations(brief, texts, {s.key for s in scenarios})
-    return {key: judged.verdict for key, judged in answer.value.items()}
+    answer = await judge_conversations(
+        brief,
+        texts,
+        {s.key for s in scenarios},
+        tenant_leg=judge_leg(None, agent_model=model_label, quota_exhausted=False),
+    )
+    return {key: judged.verdict for key, judged in answer.value.items()}, answer.model
 
 
 async def _run_model(
@@ -198,7 +212,9 @@ async def _run_model(
             }
         )
     if judge:
-        verdicts = await _judge(tenant_id, agent_id, scenarios, talks)
+        verdicts, result.judge_model = await _judge(
+            tenant_id, agent_id, scenarios, talks, model_label=candidate.label
+        )
         result.judged.update(verdicts.values())
     return result
 
@@ -206,9 +222,9 @@ async def _run_model(
 def _table(results: list[ModelResult]) -> str:
     head = (
         "| Model | Price band (console) | Console latency | Hard checks passed | "
-        "Shape problems | Judge (passed/needs fix/failed) | Avg reply chars |"
+        "Shape problems | Judge (passed/needs fix/failed) | Judged by | Avg reply chars |"
     )
-    rows = [head, "|" + "---|" * 7]
+    rows = [head, "|" + "---|" * 8]
     for r in results:
         passed = r.conversations - r.hard_failed
         problems = ", ".join(f"{k} {n}" for k, n in r.problems.most_common()) or "none"
@@ -221,7 +237,7 @@ def _table(results: list[ModelResult]) -> str:
         latency = f"~{r.latency_ms} ms" if r.latency_ms else "not on record"
         rows.append(
             f"| {r.label} | {r.band} | {latency} | {passed}/{r.conversations} | {problems} | "
-            f"{judged} | {avg} |"
+            f"{judged} | {r.judge_model or 'not asked'} | {avg} |"
         )
     return "\n".join(rows)
 
@@ -281,6 +297,7 @@ async def run(
                     "conversations": r.conversations,
                     "problems": dict(r.problems),
                     "judged": dict(r.judged),
+                    "judge_model": r.judge_model,
                     "transcripts": r.transcripts,
                 }
                 for r in results

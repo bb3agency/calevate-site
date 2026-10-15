@@ -52,11 +52,13 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: every other engine's prompt: re-pinned for D-714 (each platform rule said once, the spoken
 #: register, the cannot-help block), for D-739 (the turn-shape and spoken-voice rules), for
 #: D-749 (the specimen call's rules), for D-752 (the tightened platform layers) and for the
-#: do-not-call tool's narrowed trigger (ending a call is not an opt-out), each of
+#: do-not-call tool's narrowed trigger (ending a call is not an opt-out) and for the vendor
+#: prompting guides (the role sentence, the two-tries limit, titles in full, the in-call
+#: examples), each of
 #: which changed every engine's platform layers on purpose.
 PINNED = (
-    "68769cc7819f71afaa614024b6b46556412f286ba46c78025a11455b4af9f16f",
-    "2adb5cbdcc4ac64a66e5e3e3f1bc10c6bfe03a6673eda60ab25c956fb684ea77",
+    "e3ab2bc5be376e10d60ca4af121d10bb67d0e7fbd9baa6904317fcec2d2e2fa7",
+    "6f5ed4e5b1ccd6011ee3b73f9ebba92c069e9f26c8e6433feca9d95d4b36ab93",
 )
 
 

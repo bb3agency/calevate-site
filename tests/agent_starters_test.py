@@ -123,7 +123,7 @@ def test_every_starter_compiles_and_keeps_the_platform_floor(key: tuple[str, str
         )
     )
     assert TRUTHFUL_ANSWER_MARKER in engine_prompt
-    assert "do-not-call tool" in engine_prompt
+    assert "do-not-call tool" in engine_prompt.lower()
 
 
 @pytest.mark.parametrize("key", sorted(starters.CATALOGUE))

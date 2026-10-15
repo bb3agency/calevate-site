@@ -244,3 +244,20 @@ serif was taken (the brand decision wins).
   approximates it). One "Telugu | English" switch above the lines also drives the summary. An
   English call shows "This call was in English" instead. Captured details list only what the
   caller gave, and fold the rest into "Not mentioned: …".
+- **Campaigns (founder, 15 Oct 2026: "redesigned with better UI/UX", through the skills).**
+  A launched campaign opens on its **progress**: people called out of everyone it may call,
+  one sentence on what it is doing this minute, a bar, and the run as task steps (list
+  ready, compliance checks passed, calling everyone once, retrying who did not pick up,
+  all calls made) that update live and stay on screen for the whole run; a pause or a
+  block holds the step with a pause glyph instead of a spinner (`campaigns/campaignProgress.ts`,
+  `interior/task-steps` `hold` and `size="md"`). "Right now" figures sit beside it; results
+  follow, with where calls ended as one stacked bar; the settings it dials under are
+  label–value rows at the end, not a run-on line under the name. Header: the one move the
+  state is about, Stop for good while it can still call, and Duplicate / Delete behind ⋯.
+  A draft opens on its launch checklist, then who will be called ("Add people" in place).
+  **New campaign is four steps** (the basics, who to call, when to call, review) on
+  `interior/wizard-steps`, each checked before Next, and the review shows the whole
+  campaign with Change on every row before "Create campaign". This replaces the one-page
+  form, whose header comment attributed that shape to the founder; no decision row or
+  brief says so, and the review step keeps what it was for (the whole campaign is seen
+  before it is created).

@@ -381,8 +381,8 @@ AREAS: tuple[Area, ...] = (
             "apps/api/legal/*.py",
         ),
         why=(
-            "the campaign-launch and dial-time gates, DNC, consent, KYC, the first-"
-            "campaign review, the erasure path and the agreements a client accepts "
+            "the campaign-launch and dial-time gates, DNC, consent, KYC, the erasure "
+            "path and the agreements a client accepts "
             "before any of them apply. An untested branch here is a TRAI or "
             "DPDP failure, not a wrong screen — and the branch that goes untested is "
             "always the refusal, because the happy path is what the demo exercises"

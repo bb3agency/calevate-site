@@ -5,7 +5,7 @@
 `admin_users` is the allowlist the whole admin realm resolves against. After
 `alembic upgrade head` on a fresh host it is EMPTY, so every admin-realm request 403s: no
 organization can be created, no platform setting written, no vendor credential stored, no
-first campaign approved. The deploy comes up green and the product cannot onboard anybody.
+KYC record verified. The deploy comes up green and the product cannot onboard anybody.
 It fails closed — this was never a security hole — but it is a deployment with no way in,
 and with Clerk gone there is no vendor dashboard to make the first account in either.
 

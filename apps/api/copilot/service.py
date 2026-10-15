@@ -38,6 +38,7 @@ import httpx
 from calevate_shared.engine import (
     SARVAM_DEFAULT_LLM,
     azure_openai_base_url,
+    google_native_base_url,
     google_openai_compat_base_url,
 )
 
@@ -46,6 +47,7 @@ from apps.api.copilot import (
     admin_actions,
     admin_screens,
     admin_tools,
+    attachments,
     console_reads,
     jobs,
     navigation,
@@ -55,6 +57,7 @@ from apps.api.copilot import admin_prompt as admin_prompt_module
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot import tools as tools_module
 from apps.api.copilot.identity import (
+    ASSISTANT_NAME,
     IdentityEgress,
     identity_answer,
     question_touches_model_identity,
@@ -79,7 +82,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
-from apps.workers import chat
+from apps.workers import chat, gemini_native
 from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
     AZURE_PROVIDER,
@@ -445,6 +448,17 @@ FALLBACK_NO_TOOLS_NOTE: Final = (
 )
 
 
+#: The refusal when only the text-only standby could answer a question carrying files.
+def attachments_unavailable() -> ProblemError:
+    return ProblemError(
+        kind="dependency",
+        code="copilot_attachments_unavailable",
+        title=f"{ASSISTANT_NAME} can't read files right now",
+        detail=f"{ASSISTANT_NAME}'s usual AI model is unavailable, and its backup reads text only.",
+        remediation="Try again in a few minutes, or ask without the files.",
+    )
+
+
 #: Appended, last, on the fallback leg only. See `_answer_via_sarvam`.
 _NO_TOOL_NOTE: Final = (
     "CORRECTION for this turn only: the set_fields tool, every lookup tool (this "
@@ -689,7 +703,7 @@ def validate_fill(payload: CopilotAskIn, arguments: str) -> tuple[CopilotFillIte
 # --- the provider legs ---------------------------------------------------------------
 
 
-def _chat_leg(provider: str, *, model: str | None) -> chat.ChatLeg | None:
+def chat_leg(provider: str, *, model: str | None) -> chat.ChatLeg | None:
     """The ONE map from the ANSWERING provider to an addressed `chat.ChatLeg`, or None if
     this deployment holds no credential for it.
 
@@ -842,7 +856,12 @@ async def _answer_via_sarvam(
 # --- the loop -------------------------------------------------------------------------
 
 
-def build_messages(payload: CopilotAskIn, live: str, realm: CopilotRealm) -> list[Any]:
+def build_messages(
+    payload: CopilotAskIn,
+    live: str,
+    realm: CopilotRealm,
+    attached: attachments.Attached = attachments.NOTHING_ATTACHED,
+) -> list[Any]:
     """This realm's message list. THE ONE PLACE the realm picks a prompt (D-499).
 
     Two prompts, two prefixes, two caches — `prompt.SYSTEM_PROMPT` for a business owner and
@@ -855,9 +874,16 @@ def build_messages(payload: CopilotAskIn, live: str, realm: CopilotRealm) -> lis
     module-level strings would put the realm switch inside the file whose whole subject is
     the client prompt, where the next reader would not look for it.
     """
+    block = attachments.render_texts(attached)
     if realm == "admin":
-        return admin_prompt_module.build_admin_messages(payload, live)
-    return prompt_module.build_messages(payload, live)
+        messages = admin_prompt_module.build_admin_messages(payload, live, block)
+    else:
+        messages = prompt_module.build_messages(payload, live, block)
+    if attached.pictures or attached.pdfs:
+        # PICTURES AND PDFS RIDE THE LAST USER MESSAGE, after its text (`content_parts`).
+        last = messages[-1]
+        messages[-1] = {**last, "content": attachments.content_parts(last["content"], attached)}
+    return messages
 
 
 def realm_read_tools(realm: CopilotRealm) -> tuple[tools_module.ReadTool, ...]:
@@ -1091,7 +1117,7 @@ def _assistant_tool_message(
     entry is missing is an orphan the provider refuses. The refusal-feedback path below
     builds the same shape for the single `set_fields` call, and this is that shape for N.
     """
-    return {
+    message: dict[str, object] = {
         "role": "assistant",
         "content": outcome.content or None,
         "tool_calls": [
@@ -1103,6 +1129,16 @@ def _assistant_tool_message(
             for call in calls
         ],
     }
+    return _with_native_parts(message, outcome)
+
+
+def _with_native_parts(message: dict[str, object], outcome: chat.ChatOutcome) -> dict[str, object]:
+    """Carry Gemini-native parts (thought signatures included) on the replayed turn, so
+    `gemini_native.request_body` sends them back exactly as received (D-781). Only a native
+    turn has any, and only a native turn reads them."""
+    if outcome.native_parts:
+        message["_native_parts"] = [dict(part) for part in outcome.native_parts]
+    return message
 
 
 #: One model turn, as the events `chat.stream` yields — text fragments, then ONE terminal
@@ -1116,7 +1152,7 @@ _TurnRunner = Callable[
 ]
 
 
-def _streamed_turn(
+def streamed_turn(
     leg: chat.ChatLeg,
     messages: Sequence[chat.ChatMessage],
     tools: Sequence[Mapping[str, object]],
@@ -1154,17 +1190,20 @@ def _with_tool_result(
     """
     return [
         *messages,
-        {
-            "role": "assistant",
-            "content": outcome.content or None,
-            "tool_calls": [
-                {
-                    "id": call.id,
-                    "type": "function",
-                    "function": {"name": call.name, "arguments": call.arguments},
-                }
-            ],
-        },
+        _with_native_parts(
+            {
+                "role": "assistant",
+                "content": outcome.content or None,
+                "tool_calls": [
+                    {
+                        "id": call.id,
+                        "type": "function",
+                        "function": {"name": call.name, "arguments": call.arguments},
+                    }
+                ],
+            },
+            outcome,
+        ),
         {"role": "tool", "tool_call_id": call.id, "content": result},
     ]
 
@@ -1357,6 +1396,7 @@ async def _run_tool_loop(
     ip: str | None = None,
     limits: RunLimits = INTERACTIVE_LIMITS,
     turns: list[chat.ChatOutcome],
+    attached: attachments.Attached = attachments.NOTHING_ATTACHED,
 ) -> AsyncIterator[CopilotEvent]:
     """Up to `MAX_TURNS` turns on the answering leg. Raises `httpx.HTTPError` if the FIRST
     turn never produced anything, so the caller can still fall back.
@@ -1421,7 +1461,7 @@ async def _run_tool_loop(
     key stable across a retry of the same question. `""` means "nobody named this
     conversation", which still produces a deterministic key for a given tool and arguments —
     the same conversation, unnamed, is still one conversation for the length of a run."""
-    messages: list[chat.ChatMessage] = list(build_messages(payload, live, realm))
+    messages: list[chat.ChatMessage] = list(build_messages(payload, live, realm, attached))
     # ONE LIST, SAME BYTES, EVERY REQUEST OF THIS REALM — see `tool_array`, which is the
     # only composer, and which argues why a realm is a partition caching survives and a
     # screen or a role is not.
@@ -2093,6 +2133,153 @@ async def _run_tool_loop(
     )
 
 
+# --- a question carrying a PDF (D-781) --------------------------------------------------
+
+
+def native_google_leg(model: str) -> chat.ChatLeg | None:
+    """Gemini's NATIVE streaming address for `model`, on the Google leg's own key, or None
+    when no key is installed. Only a PDF turn uses it (`workers/gemini_native.py` says why)."""
+    key = get_settings().gemini_api_key
+    if not key:
+        return None
+    return chat.ChatLeg(
+        url=f"{google_native_base_url()}/models/{model}:streamGenerateContent?alt=sse",
+        api_key=key,
+        wire_model=model,
+        dialect="google",
+    )
+
+
+def native_turn(
+    leg: chat.ChatLeg,
+    messages: Sequence[chat.ChatMessage],
+    tools: Sequence[Mapping[str, object]],
+) -> AsyncIterator[chat.StreamEvent]:
+    """`streamed_turn`'s contract on Gemini's native API."""
+    return gemini_native.stream(
+        leg,
+        messages,
+        timeout_s=STREAM_IDLE_S,
+        temperature=0.2,
+        tools=tools,
+        max_tokens=MAX_ANSWER_TOKENS,
+    )
+
+
+async def _answer_pdf_turn(
+    payload: CopilotAskIn,
+    capability: AssistCapability,
+    *,
+    tenant_leg: TenantModelLeg | None,
+    realm: CopilotRealm,
+    tool_context: ToolContext | None,
+    live: str,
+    principal: Principal | None,
+    seed: str,
+    ip: str | None,
+    limits: RunLimits,
+    attached: attachments.Attached,
+    deadline: float,
+) -> AsyncIterator[CopilotEvent]:
+    """The founder's PDF chain (15 Oct 2026), and nothing else:
+
+    1. Gemini reads the PDF itself, on its native API (the bytes as uploaded).
+    2. If that call fails before it has said anything, Gemini on Pip's usual leg reads the
+       text the browser took out of the PDF, and the answer says plainly that tables,
+       charts and scanned pages may not have been read.
+    3. If that fails too, or the PDF had no text (a scanned PDF), `pdf_unavailable`.
+
+    NEVER AZURE, NEVER SARVAM. A PDF turn whose selected leg is not Google is refused at
+    once; the generic fallback ladder in `_answer_stream` is not entered.
+    """
+    loop = asyncio.get_running_loop()
+    model = tenant_leg.model if tenant_leg is not None else None
+    if capability.provider != GOOGLE_PROVIDER or model is None:
+        raise attachments.pdf_unavailable()
+    native = native_google_leg(model)
+    usual = chat_leg(GOOGLE_PROVIDER, model=model)
+    if native is None or usual is None:
+        raise attachments.pdf_unavailable()
+
+    turns: list[chat.ChatOutcome] = []
+    streamed = False
+    try:
+        async with asyncio.timeout_at(deadline):
+            async for event in _run_tool_loop(
+                payload,
+                capability,
+                leg=native,
+                turn=native_turn,
+                model=model,
+                realm=realm,
+                tool_context=tool_context,
+                live=live,
+                principal=principal,
+                seed=seed,
+                ip=ip,
+                turns=turns,
+                limits=limits,
+                attached=attached,
+            ):
+                streamed = streamed or event.text is not None
+                yield event
+        await provider_health.note_success("copilot", GOOGLE_PROVIDER)
+        return
+    except (httpx.HTTPError, TimeoutError) as failure:
+        log.warning(
+            "copilot_pdf_native_failed",
+            extra={**provider_health.failure_fields(failure), "streamed": streamed},
+        )
+        await provider_health.note_failure("copilot", GOOGLE_PROVIDER, failure)
+        if streamed:
+            raise
+        if turns:
+            yield CopilotEvent(
+                spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
+            )
+
+    text_only = attached.as_text_only()
+    if text_only is None or loop.time() + FALLBACK_RESERVE_S >= deadline:
+        raise attachments.pdf_unavailable()
+    fallback_turns: list[chat.ChatOutcome] = []
+    said_note = False
+    try:
+        async with asyncio.timeout_at(deadline):
+            async for event in _run_tool_loop(
+                payload,
+                capability,
+                leg=usual,
+                turn=streamed_turn,
+                model=model,
+                realm=realm,
+                tool_context=tool_context,
+                live=live,
+                principal=principal,
+                seed=seed,
+                ip=ip,
+                turns=fallback_turns,
+                limits=limits,
+                attached=text_only,
+            ):
+                # The sentence goes out with the first thing the answer says, so a fallback
+                # that then fails has not told the person anything untrue.
+                if not said_note and (event.text is not None or event.spend is not None):
+                    said_note = True
+                    yield CopilotEvent(text=attachments.PDF_TEXT_ONLY_NOTE)
+                yield event
+    except (httpx.HTTPError, TimeoutError) as failure:
+        log.warning("copilot_pdf_text_failed", extra=provider_health.failure_fields(failure))
+        if said_note:
+            raise
+        if fallback_turns:
+            yield CopilotEvent(
+                spend=CopilotSpend(
+                    usage=_sum_usage(fallback_turns), capability=capability, model=model
+                )
+            )
+        raise attachments.pdf_unavailable() from None
+
+
 async def _answer_stream(
     payload: CopilotAskIn,
     *,
@@ -2106,6 +2293,7 @@ async def _answer_stream(
     ip: str | None = None,
     limits: RunLimits = INTERACTIVE_LIMITS,
     allow_azure: bool = True,
+    attached: attachments.Attached = attachments.NOTHING_ATTACHED,
 ) -> AsyncIterator[CopilotEvent]:
     """Answer one copilot question. THE RUN of SUBJECT → GATE → RUN → METER.
 
@@ -2183,6 +2371,25 @@ async def _answer_stream(
     if not capability.available:
         raise assist_unavailable(capability)
 
+    # A QUESTION WITH A PDF (D-781) has a chain of its own, on Google only.
+    if attached.pdfs:
+        async for event in _answer_pdf_turn(
+            payload,
+            capability,
+            tenant_leg=tenant_leg,
+            realm=realm,
+            tool_context=tool_context,
+            live=live,
+            principal=principal,
+            seed=seed,
+            ip=ip,
+            limits=limits,
+            attached=attached,
+            deadline=deadline,
+        ):
+            yield event
+        return
+
     # THE TWO TOOL-CAPABLE LEGS run the same bounded loop and fall back the same way. Azure is
     # the platform's own model (rung 1 or 2); Google (D-478) is the account's own Gemini model
     # (rung 1). The metered model differs — `None` lets `meter_assist` read the live Azure
@@ -2194,9 +2401,9 @@ async def _answer_stream(
             # `tenant_leg` is not None here: Google only reaches rung 1, which requires a leg —
             # the tier's since D-694. Its model is the wire model AND the ledger name.
             model = tenant_leg.model if tenant_leg is not None else None
-            leg, turn = _chat_leg(GOOGLE_PROVIDER, model=model), _streamed_turn
+            leg, turn = chat_leg(GOOGLE_PROVIDER, model=model), streamed_turn
         else:
-            model, leg, turn = None, _chat_leg(AZURE_PROVIDER, model=None), _streamed_turn
+            model, leg, turn = None, chat_leg(AZURE_PROVIDER, model=None), streamed_turn
         if leg is None:  # pragma: no cover - unreachable via the selector
             raise assist_unavailable(capability)
         streamed_anything = False
@@ -2219,6 +2426,7 @@ async def _answer_stream(
                     ip=ip,
                     turns=turns,
                     limits=limits,
+                    attached=attached,
                 ):
                     streamed_anything = streamed_anything or event.text is not None
                     yield event
@@ -2268,6 +2476,12 @@ async def _answer_stream(
         if not capability.available:
             raise assist_unavailable(capability)
 
+    # THE STANDBY READS NO ATTACHMENT (D-781). It takes text only, and its terms permit
+    # training on what it is sent (SECURITY-COMPLIANCE §4); a file the person handed Pip's
+    # model is not quietly forwarded to a different company instead.
+    if attached.count:
+        raise attachments_unavailable()
+
     # THE FALLBACK RUNS UNDER THE SAME DEADLINE, not a fresh one — the second half of
     # making the budget total. A leg that starts with room for it still may not run past
     # the wall clock the whole question was promised.
@@ -2289,6 +2503,7 @@ async def run_copilot(
     ip: str | None = None,
     limits: RunLimits = INTERACTIVE_LIMITS,
     allow_azure: bool = True,
+    attached: attachments.Attached = attachments.NOTHING_ATTACHED,
 ) -> AsyncIterator[CopilotEvent]:
     """`_answer_stream`, with the two identity controls around it (`copilot/identity.py`).
 
@@ -2332,6 +2547,7 @@ async def run_copilot(
         ip=ip,
         limits=limits,
         allow_azure=allow_azure,
+        attached=attached,
     )
     try:
         async for event in inner:
@@ -2429,9 +2645,11 @@ __all__ = [
     "FillRefusedError",
     "RunLimits",
     "ToolContext",
+    "chat_leg",
     "disclosure_for",
     "job_limits",
     "run_copilot",
+    "streamed_turn",
     "tool_array",
     "validate_fill",
 ]

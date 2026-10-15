@@ -12,9 +12,10 @@ import {
   Coins,
   Gauge,
   HeartPulse,
-  Hourglass,
+  CirclePause,
   KeyRound,
   Languages,
+  MessageCircle,
   PhoneOff,
   ShieldUser,
   SlidersHorizontal,
@@ -122,7 +123,7 @@ export const ADMIN_NAV: NavGroup[] = [
       {
         href: "/admin/holds",
         label: "Held accounts",
-        icon: Hourglass,
+        icon: CirclePause,
         permission: "org:read",
         action: "open the hold queue",
       },
@@ -289,6 +290,16 @@ export const ADMIN_NAV: NavGroup[] = [
         icon: Gauge,
         permission: "ops:manage",
         action: "read the voice response-time report",
+      },
+      {
+        // Clients' own WhatsApp through Meta (D-784): Meta's weekly onboarding limit against our
+        // count, Calevate's Meta set-up, webhook health and each client's numbers. Its route
+        // (`apps/api/whatsapp/admin_routes.py`) carries `admin:tenants`.
+        href: "/admin/ops/whatsapp",
+        label: "Clients' WhatsApp",
+        icon: MessageCircle,
+        permission: "admin:tenants",
+        action: "read clients' WhatsApp",
       },
       {
         // LAST IN THE PLATFORM GROUP, and it is the only entry in either shell that is

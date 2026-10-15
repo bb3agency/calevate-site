@@ -195,7 +195,10 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "answer them: lead names and statuses, recent calls with their already-redacted " +
       "summaries, campaign and agent names, counts, and the client's own knowledge " +
       "content. Phone numbers reach it as markers, and no raw transcript and no " +
-      "extraction payload is sent at all. The second provider is not used. Nothing " +
+      "extraction payload is sent at all. The one exception is a file a client's user " +
+      "attaches to a question (pictures, PDFs and the text found in them, and the text of " +
+      "text, CSV, Word, Excel and PowerPoint files): it is sent whole and unredacted, so a number or a name in it " +
+      "arrives as it is (section 3.5). The second provider is not used. Nothing " +
       "from the in-app assistant reaches it. None of them receives the recording.",
     location:
       "Outside India for all three. The default provider: United States — its East US 2 " +
@@ -235,7 +238,9 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
     does: "Stores files outside the database, including the database's own backups.",
     receives:
       "Call recordings, exports, the archived raw call documents, the bodies delivered " +
-      "to client CRMs, and database backup segments.",
+      "to client CRMs, database backup segments, and the files a client's user attaches " +
+      "to the in-app assistant, kept privately until the conversation ends and 30 days at " +
+      "most.",
     location:
       "Outside India. We ask the provider to place the bucket in its Asia-Pacific region. " +
       "That is a preference it honours where it can and not a residency commitment — it " +
@@ -843,6 +848,29 @@ export const SUBPROCESSORS: LegalDocument = {
                 "account closes. Section 3.2 of the Privacy Policy describes them, " +
                 "section 9 carries the period, and section 12.4 states the one thing an " +
                 "erasure request does not do with them.",
+            },
+            {
+              kind: "para",
+              text:
+                "Since 15 October 2026 a client's user can attach up to five files to a " +
+                "question: pictures, PDFs, and text, CSV, Word, Excel and PowerPoint files. " +
+                "The user's own browser prepares each one — a picture is re-drawn without " +
+                "its location and camera details, an Office file is reduced to its text, " +
+                "and a PDF goes as it is with the text the browser found in it, read only " +
+                "if the PDF itself cannot be — " +
+                "and our service streams what arrives into the object-storage provider's " +
+                "private storage without opening it, then sends it as it is to the " +
+                "language-model provider answering that question. This is the one thing " +
+                "the assistant sends that is NOT redacted first: a number, a name or " +
+                "anything else in an attached file reaches the provider whole. We do not " +
+                "review attached files, redact them or scan them for malware. The client, " +
+                "as Data Fiduciary, decides what its people may attach and is responsible " +
+                "for having the right to share it (Terms of Service, clause 5; Data " +
+                "Processing Addendum, clause 2). The files are deleted when the user " +
+                "removes one, clears the conversation, or their last signed-in session " +
+                "ends or expires; when the account closes; and in any case within 30 days " +
+                "by a rule on the storage itself. The conversation keeps only how many " +
+                "files a question carried, never their names or contents.",
             },
           ],
         },

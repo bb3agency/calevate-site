@@ -248,13 +248,6 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=("qa", "call quality", "reviews", "scoring"),
     ),
     Screen(
-        route="/c/{slug}/campaign-review",
-        name="Campaign review",
-        group="Reports & reviews",
-        summary="What a finished campaign did, campaign by campaign.",
-        aliases=("campaign report", "campaign results"),
-    ),
-    Screen(
         route="/c/{slug}/agreements",
         name="Agreements",
         group="Compliance & data",

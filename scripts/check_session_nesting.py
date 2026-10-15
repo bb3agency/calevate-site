@@ -82,6 +82,7 @@ SESSION_OPENERS: Final[frozenset[str]] = frozenset(
         "user_session",
         "invite_session",
         "ingest_config_session",
+        "whatsapp_waba_session",
         "credential_session",
         "admin_session",
     }

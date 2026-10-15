@@ -582,7 +582,34 @@ server {
     proxy_send_timeout    60s;
     proxy_read_timeout    60s;
 
-    client_max_body_size 25m;
+    # The app's own cap (`core/middleware.MAX_BODY_BYTES`, 2 MiB), so a body the app would
+    # refuse is refused here before it is read. The one route allowed more is Pip's file
+    # upload, in its own exact-match locations below (D-781).
+    client_max_body_size 2m;
+
+    # PIP'S FILE UPLOAD (D-781). Exact matches, so they win over `^~ /v1/admin/` and `/`
+    # and widen nothing else. The body is the file, streamed by the app straight into
+    # object storage as it arrives, so nginx must not buffer it first (that would put up to
+    # 20 MB on this host's disk and hand the app a finished body it can no longer abort
+    # part-way). The cap matches `core/middleware.ROUTE_BODY_LIMITS`. The server-scope proxy
+    # timeouts apply unchanged: they bound the gap between two writes or two reads, and a
+    # streaming upload keeps writing; `client_body_timeout` bounds a client that stalls.
+    location = /v1/copilot/uploads {
+        limit_req zone=client_api burst=10 nodelay;
+        client_max_body_size 20m;
+        client_body_timeout 60s;
+        proxy_request_buffering off;
+        proxy_pass http://calevate_api;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+    location = /v1/admin/copilot/uploads {
+        limit_req zone=admin_api burst=10 nodelay;
+        client_max_body_size 20m;
+        client_body_timeout 60s;
+        proxy_request_buffering off;
+        proxy_pass http://calevate_api;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
 
     # Ordered most-specific first. nginx picks the longest matching prefix, so the order
     # here is for the reader; the `=` and `^~` markers are what actually pin them.

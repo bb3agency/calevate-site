@@ -46,11 +46,11 @@ from apps.api.core.settings import get_settings
 from apps.workers import extraction as extraction_module
 from apps.workers.extraction import (
     AZURE_PROVIDER,
-    AZURE_SCHEMA_NAME,
     EXTRACTION_MAX_TOKENS,
     NO_CREDENTIAL_REASON,
     PROVIDER_UNAVAILABLE_REASON,
     QUOTA_EXHAUSTED_REASON,
+    RESPONSE_SCHEMA_NAME,
     SARVAM_PROVIDER,
     AssistCapability,
     AzureOpenAIExtractor,
@@ -61,7 +61,7 @@ from apps.workers.extraction import (
     assist_unavailable,
     azure_credentials,
     azure_extractor,
-    build_azure_response_schema,
+    build_response_schema,
     extract_call,
     get_extractor,
     run_assist,
@@ -303,8 +303,8 @@ async def test_the_request_goes_to_the_v1_surface_with_a_bearer_and_no_api_versi
     assert schema_request["json_schema"]["strict"] is True, (
         "`strict: false` makes the schema a HINT; the model may deviate from it"
     )
-    assert schema_request["json_schema"]["name"] == AZURE_SCHEMA_NAME
-    assert schema_request["json_schema"]["schema"] == build_azure_response_schema(SPEC)
+    assert schema_request["json_schema"]["name"] == RESPONSE_SCHEMA_NAME
+    assert schema_request["json_schema"]["schema"] == build_response_schema(SPEC)
 
 
 async def test_a_content_filter_refusal_is_an_ordinary_response_and_not_a_crash() -> None:
@@ -609,7 +609,7 @@ async def test_the_happy_path_runs_on_azure_and_returns_validated_fields(
 def test_the_schema_describes_the_agents_own_fields() -> None:
     """A model-side schema is a stronger guarantee than a parser, and it is only that if
     it is built from the SPEC rather than from a template."""
-    schema = build_azure_response_schema(SPEC)
+    schema = build_response_schema(SPEC)
     properties = schema["properties"]
 
     # NULLABILITY IS A TYPE UNION, not Vertex's `nullable` keyword — strict mode rejects
@@ -637,7 +637,7 @@ def test_the_schema_satisfies_strict_modes_own_rules() -> None:
     still a failure, so the rules are asserted here rather than discovered in production.
     """
     for spec in (SPEC, ExtractionSchemaSpec(version=1, fields=[])):
-        schema = build_azure_response_schema(spec)
+        schema = build_response_schema(spec)
         assert schema["type"] == "object"
         assert schema["additionalProperties"] is False
         # EVERY property required — the rule that reads like a conflict with "absent
@@ -654,7 +654,7 @@ def test_required_and_nullable_together_still_never_ask_the_model_to_invent() ->
     Strict mode requires the KEY, never a value — so every tenant field can still be
     `null`, and only the five keys `ExtractionOutput` always carries may not be.
     """
-    schema = build_azure_response_schema(SPEC)
+    schema = build_response_schema(SPEC)
     for field in SPEC.fields:
         assert "null" in schema["properties"][field.key]["type"], field.key
 
@@ -709,7 +709,7 @@ def test_a_client_field_named_like_a_fixed_one_appears_once_and_stays_last() -> 
         ],
     )
 
-    schema = build_azure_response_schema(colliding)
+    schema = build_response_schema(colliding)
     order = list(schema["properties"])
 
     assert len(order) == len(set(order)), order
@@ -724,14 +724,14 @@ def test_a_client_field_named_like_a_fixed_one_appears_once_and_stays_last() -> 
 
 def test_every_extraction_field_type_has_an_azure_spelling() -> None:
     """A sixth member of `FieldType` would otherwise be a `KeyError` inside
-    `_azure_property` — caught by `extract_call`'s ladder, reported as the word
+    `_schema_property` — caught by `extract_call`'s ladder, reported as the word
     `KeyError`, and silently costing that tenant every assist. `validate_extraction`
     makes the same closure argument on its own match; this is the Azure half of it."""
     from typing import get_args
 
     from calevate_shared.extraction import FieldType
 
-    assert set(get_args(FieldType)) == set(extraction_module._AZURE_TYPES), (
+    assert set(get_args(FieldType)) == set(extraction_module._SCHEMA_TYPES), (
         "a field type exists with no Azure spelling, or a spelling with no field type"
     )
 
@@ -741,8 +741,8 @@ def test_the_schema_name_is_one_azure_will_accept() -> None:
     assist, and the failure would read as if the SCHEMA were wrong."""
     import re
 
-    assert re.fullmatch(r"[a-zA-Z0-9_-]+", AZURE_SCHEMA_NAME), AZURE_SCHEMA_NAME
-    assert len(AZURE_SCHEMA_NAME) <= 64
+    assert re.fullmatch(r"[a-zA-Z0-9_-]+", RESPONSE_SCHEMA_NAME), RESPONSE_SCHEMA_NAME
+    assert len(RESPONSE_SCHEMA_NAME) <= 64
 
 
 async def test_a_resource_that_refuses_strict_mode_degrades_and_says_so(

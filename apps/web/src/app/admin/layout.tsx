@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { ChevronRight, Hourglass, Lock, Menu, ShieldCheck } from "lucide-react";
+import { ChevronRight, CirclePause, Lock, Menu, ShieldCheck } from "lucide-react";
 
 import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { ADMIN_NAV as NAV, type NavItem } from "@/app/admin/adminNav";
@@ -403,7 +403,7 @@ function HeldCount() {
       }
       className="press relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 dark:hover:bg-white/5"
     >
-      <Hourglass className="h-4 w-4" />
+      <CirclePause className="h-4 w-4" />
       {queue.error != null ? (
         <span
           title="We could not read the hold queue. Open Holds to try again."

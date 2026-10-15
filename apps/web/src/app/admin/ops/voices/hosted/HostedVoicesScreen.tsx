@@ -97,7 +97,7 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
                 onClick={() => void refresh.mutateAsync().catch(() => undefined)}
               >
                 <RefreshCw aria-hidden className="h-4 w-4" />
-                {refresh.isPending ? "Reading the voice platform…" : "Refresh"}
+                {refresh.isPending ? <span className="text-shimmer">Reading the voice platform…</span> : "Refresh"}
               </button>
               <InfoTip label="Refresh">
                 Re-reads every voice ThinnestAI lists and, once a client workspace runs Studio, the

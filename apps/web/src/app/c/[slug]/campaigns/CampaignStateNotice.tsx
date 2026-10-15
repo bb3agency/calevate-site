@@ -8,6 +8,7 @@ import {
   NOTICE_BASE,
   PRIMARY_BUTTON,
   ProblemNotice,
+  SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
 } from "@/components/ui";
@@ -29,7 +30,6 @@ import { BLOCKER_COPY, PAUSE_COPY, blockerDestination } from "./blockerCopy";
  *   requires before Resume works.
  * - A running campaign the gate would refuse says "Not calling" with each reason and its
  *   fix (`not_calling`, the dispatcher's own rules), instead of claiming to run.
- * - A running campaign outside its hours says it is waiting for them.
  */
 export function CampaignStateNotice({
   slug,
@@ -60,9 +60,12 @@ export function CampaignStateNotice({
         <p className="font-semibold">{copy?.title ?? "Paused"}</p>
         <p className="text-ink-muted">{copy?.text}</p>
         {fix && (
-          <Link href={fix.href} className="inline-block font-medium text-ink underline underline-offset-2">
-            {fix.label}
-          </Link>
+          // The way out of the pause is the one thing to do here, so it is a button.
+          <div>
+            <Link href={fix.href} className={SECONDARY_BUTTON_SM}>
+              {fix.label}
+            </Link>
+          </div>
         )}
         {progress.pause_reason === "complaint_spike" && (
           <ComplaintReview
@@ -104,16 +107,8 @@ export function CampaignStateNotice({
     );
   }
 
-  if (progress.status === "running" && progress.waiting_for_calling_hours) {
-    const hours = progress.calling_hours;
-    return (
-      <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.neutral}`}>
-        <p>
-          Waiting for calling hours. Calls go out {hours ? `${hours.start}–${hours.end}` : "9am–9pm"} IST.
-        </p>
-      </div>
-    );
-  }
+  // Waiting for calling hours is a normal wait, not a problem to act on: the progress
+  // panel's own sentence says it (`campaignProgress.runSentence`).
   return null;
 }
 

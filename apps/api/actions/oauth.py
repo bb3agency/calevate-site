@@ -123,12 +123,22 @@ ZOHO_ACCOUNTS_HOSTS: Final = frozenset(
 
 
 @dataclass(frozen=True, slots=True)
-class _Provider:
-    kind: OAuthKind
+class StatePurpose:
+    """One kind of signed, single-use connect `state`: its audience and its key label.
+
+    The OAuth providers below are four of them; WhatsApp's Embedded Signup
+    (`whatsapp/signup.py`) is a fifth, which is why this is not private to OAuth.
+    """
+
+    kind: str
     #: What the client is told the connection is for, in their words.
     label: str
     audience: str
     kdf_info: bytes
+    ttl: timedelta = STATE_TTL
+
+
+_Provider = StatePurpose
 
 
 _PROVIDERS: Final[dict[OAuthKind, _Provider]] = {
@@ -223,36 +233,87 @@ def require_configured(kind: OAuthKind) -> None:
 # --- the state -------------------------------------------------------------------------
 
 
-def _state_key(kind: OAuthKind) -> bytes:
+def _purpose_key(purpose: StatePurpose) -> bytes:
     """A purpose-separated subkey of `IMPERSONATION_GRANT_SECRET` (HKDF-Expand, one block),
-    per provider: the derivation `copilot/write_tools._signing_key` argues for."""
+    per purpose: the derivation `copilot/write_tools._signing_key` argues for."""
     settings = get_settings()
     parent = resolve_hmac_key(
         settings.impersonation_grant_secret,
         env_var="IMPERSONATION_GRANT_SECRET",
-        purpose=f"{_PROVIDERS[kind].label} OAuth state",
+        purpose=f"{purpose.label} OAuth state",
         code="oauth_state_not_configured",
         title="Connecting accounts is not available",
         local_fallback=f"calevate-local-dev-impersonation-grant-key:{settings.app_env}",
         app_env=settings.app_env,
     )
-    return hmac.new(parent, _PROVIDERS[kind].kdf_info + b"\x01", hashlib.sha256).digest()
+    return hmac.new(parent, purpose.kdf_info + b"\x01", hashlib.sha256).digest()
+
+
+def mint_purpose_state(
+    purpose: StatePurpose, *, tenant_id: UUID, user_id: UUID, now: datetime | None = None
+) -> str:
+    """The `state` for one connect round trip, bound to the purpose, account and person."""
+    at = now or datetime.now(UTC)
+    claims = {
+        "aud": purpose.audience,
+        "sub": str(tenant_id),
+        "act": str(user_id),
+        "jti": str(uuid7()),
+        "iat": int(at.timestamp()),
+        "exp": int((at + purpose.ttl).timestamp()),
+    }
+    return jwt.encode(claims, _purpose_key(purpose), algorithm=_STATE_ALGORITHM)
+
+
+def verify_purpose_state(
+    purpose: StatePurpose, raw: str, *, tenant_id: UUID, user_id: UUID, refusal: ProblemError
+) -> str:
+    """Refuse a `state` this deployment did not mint for this purpose, account and person.
+    Returns its `jti`, which `spend_purpose_state` then consumes."""
+    try:
+        claims = jwt.decode(
+            raw,
+            _purpose_key(purpose),
+            algorithms=[_STATE_ALGORITHM],
+            audience=purpose.audience,
+            options={"require": list(_STATE_REQUIRED_CLAIMS)},
+        )
+    except jwt.PyJWTError as exc:
+        log.info("oauth_state_rejected", extra={"kind": purpose.kind, "error": type(exc).__name__})
+        raise refusal from exc
+    if claims.get("sub") != str(tenant_id) or claims.get("act") != str(user_id):
+        log.warning("oauth_state_mismatch", extra={"kind": purpose.kind})
+        raise refusal
+    return str(claims["jti"])
+
+
+async def spend_purpose_state(purpose: StatePurpose, jti: str, *, refusal: ProblemError) -> None:
+    """A `state` answers ONE callback (RFC 9700 §4.7.1: a one-time CSRF token).
+
+    The signature and expiry bound it to this person for its lifetime; this makes a second
+    redemption inside it — a replayed callback URL from a log, a history entry or a
+    shoulder — a refusal before any code is exchanged. Fails CLOSED: with Redis down a
+    connection cannot be completed, and starting it again is the remedy.
+    """
+    from apps.api.core.redis import get_redis
+
+    key = f"oauth:state:{purpose.kind}:{jti}"
+    ttl = int(purpose.ttl.total_seconds()) + 60
+    try:
+        first = await get_redis().set(key, "1", nx=True, ex=ttl)
+    except Exception as exc:
+        log.warning("oauth_state_guard_unavailable", extra={"kind": purpose.kind})
+        raise refusal from exc
+    if not first:
+        log.warning("oauth_state_replayed", extra={"kind": purpose.kind})
+        raise refusal
 
 
 def mint_state(
     kind: OAuthKind, *, tenant_id: UUID, user_id: UUID, now: datetime | None = None
 ) -> str:
     """The `state` for one consent round trip, bound to the provider, account and person."""
-    at = now or datetime.now(UTC)
-    claims = {
-        "aud": _PROVIDERS[kind].audience,
-        "sub": str(tenant_id),
-        "act": str(user_id),
-        "jti": str(uuid7()),
-        "iat": int(at.timestamp()),
-        "exp": int((at + STATE_TTL).timestamp()),
-    }
-    return jwt.encode(claims, _state_key(kind), algorithm=_STATE_ALGORITHM)
+    return mint_purpose_state(_PROVIDERS[kind], tenant_id=tenant_id, user_id=user_id, now=now)
 
 
 def verify_state(
@@ -260,43 +321,13 @@ def verify_state(
 ) -> str:
     """Refuse a `state` this deployment did not mint for this provider, account and person.
     Returns its `jti`, which `spend_state` then consumes."""
-    try:
-        claims = jwt.decode(
-            raw,
-            _state_key(kind),
-            algorithms=[_STATE_ALGORITHM],
-            audience=_PROVIDERS[kind].audience,
-            options={"require": list(_STATE_REQUIRED_CLAIMS)},
-        )
-    except jwt.PyJWTError as exc:
-        log.info("oauth_state_rejected", extra={"kind": kind, "error": type(exc).__name__})
-        raise refusal from exc
-    if claims.get("sub") != str(tenant_id) or claims.get("act") != str(user_id):
-        log.warning("oauth_state_mismatch", extra={"kind": kind})
-        raise refusal
-    return str(claims["jti"])
+    return verify_purpose_state(
+        _PROVIDERS[kind], raw, tenant_id=tenant_id, user_id=user_id, refusal=refusal
+    )
 
 
 async def spend_state(kind: OAuthKind, jti: str, *, refusal: ProblemError) -> None:
-    """A `state` answers ONE callback (RFC 9700 §4.7.1: a one-time CSRF token).
-
-    The signature and expiry bound it to this person for ten minutes; this makes a second
-    redemption inside those ten minutes — a replayed callback URL from a log, a history
-    entry or a shoulder — a refusal before any code is exchanged. Fails CLOSED: with Redis
-    down a connection cannot be completed, and starting it again is the remedy.
-    """
-    from apps.api.core.redis import get_redis
-
-    key = f"oauth:state:{kind}:{jti}"
-    ttl = int(STATE_TTL.total_seconds()) + 60
-    try:
-        first = await get_redis().set(key, "1", nx=True, ex=ttl)
-    except Exception as exc:
-        log.warning("oauth_state_guard_unavailable", extra={"kind": kind})
-        raise refusal from exc
-    if not first:
-        log.warning("oauth_state_replayed", extra={"kind": kind})
-        raise refusal
+    await spend_purpose_state(_PROVIDERS[kind], jti, refusal=refusal)
 
 
 def state_refused(kind: OAuthKind) -> ProblemError:
@@ -474,17 +505,21 @@ __all__ = [
     "ZOHO_ACCOUNTS_HOSTS",
     "ZOHO_SCOPES",
     "OAuthKind",
+    "StatePurpose",
     "authorize_url",
     "configured",
     "exchange_request",
     "label",
+    "mint_purpose_state",
     "mint_state",
     "refresh_request",
     "require_configured",
     "revoke_request",
+    "spend_purpose_state",
     "spend_state",
     "state_refused",
     "unavailable",
+    "verify_purpose_state",
     "verify_state",
     "zoho_accounts_server",
 ]

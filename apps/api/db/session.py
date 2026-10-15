@@ -700,6 +700,25 @@ async def ingest_config_session(webhook_id: UUID) -> AsyncIterator[AsyncSession]
 
 
 @asynccontextmanager
+async def whatsapp_waba_session(waba_id: str) -> AsyncIterator[AsyncSession]:
+    """Read-only view of the ONE `whatsapp_accounts` row for a WABA a Meta webhook names.
+
+    `ingest_config_session`'s doctrine (migration c8e5a2f7d914): Calevate runs one Meta app
+    for every client, so a WhatsApp webhook arrives naming only the WABA. Callers open this
+    only AFTER the delivery's signature verified under our app secret, so the id is Meta's
+    statement. It resolves the tenant and nothing else; the work is then done under that
+    tenant's own `tenant_session`.
+    """
+    maker = get_sessionmaker()
+    async with maker() as session, session.begin():
+        await session.execute(
+            text(f"SELECT set_config('app.whatsapp_waba_id', :waba, true), {_TIMEOUT_SQL}"),
+            {"waba": waba_id, **_timeout_param()},
+        )
+        yield session
+
+
+@asynccontextmanager
 async def credential_session() -> AsyncIterator[AsyncSession]:
     """The ONLY session that can see `auth_credentials` and `auth_sessions` (D-165).
 

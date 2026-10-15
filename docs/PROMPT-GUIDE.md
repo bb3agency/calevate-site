@@ -45,7 +45,7 @@ order: `[BUSINESS]` `[IDENTITY]` `[GOAL]` `[OPENING]` `[SPEAKING STYLE]` `[CONVE
 (stages with "move on when") `[WHAT TO COLLECT]` (from the extraction schema) `[OBJECTIONS]`
 `[POLICIES]` `[ENDING]` `[QUICK FACTS]` (win over knowledge) `[EXAMPLE CALL]` (style only,
 in the call's language). Around it `compose_engine_prompt` adds, each said once: the
-preamble, HOW TO SPEAK, LANGUAGES, SPOKEN REGISTER (per-language guidance and a
+role sentence and preamble, HOW TO SPEAK, LANGUAGES, SPOKEN REGISTER (per-language guidance and a
 formal-to-spoken word list, `spoken_style.json`), BUSINESS FACTS (names the search tool),
 the notices, caller memory, then after the script WHAT YOU CAN DO, CONFIDENTIALITY and
 the truthful-answer block. Instructions are in English; only what the agent says is in the
@@ -92,6 +92,32 @@ The test loop checks each class (`turn_checks.conversation_problems`) and runs t
 standing callers (`agents/specimen_scenarios.py`) in every run. After a real call, the call
 page marks "Agent said it was done, but no action ran" (`claimed_not_done`).
 
+**What the vendors' prompting guides changed (D-778, 14 Oct 2026).** From
+`docs/evidence/prompting-practices-2026-10.md` §3, paid for by trimming so the platform
+layers stay within their 14 Oct size (the three-language cap below):
+- The prompt opens on who the agent is and its job: "You are the AI assistant answering calls
+  for {business}." (calling people for, on outbound; on phone calls for, on both). The
+  business is `organizations.name`, stripped of hyphen runs and brackets and cut to 80
+  characters; renaming the business re-applies every live agent. With no name it says "an AI
+  assistant on a phone call".
+- A clarification is never asked the same way twice. After two tries the agent says so and
+  offers what the account allows, the same follow-up as "no answer after searching" (WHAT YOU
+  CAN DO, so a script cannot undo it, and a trial agent still offers no call back).
+- Titles are written in full ("Mister Ravi", never "Mr. Ravi"), because a voice reads the
+  short form badly (docs.cartesia.ai sonic-3 prompting tips, read 14 Oct 2026). The example
+  is a title every business has, not a clinic's (D-722).
+- Silence is the engine's: it asks "are you still there?" and ends the call after the
+  configured seconds (`nudge_after_seconds`, `end_after_silence_seconds`, D-753). The prompt
+  says nothing about silence until ThinnestAI tells us whether the model sees it (next email,
+  `docs/vendor/thinnest-replies-2026-10-12.md` §13 question 12).
+- Example exchanges: SPOKEN REGISTER ends the primary language's line with "How a turn
+  sounds, never words to copy:" and two short exchanges (`prompt_examples` in
+  `spoken_style.json`, founder approved 14 Oct 2026; `spoken_style.prompt_example_line`).
+  Only a block marked `founder_approved` is quoted; it is edited in the file, not on Ops >
+  Spoken style. Extra languages get no examples, and the prompt quotes four fillers per
+  language instead of six, so the three-language platform layers stay within their 14 Oct
+  size.
+
 **`[STYLE]` IS PLATFORM-OWNED AND AUTO-INJECTED — DO NOT HAND-AUTHOR IT (D-479).** The
 speech-register guidance below is emitted on EVERY agent by `compose_engine_prompt`
 (`VOICE_STYLE_GUIDANCE` in `packages/shared/src/calevate_shared/engine.py`), which is the
@@ -121,9 +147,20 @@ NOT re-author `[STYLE]`; the template shows it only so the order is legible.
 [WRAP] how to end: summarize, confirm number, thank, `end_call`.
 ```
 
-Size budget: total prompt ≤ ~2,500 tokens (engine guidance caps ~3,500; TTFT and
-adherence degrade before that). If [T0 FACTS] pushes past budget, facts move to RAG —
-that's the signal, not an invitation to trim guardrails.
+Size budget. The hard cap is ThinnestAI's instructions box, 20,000 characters
+(`engine/thinnest.INSTRUCTIONS_MAX_CHARS`; `agent/behaviour.md:40` and
+`api-reference/agents/update-agent.md:671` in the 2026-10-13 mirror); a publish over it is
+refused, never cut, and the script's stages go to the native steps, counted separately. The
+working target is far below it, because every character is read on every turn: ElevenLabs
+says prompts over 2,000 tokens add latency and cost, and Deepgram calls its cap a ceiling,
+not a target (`docs/evidence/prompting-practices-2026-10.md` S3, S5). So the platform layers
+are held to their size of 14 Oct 2026: 6,238 characters for a three-language agent
+(`PLATFORM_LAYERS_MAX` in `tests/agent_prompt_budget_test.py`; about 4,700 to 5,200 for one),
+a starter must leave room for the owner's script and pinned facts, and a whole v2 prompt stays under 8,000 characters
+(`tests/agent_intelligence_test.py`). Telugu and Hindi text costs far more tokens per
+character than English (D-764 counts each non-ASCII character as one token, an assumption).
+If facts push past budget they move to the knowledge base; that is the signal, not an
+invitation to trim guardrails.
 
 ## 3. Language rules (Telugu-first reality)
 
@@ -153,6 +190,17 @@ schema (data minimization — DPDP purpose limitation).
 - Filler lines are configured engine-side, but the prompt must tolerate them: after a tool
   call returns, continue naturally, don't re-greet.
 - No chain-of-thought instructions; voice models must answer, not deliberate audibly.
+
+**The test-conversation judge (D-777, 14 Oct 2026).** Test Chat conversations are graded by
+an AI judge after the hard checks (`apps/workers/agent_test_ai.py`). It writes its reason
+before its verdict (the strict schema's order is the order it generates in). It is given the
+agent's own truthful-answer clauses, composed from the same engine fact
+(`call_is_recorded`), so it expects the recording answer the agent was told to give. It runs
+on a model of another family than the agent's in-call model when an approved dashboard leg
+of another family exists, never on the Sarvam standby by choice. It reads the conversations
+in an order shuffled per run. Each result keeps what the judge itself said, the model it ran
+on and its position, and `scripts/judge_calibration.py` measures its agreement with a
+person's labels: re-run that whenever the judge prompt or model changes.
 
 ## 6. Change management
 

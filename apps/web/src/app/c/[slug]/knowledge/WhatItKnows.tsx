@@ -110,7 +110,7 @@ export function WhatItKnows({
         info={<p>Found and used when a caller asks about them.</p>}
         action={
           knows.data.facts_state === "publishing" && other.length ? (
-            <span className="text-meta text-ink-muted">Reaching your agents…</span>
+            <span className="text-shimmer text-meta text-ink-muted">Reaching your agents…</span>
           ) : knows.data.facts_state === "in_review" ? (
             <span className="text-meta text-ink-muted">Waiting for review</span>
           ) : undefined

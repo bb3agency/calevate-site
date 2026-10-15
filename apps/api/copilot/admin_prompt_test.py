@@ -114,11 +114,11 @@ def test_the_identity_block_is_the_first_thing_in_the_admin_prefix() -> None:
 
 def test_the_operator_realm_gets_the_conversational_framing_too() -> None:
     """The over-anchoring that turned "my name is umesh" into a refusal is structural, not
-    client-specific: this prefix has its own "YOUR JOB IS FOUR THINGS AND NOTHING ELSE"
+    client-specific: this prefix has its own "Your job is four things"
     list, which is the exact construction that caused it."""
     assert prompt_module.CONVERSATIONAL_FRAMING in admin_module.ADMIN_SYSTEM_PROMPT
     prompt_text = admin_module.ADMIN_SYSTEM_PROMPT
-    assert prompt_text.index("YOUR JOB IS FOUR THINGS") < prompt_text.index(
+    assert prompt_text.index("Your job is four things") < prompt_text.index(
         prompt_module.CONVERSATIONAL_FRAMING
     )
 
@@ -160,3 +160,8 @@ def test_the_live_block_sits_between_the_screen_and_the_rules() -> None:
     )
     without = str(admin_module.build_admin_messages(PAYLOAD)[-1]["content"])
     assert "\n\n\n" not in without
+
+
+def test_the_admin_prompt_sets_the_same_read_tool_budget() -> None:
+    assert "use at most three for one question" in admin_module.ADMIN_SYSTEM_PROMPT
+    assert "say what you did not check" in admin_module.ADMIN_SYSTEM_PROMPT

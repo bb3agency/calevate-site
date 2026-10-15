@@ -191,8 +191,15 @@ class TestWiring:
 
         RAISED 50 -> 51 for `POST /v1/auth/admin/stay-signed-in` (D-766): an operator's own
         session-length switch. It needs a second-factor-complete admin session and changes
-        only the account whose session sent it, so it grants no permission to gate."""
-        assert len(exempt) <= 51, sorted(exempt)
+        only the account whose session sent it, so it grants no permission to gate.
+
+        RAISED 51 -> 53 for `GET` and `POST /hooks/v1/meta/whatsapp` (D-784), the second
+        vendor-callback route the D-635 paragraph asks to be a conversation. GET is Meta's
+        subscription handshake, answered only when the verify token matches. POST is
+        checked against `X-Hub-Signature-256` over the raw bytes before parsing, takes no
+        tenant id (the worker resolves the account from the WABA id we recorded at connection,
+        under that account's own RLS GUC), and only queues the event."""
+        assert len(exempt) <= 53, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

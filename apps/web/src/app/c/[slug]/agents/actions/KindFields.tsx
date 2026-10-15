@@ -10,13 +10,17 @@
  */
 
 import { CalendarClock } from "lucide-react";
+import { useState } from "react";
 
 import { ServiceLogo } from "@/components/console/serviceLogo";
 import type { FormValidation } from "@/components/formValidation";
-import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice } from "@/components/ui";
+import { TEXT_ACTION } from "@/components/console/section";
+import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice, Skeleton } from "@/components/ui";
 import { SheetChooser } from "@/components/sheetChooser";
 import { useCredentials, type ActionTool } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
+import { LANGUAGE_LABELS, PURPOSE_LABELS, useWhatsApp, useWhatsAppTemplates } from "@/lib/api/whatsapp";
+import { lookup } from "@/lib/lookup";
 
 import { spreadsheetId, type DraftParam, type Kind, type Provider } from "./params";
 
@@ -299,6 +303,10 @@ export function KindFields({
     );
   }
 
+  if (kind === "whatsapp" && provider === "meta_cloud") {
+    return <MetaTemplateFields session={session} draft={draft} onChange={onChange} />;
+  }
+
   if (kind === "whatsapp") {
     return (
       <div className="flex flex-wrap gap-2">
@@ -535,6 +543,112 @@ export function KindFields({
         who have called before are already remembered by your agent&rsquo;s caller memory, with
         no wait at all.
       </p>
+    </div>
+  );
+}
+
+/**
+ * A Meta WhatsApp action's message: picked from the account's APPROVED templates when the
+ * WhatsApp is connected through Meta (D-784), so the owner never types a template name or a
+ * phone number id. A key pasted from Meta (no connected account) keeps the typed fields.
+ */
+function MetaTemplateFields({
+  session,
+  draft,
+  onChange,
+}: {
+  session: Session;
+  draft: KindDraft;
+  onChange: (next: KindDraft) => void;
+}) {
+  const set = (key: string) => (value: string) => onChange({ ...draft, [key]: value });
+  const whatsapp = useWhatsApp(session);
+  const connected = whatsapp.data?.accounts.some((a) => a.status === "connected") === true;
+  const templates = useWhatsAppTemplates(session, connected);
+  const [typing, setTyping] = useState(false);
+
+  if (whatsapp.isPending) return <Skeleton rows={1} />;
+  if (whatsapp.error || !whatsapp.data) {
+    return (
+      <ProblemNotice
+        error={whatsapp.error ?? new Error("We could not check your WhatsApp connection.")}
+        onRetry={() => void whatsapp.refetch()}
+      />
+    );
+  }
+
+  if (!connected || typing) {
+    return (
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-2">
+          <Field
+            label="Template name"
+            value={draft.template}
+            onChange={set("template")}
+            hint="An approved template. Messages are always sent as a template."
+          />
+          <Field label="Template language" value={draft.language} onChange={set("language")} />
+          {!connected ? (
+            <Field
+              label="Phone number ID"
+              value={draft.phone_number_id}
+              onChange={set("phone_number_id")}
+              hint="From WhatsApp Manager → API Setup."
+            />
+          ) : null}
+        </div>
+        {connected ? (
+          <button type="button" className={TEXT_ACTION} onClick={() => setTyping(false)}>
+            Choose from your approved messages
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (templates.isPending) return <Skeleton rows={1} />;
+  if (templates.error || !templates.data) {
+    return (
+      <ProblemNotice
+        error={templates.error ?? new Error("We could not load your approved messages.")}
+        onRetry={() => void templates.refetch()}
+      />
+    );
+  }
+  const approved = templates.data.filter((t) => t.status === "approved");
+  const chosen = approved.find((t) => t.name === draft.template && t.language === draft.language);
+
+  return (
+    <div className="space-y-1">
+      <label className="block">
+        <span className={FIELD_LABEL}>Message</span>
+        <select
+          className={FIELD}
+          value={chosen ? `${chosen.name}|${chosen.language}` : ""}
+          onChange={(e) => {
+            const [name, language] = e.target.value.split("|");
+            onChange({ ...draft, template: name ?? "", language: language ?? "en", phone_number_id: "" });
+          }}
+        >
+          <option value="">{approved.length ? "Choose an approved message" : "No approved messages yet"}</option>
+          {approved.map((t) => (
+            <option key={t.id} value={`${t.name}|${t.language}`}>
+              {lookup(PURPOSE_LABELS, t.purpose) ?? t.name.replaceAll("_", " ")} ·{" "}
+              {lookup(LANGUAGE_LABELS, t.language) ?? t.language}
+            </option>
+          ))}
+        </select>
+      </label>
+      {chosen && chosen.variables.length > 0 ? (
+        <p className={FIELD_HINT}>
+          Fill its blanks in this order below: {chosen.variables.map((v, i) => `${i + 1} ${v.label}`).join(" · ")}.
+        </p>
+      ) : (
+        <p className={FIELD_HINT}>Only messages Meta has approved are listed. Add your own on Integrations.</p>
+      )}
+      <button type="button" className={TEXT_ACTION} onClick={() => setTyping(true)}>
+        Type a template name instead
+      </button>
     </div>
   );
 }

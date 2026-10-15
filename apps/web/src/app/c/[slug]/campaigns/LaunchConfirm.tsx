@@ -211,7 +211,7 @@ export function LaunchConfirm({
           onClick={onLaunch}
           className={DANGER_BUTTON}
         >
-          {pending ? "Launching…" : `Call ${formatCount(contacts)} ${people}`}
+          {pending ? <span className="text-shimmer">Launching…</span> : `Call ${formatCount(contacts)} ${people}`}
         </button>
         <button
           type="button"

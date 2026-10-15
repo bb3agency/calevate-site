@@ -89,7 +89,7 @@ def test_the_style_layer_states_the_directives_the_guide_specifies() -> None:
     # each language the agent speaks; this block says to mirror the caller's register.
     assert "same language and register" in block
     assert "repeat it" in block
-    # D-714: the answer first, one short sentence at a time, variety, no "Dr." full stop.
+    # D-714: the answer first, one short sentence at a time, variety; titles in full.
     assert "lead with the answer" in block
     assert "vary your words" in block
-    assert '"dr. ravi"' in block
+    assert 'titles in full ("mister ravi", never "mr. ravi")' in block

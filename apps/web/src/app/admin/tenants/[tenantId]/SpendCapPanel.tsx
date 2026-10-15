@@ -52,7 +52,7 @@ import { useRecomputeSpendCap, viewAsSession } from "@/lib/api/admin";
  *
  * Read through impersonation (`billing:read`, non-mutating, so D-22 allows it and there
  * is no admin-realm twin of this read), WRITTEN through the admin surface with the tenant
- * in the path — the same split as KYC and the first-campaign hold.
+ * in the path — the same split as KYC.
  *
  * ## No cap state, no control
  *

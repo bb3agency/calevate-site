@@ -58,7 +58,11 @@ from calevate_shared.call_script import (
     SpeakingStyle,
     StageBranch,
 )
-from calevate_shared.engine import SARVAM_DEFAULT_LLM, azure_openai_base_url
+from calevate_shared.engine import (
+    SARVAM_DEFAULT_LLM,
+    azure_openai_base_url,
+    google_openai_compat_base_url,
+)
 from calevate_shared.spoken_style import writer_guidance
 from pydantic import ValidationError
 
@@ -70,6 +74,7 @@ from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
     ASSIST_TIMEOUT_S,
     AZURE_PROVIDER,
+    GOOGLE_PROVIDER,
     PROVIDER_UNAVAILABLE_REASON,
     SARVAM_CHAT_URL,
     AssistCapability,
@@ -296,6 +301,8 @@ class ScriptDraft:
     script: CallScript
     capability: AssistCapability
     usage: TokenUsage | None = None
+    #: The model that wrote it (`JsonAnswer.model`), for the meter.
+    model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,6 +445,69 @@ async def _json_via_azure(
         wire_model=deployment,
         dialect="openai",
     )
+    return await _json_via_leg(
+        leg,
+        AZURE_PROVIDER,
+        description,
+        instruction,
+        response_format,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        timeout_s=timeout_s,
+    )
+
+
+async def _json_via_google(
+    model: str,
+    description: str,
+    instruction: str,
+    response_format: dict[str, object],
+    *,
+    max_tokens: int = _DRAFT_MAX_TOKENS,
+    temperature: float = 0.4,
+    timeout_s: float = ASSIST_TIMEOUT_S,
+) -> _RawJson | None:
+    """The account's own Gemini model on D-478's leg, or None without the key or an answer.
+
+    Google's OpenAI-compatible surface takes a strict `json_schema` response format: its
+    structured-output example passes a schema class through the client's `parse` helper
+    (ai.google.dev/gemini-api/docs/openai, updated 13 Oct 2026, read 14 Oct 2026). A 400 on
+    it degrades to `json_object` exactly as Azure's does.
+    """
+    api_key = get_settings().gemini_api_key
+    if not api_key:
+        return None
+    leg = chat.ChatLeg(
+        url=f"{google_openai_compat_base_url()}/chat/completions",
+        api_key=api_key,
+        wire_model=model,
+        dialect="google",
+    )
+    return await _json_via_leg(
+        leg,
+        GOOGLE_PROVIDER,
+        description,
+        instruction,
+        response_format,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        timeout_s=timeout_s,
+    )
+
+
+async def _json_via_leg(
+    leg: chat.ChatLeg,
+    provider: str,
+    description: str,
+    instruction: str,
+    response_format: dict[str, object],
+    *,
+    max_tokens: int,
+    temperature: float,
+    timeout_s: float,
+) -> _RawJson | None:
+    """One JSON answer from a paid leg (Azure or the account's Gemini), or None when it
+    refused or could not be reached."""
     messages = [
         {"role": "system", "content": instruction},
         {"role": "user", "content": description},
@@ -454,14 +524,15 @@ async def _json_via_azure(
     except httpx.HTTPStatusError as refusal:
         if refusal.response.status_code != 400 or response_format.get("type") != "json_schema":
             log.warning(
-                "script_assist_azure_failed", extra={"status": refusal.response.status_code}
+                "script_assist_leg_failed",
+                extra={"provider": provider, "status": refusal.response.status_code},
             )
-            await provider_health.note_failure("script", AZURE_PROVIDER, refusal)
+            await provider_health.note_failure("script", provider, refusal)
             return None
-        # The resource refused Structured Outputs (documented, unobserved here — see
+        # The leg refused Structured Outputs (documented, unobserved here — see
         # `AzureOpenAIExtractor`). Degrade ONCE to plain json_object; the belt is
         # `_first_json_object`. No body logged (hard rule 6): it quotes the request.
-        log.warning("script_assist_azure_json_schema_unsupported")
+        log.warning("script_assist_json_schema_unsupported", extra={"provider": provider})
         try:
             outcome = await chat.complete(
                 leg,
@@ -475,25 +546,26 @@ async def _json_via_azure(
             # HTTPError, not only HTTPStatusError: a transport failure on the retry would
             # otherwise skip the outer handler below and escape to the caller.
             log.warning(
-                "script_assist_azure_failed",
-                extra=provider_health.failure_fields(retry_refusal),
+                "script_assist_leg_failed",
+                extra={"provider": provider, **provider_health.failure_fields(retry_refusal)},
             )
-            await provider_health.note_failure("script", AZURE_PROVIDER, retry_refusal)
+            await provider_health.note_failure("script", provider, retry_refusal)
             return None
     except httpx.HTTPError as failure:
         # A transport failure is the same OUTCOME as a refusal for this caller: the
         # selector is re-asked with `provider_unavailable=True`.
         log.warning(
-            "script_assist_azure_unreachable", extra=provider_health.failure_fields(failure)
+            "script_assist_leg_unreachable",
+            extra={"provider": provider, **provider_health.failure_fields(failure)},
         )
-        await provider_health.note_failure("script", AZURE_PROVIDER, failure)
+        await provider_health.note_failure("script", provider, failure)
         return None
-    await provider_health.note_success("script", AZURE_PROVIDER)
+    await provider_health.note_success("script", provider)
     if outcome.finish_reason == "length":
         # The `max_tokens` valve fired. The JSON was cut off mid-generation, so parsing it
         # could yield a balanced PREFIX that reads as a short answer. "No answer" is the
         # honest result, carrying the billed tokens to the meter.
-        log.warning("script_assist_draft_truncated", extra={"provider": "azure"})
+        log.warning("script_assist_draft_truncated", extra={"provider": provider})
         return _RawJson(data=None, usage=outcome.usage)
     return _RawJson(data=_first_json_object(outcome.content) or None, usage=outcome.usage)
 
@@ -582,13 +654,16 @@ async def _draft_via_sarvam(
 class JsonAnswer[T]:
     """One answer from the dashboard AI ladder, parsed; what it cost; who answered.
 
-    `usage` follows `ScriptDraft.usage`: Azure tokens Azure counted, including an Azure turn
+    `usage` follows `ScriptDraft.usage`: tokens the paid leg counted, including a paid turn
     that failed in front of a Sarvam answer. `capability` carries the fallback disclosure
-    the screen must show (G-6)."""
+    the screen must show (G-6). `model` is the model that wrote the answer; the meter
+    prices a Gemini answer by it (`crm/assist.meter_assist(model=)`), and the test loop
+    records it beside each verdict."""
 
     value: T
     capability: AssistCapability
     usage: TokenUsage | None = None
+    model: str | None = None
 
 
 def _parsed[T](
@@ -618,14 +693,20 @@ async def ask_json[T](
     temperature: float = 0.4,
     timeout_s: float = ASSIST_TIMEOUT_S,
 ) -> JsonAnswer[T]:
-    """THE dashboard AI ladder for a JSON answer: Azure first, the disclosed Sarvam leg if
-    Azure cannot or does not answer, a refusal only when nothing can (`run_assist`'s rule).
+    """THE dashboard AI ladder for a JSON answer: the paid leg `assist_capability` picks (the
+    account's own Gemini model when it serves the dashboard, else Azure), the disclosed
+    Sarvam leg if that cannot or does not answer, a refusal only when nothing can
+    (`run_assist`'s rule).
 
     `parse` turns the model's JSON into the caller's value and returns None for an unusable
     answer, which counts as no answer: the next leg gets its chance. `azure_format` is the
-    `response_format` Azure is asked for (a strict schema where the caller has one); Sarvam
-    always gets `json_object`. The caller owns the prompt's content and its redaction
+    `response_format` the paid leg is asked for (a strict schema where the caller has one);
+    Sarvam always gets `json_object`. The caller owns the prompt's content and its redaction
     (D-127 G-1/G-2): nothing here reads a transcript.
+
+    The Gemini rung used to fall straight through to Sarvam while the answer still carried
+    the Google capability, so the client was not told whose answer it was (G-6) and the
+    meter raised `ai_assist_unmeterable` on every request.
 
     `timeout_s` bounds each leg. A route keeps the default, which nginx's deadline is
     pinned against (`tests/assist_deadline_test.py`); a worker job may give a long answer
@@ -636,20 +717,34 @@ async def ask_json[T](
         raise assist_unavailable(capability)
 
     spent: TokenUsage | None = None
-    if capability.provider == AZURE_PROVIDER:
-        azure = await _json_via_azure(
-            description,
-            instruction,
-            azure_format or {"type": "json_object"},
-            max_tokens=max_tokens,
-            temperature=temperature,
-            timeout_s=timeout_s,
-        )
-        value = _parsed(parse, azure.data) if azure is not None else None
-        if value is not None and azure is not None:
-            return JsonAnswer(value=value, capability=capability, usage=azure.usage)
+    if capability.provider in (AZURE_PROVIDER, GOOGLE_PROVIDER):
+        response_format = azure_format or {"type": "json_object"}
+        if capability.provider == GOOGLE_PROVIDER and tenant_leg is not None:
+            model: str | None = tenant_leg.model
+            paid = await _json_via_google(
+                tenant_leg.model,
+                description,
+                instruction,
+                response_format,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout_s=timeout_s,
+            )
+        else:
+            model = get_settings().azure_openai_model
+            paid = await _json_via_azure(
+                description,
+                instruction,
+                response_format,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout_s=timeout_s,
+            )
+        value = _parsed(parse, paid.data) if paid is not None else None
+        if value is not None and paid is not None:
+            return JsonAnswer(value=value, capability=capability, usage=paid.usage, model=model)
         # Billed as a request, refused as an answer: it rides the fallback to the meter.
-        spent = azure.usage if azure is not None else None
+        spent = paid.usage if paid is not None else None
         capability = assist_capability(
             tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, provider_unavailable=True
         )
@@ -669,7 +764,7 @@ async def ask_json[T](
         raise assist_unavailable(
             AssistCapability(available=False, reason=PROVIDER_UNAVAILABLE_REASON)
         )
-    return JsonAnswer(value=value, capability=capability, usage=spent)
+    return JsonAnswer(value=value, capability=capability, usage=spent, model=SARVAM_DEFAULT_LLM)
 
 
 async def draft_script(
@@ -711,7 +806,9 @@ async def draft_script(
         tenant_leg=tenant_leg,
         quota_exhausted=quota_exhausted,
     )
-    return ScriptDraft(script=answer.value, capability=answer.capability, usage=answer.usage)
+    return ScriptDraft(
+        script=answer.value, capability=answer.capability, usage=answer.usage, model=answer.model
+    )
 
 
 __all__ = [

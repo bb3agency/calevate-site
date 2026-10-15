@@ -61,7 +61,7 @@ WHAT "BLOCKED" MEANS HERE, said plainly because the word is doing work. `campaig
 has no `blocked` value (`campaigns/models.CAMPAIGN_STATUSES`): a campaign is draft,
 scheduled, running, paused, completed or cancelled. What blocks an account's outbound is
 the organisation-level rule set — a suspension, KYC, agreements, DLT registration, the
-money, the first-campaign hold, the preference scrub. So the block reports the campaign
+money, the preference scrub. So the block reports the campaign
 counts BY STATUS — and the agent counts the same way, since "how many active agents?"
 is the same shape of question — and separately the outbound blocker RULE NAMES, which are
 exactly the things a human must clear. Per-CAMPAIGN blockers (this campaign's template, its number,

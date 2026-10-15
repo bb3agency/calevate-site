@@ -7,10 +7,8 @@ is not what this file is about.
 
 What this file is about is the CONSTANT. Measured on a 312-account directory, an account
 cost 3.3 ms and the largest single term — 0.95 ms, larger than the four counts together —
-was `read_tenant_holds`. Each blocker opens with `plan_tier_of(...) not in
-SELF_SERVE_TIERS -> None`, so for a `managed` account the WHOLE call is two `SELECT
-plan_tier FROM organizations` round trips that cannot change the answer — re-reading, per
-account, a column this loop already holds on the directory row.
+was `read_tenant_holds`: round trips per account for a tier this loop already holds on
+the directory row.
 
 `admin/holds.py::held_tenants` — the WORK QUEUE built from the same predicate — has
 always pre-filtered its candidate set by exactly this tier line, and argues at length why
@@ -71,9 +69,8 @@ async def _directory_row(tenant_id: UUID) -> dict[str, Any]:
 async def test_a_self_serve_account_is_still_asked_and_still_reports_its_holds() -> None:
     """The half a pre-filter is most likely to break, so it is asserted first.
 
-    A brand-new self-serve account is held by BOTH gates — `kyc_blocker` fails closed to
-    held when no record exists, and `first_campaign_hold_blocker` answers "nobody has
-    looked yet". A pre-filter that excluded one tier too many would drop exactly this
+    A brand-new self-serve account is held — `kyc_blocker` fails closed to held when no
+    record exists. A pre-filter that excluded one tier too many would drop exactly this
     account off the operator's roster, which is the failure the hold queue exists to
     prevent.
 
@@ -97,16 +94,9 @@ async def test_a_self_serve_account_is_still_asked_and_still_reports_its_holds()
 async def test_a_managed_account_is_not_asked_and_answers_the_same_empty_holds() -> None:
     """RED WITHOUT THE FIX, and red for the right reason.
 
-    The observable behaviour is unchanged by design — both blockers already answer `None`
-    for a managed tier — so an assertion on `row["holds"]` alone would pass either way.
-    What changed is the WORK, so the work is what is counted.
-
-    **The statement to count is `plan_tier_of`'s, not the compliance tables'.** A managed
-    account never reaches `kyc_records` or `first_campaign_reviews`: each blocker returns
-    on its first line, having spent one `SELECT plan_tier FROM organizations` to learn
-    something the directory row already carried. An earlier version of this test counted
-    the compliance tables and stayed green under sabotage for exactly that reason — a
-    probe aimed one layer past the work.
+    What the pre-filter saves is WORK, so the work is what is counted: neither a
+    `plan_tier` re-read nor a `kyc_records` read for an account the directory row
+    already says is managed.
 
     Counted at the driver, over every statement the call makes, because the blockers are
     two functions deep and a probe that patched them would be asserting on its own patch.
@@ -136,7 +126,6 @@ async def test_a_managed_account_is_not_asked_and_answers_the_same_empty_holds()
         "blocker applies to — and each of them re-reads `plan_tier`, the column the "
         f"directory row already carries. {len(tier_reads)} statement(s): {tier_reads}"
     )
-    # The tables the blockers would have gone on to read. Unreachable for a managed tier
-    # either way, asserted so the claim above cannot be satisfied by a change that skips
-    # the tier read and reads the records anyway.
-    assert not [s for s in seen if "kyc_records" in s or "first_campaign_reviews" in s]
+    # The table the blocker reads. Asserted so the claim above cannot be satisfied by a
+    # change that skips the tier read and reads the records anyway.
+    assert not [s for s in seen if "kyc_records" in s]

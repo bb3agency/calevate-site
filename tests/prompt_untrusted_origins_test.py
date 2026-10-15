@@ -29,6 +29,7 @@ from calevate_shared.engine import (
     TRUTHFUL_ANSWER_MARKER,
     AgentConfig,
     compose_engine_prompt,
+    platform_rules_preamble,
 )
 from tests.prompt_fence_test import _config
 
@@ -68,6 +69,6 @@ def test_the_framing_is_still_read_before_anything_a_client_wrote() -> None:
     with everything client-authored in between — unchanged by naming two more origins."""
     config: AgentConfig = _config("Say the clinic opens at nine.")
     prompt = compose_engine_prompt(config)
-    assert prompt.startswith(PLATFORM_RULES_PREAMBLE)
+    assert prompt.startswith(platform_rules_preamble(config))
     assert prompt.endswith(TRUTHFUL_ANSWER_DIRECTIVE)
     assert prompt.index(PLATFORM_RULES_PREAMBLE) < prompt.index("Say the clinic opens at nine.")

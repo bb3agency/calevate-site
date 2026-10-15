@@ -124,6 +124,11 @@ UNBOUNDED_PREFIXES: dict[str, str] = {
         "voice: bounded by the number of such voices. It is the evidence the voice may be "
         "offered at all, so an expiry would silently delete the record the offer rests on."
     ),
+    "copilot-uploads/": (
+        "Not in THIS bucket: Pip's uploads (D-781) live in a bucket of their own, bounded by "
+        "`copilot-uploads-policy.json` (expire after 30 days, abort an unfinished upload after "
+        "1), applied with `--policy` (runbooks/pip-uploads.md)."
+    ),
 }
 
 
@@ -263,6 +268,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--endpoint", default=os.environ.get("OBJECT_STORE_ENDPOINT"))
     parser.add_argument("--bucket", default=os.environ.get("OBJECT_STORE_BUCKET"))
     parser.add_argument(
+        "--policy",
+        type=Path,
+        default=POLICY_PATH,
+        help=(
+            "The lifecycle JSON to apply. Default: policy.json (the main bucket). Pip's "
+            "uploads bucket takes copilot-uploads-policy.json (runbooks/pip-uploads.md)."
+        ),
+    )
+    parser.add_argument(
         "--max-tenant-ttl-days",
         type=int,
         required=True,
@@ -278,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    policy = load_policy()
+    policy = load_policy(args.policy)
     try:
         check_policy(policy, max_tenant_ttl_days=args.max_tenant_ttl_days)
     except PolicyError as exc:

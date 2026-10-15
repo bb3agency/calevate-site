@@ -31,7 +31,7 @@ from datetime import datetime
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 #: How a form control behaves, in the browser's own vocabulary. `select` is the one that
 #: earns a schema `enum` (see `prompt.set_fields_tool`), which is the single strongest
@@ -72,6 +72,10 @@ MAX_FACTS = 50
 #: is the length at which a person opens a new question instead. NOTHING IS PERSISTED —
 #: this list IS the whole memory of the conversation, and it dies with the response.
 MAX_HISTORY = 10
+
+#: `attachments.MAX_FILES`, restated as a schema bound (this module imports no service code;
+#: `attachments_test` holds the two equal).
+MAX_ATTACHMENTS: Final = 5
 
 #: Options on one `select`. Longer than any picker this console renders (the voice
 #: catalogue is the largest) and short enough that the enum it becomes stays a prompt and
@@ -190,6 +194,44 @@ class CopilotAskIn(BaseModel):
     fields: Annotated[list[CopilotField], Field(max_length=MAX_FIELDS)] = []
     facts: Annotated[list[CopilotFact], Field(max_length=MAX_FACTS)] = []
     history: Annotated[list[CopilotTurn], Field(max_length=MAX_HISTORY)] = []
+    #: Files uploaded through `POST /v1/copilot/uploads` for THIS question (D-781). Ids
+    #: only: the bytes are in the object store, and the route reads them for this one call.
+    #: Bounded here at the per-question file limit; the picture and size limits are checked
+    #: against the rows (`attachments.for_question`).
+    attachments: Annotated[list[UUID], Field(max_length=MAX_ATTACHMENTS)] = []
+    #: The ids the stored question and answer will carry (D-782), minted by the browser so
+    #: the device that asked can recognise its own turns in the stored page. Absent: the
+    #: server mints them. A repeat with the same ids stores no second row.
+    turn_ids: CopilotTurnIds | None = None
+
+
+class CopilotTurnIds(BaseModel):
+    """The two turn ids one question will be stored under."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    question: UUID
+    answer: UUID
+
+    @model_validator(mode="after")
+    def _distinct(self) -> CopilotTurnIds:
+        if self.question == self.answer:
+            raise ValueError("the question and the answer need different ids")
+        return self
+
+
+class CopilotUploadOut(BaseModel):
+    """One stored upload. `id` is what `CopilotAskIn.attachments` names; the bytes are read
+    back only through `GET /v1/copilot/uploads/{id}/content`, by the person who sent them."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    file_name: str
+    kind: Literal["picture", "pdf", "document"]
+    content_type: str
+    size_bytes: int | None
+    status: Literal["ready"]
 
 
 class AdminCopilotAskIn(CopilotAskIn):
@@ -546,6 +588,9 @@ class CopilotConversationOut(BaseModel):
 
     turns: list[CopilotStoredTurnOut] = []
     has_more: bool = False
+    #: Pip is still answering a question this person asked, on this device or another
+    #: (D-782). The answer is not in `turns` yet; it arrives with the next change note.
+    answering: bool = False
 
 
 class CopilotConversationClearedOut(BaseModel):

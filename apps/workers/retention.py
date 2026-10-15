@@ -3463,6 +3463,20 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # typed, so it destroys every row rather than matching any.
         turns = await session.execute(text("DELETE FROM copilot_conversation_turns"))
         counts["copilot_turns_erased"] = int(rowcount_of(turns) or 0)
+        # AND THE FILES PEOPLE ATTACHED TO PIP (D-781), the objects before the rows, by the
+        # account's whole prefix so an object whose row never landed goes too. A deployment
+        # with no uploads bucket can hold none; one that once had rows and lost its bucket
+        # credential RAISES here rather than certifying a deletion it could not perform.
+        has_uploads = (await session.execute(text("SELECT 1 FROM copilot_uploads LIMIT 1"))).first()
+        if storage.uploads_configured() or has_uploads is not None:
+            attached = await storage.upload_keys_under(
+                storage.copilot_upload_scope_prefix(str(tenant_id))
+            )
+            if attached:
+                await storage.delete_uploads(attached)
+                counts["uploaded_files_destroyed"] += len(attached)
+        uploads_erased = await session.execute(text("DELETE FROM copilot_uploads"))
+        counts["copilot_uploads_erased"] = int(rowcount_of(uploads_erased) or 0)
         # AND THE ASSISTANT'S ACTIVITY LOG AND BACKGROUND JOBS (D-694). The log first: its
         # rows point at jobs (`job_id`, SET NULL), so this order deletes each row once.
         actions = await session.execute(text("DELETE FROM copilot_actions"))
@@ -3485,6 +3499,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
             text("DELETE FROM forwarding_test_legs WHERE tenant_id = :tid"), {"tid": tenant_id}
         )
         await session.execute(text("DELETE FROM save_number_messages"))
+        # The client's own WhatsApp accounts and their templates (D-784): the business's own
+        # number and message wording, gone with the account. Templates first (they point at
+        # their account); the business token is an `integration_credentials` row.
+        await session.execute(text("DELETE FROM whatsapp_templates"))
+        await session.execute(text("DELETE FROM whatsapp_accounts"))
         # The teach box and the improvement loop: saved tests hold callers' redacted lines,
         # and the facts, teachings and waiting rules are the business's own words. Test runs
         # carry copies of those saved lines.
@@ -3673,6 +3692,10 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                     f"{counts['copilot_turns_erased']} in-app assistant conversation "
                     "turn(s) deleted: the chat panel's own history, on every device it "
                     "was open on"
+                ),
+                "copilot_uploads": (
+                    f"{counts['copilot_uploads_erased']} file(s) attached to the in-app "
+                    "assistant deleted, with their stored copies"
                 ),
                 "copilot_actions": (
                     f"{counts['copilot_actions_erased']} in-app assistant activity record(s), "

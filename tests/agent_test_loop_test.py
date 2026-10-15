@@ -80,6 +80,7 @@ BRIEF = test_conversations.AgentBrief(
     lead_fields=("Name",),
     hand_over="nobody_on_duty",
     call_backs=True,
+    call_is_recorded=True,
     caller_lines=("naa number 9876543210, mirchi undha?",),
 )
 
@@ -412,6 +413,11 @@ async def test_a_run_writes_talks_judges_meters_and_retests(
     # agent gives one fixed reply, which a specimen like "asks to repeat" rightly fails. They
     # have their own tests (`tests/specimen_call_test.py`); this one pins the loop.
     monkeypatch.setattr(worker, "specimen_scenarios", lambda *args, **kwargs: [])
+
+    async def _in_call_model(*args: Any) -> str:
+        return "GPT-OSS 120B"
+
+    monkeypatch.setattr(worker, "agent_in_call_model", _in_call_model)
     generated = {
         "scenarios": [
             {
@@ -492,6 +498,15 @@ async def test_a_run_writes_talks_judges_meters_and_retests(
     assert done.results[0]["verdict"] == "failed"  # failures first
     assert done.score == (len(done.results) - 1, len(done.results)), done.results
     assert {"agent_test_generate", "agent_test_judge"} <= features
+    # What the judge itself said is kept beside the stored verdict, for calibration: the
+    # model it ran on, that it shares the agent's family (no other leg is configured here),
+    # and where in its request each conversation sat.
+    records = [r["judge"] for r in done.results]
+    assert {j["model"] for j in records} == {get_settings().azure_openai_model}
+    assert all(j["same_family"] is True for j in records)
+    assert sorted(j["position"] for j in records) == list(range(len(records)))
+    failed = done.results[0]
+    assert failed["judge"]["verdict"] == "failed" and failed["judge"]["reason"] == "Because."
     # Auto-improve was asked for and a test failed: the proposal is queued.
     assert outbox == [test_conversations.IMPROVE_JOB]
 

@@ -4,7 +4,7 @@
 in this repository ever inserts a row** — not `scripts/seed.py`, not `vps-deploy.sh`, not
 `compose.prod.yml`. So after `alembic upgrade head` on a fresh host the table is empty and
 every admin-realm request 403s: no organization can be created, no platform setting written,
-no vendor credential stored, no first campaign approved. The deploy comes up green and the
+no vendor credential stored, no KYC record verified. The deploy comes up green and the
 product cannot onboard anybody. It fails closed, so this is not a security hole — it is a
 deployment with no way in, and this script is the way in.
 

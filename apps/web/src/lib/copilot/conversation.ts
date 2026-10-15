@@ -8,34 +8,32 @@
  * PERSON — the same thread on a phone and a desktop — and it ends when their last
  * session ends.
  *
- * ## What a second device sees, since it is the question this design has to answer
+ * ## What a second device sees (D-782, replacing D-542's refresh-on-focus)
  *
- * **IT REFRESHES WHEN YOU COME BACK TO THE TAB, AND THAT IS THE WHOLE SYNC MODEL.** The
- * founder's decision, and it is bought with `refetchOnWindowFocus` — the option this
- * console already runs on by default (`app/providers.tsx` sets no other) — plus one
- * refetch after anything this device sends. So a phone and a desktop converge the moment
- * either is looked at, and there is no socket, no poll and no channel behind an open panel.
+ * **IT IS TOLD, WITHIN A SECOND.** The server stores a question the moment it is asked and
+ * its answer when it is finished, and after each write sends a `conversation` note on the
+ * person's own live channel (`apps/api/copilot/live_sync.py`). `lib/live/topics.ts` maps
+ * that note to this query's family, so every open window of that person refetches through
+ * this ordinary, authorised route — and nobody else's does. The note carries no text and
+ * no id (hard rule 6); `answering` in the response says Pip is still answering.
  *
- * The alternatives were priced and each buys nothing here. **SSE is one-way**, so a panel
- * on it still needs a separate request to send anything and the send is what already
- * refreshes us ("Long polling vs WebSockets", getstream.io, read 5 Sep 2026 — ⚠ EVIDENCE
- * CLASS: REPORTED, the host is egress-blocked from this container and the reading was
- * relayed). **Multi-connection ordering needs application-level sequence numbers**, and
- * timestamp last-write-wins has known defects (Ably, "reliable message ordering", same
- * date and same class) — a focus refetch sidesteps that entirely, because the SERVER's
- * `created_at, id` order is the only order anybody ever renders.
+ * Reconnect is the catch-up: a stream that opens again says `ready`, which refetches every
+ * live family, this one included. The newest page IS the delta — a conversation is at most
+ * `transcript.MAX_STORED_TURNS` turns and the panel shows the newest page — so there is no
+ * separate "since" endpoint to keep in step with this one.
  *
- * Both devices write to the same rows, so nothing is lost either way; what the refetch
- * adds is that neither has to be reloaded to see the other.
+ * The server's `created_at, id` order is the only order anybody renders, so two devices
+ * asking at once both keep their turns, interleaved as stored.
  *
  * ## `content` is the redacted form, and that is visible
  *
  * A live turn holds two strings — what the person reads, with the screen's own digits
  * restored, and the wire form with the placeholders still in it — and only the second is
- * ever stored (`apps/api/copilot/transcript.py` argues why). So a turn re-read after a
- * reload shows `«PHONE_1»` where the live one showed the number, and `wire` and `content`
- * are the same string on a loaded turn. That is the cost of not keeping a caller's digits
- * in a durable row, and it is the right way round.
+ * ever stored (`apps/api/copilot/transcript.py` argues why). So a turn read on ANOTHER
+ * device, or after a reload, shows `«PHONE_1»` where the asking device showed the number.
+ * The asking device keeps showing its own restored text for as long as the panel lives
+ * (`useCopilotConversation`), so a turn does not change under the reader when its stored
+ * copy arrives.
  */
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
@@ -70,7 +68,19 @@ interface StoredTurn {
 interface ConversationBody {
   turns: StoredTurn[];
   has_more: boolean;
+  /** Absent from a server older than D-782, which never says. */
+  answering?: boolean;
 }
+
+/** One read of the stored conversation. */
+export interface StoredConversation {
+  /** Oldest first. */
+  turns: CopilotTurn[];
+  /** Pip is still answering a question this person asked, here or on another device. */
+  answering: boolean;
+}
+
+export const EMPTY_CONVERSATION: StoredConversation = { turns: [], answering: false };
 
 /**
  * The stored conversation as the panel's own turn shape, oldest first.
@@ -84,17 +94,20 @@ interface ConversationBody {
 export async function loadConversation(
   session: Session,
   realm: "client" | "admin",
-): Promise<CopilotTurn[]> {
+): Promise<StoredConversation> {
   const body = await apiRequest<ConversationBody>(
     session,
     `${conversationPath(realm)}?limit=${CONVERSATION_PAGE}`,
   );
-  return body.turns.map((turn) => ({
-    id: turn.id,
-    role: turn.role,
-    content: turn.content,
-    wire: turn.content,
-  }));
+  return {
+    turns: body.turns.map((turn) => ({
+      id: turn.id,
+      role: turn.role,
+      content: turn.content,
+      wire: turn.content,
+    })),
+    answering: body.answering === true,
+  };
 }
 
 /**
@@ -106,31 +119,31 @@ export async function loadConversation(
  * admin conversation is not per-tenant, so the slug there only costs a refetch when the
  * account on screen changes; a shared key would cost the wrong thread on screen, which is
  * not a trade worth making for one request.
+ *
+ * The family is `copilot`, which `lib/live/topics.ts` puts under the `conversation` topic
+ * alone: nothing else a live note announces refetches it.
  */
 export function conversationKey(orgSlug: string, realm: "client" | "admin"): readonly unknown[] {
   return ["copilot", "conversation", orgSlug, realm];
 }
 
 /**
- * The stored conversation as a query, so the tab getting focus refreshes it.
+ * The stored conversation as a query: the live note, a reconnect and the tab getting focus
+ * all refresh it.
  *
- * `staleTime: 0` rather than the client default of ten seconds: the whole point is that
- * coming back to the tab shows what the other device said, and a ten-second window in
- * which focus does nothing is the one case a person would notice ("I sent it on my phone
- * and the laptop still doesn't have it").
+ * `staleTime: 0` rather than the client default of ten seconds, so coming back to a tab
+ * whose stream was closed while hidden shows what the other device said at once.
  *
- * `refetchOnWindowFocus` and `refetchOnReconnect` are handed the SAME predicate, and it is
- * the one rule this query has: **never refetch while an answer is streaming.** The panel
- * appends its turns to this cache as they complete, so a refetch that landed mid-exchange
- * would replace the list with a server page taken before the question was asked — the
- * person would watch their own message disappear. `streaming()` reads a ref, so the answer
- * is the truth at the instant focus fires rather than whatever a render last captured.
+ * Focus and reconnect skip the refetch while an answer is streaming on THIS device: it is
+ * a read nobody needs (the stream is the fresher copy) at the moment the panel is busiest.
+ * A live note still refetches mid-stream, and that is safe — the merge in
+ * `useCopilotConversation` matches turns by id.
  */
 export function useConversation(
   session: Session,
   realm: "client" | "admin" | null,
   streaming: () => boolean,
-): UseQueryResult<CopilotTurn[]> {
+): UseQueryResult<StoredConversation> {
   return useQuery({
     queryKey: conversationKey(session.orgSlug, realm ?? "client"),
     queryFn: () => loadConversation(session, realm ?? "client"),
@@ -150,4 +163,28 @@ export async function clearConversation(
     method: "DELETE",
   });
   return body.cleared;
+}
+
+/**
+ * A new turn id, minted HERE so the device that asks can recognise its own question and
+ * answer when the stored page brings them back (D-782) — matched by id, never by counting
+ * or by text. The server stores the turn under exactly this id (`CopilotAskIn.turn_ids`)
+ * and a repeat stores nothing twice.
+ *
+ * UUIDv7 (RFC 9562 §5.7: 48-bit Unix milliseconds, version 7, variant 10, random tail),
+ * the shape every id in this system has, so the stored order's `id` tiebreak stays in time
+ * order.
+ */
+export function newTurnId(now: number = Date.now()): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  let ms = now;
+  for (let i = 5; i >= 0; i -= 1) {
+    bytes[i] = ms % 256;
+    ms = Math.floor(ms / 256);
+  }
+  bytes[6] = (bytes[6]! & 0x0f) | 0x70;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }

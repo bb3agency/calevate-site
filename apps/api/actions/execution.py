@@ -113,6 +113,9 @@ class CallFacts:
     #: The other party on the line, E.164.
     caller_e164: str | None
     direction: str | None = None
+    #: Our `calls.id`, when the call has a row. A spoken WhatsApp opt-in names it
+    #: (`consent_ledger.call_id`), so a call without one cannot record a grant.
+    call_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,6 +271,7 @@ async def execute_action(
     audit: bool = True,
     call: CallFacts | None = None,
     budget_s: float | None = None,
+    spoken: wa.SpokenConsent | None = None,
 ) -> ExecutionResult:
     """Run one action end to end and return the result for the model.
 
@@ -293,11 +297,13 @@ async def execute_action(
     http = client or egress_client(timeout=REQUEST_TIMEOUT_S, follow_redirects=False)
     try:
         if budget_s is None:
-            result = await _dispatch(session, tool=tool, received=merged, call=facts, client=http)
+            result = await _dispatch(
+                session, tool=tool, received=merged, call=facts, client=http, spoken=spoken
+            )
         else:
             async with asyncio.timeout(budget_s):
                 result = await _dispatch(
-                    session, tool=tool, received=merged, call=facts, client=http
+                    session, tool=tool, received=merged, call=facts, client=http, spoken=spoken
                 )
     except TimeoutError:
         result = _refused("timeout")
@@ -345,18 +351,23 @@ async def _dispatch(
     received: dict[str, Any],
     call: CallFacts,
     client: httpx.AsyncClient,
+    spoken: wa.SpokenConsent | None = None,
 ) -> ExecutionResult:
     values = resolve_values(tool.params, received)
     if tool.kind == "custom_api":
         return await _run_custom_api(session, tool=tool, values=values, client=client)
     if tool.kind == "whatsapp":
-        return await _run_whatsapp(session, tool=tool, values=values, client=client, call=call)
+        return await _run_whatsapp(
+            session, tool=tool, values=values, client=client, call=call, spoken=spoken
+        )
     if tool.kind == "calendar":
         return await _run_calendar(session, tool=tool, values=values, client=client, call=call)
     if tool.kind == "sheets":
         return await _run_sheets(session, tool=tool, values=values, client=client, call=call)
     if tool.kind == "payment_link":
-        return await _run_payment_link(session, tool=tool, values=values, client=client, call=call)
+        return await _run_payment_link(
+            session, tool=tool, values=values, client=client, call=call, spoken=spoken
+        )
     if tool.kind == "crm":
         return await _run_crm(session, tool=tool, values=values, client=client, call=call)
     if tool.kind == "caller_lookup":
@@ -475,6 +486,61 @@ async def _run_custom_api(
 # ----------------------------------------------------------------- whatsapp ----
 
 
+async def _messaging_gate(
+    session: AsyncSession,
+    *,
+    tool: LoadedTool,
+    recipient: str,
+    test_recipient: bool,
+    spoken: wa.SpokenConsent | None,
+) -> str | ExecutionResult:
+    """The dispatch gate and the caller's consent (or their answer on this call): the
+    normalized number, or the refusal the agent relays."""
+    try:
+        if test_recipient:
+            return await wa.assert_business_contact_may_be_messaged(
+                session, tenant_id=tool.tenant_id, agent_id=tool.agent_id, recipient_e164=recipient
+            )
+        return await wa.assert_recipient_may_be_messaged(
+            session,
+            tenant_id=tool.tenant_id,
+            agent_id=tool.agent_id,
+            recipient_e164=recipient,
+            spoken=spoken,
+        )
+    except wa.WhatsAppBlockedError as exc:
+        return ExecutionResult(ok=False, payload={"error": exc.code}, status="blocked")
+    except wa.WhatsAppNotOptedInError as exc:
+        return ExecutionResult(ok=False, payload={"error": exc.code}, status="not_opted_in")
+    except wa.WhatsAppConsentNotAskedError as exc:
+        return ExecutionResult(ok=False, payload={"error": exc.code}, status="consent_not_asked")
+    except wa.WhatsAppCallerDeclinedError as exc:
+        return ExecutionResult(ok=False, payload={"error": exc.code}, status="caller_declined")
+
+
+#: The detail keys an agent may have captured as the caller's name, in the order tried. The
+#: core lead fields name it `name`; older schemas used the other two.
+_NAME_KEYS: Final = ("name", "caller_name", "full_name")
+
+
+async def _recipient_name(
+    session: AsyncSession, *, tool: LoadedTool, phone_e164: str
+) -> str | None:
+    """The caller's name as this agent captured it, letters and spaces only, or None."""
+    data = (
+        await session.execute(text(_LEAD_DATA_SQL), {"aid": tool.agent_id, "phone": phone_e164})
+    ).scalar_one_or_none()
+    if not isinstance(data, dict):
+        return None
+    for key in _NAME_KEYS:
+        value = data.get(key)
+        if isinstance(value, str):
+            cleaned = " ".join("".join(c for c in value if c.isalpha() or c.isspace()).split())
+            if cleaned:
+                return cleaned[:60]
+    return None
+
+
 async def _send_template(
     session: AsyncSession,
     *,
@@ -487,22 +553,16 @@ async def _send_template(
     body_values: list[str],
     client: httpx.AsyncClient,
     test_recipient: bool = False,
+    spoken: wa.SpokenConsent | None = None,
 ) -> ExecutionResult:
     """The one WhatsApp send: the dispatch gate and the caller's messaging consent, then the
     provider's template request. Used by WhatsApp actions and by payment links."""
-    try:
-        if test_recipient:
-            normalized = await wa.assert_business_contact_may_be_messaged(
-                session, tenant_id=tool.tenant_id, agent_id=tool.agent_id, recipient_e164=recipient
-            )
-        else:
-            normalized = await wa.assert_recipient_may_be_messaged(
-                session, tenant_id=tool.tenant_id, agent_id=tool.agent_id, recipient_e164=recipient
-            )
-    except wa.WhatsAppBlockedError as exc:
-        return ExecutionResult(ok=False, payload={"error": exc.code}, status="blocked")
-    except wa.WhatsAppNotOptedInError as exc:
-        return ExecutionResult(ok=False, payload={"error": exc.code}, status="not_opted_in")
+    gate = await _messaging_gate(
+        session, tool=tool, recipient=recipient, test_recipient=test_recipient, spoken=spoken
+    )
+    if isinstance(gate, ExecutionResult):
+        return gate
+    normalized = gate
     if provider == "custom":
         return _refused("misconfigured")
     cred = await _credential(session, tool, credential_id)
@@ -510,15 +570,21 @@ async def _send_template(
         return _refused("no_credential")
     if provider == "aisensy":
         request = wa.build_aisensy(
-            config, api_key=cred.secret, recipient_e164=normalized, body_values=body_values
+            config,
+            api_key=cred.secret,
+            recipient_e164=normalized,
+            body_values=body_values,
+            recipient_name=await _recipient_name(session, tool=tool, phone_e164=normalized),
         )
     elif provider == "meta_cloud":
+        connected = cred.non_secret.get("phone_number_id")
         request = wa.build_meta_cloud(
             config,
             access_token=cred.secret,
             recipient_e164=normalized,
             header_value=header_value,
             body_values=body_values,
+            connected_number_id=connected if isinstance(connected, str) else None,
         )
     elif provider == "interakt":
         request = wa.build_interakt(
@@ -547,6 +613,7 @@ async def _run_whatsapp(
     values: dict[str, Any],
     client: httpx.AsyncClient,
     call: CallFacts,
+    spoken: wa.SpokenConsent | None = None,
 ) -> ExecutionResult:
     config = WhatsAppConfig.model_validate(tool.config)
     recipient = values.get(config.recipient_param)
@@ -571,6 +638,7 @@ async def _run_whatsapp(
         body_values=[_stringify(values[name]) for name in config.body_params],
         client=client,
         test_recipient=call.direction == "test",
+        spoken=spoken,
     )
 
 
@@ -969,14 +1037,29 @@ async def _run_payment_link(
     values: dict[str, Any],
     client: httpx.AsyncClient,
     call: CallFacts,
+    spoken: wa.SpokenConsent | None = None,
 ) -> ExecutionResult:
-    """Create the link on the client's Razorpay and send it to the caller on WhatsApp."""
+    """Create the link on the client's Razorpay and send it to the caller on WhatsApp.
+
+    The messaging gate runs BEFORE the link is created: a caller who said no, or was never
+    asked, gets no link on the client's Razorpay either. The send below asks it again, and
+    by then a yes given on this call is on file.
+    """
     if await restricting_trial(session, tenant_id=tool.tenant_id) is not None:
         # D-700 with D-697: no money moves on a trial test call, not even a client's.
         return _refused("trial_payment_links")
     config = PaymentLinkConfig.model_validate(tool.config)
     if not call.caller_e164:
         return _refused("no_caller_number")
+    gate = await _messaging_gate(
+        session,
+        tool=tool,
+        recipient=call.caller_e164,
+        test_recipient=call.direction == "test",
+        spoken=spoken,
+    )
+    if isinstance(gate, ExecutionResult):
+        return gate
     amount = config.fixed_amount_inr or _amount(values.get(config.amount_param or ""))
     if amount is None:
         return _refused("no_amount")

@@ -34,9 +34,7 @@ import {
   BrainCircuit,
   ClipboardList,
   FileSignature,
-  FileText,
   GitMerge,
-  Hourglass,
   LayoutDashboard,
   LifeBuoy,
   ListChecks,
@@ -55,6 +53,7 @@ import {
   Wallet,
 } from "lucide-react";
 
+import { CallHandlingIcon } from "@/components/illustration/callHandlingIcon";
 import { PipIcon } from "@/components/illustration/pip";
 
 export interface NavItem {
@@ -89,7 +88,7 @@ export function clientNavigation(slug: string): NavGroup[] {
         { href: `/c/${slug}`, label: "Dashboard", icon: LayoutDashboard },
         // Directly under Dashboard because it is the daily triage queue — the one list
         // with a time cost attached to ignoring it. It used to sit in a secondary
-        // "Operations" group beside Campaign review, a screen most accounts see once,
+        // "Operations" group beside a screen most accounts saw once,
         // while the header bell promoted it — the sidebar now agrees with the bell
         // (ux-audit client-daily-work C2).
         { href: `/c/${slug}/attention`, label: "Needs attention", icon: Target },
@@ -109,11 +108,10 @@ export function clientNavigation(slug: string): NavGroup[] {
     },
     {
       // Weekly-or-rarer reads, grouped by cadence rather than left at daily weight:
-      // Quality is a weekly review and Campaign review is a once-per-campaign gate.
+      // Quality is a weekly review.
       heading: "Reports & reviews",
       items: [
         { href: `/c/${slug}/quality`, label: "Quality", icon: ShieldCheck },
-        { href: `/c/${slug}/campaign-review`, label: "Campaign review", icon: FileText },
       ],
     },
     {
@@ -123,7 +121,7 @@ export function clientNavigation(slug: string): NavGroup[] {
         // accepted, `agreements_blocker` refuses every dial and every publish, so a
         // client working down this list would meet the refusal at the bottom instead of
         // the door at the top. It is also the one screen that names the operational
-        // blockers (KYC, PE registration, DND scrub, first-campaign hold) somewhere other
+        // blockers (KYC, the pledge, DND scrub) somewhere other
         // than a failed campaign launch.
         { href: `/c/${slug}/agreements`, label: "Agreements", icon: FileSignature },
         // Second because it is the other DOOR: the identity check that legally gates
@@ -174,7 +172,7 @@ export function clientNavigation(slug: string): NavGroup[] {
         // its own model, and that control is on the agent.
         { href: `/c/${slug}/settings/models`, label: "AI model", icon: BrainCircuit },
         // How every agent ends a caller's turn and its calls, unless one has its own (D-751).
-        { href: `/c/${slug}/settings/call-handling`, label: "Call handling", icon: Hourglass },
+        { href: `/c/${slug}/settings/call-handling`, label: "Call handling", icon: CallHandlingIcon },
         { href: `/c/${slug}/integrations`, label: "Integrations", icon: Blocks },
         // CREDITS & BILLING — ONE hub, four tabs (D-525). It used to be four sidebar
         // entries: Calling credit, Usage, Spend and Invoice. Every one of them answered a

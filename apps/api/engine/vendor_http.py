@@ -298,7 +298,7 @@ SCOPE_NOT_FOUND_CODES: Final = frozenset({"workspace_not_found"})
 _INT32_MAX = 2**31 - 1
 
 #: How much of the vendor's `message` is READ before anything is done to it. Not the
-#: bound an operator sees — `redact_text` caps that at `core.logging._MAX_FREE_TEXT`
+#: bound an operator sees — `redact_text` caps that at `core.logging.MAX_FREE_TEXT`
 #: (200 characters) — this one bounds the WORK. What answers a 4xx is not always the
 #: vendor: an edge, a WAF or a proxy can put a whole HTML page in an `error` body, and
 #: running two regex passes over a megabyte of it, per failed request, on the dispatcher's

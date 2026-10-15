@@ -469,7 +469,7 @@ LEADS_BULK_UPDATE: Final = ActionTool(
     schema=action_schema(
         "leads_bulk_update",
         f"Propose changing the status or the owner of up to {MAX_LEADS_PER_ACTION} leads at "
-        "once. The person sees how many leads it affects before confirming." + PROPOSES_ONLY,
+        "once; for one lead's status use `lead_set_status`." + PROPOSES_ONLY,
         {
             "lead_ids": {
                 "type": "array",
@@ -690,9 +690,9 @@ CALL_PLACE: Final = ActionTool(
     where="in Call logs",
     schema=action_schema(
         "call_place",
-        "Propose having one of the account's agents call one lead now. Every calling rule "
-        "is checked first (calling hours, do-not-call, verification, credit) and a refusal "
-        "comes back with the reason — relay it, do not retry." + PROPOSES_ONLY,
+        "Propose having one of the account's agents call one lead now; on a free trial use "
+        "`agent_test_call`. Every calling rule is checked first (hours, do-not-call, "
+        "verification, credit); relay a refusal's reason, do not retry." + PROPOSES_ONLY,
         {
             "lead_id": {"type": "string", "description": "The lead's id, never invented."},
             "agent_id": {
@@ -1859,7 +1859,8 @@ AGENT_EDIT_LIVE: Final = ActionTool(
     schema=action_schema(
         "agent_edit_live",
         "Propose changing a LIVE agent's language, voice, or opening notices. Callers hear "
-        "the change from their next call." + PROPOSES_ONLY,
+        "the change from their next call. For a draft or paused agent use `agent_edit`."
+        + PROPOSES_ONLY,
         _AGENT_EDIT_PROPERTIES,
     ),
     plan=_plan_agent_edit_live,

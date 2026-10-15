@@ -405,9 +405,6 @@ async def test_a_self_serve_account_carries_the_holds_from_one_predicate() -> No
     assert set(holds.rules) <= causes, (
         "every gate holding this account must appear as a cause, from the same predicate"
     )
-    blocked = _signal(row, "outbound_blocked")
-    assert blocked is not None and blocked.severity == "stop"
-    assert "first_campaign_review_pending" in blocked.causes, "a review we owe is ours"
     waiting = _signal(row, "outbound_waiting_on_client")
     assert waiting is not None and "kyc_missing" in waiting.causes
 
@@ -530,7 +527,7 @@ def test_who_clears_each_cause() -> None:
     assert cause_owner("trial_daily_cap") is None
     assert cause_owner("agreements_not_accepted") == "client"
     assert cause_owner("trial_ended") == "client"
-    assert cause_owner("first_campaign_review_pending") == "calevate"
+    assert cause_owner("kyc_not_verified") == "calevate"
     assert cause_owner("a_gate_added_tomorrow") == "calevate"
 
 

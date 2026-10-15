@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.actions.credentials import credential_kind
 from apps.api.actions.models import ACTION_KINDS, ACTION_PROVIDERS, ACTION_TRIGGERS
 from apps.api.actions.schema import (
+    SPOKEN_CONSENT_ARGS,
     CalendarConfig,
     CallerLookupConfig,
     CrmConfig,
@@ -271,20 +272,26 @@ def _validate(
             detail="Each parameter must have a unique name within an action.",
             remediation="Rename the duplicate.",
         )
-    if "call_id" in names:
-        # Our body template names the call `call_id`, filled by the platform; a client
-        # parameter of that name would be overwritten by it, or overwrite it.
+    reserved = sorted({"call_id", *SPOKEN_CONSENT_ARGS} & set(names))
+    if reserved:
+        # Our body template names the call `call_id`, filled by the platform, and a WhatsApp
+        # action carries the caller's spoken answer in `caller_agreed`/`caller_words`; a
+        # client parameter of either name would be overwritten by it, or overwrite it.
         raise ProblemError(
             kind="validation",
             code="action_param_reserved",
             title="That parameter name is reserved",
-            detail="`call_id` is filled in by Calevate on every call.",
+            detail=f"`{reserved[0]}` is filled in by Calevate on every call.",
             remediation="Rename the parameter.",
         )
-    if sum(1 for p in params if p.source == "ai") > MAX_AGENT_FILLED_PARAMS:
+    # A WhatsApp-sending action also declares the caller's spoken answer (two parameters).
+    most = MAX_AGENT_FILLED_PARAMS - (
+        len(SPOKEN_CONSENT_ARGS) if kind in ("whatsapp", "payment_link") else 0
+    )
+    if sum(1 for p in params if p.source == "ai") > most:
         raise ProblemError.business_rule(
             "action_too_many_questions",
-            f"An action may ask the agent for at most {MAX_AGENT_FILLED_PARAMS} values.",
+            f"An action may ask the agent for at most {most} values.",
             remediation="Remove some of the values the agent collects.",
         )
     known = set(names)

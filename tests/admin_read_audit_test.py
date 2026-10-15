@@ -197,6 +197,10 @@ _NOT_A_PER_TENANT_READ: dict[str, str] = {
         "the path names a LANGUAGE, not a client: it reads the platform's spoken-style "
         "word list and its review history (D-744), which belong to no tenant"
     ),
+    "GET /v1/admin/copilot/uploads/{file_id}/content": (
+        "the path names a file the OPERATOR attached to their own assistant (D-781), read "
+        "only by that operator from `admin_copilot_uploads`, which holds no client's rows"
+    ),
 }
 
 

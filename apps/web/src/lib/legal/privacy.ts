@@ -468,6 +468,29 @@ export const PRIVACY_POLICY: LegalDocument = {
                     "campaigns, agents and knowledge content — and section 8 says where " +
                     "that goes.",
                 },
+                {
+                  term: "Files you attach to the in-app assistant",
+                  detail:
+                    "Since 15 October 2026 you can attach up to five files to a question: " +
+                    "pictures, PDFs, and text, CSV, Word, Excel and PowerPoint files. Your " +
+                    "browser prepares each one before it leaves your device: a picture is " +
+                    "re-drawn without its location and camera details, an Office file is " +
+                    "turned into its plain text, and a PDF is sent as it is together with the " +
+                    "text your browser finds in it, which is read only if the PDF itself " +
+                    "cannot be. We store what arrives privately, under a random " +
+                    "name, for you alone, and send it as it is to the language-model " +
+                    "provider that answers the assistant, with the question you attached it " +
+                    "to (section 8). Unlike everything else the assistant sends, an attached " +
+                    "file is not redacted first: a phone number, a name or anything else in " +
+                    "it reaches that provider whole. We do not review attached files, scan " +
+                    "them for malware or redact them, so please attach only what you are " +
+                    "entitled to share and what your question needs; the business whose " +
+                    "account you use is responsible for having the right to share it. The " +
+                    "files are deleted when the conversation ends (you remove one, start " +
+                    "again, or your last signed-in session ends or expires), when the " +
+                    "account closes, and in any case within 30 days. The conversation keeps " +
+                    "only how many files a question carried, never their names or contents.",
+                },
               ],
             },
           ],
@@ -1087,7 +1110,9 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "to the model to distil durable facts. All of it runs on the same " +
                 "language-model providers described above and in the same places. It is " +
                 "still true that the raw transcript is never part of it; it is no longer " +
-                "true that only configuration is.",
+                "true that only configuration is. Since 15 October 2026 a file a person " +
+                "attaches to a question goes to the same providers and the same places, " +
+                "whole and unredacted (section 3.2).",
             },
             {
               term: "The application and the database",

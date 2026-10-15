@@ -13,7 +13,7 @@
  * - **`messageable` is the SERVER's verdict.** It is computed from the same read the
  *   hot-lead worker runs, so a screen that recomputed "granted and not withdrawn" for
  *   itself could show a green tick over an alert that will never be sent. Same doctrine
- *   as `is_verified` in `kyc.ts` and `held` in `firstCampaign.ts`.
+ *   as `is_verified` in `kyc.ts`.
  * - **The wording travels with the state.** `current_notice_text` and
  *   `current_notice_version` are on every response and carry NO defaults, so the tick-box
  *   copy comes from the same place the stored `notice_version` points at. A React

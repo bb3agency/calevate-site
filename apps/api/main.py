@@ -181,10 +181,6 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.compliance.deletion_routes import router as deletion_router
     from apps.api.compliance.dnc_routes import router as dnc_router
     from apps.api.compliance.export_routes import router as subject_export_router
-    from apps.api.compliance.first_campaign_routes import (
-        admin_router as first_campaign_admin_router,
-    )
-    from apps.api.compliance.first_campaign_routes import router as first_campaign_router
     from apps.api.compliance.kyc_admin_routes import router as kyc_admin_router
     from apps.api.compliance.kyc_routes import router as kyc_router
     from apps.api.compliance.kyc_routes import webhook_router as kyc_webhook_router
@@ -202,6 +198,8 @@ def _mount_routers(application: FastAPI) -> None:
     )
     from apps.api.compliance.whatsapp_optin_routes import router as whatsapp_optin_router
     from apps.api.copilot.admin_routes import router as admin_copilot_router
+    from apps.api.copilot.attachment_routes import admin_router as admin_copilot_uploads_router
+    from apps.api.copilot.attachment_routes import router as copilot_uploads_router
     from apps.api.copilot.routes import router as copilot_router
     from apps.api.copilot.routine_routes import router as copilot_routines_router
     from apps.api.crm.routes import router as crm_router
@@ -249,6 +247,9 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.tenancy.profile_routes import router as business_profile_router
     from apps.api.tenancy.routes import router as tenancy_router
     from apps.api.tenancy.signup_routes import router as signup_router
+    from apps.api.whatsapp.admin_routes import router as admin_whatsapp_router
+    from apps.api.whatsapp.hook_routes import router as whatsapp_hook_router
+    from apps.api.whatsapp.routes import router as whatsapp_router
     from apps.api.worker.engine_actions import router as engine_actions_router
     from apps.api.worker.engine_lookups import router as engine_lookups_router
 
@@ -386,6 +387,9 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(admin_copilot_router)
     # The workspace's routines and approval previews, under the same `/v1/copilot` prefix.
     application.include_router(copilot_routines_router)
+    # Files attached to Pip (D-781): declare, finalize, download, remove, both realms.
+    application.include_router(copilot_uploads_router)
+    application.include_router(admin_copilot_uploads_router)
     # Knowledge gaps — the urgent "what the agents couldn't answer" surface. Its own
     # literal `/v1/knowledge-gaps` prefix collides with nothing above, so mount order is
     # not load-bearing here.
@@ -406,8 +410,7 @@ def _mount_routers(application: FastAPI) -> None:
     # national preference-scrub record beside it. Both live in the compliance package
     # because that package owns the tables; both carry their own realm prefix —
     # `/v1/ops/dnc/global` for the platform-wide list, and the usual
-    # `/v1/admin/tenants/{tenant_id}/...` for the per-tenant scrub — the same split the
-    # first-campaign pair below uses.
+    # `/v1/admin/tenants/{tenant_id}/...` for the per-tenant scrub.
     application.include_router(global_dnc_router)
     application.include_router(preference_scrub_router)
     application.include_router(subject_export_router)
@@ -448,18 +451,12 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(kyc_router)
     application.include_router(kyc_admin_router)
     application.include_router(outbound_pledge_router)
-    # R-11's first-campaign hold: the client's view of it, and ops's release. The admin
-    # half carries its own `/v1/admin/tenants/{tenant_id}/...` prefix — it lives in the
-    # compliance package because that package owns the table, exactly as the agents
-    # package owns its admin publishing routes.
-    application.include_router(first_campaign_router)
-    application.include_router(first_campaign_admin_router)
     # The CLIENT's own WhatsApp alert opt-in (FLOWS §6, migration e6b2d94f31a7) and the
     # operator's record of one given during onboarding. Two realms, one ledger: the
     # client half is the owner speaking for themselves, the admin half is an operator
-    # recording that they did, with the document to show for it. Same package/prefix
-    # split as the first-campaign pair above, for the same reason — the compliance
-    # package owns the table.
+    # recording that they did, with the document to show for it. The admin half carries its own
+    # `/v1/admin/tenants/{tenant_id}/...` prefix and lives in the compliance package
+    # because that package owns the table.
     application.include_router(whatsapp_optin_router)
     application.include_router(whatsapp_optin_admin_router)
     # Agreements & readiness (migration a9d4e70c31b8): the four published documents this
@@ -471,7 +468,7 @@ def _mount_routers(application: FastAPI) -> None:
     # Per-tenant feature flags (SURFACES §1). Its own
     # `/v1/admin/tenants/{tenant_id}/feature-flags` prefix, like every other per-tenant
     # admin surface that owns its own table — the flags package owns `tenant_feature_flags`
-    # exactly as the compliance package owns `first_campaign_reviews`.
+    # exactly as the compliance package owns `whatsapp_alert_optin_ledger`.
     application.include_router(feature_flags_router)
     application.include_router(signup_router)
     # Both are literal paths under `/v1/billing` and neither carries a `{param}` at
@@ -593,6 +590,11 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(ops_healer_router)
     application.include_router(forwarding_router)
     application.include_router(admin_forwarding_router)
+    # Clients' own WhatsApp through Meta's Embedded Signup (D-784): the client screen, the
+    # operator view, and Meta's signed webhook for every client's account.
+    application.include_router(whatsapp_router)
+    application.include_router(admin_whatsapp_router)
+    application.include_router(whatsapp_hook_router)
     application.include_router(public_status_router)
     # The browser-tier CSP violation collector (D-541). Its own literal `/reports/v1`
     # prefix, which collides with nothing above, so mount order is not load-bearing here.

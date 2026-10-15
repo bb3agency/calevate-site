@@ -228,8 +228,7 @@ FROM campaigns WHERE id = :campaign_id;
   the launch button; fix the named item (e.g. `set_template_status` recording the
   registrar's approval is an audited admin action). That list is the CAMPAIGN's own
   paperwork; `launch_blockers` also carries the tenant-level refusals — `kyc_missing` /
-  `kyc_not_verified`, `first_campaign_review_pending` / `_rejected` (step 6),
-  `spend_cap` and `no_credits` — which are properties of the ACCOUNT and are worked in
+  `kyc_not_verified`, `spend_cap` and `no_credits` — which are properties of the ACCOUNT and are worked in
   `calls-stopped.md`. `GET /v1/campaigns/{id}/launch-check` returns all of them by name,
   exhaustively, rather than one at a time.
 - `paused`? Someone paused it. Resume is the client's button (CAS `paused → running`) —
@@ -257,44 +256,14 @@ only signals are:
 If a client's campaign is `running` and quiet and the tick reports zeros, look for that
 log line **before** looking at contacts.
 
-The rules it carries are the standing subset of the launch check — the paperwork a
-registrar can withdraw while a campaign runs — **plus the first-campaign hold**, which is
-the only tenant-level rule in it:
-
-| rule | What it means | Who clears it |
-|---|---|---|
-| `first_campaign_review_pending` | No human at Calevate has released this self-serve account for campaign calling yet (BRD §245's R-11 control) | ops only |
-| `first_campaign_review_rejected` | A reviewer looked and refused; the client is shown the reviewer's own note | ops, after the client fixes what the note names |
+The rules it carries are the standing subset of the launch check — the agreements, the
+consent provenance, the channel and the national preference scrub, which can each fall
+out of date while a campaign runs. (The first-campaign hold it also carried was removed
+by D-783, 15 Oct 2026.)
 
 **Why it is asked here and not only at launch.** `resume` moves a campaign from `paused`
-back to `running` with a bare CAS and no gate, and a release is **withdrawable** — a list
-turns out to be bought, complaints arrive. A campaign that kept dialling to the end of its
-list after we revoked the account's clearance is the exact failure this gate exists to
-prevent, so the answer can change mid-campaign and the tick asks every time.
-
-**Two properties that decide who you can unblock:** it is a property of the ACCOUNT, not
-of a campaign (launching another or deleting the reviewed one changes nothing), and it
-covers `self_serve` and `trial` only (`SELF_SERVE_TIERS`) — a managed client is never held
-by it. It is deliberately NOT in `check_dispatch`, so the "call this lead" button and the
-instant-lead callback still work for a held account; that residual is stated in
-`apps/api/compliance/first_campaign.py`, and widening the gate is not how it closes.
-
-**Find every held account at once**, which is the discovery step this runbook used to
-lack:
-
-```
-GET /v1/admin/compliance/holds        # admin realm, org:read
-→ [{"tenant_id": "...", "slug": "...", "plan_tier": "trial",
-    "signed_up_at": "...", "holds": ["first_campaign_review_pending"]}]
-```
-
-`apps/api/admin/holds_routes.py` — oldest signup first, read-only, no audit row (every
-decision taken from it writes its own). The release is
-`POST /v1/admin/tenants/{tenant_id}/first-campaign-review` with a `decision` and a
-required `note`, admin realm, `admin:tenants`, audited as
-`first_campaign_review.decided`. `calls-stopped.md` §4 has the full procedure, the
-client-facing view (`GET /v1/compliance/first-campaign-review`) and what the note must
-contain; do not duplicate it here.
+back to `running` with a bare CAS and no gate, so a campaign can sit paused for a week and
+come back running with nothing having re-read the paperwork; the tick asks every time.
 
 ## 7. Contact states
 
@@ -429,10 +398,6 @@ WHERE campaign_id = :campaign_id AND status = 'dnc_blocked';
   clearing `next_attempt_at`, not un-blocking `dnc_blocked`. The states are the CAS
   contract between dispatcher, reaper and post-call pipeline; hand edits double-dial or
   dial DNC'd numbers (a TRAI violation, not an incident metric).
-- **Never release an account by writing `first_campaign_reviews` directly.** The row is
-  the state; the *decision* is the `audit_log` entry the route writes, plus the note
-  saying what was read. A hand-written INSERT produces an account released by nobody,
-  for no recorded reason — which is the finding, not the fix.
 - **Never touch the compliance gate.** No bypass exists by design
   (`apps/api/compliance/service.py` — "no bypass flag, not even for testing") and one
   must not be introduced during an incident. If the gate blocks, the block is the fix

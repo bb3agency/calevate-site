@@ -20,11 +20,12 @@ do:
 3. **Cost weighting.** A 1-row read and a 20,000-row CSV export are one request each to
    nginx. `bulk_read`, `bulk_write` and `costly` below are the difference.
 
-This paragraph used to claim the edge also applies "a 2 MiB body cap", and it does not:
-`infra/nginx/calevate.conf.template` sets `client_max_body_size` to **25m** on the api and
-console vhosts and 10m on `/hooks`. The 2 MiB cap is `core/middleware.MAX_BODY_BYTES`,
-ours, and the correction is load-bearing rather than pedantic — the same sentence was the
-reason nobody worried that `BodyLimitMiddleware` read `Content-Length` and therefore saw
+The edge and the app both cap bodies: `infra/nginx/calevate.conf.template` sets
+`client_max_body_size` to 2m on the api vhost (20m on Pip's two upload paths only, D-781),
+25m on the console vhosts and 10m on `/hooks`, and `core/middleware.MAX_BODY_BYTES` is the
+app's 2 MiB. The app cap is the one that counts chunked bodies too — an earlier version of
+this paragraph claimed the edge alone applied it, and that belief was the reason nobody
+worried that `BodyLimitMiddleware` read `Content-Length` and therefore saw
 nothing at all of a `Transfer-Encoding: chunked` body (D-135).
 
 WHY FIXED WINDOW AND NOT A TOKEN BUCKET. A fixed window admits up to 2x the nominal rate
@@ -111,6 +112,9 @@ PROFILES: dict[str, LimitProfile] = {
     # A vendor round trip, an LLM call or an email send. Each one costs money or a
     # third-party quota, and no human clicks these 30 times a minute.
     "costly": LimitProfile("costly", per_client=30, per_tenant=60),
+    # Pip's file upload (D-781): each request streams up to 20 MB into storage, so it has a
+    # ceiling of its own, per person and per account, below `costly`.
+    "upload": LimitProfile("upload", per_client=20, per_tenant=60),
     # Bulk data OUT: the 20,000-row export, the DPDP subject export, an invoice
     # recomputed over usage_events. The tightest non-auth profile because this is the
     # shape data exfiltration takes.
@@ -139,6 +143,11 @@ PROFILES: dict[str, LimitProfile] = {
     # delivery per verification attempt — while keeping an unauthenticated door bounded
     # by something other than nginx.
     "webhook_verification": LimitProfile("webhook_verification", per_client=120, per_tenant=None),
+    # Meta's WhatsApp webhooks for every client's account (D-784). Its own bucket because the
+    # name is what an operator reads off a 429. No tenant dimension: the WABA that names the
+    # client is inside the signed body. Meta batches up to 1,000 updates in one delivery and
+    # retries for up to 7 days, so a 429 here costs latency, never an event.
+    "webhook_meta": LimitProfile("webhook_meta", per_client=600, per_tenant=None),
     # Browser-tier violation reports (D-541). Its own profile because the caller is a
     # BROWSER with no session and no tenant, and because the traffic shape is unlike every
     # other unauthenticated surface here: one page load that trips a policy can emit a
@@ -263,6 +272,7 @@ RULES: tuple[Rule, ...] = (
     Rule("/hooks/v1/ingest/**", "webhook_ingest"),
     Rule("/hooks/v1/razorpay", "webhook_payment"),
     Rule("/hooks/v1/kyc/**", "webhook_verification"),
+    Rule("/hooks/v1/meta/whatsapp", "webhook_meta"),
     # No method set, deliberately: this is a FAMILY rule (like `/hooks/v1/razorpay`
     # above) and not a cost weight over one. `tests/rate_limit_census_test` reads
     # `Rule.methods` as the structural difference between the two, and a cost weight is
@@ -303,6 +313,11 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/calls/*/callback", "costly", _m("POST")),
     Rule("/v1/trial/calls", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/trial/test-call", "costly", _m("POST")),
+    # Clients' WhatsApp (D-784): each makes several Graph calls on the client's own Meta
+    # account, and Meta caps template creation at 100 an hour per account.
+    Rule("/v1/whatsapp/connect", "costly", _m("POST")),
+    Rule("/v1/whatsapp/accounts/*/finish", "costly", _m("POST")),
+    Rule("/v1/whatsapp/templates", "costly", _m("POST")),
     # The forwarding test (D-746): real calls we pay for, also capped per client per day.
     Rule("/v1/forwarding/lines/*/tests", "costly", _m("POST")),
     # The dashboard assist (D-127). `costly` for the reason that profile names — it is
@@ -317,6 +332,7 @@ RULES: tuple[Rule, ...] = (
     # stream has nothing to replay, and names this profile as what bounds a double-click
     # instead.
     Rule("/v1/copilot/ask", "costly", _m("POST")),
+    Rule("/v1/copilot/uploads", "upload", _m("POST")),
     # The other LLM and engine round trips a client starts with one click. Each is gated on
     # the AI allowance, which bounds the money but not the rate: at `client_api` (240/min)
     # one session could queue a model call every quarter second.
@@ -363,6 +379,7 @@ RULES: tuple[Rule, ...] = (
     # code path spending the PLATFORM's money rather than a client's, so it had the
     # stronger claim on a weight and was the one without it.
     Rule("/v1/admin/copilot/ask", "costly", _m("POST")),
+    Rule("/v1/admin/copilot/uploads", "upload", _m("POST")),
     Rule("/v1/admin/tenants/*/invitations", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/agents/*/publish", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/agents/*/apply", "costly", _m("POST")),

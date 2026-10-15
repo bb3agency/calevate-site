@@ -337,6 +337,11 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
 # `dict[str, Any]` response fields: the serializer cannot vouch for their contents, so
 # each one is acknowledged here with the reason it is not a redaction bypass.
 ACKNOWLEDGED_PASSTHROUGH: dict[str, str] = {
+    "WhatsAppSignupOut.extras": (
+        "the `extras` object for Meta's FB.login (D-784), built by `whatsapp/routes."
+        "extras_for` from constants only (`setup`, `featureType`, `sessionInfoVersion`); no "
+        "query result or person's data ever reaches it"
+    ),
     "CopilotActionOut.args": (
         "the canonical arguments of an assistant action (D-694): ids and closed-set values "
         "from a tool's own schema, every free string put through `workers.redaction.redact` "

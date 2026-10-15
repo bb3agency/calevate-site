@@ -4,7 +4,7 @@
 # in the repo root would make `make guardrails` print "nothing to be done" and exit 0:
 # the CI gate reporting success without running a single check.
 .PHONY: help dev dev-otp up down check lint lint-check types test db-reset redis-reset seed-dev eval eval-ci \
-        qa-report qa-report-publish \
+        copilot-eval qa-report qa-report-publish \
         gen-api conformance smoke guardrails web-check legal-hashes coverage-ratchet \
         coverage-ratchet-accept
 
@@ -231,6 +231,11 @@ eval:  ## make eval CLIENT=<slug>   [regression harness; fails on a REGRESSION, 
 
 eval-ci:  ## The ratchet exactly as CI runs it — part of the gate, not an extra
 	uv run python -m scripts.eval --client=ci
+
+# Pip's first-turn tool choice (D-779). With no PROVIDER it checks the fixture against the
+# tool arrays; with one it calls that model once per case and needs its credential.
+copilot-eval:  ## make copilot-eval [PROVIDER=google MODEL=<gemini id> | PROVIDER=azure] [RECORD=run.json]
+	uv run python -m scripts.copilot_tool_eval $(if $(PROVIDER),--provider=$(PROVIDER)) $(if $(MODEL),--model=$(MODEL)) $(if $(RECORD),--record=$(RECORD))
 
 # G3 ships this to every client monthly, so VERTICAL is required for the same reason
 # CLIENT is: a clinic's report listing property calls is not the asset it is sold as,

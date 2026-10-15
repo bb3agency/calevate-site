@@ -257,7 +257,7 @@ function Working({ teaching }: { teaching: Teaching | undefined }) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-ink-muted" aria-hidden>
-        {label}
+        <span className="text-shimmer">{label}</span>
       </p>
       <Skeleton rows={3} label={label} />
     </div>

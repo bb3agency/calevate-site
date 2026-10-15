@@ -109,6 +109,10 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "— admin console, platform-wide, never impersonated"
     ),
     "/v1/admin/tenants": "the client directory — admin console, never impersonated",
+    "/v1/admin/whatsapp": (
+        "every client's WhatsApp accounts against Meta's weekly onboarding limit (D-784): an "
+        "operator screen spanning clients; the client's own is GET /v1/whatsapp, org:read"
+    ),
     "/v1/admin/number-pricing": (
         "the operator's own attested rupee price for a number the carrier supplies — a "
         "PLATFORM fact about our cost and margin, not a view of any client's account, so "
@@ -214,6 +218,14 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "same fact is a different route entirely — `GET /v1/maintenance` is `org:read`, "
         "which D-22 admits, so a support person inside an account sees exactly the banner "
         "the client sees. Nothing is lost by hiding this one from impersonation."
+    ),
+    "/v1/copilot/uploads/{file_id}/content": (
+        "ONE PERSON'S file attached to Pip (D-781), served only to the person who uploaded "
+        "it: the row is matched on `principal.user_id`, which inside a D-22 view-as session "
+        "is the operator's `admin_users.id` and can never match `copilot_uploads.user_id` "
+        "(a foreign key to `users`). An impersonated read is a 404 under any permission, so "
+        "a read permission would expose nothing and `copilot:use` hides nothing support "
+        "could see."
     ),
     "/v1/copilot/conversation": (
         "ONE PERSON'S conversation with the assistant (D-540), and the exemption rests on "

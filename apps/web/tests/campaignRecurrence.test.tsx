@@ -194,8 +194,9 @@ describe("a campaign that repeats", () => {
       "Calls already going out are not affected",
     );
     for (const button of container.querySelectorAll("button")) {
+      // An icon button (the header ⋯ menu) is named by its aria-label.
       expect(
-        button.textContent?.trim(),
+        button.textContent?.trim() || button.getAttribute("aria-label")?.trim() || "",
         "a control was rendered with no label",
       ).not.toBe("");
     }

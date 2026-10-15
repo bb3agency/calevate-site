@@ -54,7 +54,7 @@ in-call tool logging, timing panels) — which is exactly what §1 asks for and 
 
 AND ONE HARD LIMIT: **a flag must never gate a compliance control.**
 `campaigns.service.launch_blockers`, `compliance.service.check_dispatch`, DNC, the
-disclosure line, calling hours, the first-campaign hold and the KYC gates are not
+disclosure line, calling hours, the pledge and the KYC gates are not
 flaggable. Hard rule 5 forbids a bypass "for testing", and a per-tenant switch that can
 turn a TRAI/DPDP control off for one client is that bypass with better manners. A control
 that genuinely needs to vary per tenant varies through the compliance gate itself, where

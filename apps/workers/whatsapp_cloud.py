@@ -25,20 +25,23 @@ shape RESEARCH-DISCIPLINE §4 says to distrust at our size. AiSensy/Interakt/WAT
 self-serve but bring point 2.
 
 **2. Per-message price under Meta's CURRENT model, and the monthly floor (D-32, R6).**
-Conversation-based pricing was replaced by PER-MESSAGE pricing on 1 July 2025. India
-list prices, effective 1 July 2026: **₹0.115 per utility or authentication message,
-₹0.8631 per marketing message.** Utility templates sent inside an open 24-hour customer
-service window have been free since July 2025 — but that carve-out **closes on 1 October
-2026**, when service and utility messages inside the window become chargeable at rates
-aligned to the utility rate.
+Conversation-based pricing was replaced by PER-MESSAGE pricing on 1 July 2025. Meta's
+pricing page, read 15 Oct 2026, states "Utility templates delivered within an open customer
+service window are free" and names no closing date; its 1 Oct 2026 rate changes list other
+countries, not India (developers.facebook.com/documentation/business-messaging/whatsapp/
+pricing). An earlier version of this note said the carve-out closed on 1 October 2026; that
+came from a secondary source and Meta's page does not say it. The India list prices used
+below, **₹0.115 per utility or authentication message, ₹0.8631 per marketing message**, are
+REPORTED (third-party copies of Meta's 1 July 2026 rate card); Meta's page links the INR
+figures only as a download, which was not read.
 
 The category question decides the whole cost story, and our two messages are in
 different categories:
 
     hot-lead alert  → UTILITY. A service notification to our own paying customer about
       (whatsapp.py)   activity on their own account. Business-initiated with no open
-                      service window, so the free-in-window carve-out never applied to
-                      it and its 1 Oct 2026 closure changes nothing for us.
+                      service window, so the free-in-window carve-out never applies to
+                      it.
                       ₹0.115 each.
     campaign        → MARKETING, and we should not pretend otherwise. Utility requires
     escalation        the message to follow up a specific transaction the recipient

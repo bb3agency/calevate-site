@@ -38,7 +38,9 @@ dashboard; payments are non-refundable.
 
 The failing call sites log the same `status`, `error` and `provider`:
 `copilot_provider_failed`, `extraction_failed`, `query_embedding_failed`,
-`document_ocr_provider_error`, `script_assist_azure_failed`. No body is ever logged.
+`document_ocr_provider_error`, `script_assist_leg_failed` and `script_assist_leg_unreachable`
+(the script writer and the test loop, on Azure or the account's own Gemini model). No body
+is ever logged.
 
 ## 3. Nothing to replay
 

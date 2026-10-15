@@ -481,6 +481,11 @@ class ProgressOut(Strict):
     concurrency: int
     contacts: dict[str, int]
     total: int
+    #: People already tried once and due another try (`pending` with attempts). Zero
+    #: unless the campaign is running or paused, because nothing else retries anyone.
+    retries_waiting: int = 0
+    #: The earliest of those next tries; None when nobody is waiting for one.
+    next_retry_at: datetime | None = None
     # BOTH halves of SEC-COMP §3's DNC bullet, side by side. `dnc_scrubbed_at` is when
     # OUR tenant-list scrub ran (stamped by `launch_campaign`); `national_dnd_scrub` is
     # what an access provider's DLT platform did and when. Two fields rather than one

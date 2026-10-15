@@ -42,6 +42,7 @@ from apps.api.db.session import (
     tenant_session,
     untenanted_session,
     user_session,
+    whatsapp_waba_session,
 )
 from calevate_shared.config import Settings
 from pydantic import TypeAdapter, ValidationError
@@ -97,6 +98,8 @@ async def test_every_session_factory_carries_the_bound_including_the_one_with_no
         async with invite_session("deadbeef") as s:
             assert await _effective_timeout(s) == "4s"
         async with ingest_config_session(uuid.uuid4()) as s:
+            assert await _effective_timeout(s) == "4s"
+        async with whatsapp_waba_session("123") as s:
             assert await _effective_timeout(s) == "4s"
         async with credential_session() as s:
             assert await _effective_timeout(s) == "4s"

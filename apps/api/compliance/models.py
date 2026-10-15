@@ -57,7 +57,19 @@ CONSENT_SOURCES = (
     # implied" is for. Whether this basis SUFFICES is OPERATIONS §2 gate 37(a) and is
     # with an advocate; the row is the artefact, not the answer.
     "in_call_recording_notice",
+    # The voice agent asked "Shall I send this on WhatsApp to this number?" during the call
+    # and the caller's answer was reported by the agent's model through the WhatsApp action
+    # (D-784). Its own name rather than `inbound_call_verbal` because nobody at the business
+    # heard it and the call may have been placed by us: the record says exactly how it was
+    # obtained, and `compliance/spoken_consent.py` checks it against the transcript after the
+    # call. Like `inbound_call_verbal`, a grant must name the call.
+    "in_call_agent_question",
 )
+#: Sources only the platform writes, never a client through the consent screen: the agent's
+#: in-call question is recorded by the WhatsApp action, with the call it was asked on.
+AGENT_RECORDED_CONSENT_SOURCES = ("in_call_agent_question",)
+#: Sources whose grant was spoken on a call and so must name that call.
+CALL_BOUND_CONSENT_SOURCES = ("inbound_call_verbal", "in_call_agent_question")
 WITHDRAWAL_ONLY_CONSENT_SOURCES = ("staff_recorded_request",)
 # Sources that describe ONE purpose and may never be spent on another. DPDP §6's purpose
 # limitation is why `purpose` is a column at all, and a notice about recording is not a
@@ -134,14 +146,11 @@ CARRIER_APPLICATION_DOCUMENT_KINDS = (
     "certificate_of_incorporation",
     "udyam_registration",
 )
-# The first-campaign review (R-11's last mitigation; migration c4d9e18a72b6). Exactly
+# The retired first-campaign review (D-51, removed by D-783; migration c4d9e18a72b6). Exactly
 # the two things a human can decide — "not reviewed yet" is the ABSENCE of a row, not a
 # third status, because a stored `pending` could disagree with the absence and every
 # gate would have to treat the two identically anyway.
 FIRST_CAMPAIGN_REVIEW_STATUSES = ("approved", "rejected")
-# The one status that releases an account. Named so the gate, the route and the CHECK
-# cannot drift into three spellings of the same idea (`KYC_VERIFIED` does the same job).
-FIRST_CAMPAIGN_REVIEW_APPROVED = "approved"
 # WHO decided. `migration_backfill` exists so a row with no operator is self-describing
 # rather than an anonymous release with the name left off — see the migration.
 FIRST_CAMPAIGN_DECISION_SOURCES = ("operator", "migration_backfill")
@@ -302,7 +311,8 @@ class ConsentLedgerEntry(PKMixin, Base):
             "consent_source IS NULL OR status <> 'granted' OR ("
             "evidence IS NOT NULL "
             f"AND consent_source NOT IN ({_WITHDRAWAL_ONLY_SQL}) "
-            "AND (consent_source <> 'inbound_call_verbal' OR call_id IS NOT NULL))",
+            "AND (consent_source NOT IN ('inbound_call_verbal', 'in_call_agent_question') "
+            "OR call_id IS NOT NULL))",
             name="granted_consent_carries_evidence",
         ),
     )
@@ -999,20 +1009,16 @@ class CarrierComplianceApplication(PKMixin, TimestampMixin, Base):
 
 
 class FirstCampaignReview(PKMixin, TimestampMixin, Base):
-    """A human at Calevate cleared this account to run campaigns (R-11, D-34).
+    """RETIRED (D-783): the first-campaign manual review, which no code reads or writes.
 
-    The last of the six R-11 mitigations BRD §245 and FLOWS §2 require the self-serve
-    motion to ship WITH: "manual review of the first campaign for any self-serve
-    account". The argument for the shape — why "first" is a property of the ACCOUNT and
-    not a flag on a campaign row, and why absence rather than a `pending` row means "not
-    reviewed" — is in migration c4d9e18a72b6 and in
-    `apps/api/compliance/first_campaign.py`.
+    D-51 held a self-serve account's campaigns until a human at Calevate released it.
+    The founder removed the review on 15 Oct 2026 (ROADMAP D-783). The table, its rows and
+    its RLS stay for one release (hard rule 8: never drop in the release that stops
+    writing); a later release's migration drops it along with this model, its registry
+    entries and the `live/topics.QUIET_TABLES` row.
 
-    One row per tenant, MUTABLE, absent from `APPEND_ONLY_TABLES` — the same reasoning
-    as `KycRecord` and `DltRegistration`: this is the account's CURRENT state, read by
-    the launch gate and by every dispatch tick, and a release that is later withdrawn
-    updates it. The immutable history is `audit_log`, where every decision writes a row
-    (hard rule 4), so a reversal is a new entry rather than an edited one.
+    One row per tenant, MUTABLE, absent from `APPEND_ONLY_TABLES`; the decisions it held
+    are also in `audit_log` (`first_campaign_review.decided`).
 
     The CHECK constraints mirror migration c4d9e18a72b6 and the migration is the source
     of truth (DATA-MODEL §10).

@@ -44,7 +44,6 @@ export const TENANT_SECTION_GROUPS: readonly TenantSectionGroup[] = [
       { path: "/kyc", label: "Identity & approval" },
       { path: "/readiness", label: "Before their first call" },
       { path: "/dnd-scrub", label: "DND scrub" },
-      { path: "/first-campaign-review", label: "Campaign review" },
       { path: "/campaign-setup", label: "Campaign setup" },
     ],
   },

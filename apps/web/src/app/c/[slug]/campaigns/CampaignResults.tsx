@@ -3,7 +3,7 @@
 import Link from "next/link";
 
 import { Metric, MetricRow } from "@/components/console/metric";
-import { Section } from "@/components/console/section";
+import { Section, TEXT_ACTION } from "@/components/console/section";
 import { ProblemNotice, Skeleton, StatusBadge, formatCount, formatDuration, formatINR } from "@/components/ui";
 import type { CampaignResults as Results, ContactOutcome } from "@/lib/api/campaigns";
 import { outcomeLabel } from "@/lib/callReview";
@@ -83,7 +83,7 @@ export function CampaignResults({
           value={r.pickup_rate === null ? "—" : percent(r.pickup_rate)}
           hint={
             r.tried
-              ? `${formatCount(r.outcomes.connected ?? 0)} of ${formatCount(r.tried)} people called so far`
+              ? `${formatCount(r.outcomes.connected ?? 0)} of ${formatCount(r.tried)} people called`
               : "Nobody has been called yet"
           }
         />
@@ -104,28 +104,9 @@ export function CampaignResults({
         />
       </MetricRow>
 
-      <div className="grid gap-8 md:grid-cols-2">
+      <div className="grid gap-10 md:grid-cols-2">
         <Section title="How the calls went" headingLevel={3}>
-          <dl className="space-y-2.5">
-            {OUTCOME_ORDER.filter((o) => (r.outcomes[o] ?? 0) > 0).map((outcome) => {
-              const count = r.outcomes[outcome] ?? 0;
-              const share = r.contacts ? count / r.contacts : 0;
-              return (
-                <div key={outcome}>
-                  <div className="flex items-baseline justify-between gap-3 text-body">
-                    <dt className="text-ink">{OUTCOME_WORDS[outcome]}</dt>
-                    <dd className="tabular-nums text-ink-muted">{formatCount(count)}</dd>
-                  </div>
-                  <div aria-hidden className="mt-1 h-1 overflow-hidden rounded-full bg-ink/[0.07]">
-                    <div
-                      className={`h-full origin-left rounded-full ${outcome === "connected" ? "bg-brand" : "bg-chart-neutral"}`}
-                      style={{ transform: `scaleX(${share})` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </dl>
+          <OutcomeBreakdown outcomes={r.outcomes} />
           {r.opt_outs > 0 && (
             <p className="mt-3 text-meta text-ink-muted">
               {formatCount(r.opt_outs)} {r.opt_outs === 1 ? "person" : "people"} asked not to be called again and
@@ -140,9 +121,9 @@ export function CampaignResults({
           ) : (
             <div className="space-y-4">
               {tags.length > 0 && (
-                <dl className="space-y-1.5">
+                <dl className="divide-y divide-line border-y border-line">
                   {tags.map(([tag, count]) => (
-                    <div key={tag} className="flex items-baseline justify-between gap-3 text-body">
+                    <div key={tag} className="flex items-baseline justify-between gap-3 py-2 text-body">
                       <dt className="text-ink">{outcomeLabel(tag) ?? tag}</dt>
                       <dd className="tabular-nums text-ink-muted">{formatCount(count)}</dd>
                     </div>
@@ -167,15 +148,15 @@ export function CampaignResults({
           action={
             <Link
               href={href(`/c/${slug}/calls?campaign_id=${campaignId}`)}
-              className="text-meta font-medium text-ink underline underline-offset-2"
+              className={TEXT_ACTION}
             >
               All this campaign&rsquo;s calls
             </Link>
           }
         >
-          <ul className="divide-y divide-line border-y border-line">
+          <ul className="max-w-xl divide-y divide-line border-y border-line">
             {r.recent_leads.map((lead) => (
-              <li key={lead.id} className="flex items-center justify-between gap-3 py-2">
+              <li key={lead.id} className="flex items-center justify-between gap-3 py-2.5">
                 <Link
                   href={href(`/c/${slug}/leads/${lead.id}`)}
                   className="min-w-0 truncate text-body font-medium text-ink hover:underline"
@@ -193,6 +174,57 @@ export function CampaignResults({
           )}
         </Section>
       )}
+    </div>
+  );
+}
+
+/** The outcomes a call to a person can END in; "calling" and "not called" are progress. */
+const ENDED: ContactOutcome[] = ["connected", "no_answer", "busy", "voicemail", "failed", "do_not_call"];
+
+/** Each ended outcome's mark. Colour is never alone: every mark has its row and count. */
+const OUTCOME_FILL: Record<ContactOutcome, string> = {
+  connected: "bg-brand",
+  no_answer: "bg-chart-neutral",
+  busy: "bg-chart-neutral/70",
+  voicemail: "bg-chart-neutral/45",
+  failed: "bg-chart-warn",
+  do_not_call: "bg-chart-danger",
+  calling: "bg-ink/10",
+  not_called: "bg-ink/10",
+};
+
+/**
+ * WHERE THE CALLS ENDED, as one bar of the people reached so far split by outcome, with
+ * the labelled counts under it (data-visualization: part of a whole is one stacked bar,
+ * not eight bars that each start at zero). People not yet called are not in it: they are
+ * the progress panel's subject, and mixed in here they made "Not called yet" the longest
+ * bar on a running campaign's results.
+ */
+function OutcomeBreakdown({ outcomes }: { outcomes: Record<string, number> }) {
+  const rows = ENDED.map((outcome) => ({ outcome, count: outcomes[outcome] ?? 0 })).filter((row) => row.count > 0);
+  const total = rows.reduce((sum, row) => sum + row.count, 0);
+  if (total === 0) return <p className="text-body text-ink-muted">Nobody has been called yet.</p>;
+  return (
+    <div className="space-y-3">
+      <div aria-hidden className="flex h-2.5 gap-px overflow-hidden rounded-full bg-ink/[0.06]">
+        {rows.map((row) => (
+          <span key={row.outcome} className={`h-full ${OUTCOME_FILL[row.outcome]}`} style={{ flexGrow: row.count, flexBasis: 0 }} />
+        ))}
+      </div>
+      <dl className="divide-y divide-line border-y border-line">
+        {rows.map((row) => (
+          <div key={row.outcome} className="flex items-center justify-between gap-3 py-2 text-body">
+            <dt className="flex items-center gap-2 text-ink">
+              <span aria-hidden className={`size-2.5 shrink-0 rounded-[3px] ${OUTCOME_FILL[row.outcome]}`} />
+              {OUTCOME_WORDS[row.outcome]}
+            </dt>
+            <dd className="tabular-nums text-ink-muted">
+              {formatCount(row.count)}
+              <span className="ml-2 inline-block w-10 text-right text-meta">{Math.round((row.count / total) * 100)}%</span>
+            </dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }

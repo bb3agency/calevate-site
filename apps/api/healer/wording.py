@@ -21,6 +21,7 @@ from apps.api.healer.playbooks import (
     AGENT_HEALTH_DEGRADED,
     AGENT_LINE_BROKEN,
     ENGINE_PLATFORM_OUTAGE,
+    MONEY_REVIEW,
     STATUS_POST,
 )
 
@@ -92,22 +93,24 @@ INCIDENT_KINDS: Final[Mapping[str, IncidentKind]] = {
         title="Call charges don't match our records",
         meaning="For some calls, what ThinnestAI charged differs from what we metered by more "
         "than ₹0.10 or 2%, so the per-minute rate we hold is wrong.",
-        next_step="Compare the named calls in ThinnestAI's Usage → Calls with ours, then "
-        "attest the corrected posted rate, before the top-up fee, from when it changed.",
+        next_step="Ask Pip to fix this: it lists the calls that differ, the rate we hold and "
+        "the rate the charges imply, and prepares the attestation. You type the posted rate, "
+        "before the top-up fee, as read in ThinnestAI's console, and confirm.",
     ),
     "engine_charge_unmatched": IncidentKind(
         title="ThinnestAI's charges could not be matched to our calls",
         meaning="None of the charged calls in ThinnestAI's call log matched a call we "
         "metered, so charges are not being checked.",
-        next_step="If calls have been metered, compare one call's id in Usage → Calls with "
-        "ours and report the difference.",
+        next_step="Ask Pip to look: it counts the calls with and without a recorded charge. "
+        "If metered calls still have none, compare one call's id in Usage → Calls with ours.",
     ),
     "engine_call_cost_variance": IncidentKind(
         title="A call cost differently than we metered",
         meaning="ThinnestAI's charge for a call, with the wallet top-up fee, differs from our "
         "metered cost by more than ₹0.10 or 2%.",
-        next_step="Attest ThinnestAI's posted per-minute rate, before the top-up fee, from "
-        "when it changed. Past calls are not re-priced.",
+        next_step="Ask Pip to fix this: it shows the call, the rate we hold and the rate the "
+        "charge implies, and prepares the attestation of the posted rate you read in "
+        "ThinnestAI's console. Past calls are not re-priced.",
     ),
     STATUS_POST: IncidentKind(
         title="A notice posted on the status page",
@@ -144,14 +147,25 @@ _HELD: Final[Mapping[str, str]] = {
 
 
 def progress(
-    *, playbook: str, automatic: bool, state: str, attempts: int, last_outcome: str | None
+    *,
+    playbook: str,
+    automatic: bool,
+    state: str,
+    attempts: int,
+    last_outcome: str | None,
+    escalated: bool = False,
 ) -> str:
     """Where the incident stands, in one plain line. `last_outcome` is the vocabulary
-    `apps/workers/healer.py` writes; `signal:<name>` is the scorer's worst signal."""
+    `apps/workers/healer.py` writes; `signal:<name>` is the scorer's worst signal.
+    `escalated` says it was handed to a person before it closed."""
     outcome = last_outcome or ""
     if state == "resolved":
         if outcome == "restored_by_person":
             return "Marked as handled by a person"
+        if outcome == "verified" and playbook == MONEY_REVIEW:
+            return "Closed automatically: new calls' charges match what we metered"
+        if outcome == "verified" and escalated:
+            return "Cleared on its own after it was handed to you"
         if outcome == "verified":
             if attempts == 0:
                 return "Fixed automatically"

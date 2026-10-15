@@ -829,8 +829,8 @@ def emitted_rule_names(roots: Iterable[Path] | None = None) -> set[str]:
 
     Keyed on the LIVE class names (`LaunchBlocker`, `DispatchDecision` are imported, not
     typed in) so a rename of either cannot leave this matching nothing, and extended with
-    the `(rule, reason)` pair convention `kyc_blocker` / `first_campaign_hold_blocker`
-    return — those two are annotated `tuple[str, str] | None` and their first element is
+    the `(rule, reason)` pair convention `kyc_blocker` / `outbound_pledge_blocker`
+    return — those are annotated `tuple[str, str] | None` and their first element is
     the rule name a screen renders.
 
     A RULE NAMED BY A MODULE CONSTANT COUNTS AS EMITTED, and that is not a convenience.

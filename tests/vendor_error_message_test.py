@@ -189,7 +189,7 @@ async def test_an_enormous_message_cannot_write_kilobytes_into_one_log_line(
     """A 4xx is not always answered by the vendor: an edge can put a whole page in it.
 
     Two bounds, and the test names both. `redact_text` caps what is SHOWN at
-    `core.logging._MAX_FREE_TEXT` (200) plus its own truncation marker;
+    `core.logging.MAX_FREE_TEXT` (200) plus its own truncation marker;
     `_VENDOR_MESSAGE_READ_LIMIT` caps what is READ, so the regex passes never run over a
     megabyte. The read limit is deliberately wider than the shown cap — that is what makes
     it impossible for either bound to cut a digit run in half and surface a partial

@@ -269,6 +269,8 @@ class AssistSource:
     agent_id: UUID
     spec: ExtractionSchemaSpec
     transcript: str
+    #: The agent's languages, primary first, so the prompt names the call's language.
+    languages: tuple[str, ...] = ()
 
 
 # THE COLUMN IS `text_redacted` AND THE RAW ONE IS NOT NAMED IN THIS FILE.
@@ -283,7 +285,8 @@ class AssistSource:
 _TURNS_SQL = "SELECT speaker, text_redacted FROM transcript_turns WHERE call_id = :cid ORDER BY idx"
 
 _CALL_SQL = (
-    "SELECT c.agent_id, es.version, es.fields FROM calls c "
+    "SELECT c.agent_id, es.version, es.fields, a.language_primary, a.languages_extra "
+    "FROM calls c "
     "JOIN agents a ON a.id = c.agent_id "
     "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
     "WHERE c.id = :cid"
@@ -322,6 +325,7 @@ async def load_assist_source(session: AsyncSession, call_id: UUID) -> AssistSour
     if row is None:
         raise ProblemError.not_found("Call")
     agent_id, version, fields = row[0], row[1], row[2]
+    languages = (str(row[3]), *(str(code) for code in row[4] or ()))
 
     turns = (await session.execute(text(_TURNS_SQL), {"cid": call_id})).all()
     if not turns:
@@ -350,6 +354,7 @@ async def load_assist_source(session: AsyncSession, call_id: UUID) -> AssistSour
         agent_id=agent_id,
         spec=spec,
         transcript=transcript_for_model([(str(t[0]), str(t[1])) for t in turns]),
+        languages=languages,
     )
 
 

@@ -240,7 +240,9 @@ def test_sarvam_sends_the_brief_inside_the_shared_prompt() -> None:
     import inspect
 
     source = inspect.getsource(SarvamExtractor)
-    assert "build_extraction_prompt(spec, transcript, moments=moments)" in source
+    assert (
+        "build_extraction_prompt(spec, transcript, moments=moments, languages=languages)" in source
+    )
     assert SarvamExtractor.reads_moments is True
 
 
@@ -416,6 +418,26 @@ async def test_the_pipeline_hands_the_brief_to_the_one_extraction_call(
     await _run_pipeline(tenant_id, call_id, execution_id)
     assert len(seen) == 1, "one model request per call, moments included"
     assert isinstance(seen[0], MomentsBrief)
+
+
+async def test_the_pipeline_tells_the_extraction_the_agents_languages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, execution_id, call_id = await _completed_call("momlang")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET language_primary = 'hi-IN', languages_extra = :x"),
+            {"x": ["en-IN"]},
+        )
+    seen: list[Any] = []
+
+    async def _capture(*args: Any, **kwargs: Any) -> ExtractionOutput:
+        seen.append(kwargs.get("languages"))
+        return ExtractionOutput(data={})
+
+    monkeypatch.setattr(pipeline, "extract_call", _capture)
+    await _run_pipeline(tenant_id, call_id, execution_id)
+    assert seen == [("hi-IN", "en-IN")]
 
 
 def _stored_model_moment(label: str, label_redacted: str) -> dict[str, Any]:

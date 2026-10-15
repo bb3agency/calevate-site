@@ -20,7 +20,7 @@
  * refused by the server with the reason, which renders here as the error.
  */
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { KeyRound } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
@@ -55,6 +55,7 @@ import { lookup } from "@/lib/lookup";
 
 import type { KeyKind } from "../agents/actions/params";
 import { useAccountSignIn } from "./useAccountSignIn";
+import { WhatsAppSection } from "./whatsapp/WhatsAppSection";
 
 const SIGN_IN: { kind: OAuthKind; label: string; what: string }[] = [
   { kind: "google_calendar", label: "Google Calendar", what: "Find free times and book them for callers." },
@@ -93,6 +94,8 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
   const [tested, setTested] = useState<{ id: string; result: CredentialTest } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<IntegrationCredential | null>(null);
   const [adding, setAdding] = useState(false);
+  const [addKind, setAddKind] = useState<KeyKind>("aisensy");
+  const keysRef = useRef<HTMLDivElement>(null);
 
   /** Check and Disconnect for one connected account, and the check's answer under it. */
   const accountActions = (c: IntegrationCredential) => (
@@ -124,7 +127,12 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
       </p>
     ) : null;
 
-  const keys = creds.data?.filter((c) => !SIGN_IN_KINDS.includes(c.kind)) ?? [];
+  // A WhatsApp connected through Meta is shown and disconnected in its own section above;
+  // deleting its key here would leave that section saying "Connected" with nothing to send with.
+  const keys =
+    creds.data?.filter(
+      (c) => !SIGN_IN_KINDS.includes(c.kind) && c.non_secret?.connected_via !== "embedded_signup",
+    ) ?? [];
 
   return (
     <div className="space-y-10">
@@ -197,6 +205,17 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
         </p>
       </Section>
 
+      <WhatsAppSection
+        session={session}
+        canWrite={canWrite}
+        onPasteKey={(kind) => {
+          setAddKind(kind);
+          setAdding(true);
+          requestAnimationFrame(() => keysRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+        }}
+      />
+
+      <div ref={keysRef}>
       <Section
         headingLevel={2}
         title="Keys"
@@ -213,7 +232,7 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
           </button>
         }
       >
-        {adding ? <AddKey session={session} onDone={() => setAdding(false)} /> : null}
+        {adding ? <AddKey key={addKind} session={session} initialKind={addKind} onDone={() => setAdding(false)} /> : null}
         {creds.data && keys.length === 0 && !adding ? (
           <p className="text-body text-ink-muted">No keys yet.</p>
         ) : null}
@@ -239,6 +258,7 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
           </ul>
         ) : null}
       </Section>
+      </div>
 
       {probe.isError ? <ProblemNotice error={probe.error} /> : null}
       {remove.error && pendingDelete === null ? <ProblemNotice error={remove.error} /> : null}
@@ -263,9 +283,17 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
   );
 }
 
-function AddKey({ session, onDone }: { session: Session; onDone: () => void }) {
+function AddKey({
+  session,
+  initialKind = "aisensy",
+  onDone,
+}: {
+  session: Session;
+  initialKind?: KeyKind;
+  onDone: () => void;
+}) {
   const create = useCreateCredential(session);
-  const [kind, setKind] = useState<KeyKind>("aisensy");
+  const [kind, setKind] = useState<KeyKind>(initialKind);
   const [label, setLabel] = useState("");
   const [secret, setSecret] = useState("");
   const [keyId, setKeyId] = useState("");

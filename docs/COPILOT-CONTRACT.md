@@ -81,6 +81,20 @@ ActionTool(
 
 If you cannot write an exact inverse, the tool is `confirm`.
 
+**The description** (D-779) is written for a new hire and is paid on every request, because
+the whole realm's tool array is the cacheable prefix:
+
+* what it does, in one sentence, then when to use it;
+* when NOT to use it, by naming the sibling that does that job in backticks, whenever two
+  tools overlap (`leads_search` / `leads_semantic_search`, `agent_edit` /
+  `agent_edit_live`, ...). The pairs are listed in `tests/copilot_tool_eval_test.py::SIBLINGS`;
+  add yours there;
+* what each argument means and where its value comes from (an id "from `agents_list`");
+* then `DOES_IT` or `PROPOSES_ONLY`, which already say which kind it is and what to say
+  afterwards. Do not restate them, and do not use capitals for emphasis.
+
+Keep it short: every sentence is repeated in every request of the realm.
+
 ## 3. The permission check, inside the tool
 
 The tool array is **byte-identical within a realm** (prompt caching): never add, remove or
@@ -114,7 +128,7 @@ one. The service's own lock is then the swap's guard.
 ### When the button's logic lives in its route
 
 Extract it into a service function both doors call (`crm/lead_dial.place_lead_call`,
-`compliance/kyc_review.decide_kyc_review`), or, for a READ whose route holds only a query,
+`compliance/kyc_review.decide_kyc_review`, `healer/decisions` for the healer screen's two buttons), or, for a READ whose route holds only a query,
 call the route function itself with a narrow `Principal` (`console_reads._principal`). Never
 copy the body.
 
@@ -127,6 +141,10 @@ copy the body.
 * The action log stores `args` through `workers.redaction.redact` (ids untouched) and
   never stores a refusal's arguments. Do not put a value into a refusal reason.
 * Log ids and tool names only (hard rule 6).
+* **One exception (D-781): files a person attaches.** A picture or the text of an attached
+  file reaches the model whole and unredacted (`copilot/attachments.py`), fenced in
+  `<attachment>` like screen content, and never reaches the Sarvam standby. A tool must not
+  read, store or log an attachment; the transcript keeps only `[N files attached]`.
 
 ## 5. Tests every tool ships with
 
@@ -145,6 +163,12 @@ copy the body.
    appended, not inserted.
 7. A new tenant table ships with RLS in the same migration and a cross-tenant zero-rows
    test.
+8. **Tool choice** (D-779): add one or two questions the tool should answer to
+   `tests/fixtures/copilot_tool_choice.json` (and one it must not, as `forbid`, if it
+   overlaps a sibling). CI checks the fixture against the live arrays with no model
+   (`make copilot-eval`); an operator with a key scores the real model with
+   `make copilot-eval PROVIDER=google MODEL=<fast or planning tier id>` (or
+   `PROVIDER=azure`), before and after a prompt or description change, on both tiers.
 
 ## 6. Stream events (`POST /v1/copilot/ask`, `POST /v1/admin/copilot/ask`)
 
@@ -165,6 +189,14 @@ copy the body.
   browser checks `route` against its own sidebar list.
 * **`step`**, **`text`**, **`fill`**, **`done`**, **`error`** — unchanged (route
   descriptions in `copilot/routes.py`).
+* **Attachments (D-781)** are not a frame: the browser uploads each file first
+  (a PDF goes as it is, with its browser-extracted text as a sibling naming it in
+  `X-Upload-Text-Of`; a PDF turn runs only on Gemini: native first, then its text on the
+  usual leg, else `copilot_pdf_unavailable` — `service._answer_pdf_turn`)
+  (`POST /v1/copilot/uploads`, raw body, `X-Upload-Name`; admin twin under
+  `/v1/admin/copilot/uploads`) and sends their ids as `CopilotAskIn.attachments`. A file is
+  read back only by its owner through `GET .../uploads/{id}/content` and removed with
+  `DELETE .../uploads/{id}`.
 
 ## 7. The action log, approvals and jobs API
 

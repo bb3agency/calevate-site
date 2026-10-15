@@ -75,6 +75,7 @@ def _config(script: CallScript, job: str, *, pinned: bool = False) -> AgentConfi
         tenant_id="t",
         agent_id="a",
         name="Raghava Organics receptionist",
+        business="Raghava Organics",
         direction="inbound" if job == "answer_calls" else "outbound",
         language_primary="te-IN",
         system_prompt=without_outline(body),
@@ -142,11 +143,17 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
         assert size.total <= INSTRUCTIONS_MAX_CHARS - LONG_MARGIN, (job, size.total)
 
 
+#: The platform layers of the agent below on 14 Oct 2026. The founder's rule of that day: a
+#: prompt change may not grow them past it (quality within budget).
+PLATFORM_LAYERS_MAX = 6_238
+
+
 def test_the_platform_layers_alone_stay_small() -> None:
     cfg = AgentConfig(
         tenant_id="t",
         agent_id="a",
         name="A",
+        business="Raghava Organics",
         direction="inbound",
         language_primary="te-IN",
         languages_extra=["hi-IN", "en-IN"],
@@ -158,4 +165,4 @@ def test_the_platform_layers_alone_stay_small() -> None:
     )
     platform = len(compose_engine_prompt(cfg))
     print(f"platform layers, three languages: {platform} chars")
-    assert platform <= 6_300
+    assert platform <= PLATFORM_LAYERS_MAX

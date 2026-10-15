@@ -775,8 +775,8 @@ LEAD_SET_STATUS: Final = WriteTool(
     where="on the lead's own screen",
     schema=action_schema(
         "lead_set_status",
-        "Change one lead's status (new, contacted, interested, hot, won, lost). The person "
-        "can undo it from the receipt." + DOES_IT,
+        "Change one lead's status (new, contacted, interested, hot, won, lost). For many "
+        "leads at once use `leads_bulk_update`." + DOES_IT,
         {
             "lead_id": {
                 "type": "string",

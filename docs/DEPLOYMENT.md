@@ -1564,7 +1564,7 @@ it and is now simply true by construction: there is no upstream to reconcile FRO
 **nothing in this repository ever inserted a row** — not `seed.py`,
 not the deploy script, not any migration. So a fresh deploy came up green with an empty
 table and every admin request 403ing: no organization creatable, no platform setting
-writable, no first campaign reviewable, and no way to reach the screen the paragraph
+writable, no KYC record verifiable, and no way to reach the screen the paragraph
 above sends you to. It fails closed, so this was never a security hole; it was a
 deployment with no way in. After the first `vps-deploy.sh` run, once per host:
 

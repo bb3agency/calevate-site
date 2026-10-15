@@ -324,6 +324,17 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:12ffac75d7a30ee35ef052bb455e50a5c96ee2c52c487fd34c04e1486b4e9f8c",
       },
+      // D-781: section 3.2 says a person can attach files to the in-app assistant, that
+      // they are sent whole and unredacted to the assistant's language-model provider, not
+      // reviewed or scanned, and deleted with the conversation and within 30 days; section 8
+      // says they go to the same providers and places. MATERIAL: new personal data reaches
+      // a provider, unredacted.
+      {
+        revision: "23",
+        material: true,
+        contentHash:
+          "sha256:d15b3abc63479617a378bdeccab61ee52a6d40625b7f52f3077defdc84cdf073",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -449,6 +460,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:e5e16c9bfab38133cef4da4457a34253eb5d6a87b1c5c62d543fb43113f77984",
       },
+      // D-781: clause 5 makes the client responsible for files its people attach to the
+      // in-app assistant (the right to share, notice and consent), says they are not
+      // reviewed or scanned and are sent as they are; clause 14.2 adds them to the client's
+      // indemnity. MATERIAL: a new obligation and a wider indemnity.
+      {
+        revision: "17",
+        material: true,
+        contentHash:
+          "sha256:a3f2ef1e614924b27b9f63e20be853ce3982854f66369360097756ad5ca4b503",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -506,6 +527,15 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:23c376a4c06538da724c7752091e2a5a42ea6b3754851c343b39c45d5b8e1b84",
+      },
+      // D-783: section 2.8 no longer says a person reviews the first campaign of a
+      // self-serve or trial account before it runs; that review was removed. NOT MATERIAL:
+      // it described a step on our side, and the client is asked for nothing new.
+      {
+        revision: "7",
+        material: false,
+        contentHash:
+          "sha256:ebd7a5a42392e395540fcddb7b9f78907ac602e3743804bd631833903c007c1d",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -621,6 +651,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:57ed15672a01edf16c110670810792de08e3be96d17f649ab7094446d858d4a4",
+      },
+      // D-781: clause 2 and Annex A say attached files are the client's instruction, sent
+      // whole and unredacted to the assistant's language-model provider, not reviewed or
+      // scanned, the client responsible as Data Fiduciary, our security and deletion duties
+      // unchanged. MATERIAL: the description of the processing and the client's duties.
+      {
+        revision: "15",
+        material: true,
+        contentHash:
+          "sha256:1d2122279cbbb42f454ed660e700055ade60624d9ae41b6192f59ab2c1452a0b",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -845,6 +885,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:b39d1f7093279d33024a67e753264b85b4ed531ad2decee91a55d2f111c4a4b2",
+      },
+      // D-781: the object-storage and language-model rows and section 3.5 say files a
+      // client's user attaches to the assistant are stored privately and sent whole and
+      // unredacted, not reviewed or scanned, and deleted within 30 days. MATERIAL: a
+      // sub-processor receives personal data for a new purpose.
+      {
+        revision: "22",
+        material: true,
+        contentHash:
+          "sha256:3727f6cd6a032814141da766e136bd924431f7d032ef9a42a791ac1850c6bc22",
       },
     ],
     effectiveDate: "2026-09-02",

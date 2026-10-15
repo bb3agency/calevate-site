@@ -415,12 +415,12 @@ def test_the_vendor_contract_is_still_a_marked_assumption() -> None:
 def test_every_remediation_survives_the_log_redactor(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A remediation that overflows `logging._MAX_FREE_TEXT` loses its TAIL, and the tail
+    """A remediation that overflows `logging.MAX_FREE_TEXT` loses its TAIL, and the tail
     is where the instruction is. Found by running the refusal paths and reading the
     output: the first draft of the 403 sentence came out as "…Check the key at
     admin.calevate.tech/ops and the domain i…[truncated]".
     """
-    from apps.api.core.logging import _MAX_FREE_TEXT, redact_mapping
+    from apps.api.core.logging import MAX_FREE_TEXT, redact_mapping
 
     for status in (401, 403, 422):
         _install(monkeypatch, _Response(status, {"statusCode": status}))
@@ -435,7 +435,7 @@ def test_every_remediation_survives_the_log_redactor(
     ]
     assert len(remediations) == 3
     for sentence in remediations:
-        assert len(sentence) <= _MAX_FREE_TEXT, f"truncated in the log: {sentence!r}"
+        assert len(sentence) <= MAX_FREE_TEXT, f"truncated in the log: {sentence!r}"
         assert "truncated" not in str(redact_mapping({"remediation": sentence})["remediation"])
 
 

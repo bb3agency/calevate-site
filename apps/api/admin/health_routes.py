@@ -14,7 +14,7 @@ enumerated where it is declared, one file over.
 **`org:read`, not `admin:tenants`**, for the reason `holds_routes.py` states: D-22
 forbids gating a GET on a permission a view-as session is refused, and `admin:tenants`
 is in `MUTATING_PERMISSIONS`. Reading a triage list is not acting on it — every remedy an
-operator reaches FROM this board (record a KYC verification, release a first campaign,
+operator reaches FROM this board (record a KYC verification,
 raise a cap, approve a knowledge source) keeps its own mutating permission and its own
 audit row. `tests/impersonation_reads_test.py` asserts that rule over the whole route
 table; the exemption list it carries for the older `/v1/admin/tenants` GETs is a debt, not
@@ -97,11 +97,11 @@ class HealthSignalOut(BaseModel):
     # distinction, so it is the server's answer and never the console's arithmetic.
     severity: Severity
     # For `outbound_blocked`: the GATES' own rule names, in the order the launch preview
-    # asks them (`kyc_missing`, `outbound_pledge_missing`, `first_campaign_review_pending`,
+    # asks them (`kyc_missing`, `outbound_pledge_missing`,
     # `spend_cap`, `no_credits`, …) — the same vocabulary the client's
     # screen uses, so an operator and a client on the phone name one condition the same
-    # way. Deliberately NOT the blockers' `reason` prose: a rejection reason interpolates
-    # an operator's free text (hard rule 6, `admin/holds.py`).
+    # way. Deliberately NOT the blockers' `reason` prose: a reason can interpolate
+    # free text (hard rule 6, `admin/holds.py`).
     causes: list[str] = []
     # The number behind a countable signal, or None where the signal is a state. None and
     # 0 are different claims and the screen keeps them apart.

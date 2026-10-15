@@ -193,12 +193,20 @@ def platform_prompt_revision() -> str:
     # Every offered language, so a change to any language's platform sentences moves it.
     primary, *extra = offered_language_tags()
     parts: list[str] = [render_steps(native_steps(script, can=Capabilities(True, False)))]
-    for callbacks, in_knowledge in ((True, True), (False, False)):
+    # Every direction, with and without a business name, so a change to any wording of the
+    # role sentence moves it too.
+    references: tuple[tuple[bool, bool, Literal["inbound", "outbound", "both"], str], ...] = (
+        (True, True, "inbound", "B"),
+        (False, False, "outbound", ""),
+        (True, False, "both", "B"),
+    )
+    for callbacks, in_knowledge, direction, business in references:
         cfg = AgentConfig(
             tenant_id="t",
             agent_id="a",
             name="A",
-            direction="outbound",
+            business=business,
+            direction=direction,
             language_primary=primary,
             languages_extra=list(extra),
             system_prompt="S",

@@ -86,7 +86,6 @@ from apps.api.compliance.service import (
     account_stopped_blocker,
     credits_exhausted,
     dial_refusal_for_agent_status,
-    first_campaign_hold_blocker,
     kyc_blocker,
     outbound_pledge_blocker,
     spend_capped,
@@ -177,14 +176,14 @@ def validated_retry_policy(max_attempts: int, gaps: list[int]) -> dict[str, Any]
         raise ProblemError(
             kind="validation",
             code="campaign_retry_attempts_invalid",
-            title="Invalid number of tries",
+            title="Choose how many tries",
             detail=f"Choose between 1 and {MAX_RETRY_ATTEMPTS} tries per person.",
         )
     if len(gaps) != max_attempts - 1 or any(gap not in RETRY_GAP_CHOICES for gap in gaps):
         raise ProblemError(
             kind="validation",
             code="campaign_retry_gaps_invalid",
-            title="Invalid gap between tries",
+            title="Choose the gap between tries",
             detail=(
                 "Give one gap for each retry, each one of "
                 f"{', '.join(str(gap) for gap in RETRY_GAP_CHOICES)} minutes."
@@ -475,14 +474,6 @@ async def dispatch_blockers(
     with nothing having re-read the paperwork.
     """
     facts = await _campaign_facts(session, campaign_id)
-    # The first-campaign hold is asked here as well as at launch, and it is the one
-    # tenant-level rule in this list. It belongs to the same family as the rest: a
-    # release is WITHDRAWABLE — complaints arrive, a list turns out to be bought — and a
-    # campaign that keeps dialling to the end of its list after we revoked the account's
-    # clearance is the exact failure this gate exists to prevent. `check_dispatch` cannot
-    # carry it: that gate is also the single-lead paths, which are not campaigns
-    # (`compliance/first_campaign.py` states the residual that leaves).
-    held = await first_campaign_hold_blocker(session, tenant_id=tenant_id)
     # The agreements, for the reason everything else in this list is re-asked: a MATERIAL
     # new version of the Terms or the DPA falls due while a campaign is mid-flight, and a
     # campaign that keeps dialling to the end of its list under a superseded agreement is
@@ -496,7 +487,6 @@ async def dispatch_blockers(
         session, campaign_id=campaign_id, classification=facts.classification
     )
     return [
-        *([LaunchBlocker(*held)] if held is not None else []),
         *([LaunchBlocker(*unaccepted)] if unaccepted is not None else []),
         *_consent_blockers(facts),
         *_channel_blockers(facts),
@@ -600,14 +590,14 @@ def validated_window(calling_hours: dict[str, Any]) -> dict[str, str]:
         raise ProblemError(
             kind="validation",
             code="campaign_window_invalid",
-            title="Invalid calling window",
+            title="Check the calling window",
             detail="Enter the calling window as a start time and an end time (HH:MM), in IST.",
         ) from None
     if start >= end:
         raise ProblemError(
             kind="validation",
             code="campaign_window_invalid",
-            title="Invalid calling window",
+            title="Check the calling window",
             detail="The window's start must be before its end.",
         )
     platform_start, platform_end = DEFAULT_WINDOW
@@ -1158,12 +1148,6 @@ async def account_outbound_blockers(
     unaccepted = await agreements_blocker(session, tenant_id=tenant_id)
     if unaccepted is not None:
         found.append(unaccepted)
-    # R-11's last mitigation: a self-serve account's first campaign waits for a human
-    # (BRD §245, FLOWS §2, D-34). Asked here AND in `dispatch_blockers` — see the note
-    # in that function for why it is in both and not in `check_dispatch`.
-    held = await first_campaign_hold_blocker(session, tenant_id=tenant_id)
-    if held is not None:
-        found.append(held)
     if await spend_capped(session, tenant_id=tenant_id):
         found.append(("spend_cap", SPEND_CAP_REASON))
     if await dispute_hold_active(session, tenant_id=tenant_id):
@@ -1816,16 +1800,21 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
     # the other), so a top-level import would close the cycle.
     from apps.api.campaigns.scheduling import describe_recurrence
 
+    # A `pending` row with attempts is a person already tried and waiting for another go;
+    # `pending` alone cannot tell that apart from someone never called, and the campaign
+    # screen's progress steps ("calling everyone once", then "trying again") need both.
     rows = (
         await session.execute(
             text(
-                "SELECT status, count(*) FROM campaign_contacts WHERE campaign_id = :cid "
-                "GROUP BY status"
+                "SELECT status, count(*), count(*) FILTER (WHERE attempts > 0), "
+                "  min(next_attempt_at) FILTER (WHERE attempts > 0) "
+                "FROM campaign_contacts WHERE campaign_id = :cid GROUP BY status"
             ),
             {"cid": campaign_id},
         )
     ).all()
     counts = {str(r[0]): int(r[1]) for r in rows}
+    waiting = next((r for r in rows if r[0] == "pending"), None)
     about = (
         await session.execute(
             text(
@@ -1918,6 +1907,10 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
         "concurrency": campaign[2],
         "contacts": counts,
         "total": sum(counts.values()),
+        # The same rule `results.contacts_page` gives `will_retry`: only a campaign that
+        # can still dial will try anyone again.
+        "retries_waiting": int(waiting[2]) if waiting and status in ("running", "paused") else 0,
+        "next_retry_at": waiting[3] if waiting and status in ("running", "paused") else None,
         "scheduled_start_at": campaign[3],
         "schedule_blocked_rules": [str(rule) for rule in blocked_rules] if blocked_rules else [],
         "recurrence": describe_recurrence(campaign[5]),

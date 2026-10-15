@@ -161,7 +161,9 @@ def _row(engine: str, rate_key: str, price: EngineMinutePrice | None) -> EngineM
     )
 
 
-def _rate(raw: str) -> Decimal:
+def parse_minute_rate(raw: str) -> Decimal:
+    """An operator's typed per-minute figure as an exact Decimal, or this route's refusal.
+    Pip's attestation (`copilot/admin_actions.py`) parses through here too."""
     try:
         value = Decimal(raw.strip())
     except (InvalidOperation, ValueError):
@@ -243,7 +245,7 @@ async def attest_engine_minute(
         session,
         engine=engine,
         rate_key=rate_key,
-        inr_per_min=_rate(payload.inr_per_min),
+        inr_per_min=parse_minute_rate(payload.inr_per_min),
         effective_from=payload.effective_from or datetime.now(UTC),
         source_note=payload.source_note,
         actor_id=principal.user_id,
@@ -269,4 +271,4 @@ async def attest_engine_minute(
     return _row(engine, rate_key, current)
 
 
-__all__ = ["engine_minute_confirmation", "router"]
+__all__ = ["engine_minute_confirmation", "parse_minute_rate", "router"]

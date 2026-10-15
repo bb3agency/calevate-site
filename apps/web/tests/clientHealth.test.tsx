@@ -316,7 +316,7 @@ describe("the client health board", () => {
 
   it("reads only the board, and renders no phone number", async () => {
     // Hard rule 6 is a property of the payload — `admin/health.py` sends accounts and rule
-    // names and drops the blockers' `reason` prose, which interpolates an operator's free
+    // names and drops the blockers' `reason` prose, which can interpolate free
     // text. This screen must not fetch any of it back to fill the gap.
     const { container, calls } = renderAdminPage(<ClientHealthPage />, {
       [CLIENT_HEALTH_PATH]: [
@@ -324,7 +324,7 @@ describe("the client health board", () => {
           signals: [
             signal({
               rule: "outbound_blocked",
-              causes: ["first_campaign_review_rejected"],
+              causes: ["kyc_not_verified"],
               count: null,
             }),
           ],
@@ -336,7 +336,7 @@ describe("the client health board", () => {
     // One request, to the board. A second one to a tenant's own screens would be this page
     // quietly widening what an ops list exposes.
     expect(calls.map((c) => c.path)).toEqual([CLIENT_HEALTH_PATH]);
-    expect(container.textContent).toContain("First campaign refused");
+    expect(container.textContent).toContain("Identity not verified");
     expect(container.textContent).not.toMatch(/\+?\d{10}/);
   });
 

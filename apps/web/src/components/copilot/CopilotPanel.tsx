@@ -7,6 +7,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { PipMark } from "@/components/illustration/pip";
+import { NewItemsPill } from "@/components/interior/new-items-pill";
 import { selectionSummary } from "@/lib/copilot/selection";
 import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
@@ -15,7 +16,7 @@ import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import type { SurfaceHolder } from "@/lib/copilot/registry";
 import { unsavedWork } from "@/lib/copilot/unsaved";
 import { openingLine, suggestedQuestions } from "@/lib/copilot/suggestions";
-import { useCopilotConversation } from "@/lib/copilot/useCopilotConversation";
+import { useCopilotConversation, type CopilotTurn } from "@/lib/copilot/useCopilotConversation";
 
 import { AnswerText } from "./answerText";
 import { ActionReceipt } from "./ActionReceipt";
@@ -23,6 +24,14 @@ import { JobCard } from "./JobCard";
 import { NavigationReceipt } from "./NavigationReceipt";
 import { ProposalCard } from "./ProposalCard";
 import { StepList } from "./StepList";
+import {
+  AttachButton,
+  AttachmentNotice,
+  AttachmentTray,
+  TurnAttachments,
+  splitMarker,
+  useAttachmentTray,
+} from "./Attachments";
 
 /**
  * The assistant's panel: the transcript, the ask box, what it filled in, and the one Undo.
@@ -99,6 +108,16 @@ export function CopilotPanel({
   // ceiling is a fact about the month, opening the dialog is a decision to spend.
   const [buying, setBuying] = useState(false);
   const conversation = useCopilotConversation(session, holder);
+  // FILES FOR THE NEXT QUESTION (D-781): chosen, converted on this device, and streamed to
+  // the API before Ask; Ask waits while any is still on its way.
+  const tray = useAttachmentTray(session, realm);
+  const [dropping, setDropping] = useState(false);
+  const canAsk = (question.trim() !== "" || tray.ready > 0) && !tray.busy;
+  const send = () => {
+    if (!canAsk) return;
+    conversation.ask(question, tray.take());
+    setQuestion("");
+  };
   const panel = useRef<HTMLDivElement>(null);
   const transcript = useRef<HTMLDivElement>(null);
   /**
@@ -174,11 +193,21 @@ export function CopilotPanel({
    * `scrollHeight`/`clientHeight` are 0 in jsdom, so an untouched test element reads as
    * "at the bottom" and follows — which is what a test that is not about scrolling wants.
    */
+  const [unseen, setUnseen] = useState(0);
+  const fromElsewhere = conversation.turns.filter((turn) => turn.fresh === "elsewhere").length;
+  const counted = useRef(fromElsewhere);
   useEffect(() => {
+    const grew = fromElsewhere - counted.current;
+    counted.current = fromElsewhere;
     const el = transcript.current;
-    if (el === null || !stick.current) return;
-    el.scrollTop = el.scrollHeight;
-  }, [conversation.turns, conversation.streaming]);
+    if (el === null) return;
+    if (stick.current) {
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    // Scrolled up: count what arrived below instead of moving the reader (D-782).
+    if (grew > 0) setUnseen((count) => count + grew);
+  }, [conversation.turns, conversation.streaming, conversation.answeringElsewhere, fromElsewhere]);
 
   const surface = holder.read();
   const batch = conversation.batch;
@@ -310,6 +339,7 @@ export function CopilotPanel({
           three other scrollers in this tree (`interior/wizard-steps.tsx`,
           `show-more.tsx`, `skeleton-swap.tsx`) rather than a `useEffect` on
           `wheel`: one class, no listener, and it covers touch and trackpad alike. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={transcript}
         data-testid="copilot-transcript"
@@ -321,6 +351,7 @@ export function CopilotPanel({
         onScroll={(event) => {
           const el = event.currentTarget;
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+          if (stick.current) setUnseen(0);
         }}
         className="flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3 text-sm"
       >
@@ -411,26 +442,23 @@ export function CopilotPanel({
               `key={index}` that shift re-labels every bubble below it, so React tears each
               one down and builds it again: a person copying a phone number out of an answer
               loses the selection mid-drag, and the scroll position lands somewhere else
-              because the nodes it was measured against are gone. `id` is the server's;
-              `localKey` is this browser's own and is never sent (see `CopilotTurn`). The
-              index remains only as the last resort for a turn that somehow has neither. */}
+              because the nodes it was measured against are gone. A turn this device said
+              carries the id it minted and the server stores it under (D-782), so its stored
+              copy keeps the same key. The index is the last resort for a turn with none. */}
           {conversation.turns.map((turn, index) =>
             // The PERSON'S turn stays literal `pre-wrap`: they typed what they typed, and
             // rendering their asterisks as emphasis would edit their own words back at
             // them. Only the model's answer is formatted (`answerText.tsx`).
             turn.role === "user" ? (
-              <p
-                key={turn.id ?? turn.localKey ?? `at-${index}`}
-                className="ml-auto w-fit max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-ink/[0.05] px-3 py-2 text-ink"
-              >
-                {turn.content}
-              </p>
+              <UserTurn key={turn.id ?? `at-${index}`} turn={turn} />
             ) : (
-              <PipTurn key={turn.id ?? turn.localKey ?? `at-${index}`}>
+              <PipTurn key={turn.id ?? `at-${index}`}>
                 <AnswerText
                   text={turn.content}
-                  // Said in THIS session (a stored turn has an id): fade it in once.
-                  reveal={turn.id == null && turn.localKey !== undefined}
+                  // Arrived while the panel was open — streamed here, or finished on
+                  // another device: fade each block in once. A stored turn the panel
+                  // loaded with is simply there.
+                  reveal={turn.fresh !== undefined}
                 />
               </PipTurn>
             ),
@@ -458,7 +486,7 @@ export function CopilotPanel({
               // answers to "is it still working".
               <p className="flex items-center gap-2 text-xs text-ink-muted">
                 <PipMark size={20} thinking className="shrink-0" />
-                {ASSISTANT_NAME} is thinking…
+                <span className="text-shimmer">{ASSISTANT_NAME} is thinking…</span>
               </p>
             ) : (
               conversation.streaming !== "" && (
@@ -469,6 +497,16 @@ export function CopilotPanel({
                 </PipTurn>
               )
             ))}
+            {/* ANSWERING A QUESTION ASKED ON ANOTHER DEVICE (D-782). The same line, mark
+                and shimmer this device shows for its own question, so Pip at work looks
+                the same wherever the question came from; the answer replaces it with the
+                reveal above when it lands. */}
+            {conversation.streaming === null && conversation.answeringElsewhere && (
+              <p className="live-enter flex items-center gap-2 text-xs text-ink-muted">
+                <PipMark size={20} thinking className="shrink-0" />
+                <span className="text-shimmer">{ASSISTANT_NAME} is thinking…</span>
+              </p>
+            )}
           </div>
         </div>
 
@@ -607,20 +645,60 @@ export function CopilotPanel({
         )}
 
       </div>
+      {/* TURNS THAT ARRIVED BELOW A READER WHO SCROLLED UP — usually from another device
+          (D-782). The console's one "new items" control, offered instead of moving them. */}
+      <NewItemsPill
+        count={unseen}
+        anchor="bottom"
+        label={(n, over) => `${n}${over ? "+" : ""} new ${n === 1 && !over ? "message" : "messages"}`}
+        onJump={() => {
+          const el = transcript.current;
+          if (el !== null) el.scrollTo({ top: el.scrollHeight, behavior: reduced === true ? "auto" : "smooth" });
+          stick.current = true;
+          setUnseen(0);
+        }}
+      />
+      </div>
 
       <form
         className="border-t border-line p-3"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          conversation.ask(question);
-          setQuestion("");
+          send();
+        }}
+        // DROP FILES ANYWHERE ON THE ASK BOX (D-781). Only a drag that carries files is
+        // taken; dragged text still lands in the textarea as it always did.
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault();
+          setDropping(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropping(false);
+        }}
+        onDrop={(event) => {
+          if (event.dataTransfer.files.length === 0) return;
+          event.preventDefault();
+          setDropping(false);
+          tray.add(Array.from(event.dataTransfer.files));
         }}
       >
         <label htmlFor={inputId} className="sr-only">
           Your question about this screen
         </label>
-        <div className="rounded-card border border-line bg-surface p-2 transition-[border-color] duration-(--duration-fast) focus-within:border-brand">
+        {tray.notice && <AttachmentNotice onDismiss={tray.dismissNotice} />}
+        <AttachmentTray
+          items={tray.items}
+          problem={tray.problem}
+          onRemove={tray.remove}
+          onRetry={tray.retry}
+        />
+        <div
+          className={`rounded-card border bg-surface p-2 transition-[border-color] duration-(--duration-fast) focus-within:border-brand ${
+            dropping ? "border-brand" : "border-line"
+          }`}
+        >
         <textarea
           id={inputId}
           rows={2}
@@ -640,15 +718,27 @@ export function CopilotPanel({
               // (the button below reads Stop while an answer is in flight) whose whole
               // point is that it KEEPS what arrived.
               if (conversation.asking) return;
-              conversation.ask(question);
-              setQuestion("");
+              send();
             }
           }}
+          // A PASTED PICTURE OR FILE is attached; pasted text is left to the textarea.
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData.files);
+            if (files.length === 0) return;
+            event.preventDefault();
+            tray.add(files);
+          }}
+          enterKeyHint="send"
           placeholder={surface.fields.length > 0 ? "Ask a question, or say what to fill in" : "Ask a question"}
           className="block w-full resize-none bg-transparent px-1 py-1 text-body text-ink placeholder:text-ink-faint focus:outline-none"
         />
         <div className="flex items-center justify-between gap-3 pt-1">
-          <p className="hidden px-1 text-meta text-ink-faint sm:block">Enter to send · Shift+Enter for a new line</p>
+          <div className="flex min-w-0 items-center gap-1">
+            <AttachButton onFiles={tray.add} disabled={conversation.asking} />
+            <p className="hidden px-1 text-meta text-ink-faint sm:block">
+              {tray.busy ? "Waiting for files to finish…" : "Enter to send · Shift+Enter for a new line"}
+            </p>
+          </div>
           {/* ONE CONTROL, TWO JOBS, and it is never disabled while an answer is arriving.
               It used to read "Asking…" and be dead, which left a person watching a long
               answer with nothing to press — so the only way out was to type over it and
@@ -665,7 +755,7 @@ export function CopilotPanel({
           ) : (
             <button
               type="submit"
-              disabled={question.trim() === ""}
+              disabled={!canAsk}
               className={PRIMARY_BUTTON}
             >
               Ask
@@ -761,6 +851,29 @@ function PipTurn({ children }: { children: ReactNode }) {
     <div className="flex items-start gap-2">
       <PipMark size={20} className="mt-px shrink-0" />
       <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
+/** One of the person's questions: their words as typed (`pre-wrap`, never formatted), and
+ *  the files it carried (D-781). A stored turn keeps only the server's "[N files attached]"
+ *  marker, which is shown as a count rather than as words they did not type. */
+function UserTurn({ turn }: { turn: CopilotTurn }) {
+  const { count, text } = splitMarker(turn.content);
+  return (
+    <div className="ml-auto w-fit max-w-[85%]">
+      <TurnAttachments attachments={turn.attachments} count={count} />
+      {text !== "" && (
+        <p
+          // ASKED ON ANOTHER DEVICE while this panel was open: the console's live entrance
+          // (`live-enter`, 220 ms fade and 4 px drop, off under reduced motion).
+          className={`ml-auto w-fit whitespace-pre-wrap rounded-2xl rounded-br-md bg-ink/[0.05] px-3 py-2 text-ink ${
+            turn.fresh === "elsewhere" ? "live-enter" : ""
+          }`}
+        >
+          {text}
+        </p>
+      )}
     </div>
   );
 }

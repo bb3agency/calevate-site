@@ -25,9 +25,6 @@ WHAT THIS RUN FOUND, over and above D-133's four (each fixed in the same change)
   `fk_dlt_registrations_tenant_id_organizations`. The third member of the family whose
   other two (`dlt-templates`, `kyc`) D-133 fixed — missed because it is an `ON CONFLICT`
   upsert and so reads like a write that cannot fail on a key.
-* `POST …/first-campaign-review` → **500 `internal_error`**, from
-  `fk_first_campaign_reviews_tenant_id_organizations`. Its own docstring claims the shape
-  of `record_kyc_verification`, which had the guard.
 * `GET`/`POST …/whatsapp-alerts` → **422 `alert_optin_no_owner_with_a_number`**: "This
   account has no active owner with a mobile number. Add a mobile number to the owner's
   profile, then record the opt-in." A real refusal, correct for the state it was written
@@ -219,10 +216,6 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "PUT /v1/admin/tenants/{tenant_id}/feature-flags/{flag}": {
         "enabled": True,
         "reason": "census",
-    },
-    "POST /v1/admin/tenants/{tenant_id}/first-campaign-review": {
-        "decision": "approved",
-        "note": "list, script and disclosure line checked",
     },
     "POST /v1/admin/tenants/{tenant_id}/invitations": {
         "email": "census@example.com",
@@ -529,8 +522,8 @@ async def test_a_tenant_id_that_names_nothing_is_a_404_on_every_route(
 async def test_nothing_was_written_for_a_tenant_that_does_not_exist() -> None:
     """The other half of a refusal: it refused BEFORE the write.
 
-    The sweep above proves the status code. This proves the row — because two of the
-    defects it found were foreign-key violations, and a fix that answered 404 by catching
+    The sweep above proves the status code. This proves the row — because a
+    defect it found was a foreign-key violation, and a fix that answered 404 by catching
     the `IntegrityError` after the statement had run would satisfy the sweep while leaving
     the write attempt, the alert and (on a shared transaction) the rollback in place.
     """
@@ -549,10 +542,6 @@ async def test_nothing_was_written_for_a_tenant_that_does_not_exist() -> None:
                 },
             ),
             (
-                f"/v1/admin/tenants/{absent}/first-campaign-review",
-                {"decision": "approved", "note": "list, script and disclosure checked"},
-            ),
-            (
                 f"/v1/admin/tenants/{absent}/whatsapp-alerts",
                 {"status": "granted", "evidence": {"ref": "onboarding form"}},
             ),
@@ -567,17 +556,15 @@ async def test_nothing_was_written_for_a_tenant_that_does_not_exist() -> None:
             await session.execute(
                 text(
                     "SELECT (SELECT count(*) FROM dlt_registrations WHERE tenant_id = :t), "
-                    "(SELECT count(*) FROM first_campaign_reviews WHERE tenant_id = :t), "
                     "(SELECT count(*) FROM whatsapp_alert_optin_ledger WHERE tenant_id = :t), "
                     "(SELECT count(*) FROM audit_log WHERE tenant_id = :t)"
                 ),
                 {"t": absent},
             )
         ).one()
-    assert tuple(counts) == (0, 0, 0, 0), (
+    assert tuple(counts) == (0, 0, 0), (
         "a refused request for a tenant that does not exist left a row behind: "
-        f"(dlt_registrations, first_campaign_reviews, whatsapp_alert_optin_ledger, "
-        f"audit_log) = {tuple(counts)}"
+        f"(dlt_registrations, whatsapp_alert_optin_ledger, audit_log) = {tuple(counts)}"
     )
 
 

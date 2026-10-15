@@ -80,7 +80,7 @@ export const EDIT_FIELD_COPY: Record<keyof EditTenantIn, FieldCopy> = {
   },
   vertical_template: {
     label: "Business type",
-    hint: "Picks the lead details a NEW agent starts with, and decides whether subscriber verification and the first-campaign hold apply. Agents that already exist keep their details until you choose to replace them, which is offered after saving.",
+    hint: "Picks the lead details a NEW agent starts with, and decides whether subscriber verification applies. Agents that already exist keep their details until you choose to replace them, which is offered after saving.",
   },
 };
 

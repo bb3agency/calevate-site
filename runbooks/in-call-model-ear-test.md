@@ -101,8 +101,12 @@ it needs the ThinnestAI key, which the api image adopts from the ops console.
 4. **Read the table.** One row per model: its price band and latency as ThinnestAI's console
    lists them (founder's reading, 10 Oct 2026; GPT-5 Mini is tagged Premium ₹2.50/min, the
    others carry no surcharge and bill at the voice's band), how many conversations passed
-   the hard checks, which shape problems it showed, the judge's verdicts and the average
-   reply length. `/tmp/model-compare.json` on the host holds every transcript.
+   the hard checks, which shape problems it showed, the judge's verdicts, the model that
+   judged, and the average reply length. The judge avoids the family of the model under test
+   where another approved dashboard leg exists (a GPT model is judged on our Gemini leg when
+   that leg is attested, a Gemini model on Azure); the "Judged by" column says which ran, so
+   a row judged by its own family is read with that in mind. `/tmp/model-compare.json` on
+   the host holds every transcript.
 5. **Decide**, then set the console's "In-call language model for Clear agents" to the
    winner; saving it republishes every live agent (D-720). GPT-5 Mini can only be chosen
    beside a voice whose band is at least Premium. Delete the test copy.

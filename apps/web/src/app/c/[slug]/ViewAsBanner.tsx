@@ -64,7 +64,9 @@ export function ViewAsBanner({ slug }: { slug: string }) {
     return (
       <div className={SITE_STRIP}>
         <span aria-hidden className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${NOTICE_DOT.warn}`} />
-        <span className="font-medium">Opening as an operator. Checking with the server…</span>
+        <span className="font-medium">
+          Opening as an operator. <span className="text-shimmer">Checking with the server…</span>
+        </span>
       </div>
     );
   }

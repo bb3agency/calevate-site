@@ -264,7 +264,7 @@ def test_the_fill_job_is_told_to_draft_rather_than_interrogate() -> None:
     need" without the draft-first framing, which is the exact regression this guards."""
     for text in (prompt_module.SYSTEM_PROMPT, prompt_module.CLOSING_RULES):
         assert "draft" in text.lower()
-    assert "BE PROACTIVE" in prompt_module.SYSTEM_PROMPT
+    assert "Be proactive" in prompt_module.SYSTEM_PROMPT
     # The fact/PII ban survives the rescoping — drafting form content is permitted, passing
     # off an invented real-world fact as real is not.
     assert "fabricate a FACT" in prompt_module.SYSTEM_PROMPT
@@ -288,7 +288,7 @@ def test_a_missing_number_sends_the_model_to_a_tool_not_to_an_apology() -> None:
     system prompt frames it, the closing rules sit last.
     """
     assert "a number you do not have" not in prompt_module.SYSTEM_PROMPT
-    assert "HAVE NOT LOOKED UP YET" in prompt_module.SYSTEM_PROMPT
+    assert "have not looked up yet" in prompt_module.SYSTEM_PROMPT
     for text in (prompt_module.SYSTEM_PROMPT, prompt_module.CLOSING_RULES):
         assert "cannot see" in text, "the model must be told when NOT to say this"
     # And it must be able to tell which tool answers which question, or "call a read tool"
@@ -430,7 +430,7 @@ def test_an_undeclared_screen_is_not_described_to_the_model_as_an_empty_one() ->
     console sends (`apps/web/src/lib/copilot/fallback.ts::UNDECLARED_FACT_KEY`).
     """
     assert '"screen_details"' in prompt_module.SYSTEM_PROMPT
-    assert "THAT IS NOT AN EMPTY SCREEN" in prompt_module.SYSTEM_PROMPT
+    assert "That is not an empty screen" in prompt_module.SYSTEM_PROMPT
     # And it must not try to fill a screen with nothing declared on it: the server refuses
     # that call item by item (`validate_fill`), so a model attempting it burns a turn.
     assert f"do not call {prompt_module.SET_FIELDS_TOOL_NAME} on one" in prompt_module.SYSTEM_PROMPT
@@ -554,12 +554,12 @@ def test_a_self_introduction_or_a_greeting_is_answered_rather_than_refused() -> 
     and the four-jobs list is a strong conflicting pull."""
     assert prompt_module.CONVERSATIONAL_FRAMING in prompt_module.SYSTEM_PROMPT
     framing = prompt_module.CONVERSATIONAL_FRAMING
-    assert "NOT EVERYTHING SAID TO YOU IS AN INSTRUCTION" in framing
+    assert "Not everything said to you is an instruction" in framing
     assert "self-introduction" in framing
     assert "call no tool, and refuse nothing" in framing
-    assert 'Use the shape "I cannot X because Y" ONLY when' in framing
+    assert 'Use the shape "I cannot X because Y" only when' in framing
     # Ambiguity resolves toward ASKING — never toward acting, and never toward refusing.
-    assert "ASK what they would like" in framing
+    assert "ask what they would like" in framing
     # And the restatement that sits last.
     closing = prompt_module.CLOSING_RULES
     assert "self-introduction" in closing and "refuse nothing" in closing
@@ -579,7 +579,48 @@ def test_the_framing_sits_between_the_job_list_and_the_chooser() -> None:
     the list's own heading is the anchor, and a test that has to be edited every time the
     assistant learns something is a test that will be edited without being read."""
     prompt_text = prompt_module.SYSTEM_PROMPT
-    jobs = prompt_text.index("YOUR JOB IS ")
+    jobs = prompt_text.index("Your job is ")
     framing = prompt_text.index(prompt_module.CONVERSATIONAL_FRAMING)
-    chooser = prompt_text.index("CHOOSING BETWEEN JOB 3 AND JOB 4")
+    chooser = prompt_text.index("Choosing between job 3 and job 4")
     assert jobs < framing < chooser
+
+
+# --- emphasis and the tool-call budget (D-779) ------------------------------------------
+
+#: The only multi-word capital runs the client prefix may carry outside the identity block
+#: and the screen directory: section names the model matches, and the one fill rule a live
+#: failure proved load-bearing.
+ALLOWED_CAPITAL_RUNS = {
+    "PLATFORM RULES",
+    "SCREEN STATE",
+    "LIVE BUSINESS STATE",
+    "NEVER FILL A FIELD THE PERSON DID NOT ASK ABOUT",
+}
+
+
+def capital_runs(text: str) -> set[str]:
+    import re
+
+    # Later words may be one letter ("NEVER FILL A FIELD"); the first may not, so "A select"
+    # is not a run.
+    return set(re.findall(r"\b[A-Z][A-Z'-]+(?: [A-Z][A-Z'-]*)+\b", text))
+
+
+def test_capitals_are_kept_for_labels_and_the_load_bearing_rules_only() -> None:
+    """Capitals and forceful wording make a model over-apply a rule (Anthropic prompting best
+    practices, OpenAI GPT-4.1 guide; docs/evidence/prompting-practices-2026-10.md S15, S17),
+    and over-applied refusal is this prompt's known failure. FAILS IF a new shouted rule
+    joins the prefix or the closing rules."""
+    from apps.api.copilot.screens import render_directory
+
+    body = prompt_module.SYSTEM_PROMPT.replace(prompt_module.ASSISTANT_IDENTITY, "")
+    body = body.replace(render_directory(), "")
+    assert capital_runs(body) <= ALLOWED_CAPITAL_RUNS
+    assert capital_runs(prompt_module.CLOSING_RULES) <= ALLOWED_CAPITAL_RUNS
+
+
+def test_the_prompt_sets_a_read_tool_budget_and_an_early_stop() -> None:
+    """A stated budget with a stopping rule (OpenAI GPT-5 prompting guide, S16): the loop's
+    `MAX_TURNS` bounds cost, the sentence keeps the model from spending it on one question."""
+    assert "use at most three for one question" in prompt_module.SYSTEM_PROMPT
+    assert "say what you did not check" in prompt_module.SYSTEM_PROMPT

@@ -46,6 +46,13 @@ class PreparedRequest:
     form_body: dict[str, str] | None = None
 
 
+#: The two arguments the platform adds to every action that sends the caller a WhatsApp (a
+#: message or a payment link): the caller's answer to the agent's question and their words
+#: (D-784, `actions/whatsapp.SpokenConsent`). Reserved: no client parameter may use them.
+CALLER_AGREED_ARG = "caller_agreed"
+CALLER_WORDS_ARG = "caller_words"
+SPOKEN_CONSENT_ARGS: frozenset[str] = frozenset({CALLER_AGREED_ARG, CALLER_WORDS_ARG})
+
 # The call variables a `lead_var` binding may name. They are the call's own data, applied by
 # our executor from our record of the call and never declared to a runtime (`service._to_spec`).
 # `caller_phone` is "the other party on the call": `from_number` inbound, `to_number` outbound.
@@ -374,8 +381,11 @@ class CallerLookupConfig(BaseModel):
 
 
 __all__ = [
+    "CALLER_AGREED_ARG",
+    "CALLER_WORDS_ARG",
     "CALL_VARS",
     "CRM_FIELD_PATTERN",
+    "SPOKEN_CONSENT_ARGS",
     "SPREADSHEET_ID_PATTERN",
     "CalendarConfig",
     "CallerLookupConfig",

@@ -4,7 +4,7 @@
  * The ops work list: which accounts are waiting on a human, and on what.
  *
  * `GET /v1/admin/compliance/holds` (`org:read`, admin realm) shipped in with no screen —
- * two R-11 gates were blocking tenants and the only way to see who was blocked was a
+ * the KYC gate was blocking tenants and the only way to see who was blocked was a
  * curl. `apps/api/admin/holds.py` argues the read: nothing in RLS was widened, the row
  * is composed from the SAME blockers that refuse the client's dial and launch, and it
  * carries accounts rather than people.
@@ -14,10 +14,9 @@
  *
  * Three properties of the API kept rather than smoothed over:
  *
- * - **`holds` is a list, not a status.** An account can be held by both gates at once
- *   and the API says so instead of picking a winner, so every row here renders every
- *   rule and offers every remedy. Collapsing them would send an operator to clear KYC
- *   and leave the account still held.
+ * - **`holds` is a list, not a status.** The API returns every rule holding an account
+ *   instead of picking a winner, so every row here renders every rule and offers every
+ *   remedy.
  * - **The rules are the GATES' names, and they arrive as plain strings.** They are the
  *   same words the client's own screen and the launch preview use, so an operator and a
  *   client on the phone name one condition identically. A rule this build has never
@@ -25,8 +24,8 @@
  *   unrecognised hold is still a held account.
  * - **Hard rule 6 is a property of the payload, and this module adds nothing to it.**
  *   No phone number, no document reference, no signatory, no reviewer prose — the
- *   reasons the blockers return are dropped server-side on purpose, because
- *   `first_campaign_rejected_reason` interpolates an operator's free text. Nothing here
+ *   reasons the blockers return are dropped server-side on purpose, because a
+ *   reason can interpolate free text. Nothing here
  *   fetches any of it back; everything identifying stays one click away on the
  *   account's own screen, behind the permission that opens it.
  */
@@ -106,32 +105,6 @@ export const HOLD_RULES: Record<string, HoldRule> = {
     status: "Not verified",
     rowStatus: "waiting",
     action: "Open",
-  },
-  first_campaign_review_pending: {
-    label: "First campaign not reviewed",
-    blocks: "Every campaign on the account. Inbound answering is unaffected.",
-    remedy: "Read the list, the script and the disclosure line, then release the account.",
-    screen: (tenantId) => `/admin/tenants/${tenantId}/first-campaign-review`,
-    cta: "Review & release",
-    tone: "warn",
-    item: "First campaign",
-    status: "Waiting for review",
-    rowStatus: "waiting",
-    action: "Review",
-  },
-  first_campaign_review_rejected: {
-    label: "First campaign refused",
-    blocks: "Every campaign on the account. Inbound answering is unaffected.",
-    remedy:
-      "A reviewer refused this account. It stays held until the client fixes what was " +
-      "named and someone looks again.",
-    screen: (tenantId) => `/admin/tenants/${tenantId}/first-campaign-review`,
-    cta: "Review & release",
-    tone: "stop",
-    item: "First campaign",
-    status: "Refused",
-    rowStatus: "blocked",
-    action: "Review",
   },
 };
 
@@ -219,8 +192,8 @@ export function waitBand(signedUpAt: string, now: number = Date.now()): NoticeTo
  * The queue's cache key, named here and imported by both the read and every write that
  * can empty a row off it.
  *
- * Clearing either gate removes an account from the list, so the KYC write and the
- * first-campaign decision both have to invalidate this — and a key spelled out at three
+ * Clearing the gate removes an account from the list, so every KYC write has to
+ * invalidate this — and a key spelled out at several
  * call sites is a key that eventually differs at one of them, leaving an operator
  * looking at a row they just cleared.
  */

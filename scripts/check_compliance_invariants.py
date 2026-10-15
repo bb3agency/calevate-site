@@ -2,7 +2,7 @@
 
 D-29 listed `check:compliance-invariants` to land "with the milestone that creates the
 surface". That surface is now unmistakably here: on top of DNC, calling hours and the
-disclosure line, the gate has grown the KYC hold, the first-campaign review, consent
+disclosure line, the gate has grown the KYC hold, consent
 provenance, messaging consent and the TM/PE registration reads. Hard rule 5 has been
 enforced up to now by tests that assert EXAMPLES — a capped tenant, a revoked template, a
 purchased list. Every one of those proves that a known path refuses a known input. None
@@ -361,7 +361,6 @@ def gate_registry() -> GateRegistry:
         check_dispatch,
         credits_exhausted,
         dial_refusal_for_agent_status,
-        first_campaign_hold_blocker,
         kyc_blocker,
         spend_capped,
     )
@@ -384,7 +383,6 @@ def gate_registry() -> GateRegistry:
         add_to_dnc,
         credits_exhausted,
         dispatch_blockers,
-        first_campaign_hold_blocker,
         kyc_blocker,
         launch_blockers,
         spend_capped,

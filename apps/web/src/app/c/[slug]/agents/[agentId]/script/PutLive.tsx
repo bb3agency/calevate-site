@@ -103,7 +103,7 @@ export function PutLiveDialog({
             disabled={pending || summary.trim() === ""}
             onClick={() => onConfirm(summary)}
           >
-            {pending ? "Putting it live…" : "Put it live"}
+            {pending ? <span className="text-shimmer">Putting it live…</span> : "Put it live"}
           </button>
         </>
       }

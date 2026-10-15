@@ -453,6 +453,24 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
                 "'airtel', 'conditional', 20, now())",
                 {},
             ),
+            # D-781: a file the person attached to Pip. A neighbour reading it would read
+            # whatever the owner attached, so its id must name nothing outside the account.
+            (
+                "file_id",
+                "INSERT INTO copilot_uploads (id, tenant_id, user_id, run_started_at, "
+                "file_name, stored_type, object_key, status, size_bytes) VALUES (:i, :t, :u, "
+                "now(), 'a.txt', 'text/plain', 'copilot-uploads/x/' || :i, 'ready', 1)",
+                {"u": user_id},
+            ),
+            # D-784: a connected WhatsApp account. A neighbour retrying its set-up would
+            # spend the owner's key; disconnecting it would delete that key.
+            (
+                "account_id",
+                "INSERT INTO whatsapp_accounts (id, tenant_id, waba_id, onboarding, status) "
+                "VALUES (:i, :t, '1' || abs(hashtext(CAST(:i AS text)))::text, 'new', "
+                "'connected')",
+                {},
+            ),
             # One spoken turn, so the call has something to put into English.
             (
                 "turn_id",
@@ -785,6 +803,12 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
         {},
     ),
     ("DELETE", "/v1/forwarding/lines/{line_id}", {}, {}),
+    # D-781: one person's attached file, read and removed only by its owner.
+    ("GET", "/v1/copilot/uploads/{file_id}/content", {}, {}),
+    ("DELETE", "/v1/copilot/uploads/{file_id}", {}, {}),
+    # D-784: a client's own WhatsApp account, resolved under the caller's RLS.
+    ("POST", "/v1/whatsapp/accounts/{account_id}/finish", {}, {}),
+    ("POST", "/v1/whatsapp/accounts/{account_id}/disconnect", {}, {}),
     ("GET", "/v1/forwarding/lines/{line_id}/tests", {}, {}),
     (
         "POST",

@@ -204,25 +204,19 @@ D-124's mirror race is deleted rather than superseded; there is nothing left to 
   without a session → login with return-to. A user in multiple orgs gets an org switcher.
 - Roles: owner sees everything incl. billing; staff sees dashboard/calls/leads only,
   redacted transcripts, no exports of raw data.
-- **Self-serve accounts start restricted (R-11):** calling is gated until the org has a
-  KYC-verified number, and the **first campaign of every self-serve account is held for
-  manual review**. Platform-fixed calling hours and DNC scrub on every dispatch path apply
-  to both motions and are not user-editable.
+- **Self-serve accounts start restricted (R-11):** calling is gated until the business is
+  KYC-verified and the owner has accepted the no-cold-calls pledge. Platform-fixed calling
+  hours and DNC scrub on every dispatch path apply to both motions and are not
+  user-editable. There is **no manual review of the first campaign** (D-783, founder,
+  15 Oct 2026, superseding D-51): once those gates pass, a self-serve or trial account's
+  campaigns launch without a person at Calevate reading them.
   - As built (D-47), the verification is of the **business**, not of a number:
     `kyc_records` holds one row per tenant and the dial gate refuses a `self_serve`/`trial`
     tenant with `kyc_missing`/`kyc_not_verified`. It is not what gets them a number — they
     buy that from their own operator, who runs its own KYC first — and our record exists so
     our gate is not looser than the carrier's. Inbound answering is never gated.
-  - **The manual-review hold ships** as `first_campaign_reviews` — one decision per
-    TENANT, not a flag on a campaign row. The gate asks about the account, so a second
-    campaign launched while the first is held is refused by the same rule, and deleting
-    the held campaign does not release anything; the campaign an operator actually read
-    is recorded as evidence (`reviewed_campaign_id`, `ON DELETE SET NULL`). Absence of a
-    row means held — there is no `pending` state to disagree with it. Refusals appear in
-    the launch preview and at dispatch as `first_campaign_review_pending` /
-    `first_campaign_review_rejected`, so a withdrawn release stops a RUNNING campaign at
-    the next tick. Released once, no later campaign is refused on this rule: the
-    requirement is review of the FIRST campaign, and the ordinary gates carry the rest.
+  - The D-51 manual-review hold (`first_campaign_reviews`) was removed by D-783. The
+    table is kept, unread and unwritten, until a later release drops it (hard rule 8).
 
 ## 3. Inbound Call Lifecycle
 

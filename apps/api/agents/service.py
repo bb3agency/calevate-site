@@ -503,6 +503,8 @@ class AgentRow(TypedDict):
     voice_tuning: NotRequired[tuple[object, ...]]
     #: The reply ceiling an operator set (D-769); NULL inherits the console's.
     max_reply_tokens: NotRequired[int | None]
+    #: The business the agent speaks for (`organizations.name`), for the role sentence.
+    business_name: NotRequired[str | None]
 
 
 def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
@@ -599,7 +601,9 @@ async def _load_agent(
                 # How a Studio voice sounds on this agent (`agents/voice_tuning`).
                 f"{TUNING_COLUMNS}, "
                 # The reply ceiling an operator set (`agents/reply_length`).
-                "a.max_reply_tokens "
+                "a.max_reply_tokens, "
+                # The business the prompt's role sentence names (`role_sentence`).
+                "o.name "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -682,6 +686,7 @@ async def _load_agent(
         ),
         "voice_tuning": tuple(row[48:53]),
         "max_reply_tokens": row[53],
+        "business_name": row[54],
         # A restricted free trial never places a call back (D-697), so its agents must not
         # offer one (founder decision 1, 10 Oct 2026).
         "callbacks_offered": await restricting_trial(session, tenant_id=tenant_id) is None,
@@ -839,6 +844,7 @@ def _to_config(
         # unchecked hop back in the one place it mattered.
         direction=agent["direction"],
         language_primary=str(agent["language_primary"]),
+        business=str(agent.get("business_name") or ""),
         # The prompt names them and the worker's transcriber stops pinning the primary, so
         # a caller in one of them is heard and answered in it (D-666).
         languages_extra=published_extra_languages(
@@ -2952,6 +2958,14 @@ def _engine_voice_fields(agent: AgentRow, *, engine: VoiceEngine) -> _EngineVoic
     )
 
 
+def in_call_model(agent: AgentRow, *, engine: VoiceEngine) -> str | None:
+    """The language model a publish puts this agent on: our own model (D-764), else the
+    engine model it chose or the console's in-call default; None is the engine's own
+    default. The test loop reads it to judge with a model of another family."""
+    fields = _engine_voice_fields(agent, engine=engine)
+    return fields.own_model or fields.model_id
+
+
 def _variant_config(
     tenant_id: UUID,
     agent: AgentRow,
@@ -4509,6 +4523,7 @@ __all__ = [
     "effective_call_cap",
     "healer_forward_greeting",
     "healer_forward_prompt",
+    "in_call_model",
     "lift_healer_silence",
     "outbound_number_provider",
     "provision_number",

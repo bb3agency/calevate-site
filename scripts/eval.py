@@ -120,12 +120,17 @@ from apps.workers.extraction import (
     Extractor,
     OfflineExtractor,
     SarvamExtractor,
+    TokenUsage,
     azure_extractor,
     extract_call,
     get_extractor,
 )
 from apps.workers.redaction import redact, spoken_digit_runs
-from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec
+from calevate_shared.extraction import (
+    DEFAULT_EXTRACTION_LANGUAGE,
+    ExtractionField,
+    ExtractionSchemaSpec,
+)
 
 from scripts.evidence_redact import scrub_text
 
@@ -227,6 +232,9 @@ class CaseResult:
     #: case had an expectation about. Recorded WHERE the comparison already happens, so
     #: the provider scorecard cannot drift from the gate by re-deriving `_value_matches`.
     field_verdicts: dict[str, str] = field(default_factory=dict)
+    #: What the model reported this case cost, or None when it reported nothing (the
+    #: offline baseline, an empty transcript, a provider that sent no `usage`).
+    usage: TokenUsage | None = None
 
     def fail(self, kind: str, message: str) -> None:
         self.passed = False
@@ -458,7 +466,15 @@ async def run_case(
     # every existing caller gets. A NAMED provider is handed in instead — the same public
     # seam `apps/workers/pipeline.py` uses, so the harness never reaches inside the
     # extraction module to choose a model.
-    output = await extract_call(spec, transcript, extractor=extractor)
+    # `language` is the agent's primary language for this case, as `agents.language_primary`
+    # spells it; the prompt names it (C3). Absent means the product default.
+    languages = (str(case.get("language") or DEFAULT_EXTRACTION_LANGUAGE),)
+    usage_before = getattr(extractor, "last_usage", None)
+    output = await extract_call(spec, transcript, extractor=extractor, languages=languages)
+    usage_after = getattr(extractor, "last_usage", None)
+    # Compared by identity: a pass that never reached the model (an empty transcript)
+    # leaves the previous case's usage in place, and that is not this case's cost.
+    result.usage = usage_after if usage_after is not usage_before else None
     result.captured = output.data
     result.outcome = output.outcome_tag
 
@@ -660,6 +676,13 @@ def _sarvam() -> Extractor | None:
     return SarvamExtractor(key) if key else None
 
 
+def _sarvam_reasoning_off() -> Extractor | None:
+    """Sarvam with thinking disabled: the other arm of the reasoning-effort comparison
+    (`extraction.SARVAM_EXTRACTION_REASONING_EFFORT`)."""
+    key = get_settings().sarvam_api_key
+    return SarvamExtractor(key, reasoning_effort="off") if key else None
+
+
 def _offline() -> Extractor:
     return OfflineExtractor()
 
@@ -684,6 +707,9 @@ def _offline() -> Extractor:
 PROVIDERS: dict[str, Provider] = {
     "configured": Provider("configured", None, _configured),
     SARVAM_PROVIDER: Provider(SARVAM_PROVIDER, "SARVAM_API_KEY", _sarvam),
+    "sarvam_reasoning_off": Provider(
+        "sarvam_reasoning_off", "SARVAM_API_KEY", _sarvam_reasoning_off
+    ),
     AZURE_PROVIDER: Provider(
         AZURE_PROVIDER,
         "AZURE_OPENAI_RESOURCE, AZURE_OPENAI_API_KEY and AZURE_OPENAI_DEPLOYMENT (Azure "
@@ -863,6 +889,7 @@ def render_comparison(runs: Sequence[ProviderRun], meta: Mapping[str, Any]) -> s
         lines.append(
             f"| {run.provider} | `{run.model}` | {run.passed}/{len(run.results)} | {regressions} |"
         )
+    lines += ["", *_token_section(runs)]
     lines += [
         "",
         "## Per field — the comparison that decides it",
@@ -921,6 +948,35 @@ def render_comparison(runs: Sequence[ProviderRun], meta: Mapping[str, Any]) -> s
             lines += [f"  - {failure}" for failure in result.failures]
         lines.append("")
     return "\n".join(lines)
+
+
+def _token_section(runs: Sequence[ProviderRun]) -> list[str]:
+    """Tokens per provider, as each provider reported them. Output tokens include any
+    reasoning tokens (Sarvam bills thinking as completion), so this is where a
+    reasoning-effort comparison shows its cost.
+
+    Totals are in thousands: a six-digit count is the shape the evidence scrubber exists
+    to catch, and a committed artefact that trips it is refused.
+    """
+    lines = [
+        "## Tokens, as each provider reported them",
+        "",
+        "| Provider | Cases with usage | Prompt tokens (k) | Output tokens (k) | Output per case |",
+        "|---|---|---|---|---|",
+    ]
+    for run in runs:
+        reported = [r.usage for r in run.results if r.usage is not None]
+        if not reported:
+            lines.append(f"| {run.provider} | 0/{len(run.results)} |  |  |  |")
+            continue
+        prompt = sum(u.prompt_tokens for u in reported)
+        output = sum(u.output_tokens for u in reported)
+        lines.append(
+            f"| {run.provider} | {len(reported)}/{len(run.results)} | {prompt / 1000:.1f} "
+            f"| {output / 1000:.1f} "
+            f"| {output // len(reported)} |"
+        )
+    return lines
 
 
 def _regenerate_command(runs: Sequence[ProviderRun], meta: Mapping[str, Any]) -> str:

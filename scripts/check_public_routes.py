@@ -180,6 +180,22 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="verify_signature",
     ),
+    "GET /hooks/v1/meta/whatsapp": PublicRoute(
+        why=(
+            "Meta's subscription handshake for clients' WhatsApp accounts (D-784). It "
+            "writes nothing and echoes `hub.challenge` only when the presented verify token "
+            "matches the configured one; with none configured it always refuses."
+        ),
+        credential="handshake_matches",
+    ),
+    "POST /hooks/v1/meta/whatsapp": PublicRoute(
+        why=(
+            "Meta's WhatsApp webhooks for every client's account (D-784). Body bounded, "
+            "then X-Hub-Signature-256 verified over the raw bytes with Calevate's app "
+            "secret before anything is parsed; an unset secret refuses every delivery."
+        ),
+        credential="verify_signature",
+    ),
     "POST /hooks/v1/kyc/{provider}": PublicRoute(
         why=(
             "Client identity-verification outcome from a licensed aggregator (D-635). The "

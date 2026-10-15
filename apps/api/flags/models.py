@@ -10,8 +10,8 @@ leaves rows that simply stop being read (`flags/service.resolve_flags` ignores a
 undeclared name, and the console offers to clear it — the two-step deprecation hard rule 8
 asks for, applied to a row rather than a column).
 
-MUTABLE, and absent from `APPEND_ONLY_TABLES` — the same reasoning as `KycRecord` and
-`FirstCampaignReview`. This row is the tenant's CURRENT position on one flag; the
+MUTABLE, and absent from `APPEND_ONLY_TABLES` — the same reasoning as `KycRecord`
+and `DltRegistration`. This row is the tenant's CURRENT position on one flag; the
 immutable history of who moved it is `audit_log`, where every real change writes an entry
 (hard rule 4).
 
@@ -50,7 +50,7 @@ class TenantFeatureFlag(PKMixin, TimestampMixin, Base):
         CheckConstraint(f"flag ~ '{FLAG_NAME_PATTERN}'", name="flag_name_shape"),
         # WHY this client is off the default. An override nobody can account for later is
         # the finding this column exists to avoid, and an empty string accounts for
-        # nothing (`first_campaign_reviews.decision_note` draws the same line).
+        # nothing (`kyc_records` draws the same line for a rejection).
         CheckConstraint("length(btrim(reason)) >= 3", name="reason_says_why"),
     )
 

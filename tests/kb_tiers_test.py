@@ -278,11 +278,14 @@ def _app_sources_naming(table: str, model_class: str, root: Path | None = None) 
     is a different bet — it is one edit away from being a string a query carries — so that
     half is left as strict as it was.
 
-    The two structural namers of every table are excluded: its ORM model and the registry.
+    The three structural namers of every table are excluded: its ORM model, the registry
+    and the live-update topic map (D-774), which must name every table to say what a
+    change to it announces.
     """
     excluded = {
         REPO_ROOT / "apps" / "api" / "kb" / "models.py",
         REPO_ROOT / "apps" / "api" / "db" / "registry.py",
+        REPO_ROOT / "apps" / "api" / "live" / "topics.py",
     }
     hits = []
     for path in (root or REPO_ROOT / "apps").rglob("*.py"):

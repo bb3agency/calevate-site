@@ -452,6 +452,13 @@ ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
             "business: never a caller's. A caller's deletion request has nothing to match "
             "here; the row ends with the engagement, which `execute_tenant_erasure` covers."
         ),
+        "whatsapp_templates": (
+            "The BUSINESS's own WhatsApp message templates (D-784): wording the owner or "
+            "Calevate wrote with numbered blanks, submitted to the owner's own WhatsApp "
+            "account. No caller's words or number is ever stored in one (the blanks are "
+            "filled at send time and not kept), so a caller's deletion request has nothing to "
+            "match. The rows end with the engagement, which `execute_tenant_erasure` covers."
+        ),
         "heal_fallback_phones": (
             "The phone the client's own team answers while the healer holds their agent "
             "(D-701), set by the account owner: a member of the client's staff, not a "

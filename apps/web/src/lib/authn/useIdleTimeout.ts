@@ -6,19 +6,20 @@
  * ## Why the browser has to own this at all, when the server already enforces an idle bound
  *
  * `apps/api/authn/sessions.py` gives the admin realm an idle timeout (30 minutes, or 12
- * hours for an operator with "Stay signed in" on, D-766) and slides
- * `last_seen_at` on every verified request (`IDLE_WRITE_FLOOR`). The console polls — the
- * dashboard every twenty seconds, and `client.ts` calls a tab left open "the normal case,
- * not an edge". **So the server's idle bound essentially never fires while a tab is
- * open**: the polling keeps sliding it. An operator who walks away from an unlocked laptop
- * has a live admin session for as long as the tab lives, which is precisely the risk the
- * idle bound was chosen against.
+ * hours for an operator with "Stay signed in" on, D-766) and slides `last_seen_at` on every
+ * verified request (`IDLE_WRITE_FLOOR`). Request traffic is the wrong measure of presence
+ * in both directions. Polling slides it for an absent operator. And since live updates
+ * (D-774), polling stretches to five minutes while the change stream is healthy, the stream
+ * itself never slides the bound (`sessions.read_live_session`), and a hidden tab stops
+ * polling, so a present operator's session could end on the server minutes before this
+ * warning appeared, and "Stay signed in" then met a session that was already gone.
  *
- * This hook is what makes the server's number mean what it says. It measures HUMAN
- * activity rather than HTTP activity, and its bound is the server's own, read off the session
- * (`adminIdleTimeoutModal.tsx`) — the warning five minutes before it,
- * the sign-out on it — so the console ends a session at the moment the server
- * would have if nothing had been polling on the absent operator's behalf.
+ * So this hook measures HUMAN activity, and reports it two ways. The warning and the
+ * sign-out follow the server's own bound (`adminIdleTimeoutModal.tsx`): warning five
+ * minutes before it, sign-out on it. And `onActive` is called at most once per
+ * `activeEveryMs` while the person is active, so the caller can tell the server
+ * (a plain session read, which slides the bound). The two clocks then agree to within
+ * that interval, which is why the interval matches the server's write floor.
  *
  * ## Two timers, cleared every way out
  *
@@ -82,6 +83,9 @@ export interface IdleTimeoutOptions {
   onLogout: () => void;
   /** Off when there is no session to protect — no listeners, no timers. */
   enabled: boolean;
+  /** Called on activity, at most once per `activeEveryMs`, and never while the warning is up. */
+  onActive?: () => void;
+  activeEveryMs?: number;
 }
 
 export interface IdleTimeoutControls {
@@ -103,12 +107,15 @@ export function useIdleTimeout({
   onWarning,
   onLogout,
   enabled,
+  onActive,
+  activeEveryMs = 60_000,
 }: IdleTimeoutOptions): IdleTimeoutControls {
   // Callbacks through refs so a caller re-creating them every render does not tear down
   // and rebuild the timers on every render — which would mean the idle clock restarted
   // continuously and the warning never fired at all.
-  const handlers = useRef({ onWarning, onLogout });
-  handlers.current = { onWarning, onLogout };
+  const handlers = useRef({ onWarning, onLogout, onActive });
+  handlers.current = { onWarning, onLogout, onActive };
+  const lastActiveReport = useRef(0);
 
   const warningShown = useRef(false);
   const timers = useRef<{ warning?: ReturnType<typeof setTimeout>; logout?: ReturnType<typeof setTimeout> }>({});
@@ -160,6 +167,11 @@ export function useIdleTimeout({
       // `resume()` reopens the clock, and only the logout timer closes it the other way.
       if (warningShown.current) return;
       schedule();
+      const now = Date.now();
+      if (now - lastActiveReport.current >= activeEveryMs) {
+        lastActiveReport.current = now;
+        handlers.current.onActive?.();
+      }
     };
 
     schedule();
@@ -171,7 +183,7 @@ export function useIdleTimeout({
       clearTimers();
       scheduleRef.current = undefined;
     };
-  }, [enabled, warningAfterMs, logoutAfterWarningMs, clearTimers]);
+  }, [enabled, warningAfterMs, logoutAfterWarningMs, activeEveryMs, clearTimers]);
 
   return { resume };
 }

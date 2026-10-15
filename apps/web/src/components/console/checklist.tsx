@@ -219,7 +219,7 @@ const ROW_STATUS: Record<ChecklistRowStatus, { text: string; tone: NoticeTone }>
 
 export type ChecklistRow = {
   id: string;
-  /** A short noun: "Identity (KYC)", "First campaign". */
+  /** A short noun: "Identity (KYC)", "Agreements". */
   label: ReactNode;
   status: ChecklistRowStatus;
   /** A more exact word for the pill than the default ("Not filed", "In review"). */

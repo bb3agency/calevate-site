@@ -183,6 +183,17 @@ export const DPA: LegalDocument = {
               "confirmation, subject to the same permission checks and the same " +
               "compliance gates as the equivalent button, that carries it out. Anything " +
               "it does on your account is therefore your instruction and not ours.",
+            "Files your users attach to the in-app assistant are your instruction too. We " +
+              "store each one privately, for the user who attached it, and send it as it is " +
+              "to the assistant's language-model provider to answer the question it was " +
+              "attached to, and for nothing else. Unlike the rest of what the assistant " +
+              "sends, an attached file is not redacted first, and we do not review it or " +
+              "scan it for malware. As Data Fiduciary you are responsible for what is " +
+              "attached and for having a lawful basis, and any notice and consent the law " +
+              "requires, for the personal data in it; please ask your users not to attach " +
+              "personal data a question does not need. Our own obligations are unchanged: " +
+              "we keep the files secure (clause 4) and delete them when the conversation " +
+              "ends, on account closure, and within 30 days at most (clause 8).",
             "If we believe an instruction of yours breaks the law, we will tell you and " +
               "may decline to act on it. Several such refusals are automatic — the " +
               "compliance gates described in the Acceptable Use Policy — and they are not " +
@@ -760,9 +771,13 @@ export const DPA: LegalDocument = {
                 "Client's dashboard, which reads the Client's own records — leads, " +
                 "calls, campaigns, agents and knowledge content — to answer the " +
                 "questions the Client's own users put to it, and which proposes changes " +
-                "for one of those users to confirm. That leg sees names, statuses, " +
-                "counts and already-redacted call summaries; it is not given raw " +
-                "transcripts, raw numbers or extraction payloads.",
+                "for one of those users to confirm. From the account that leg sees names, " +
+                "statuses, counts and already-redacted call summaries; it is not given raw " +
+                "transcripts, raw numbers or extraction payloads. The one exception is a " +
+                "file a user attaches to a question (pictures, PDFs and the text found in " +
+                "them, and the text of text, CSV, Word, Excel and PowerPoint files), which " +
+                "is sent whole and unredacted, " +
+                "as clause 2 describes.",
             ],
             [
               "Purpose",
@@ -777,7 +792,8 @@ export const DPA: LegalDocument = {
                 "budget, stated requirement, preferred time, callback number and " +
                 "anything else the Client chooses); lead records and their history; consent " +
                 "and opt-out records; contact rows uploaded by the Client, including any " +
-                "additional columns in the Client's file.",
+                "additional columns in the Client's file. Whatever a Client's user puts in a file " +
+                "they attach to the in-app assistant, which the Client decides.",
             ],
             [
               "Special categories",
@@ -791,6 +807,8 @@ export const DPA: LegalDocument = {
               "Categories of data principals",
               "People who call the Client's number; people the Client asks us to call; " +
                 "people whose details the Client uploads or forwards from a lead form. " +
+                "Anyone whose details appear in a file a Client's user attaches to the " +
+                "in-app assistant. " +
                 "Staff of the Client named in onboarding answers as transfer or escalation " +
                 "contacts.",
             ],

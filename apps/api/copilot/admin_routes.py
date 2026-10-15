@@ -57,6 +57,7 @@ from uuid import UUID
 from fastapi import APIRouter, Body, Depends, Header, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.billing.platform_ai import require_platform_ai
@@ -65,6 +66,8 @@ from apps.api.copilot import (
     action_log,
     admin_actions,
     admin_memory,
+    attachments,
+    live_sync,
     memory,
     model_tiers,
     service,
@@ -89,6 +92,7 @@ from apps.api.copilot.schemas import (
     CopilotFact,
     CopilotFillEvent,
     CopilotTextEvent,
+    CopilotTurnIds,
     CopilotUndoOut,
 )
 from apps.api.core.auth import client_request_ip, requires
@@ -99,6 +103,7 @@ from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUpGate
 from apps.api.crm.assist import ASSIST_FEATURE_ADMIN_COPILOT, meter_platform_assist
+from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, untenanted_session
 
 log = get_logger(__name__)
@@ -165,6 +170,37 @@ def _error_event(problem: ProblemError) -> ServerSentEvent:
     """A refusal as an SSE frame, carrying the SAME body the error handler would have
     written — `copilot/routes._error_event`'s reason, one problem shape for the platform."""
     return ServerSentEvent(event="error", data=problem.as_problem())
+
+
+async def _store_question(
+    *,
+    operator_id: UUID,
+    viewing_tenant_id: UUID | None,
+    run_started_at: datetime,
+    route: str,
+    question: str,
+    turn_id: UUID,
+) -> None:
+    """`copilot/routes._store_question` for the operator's table (D-782): before the run,
+    its own transaction, and a failure is logged rather than standing between the operator
+    and the answer."""
+    try:
+        async with untenanted_session() as session:
+            await transcript.append_turn(
+                session,
+                realm=transcript.ADMIN,
+                turn_id=turn_id,
+                owner_id=operator_id,
+                tenant_id=viewing_tenant_id,
+                run_started_at=run_started_at,
+                screen_route=route,
+                role="user",
+                spoken=question,
+            )
+    except Exception:
+        log.exception(
+            "admin_copilot_question_store_failed", extra={"admin_user_id": str(operator_id)}
+        )
 
 
 async def _viewed_tenant(principal: Principal, claimed: UUID | None) -> UUID | None:
@@ -255,6 +291,8 @@ async def ask_admin_copilot(
     `costly` rate-limit profile bounds a double-click.
     """
     tenant_id: UUID | None = None
+    #: The files this question names (D-781).
+    uploads: tuple[attachments.Upload, ...] = ()
     try:
         # 1. THE SUBJECT, before the money — and this guard is not softened for the admin
         #    realm even though an operator legitimately sees more than a client does. What
@@ -274,6 +312,15 @@ async def ask_admin_copilot(
         #    help. `recall` never raises — an operator whose memory query failed gets an
         #    answer without memory, never an error instead of an answer.
         async with untenanted_session() as gate_session:
+            # 1b. THE OPERATOR'S FILES FOR THIS QUESTION (D-781), checked before the money.
+            if payload.attachments:
+                assert principal.user_id is not None
+                uploads = await attachments.for_question(
+                    gate_session,
+                    attachments.ADMIN,
+                    owner=principal.user_id,
+                    ids=payload.attachments,
+                )
             await require_platform_ai(gate_session)
             remembered = (
                 await admin_memory.recall(
@@ -285,6 +332,8 @@ async def ask_admin_copilot(
                 if principal.user_id is not None
                 else ()
             )
+        # The bytes, read into memory for this one call and never written anywhere.
+        attached = await attachments.load(uploads)
     except ProblemError as refusal:
         yield _error_event(refusal)
         return
@@ -352,13 +401,41 @@ async def ask_admin_copilot(
     #: disconnect — the three exits that used to skip the ledger entirely.
     completed = False
 
+    async def _store_answer(session: AsyncSession, operator_id: UUID) -> None:
+        """The answer, under the id the asking window minted (D-782)."""
+        if run_started_at is None:
+            return
+        await transcript.append_turn(
+            session,
+            realm=transcript.ADMIN,
+            turn_id=turn_ids.answer,
+            owner_id=operator_id,
+            # The account on screen, which on this table is `viewing_tenant_id`: context,
+            # never ownership.
+            tenant_id=tenant_id,
+            run_started_at=run_started_at,
+            screen_route=payload.screen.route,
+            role="assistant",
+            spoken="".join(answer_parts),
+        )
+
     async def _record() -> None:
         """Write this run's platform ledger rows, its audit row and its memory. Once."""
         nonlocal metered, recorded
         if recorded:
             return
         recorded = True
-        if not spends or principal.user_id is None:
+        if principal.user_id is None:
+            return
+        if not spends:
+            # NOTHING WAS PAID FOR, BUT AN ANSWER MAY STILL HAVE BEEN SHOWN — the identity
+            # short-circuit answers from a constant without reaching a provider. The
+            # transcript keeps it (the client route's rule): its question is already stored
+            # (D-782), and the operator's other windows would otherwise show a question with
+            # no answer. The meter, the audit row and the memory still need a spend.
+            if "".join(answer_parts):
+                async with untenanted_session() as answer_session:
+                    await _store_answer(answer_session, principal.user_id)
             return
         async with untenanted_session() as record_session:
             refs = [ref if index == 0 else new_assist_ref() for index in range(len(spends))]
@@ -420,7 +497,12 @@ async def ask_admin_copilot(
                     # behind a second factor. Both are legitimate; they are not the same
                     # event, and a row that cannot tell them apart cannot be reviewed.
                     "impersonating": principal.impersonating,
+                    # How many files the operator attached (D-781); a count, never a name.
+                    "attachment_count": sum(1 for upload in uploads if upload.text_of is None),
                 },
+            )
+            await attachments.mark_sent(
+                record_session, attachments.ADMIN, ids=[upload.id for upload in uploads]
             )
             # 5. THE MEMORY, after the audit so a memory write can never be what stops an
             #    `audit_log` entry landing, and in the same transaction so a memory of an
@@ -431,19 +513,8 @@ async def ask_admin_copilot(
             #     is missing. The admin table carries no tenant and no retention category
             #     — see `copilot/models.AdminCopilotConversationTurn` — so this thread's
             #     whole clock is the operator's own 8-hour absolute session bound.
-            if run_started_at is not None:
-                await transcript.append_exchange(
-                    record_session,
-                    realm=transcript.ADMIN,
-                    owner_id=principal.user_id,
-                    # The account on screen, which on this table is `viewing_tenant_id`:
-                    # context, never ownership.
-                    tenant_id=tenant_id,
-                    run_started_at=run_started_at,
-                    screen_route=payload.screen.route,
-                    question=payload.question,
-                    answer="".join(answer_parts),
-                )
+            #     The question was stored before the run (D-782); this is the answer.
+            await _store_answer(record_session, principal.user_id)
             await admin_memory.remember_exchange(
                 record_session,
                 admin_user_id=principal.user_id,
@@ -458,6 +529,29 @@ async def ask_admin_copilot(
                 },
             )
 
+    # THE QUESTION NOW, THE ANSWER IN `_record` (D-782), as on the client route: every
+    # window this operator has open sees the question and that Pip is answering it.
+    turn_ids = payload.turn_ids or CopilotTurnIds(question=uuid7(), answer=uuid7())
+    operator = principal.user_id
+    syncs = operator is not None and run_started_at is not None
+    if operator is not None and run_started_at is not None:
+        await _store_question(
+            operator_id=operator,
+            viewing_tenant_id=tenant_id,
+            run_started_at=run_started_at,
+            route=payload.screen.route,
+            question=attachments.transcript_question(payload.question, uploads),
+            turn_id=turn_ids.question,
+        )
+        await live_sync.answer_started("admin", operator, turn_ids.answer)
+
+    async def _finish() -> None:
+        try:
+            await _record()
+        finally:
+            if syncs and operator is not None:
+                await live_sync.answer_settled("admin", operator, turn_ids.answer)
+
     try:
         async for event in service.run_copilot(
             payload,
@@ -467,6 +561,7 @@ async def ask_admin_copilot(
             # off that model on the platform ledger.
             tenant_leg=model_tiers.tier_leg(model_tiers.route_tier(payload.question)),
             allow_azure=get_settings().copilot_azure_fallback,
+            attached=attached,
             # `require_platform_ai` RAISES at the brake, so this is False on every path that
             # reaches here. Written as the read so the caller stays correct if the gate ever
             # learns to answer instead of raise.
@@ -579,7 +674,7 @@ async def ask_admin_copilot(
         # a partial write is worse than none. Not a guarantee (a loop already tearing down
         # still loses it), which is why the failure is LOGGED rather than swallowed.
         try:
-            await asyncio.shield(_record())
+            await asyncio.shield(_finish())
         except Exception:
             log.exception(
                 "admin_copilot_meter_failed", extra={"admin_user_id": str(principal.user_id)}
@@ -636,7 +731,9 @@ async def load_admin_copilot_conversation(
             limit=limit,
             before=transcript.turn_cursor(before),
         )
-    return transcript.conversation_out(page)
+    return transcript.conversation_out(
+        page, answering=await live_sync.is_answering("admin", operator)
+    )
 
 
 @router.delete(
@@ -673,6 +770,7 @@ async def clear_admin_copilot_conversation(
     operator = _operator_id(principal)
     async with untenanted_session() as session:
         cleared = await transcript.clear(session, realm=transcript.ADMIN, owner_id=operator)
+        await attachments.clear_owner(session, attachments.ADMIN, owner=operator)
         await write_audit(
             session,
             action="admin_copilot.conversation_cleared",
@@ -686,6 +784,8 @@ async def clear_admin_copilot_conversation(
             ip=client_request_ip(request),
             summary={"turns_cleared": cleared},
         )
+    # After the commit, so the operator's other windows re-read an empty conversation.
+    await live_sync.conversation_changed("admin", operator)
     return CopilotConversationClearedOut(cleared=cleared)
 
 

@@ -423,6 +423,102 @@
 }
 
 /*
+ * PIP AT WORK (`components/illustration/pip.tsx`, `thinking`). The three trail dots light
+ * in turn towards the pip, which lifts a little on the same 1.4 s beat, so the mark reads
+ * as "on its way" rather than as a spinner; the label beside it carries `text-shimmer`
+ * (below). Under reduced motion every part paints its resting frame.
+ */
+@keyframes pip-dot {
+  0%,
+  70%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.75);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pip-lift {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(0.5px, -0.9px);
+  }
+}
+
+@utility pip-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+
+  @media (prefers-reduced-motion: no-preference) {
+    animation: pip-dot 1.4s var(--ease-out-strong) infinite both;
+  }
+}
+
+@utility pip-lift {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: pip-lift 1.4s ease-in-out infinite;
+  }
+}
+
+/*
+ * TEXT THAT SAYS WORK IS HAPPENING RIGHT NOW: "Writing the summary…", "Confirming your
+ * payment…", Pip thinking. A soft band of `--brand-strong` crosses the words left to right,
+ * then the line rests plain for a beat before the next pass (2.4 s a cycle).
+ *
+ * Only on a label the person is actually waiting on, and one per view. Not on a resting
+ * button label, a status that lasts days ("Waiting for review"), a figure, an error, a
+ * label that already sits beside a spinner or a moving bar, or a sub-second save. A filled
+ * green button is the one ground it must never sit on: the band would vanish into it.
+ *
+ * - The base colour is the element's own `currentColor`, so a muted line stays muted and
+ *   an ink line stays ink. The glyphs are emptied with `-webkit-text-fill-color` rather
+ *   than `color: transparent`, because `currentColor` inside the gradient would then
+ *   resolve to transparent too.
+ * - Contrast holds at every frame without measuring frames: each in-between colour is a
+ *   mix of two dark stops in gamma sRGB, which never comes out lighter than the lighter
+ *   stop, so the worst frame is the element's resting colour or `--brand-strong` (6.01:1
+ *   at its lowest, on `--brand-soft`; `tests/contrastTokens.test.ts` reads the stop from
+ *   this block).
+ * - Put it on an INLINE element. On a block the 200% strip is sized by the block's width,
+ *   so a short line in a wide card sits through most of a pass unlit.
+ * - The band starts off the left edge (130%), so a state that ends in under a second shows
+ *   plain text rather than a highlight that blinks on at mount.
+ * - Reduced motion and forced colours paint plain text: no background, no transparent
+ *   fill, nothing that depends on a background being drawn.
+ * - Only paint changes; the box, the text and the accessible name are untouched.
+ */
+@keyframes text-shimmer {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@utility text-shimmer {
+  @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+    background-image: linear-gradient(
+      90deg,
+      currentColor 35%,
+      var(--brand-strong) 50%,
+      currentColor 65%
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: text-shimmer 2.4s linear infinite;
+  }
+}
+
+/*
  * A PANE THAT REPLACES ANOTHER — a settings section, a step of a flow. It fades up 4px as
  * it mounts (`@starting-style`, so keying the element on the section is the trigger).
  * There is no exit: the old pane unmounts at once, which is the right asymmetry. Reduced
@@ -688,23 +784,59 @@ h6 {
 }
 
 /*
- * The sidebar's scrollbar. Moved out of a `dangerouslySetInnerHTML` <style> block in
- * the client layout: that injected the same rules on every client-realm render, could
- * not be reached by the dark variant without duplicating the selector, and put a
- * `dangerouslySetInnerHTML` in a file where a reviewer scanning for one has to stop
- * and check it is only CSS.
+ * Scrollbars in the brand green, everywhere: the app shells, the sidebar and the public site.
+ *
+ * Two mechanisms, because no single one reaches every engine. Chromium and Safari draw from
+ * the `::-webkit-scrollbar` pseudo-elements, which give a rounded thumb inset from a clear
+ * track and no arrow buttons. Firefox only knows the standard `scrollbar-color` /
+ * `scrollbar-width`, so those sit behind `@supports not selector(::-webkit-scrollbar)`:
+ * Chromium 121+ also understands the standard pair, and once it is set Chromium ignores the
+ * pseudo-elements and falls back to its plain bar with arrows, which is what this replaces.
  */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
 }
 
-.custom-scrollbar::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
 }
 
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+::-webkit-scrollbar-thumb {
+  /* The transparent border insets the thumb so it floats in the track. */
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  background-color: color-mix(in srgb, var(--brand) 45%, transparent);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--brand);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background-color: var(--brand-strong);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--brand) 45%, transparent) transparent;
+  }
+}
+
+/* The sidebar's bar is narrower so it does not crowd the navigation labels. */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: var(--color-ink-faint);
-  border-radius: 20px;
+  border-width: 2px;
 }
 /*
  * MARKETING PAGES SCROLL THE DOCUMENT, and Lenis (D-161) needs them to.

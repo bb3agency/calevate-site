@@ -1,8 +1,7 @@
 """The hold queue — which accounts are waiting on a human, and on what.
 
-Two R-11 mitigations block a tenant until a person at Calevate acts: subscriber KYC
-(`compliance/kyc.py`) and the first-campaign review (`compliance/first_campaign.py`).
-Both shipped without the other half of the control. An operator found out an account was
+Subscriber KYC (`compliance/kyc.py`) blocks a tenant until a person at Calevate acts.
+It shipped without the other half of the control. An operator found out an account was
 held when the client emailed to ask why nothing worked, which makes a mitigation depend
 on the client complaining — that is a support queue, not a control, and it is worst for
 exactly the accounts that never complain and simply churn.
@@ -13,18 +12,17 @@ Listing held accounts is a cross-tenant read from the admin realm, and `app.admi
 widens `USING` on `organizations` and nothing else (migration b57e2f9c4a13). Three
 shapes were available:
 
-1. **Widen `kyc_records` and `first_campaign_reviews` for `app.admin`** the way
+1. **Widen `kyc_records` for `app.admin`** the way
    `organizations` was widened, and answer the question in one SQL statement. Rejected.
    A policy is table-scoped, not column-scoped: widening `kyc_records` hands every
    future query on an admin session the signatory's name, the document reference and
    the rejection prose — a permanent grant, to answer a question that needs none of
    them. It also forces the "is this tenant waiting" condition to be re-expressed in
    SQL beside the Python one the gates ask, and two spellings of one compliance
-   condition is the drift both modules are written to prevent. b57e2f9c4a13's own
+   condition is the drift this module is written to prevent. b57e2f9c4a13's own
    argument is "the narrowest fix that works"; here a narrower one exists.
-2. **Surface the state on the tenant DIRECTORY instead.** This is what
-   `first_campaign_routes.py` said the answer should be, and it is half of what this
-   module does: `admin.service.tenant_overview` now carries `holds` on every row, from
+2. **Surface the state on the tenant DIRECTORY instead.** This is half of what this module does:
+   `admin.service.tenant_overview` now carries `holds` on every row, from
    the function below, so the screen an operator already reads shows the flag.
 3. **The queue itself: the directory, then the tenant's own RLS session.** Which is
    shape 2's mechanism, and the mechanism `tenant_overview` has always used to count a
@@ -43,9 +41,8 @@ Accounts, not people. The row carries the tenant, its motion, when it signed up 
 which RULES hold it — the same rule names the launch preview and the client's own
 screen use, so one condition is never explained in two vocabularies. It carries no
 phone number, no document reference, no signatory and no reviewer's note: the reasons
-the blockers return are dropped here on purpose, because
-`first_campaign_rejected_reason` interpolates an operator's free text and free text can
-carry anything into the widest-read list in the console. Everything identifying stays
+the blockers return are dropped here on purpose: the queue names conditions, and the
+client-facing wording stays with the screens that own it. Everything identifying stays
 one click away on the account's own screen, behind the permission that opens it.
 """
 
@@ -60,7 +57,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.service import (
     SELF_SERVE_TIERS,
-    first_campaign_hold_blocker,
     kyc_blocker,
 )
 from apps.api.db.session import tenant_session
@@ -91,21 +87,15 @@ NO_HOLDS = TenantHolds(rules=())
 async def read_tenant_holds(session: AsyncSession, *, tenant_id: UUID) -> TenantHolds:
     """THE "is this tenant waiting on us" predicate, on the caller's RLS-scoped session.
 
-    Composed of the gates themselves rather than re-derived: `kyc_blocker` is what
-    refuses the dial and `first_campaign_hold_blocker` is what refuses the launch, so a
-    queue built from them cannot tell an operator an account is clear while the client
-    is staring at a refusal — or leave an account off the list because the queue's own
-    copy of the tier line drifted from `SELF_SERVE_TIERS`. Both already fail CLOSED to
-    held (absence of a record IS the held state) and both already answer `None` for the
-    tiers the controls do not apply to, so this function adds no judgement of its own.
+    Composed of the gate itself rather than re-derived: `kyc_blocker` is what refuses the
+    dial, so a queue built from it cannot tell an operator an account is clear while the
+    client is staring at a refusal. It fails CLOSED to held (absence of a record IS the
+    held state), so this function adds no judgement of its own.
 
     The `reason` half of each blocker is discarded on purpose — see the module
     docstring, hard rule 6.
     """
-    blockers = (
-        await kyc_blocker(session, tenant_id=tenant_id),
-        await first_campaign_hold_blocker(session, tenant_id=tenant_id),
-    )
+    blockers = (await kyc_blocker(session, tenant_id=tenant_id),)
     # `blocker[0]` is the rule name; `blocker[1]` is the client-facing reason, which
     # stops here.
     return TenantHolds(rules=tuple(blocker[0] for blocker in blockers if blocker is not None))
@@ -119,8 +109,8 @@ class HeldTenant:
     name: str
     slug: str
     plan_tier: str
-    # When the account arrived. The wait started then: both gates are "since you signed
-    # up, nobody has looked", and a per-gate timestamp would be a second answer to one
+    # When the account arrived. The wait started then: the gate is "since you signed
+    # up, nobody has looked", and a per-record timestamp would be a second answer to one
     # question (a KYC record filed later does not restart the account's wait).
     signed_up_at: datetime
     rules: tuple[str, ...]
@@ -144,7 +134,7 @@ async def held_tenants(directory: AsyncSession) -> list[HeldTenant]:
     `directory` must be an `admin_session()` — the only session that can enumerate
     tenants (b57e2f9c4a13). Each tenant is then ENTERED with its own GUC, so the
     compliance rows are read under ordinary RLS and this function holds no cross-tenant
-    view of either table at any point.
+    view of the table at any point.
 
     Oldest first because that is the triage order: the account nobody has looked at for
     three weeks is the one that has quietly stopped trying.
