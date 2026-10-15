@@ -1259,12 +1259,14 @@ async def launch_blockers(
     # because the bullet is a legal claim: a promotional campaign dialled without a
     # preference scrub is exactly the traffic that produces the
     # 5-complaints-in-10-days TSP enforcement §1 records, and hard rule 5 forbids
-    # softening a gate condition. It cannot be a self-inflicted outage — the DLT scrub
-    # facility comes with the same Registered Telemarketer relationship that produces
-    # `platform_state.tm_id`, and `tm_registration_missing` above already refuses every
-    # campaign until that exists. `transactional` and `service` campaigns are outside
-    # it, because a preference does not suppress transactional or service-implicit
-    # traffic (`compliance/preference_scrub.py` carries the sources).
+    # softening a gate condition. Since D-692 no gate asks `tm_registration_missing`, so
+    # nothing else refuses a promotional campaign first: this blocker stays red until an
+    # operator records a scrub run, which needs the Registered Telemarketer relationship
+    # Calevate does not hold, so promotional outbound does not dial at all today. Whether
+    # it should is a founder/counsel question (D-692), never a reason to relax this.
+    # `transactional` and `service` campaigns are outside it, because a preference does
+    # not suppress transactional or service-implicit traffic
+    # (`compliance/preference_scrub.py` carries the sources).
     unscrubbed = await national_dnd_blocker(
         session, campaign_id=campaign_id, classification=facts.classification
     )

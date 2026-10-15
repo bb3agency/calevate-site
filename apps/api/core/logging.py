@@ -382,6 +382,34 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
+#: arq's two job-line templates (`arq/worker.py`) that interpolate content rather than ids.
+ARQ_JOB_START_TEMPLATE = "%6.2fs → %s(%s)%s"
+ARQ_JOB_FAILED_TEMPLATE = "%6.2fs ! %s failed, %s: %s"
+
+
+class _ArqJobDetailFilter(logging.Filter):
+    """Withhold the job ARGUMENTS and the exception MESSAGE from arq's own log lines.
+
+    arq logs `→ job(<args>)` at INFO with the payload rendered, and a payload can be an
+    auth email's address and one-time code; and it logs `! job failed, <Class>: <str(e)>`,
+    where `str(e)` is whatever the exception carried — a pydantic error's `input_value`, a
+    vendor body. `redact_text` masks phone- and email-shaped text only, so it cannot be
+    trusted with either (hard rule 6). The class name and the job id stay: they are what
+    an operator, and the terminal-failure alerter, act on. A filter on the logger rather
+    than the handler, so every handler — the alerter's email included — sees the
+    withheld record.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) == 4:
+            if record.msg == ARQ_JOB_START_TEMPLATE:
+                record.args = (args[0], args[1], MESSAGE_WITHHELD, args[3])
+            elif record.msg == ARQ_JOB_FAILED_TEMPLATE:
+                record.args = (args[0], args[1], args[2], MESSAGE_WITHHELD)
+        return True
+
+
 def configure_logging(level: str = "INFO") -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
@@ -392,6 +420,16 @@ def configure_logging(level: str = "INFO") -> None:
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         logging.getLogger(name).handlers = [handler]
         logging.getLogger(name).propagate = False
+
+    # The `arq` CLI installs its own plain-text StreamHandler on `arq` before the worker's
+    # `startup` runs (`arq.logs.default_log_config`), which printed every job line a second
+    # time with no redaction at all — the failure traceback with its exception message
+    # included. Removing it leaves the root's JsonFormatter as the only output.
+    logging.getLogger("arq").handlers = []
+    logging.getLogger("arq").propagate = True
+    arq_worker = logging.getLogger("arq.worker")
+    if not any(isinstance(f, _ArqJobDetailFilter) for f in arq_worker.filters):
+        arq_worker.addFilter(_ArqJobDetailFilter())
 
     # httpx logs every OUTBOUND request at INFO as `HTTP Request: <method> <full url>`,
     # and a full URL is not ours to print. Ours carry a client's own webhook endpoint

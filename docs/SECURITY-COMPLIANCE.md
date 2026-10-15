@@ -262,8 +262,10 @@ cite the same string:
     suppress calls a preference-registered subscriber is entitled to receive.
   - **WHAT IS EXTERNAL**: performing a scrub needs a Registered Telemarketer
     relationship with an access provider and a login to that provider's DLT platform —
-    the same relationship that produces `platform_state.tm_id`, so this gate blocks
-    nothing that `tm_registration_missing` was not already blocking. **What is still
+    the same relationship that produces `platform_state.tm_id`. Since D-692 no gate asks
+    `tm_registration_missing`, so this gate is not shadowed by it: with no telemarketer
+    registration no scrub can be recorded, and every promotional campaign stays refused
+    here while transactional and service campaigns dial. **What is still
     unverified**: the recorded reference is taken from an operator and never queried
     back, so the gate proves an accountable assertion rather than a performed scrub
     (`tests/national_dnd_test.py::UNVERIFIED_SCRUB_EVIDENCE`).

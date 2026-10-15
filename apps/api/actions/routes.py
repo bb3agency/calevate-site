@@ -829,6 +829,14 @@ async def update_action(
         params=[p.model_dump() for p in payload.params],
         config=payload.config,
     )
+    # An operator's edit switches the action off, the rule `create_action` applies to a new
+    # one. Otherwise view-as could re-point a live action — its URL and the stored key sent
+    # with it — without the owner ever switching that configuration on.
+    if principal.impersonating and tool.enabled:
+        await service.set_enabled(session, agent_id=agent_id, tool_id=tool_id, enabled=False)
+        reread = await service.get_agent_tool(session, agent_id=agent_id, tool_id=tool_id)
+        assert reread is not None
+        tool = reread
     await write_audit(
         session,
         action="action_tool.updated",
@@ -837,7 +845,7 @@ async def update_action(
         object_type="action_tool",
         object_id=str(tool_id),
         ip=client_request_ip(request),
-        summary={"kind": tool.kind, "name": tool.name},
+        summary={"kind": tool.kind, "name": tool.name, "enabled": str(tool.enabled)},
     )
     await sync_client_actions_now(session, agent_id=agent_id)
     return _tool_out(tool)
@@ -938,15 +946,21 @@ async def test_action(
     tool_id: UUID,
     payload: TestActionIn,
     session: Session,
-    _: Principal = Depends(requires("org:manage")),
+    principal: Principal = Depends(requires("org:manage")),
 ) -> TestActionOut:
     """The Test button. Executes the real external call with the client's sample values so a
     misconfiguration is caught before a caller triggers it, audited as `source="test"`. A
-    WhatsApp or payment-link test goes only to one of the business's own contact numbers."""
+    WhatsApp or payment-link test goes only to one of the business's own contact numbers.
+
+    Under view-as, an action that carries a stored key runs only once the owner has
+    switched it on: an operator can set an action's URL, so testing it before then would
+    send the business's key to an address nobody at the business approved."""
     await _assert_agent(session, agent_id)
     tool = await service.get_agent_tool(session, agent_id=agent_id, tool_id=tool_id)
     if tool is None:
         raise ProblemError.not_found("Action")
+    if tool.credential_id is not None and not tool.enabled:
+        assert_view_as_may(principal, "actions.test_unapproved")
     result = await execute_action(
         session,
         tool=tool,
