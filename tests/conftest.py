@@ -73,21 +73,12 @@ async def arm_agent_for_outbound(
     *,
     series: str = "140",
 ) -> None:
-    """Give a tenant+agent the DLT paperwork every OUTBOUND dial now requires.
+    """Give a tenant+agent what every OUTBOUND dial requires: a verified KYC record and a
+    current pledge (D-692), plus the DLT records and one bound number older fixtures expect.
 
-    Since the single-lead ("call this lead", D-21) and instant-callback paths were
-    brought under the same regulatory gate as campaigns (LEGAL-OPS-PLAYBOOK §10.8),
-    `compliance.service.check_dispatch` refuses an outbound dial unless the client's DLT
-    Principal Entity registration + TM link are active AND the agent has a single
-    DLT-registered number bound to it (the header `resolve_caller_id` presents). Fixtures
-    written before that rule set up only a live/published/outbound agent; this supplies
-    the missing facts so a "can this tenant dial" fixture models a tenant that lawfully
-    can. It does NOT soften the gate — production records the same facts through the
-    audited admin/ops surfaces.
-
-    ONE registered number, matching `resolve_caller_id`'s refusal of an agent carrying
-    two registered headers (it cannot tell which traffic class is dialling). Idempotent:
-    re-arming an already-armed agent adds nothing.
+    ONE number, so `resolve_caller_id` presents it (with several and no campaign choice it
+    sends none, D-793). Idempotent: re-arming an already-armed agent adds nothing. It does
+    NOT soften the gate — production records the same facts through the audited surfaces.
     """
     from apps.api.campaigns import service as campaigns
     from apps.api.db.session import tenant_session

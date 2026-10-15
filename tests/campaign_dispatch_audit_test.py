@@ -67,7 +67,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import set_platform_status
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
-from apps.api.engine import reset_engine_cache
+from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import FakeEngine
 from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import ACTIVE_STATUSES, dispatch_campaign_tick
@@ -570,6 +570,28 @@ async def test_paperwork_that_is_still_good_dials_normally() -> None:
     assert result["dialled"] == 2, result
     assert await _calls_placed(tenant_id) == 2
     assert await _contacts(tenant_id, campaign_id) == [("dialing", 1), ("dialing", 1)]
+
+
+async def test_the_campaigns_number_rings_when_its_agent_has_several() -> None:
+    """D-793: the dispatcher hands the campaign's number to the dial, so the caller id is the
+    campaign's choice and not whichever of the agent's numbers the engine would pick."""
+    tenant_id, agent_id, campaign_id, number_id, _ = await _launched()
+    async with tenant_session(tenant_id) as session:
+        await bind_number_for_tests(session, tenant_id, agent_id, dlt_status="pending")
+        chosen = (
+            await session.execute(
+                text("SELECT e164 FROM phone_numbers WHERE id = :n"), {"n": number_id}
+            )
+        ).scalar_one()
+
+    assert (await _tick_one_campaign(tenant_id, campaign_id))["dialled"] == 2
+
+    engine = get_engine()
+    presented = {
+        (await engine.get_execution(handle)).from_e164
+        for handle in await _engine_call_ids(tenant_id)
+    }
+    assert presented == {chosen}
 
 
 # ------------------------------------------------------- the switch, live, mid-batch

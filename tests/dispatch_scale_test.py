@@ -466,13 +466,9 @@ async def _running_campaign(
             tm_link_status="active",
             registered_at=datetime.now(UTC) - timedelta(days=30),
         )
-        # ONE registered header per AGENT, bound to it, reused by every campaign this
-        # agent runs (D-424). Bound, because the launch gate refuses a campaign whose
-        # approved number is not the number its agent dials from. Reused, because
-        # `resolve_caller_id` refuses an agent carrying two registered headers — and this
-        # suite calls this fixture TWICE for one agent (the shared-tenant-budget test), so
-        # a header per campaign would make every dial refuse while the "share one budget"
-        # assertion still read green on zero dials.
+        # ONE number per AGENT, bound to it, reused by every campaign this agent runs
+        # (D-424): the launch gate refuses a campaign whose number is not its agent's, and
+        # this suite calls this fixture TWICE for one agent (the shared-tenant-budget test).
         number_id = (
             await session.execute(
                 text(

@@ -153,10 +153,7 @@ async def _dlt_rows(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> tuple[uuid.UUI
     """ONE registered 140 header bound to `agent_id`, and one approved template (D-424).
 
     One, and shared by every campaign in a test: the launch gate refuses a campaign whose
-    approved number is not the number its agent dials from, and `resolve_caller_id`
-    refuses an agent that carries two registered headers. A header per campaign would
-    satisfy the first rule by breaking the second, and the dispatcher under test here
-    would then place no calls while the budget assertions still read green.
+    approved number is not the number its agent dials from.
     """
     template_id = uuid7()
     async with tenant_session(tenant_id) as session:

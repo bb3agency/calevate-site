@@ -14,6 +14,7 @@ import uuid
 
 import pytest
 from apps.api.agents.service import (
+    CAMPAIGN_NUMBER_UNAVAILABLE_CODE,
     NUMBER_INBOUND_ONLY_REASON,
     NUMBER_INBOUND_ONLY_RULE,
     NUMBER_NOT_ON_CARRIER_RULE,
@@ -21,6 +22,7 @@ from apps.api.agents.service import (
     resolve_caller_id,
 )
 from apps.api.compliance.service import check_dispatch
+from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -34,7 +36,12 @@ pytestmark = [pytest.mark.rls]
 
 
 async def _number(
-    tenant_id: uuid.UUID, agent_id: uuid.UUID, *, provider: str | None, direction: str = "both"
+    tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    *,
+    provider: str | None,
+    direction: str = "both",
+    dlt_status: str = "registered",
 ) -> str:
     e164 = f"+9180{uuid.uuid4().int % 10**8:08d}"
     async with tenant_session(tenant_id) as session:
@@ -42,7 +49,7 @@ async def _number(
             text(
                 "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
                 "provider, direction, created_at, updated_at) VALUES (:id, :tid, :aid, :e, "
-                "'140', 'registered', :prov, :dir, now(), now())"
+                "'140', :dlt, :prov, :dir, now(), now())"
             ),
             {
                 "id": uuid7(),
@@ -51,9 +58,23 @@ async def _number(
                 "e": e164,
                 "prov": provider,
                 "dir": direction,
+                "dlt": dlt_status,
             },
         )
     return e164
+
+
+async def _number_id(tenant_id: uuid.UUID, e164: str) -> uuid.UUID:
+    async with tenant_session(tenant_id) as session:
+        return uuid.UUID(
+            str(
+                (
+                    await session.execute(
+                        text("SELECT id FROM phone_numbers WHERE e164 = :e"), {"e": e164}
+                    )
+                ).scalar_one()
+            )
+        )
 
 
 @pytest.fixture
@@ -90,6 +111,44 @@ async def test_on_thinnest_a_number_not_recorded_there_is_refused(on_thinnest: N
         blocked = await agent_outbound_number_blocker(session, agent_id=agent_id)
         assert await resolve_caller_id(session, agent_id=agent_id) is None
     assert blocked is not None and blocked[0] == NUMBER_NOT_ON_CARRIER_RULE
+
+
+async def test_on_thinnest_a_number_never_registered_on_dlt_is_presented(
+    on_thinnest: None,
+) -> None:
+    """D-793: every number is inserted `pending` and no client registers on DLT (D-692), so
+    the caller id cannot depend on `dlt_status`."""
+    tenant_id, agent_id = await _tenant_agent()
+    e164 = await _number(tenant_id, agent_id, provider="thinnest", dlt_status="pending")
+    async with tenant_session(tenant_id) as session:
+        assert await resolve_caller_id(session, agent_id=agent_id) == e164
+
+
+async def test_on_thinnest_only_an_outgoing_number_held_there_is_presented(
+    on_thinnest: None,
+) -> None:
+    tenant_id, agent_id = await _tenant_agent()
+    await _number(tenant_id, agent_id, provider="thinnest", direction="inbound")
+    await _number(tenant_id, agent_id, provider="plivo", dlt_status="pending")
+    await _number(tenant_id, agent_id, provider=None, dlt_status="pending")
+    outgoing = await _number(
+        tenant_id, agent_id, provider="thinnest", direction="outbound", dlt_status="pending"
+    )
+    async with tenant_session(tenant_id) as session:
+        assert await resolve_caller_id(session, agent_id=agent_id) == outgoing
+
+
+async def test_on_thinnest_a_campaign_number_set_up_for_incoming_calls_is_refused(
+    on_thinnest: None,
+) -> None:
+    tenant_id, agent_id = await _tenant_agent()
+    await _number(tenant_id, agent_id, provider="thinnest", dlt_status="pending")
+    inbound = await _number(tenant_id, agent_id, provider="thinnest", direction="inbound")
+    number_id = await _number_id(tenant_id, inbound)
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as refused:
+            await resolve_caller_id(session, agent_id=agent_id, number_id=number_id)
+    assert refused.value.code == CAMPAIGN_NUMBER_UNAVAILABLE_CODE
 
 
 async def test_on_thinnest_a_number_bought_for_incoming_calls_is_refused(

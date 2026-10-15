@@ -939,11 +939,14 @@ async def _dispatch_for_campaign(
             )
         ).all()
 
-        agent_id = (
+        # The number the campaign chose to call from rides every dial, so the caller id is
+        # the campaign's choice and not whichever of the agent's numbers the engine picks.
+        agent_id, number_id = (
             await session.execute(
-                text("SELECT agent_id FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+                text("SELECT agent_id, number_id FROM campaigns WHERE id = :cid"),
+                {"cid": campaign_id},
             )
-        ).scalar()
+        ).first() or (None, None)
     # The claim is COMMITTED here — see this function's docstring. Everything below
     # runs in its own short transaction, so losing one loses at most one dial's
     # bookkeeping and never un-rings a phone.
@@ -1025,6 +1028,7 @@ async def _dispatch_for_campaign(
                     lead_name=name,
                     context_note=None,
                     on_reserved=_link_contact_to_call(contact_id, campaign_id, phone),
+                    number_id=number_id,
                 )
             except ContactNoLongerClaimedError:
                 # Settled by another writer since the claim (an erasure, in practice).
@@ -1283,8 +1287,8 @@ def _refused_on_our_side(exc: BaseException) -> bool:
     configuration — say nothing about the person and must not spend their attempts.
 
     Our own refusals count too: a `ProblemError` that is not the vendor's was raised by
-    `dispatch_call` before the vendor request (agent not published, an ambiguous caller
-    id), because anything that fails after it is proven not placed or becomes
+    `dispatch_call` before the vendor request (agent not published, a campaign number its
+    agent no longer holds), because anything that fails after it is proven not placed or becomes
     `DialUnconfirmedError`. None of those is about the contact.
     """
     if isinstance(exc, ProblemError) and not isinstance(exc, EngineRejectedError):

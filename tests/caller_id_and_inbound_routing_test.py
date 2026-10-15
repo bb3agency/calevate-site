@@ -15,9 +15,9 @@ and `agent_id`, and the `VoiceEngine` port could express none of it:
 
 The port half is proven by the conformance suite (`packages/shared/tests/
 engine_conformance`), which holds every adapter to both claims. What is proven HERE is the
-half that suite cannot see: that OUR resolution reads the right rows, that the refusals
-fire where a wrong answer would be a DLT violation, and that a binding that could not be
-made is ALARMED rather than reported as done.
+half that suite cannot see: that OUR resolution reads the right rows (the agent's outbound
+numbers whatever their DLT state, the campaign's chosen one first, D-793), and that a
+binding that could not be made is ALARMED rather than reported as done.
 """
 
 from __future__ import annotations
@@ -146,17 +146,29 @@ async def _number(
     return number_id, e164
 
 
-async def _dial(tenant_id: uuid.UUID, agent_id: uuid.UUID, to: str) -> str:
+async def _dial(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID, to: str, *, number_id: uuid.UUID | None = None
+) -> str:
     async with tenant_session(tenant_id) as session:
         return await agents_service.dispatch_call(
-            session, tenant_id=tenant_id, agent_id=agent_id, lead_id=None, phone_e164=to
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            lead_id=None,
+            phone_e164=to,
+            number_id=number_id,
         )
+
+
+async def _calls_placed(tenant_id: uuid.UUID) -> int:
+    async with tenant_session(tenant_id) as session:
+        return int((await session.execute(text("SELECT count(*) FROM calls"))).scalar_one())
 
 
 # --- the caller id -------------------------------------------------------------------
 
 
-async def test_a_dial_presents_the_agents_own_registered_header() -> None:
+async def test_a_dial_presents_the_agents_own_number() -> None:
     """THE DEFECT, INVERTED: the number our gate approves is now the number that rings.
 
     Asserted through the engine's own execution record rather than by inspecting what
@@ -172,72 +184,66 @@ async def test_a_dial_presents_the_agents_own_registered_header() -> None:
     handle = await _dial(tenant_id, agent_id, "+919876500001")
 
     snapshot = await get_engine().get_execution(handle)
-    assert snapshot.from_e164 == header, (
-        "the callee saw a number this account's DLT registration does not cover"
-    )
+    assert snapshot.from_e164 == header, "the callee saw a number other than the agent's own"
 
 
-async def test_a_header_that_is_not_registered_yet_is_not_presented() -> None:
-    """`dlt_status` is part of the resolution, not a check somewhere else.
-
-    The campaign gate refuses a campaign whose number is not `registered`, so a number
-    this resolution would skip is a number no campaign can be dialling on — the two are
-    one fact rather than two opinions. Presenting a `pending` header would be dialling
-    from an unregistered header, which is the misclassification that gets the traffic
-    dropped as spam and the complaints filed against the client's Principal Entity.
-    """
+async def test_a_number_never_registered_on_dlt_is_presented() -> None:
+    """D-793: every number is inserted `pending` and nothing outbound asks for `registered`
+    since D-692, so a caller id gated on `dlt_status` was dropped for every client number."""
     tenant_id, agent_id = await _tenant()
-    await _number(tenant_id, agent_id=agent_id, dlt_status="pending")
+    _, number = await _number(tenant_id, agent_id=agent_id, dlt_status="pending")
     await _publish(tenant_id, agent_id)
 
     handle = await _dial(tenant_id, agent_id, "+919876500002")
 
-    snapshot = await get_engine().get_execution(handle)
-    assert snapshot.from_e164 == ENGINE_POOL_NUMBER, (
-        "an unregistered header reached the dial — the gate's whole subject is which "
-        "header may place a call"
-    )
+    assert (await get_engine().get_execution(handle)).from_e164 == number
 
 
-async def test_an_agent_with_two_registered_headers_refuses_the_dial_rather_than_picking() -> None:
-    """A coin toss between a 140 and a 160 header is a DLT misclassification.
-
-    Nothing on this path says which classification is dialling — `dispatch_call` is also
-    the single-lead and callback entry point — so any pick would be arbitrary, and the one
-    that is wrong puts promotional traffic on a transactional header with the client's
-    Principal Entity on the complaint. Refusing costs an operator one configuration change;
-    picking costs the client their registration.
-
-    NO CALL ROW EITHER: the refusal is raised before the intent row is written, so nothing
-    is left `queued` for a dial that was never going to be placed, and the code is in
-    `DIAL_NOT_PLACED_CODES` so a campaign contact keeps its place on the ladder.
-    """
+async def test_several_numbers_and_no_campaign_choice_leave_the_engine_its_own_line() -> None:
+    """Nothing on this path says which number to use, so no `from` is sent and the engine
+    rings from the agent's own line — and the call is still placed."""
     tenant_id, agent_id = await _tenant()
     await _number(tenant_id, agent_id=agent_id)
-    await _number(tenant_id, agent_id=agent_id, series="140")
+    await _number(tenant_id, agent_id=agent_id, dlt_status="pending", series="140")
+    await _publish(tenant_id, agent_id)
+
+    handle = await _dial(tenant_id, agent_id, "+919876500003")
+
+    assert (await get_engine().get_execution(handle)).from_e164 == ENGINE_POOL_NUMBER
+    assert await _calls_placed(tenant_id) == 1
+
+
+async def test_the_campaigns_chosen_number_is_presented_among_several() -> None:
+    tenant_id, agent_id = await _tenant()
+    await _number(tenant_id, agent_id=agent_id)
+    chosen_id, chosen = await _number(tenant_id, agent_id=agent_id, dlt_status="pending")
+    await _publish(tenant_id, agent_id)
+
+    handle = await _dial(tenant_id, agent_id, "+919876500005", number_id=chosen_id)
+
+    assert (await get_engine().get_execution(handle)).from_e164 == chosen
+
+
+async def test_a_campaign_number_the_agent_no_longer_holds_refuses_the_dial() -> None:
+    """Sending another number would break the campaign gate's promise that its calls come
+    from the number it names; refused before the intent row, so nothing was seized."""
+    tenant_id, agent_id = await _tenant()
+    await _number(tenant_id, agent_id=agent_id)
+    unbound_id, _ = await _number(tenant_id, agent_id=None)
     await _publish(tenant_id, agent_id)
 
     with pytest.raises(ProblemError) as excinfo:
-        await _dial(tenant_id, agent_id, "+919876500003")
+        await _dial(tenant_id, agent_id, "+919876500006", number_id=unbound_id)
 
-    assert excinfo.value.code == "agent_caller_id_ambiguous", excinfo.value.code
-    assert excinfo.value.remediation, "a refusal an operator cannot act on is a dead end"
-    assert excinfo.value.code in agents_service.DIAL_NOT_PLACED_CODES, (
-        "nothing was seized, so the contact must keep its place on the retry ladder"
-    )
-    async with tenant_session(tenant_id) as session:
-        placed = (await session.execute(text("SELECT count(*) FROM calls"))).scalar()
-    assert placed == 0
+    assert excinfo.value.code == agents_service.CAMPAIGN_NUMBER_UNAVAILABLE_CODE
+    assert excinfo.value.remediation
+    assert agents_service.dial_was_not_placed(excinfo.value)
+    assert await _calls_placed(tenant_id) == 0
 
 
-async def test_an_account_with_no_registered_header_still_dials() -> None:
-    """NONE IS A LEGITIMATE ANSWER, and this is the clause that keeps it one.
-
-    A D-21 "call this lead" click, a CRM callback and an account whose DLT paperwork is
-    still in flight all dial on the engine's own number today, and refusing them would be
-    a self-inflicted outage on a rule that governs CAMPAIGNS. The campaign side is where
-    the header is made mandatory — a campaign cannot launch without a registered number.
-    """
+async def test_an_account_with_no_number_still_dials() -> None:
+    """None is a legitimate answer: with no number of its own to name, the dial goes out
+    on the engine's own line rather than being refused."""
     tenant_id, agent_id = await _tenant()
     await _publish(tenant_id, agent_id)
 
