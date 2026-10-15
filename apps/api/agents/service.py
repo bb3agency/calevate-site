@@ -246,6 +246,10 @@ log = get_logger(__name__)
 #: this prefix, so nothing outside this module writes this shape.
 UNCONFIRMED_ENGINE_CALL_PREFIX = "local:"
 
+#: The refusal when a campaign's chosen number stopped being one its agent can call from
+#: between the tick's `dispatch_blockers` and the dial (`resolve_caller_id`).
+CAMPAIGN_NUMBER_UNAVAILABLE_CODE: Final = "campaign_number_unavailable"
+
 #: Engine failures that mean **no line was seized** — the dial can be retried, and the
 #: contact keeps its place on the ladder.
 #:
@@ -274,10 +278,9 @@ DIAL_NOT_PLACED_CODES = frozenset(
         # All of these are raised BEFORE any HTTP request leaves this process.
         "engine_not_configured",
         "engine_capability_absent",
-        # This agent has more than one registered header and nothing here may pick
-        # (`resolve_caller_id`). Raised before the adapter is touched, so no line was
-        # seized.
-        "agent_caller_id_ambiguous",
+        # The campaign's chosen number is no longer one its agent can call from
+        # (`resolve_caller_id`). Raised before the intent row, so no line was seized.
+        CAMPAIGN_NUMBER_UNAVAILABLE_CODE,
         # The dial arrived without the truthful-answer rule on it, or reached an engine
         # that has nowhere to put one (D-282). Refused inside the adapter before the
         # request is built, so no line was seized and the contact keeps its place — the
@@ -3291,25 +3294,18 @@ async def republish_running_variants(
     )
 
 
-#: The header an agent dials from: its own bound, DLT-REGISTERED number (D-420).
+#: The numbers an agent can place calls from: bound to it and, when the engine presents only
+#: numbers it holds (`:carrier` set), held there and set up for outgoing calls. A caller id
+#: the dialling account does not hold is one it cannot present, and a number bought for
+#: inbound only is not one to place calls from; `:carrier` is NULL on an engine with no such
+#: rule (`outbound_number_provider`).
 #:
-#: `dlt_status = 'registered'` IS PART OF THE QUERY, not a check afterwards, and that is
-#: what makes this resolution and `campaigns.service._channel_blockers` the same fact
-#: rather than two opinions: the gate refuses a campaign whose number is not `registered`,
-#: so a number this query would skip is a number no campaign can be dialling on.
-#: `pending` and `blocked` headers are invisible here for the same reason.
-#:
-#: ORDERED so that the AMBIGUOUS case below is deterministic across connections — a
-#: refusal that depended on the planner's row order would be a refusal that came and went.
-#:
-#: AND, WHEN THE ENGINE PRESENTS ONLY NUMBERS IT HOLDS, ONLY SUCH A NUMBER, SET UP FOR
-#: OUTGOING CALLS (`:carrier` set). A caller id the dialling account does not hold is one
-#: it cannot present, and a number bought for inbound only is not one to place calls from.
-#: `:carrier` is NULL on an engine with no such rule, where neither fact
-#: is ours to check (`outbound_number_provider`).
+#: `dlt_status` is not asked (D-793): no client registers on DLT since D-692, every number
+#: is inserted `pending` and nothing outbound requires `registered`, so filtering on it hid
+#: every client number from the dial.
 _AGENT_CALLER_ID_SQL = (
-    "SELECT e164 FROM phone_numbers "
-    "WHERE agent_id = :aid AND dlt_status = 'registered' "
+    "SELECT id, e164 FROM phone_numbers "
+    "WHERE agent_id = :aid "
     "AND (CAST(:carrier AS text) IS NULL "
     "     OR (provider = :carrier AND direction IN ('outbound', 'both'))) "
     "ORDER BY created_at, id"
@@ -3397,10 +3393,7 @@ async def agent_outbound_number_blocker(
     `number_not_registered` when it has one that is not `registered`. When the engine
     presents only its own numbers, two more: `number_not_on_carrier` when none is held
     there (a NULL provider included), and `number_inbound_only` when the ones it
-    holds were bought for incoming calls only. Ambiguity (more than one presentable number)
-    is deliberately NOT judged here — it is a real refusal, but `resolve_caller_id` raises
-    it at dial time with the remediation, and the gate only needs to know whether a lawful
-    header EXISTS.
+    holds were bought for incoming calls only.
     """
     rows = (
         await session.execute(
@@ -3424,79 +3417,55 @@ async def agent_outbound_number_blocker(
     return None
 
 
-async def agent_registered_numbers(session: AsyncSession, *, agent_id: UUID) -> list[str]:
-    """Every DLT-registered number bound to this agent, oldest first.
-
-    The numbers its outbound calls can present; `resolve_caller_id` refuses more than one.
-    """
+async def agent_outbound_numbers(
+    session: AsyncSession, *, agent_id: UUID
+) -> list[tuple[UUID, str]]:
+    """`(id, e164)` of every number this agent can place calls from, oldest first."""
     rows = (
         await session.execute(
             text(_AGENT_CALLER_ID_SQL), {"aid": agent_id, "carrier": outbound_number_provider()}
         )
     ).all()
-    return [str(row[0]) for row in rows]
+    return [(UUID(str(row[0])), str(row[1])) for row in rows]
 
 
-async def resolve_caller_id(session: AsyncSession, *, agent_id: UUID) -> str | None:
-    """The number this agent's calls must present to the callee, or None (D-420).
+async def resolve_caller_id(
+    session: AsyncSession, *, agent_id: UUID, number_id: UUID | None = None
+) -> str | None:
+    """The number this dial rings from, or None to let the engine use the agent's own line.
 
-    **THE MISSING HOP THAT MADE A COMPLIANCE CONTROL DECORATIVE.**
-    `campaigns.service._channel_blockers` refuses a launch — and every dispatch tick —
-    unless the campaign's number carries the right 140/160 series for its classification
-    and `dlt_status = 'registered'`. The dial then carried no caller ID at all, so the
-    engine answered from its own pool and the callee, the TSP and the complaint trail saw
-    the vendor's number while our gate reported the client's registered header approved.
-    Every half of that was correct in isolation; nothing stated that the GATED number and
-    the DIALLED number are the same number, because there was no seam at which to state it.
-    This function and `_channel_blockers`' `number_not_bound_to_agent` rule are that seam,
-    and they are two halves of one claim: the gate proves the campaign's approved number is
-    the one bound to the campaign's agent, and this resolves the header FROM that binding.
+    The candidates are the agent's outbound numbers (`agent_outbound_numbers`, D-793):
 
-    **NONE IS A LOW-LEVEL ANSWER, NO LONGER A DIALLABLE ONE FOR OUTBOUND.** This function
-    still returns None when an agent has no registered header — it does not itself decide
-    policy — but the pool-number fallback it used to describe as "fine" for a D-21 "call
-    this lead" click or a CRM callback is now DISALLOWED: LEGAL-OPS-PLAYBOOK §10.8 makes a
-    requested callback regulated outbound, so every outbound path is gated. The refusal
-    lives at the dial gate — `agent_outbound_number_blocker`, called by
-    `compliance.service.check_dispatch` — which returns `number_not_bound_to_agent` /
-    `number_not_registered` before this resolver is reached, exactly as the campaign side
-    refuses a campaign with no registered number bound to its own agent. So on the outbound
-    paths a caller that reaches here has already been cleared to have a header; None
-    surviving to here would be a bug in that gate, not a pool-number dial. Inbound never
-    calls this — it presents nothing — which is why the type stays `str | None`.
-
-    **MORE THAN ONE REGISTERED HEADER IS A REFUSAL, NOT A CHOICE**, and this is the one
-    place the honest answer is unwelcome. An agent may legitimately end up bound to a
-    140-series and a 160-series number (promotional and transactional traffic), and nothing
-    in this function's inputs says which campaign is dialling — so any pick is a coin toss
-    between a promotional header and a transactional one, i.e. a DLT misclassification with
-    the client's Principal Entity on the complaint. Refusing costs an operator one
-    configuration change (an agent per classification, which is what the 140/160 split means
-    anyway); picking costs the client their registration. The refusal is in
-    `DIAL_NOT_PLACED_CODES`, so nothing was seized and the contact keeps its place on the
-    ladder.
+    * `number_id` (a campaign's chosen number) is presented when it is one of them. When it
+      no longer is — unassigned or changed since the tick's `dispatch_blockers` — the dial
+      is refused with `CAMPAIGN_NUMBER_UNAVAILABLE_CODE` rather than sent from another
+      number, because the campaign gate promises the calls come from the number it names;
+    * otherwise exactly one candidate is presented;
+    * otherwise (none, or several and nothing chose) None: ThinnestAI then rings from the
+      agent's own line (`place-call.md:708-715,971-977`), which beats the old
+      `agent_caller_id_ambiguous` refusal — that guarded a 140/160 DLT class choice nobody
+      makes since D-692, and refusing would stop every dial of a multi-number agent.
 
     Ids and counts in the log line, never a number (hard rule 6).
     """
-    rows = await agent_registered_numbers(session, agent_id=agent_id)
-    if not rows:
-        return None
-    if len(rows) > 1:
-        log.error(
-            "agent_caller_id_ambiguous",
-            extra={"agent_id": str(agent_id), "registered_numbers": len(rows)},
-        )
-        raise ProblemError.business_rule(
-            "agent_caller_id_ambiguous",
-            "This agent has more than one registered calling number, so we cannot tell "
-            "which one its calls should come from.",
-            remediation=(
-                "Give this agent a single registered number — a campaign's number class "
-                "(140 for promotional, 160 for transactional and service) decides which — "
-                "and use a separate agent for the other class."
-            ),
-        )
-    return rows[0]
+    rows = await agent_outbound_numbers(session, agent_id=agent_id)
+    if number_id is not None:
+        chosen = next((e164 for row_id, e164 in rows if row_id == number_id), None)
+        if chosen is None:
+            log.warning(
+                CAMPAIGN_NUMBER_UNAVAILABLE_CODE,
+                extra={"agent_id": str(agent_id), "number_id": str(number_id)},
+            )
+            raise ProblemError.business_rule(
+                CAMPAIGN_NUMBER_UNAVAILABLE_CODE,
+                "This campaign's calling number is no longer one its agent can place calls from.",
+                remediation=(
+                    "Assign the number to the campaign's agent for outgoing calls, or pick "
+                    "another of the agent's numbers for the campaign."
+                ),
+            )
+        return chosen
+    return rows[0][1] if len(rows) == 1 else None
 
 
 async def _recall_for_dial(
@@ -3609,6 +3578,7 @@ async def dispatch_call(
     context_note: str | None = None,
     on_reserved: Callable[[AsyncSession, UUID], Awaitable[None]] | None = None,
     trial: TrialDial | None = None,
+    number_id: UUID | None = None,
 ) -> str:
     """Place ONE outbound call. The caller has already passed the compliance gate.
 
@@ -3673,6 +3643,9 @@ async def dispatch_call(
     A `trial` dial (D-697) rings from the shared trial number, holds the one trial line from
     the intent row until the call ends (`_hold_trial_line`), lends that number to the agent
     before dialling, carries the per-call time limit, and takes part in no experiment.
+
+    `number_id` is the number a campaign chose to call from (`campaigns.number_id`); see
+    `resolve_caller_id` for how the caller id is decided with and without it.
     """
     await _assert_dialling_tenant_owns_the_session(session, tenant_id=tenant_id)
 
@@ -3687,13 +3660,12 @@ async def dispatch_call(
 
     # THE HEADER THIS CALL PRESENTS, resolved before anything is written or dialled
     # (D-420). On the caller's session, so it is read under this tenant's RLS and can only
-    # ever see this tenant's numbers; and BEFORE the intent row, so the ambiguity refusal
-    # costs one indexed read and leaves no `queued` call behind for a dial that was never
-    # going to be placed.
+    # ever see this tenant's numbers; and BEFORE the intent row, so a refusal costs one
+    # indexed read and leaves no `queued` call behind for a dial that was never placed.
     from_e164 = (
         trial.from_e164
         if trial is not None
-        else await resolve_caller_id(session, agent_id=agent_id)
+        else await resolve_caller_id(session, agent_id=agent_id, number_id=number_id)
     )
 
     # The stable unit: the lead when there is one, the destination otherwise. See
@@ -4495,6 +4467,7 @@ async def attach_number_to_agent(
 
 
 __all__ = [
+    "CAMPAIGN_NUMBER_UNAVAILABLE_CODE",
     "CARRIER_SPELLINGS",
     "CREDIT_STOP_MESSAGE",
     "DIAL_NOT_PLACED_CODES",
@@ -4517,6 +4490,7 @@ __all__ = [
     "InboundCutover",
     "InboundRouting",
     "agent_outbound_number_blocker",
+    "agent_outbound_numbers",
     "apply_healer_silence",
     "attach_number_to_agent",
     "carrier_of_provider",

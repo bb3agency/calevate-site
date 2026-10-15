@@ -13,6 +13,7 @@ import pytest
 from apps.api.compliance import consent
 from apps.api.compliance.service import DispatchDecision, add_to_dnc
 from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.forwarding import save_number
 from apps.workers import forwarding as worker
@@ -40,6 +41,9 @@ class Transport:
 def transport(monkeypatch: pytest.MonkeyPatch) -> Transport:
     fake = Transport()
     monkeypatch.setattr(worker, "get_whatsapp_transport", lambda: fake)
+    # The engine the client's ThinnestAI number lives on, so its inbound-only number is not a
+    # caller id (`agents.service.resolve_caller_id`) and the message names the line called.
+    monkeypatch.setattr(get_settings(), "engine", "thinnest")
 
     async def _gate(
         session: Any, *, tenant_id: UUID, phone_e164: str, **_: Any

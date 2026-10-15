@@ -150,15 +150,8 @@ async def _campaign(
 ) -> uuid.UUID:
     """A launch-ready promotional campaign: 140 number, approved matching template.
 
-    THE NUMBER IS BOUND TO `agent_id` AND REUSED ACROSS THIS AGENT'S CAMPAIGNS (D-424).
-    Both halves matter. Bound, because the launch gate refuses a campaign whose approved
-    number is not the number its agent dials from — an unbound number resolves to no
-    caller ID and the engine answers from its own pool. Reused, because
-    `agents.service.resolve_caller_id` REFUSES an agent carrying two registered headers
-    (it cannot tell which class of traffic is dialling), so a fixture that minted a second
-    one per campaign would model a state production rejects — and these tests would then
-    measure a dispatcher that placed no calls at all while still satisfying their
-    `<= ceiling` assertions.
+    THE NUMBER IS BOUND TO `agent_id` AND REUSED ACROSS THIS AGENT'S CAMPAIGNS (D-424):
+    the launch gate refuses a campaign whose number is not the number its agent dials from.
     """
     number_id = (
         await session.execute(
