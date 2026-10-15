@@ -509,10 +509,13 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # ONE MORE switches another operator's "Stay signed in" off (D-766,
     # `admin/operator_routes.py`, `operator_stay_signed_in_confirmation`, bound to the
     # operator): it ends that person's long sessions on their devices.
+    # ONE MORE sets which language model one client's agents follow (D-794,
+    # `agents/llm_routes.py`, `llm_default_confirmation`, bound to the client): it changes
+    # what their calls cost and republishes every following live agent.
     # ONE MORE installs our Google key in one client's own voice workspace (D-764,
     # `ops/hosted_voice_routes.py`, `OWN_MODEL_ENABLE_CONFIRMATION`): it installs a credential
     # and switches that workspace's own keys on.
-    assert sites == 78, f"found {sites} step-up call sites, expected 78; the census went stale"
+    assert sites == 79, f"found {sites} step-up call sites, expected 79; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

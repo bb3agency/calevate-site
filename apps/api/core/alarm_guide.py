@@ -502,7 +502,7 @@ _ROW_CODE = re.compile(r"^`([a-z][a-z0-9_]*)`$")
 def _index() -> dict[str, IndexRow]:
     try:
         text = ALARM_INDEX.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, ValueError) as exc:  # ValueError: a file that is not valid UTF-8
         # The mail still goes, without these two sections: an alarm must not wait on a doc.
         log.warning("alarm_index_unreadable", extra={"reason": type(exc).__name__})
         return {}

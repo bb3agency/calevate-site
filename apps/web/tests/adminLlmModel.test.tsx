@@ -35,8 +35,8 @@ import { problem, type Routes } from "./harness";
  * 4. **It cannot happen by accident.** The console's idiom for a consequential admin write
  *    is a typed confirmation naming the act; here it names the model the client ENDS UP
  *    ON, so it differs per choice and cannot be typed past by muscle memory.
- * 5. **No `X-Confirm-Action`**, because the route publishes none — a header the API ignores
- *    is a confirmation of nothing (`admin/tenants/[tenantId]/credits/page.tsx`).
+ * 5. **It sends `X-Confirm-Action: set_llm_default:<org>`** (D-731, D-794): the route takes
+ *    step-up, like the client's call lines.
  * 6. **A refusal is the SERVER'S sentence**, rendered from problem+json, not a generic
  *    "something went wrong".
  * 7. **A control the session may not use is disabled with its reason**, before the click.
@@ -306,7 +306,7 @@ describe("the per-client language-model screen", () => {
     expect(saveButton().disabled).toBe(true);
   });
 
-  it("sends the chosen model, and no confirmation header", async () => {
+  it("sends the chosen model, with its confirmation header", async () => {
     const { calls } = await render({ [`PUT ${DEFAULTS_PATH}`]: {} });
 
     fireEvent.click(await screen.findByRole("radio", { name: "gpt-4.1-mini" }));
@@ -322,9 +322,7 @@ describe("the per-client language-model screen", () => {
     expect(JSON.parse(write!.body ?? "{}")).toEqual({
       default_llm_model: PREMIUM.model,
     });
-    // The route publishes no confirmation string, and a header the API ignores is a
-    // confirmation of nothing — the typed field above is what confirms this write.
-    expect(write!.headers["X-Confirm-Action"]).toBeUndefined();
+    expect(write!.headers["X-Confirm-Action"]).toBe(`set_llm_default:${TENANT}`);
   });
 
   it("offers 'follow the platform default' as its own choice, and sends null for it", async () => {

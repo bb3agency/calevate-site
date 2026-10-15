@@ -15,7 +15,7 @@ reasoning about it. `AgentOut` carries `truthful_answer_rule`, whose one wording
 `compliance/disclosure.py` (hard rule 5: one sentence, served, everywhere it is shown), and
 that module imports `compliance/optout.py`, which imports `compliance/service.py`, which
 imports `agents/service.py`. Putting the roster in `agents/service.py` therefore closed the
-loop and `ImportError: cannot import name 'agent_outbound_number_blocker' from partially
+loop and `ImportError: cannot import name ... from partially
 initialized module` came out of the first import of the app. NOTHING here reaches back into
 `agents/service.py`, so this module sits on the far side of that cycle and the chain stays
 one-way.

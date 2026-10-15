@@ -55,8 +55,11 @@ from apps.api.engine import get_engine, require_capability
 from apps.api.kb.models import KB_STATUSES
 from apps.api.kb.pdf_render import (
     ApprovedChunk,
+    EmptyKnowledgeError,
     KnowledgePdfError,
+    KnowledgePdfTooLargeError,
     RenderedKnowledgePdf,
+    UnrenderableTextError,
     render_knowledge_pdf,
 )
 from apps.api.reliability.service import enqueue_outbox
@@ -877,19 +880,48 @@ def _render_document(chunks: list[ApprovedChunk]) -> RenderedKnowledgePdf:
     try:
         return render_knowledge_pdf(chunks)
     except KnowledgePdfError as exc:
-        # AT ERROR AND WITH NO CHUNK TEXT. `str(exc)` names markers and codepoints, never
-        # content (hard rule 6), which is why the message is safe to log and to show.
+        # The class and a count to the log, never chunk text (hard rule 6). The client
+        # gets a sentence of ours: `str(exc)` is written for an operator and names chunk
+        # markers, byte ceilings and an internal invariant.
         log.error(
             "kb_render_refused",
             extra={"reason": type(exc).__name__, "chunks": len(chunks)},
         )
+        detail, remediation = _render_refusal_words(exc)
         raise ProblemError(
             kind="business_rule",
             code="kb_render_refused",
             title="This knowledge cannot be published as it stands",
-            detail=str(exc),
-            remediation="Edit the knowledge source and approve it again.",
+            detail=detail,
+            remediation=remediation,
         ) from exc
+
+
+def _render_refusal_words(exc: KnowledgePdfError) -> tuple[str, str]:
+    """`(detail, remediation)` a client can act on, for each renderer refusal."""
+    if isinstance(exc, UnrenderableTextError):
+        shown = ", ".join(f"U+{cp:04X}" for cp in exc.codepoints[:5])
+        more = "" if len(exc.codepoints) <= 5 else f" and {len(exc.codepoints) - 5} more"
+        return (
+            f"Some characters in this knowledge cannot be read out by your agent ({shown}"
+            f"{more}). Your agent reads Telugu and English text.",
+            "Remove those characters, or write that text in Telugu or English, then "
+            "approve the source again.",
+        )
+    if isinstance(exc, KnowledgePdfTooLargeError):
+        return (
+            "This knowledge source is too large to publish in one piece.",
+            "Split it into two or more smaller sources and approve each one.",
+        )
+    if isinstance(exc, EmptyKnowledgeError):
+        return (
+            "There is no approved knowledge to publish yet.",
+            "Approve at least one knowledge source, then publish again.",
+        )
+    return (
+        "Something on our side stopped this knowledge from being prepared. We've been told.",
+        "Please try again later.",
+    )
 
 
 async def _publish_config(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> AgentConfig:

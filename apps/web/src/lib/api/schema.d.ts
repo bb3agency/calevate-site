@@ -30463,7 +30463,9 @@ export interface operations {
     admin_set_llm_default_v1_admin_organizations__org_id__llm_defaults_put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 org_id: string;
             };

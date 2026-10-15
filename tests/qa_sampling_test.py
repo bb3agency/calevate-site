@@ -514,6 +514,8 @@ async def test_the_queue_filters_by_client_status_verdict_and_week_with_exact_to
     assert (await _queue(token, tenant_id=tenant_a, status="all", verdict="defect"))["total"] == 0
 
     assert (await _queue(token, tenant_id=tenant_a, status="all", week=week))["total"] == 2
+    thursday = (ist_week_start(LAST_WEEK) + timedelta(days=3)).isoformat()
+    assert (await _queue(token, tenant_id=tenant_a, status="all", week=thursday))["total"] == 2
     assert (await _queue(token, tenant_id=tenant_a, status="all", week="2001-01-01"))["total"] == 0
 
     # The picker is not narrowed by the filter: tenant B is offered while A is selected.

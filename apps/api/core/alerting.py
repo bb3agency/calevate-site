@@ -732,7 +732,16 @@ def _deliver(notice: AlertNotice, outcome: RecordOutcome | None = None) -> bool:
         from apps.api.core.transport import get_transport
 
         transport = get_transport()
-        message = _compose(notice, outcome)
+        try:
+            message = _compose(notice, outcome)
+        except Exception as exc:
+            # The designed mail reads the alarm index and renders HTML; neither may cost
+            # the page itself, so a mail that cannot be designed goes out as bare facts.
+            log.error(
+                "alert_compose_failed",
+                extra={"code": notice.code, "reason": type(exc).__name__},
+            )
+            message = _bare(notice)
         for attempt in (1, 2):
             if transport.send(
                 to=recipient, subject=message.subject, body=message.text, html=message.html
@@ -756,6 +765,19 @@ def _deliver(notice: AlertNotice, outcome: RecordOutcome | None = None) -> bool:
         return False
     finally:
         _local.delivering = False
+
+
+def _bare(notice: AlertNotice) -> AlertEmail:
+    """The alarm's code, stage, service and redacted detail, with no layout and no guide."""
+    from html import escape
+
+    from apps.api.core.alert_email import AlertEmail
+    from apps.api.core.logging import redact_mapping
+
+    detail = str(redact_mapping({"detail": notice.detail or ""})["detail"])
+    subject = f"[Calevate {notice.severity}] {notice.code} ({_service})"
+    text = f"{notice.code} at {notice.stage} on {_service}\n\n{detail}\n"
+    return AlertEmail(subject=subject, text=text, html=f"<pre>{escape(text)}</pre>")
 
 
 def _compose(notice: AlertNotice, outcome: RecordOutcome | None) -> AlertEmail:
@@ -889,12 +911,11 @@ def record_retrieval_ms(ms: float, *, provider: str, tier: str, cached: bool) ->
 def record_webhook_replay_divergence(*, provider: str) -> None:
     """A settled transition re-delivered with DIFFERENT body bytes.
 
-    THE ONLY REPLAY SIGNAL AN UNSIGNED ENGINE CAN GIVE US, and until this counter existed
-    there was none anywhere. Bolna signs nothing (D-31) and its delivery is at-most-once
-    with no retry [TRD §5, verified in the OSS delivery code], so a SECOND delivery of one
-    `{execution_id}:{raw_status}` is already a replay rather than a vendor retry — and one
-    whose bytes differ from the delivery we settled is somebody composing payloads, not a
-    network echo.
+    The replay signal for an engine whose deliveries are UNSIGNED (the receiver's
+    `verify_source` path; ThinnestAI's signed deliveries are verified and deduped on their
+    event id in `signed_intake` instead). Such an engine authenticates nothing in the body,
+    so a second delivery of one `{execution_id}:{raw_status}` whose bytes differ from the
+    one we settled may be somebody composing payloads rather than a network echo.
 
     A COUNTER AND NOT AN ALERT, deliberately. `webhook_routes._claim_and_enqueue` argues
     the case for the inbox hash and it applies here unchanged: an engine that DOES retry

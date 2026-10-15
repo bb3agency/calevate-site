@@ -1126,6 +1126,14 @@ def test_a_failure_that_does_not_prove_nothing_rang_is_never_refunded() -> None:
     assert campaign_dispatch._refused_on_our_side(EngineRejectedError(status=400)) is False
 
 
+def test_a_400_about_our_setup_at_the_vendor_does_not_spend_the_contacts_attempt() -> None:
+    """`from_number_invalid` and `agent_ambiguous` are `400`s about our configuration, not
+    the person's number; spending attempts on them fails every contact of the campaign."""
+    setup = EngineRejectedError(status=400, vendor_code="from_number_invalid")
+    setup.setup_refused = True
+    assert campaign_dispatch._refused_on_our_side(setup) is True
+
+
 def test_our_own_refusal_before_the_dial_refunds_the_attempt() -> None:
     """`dispatch_call` refusing before the vendor request (an unpublished agent) rang
     nobody and says nothing about the contact, so it is refunded like a `401`."""

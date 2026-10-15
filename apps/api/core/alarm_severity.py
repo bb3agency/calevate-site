@@ -929,8 +929,14 @@ def severity_of(code: str) -> Severity:
     wins so a narrower family can be carved out of a wider one later without re-ordering
     anything, and the exact table always beats both — lifting one member of a family on its
     own merits stays a one-line change.
+
+    A code with a `:` suffix (`unhandled_exception:IntegrityError`, whose class rides in
+    the code so two crash classes do not share one suppression slot) is classified by its
+    base code, the way `alarm_guide.base_code` finds its summary and index row.
     """
     exact = ALARM_SEVERITY.get(code)
+    if exact is None:
+        exact = ALARM_SEVERITY.get(code.split(":", 1)[0])
     if exact is not None:
         return exact
     best: tuple[int, Severity] | None = None

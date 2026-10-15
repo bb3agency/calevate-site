@@ -1989,9 +1989,9 @@ class ProvisionNumberIn(BaseModel):
     agent_id: UUID | None = None
     # Who holds this number. Required. `thinnest` is a number rented in ThinnestAI's
     # console, accepted only on that engine (`provision_number` below); `plivo` is a
-    # client's own connection, which the dial gate does not present on an engine that dials
-    # only its own numbers (`agents.service.agent_outbound_number_blocker`,
-    # `number_not_on_carrier`).
+    # client's own connection, which is never the caller id on an engine that dials only
+    # its own numbers (`agents.service.agent_outbound_numbers`; the campaign gate refuses
+    # it as `number_not_on_carrier`).
     provider: RecordableNumberProvider
     # Which legs the number was bought for. `inbound` (the column's own default) cannot
     # place outbound calls; the dial gate refuses it by name (`number_inbound_only`).

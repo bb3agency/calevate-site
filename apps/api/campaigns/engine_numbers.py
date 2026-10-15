@@ -625,7 +625,7 @@ async def reconcile_engine_number_attachments() -> NumberReconciliation:
         try:
             await converge_trial_line()
         except ProblemError as exc:
-            _trial_line_failed(outcome="refused", refusal=exc.code)
+            _trial_line_failed("line", outcome="refused", refusal=exc.code)
     return summary
 
 
@@ -794,7 +794,7 @@ async def converge_trial_line() -> TrialLineState:
             finally:
                 await engine.set_line_answering(agent.ref, on=False)
         if result.outcome != "applied":
-            _trial_line_failed(outcome=result.outcome, refusal=result.refusal)
+            _trial_line_failed("line", outcome=result.outcome, refusal=result.refusal)
             return TrialLineState(state="not_attached", agent_ref=agent.ref)
     _TRIAL_LINE_AGENT = agent.ref
     log.info("trial_line_converged")
@@ -847,35 +847,53 @@ async def lend_platform_line(number: str, agent_ref: str) -> bool:
     published with none (F1), so without this every test call is refused with
     `calling_not_set_up` (incident 15 Oct 2026)."""
     engine = _trial_line_engine()
+    stage: _LendStage = "lend"
     try:
         answerer = await _trial_line_answerer()
         result = await _attach(number, agent=answerer, calling_agent=agent_ref)
         if result.outcome in ("partial", "refused"):
-            _trial_line_failed(outcome=result.outcome, refusal=result.refusal)
+            _trial_line_failed(stage, outcome=result.outcome, refusal=result.refusal)
             return False
         if engine is not None:
+            stage = "phone_surface"
             await engine.call_out_on_phone(agent_ref)
     except EngineRejectedError as exc:
-        _trial_line_failed(outcome="refused", refusal=exc.vendor_code or exc.code)
+        _trial_line_failed(stage, outcome="refused", refusal=exc.vendor_code or exc.code)
         return False
     except ProblemError as exc:
-        _trial_line_failed(outcome="refused", refusal=exc.code)
+        _trial_line_failed(stage, outcome="refused", refusal=exc.code)
         return False
     return True
 
 
-def _trial_line_failed(*, outcome: str, refusal: str | None) -> None:
-    alert(
-        "CORE_LOGIC",
-        "trial_line_lend_failed",
-        detail=(
-            "a free-trial test call could not be placed because the voice platform did not "
-            f"lend the shared trial number to the calling agent ({outcome}, "
-            f"{refusal or 'no code'}). Check that the number set as the shared trial number "
-            "is held in our developer workspace and that the agent is published with voice "
-            "switched on."
-        ),
-    )
+#: Which step of the shared trial line failed: setting its never-answering line agent (the
+#: daily convergence), lending it to a calling agent, or giving that agent the phone surface.
+_LendStage = Literal["line", "lend", "phone_surface"]
+
+
+def _trial_line_failed(stage: _LendStage, *, outcome: str, refusal: str | None) -> None:
+    # The steps fail for different reasons and are fixed in different places, so the page
+    # names the one that failed rather than calling every failure a refused lend.
+    code = refusal or "no code"
+    if stage == "line":
+        detail = (
+            "the shared trial number could not be given its never-answering line agent "
+            f"({outcome}, {code}); until it is, test calls cannot borrow it. Check that the "
+            "number is held in our developer workspace."
+        )
+    elif stage == "lend":
+        detail = (
+            "a test call could not be placed: the voice platform did not lend the platform "
+            f"number to the calling agent ({outcome}, {code}). Check that the number is held "
+            "in our developer workspace."
+        )
+    else:
+        detail = (
+            "a test call could not be placed: the platform number was lent, but the calling "
+            f"agent could not be given the phone surface calls are placed from ({outcome}, "
+            f"{code}). Check that the agent is published with voice switched on."
+        )
+    alert("CORE_LOGIC", "trial_line_lend_failed", detail=detail)
 
 
 # --- business details --------------------------------------------------------------------

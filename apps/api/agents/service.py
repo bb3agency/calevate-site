@@ -1325,35 +1325,18 @@ async def retire_in_call_actions(*, agent_id: UUID, ref: str | None) -> int:
 # fired at Rs.250 and again at Rs.150 (`workers/wallet_alerts.py`), so the client was told
 # twice before anything changed.
 #
-# WHY IT IS AN ENGINE-SIDE SCRIPT OVERRIDE AND NOT A GATE OF OURS. An inbound call reaches
-# nothing of ours before it is answered: the vendor's orchestrator picks up on the number
-# bound by `POST /inbound/setup`, and the only thing we hear about it is a webhook AFTER
-# the fact (`apps/voice-runtime/webhook_routes.py` — a hint, and the fetch is the truth).
-# There is no pre-answer hook to refuse from, so the enforcement has to be durable state
-# AT the engine, applied on the edge. Two instruments exist and only one of them can speak:
-#
-#   * `unbind_inbound_number` (`POST /inbound/unlink`) stops the number answering at all.
-#     The caller then hears whatever the carrier does with an unanswered number — nothing
-#     we compose, nothing we can promise, and the founder's own correction on the
-#     maintenance window ("play a message instead of the call not connecting") already
-#     refused that shape once.
-#   * `override_call_script` (`PATCH /v2/agent/{id}`) replaces what the agent SAYS and
-#     nothing else — the closed attribute list is the guarantee that its number, voice,
-#     knowledge base, model and webhook cannot move
-#     (`bolna-findings/mirror/pages/api-reference/agent/v2/patch_update.md:9,19-31`).
-#
-# So the call is ANSWERED and the message is spoken. That is not a softening of "stops
-# answering": there is no mechanism anywhere in the vendor's API that plays audio to a
-# caller without answering, and a message nobody hears is not the decision that was taken.
-# It costs one short vendor-billed call per attempt instead of an unbounded overdraft —
-# and `workers/pipeline.py` no longer debits the client for it either.
-#
-# ⚠ MARKED ASSUMPTION, INHERITED NOT INTRODUCED: `override_call_script` is documented and
-# has never been exercised against a live Bolna account (OPERATIONS §2 gate 48). If the
-# PATCH turns out to be a no-op, `EngineCapabilities.script_override` goes False, this
-# reconciler reports `unsupported`, and the product says so — it does not fail silently on
-# a live call. The alternative fallback, unbinding the number, is deliberately NOT wired
-# behind that flag: it would silently trade the founder's message for a dead line.
+# WHY IT IS ENGINE-SIDE STATE AND NOT A GATE OF OURS. An inbound call reaches nothing of
+# ours before it is answered: the engine picks up, and we hear about the call only by
+# webhook afterwards (`apps/voice-runtime/webhook_routes.py` — a hint, and the fetch is the
+# truth). There is no pre-answer hook to refuse from, so the enforcement is durable state
+# AT the engine, applied by `override_call_script`. On ThinnestAI that PAUSES the line
+# (`engine/thinnest.py::ThinnestEngine.override_call_script`: `answersCalls: false` with
+# `voice.unavailableMessage`): the phone provider reads one reasonless sentence and the
+# call ends, so no AI speaks, nothing records and no conversation is billed. Unbinding the
+# number instead would leave the caller whatever the carrier does with an unanswered
+# number, which the founder refused for the maintenance window ("play a message instead of
+# the call not connecting"). An engine without `script_override` reports `unsupported`
+# (`reconcile_inbound_answering`) rather than failing silently on a live call.
 
 #: What a caller hears when the client's calling credit has run out.
 #:
@@ -3346,20 +3329,9 @@ def outbound_number_provider() -> str | None:
     return ENGINE_NUMBER_PROVIDER.get(get_settings().engine)
 
 
-# The client-facing wording of the two ways a non-campaign outbound dial (an instant
-# callback, a D-21 single lead) can lack a header of its own. Kept beside
-# `resolve_caller_id`, whose None result they explain, and phrased for that path — the
-# campaign gate's `UNBOUND_NUMBER_REASON` speaks about a campaign's assigned number,
-# which these callers do not have.
-CALLBACK_NO_REGISTERED_NUMBER_REASON = (
-    "This agent has no DLT-registered calling number, so an outbound call would go out "
-    "from a shared platform number instead of the client's registered header. Assign a "
-    "registered number to this agent before it places calls."
-)
-CALLBACK_NUMBER_NOT_REGISTERED_REASON = (
-    "This agent's calling number is not DLT-registered yet, so it cannot place outbound "
-    "calls. Only a registered number may dial out."
-)
+# The client-facing wording of the two ways a number cannot carry outgoing calls on an
+# engine that dials only its own numbers. The campaign gate
+# (`campaigns.service.number_dial_refusal`) and its number picker speak them.
 NUMBER_NOT_ON_CARRIER_REASON = (
     "This agent's calling number is not on the phone line Calevate places calls through, so "
     "it cannot be shown to the person being called. Ask Calevate to record which carrier "
@@ -3369,52 +3341,6 @@ NUMBER_INBOUND_ONLY_REASON = (
     "This agent's calling number is set up for incoming calls only, so it cannot place "
     "outbound calls. Assign a number set up for outgoing calls to this agent."
 )
-
-
-async def agent_outbound_number_blocker(
-    session: AsyncSession, *, agent_id: UUID
-) -> tuple[str, str] | None:
-    """`(rule, reason)` if this agent has no DLT-registered number to dial FROM, else None.
-
-    The header a NON-campaign outbound dial presents is resolved from the agent's own
-    bound, DLT-registered number (`resolve_caller_id`, D-420). Until this gate existed the
-    single-lead and instant-callback paths let that resolution fall back to the engine's
-    shared pool number — which LEGAL-OPS-PLAYBOOK §10.8 forbids: a requested callback is
-    regulated outbound and must present the client's registered header, not a platform
-    one. Enforced HERE, at the dial gate, so the refusal is a decision the UI can render
-    (SURFACES §2b) rather than a surprise at dial time.
-
-    The CAMPAIGN path proves the same property against the campaign's assigned number
-    (`campaigns.service._channel_blockers`: registered, right series, bound to the
-    campaign's agent). This is the single-lead twin of that check, not a second copy of
-    the campaign rule — the campaign has a `number_id`; a callback has only the agent.
-
-    `number_not_bound_to_agent` when the agent carries no number at all;
-    `number_not_registered` when it has one that is not `registered`. When the engine
-    presents only its own numbers, two more: `number_not_on_carrier` when none is held
-    there (a NULL provider included), and `number_inbound_only` when the ones it
-    holds were bought for incoming calls only.
-    """
-    rows = (
-        await session.execute(
-            text("SELECT dlt_status, provider, direction FROM phone_numbers WHERE agent_id = :aid"),
-            {"aid": agent_id},
-        )
-    ).all()
-    if not rows:
-        return ("number_not_bound_to_agent", CALLBACK_NO_REGISTERED_NUMBER_REASON)
-    registered = [row for row in rows if str(row[0]) == "registered"]
-    if not registered:
-        return ("number_not_registered", CALLBACK_NUMBER_NOT_REGISTERED_REASON)
-    carrier = outbound_number_provider()
-    if carrier is None:
-        return None
-    on_carrier = [row for row in registered if row[1] == carrier]
-    if not on_carrier:
-        return (NUMBER_NOT_ON_CARRIER_RULE, NUMBER_NOT_ON_CARRIER_REASON)
-    if not any(str(row[2]) in ("outbound", "both") for row in on_carrier):
-        return (NUMBER_INBOUND_ONLY_RULE, NUMBER_INBOUND_ONLY_REASON)
-    return None
 
 
 async def agent_outbound_numbers(
@@ -4489,7 +4415,6 @@ __all__ = [
     "HealerHold",
     "InboundCutover",
     "InboundRouting",
-    "agent_outbound_number_blocker",
     "agent_outbound_numbers",
     "apply_healer_silence",
     "attach_number_to_agent",

@@ -108,12 +108,14 @@ async def _announce_clear(row: Any) -> bool:
     recipient = settings.alerts_email or None
     if not recipient:
         return False
-    message = compose_clear(
-        row,
-        app_env=settings.app_env,
-        status=f"no further occurrence for {ALERT_CLEAR_AFTER_S / 60:.0f} minutes",
-    )
     try:
+        # Composed inside the guard: the episodes are already committed closed, so a mail
+        # that cannot be built must cost this one notice, not the rest of the batch.
+        message = compose_clear(
+            row,
+            app_env=settings.app_env,
+            status=f"no further occurrence for {ALERT_CLEAR_AFTER_S / 60:.0f} minutes",
+        )
         # Off the event loop: `send` is blocking socket I/O (smtplib, or a sync httpx
         # POST) and this job shares its loop with the outbox and dispatch ticks.
         return await asyncio.to_thread(

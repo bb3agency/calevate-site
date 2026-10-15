@@ -216,8 +216,8 @@ def _install_signal_handlers() -> None:
     compose.prod.yml exists to give that drain room and had nothing to give it to.
 
     On `hooks.calevate.tech` that is the founder's exact fear made routine: voice-runtime
-    is the only service with live calls on it, Bolna webhooks are at-most-once with no
-    retry (D-31), and every deploy dropped whatever was in flight.
+    is the only service with live calls on it, an engine webhook cut off mid-request is at
+    best re-delivered late, and every deploy dropped whatever was in flight.
 
     THE FIX IS TO CHAIN, NOT TO REPLACE. The previous handler is captured and called, so
     uvicorn's `handle_exit` still sets `should_exit` and still drains. `KeyboardInterrupt`

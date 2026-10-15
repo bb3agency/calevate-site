@@ -17,8 +17,6 @@ originally pinned:
 - the shared entity check (`outbound_entity_blockers`) is the ONE implementation the
   campaign gate and `check_dispatch` both read — TM live AND the client's PE-TM chain
   active;
-- the single-lead header check (`agent_outbound_number_blocker`) refuses a dial that
-  would present the engine's pool number instead of the agent's own registered header;
 - the India-only freeze is enforced at the destination (`destination_not_india`);
 - INBOUND never reaches any of it — an inbound agent is refused two rules earlier.
 
@@ -33,7 +31,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.agents.service import agent_outbound_number_blocker
+from apps.api.agents.service import agent_outbound_numbers
 from apps.api.compliance import registration
 from apps.api.compliance.service import check_dispatch
 from apps.api.db.base import uuid7
@@ -249,34 +247,28 @@ async def test_inbound_agent_never_reaches_the_registration_gate() -> None:
     assert not decision.allowed and decision.rule == "agent_inbound_only"
 
 
-# --- the header helper, and its tenant isolation -----------------------------
+# --- the caller-id read, and its tenant isolation ----------------------------
 
 
-async def test_number_blocker_cannot_see_another_tenants_numbers() -> None:
-    """`agent_outbound_number_blocker`'s query is RLS-scoped (hard rule 1): tenant B's
-    session cannot see tenant A's registered number, so it reads zero rows and refuses —
-    a foreign agent id can never launder itself into a lawful header."""
+async def test_caller_id_numbers_cannot_be_read_across_tenants() -> None:
+    """`agent_outbound_numbers` (the caller-id candidates, D-793) is RLS-scoped (hard rule
+    1): tenant B's session reads zero rows for tenant A's agent, so a foreign agent id can
+    never borrow another client's number as its caller id."""
     a_tenant, a_agent = await _tenant_agent()
-    await _bind_number(a_tenant, a_agent, dlt_status="registered")
+    await _bind_number(a_tenant, a_agent, dlt_status="pending")
     b_tenant, _b_agent = await _tenant_agent()
 
     async with tenant_session(a_tenant) as session:
-        own = await agent_outbound_number_blocker(session, agent_id=a_agent)
-    assert own is None, "the agent's own tenant sees its registered number"
+        own = await agent_outbound_numbers(session, agent_id=a_agent)
+    assert len(own) == 1, "the agent's own tenant sees its number"
 
     async with tenant_session(b_tenant) as session:
-        cross = await agent_outbound_number_blocker(session, agent_id=a_agent)
-    assert cross == (
-        "number_not_bound_to_agent",
-        cross[1] if cross else "",
-    ), "another tenant sees zero rows and is refused"
+        assert await agent_outbound_numbers(session, agent_id=a_agent) == []
 
 
 async def test_untenanted_session_sees_no_numbers() -> None:
-    """No tenant GUC → RLS shows zero rows → refuse, the same fail-closed direction the
-    rest of the gate takes."""
+    """No tenant GUC: RLS shows zero rows, so no caller id is presented."""
     a_tenant, a_agent = await _tenant_agent()
-    await _bind_number(a_tenant, a_agent, dlt_status="registered")
+    await _bind_number(a_tenant, a_agent, dlt_status="pending")
     async with untenanted_session() as session:
-        blocked = await agent_outbound_number_blocker(session, agent_id=a_agent)
-    assert blocked is not None and blocked[0] == "number_not_bound_to_agent"
+        assert await agent_outbound_numbers(session, agent_id=a_agent) == []

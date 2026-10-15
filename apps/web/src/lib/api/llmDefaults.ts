@@ -62,7 +62,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest, llmDefaultConfirmation } from "./admin";
 import { apiRequest } from "./client";
 import {
   modelOption,
@@ -126,12 +126,10 @@ export function useAdminLlmDefaults(orgId: string): UseQueryResult<OrganizationL
  * than "leave this alone", and a partial verb would need a third state JSON makes easy to
  * send by accident.
  *
- * **No `X-Confirm-Action`, because the contract names none**, and the credits screen puts
- * the rule plainly: a header the API ignores is a confirmation of nothing. So the
- * confirmation this act gets is the one the console can actually enforce — the typed model
- * name on the form (`adminLlmDefaultBlockReason`). If the route later publishes a
- * confirmation string it is added here, and the screen's write failures move to
- * `WriteFailure`, which is where every write that DOES send one renders them.
+ * A confirmed operator write (D-731, D-794): `X-Confirm-Action: set_llm_default:<org>`, and
+ * a code is asked for when the second factor is stale (`confirmedAdminRequest`). The typed
+ * model name on the form (`adminLlmDefaultBlockReason`) stays as the screen's own check;
+ * the screen renders failures through `WriteFailure`.
  *
  * No `Idempotency-Key`: the body states the whole field, so a duplicate stores the same
  * value. NOT optimistic, for `llmModels.ts`'s reason: the server may refuse this, and an
@@ -142,10 +140,11 @@ export function useSetAdminLlmDefault(orgId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: SetOrganizationLlmDefaultIn) =>
-      apiRequest<OrganizationLlmDefaults>(adminSession(), adminLlmDefaultsPath(orgId), {
-        method: "PUT",
-        body,
-      }),
+      confirmedAdminRequest<OrganizationLlmDefaults>(
+        adminLlmDefaultsPath(orgId),
+        { method: "PUT", body, confirmAction: llmDefaultConfirmation(orgId) },
+        "Changing which language model this client's agents run.",
+      ),
     // INVALIDATE rather than `setQueryData(response)`, even though the route hands back
     // the whole document. The screen has one panel of record and it should have exactly
     // one writer: a cache seeded from a mutation and then refetched anyway is two paths to

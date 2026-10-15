@@ -63,7 +63,7 @@ PERMISSIONS
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
@@ -284,6 +284,10 @@ async def list_qa_samples(
     offset: Annotated[int, Query(ge=0, le=sampling.QUEUE_WINDOW_MAX - 100)] = 0,
 ) -> QaQueuePage:
     del principal  # the dependency IS the authorization
+    if week is not None:
+        # Draw weeks are keyed by their Monday; any other day of the week means that week,
+        # rather than an exact match that silently finds nothing.
+        week -= timedelta(days=week.weekday())
     flt = sampling.QueueFilter(status=status, verdict=verdict, week_start=week)
     # Each tenant contributes its first `offset + limit` matching rows in the merge order;
     # the global page is then exactly rows [offset, offset + limit) of the merged list.

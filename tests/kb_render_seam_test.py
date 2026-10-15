@@ -152,6 +152,9 @@ async def test_text_the_knowledge_font_cannot_draw_is_refused_by_name() -> None:
         with pytest.raises(ProblemError) as exc:
             await service.publish_source(session, tenant_id=tenant_id, source_id=result["id"])
     assert exc.value.code == "kb_render_refused"
+    # The client is told which characters, in our words — not the renderer's operator text.
+    assert "U+09" in exc.value.detail
+    assert "chunk" not in exc.value.detail
 
     engine = get_engine()
     assert not engine._kb.get(str(agent_ref)), "a refused render must attach nothing"

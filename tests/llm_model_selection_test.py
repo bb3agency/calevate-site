@@ -54,6 +54,7 @@ from apps.api.agents.llm_models import (
     validate_llm_model,
 )
 from apps.api.agents.llm_routes import admin_router as llm_admin_router
+from apps.api.agents.llm_routes import llm_default_confirmation
 from apps.api.agents.llm_routes import router as llm_router
 from apps.api.agents.llm_tiers import LLM_TIERS, tier_of_model
 from apps.api.agents.routes import router as agents_router
@@ -834,9 +835,20 @@ async def test_an_operator_can_set_it_for_any_client_and_the_change_is_audited(
     with caplog.at_level("INFO", logger="apps.api.compliance.audit"):
         caplog.clear()
         async with _client(_app()) as client:
-            written = await client.put(
+            unconfirmed = await client.put(
                 f"/v1/admin/organizations/{tenant_id}/llm-defaults",
                 headers={"Authorization": f"Bearer {operator}"},
+                json={"default_llm_model": SECOND_MODEL},
+            )
+            # A commercial lever (D-731): refused before any work without the confirmation.
+            assert unconfirmed.status_code == 403, unconfirmed.text
+            assert unconfirmed.json()["type"].endswith("/step_up_required")
+            written = await client.put(
+                f"/v1/admin/organizations/{tenant_id}/llm-defaults",
+                headers={
+                    "Authorization": f"Bearer {operator}",
+                    "X-Confirm-Action": llm_default_confirmation(tenant_id),
+                },
                 json={"default_llm_model": SECOND_MODEL},
             )
             assert written.status_code == 200, written.text
@@ -1220,7 +1232,7 @@ async def test_an_account_that_does_not_exist_is_a_404_on_both_admin_doors(
 
         written = await client.put(
             f"/v1/admin/organizations/{absent}/llm-defaults",
-            headers=headers,
+            headers={**headers, "X-Confirm-Action": llm_default_confirmation(absent)},
             json={"default_llm_model": None},
         )
         assert written.status_code == 404, written.text

@@ -158,10 +158,10 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
 >
 > **INACTIVE, NOT DELETED (hard rule 8):** the DLT entity chain (`tm_registration_missing`,
 > `pe_registration_*`, `tm_link_not_active`), the bound DLT-registered number
-> (`number_not_bound_to_agent` for an agent with none, `number_not_registered`,
+> (number_not_bound_to_agent for an agent with none, number_not_registered,
 > number_missing), the series rule (`number_series_mismatch`) and the DLT voice template
-> (dlt_template_*) are no longer asked by any gate; the tables, columns and functions
-> stay. A campaign that names a number must still have it bound to the campaign's agent.
+> (dlt_template_*) are no longer asked by any gate; the tables and columns stay, and so do
+> the functions except the header check, which D-794 deleted. A campaign that names a number must still have it bound to the campaign's agent.
 > Promotional campaigns are NOT refused by D-692 (it added no gate beyond KYC and the
 > pledge); the national preference scrub still applies to them, and whether a promotional
 > voice call may go out at all without a registered telemarketer's 140 header is one of
@@ -286,11 +286,12 @@ cite the same string:
   `POST /v1/campaigns/{campaign_id}/consent-provenance` (drafts only, audited).
 - **Subscriber KYC verified** — `kyc_missing` (nothing filed) or `kyc_not_verified`
   (filed, not cleared; the string names the state, because `submitted` means we owe them
-  a review and `rejected` means they owe us a document). D-47, and it is deliberately
-  **not the same scope as the rest of this list**: the DIALLING gate applies to
-  `self_serve` and `trial` tenants only — a managed tenant's identity was verified out of
-  band and their dialling is already gated by `pe_registration_*` and
-  `number_not_registered` — while **buying a number is gated for every tier**, because the
+  a review and `rejected` means they owe us a document), plus `kyc_digilocker_required`
+  when an admin required DigiLocker and no run has completed since. D-47 asked it of
+  `self_serve` and `trial` tenants only; D-692 made it tier-blind: with no Principal Entity
+  registration to prove a managed account's identity, the DIALLING gate applies to every
+  tier, and **buying a number is
+  gated for every tier** too, because the
   DoT business-connection obligation attaches to the connection and `plan_tier` is an
   admin-settable column. Asked once, in `compliance.kyc_blocker`, by both the per-dial
   gate and this launch preview. Inbound answering is never gated (D-38).

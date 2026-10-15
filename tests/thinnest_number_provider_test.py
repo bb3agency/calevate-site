@@ -17,10 +17,12 @@ from apps.api.agents.service import (
     CAMPAIGN_NUMBER_UNAVAILABLE_CODE,
     NUMBER_INBOUND_ONLY_REASON,
     NUMBER_INBOUND_ONLY_RULE,
+    NUMBER_NOT_ON_CARRIER_REASON,
     NUMBER_NOT_ON_CARRIER_RULE,
-    agent_outbound_number_blocker,
+    agent_outbound_numbers,
     resolve_caller_id,
 )
+from apps.api.campaigns.service import LaunchBlocker, number_dial_refusal
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -99,7 +101,6 @@ async def test_on_thinnest_a_registered_thinnest_number_is_presented(on_thinnest
     tenant_id, agent_id = await _tenant_agent()
     e164 = await _number(tenant_id, agent_id, provider="thinnest")
     async with tenant_session(tenant_id) as session:
-        assert await agent_outbound_number_blocker(session, agent_id=agent_id) is None
         assert await resolve_caller_id(session, agent_id=agent_id) == e164
 
 
@@ -108,9 +109,8 @@ async def test_on_thinnest_a_number_not_recorded_there_is_refused(on_thinnest: N
     await _number(tenant_id, agent_id, provider="plivo")
     await _number(tenant_id, agent_id, provider=None)
     async with tenant_session(tenant_id) as session:
-        blocked = await agent_outbound_number_blocker(session, agent_id=agent_id)
+        assert await agent_outbound_numbers(session, agent_id=agent_id) == []
         assert await resolve_caller_id(session, agent_id=agent_id) is None
-    assert blocked is not None and blocked[0] == NUMBER_NOT_ON_CARRIER_RULE
 
 
 async def test_on_thinnest_a_number_never_registered_on_dlt_is_presented(
@@ -157,8 +157,30 @@ async def test_on_thinnest_a_number_bought_for_incoming_calls_is_refused(
     tenant_id, agent_id = await _tenant_agent()
     await _number(tenant_id, agent_id, provider="thinnest", direction="inbound")
     async with tenant_session(tenant_id) as session:
-        blocked = await agent_outbound_number_blocker(session, agent_id=agent_id)
-    assert blocked == (NUMBER_INBOUND_ONLY_RULE, NUMBER_INBOUND_ONLY_REASON)
+        assert await agent_outbound_numbers(session, agent_id=agent_id) == []
+        assert await resolve_caller_id(session, agent_id=agent_id) is None
+
+
+def test_the_campaign_gate_names_why_a_number_cannot_dial_on_thinnest(on_thinnest: None) -> None:
+    """`number_dial_refusal` backs the campaign launch gate and the number picker."""
+    assert number_dial_refusal("thinnest", "both") is None
+    assert number_dial_refusal("thinnest", "outbound") is None
+    assert number_dial_refusal("plivo", "both") == LaunchBlocker(
+        NUMBER_NOT_ON_CARRIER_RULE, NUMBER_NOT_ON_CARRIER_REASON
+    )
+    assert number_dial_refusal(None, "both") == LaunchBlocker(
+        NUMBER_NOT_ON_CARRIER_RULE, NUMBER_NOT_ON_CARRIER_REASON
+    )
+    assert number_dial_refusal("thinnest", "inbound") == LaunchBlocker(
+        NUMBER_INBOUND_ONLY_RULE, NUMBER_INBOUND_ONLY_REASON
+    )
+
+
+def test_the_campaign_gate_admits_any_number_on_an_engine_without_a_carrier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "engine", "fake")
+    assert number_dial_refusal("plivo", "inbound") is None
 
 
 async def test_check_dispatch_admits_an_armed_agent_on_thinnest(on_thinnest: None) -> None:
@@ -187,9 +209,9 @@ async def test_another_tenants_thinnest_number_is_zero_rows(on_thinnest: None) -
                 text("SELECT count(*) FROM phone_numbers WHERE agent_id = :a"), {"a": a_agent}
             )
         ).scalar_one()
-        blocked = await agent_outbound_number_blocker(session, agent_id=a_agent)
+        candidates = await agent_outbound_numbers(session, agent_id=a_agent)
     assert seen == 0
-    assert blocked is not None and blocked[0] == "number_not_bound_to_agent"
+    assert candidates == []
 
 
 # --- the admin record route -----------------------------------------------------------

@@ -36,7 +36,7 @@ from typing import Annotated
 from uuid import UUID
 
 from calevate_shared.engine import LlmTier
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,6 +70,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 
 router = APIRouter(tags=["agents"])
@@ -435,6 +436,13 @@ _APPLIES_NOW = (
 )
 
 
+def llm_default_confirmation(org_id: UUID) -> str:
+    """The `X-Confirm-Action` for an operator setting one client's model (D-731): it changes
+    what every following agent's calls cost and republishes them, a commercial lever like
+    the client's call lines."""
+    return f"set_llm_default:{org_id}"
+
+
 @router.get(
     "/v1/organization/llm-defaults",
     response_model=ClientLlmDefaultsOut,
@@ -543,7 +551,10 @@ async def admin_set_llm_default(
     payload: LlmDefaultIn,
     request: Request,
     principal: Operator,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> LlmDefaultsOut:
+    step_up.require(x_confirm_action, llm_default_confirmation(org_id))
     model = validate_llm_model(
         payload.default_llm_model, field="default_llm_model", audience="operator"
     )
@@ -564,4 +575,4 @@ async def admin_set_llm_default(
         return await _read_defaults(scoped)
 
 
-__all__ = ["admin_router", "router"]
+__all__ = ["admin_router", "llm_default_confirmation", "router"]

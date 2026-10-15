@@ -305,22 +305,6 @@ async def test_an_experiment_arm_in_our_workspace_is_recreated_in_the_clients(
     assert await _retire_jobs(tenant) == [legacy]
 
 
-async def test_an_agent_whose_numbers_are_all_unregistered_has_no_lawful_header() -> None:
-    tenant_id, agent_id = await _tenant_agent()
-    async with tenant_session(tenant_id) as session:
-        assert await agents_service.agent_outbound_number_blocker(session, agent_id=agent_id) == (
-            "number_not_bound_to_agent",
-            agents_service.CALLBACK_NO_REGISTERED_NUMBER_REASON,
-        )
-    await _bind_number(tenant_id, agent_id, dlt_status="pending")
-    async with tenant_session(tenant_id) as session:
-        blocked = await agents_service.agent_outbound_number_blocker(session, agent_id=agent_id)
-    assert blocked == (
-        "number_not_registered",
-        agents_service.CALLBACK_NUMBER_NOT_REGISTERED_REASON,
-    )
-
-
 def test_the_forward_prompt_hands_over_and_keeps_the_truthful_answers() -> None:
     prompt = agents_service.healer_forward_prompt(call_is_recorded=False)
     assert "hand the caller to a person" in prompt

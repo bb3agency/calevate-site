@@ -163,8 +163,8 @@ FLAGS: Final[dict[str, FlagSpec]] = {
             "the numbers themselves. The in-call audio path runs inside the rented engine "
             "(D-33), so nothing we trace is inside it, and the vendor's own per-component "
             "timings are neither the same measurements nor validated against a stopwatch "
-            "— which is OPERATIONS §2 pilot gate 4, and needs a Bolna account placing a "
-            "real call. `calls.latency` was dropped in migration f1a7c39d5be2 for exactly "
+            "— which is OPERATIONS §2 pilot gate 4, and needs a real call placed on the "
+            "voice platform. `calls.latency` was dropped in migration f1a7c39d5be2 for exactly "
             "this reason; the gate is what re-opens both."
         ),
     ),

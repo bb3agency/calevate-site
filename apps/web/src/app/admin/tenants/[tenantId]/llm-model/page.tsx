@@ -41,6 +41,7 @@ import { asText } from "@/lib/copilot/types";
 import { compareRates, rateDifference } from "@/lib/llmRates";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { WriteFailure } from "@/app/admin/writeFailure";
 
 /**
  * WHICH LANGUAGE MODEL THIS CLIENT'S AGENTS THINK WITH — the operator's half of the
@@ -185,7 +186,7 @@ export default function LlmModelPage({
             set={set}
             write={write}
           />
-          {set.error != null && <ProblemNotice error={set.error} />}
+          {set.error != null && <WriteFailure error={set.error} actionLabel="Save this model" />}
           {set.isSuccess && <Recorded sent={set.variables} defaults={defaults.data} />}
         </>
       )}

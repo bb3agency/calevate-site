@@ -27,6 +27,7 @@ from typing import Any
 
 import pytest
 from apps.api.core import alert_admission, alerting
+from apps.api.core.alarm_severity import ALARM_SEVERITY
 from apps.api.core.settings import get_settings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -105,6 +106,21 @@ def test_an_alert_is_delivered_to_the_operator(transport: RecordingTransport) ->
     assert "019f-abc" in message["body"]
     assert "019f-def" in message["body"]
     assert message["html"] is not None and "019f-abc" in message["html"], "multipart: HTML too"
+
+
+def test_a_mail_that_cannot_be_designed_still_pages(
+    transport: RecordingTransport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*_args: object) -> object:
+        raise ValueError("the alarm index is not valid UTF-8")
+
+    monkeypatch.setattr(alerting, "_compose", broken)
+    alerting.alert("WORKER_DELIVERY", PAGING_CODE, detail="call +919876543210 failed")
+
+    (message,) = _delivered(transport)
+    assert PAGING_CODE in message["subject"]
+    assert "WORKER_DELIVERY" in message["body"]
+    assert "9876543210" not in message["body"], "the bare mail is redacted like the designed one"
 
 
 def test_nothing_is_delivered_when_no_operator_address_is_configured(
@@ -382,6 +398,7 @@ def test_the_named_dropped_codes_are_bounded(
 
 def test_two_crash_classes_do_not_share_one_suppression_slot(
     transport: RecordingTransport,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The class of defect D-147 found ONE instance of.
 
@@ -395,7 +412,11 @@ def test_two_crash_classes_do_not_share_one_suppression_slot(
     Asserted through `alert()` with the codes `install_error_handlers` now builds, rather
     than by driving two crashes, because the property under test is the FINGERPRINT and
     a second app-level crash would only re-prove that a 500 alerts.
+
+    `unhandled_exception` is an `attention` code, which is not mailed; it is lifted to
+    `page` here so the fingerprint can be observed at the transport.
     """
+    monkeypatch.setitem(ALARM_SEVERITY, "unhandled_exception", "page")
     alerting.alert("ROUTE_HANDLER", "unhandled_exception:ClientDisconnect", detail="…")
     alerting.alert("ROUTE_HANDLER", "unhandled_exception:ClientDisconnect", detail="…")
     alerting.alert("ROUTE_HANDLER", "unhandled_exception:IntegrityError", detail="…")

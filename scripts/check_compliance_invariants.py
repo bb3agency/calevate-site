@@ -199,6 +199,15 @@ ENGINE_REACH_EXEMPTIONS: dict[str, str] = {
         "guardrail has a single place to point at. Its own callers are what section 2 "
         "judges; adding a second entry here is how that stops being true"
     ),
+    "apps/api/forwarding/testing.py::place_legs": (
+        "The forwarding verification call (D-746), and nothing else: it rings the client's "
+        "OWN published number, which the client asked us to test, from a platform number "
+        "through an agent that is never a client agent, saying `TEST_CALL_PURPOSE` (an "
+        "automated test, truthful under hard rule 5). No lead or contact is ever its "
+        "destination, so the lead-dial gate's questions (DNC, calling hours, KYC, pledge) "
+        "do not apply; the start is audited as `forwarding.test_started`. A second caller "
+        "of `place_forwarding_test_call` is a new reach and fails this guard"
+    ),
 }
 
 # WHO MAY DECIDE WHETHER AN AGENT EXISTS AND WHAT STATE IT IS IN (D-440, hard rule 5).
@@ -319,6 +328,10 @@ class GateRegistry:
     dial: str
     gates: frozenset[str]
     engine_start: str
+    #: Every engine method that makes the vendor ring a phone: the outbound start and the
+    #: forwarding verification call (D-746). Section 1 enumerates the callers of each, so a
+    #: second dial verb cannot sit outside the census.
+    engine_dial_verbs: frozenset[str]
     transport_factory: str
     opt_in_field: str
     gate_call_names: frozenset[str]
@@ -365,6 +378,7 @@ def gate_registry() -> GateRegistry:
         spend_capped,
     )
     from apps.api.engine.capabilities import require_call_compliance_floor
+    from apps.api.engine.forwarding_probe import PlacesForwardingTests
     from apps.workers.whatsapp import Destination, get_whatsapp_transport
     from calevate_shared.engine import (
         TRUTHFUL_ANSWER_DIRECTIVE,
@@ -391,6 +405,12 @@ def gate_registry() -> GateRegistry:
         dial=dispatch_call.__name__,
         gates=gates,
         engine_start=VoiceEngine.start_outbound_call.__name__,
+        engine_dial_verbs=frozenset(
+            {
+                VoiceEngine.start_outbound_call.__name__,
+                PlacesForwardingTests.place_forwarding_test_call.__name__,
+            }
+        ),
         transport_factory=get_whatsapp_transport.__name__,
         opt_in_field=next(name for name in Destination.__dataclass_fields__ if name == "opt_in_at"),
         gate_call_names=gates | {dispatch_call.__name__} | {f.__name__ for f in predicates},
@@ -545,10 +565,10 @@ def _scan(names: Iterable[str], roots: Iterable[Path] | None = None) -> Iterator
 
 def _engine_sites(roots: Iterable[Path] | None = None) -> list[CallSite]:
     try:
-        start = gate_registry().engine_start
+        verbs: Iterable[str] = gate_registry().engine_dial_verbs
     except Exception:  # pragma: no cover - blind_spots() reports this first
-        start = "start_outbound_call"
-    return list(_scan((start,), roots))
+        verbs = ("start_outbound_call", "place_forwarding_test_call")
+    return list(_scan(verbs, roots))
 
 
 def engine_reach(
@@ -564,7 +584,7 @@ def engine_reach(
     """
     allowed = ENGINE_REACH_EXEMPTIONS if exemptions is None else exemptions
     return [
-        f"{site.qualname} reaches the engine's outbound start directly (no exemption recorded)"
+        f"{site.qualname} reaches an engine dial verb directly (no exemption recorded)"
         for site in _engine_sites(roots)
         if site.qualname not in allowed
     ]

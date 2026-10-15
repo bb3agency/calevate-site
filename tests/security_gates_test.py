@@ -196,10 +196,16 @@ def _admin_gates(t: str) -> list[tuple[str, str, dict[str, Any] | None, str]]:
             {"call_lines": 3},
             f"set_call_lines:{t}",
         ),
+        (
+            "PUT",
+            f"/v1/admin/organizations/{t}/llm-defaults",
+            {"default_llm_model": None},
+            f"set_llm_default:{t}",
+        ),
     ]
 
 
-GATE_COUNT = 21
+GATE_COUNT = 22
 
 
 def test_the_gate_list_is_the_one_this_file_claims() -> None:

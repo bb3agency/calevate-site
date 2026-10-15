@@ -268,6 +268,17 @@ class TestTheRegistryCannotBeSkipped:
         assert DEFAULT_SEVERITY == "page"
         assert severity_of("a_code_nobody_has_classified_yet") == "page"
 
+    def test_a_code_carrying_its_exception_class_is_classified_by_its_base_code(
+        self,
+    ) -> None:
+        """`errors.py` appends the class (`unhandled_exception:IntegrityError`); the row it
+        is classified under is the base code's, as the alarm index lists it."""
+        assert (
+            severity_of("unhandled_exception:IntegrityError")
+            == ALARM_SEVERITY["unhandled_exception"]
+        )
+        assert severity_of("database_busy:QueryCanceled") == ALARM_SEVERITY["database_busy"]
+
     def test_a_new_code_with_no_severity_fails_the_guard(self) -> None:
         """THE NEGATIVE CONTROL. A guard that has never been seen to fail is a guard
         nobody can trust; this shows it refusing the exact diff it exists to refuse."""

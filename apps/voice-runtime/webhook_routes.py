@@ -31,11 +31,12 @@ The contract this file must satisfy, in order:
    those has a chosen answer here; none of them is a 500. The last two were the ones
    this list claimed and did not have.
 
-The deeper reason it is this thin: Bolna's delivery is at-most-once with no retries,
-so a slow or failing receiver silently LOSES calls. Being fast is a correctness
-property here, not a performance nicety. The 10-minute reconciliation poller is what
-makes a loss recoverable (D-31), and it is the poller — not this endpoint — that is
-the guarantee of record.
+The deeper reason it is this thin: an engine that retries (ThinnestAI, `signed_intake`)
+turns a slow ack into duplicate deliveries, and an engine that does not retry turns it
+into a lost event. Being fast is a correctness property here, not a performance nicety.
+The reconciliation poller (`workers/pipeline.reconcile_executions`) is what makes a lost
+event recoverable (D-31), and it is the poller — not this endpoint — that is the
+guarantee of record.
 """
 
 from __future__ import annotations
@@ -108,8 +109,7 @@ router = APIRouter(prefix="/hooks/v1", tags=["engine-webhooks"])
 # SETNX, and deliveries that arrive WHILE the first one's transaction is still open now
 # reach the durable claim instead of being absorbed here. That claim is where they
 # belong — it is the layer that actually decides — and every delivery after the first
-# commit (which is the entire real duplicate population, since Bolna does not retry and
-# duplicates come from replays and poller rediscoveries later in time) is still absorbed
+# commit (vendor retries, replays and poller rediscoveries, all later in time) is still absorbed
 # without touching Postgres.
 #
 # **THE KEY IS THE UNIT OF WORK; THE BODY DIGEST IS ITS VALUE.** The key is the same
@@ -344,7 +344,7 @@ def _refuse(started: float, engine: str, *, meter: AckMeter) -> str:
 
     It also matters for the specific incident the rejection alert is written for — the
     vendor renumbers and every webhook 401s. With refusals unmeasured, `webhook_ack_ms`
-    for provider=bolna does not spike, it goes SILENT, which on a graph is indistinguish-
+    for that engine does not spike, it goes SILENT, which on a graph is indistinguish-
     able from a quiet night.
 
     `engine` is bounded to the engines we actually run before it becomes a label
@@ -667,10 +667,9 @@ async def _receive(
         )
         raise ProblemError.unauthorized("This caller is not permitted to post events.")
 
-    # Step 2 — the RAW bytes, bounded, read once and never re-parsed downstream. Bolna
-    # signs nothing today, but an engine that does will need the exact bytes (its
-    # signature check belongs right here, as a SECOND gate after the source check), and
-    # retro-fitting raw-body preservation into a live receiver is miserable.
+    # Step 2 — the RAW bytes, bounded, read once and never re-parsed downstream. A
+    # signing engine never reaches this path (`_receive_signed` above verifies over the
+    # same bounded bytes); this one serves the engines that sign nothing.
     raw = await read_bounded(request, engine=engine, meter=WEBHOOK_ACK)
     if raw is None:
         alert("ROUTE_HANDLER", "webhook_payload_too_large", engine=engine)
@@ -685,9 +684,9 @@ async def _receive(
     # Step 3 — parse defensively. Anyone who reaches this line has cleared the source
     # check, but "the engine's IP sent it" is not "the engine sent well-formed JSON",
     # and `json.loads` raises RecursionError — NOT JSONDecodeError — on a deeply nested
-    # document. A 500 here is not cosmetic: Bolna delivers at most once and swallows
-    # errors, so a receiver that crashes on one hostile POST is indistinguishable from
-    # one that crashes on the real call arriving in the same second.
+    # document. A 500 here is not cosmetic: an unsigned engine may deliver at most once
+    # and swallow errors, so a receiver that crashes on one hostile POST is
+    # indistinguishable from one that crashes on the real call arriving in the same second.
     payload: dict[str, Any] = {}
     readable = True
     try:
@@ -702,8 +701,8 @@ async def _receive(
 
     event = extract(payload)
     if event is None:
-        # Ack anyway: an event we cannot key is one we can never dedupe, and Bolna
-        # would not resend it regardless. The poller will pick the call up.
+        # Ack anyway: an event we cannot key is one we can never dedupe, and a resend
+        # would be just as unkeyable. The poller will pick the call up.
         #
         # "Cannot key" covers both a payload with no execution id and one whose id or
         # status we refuse to store (over-long or control characters — `engine_intake.

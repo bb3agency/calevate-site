@@ -1290,11 +1290,18 @@ def _refused_on_our_side(exc: BaseException) -> bool:
     `dispatch_call` before the vendor request (agent not published, a campaign number its
     agent no longer holds), because anything that fails after it is proven not placed or becomes
     `DialUnconfirmedError`. None of those is about the contact.
+
+    A refusal the adapter marks `setup_refused` is our set-up at the vendor whatever its
+    status — `agent_ambiguous` and a `from` that is not one of the agent's numbers
+    (`from_number_invalid`) are `400`s (`place-call.md:499-505`) — so it never spends the
+    person's attempts: every contact would fail the same way until an operator acts.
     """
     if isinstance(exc, ProblemError) and not isinstance(exc, EngineRejectedError):
         return True
     if not dial_was_not_placed(exc):
         return False
+    if isinstance(exc, EngineRejectedError) and exc.setup_refused:
+        return True
     return not (
         isinstance(exc, EngineRejectedError) and exc.vendor_status in _CONTACT_SIDE_STATUSES
     )

@@ -3,10 +3,10 @@
 Two rules from the blueprint drive this module:
 
 1. **The recording copy runs FIRST in the pipeline, always** (TRD §8, FLOWS §3).
-   Bolna's recording URLs are direct S3 links with no documented expiry and vendor-side
-   retention is undocumented (pilot item) — so their copy is not our system of record,
-   ours is. Everything downstream can be re-run; a recording we failed to copy may
-   simply be gone, and TRAI's 90-day floor is our obligation, not theirs.
+   The engine keeps its copy of a recording on the vendor's terms, not ours, so that
+   copy is not our system of record; ours is. Everything downstream can be re-run; a
+   recording we failed to copy may simply be gone, and TRAI's 90-day floor is our
+   obligation, not theirs.
 2. **Raw vendor payloads go to object storage as refs, never into typed columns**
    (hard rule 2). They exist for debugging and are never read by app code — but they
    are PERSONAL DATA all the same (the raw payload carries the caller's number and the
@@ -107,8 +107,8 @@ class StorageUnavailableError(Retry):
     retries", and it now does.
 
     Of everything in the pipeline this is the failure least tolerable to drop: the
-    recording copy runs FIRST precisely because Bolna's recording URLs are direct S3
-    links with no documented expiry, so a copy we quietly gave up on is a call recording
+    recording copy runs FIRST precisely because the engine keeps its copy on its own
+    terms, so a copy we quietly gave up on is a call recording
     that is simply gone — against a 90-day TRAI floor that is our obligation, not the
     vendor's.
 

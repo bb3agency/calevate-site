@@ -10,8 +10,9 @@ network call.
 - **Outbox** makes side effects survive a crash: the row is written in the SAME
   transaction as the domain write, so "lead created but notification lost" cannot
   happen. A separate dispatcher publishes it.
-- **Inbox** dedupes provider events. Bolna webhooks are at-most-once and unsigned
-  (D-31), so this is where an execution_id becomes a single unit of work.
+- **Inbox** dedupes provider events. An engine may deliver one event more than once
+  (ThinnestAI retries, `signed_intake`), so this is where an event becomes a single unit
+  of work.
 """
 
 from __future__ import annotations
