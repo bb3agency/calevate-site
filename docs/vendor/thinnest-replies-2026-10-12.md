@@ -733,3 +733,86 @@ H. **`own` on `GET /byok/voices`.** `GET /byok/voices` marks our own account's v
 2. What does `billing` hold on a forwarded call with no agent: `null`, or `voicePlan: standard`?
 3. Does "a free trial call" (`voicePlan`, `ratePerMinuteMicro` and `billedSeconds` all null) include test calls that our own free-trial agents place in our developer workspace, or only ThinnestAI's own free plan?
 4. `voice.reaskAfterSeconds` is in the Voice guide (`channels/voice.md:659`) but in no API schema. Does Update Agent accept it? Is there an API field for the console's "up to four" reply languages?
+
+## 15. Draft of the next email (16 Oct 2026, unsent; the founder sends)
+
+Gathers what §14.1 left open, the four new questions it lists, and what building A–H on our
+side (D-796, D-797, D-798) raised. §13 questions 1-15 are repeated only where §14.1 marks them
+open, because the 15 Oct reply answered only the §13.1 requests.
+
+> **Subject:** Calevate: thank you for A–H, and what is still open
+>
+> Hi Ashutosh,
+>
+> Thank you for shipping all eight so quickly. We have built every one of them into Calevate:
+> each call is now reconciled on `billing`, Studio is costed on `ttsCharacters`, client agents
+> use our shared clones, a client's retention is set on its workspace, call content is deleted
+> per call, and `contact.erased` and `byok.changed` close the loop. What is still open:
+>
+> **From the new release**
+> 1. Shared clones: is a developer clone's id in a customer workspace's `GET /voices` the same
+>    as its `voiceId` in our developer workspace? We publish client agents with that id and
+>    refuse if it is not listed, so a different id would stop every client publish on our clones.
+> 2. What does `billing` hold on a forwarded call with no agent: `null`, or the agent's plan and
+>    rate as your email says? We would like the docs to state it.
+> 3. Does "a free trial call" (plan, rate and billed seconds all null) include the test calls our
+>    own free-trial agents place in our developer workspace, or only calls on your free plan?
+> 4. A call that ends before the agent speaks (`hangup: before_agent`) is charged the carrier's
+>    fee and its seconds are rounded to the carrier's block. How long is that block, and what is
+>    the fee, so we can reconcile those calls instead of flagging them?
+> 5. Could List Calls carry `billing` too, or could you send a webhook when a call is settled?
+>    A call settled after `call.analysed` has no billing in what we receive, so today we read
+>    Get Call for each one.
+> 6. `voice.reaskAfterSeconds` is in the Voice guide but in no API schema. Does Update Agent
+>    accept it? Is there an API field for the console's "up to four" reply languages?
+>
+> **Per-agent keys and billing** (still open from our last email)
+> 7. Please confirm per-agent `byok` (all four choices) is live for every workspace, so we can
+>    place one test call on each set-up.
+> 8. With our own LLM key, do the post-call summary and field extraction run on our key (Google
+>    bills us for tokens `usage` does not count) or on yours? And does Google bill
+>    `cachedInputTokens` at its cached rate through your call?
+> 9. `PUT /agents/{id}/byok-model`: the page says `409` when the workspace is not using its own
+>    keys, but the response table says `409` means "not using its own voice key". Can a Clear
+>    agent (scope `llm`, no voice key) have its own model?
+> 10. The per-minute price of the Standard voice plan, and is there a volume rate on the Studio
+>     band? Clear runs on Studio at ₹3.00 a minute, which is most of our cost.
+>
+> **Agent behaviour**
+> 11. The text of the 16 speaking rules that `callInstructions` replaces, so our prompt keeps the
+>     ones we still want.
+> 12. Is `voice.surfaces: []` accepted on an agent with no number?
+> 13. When the caller goes quiet, does the model see anything (an empty turn, an event, the time
+>     since they spoke), or do `nudgeAfterSeconds` and `endAfterSilenceSeconds` handle it outside
+>     the model?
+> 14. Where do our `instructions` sit in what the model receives, relative to your rules, the
+>     steps, the per-call variables and the caller memory? Is the part that is the same on every
+>     call sent first, so it can be cached?
+>
+> **Placing calls**
+> 15. What exactly makes an agent one that "answers the phone" for Place Call (`409
+>     calling_not_set_up`)? Our trial agents have no number of their own: one shared number's
+>     line is an agent with Answer calls off, and each test call lends the number to the trial
+>     agent as `callingAgent`. We now set `surfaces: ["phone"]` on the borrowing agent right after
+>     the lend. Is that the intended way, and does a lent number count as a number "to call from"
+>     for `phone_number_required`?
+> 16. Does lending a number add `phone` to the borrowing agent by itself, and does it stay when the
+>     number is lent to another agent? Can an agent with `phone` but no number of its own ever
+>     answer an inbound call?
+>
+> **Numbers**
+> 17. Does `POST /phone-numbers` (rent) honour `Idempotency-Key`? We send it.
+> 18. Can a client workspace use a 140-series number (a TRAI voice header registered on DLT for
+>     the client as Principal Entity) as `from` on Place Call: rented through you, or brought
+>     in? We are deciding whether to support promotional calling and need to know if the header
+>     can be presented on your stack.
+>
+> **Compliance**
+> 19. The signed DPA and the list of your sub-processors that handle a call on your stack.
+> 20. Please exclude our developer workspace and every customer workspace under it from model
+>     training, and confirm in writing once done.
+> 21. Any update from Plivo on the TRAI regulation 4 (autodialer) notice, and which access
+>     provider holds the numbers you rent to us.
+>
+> Thanks,
+> Umesh
