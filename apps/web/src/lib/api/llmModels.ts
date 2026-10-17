@@ -242,13 +242,21 @@ export function platformDefaultOption(
 }
 
 /**
- * OUR NAME FOR EACH MODEL PROVIDER, for the operator. An unknown key returns unchanged, so a
- * provider the server adds before this table learns its name still renders as something.
+ * OUR NAME FOR EACH MODEL AND VOICE PROVIDER. The client model picker shows the language-model
+ * providers (D-456); the voice vendors are reached only from the admin price panels, since a
+ * client screen names no voice vendor (D-679). An unknown key returns unchanged, so a provider
+ * the server adds before this table learns its name still renders as something.
  */
 export const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   azure_openai: "Azure OpenAI",
   openai: "OpenAI",
   google: "Google Gemini",
+  // Voice vendors, keyed by the provider the wire names: `sarvam` and `gnani` rows are
+  // append-only history from before ThinnestAI hosted the call.
+  sarvam: "Sarvam",
+  cartesia: "Cartesia",
+  gnani: "Gnani",
+  thinnest: "ThinnestAI",
 };
 
 export function providerLabel(provider: string): string {

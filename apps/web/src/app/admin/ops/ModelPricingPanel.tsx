@@ -46,35 +46,7 @@ import {
   type ModelPrice,
   type ModelPrices,
 } from "@/lib/api/opsModelPricing";
-
-/**
- * Vendor names as a person says them, from the machine value on the wire.
- *
- * `provider` arrives as `azure_openai` / `openai` / `google` — the catalogue's own leg
- * ids. The operator reads "Azure OpenAI", not a snake_case token. `lookup`, not a bare
- * index, so a value naming an `Object.prototype` member cannot resolve to a function
- * (the trap `StatusBadge` records); an unknown leg falls back to its own spelling with
- * the underscores opened out.
- */
-const PROVIDER_LABELS: Record<string, string> = {
-  azure_openai: "Azure OpenAI",
-  openai: "OpenAI",
-  google: "Google",
-  // The VOICE vendors. Same table, because the question a reader has is the same one
-  // ("whose invoice is this?") and two tables would be two spellings of "Cartesia".
-  //
-  // Keyed by the PROVIDER the wire names, so a label follows the data rather than the
-  // engine: `sarvam` and `gnani` rows are append-only history from before ThinnestAI hosted
-  // the call, and `thinnest` rows are calls ThinnestAI hosts.
-  sarvam: "Sarvam",
-  cartesia: "Cartesia",
-  gnani: "Gnani",
-  thinnest: "ThinnestAI",
-};
-
-function providerLabel(provider: string): string {
-  return lookup(PROVIDER_LABELS, provider) ?? provider.replace(/_/g, " ");
-}
+import { providerLabel } from "@/lib/api/llmModels";
 
 /**
  * Model prices — PLATFORM-CONFIG §5: the founder types the AUTHORITATIVE billing price for

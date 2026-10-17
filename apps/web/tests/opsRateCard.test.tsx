@@ -892,6 +892,24 @@ describe("the encoder price that decides whether an upload is indexed at all", (
     );
   });
 
+  it("names a provider the way every other model screen does", async () => {
+    // `providerLabel` in lib/api/llmModels.ts, the one table the model picker reads too.
+    const { container } = renderOps(
+      routes({
+        [OPS_MODEL_PRICES_PATH]: {
+          ...MODEL_PRICES_BASE,
+          tts_prices: [CLEAR_ROW, ttsRow()],
+          embedding_prices: [
+            embeddingRow({ model: "gemini-embedding-001", provider: "google", dimensions: 768 }),
+          ],
+        },
+      }),
+    );
+
+    await screen.findByText(/Knowledge indexing prices/);
+    expect(container.textContent).toContain("Google Gemini · 768-number vectors");
+  });
+
   it("shows a stated absence rather than a table when the API sent no encoders", async () => {
     // NOT a zero. "We do not know" and "nothing here costs anything" are opposite claims,
     // and the second is the one that gets an upload indexed for free on paper.

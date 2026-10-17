@@ -23,7 +23,6 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
   ToggleSwitch,
-  formatCount,
   formatIST,
   istDateStamp,
 } from "@/components/ui";
@@ -685,13 +684,9 @@ function DeleteCloneDialog({
           { voiceId: voice.voice_id, confirm },
           {
             onSuccess: (result) => {
-              onDeleted(
-                `${voice.label} was deleted. ` +
-                  (result.moved_agents === 0
-                    ? "No agent was on it. "
-                    : `${formatCount(result.moved_agents)} ${result.moved_agents === 1 ? "agent was" : "agents were"} moved to the voice platform's default voice. `) +
-                  result.next_step,
-              );
+              // `next_step` already says the clone was deleted and how many agents moved;
+              // composing those here too printed each of them twice.
+              onDeleted(`${voice.label}: ${result.next_step}`);
               onClose();
             },
           },
