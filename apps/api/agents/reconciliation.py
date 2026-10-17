@@ -52,6 +52,7 @@ this module is `EngineDrift`, which is ours.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import get_args
@@ -153,9 +154,10 @@ class DriftCandidate:
 
 
 async def claim_drift_batch(
-    session: AsyncSession, *, engine: str, limit: int
+    session: AsyncSession, *, engine: str, limit: int, set_aside: Sequence[str] = ()
 ) -> list[DriftCandidate]:
-    """The next `limit` vendor agent objects to reconcile, STALEST FIRST.
+    """The next `limit` vendor agent objects to reconcile, STALEST FIRST, leaving out the
+    `engine_agent_ref`s in `set_aside`.
 
     THE BOUND, AND WHY IT IS AN ORDERING RATHER THAN A CURSOR. Every row this returns
     costs one vendor round trip, so an unbounded sweep is a self-inflicted rate-limit
@@ -187,6 +189,10 @@ async def claim_drift_batch(
     would record a check that has not happened — a row reading "checked 30 seconds ago"
     for a vendor call that timed out is the precise lie `live_verified_at` stays NULL to
     avoid.
+
+    `set_aside` is the exception to "first next tick": a route whose check RAISED keeps its
+    old timestamp too, and raises again at the head of every batch, so the sweep sets it
+    aside for a while (`workers/set_aside.py`) and the routes behind it are reached.
     """
     rows = (
         await session.execute(
@@ -194,13 +200,14 @@ async def claim_drift_batch(
                 "SELECT tenant_id, agent_id, engine_agent_ref, drift_checked_at "
                 "FROM engine_agent_routes "
                 "WHERE active AND engine = :engine "
+                "AND NOT (engine_agent_ref = ANY(CAST(:set_aside AS text[]))) "
                 # `engine_agent_ref` breaks the tie so a tick is reproducible: without it
                 # every never-checked row sorts equal and the batch is whatever the plan
                 # happened to emit, which makes a partial sweep untestable.
                 "ORDER BY drift_checked_at NULLS FIRST, engine_agent_ref "
                 "LIMIT :limit"
             ),
-            {"engine": engine, "limit": limit},
+            {"engine": engine, "limit": limit, "set_aside": list(set_aside)},
         )
     ).all()
     return [

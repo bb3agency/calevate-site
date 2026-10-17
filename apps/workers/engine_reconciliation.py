@@ -57,8 +57,9 @@ WHY NOT ONE JOB PER AGENT. Fanning out an arq job per live agent would give per-
 retries and would also turn one predictable tick into N enqueues, N job records and N
 uncoordinated vendor calls with no platform-wide budget between them — replacing a bound
 we control with a queue depth we do not. The retry that matters here is the NEXT TICK,
-which is free: a row that failed keeps its old `drift_checked_at` and is therefore first
-in the next batch.
+which is free: a row whose vendor read failed keeps its old `drift_checked_at` and is
+therefore first in the next batch. A row whose check RAISED is set aside for a while
+instead (`workers/set_aside.py`), because it would raise again at the head of every batch.
 
 RETRIES, AND THERE IS NO DLQ (P6.5). `max_tries` is passed EXPLICITLY at the `cron()`
 call site because
@@ -103,8 +104,12 @@ from apps.api.engine import get_engine
 from apps.api.engine.catalogue import HostsVoices, RunsOwnModel
 from apps.api.reliability.engine_actions import check_agent_actions
 from apps.api.reliability.engine_lookups import check_call_start
+from apps.workers.set_aside import REFUSED_INPUT_SET_ASIDE, set_aside, set_aside_ids
 
 log = get_logger(__name__)
+
+#: The `set_aside` name for routes whose drift check raised.
+_SET_ASIDE_SWEEP = "engine_drift"
 
 #: Vendor agent objects read back per tick. See the module docstring for why 25.
 SWEEP_BATCH_SIZE = 25
@@ -469,14 +474,19 @@ async def _sweep() -> str:
     `undetermined` is legible as a vendor problem rather than as a fleet of drifted agents.
     """
     engine = get_engine()
+    excluded = await set_aside_ids(_SET_ASIDE_SWEEP)
     async with untenanted_session() as session:
-        batch = await claim_drift_batch(session, engine=engine.name, limit=SWEEP_BATCH_SIZE)
+        batch = await claim_drift_batch(
+            session, engine=engine.name, limit=SWEEP_BATCH_SIZE, set_aside=excluded
+        )
     if not batch:
         return "checked=0 drifted=0"
 
     started = time.monotonic()
     verdicts: dict[str, int] = {}
     skipped = 0
+    failed = 0
+    first_failure: Exception | None = None
     for candidate in batch:
         if time.monotonic() - started >= SWEEP_BUDGET_S:
             # Not a failure and not a retry: the rows we did not reach kept their old
@@ -492,11 +502,37 @@ async def _sweep() -> str:
                 },
             )
             break
-        verdict = await _reconcile_one(engine.name, candidate)
+        try:
+            verdict = await _reconcile_one(engine.name, candidate)
+        except Exception as exc:
+            # One route's check raising is not the tick's. It keeps its old
+            # `drift_checked_at` (nothing was checked, so nothing is stamped) and would
+            # head the next batch and raise again, so it is set aside for a while and the
+            # routes behind it are reached.
+            log.warning(
+                "engine_drift_check_failed",
+                extra={
+                    "agent_id": str(candidate.agent_id),
+                    "tenant_id": str(candidate.tenant_id),
+                    "engine": engine.name,
+                    "reason": exc.__class__.__name__,
+                },
+            )
+            await set_aside(
+                _SET_ASIDE_SWEEP, [candidate.engine_agent_ref], for_=REFUSED_INPUT_SET_ASIDE
+            )
+            failed += 1
+            first_failure = first_failure or exc
+            continue
         if verdict is None:
             skipped += 1
             continue
         verdicts[verdict] = verdicts.get(verdict, 0) + 1
+
+    if first_failure is not None and not verdicts and not skipped:
+        # Every check this tick raised: a fault of the sweep (database, credentials), not of
+        # a route. Raised for `sweep_engine_drift`'s retry ladder and its terminal alarm.
+        raise first_failure
 
     drifted = sum(count for state, count in verdicts.items() if state in DRIFT_STATES_OUT_OF_SYNC)
     checked = sum(verdicts.values())
@@ -510,6 +546,8 @@ async def _sweep() -> str:
             # unpublished, between the batch read and the round trip. A tick that is
             # mostly skips is a tick whose batch is stale, and that is worth seeing.
             "skipped": skipped,
+            # Checks that raised; each route is set aside (`engine_drift_check_failed`).
+            "failed": failed,
             **verdicts,
         },
     )
