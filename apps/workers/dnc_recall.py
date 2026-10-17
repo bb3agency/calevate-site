@@ -43,7 +43,7 @@ from typing import Any
 from uuid import UUID
 
 from arq import Retry
-from calevate_shared.engine import RecallOutcome
+from calevate_shared.engine import RecallOutcome, VoiceEngine
 from sqlalchemy import text
 
 from apps.api.core.alerting import alert
@@ -51,6 +51,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
+from apps.api.reliability.service import enqueue_outbox
 from apps.workers.dial_recall import QueuedDial
 
 log = get_logger(__name__)
@@ -119,24 +120,31 @@ async def _stamp(tenant_id: UUID, call_ids: list[UUID]) -> None:
         )
 
 
-async def _recall(phones: list[str], tenant_id: UUID | None) -> str:
-    """One suppression's worth of recall, and the verdict for each dial it reached."""
-    engine = get_engine()
-    dials = await _queued_dials_to(phones, tenant_id, DNC_RECALL_SCAN_LIMIT)
-    if not dials:
-        # The overwhelmingly common case, and it is a real answer rather than a no-op:
-        # nothing was queued to these numbers, so the suppression cost nothing to honour.
-        log.info(
-            "dnc_recall_nothing_queued",
-            extra={"engine": engine.name, "numbers": len(phones), "scoped": tenant_id is not None},
-        )
-        return "found=0"
+async def _has_not_rung(engine: VoiceEngine, dial: QueuedDial) -> bool:
+    """The vendor's own status says this dial is still waiting to ring (ThinnestAI's
+    `scheduled`, our `queued`). Read rather than taken from our row, which on ThinnestAI
+    stays `queued` while the phone rings."""
+    snapshot = await engine.get_execution(dial.engine_call_id)
+    return snapshot.status == "queued" and not snapshot.terminal
 
+
+async def _stop_dials(
+    engine: VoiceEngine, dials: list[QueuedDial], *, unrung_only: bool
+) -> tuple[dict[RecallOutcome, list[UUID]], list[UUID], list[UUID]]:
+    """Ask the engine to stop each dial; the verdicts, the dials it refused or could not be
+    asked about, and (with `unrung_only`) the dials left alone because they had rung.
+
+    `unrung_only` is the erasure's rule: a booked dial is called off, but a phone already
+    ringing or a call already answered is not hung up on. A dial that starts ringing
+    between the read and the stop is ended on the line and comes back `ALREADY_RUNNING`."""
     verdicts: dict[RecallOutcome, list[UUID]] = defaultdict(list)
     refused: list[UUID] = []
-
+    rung: list[UUID] = []
     for dial in dials:
         try:
+            if unrung_only and not await _has_not_rung(engine, dial):
+                rung.append(dial.call_id)
+                continue
             outcome = await engine.end_call(dial.engine_call_id)
         except Exception as exc:
             # ONE DIAL'S FAILURE IS NOT THE RUN'S, `dial_recall`'s argument: abandoning the
@@ -151,23 +159,145 @@ async def _recall(phones: list[str], tenant_id: UUID | None) -> str:
             refused.append(dial.call_id)
             continue
         verdicts[outcome].append(dial.call_id)
-        # STAMPED HERE, NOT AFTER THE LOOP, AND IT IS THIS JOB'S OWN DOCSTRING THAT SAYS
-        # WHY. Batched at the end, the stamp existed only if the loop ran to completion —
-        # and the loop not completing is the single condition the stamp is for. The
-        # per-dial `except` below catches an `Exception`; what ends this loop early is a
-        # `BaseException` the worker cannot catch: a redeploy or a `job_timeout` arriving
-        # as `CancelledError`, the same death `campaign_dispatch` has a test for. Every
-        # stamp for a dial already stopped was then lost, the retry re-POSTed a stop for
-        # it, the vendor refused an already-stopped execution, and those refusals landed
-        # in `undetermined` — firing `dnc_recall_undetermined`, which says these numbers
-        # "may have been called AFTER the suppression was recorded". A false alarm on a
-        # DNC control is worse than no alarm: it is the one an operator learns to mute.
-        #
-        # The cost is one single-row UPDATE by primary key per dial, against a scan capped
-        # at DNC_RECALL_SCAN_LIMIT and a vendor round trip on the line above that is three
-        # orders of magnitude slower. Durable-before-the-next-call is the only ordering
-        # that survives the crash, so batching cannot be recovered by making it smaller.
+        # STAMPED PER DIAL, NOT AFTER THE LOOP. Batched at the end, the stamp existed only
+        # if the loop ran to completion, and the loop not completing is the condition the
+        # stamp is for: a redeploy or a `job_timeout` arrives as `CancelledError`, which the
+        # `except` above does not catch. The retry then re-POSTed a stop for every dial
+        # already stopped, the vendor refused each one, and those refusals fired
+        # `dnc_recall_undetermined` ("may have been called AFTER the suppression was
+        # recorded") for dials that had been stopped: a false alarm on a DNC control is the
+        # one an operator learns to mute. One single-row UPDATE beside a vendor round trip.
         await _stamp(dial.tenant_id, [dial.call_id])
+    return verdicts, refused, rung
+
+
+#: The erased dials still to be asked about: the enqueue's predicates again, because a
+#: dial may have settled, or a delivery of this same message may have stopped it, since
+#: the erasure committed.
+_ERASED_DIALS_SQL = (
+    "SELECT id, engine_call_id FROM calls WHERE id = ANY(CAST(:ids AS uuid[])) "
+    "AND direction = 'outbound' AND status IN ('queued', 'ringing') "
+    "AND recall_requested_at IS NULL AND engine_call_id NOT LIKE 'local:%' "
+    "ORDER BY created_at, id LIMIT :limit"
+)
+
+#: Of the dials called off, those an erasure owes the platform's copy of
+#: (`compliance/engine_content`) and that copy is not yet deleted.
+_CONTENT_OWED_SQL = (
+    "SELECT id FROM calls WHERE id = ANY(CAST(:ids AS uuid[])) "
+    "AND engine_content_delete_requested_at IS NOT NULL AND engine_content_deleted_at IS NULL "
+    "ORDER BY id"
+)
+
+
+async def _ask_content_deleted(tenant_id: UUID, call_ids: list[UUID]) -> int:
+    """Owe the platform's copy of dials it cancelled before they rang, now.
+
+    `queue_engine_content_deletion` marked these at the erasure and held them back: our row
+    still read `queued`, and the platform answers 409 for a call booked and not rung
+    (delete-call-content.md:506-509). A dial the platform says it cancelled before ringing
+    recorded nothing, which is the case `engine_content._READY_SQL` lets through for a call
+    that never connected, so it need not wait for our row to settle and the daily backstop.
+    """
+    if not call_ids:
+        return 0
+    async with tenant_session(tenant_id) as session:
+        owed = (
+            (await session.execute(text(_CONTENT_OWED_SQL), {"ids": [str(c) for c in call_ids]}))
+            .scalars()
+            .all()
+        )
+        if owed:
+            # The literal, so `scripts/check_job_wiring` reads the job name at its enqueue site.
+            await enqueue_outbox(
+                session,
+                job="delete_engine_call_content",
+                payload={"tenant_id": str(tenant_id), "call_ids": [str(c) for c in owed]},
+            )
+    return len(owed)
+
+
+async def _recall_erased(tenant_id: UUID, call_ids: list[str], scope: str) -> str:
+    """An erasure's recall: call off the erased dials the vendor booked and has not rung."""
+    engine = get_engine()
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(_ERASED_DIALS_SQL), {"ids": call_ids, "limit": DNC_RECALL_SCAN_LIMIT}
+            )
+        ).all()
+    dials = [QueuedDial(tenant_id, UUID(str(r[0])), str(r[1])) for r in rows]
+    if not dials:
+        log.info("erasure_recall_nothing_booked", extra={"tenant_id": str(tenant_id)})
+        return "found=0"
+
+    verdicts, refused, rung = await _stop_dials(engine, dials, unrung_only=True)
+    prevented = verdicts[RecallOutcome.PREVENTED]
+    undetermined = (
+        verdicts[RecallOutcome.ALREADY_RUNNING] + verdicts[RecallOutcome.UNKNOWN] + refused
+    )
+    content_owed = await _ask_content_deleted(tenant_id, prevented)
+    # A tenant erasure can name more dials than one run asks about. The rest go to a run of
+    # their own rather than an alarm: the list only shrinks, so the chain ends.
+    reached = {str(dial.call_id) for dial in dials}
+    rest = [c for c in call_ids if c not in reached] if len(dials) >= DNC_RECALL_SCAN_LIMIT else []
+    if rest:
+        async with tenant_session(tenant_id) as session:
+            await enqueue_outbox(
+                session,
+                job=DNC_RECALL_JOB,
+                payload={"tenant_id": str(tenant_id), "erasure": scope, "call_ids": rest},
+            )
+    log.info(
+        "erasure_recall",
+        extra={
+            "engine": engine.name,
+            "tenant_id": str(tenant_id),
+            "scope": scope,
+            "found": len(dials),
+            "prevented": len(prevented),
+            # Already ringing, answered or ended when read: left alone by decision. Records
+            # such a call produces re-file the erasure (`deletion.refile_erasure_for_late_records`).
+            "rung": len(rung),
+            "undetermined": len(undetermined),
+            "content_deletion_queued": content_owed,
+            "continued": len(rest),
+        },
+    )
+    if undetermined:
+        named = ", ".join(str(c) for c in undetermined[:_ALERT_ID_LIMIT])
+        alert(
+            "WORKER_STALL",
+            "dnc_recall_undetermined",
+            detail=(
+                f"{len(undetermined)} of {len(dials)} booked dial(s) to a person whose data "
+                "was erased could not be confirmed called off before ringing: the platform "
+                "had started them, did not say what it caught, or refused. Call ids: "
+                f"{named}"
+            ),
+            episode="erasure",
+            tenant_id=str(tenant_id),
+        )
+    return (
+        f"found={len(dials)} prevented={len(prevented)} rung={len(rung)} "
+        f"undetermined={len(undetermined)}"
+    )
+
+
+async def _recall(phones: list[str], tenant_id: UUID | None) -> str:
+    """One suppression's worth of recall, and the verdict for each dial it reached."""
+    engine = get_engine()
+    dials = await _queued_dials_to(phones, tenant_id, DNC_RECALL_SCAN_LIMIT)
+    if not dials:
+        # The overwhelmingly common case, and it is a real answer rather than a no-op:
+        # nothing was queued to these numbers, so the suppression cost nothing to honour.
+        log.info(
+            "dnc_recall_nothing_queued",
+            extra={"engine": engine.name, "numbers": len(phones), "scoped": tenant_id is not None},
+        )
+        return "found=0"
+
+    verdicts, refused, _rung = await _stop_dials(engine, dials, unrung_only=False)
 
     prevented = verdicts[RecallOutcome.PREVENTED]
     # EVERYTHING THAT IS NOT `PREVENTED`, together, because the distinction that matters to
@@ -244,17 +374,29 @@ async def recall_dials_for_dnc(ctx: dict[str, Any], payload: dict[str, Any]) -> 
     is no dead-letter queue (P6.5), so the alert on the last attempt IS the dead-letter
     mechanism, and here it has to be loud: an abandoned recall means a suppression that
     never reached the queue and nobody looking.
+
+    AN ERASURE USES IT TOO (`compliance/dnc_recall.enqueue_erasure_recall`): an erased
+    number is refused for new dials like a suppressed one, and the dials already booked to
+    it are pulled back by the same stop. Its payload names `erasure` and call ids instead
+    of numbers, and only dials the vendor still holds unrung are stopped.
     """
     phones = [str(p) for p in payload.get("phones") or []]
     raw_tenant = payload.get("tenant_id")
     tenant_id = UUID(str(raw_tenant)) if raw_tenant else None
-    if not phones:
+    erasure = payload.get("erasure")
+    call_ids = [str(c) for c in payload.get("call_ids") or []]
+    if erasure and (tenant_id is None or not call_ids):
+        log.warning("erasure_recall_empty_payload")
+        return "found=0"
+    if not erasure and not phones:
         # Not an error and not retried: `enqueue_dnc_recall` refuses to enqueue an empty
         # list, so this is a payload from an older release or a hand-made one.
         log.warning("dnc_recall_empty_payload")
         return "found=0"
 
     try:
+        if erasure and tenant_id is not None:
+            return await _recall_erased(tenant_id, call_ids, str(erasure))
         return await _recall(phones, tenant_id)
     except Exception as exc:
         log.warning(
@@ -269,9 +411,11 @@ async def recall_dials_for_dnc(ctx: dict[str, Any], payload: dict[str, Any]) -> 
             "dnc_recall_abandoned",
             detail=(
                 f"{exc.__class__.__name__} after {attempt} attempt(s); dials to a newly "
-                "suppressed number were never pulled back from the voice platform and may "
-                "still ring. The suppression itself is in force for the next dispatch tick"
+                + ("erased" if erasure else "suppressed")
+                + " number were never pulled back from the voice platform and may still "
+                "ring. New dials to it are refused from the next dispatch tick"
             ),
+            episode="erasure" if erasure else None,
         )
         raise
 

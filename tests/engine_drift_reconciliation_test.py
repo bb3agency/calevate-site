@@ -550,6 +550,37 @@ async def test_a_full_batch_leaves_the_rest_first_in_line_rather_than_unread() -
     )
 
 
+async def test_a_route_whose_check_raises_does_not_hold_back_the_routes_behind_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A check that raises leaves the route's `drift_checked_at` alone, so without the
+    set-aside it heads every batch and raises again; with it, the next tick reads past it."""
+    engine = RecordingEngine()
+    refs = sorted([(await _published_agent(engine))[2] for _ in range(3)])
+    await _only(*refs)
+    broken = refs[0]  # never checked and first by `engine_agent_ref`: the head of the batch
+    original = engine_reconciliation._reconcile_one
+    attempts: list[str] = []
+
+    async def reconcile(engine_name: str, candidate: Any) -> str | None:
+        attempts.append(candidate.engine_agent_ref)
+        if candidate.engine_agent_ref == broken:
+            raise RuntimeError("this route's check is broken")
+        return await original(engine_name, candidate)
+
+    monkeypatch.setattr(engine_reconciliation, "_reconcile_one", reconcile)
+    with _engine(engine), _batch_size(2):
+        # The first tick: the broken route and the one behind it; the second: the two
+        # healthy routes, the broken one set aside rather than at the head again.
+        assert await sweep_engine_drift({}) == "checked=1 drifted=0"
+        assert await sweep_engine_drift({}) == "checked=2 drifted=0"
+    assert attempts.count(broken) == 1
+    assert (await _route(broken))[1] is None, "a check that did not happen was stamped"
+    assert all([(await _route(ref))[1] is not None for ref in refs[1:]]), (
+        "the routes behind a raising one were not reached"
+    )
+
+
 @contextmanager
 def _batch_size(size: int) -> Iterator[None]:
     previous = engine_reconciliation.SWEEP_BATCH_SIZE

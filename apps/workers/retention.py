@@ -104,6 +104,7 @@ from calevate_shared.engine import PIPECAT_REF_PREFIX
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.dnc_recall import enqueue_erasure_recall
 from apps.api.compliance.engine_content import (
     deletes_call_content,
     queue_engine_content_deletion,
@@ -2850,6 +2851,13 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         # tenant-scoped row this request touched. See `_OUTBOX_SUBJECT_SQL`.
         outbox_erased = await _erase_outbox_messages(session, tenant_id=tenant_id, phone=phone)
 
+        # THE DIALS ALREADY BOOKED AT THE VOICE PLATFORM to this person: `check_dispatch`
+        # refuses a new dial to an erased number, but one handed over before this request
+        # would still ring, and the platform refuses to delete a booked call's content
+        # (409). Called off after commit by the recall job; after the outbox scrub above,
+        # which would otherwise delete the job.
+        await enqueue_erasure_recall(session, tenant_id=tenant_id, call_ids=list(calls))
+
         # LOOKED AT, never changed — see `_search_knowledge_base` for why the erasure
         # stops at a count. Run last, so a store this request could not reach has already
         # raised and the number is never reported on an erasure that then rolled back.
@@ -3818,6 +3826,10 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                 f"{queued} call record(s) also held by the voice platform: "
                 f"{VOICE_PLATFORM_TENANT_CONTENT_SENTENCE}"
             )
+        # Every dial the platform has booked for this client and not rung is called off
+        # after commit (the subject erasure's reason). After the outbox scrub, which deletes
+        # every pending message of this tenant.
+        await enqueue_erasure_recall(session, tenant_id=tenant_id, call_ids=None)
 
         # THE OBLIGATIONS, RECORDED (D-433). No vendor call is made from here:
         # `_WITHDRAW_ROUTES_SQL` records why — a third-party round trip inside the one
