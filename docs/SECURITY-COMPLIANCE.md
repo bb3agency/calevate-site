@@ -592,7 +592,11 @@ applied to a task's calls by `calls_awaiting_our_copy`). `erase_engine_contact` 
 contacts it found as `<id>=held` on the `voice_engine` task and sends nothing; the nightly
 retention sweep queues every held erasure again (`retention._release_held_contacts`), and
 the run that finds the rule satisfied deletes the recorded contacts. A held task stays
-`open`, so past 30 days `processor_erasure_overdue` pages for it. The certificate's
+`open`; `processor_erasure_overdue` does not count it until the floor date of the calls it
+waits on has passed (`processor_erasure.NOT_HELD_SQL`, D-811), and the same holds for a task
+whose call content deletion waits on that rule. A booked dial the platform confirms it
+cancelled before ringing is closed `failed` at once (`workers/dnc_recall`), so it holds
+nothing. The certificate's
 voice-platform entry says the deletion waits for our copy. The pointer-clear stays
 unconditional.
 

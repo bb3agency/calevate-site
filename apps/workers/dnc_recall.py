@@ -100,17 +100,36 @@ async def _queued_dials_to(
     return [QueuedDial(UUID(str(r[0])), UUID(str(r[1])), str(r[2])) for r in rows]
 
 
-async def _stamp(tenant_id: UUID, call_ids: list[UUID]) -> None:
+#: A booked dial the platform confirmed it cancelled before ringing ends as a call that
+#: never connected: `failed`, the status the adapter gives the platform's own `cancelled`
+#: (`engine/thinnest._STATUS_MAP`). Left `queued`, it read as a call that may yet connect,
+#: so `engine_content._READY_SQL` held its content deletion and the erasure's contact
+#: DELETE (D-810) for up to 90 days. The status guard is the CAS: an ingest that settled
+#: the row first wins, and a later webhook cannot reopen a terminal row
+#: (`pipeline._upsert_call_row`).
+_SETTLE_CALLED_OFF_SQL = (
+    "UPDATE calls SET status = 'failed', ended_at = COALESCE(ended_at, now()), "
+    "updated_at = now() WHERE id = ANY(:ids) AND status IN ('queued', 'ringing')"
+)
+
+
+async def _stamp(tenant_id: UUID, call_ids: list[UUID], *, called_off_unrung: bool = False) -> None:
     """The one-way stamp both recall paths share, so neither re-stops the other's work.
 
     ITS OWN COMMITTED TRANSACTION, PER DIAL, AND THAT IS THE POINT (see `_recall`). Batched
     after the loop it was a stamp that only existed if the loop finished, which is the one
     condition under which it was needed.
 
+    `called_off_unrung` (an erasure's dial the platform says it cancelled before ringing)
+    also closes the row as never connected, in the same transaction: a redelivery skips
+    stamped dials, so a stamp committed without it would leave the row `queued` for good.
+
     A list rather than one id because `dial_recall._stamp_recalled` takes a list and the
     two are read side by side; the caller passes one.
     """
     async with tenant_session(tenant_id) as session:
+        if called_off_unrung:
+            await session.execute(text(_SETTLE_CALLED_OFF_SQL), {"ids": call_ids})
         await session.execute(
             text(
                 "UPDATE calls SET recall_requested_at = now(), updated_at = now() "
@@ -167,7 +186,11 @@ async def _stop_dials(
         # `dnc_recall_undetermined` ("may have been called AFTER the suppression was
         # recorded") for dials that had been stopped: a false alarm on a DNC control is the
         # one an operator learns to mute. One single-row UPDATE beside a vendor round trip.
-        await _stamp(dial.tenant_id, [dial.call_id])
+        await _stamp(
+            dial.tenant_id,
+            [dial.call_id],
+            called_off_unrung=unrung_only and outcome is RecallOutcome.PREVENTED,
+        )
     return verdicts, refused, rung
 
 
@@ -196,8 +219,8 @@ async def _ask_content_deleted(tenant_id: UUID, call_ids: list[UUID]) -> int:
     `queue_engine_content_deletion` marked these at the erasure and held them back: our row
     still read `queued`, and the platform answers 409 for a call booked and not rung
     (delete-call-content.md:506-509). A dial the platform says it cancelled before ringing
-    recorded nothing, which is the case `engine_content._READY_SQL` lets through for a call
-    that never connected, so it need not wait for our row to settle and the daily backstop.
+    recorded nothing, and `_stamp` has closed its row as never connected, which
+    `engine_content._READY_SQL` lets through, so it need not wait for the daily backstop.
     """
     if not call_ids:
         return 0

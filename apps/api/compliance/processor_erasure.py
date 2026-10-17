@@ -64,11 +64,16 @@ from calevate_shared.engine_scope import raw_of
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.deletion import RECORDING_FLOOR_DAYS
 from apps.api.db.base import uuid7
 
 __all__ = [
+    "CALL_CLOCK_SQL",
+    "CALL_COPY_SAFE_SQL",
     "CONTACT_HELD",
     "CONTACT_NOT_ASKED",
+    "HELD_UNTIL_SQL",
+    "NOT_HELD_SQL",
     "OVERDUE_AFTER_DAYS",
     "OWN_RUNTIME_ENGINES",
     "PROCESSORS",
@@ -144,6 +149,43 @@ STATUSES: Final = ("open", "requested", "confirmed", "refused")
 #: DPDP Rule 13(2) gives a Data Fiduciary a comparable window to act on a principal's
 #: request. An alarm that fires later than the obligation it guards is decoration.
 OVERDUE_AFTER_DAYS: Final = 30
+
+#: A call (alias `c`) whose recording the voice platform cannot hold the only copy of: we
+#: hold the AI leg's audio ourselves (its pointer, or an erasure's hold on it, since an
+#: erasure clears the pointer first), or the call never connected. A call outside this
+#: waits for `deletion.RECORDING_FLOOR_DAYS` past `CALL_CLOCK_SQL` before the platform's
+#: copy may go (D-803's `engine_content._READY_SQL`, D-810's contact hold).
+CALL_COPY_SAFE_SQL: Final = (
+    "(c.recording_url IS NOT NULL "
+    "OR c.status IN ('failed', 'no_answer', 'busy') "
+    "OR EXISTS (SELECT 1 FROM recording_erasure_holds h WHERE h.call_id = c.id "
+    "AND h.object_key NOT LIKE '%-transfer.wav'))"
+)
+#: The call's clock, `workers/retention._call_clock`'s, spelled here because the API does
+#: not import the worker.
+CALL_CLOCK_SQL: Final = (
+    "COALESCE(c.ended_at, c.created_at + make_interval(secs => COALESCE(c.duration_s, 0)))"
+)
+
+#: The instant a `voice_engine` task (alias `t`) stops waiting for our own recording copy:
+#: the latest floor date among the calls it names that are not `CALL_COPY_SAFE_SQL`. NULL
+#: for a task that waits on none, and for every other processor. Takes `:floor`.
+HELD_UNTIL_SQL: Final = (
+    f"(SELECT max({CALL_CLOCK_SQL}) + make_interval(days => :floor) FROM calls c "
+    "WHERE t.processor = 'voice_engine' "
+    "AND split_part(c.engine_call_id, '@', 1) IN "
+    "(SELECT jsonb_array_elements_text(t.vendor_refs)) "
+    f"AND NOT {CALL_COPY_SAFE_SQL})"
+)
+
+#: Whether a task (alias `t`) may count as overdue at all: it is not waiting by design for
+#: a recording floor still to pass. A task an erasure holds for our copy (D-803's content
+#: deletion, D-810's contact DELETE) goes on its own once the copy lands or the floor
+#: passes, so paging for it before then would ask an operator to do nothing, daily, for up
+#: to 60 days; one still open after its floor date is stuck and counts. Takes `:floor`. The
+#: alarm (`workers/dispatcher`) and `overdue_tasks` share it, so the page and the
+#: operator's list agree.
+NOT_HELD_SQL: Final = f"COALESCE({HELD_UNTIL_SQL}, '-infinity'::timestamptz) <= now()"
 
 # An opaque vendor identifier: uuids, the vendor's own prefixed ids, Twilio-shaped SIDs.
 # Deliberately NOT permissive — the point is to REFUSE anything that could be a phone
@@ -281,6 +323,9 @@ class ProcessorErasureTask:
     #: "the platform confirmed deletion on this date" — and it is the reason `settled_tasks`
     #: exists rather than the answer being written and forgotten.
     answered_at: datetime | None = None
+    #: The floor date a `voice_engine` task waits for before the platform's copy may go
+    #: (`HELD_UNTIL_SQL`); `None` when it waits on nothing.
+    held_until: datetime | None = None
 
 
 async def open_tasks_for_request(
@@ -580,7 +625,11 @@ async def held_contact_erasures(session: AsyncSession) -> list[UUID]:
 
 
 async def overdue_tasks(
-    session: AsyncSession, *, tenant_id: UUID, min_days: int | None = None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    min_days: int | None = None,
+    include_held: bool = False,
 ) -> list[ProcessorErasureTask]:
     """Every task still unanswered past `min_days`, oldest first.
 
@@ -592,23 +641,34 @@ async def overdue_tasks(
     operator script passes 0 for `list --all`, because someone who has just been paged
     about one tenant usually wants to send every outstanding request in one email rather
     than the ones that happen to have crossed a 30-day line.
+
+    A task held for a recording floor still to pass (`NOT_HELD_SQL`) is the alarm's
+    exception and is left out unless `include_held`; `--all` includes it, with its
+    `held_until`, so the operator sees what it waits for.
     """
     days = OVERDUE_AFTER_DAYS if min_days is None else min_days
     rows = await session.execute(
         text(
-            "SELECT id, processor, status, subject_ref, vendor_refs, answered_at, "
-            "       EXTRACT(DAY FROM now() - opened_at)::int AS days_open "
-            "FROM processor_erasure_tasks "
-            "WHERE tenant_id = :tid AND status IN ('open', 'requested') "
+            "SELECT t.id, t.processor, t.status, t.subject_ref, t.vendor_refs, t.answered_at, "
+            "       EXTRACT(DAY FROM now() - t.opened_at)::int AS days_open, "
+            f"      {HELD_UNTIL_SQL} AS held_until "
+            "FROM processor_erasure_tasks t "
+            "WHERE t.tenant_id = :tid AND t.status IN ('open', 'requested') "
             # `<=` and not `<`: `now()` is TRANSACTION start time, and a task opened
             # earlier in this same transaction has `opened_at` exactly equal to it.
             # With a strict `<` the operator script's `--all` (min_days=0) returned
             # an empty list for tasks it had just opened. At the 30-day default the
             # two spellings differ only on an exact boundary instant.
-            "  AND opened_at <= now() - make_interval(days => :days) "
-            "ORDER BY opened_at"
+            "  AND t.opened_at <= now() - make_interval(days => :days) "
+            f"  AND (CAST(:include_held AS boolean) OR {NOT_HELD_SQL}) "
+            "ORDER BY t.opened_at"
         ),
-        {"tid": str(tenant_id), "days": days},
+        {
+            "tid": str(tenant_id),
+            "days": days,
+            "floor": RECORDING_FLOOR_DAYS,
+            "include_held": include_held,
+        },
     )
     return [
         ProcessorErasureTask(
@@ -619,6 +679,7 @@ async def overdue_tasks(
             vendor_refs=list(row.vendor_refs or []),
             days_open=row.days_open,
             answered_at=row.answered_at,
+            held_until=row.held_until,
         )
         for row in rows
     ]

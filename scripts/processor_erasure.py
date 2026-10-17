@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from datetime import UTC, datetime
 from uuid import UUID
 
 from apps.api.billing.plans import IST
@@ -44,7 +45,12 @@ from apps.api.db.session import tenant_session
 
 async def _list(tenant_id: UUID, *, all_open: bool) -> int:
     async with tenant_session(tenant_id) as session:
-        tasks = await overdue_tasks(session, tenant_id=tenant_id, min_days=0 if all_open else None)
+        tasks = await overdue_tasks(
+            session,
+            tenant_id=tenant_id,
+            min_days=0 if all_open else None,
+            include_held=all_open,
+        )
     if not tasks:
         print(
             "No outstanding vendor-side erasure obligations for this tenant"
@@ -56,6 +62,14 @@ async def _list(tenant_id: UUID, *, all_open: bool) -> int:
     for task in tasks:
         print(f"  task      {task.id}")
         print(f"  processor {task.processor}   status {task.status}   open {task.days_open}d")
+        if task.held_until is not None:
+            # Held for our own copy of a recording (D-810): it goes on its own by this
+            # date, and erasing the contact by hand first deletes the only copy.
+            held = task.held_until.astimezone(IST).date().isoformat()
+            if task.held_until > datetime.now(UTC):
+                print(f"  held      until {held} (waits for our recording copy; send nothing)")
+            else:
+                print(f"  held      floor passed {held}; the nightly sweep should have sent it")
         # The subject hash, never the number (hard rule 6). It is here so an operator
         # holding the number can confirm they are looking at the right task, and it tells
         # anyone who does not hold the number nothing.

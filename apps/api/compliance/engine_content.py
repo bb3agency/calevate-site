@@ -26,7 +26,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.deletion import RECORDING_FLOOR_DAYS
-from apps.api.compliance.processor_erasure import VOICE_PLATFORM_DELETING_ENGINES
+from apps.api.compliance.processor_erasure import (
+    CALL_CLOCK_SQL,
+    CALL_COPY_SAFE_SQL,
+    VOICE_PLATFORM_DELETING_ENGINES,
+)
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.reliability.service import enqueue_outbox
@@ -44,15 +48,10 @@ CONTENT_DELETE_CHUNK: Final = 50
 #: recording inside the retention floor (`deletion.RECORDING_FLOOR_DAYS`): we hold the AI
 #: leg's audio ourselves (its pointer, or an erasure's hold on it, since an erasure clears
 #: the pointer before it queues this), the call never connected so nothing was recorded, or
-#: the floor has passed. The clock is `workers/retention._call_clock`'s, spelled here
-#: because the API does not import the worker.
+#: the floor has passed. Built from the fragments that also date a held erasure task's
+#: floor for the overdue alarm (`processor_erasure.HELD_UNTIL_SQL`), so the two agree.
 _READY_SQL: Final = (
-    "(c.recording_url IS NOT NULL "
-    "OR c.status IN ('failed', 'no_answer', 'busy') "
-    "OR EXISTS (SELECT 1 FROM recording_erasure_holds h WHERE h.call_id = c.id "
-    "AND h.object_key NOT LIKE '%-transfer.wav') "
-    "OR COALESCE(c.ended_at, c.created_at + make_interval(secs => COALESCE(c.duration_s, 0))) "
-    "<= now() - make_interval(days => :floor))"
+    f"({CALL_COPY_SAFE_SQL} OR {CALL_CLOCK_SQL} <= now() - make_interval(days => :floor))"
 )
 _CANDIDATES_SQL: Final = (
     f"SELECT c.id, c.engine_call_id, {_READY_SQL} FROM calls c "

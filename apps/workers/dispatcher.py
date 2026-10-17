@@ -20,7 +20,12 @@ from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.compliance.processor_erasure import OVERDUE_AFTER_DAYS
+from apps.api.compliance.deletion import RECORDING_FLOOR_DAYS
+from apps.api.compliance.processor_erasure import (
+    HELD_UNTIL_SQL,
+    NOT_HELD_SQL,
+    OVERDUE_AFTER_DAYS,
+)
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue, job_id_for
@@ -362,11 +367,16 @@ WHERE completed_at IS NULL AND requested_at < :cutoff
 #:
 #: It rides the SAME bounded per-tenant walk rather than adding a second full-fleet
 #: sweep — one way per problem, and the walk is already the expensive part.
-_OVERDUE_PROCESSOR_TASKS = """
-SELECT count(*) FILTER (WHERE status = 'open')      AS unasked,
-       count(*) FILTER (WHERE status = 'requested') AS unanswered
-FROM processor_erasure_tasks
-WHERE status IN ('open', 'requested') AND opened_at < :cutoff
+#:
+#: A `voice_engine` task held for our own recording copy is not counted until its floor
+#: date passes (`processor_erasure.NOT_HELD_SQL`, D-811); `held_past_floor` counts the
+#: overdue ones that were held, which the nightly retention sweep should have released.
+_OVERDUE_PROCESSOR_TASKS = f"""
+SELECT count(*) FILTER (WHERE t.status = 'open')      AS unasked,
+       count(*) FILTER (WHERE t.status = 'requested') AS unanswered,
+       count(*) FILTER (WHERE {HELD_UNTIL_SQL} IS NOT NULL) AS held_past_floor
+FROM processor_erasure_tasks t
+WHERE t.status IN ('open', 'requested') AND t.opened_at < :cutoff AND {NOT_HELD_SQL}
 """
 
 #: Every organization, and NOT `callable_tenants()`.
@@ -452,6 +462,7 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
     probed = 0
     unasked = 0
     unanswered = 0
+    held_past_floor = 0
     processor_tenants = 0
     # The wall clock, not a counter — see `fleet_walk.WalkBudget`.
     budget = WalkBudget(ERASURE_PROBE_DEADLINE)
@@ -471,7 +482,8 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
                 # buy nothing but another 16k sessions.
                 stuck = (
                     await session.execute(
-                        text(_OVERDUE_PROCESSOR_TASKS), {"cutoff": processor_cutoff}
+                        text(_OVERDUE_PROCESSOR_TASKS),
+                        {"cutoff": processor_cutoff, "floor": RECORDING_FLOOR_DAYS},
                     )
                 ).one()
         except Exception:
@@ -484,6 +496,7 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
         if stuck.unasked or stuck.unanswered:
             unasked += int(stuck.unasked or 0)
             unanswered += int(stuck.unanswered or 0)
+            held_past_floor += int(stuck.held_past_floor or 0)
             processor_tenants += 1
     if total or unreached:
         alert(
@@ -510,10 +523,21 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
                 f"{unasked + unanswered} vendor-side erasure obligation(s) across "
                 f"{processor_tenants} tenant(s) have been open longer than "
                 f"{OVERDUE_AFTER_DAYS} days: {unasked} never sent to the processor, "
-                f"{unanswered} sent and unanswered. These are NOT stuck jobs and "
-                "re-queueing does nothing — the erasure ran, and a copy the vendor "
-                "publishes no API to delete is still there. "
-                "runbooks/processor-erasure.md"
+                f"{unanswered} sent and unanswered. The erasure itself ran, so "
+                "re-queueing it does nothing; where no API reaches the copy, a person "
+                "writes to the vendor."
+                + (
+                    f" {held_past_floor} of them waited by design for our own copy of a "
+                    "call recording (D-803, D-810) and are past their "
+                    f"{RECORDING_FLOOR_DAYS}-day "
+                    "floor, so the nightly retention sweep should already have sent them: "
+                    "check that sweep and the delete_engine_call_content and "
+                    "erase_engine_contact jobs."
+                    if held_past_floor
+                    else ""
+                )
+                + " A task still inside its recording floor is not counted and needs "
+                "nothing. runbooks/processor-erasure.md"
             ),
         )
     if budget.exhausted:

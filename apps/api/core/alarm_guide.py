@@ -223,7 +223,8 @@ ALARM_SUMMARIES: Final[dict[str, AlarmSummary]] = {
     ),
     "processor_erasure_overdue": _s(
         "A sub-processor still holds a caller's recording after erasure",
-        "A person whose data we erased still has a copy at a sub-processor after 30 days.",
+        "A person whose data we erased still has a copy at a sub-processor after 30 days, "
+        "or, where the copy waited for our own recording, after the 90-day recording floor.",
     ),
     "action_audit_unrecorded": _s(
         "An agent action ran without an audit record",
