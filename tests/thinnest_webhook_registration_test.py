@@ -14,8 +14,10 @@ from typing import Any
 
 import httpx
 import pytest
+from apps.api.billing.plans import IST
 from apps.api.core.envelope import Envelope
 from apps.api.core.errors import ProblemError
+from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine.thinnest_webhooks import ThinnestWebhooks, set_thinnest_webhooks
@@ -44,6 +46,7 @@ class FakeThinnest:
         #: `PATCH /webhooks/{id}` (and possibly a create) on 17 Oct 2026.
         self.patch_fails = False
         self.create_fails = False
+        self.get_fails = False
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"] == "Bearer ta_live_test"
@@ -85,6 +88,8 @@ class FakeThinnest:
         if row is None:
             return httpx.Response(404, json={"error": "Not found"})
         if request.method == "GET":
+            if self.get_fails:
+                return httpx.Response(500, json={"error": "Try again.", "code": "internal_error"})
             return httpx.Response(200, json=row)
         if request.method == "PATCH":
             if self.patch_fails and "events" in json.loads(request.content):
@@ -540,10 +545,9 @@ async def test_when_the_vendor_cannot_create_either_the_old_endpoint_is_kept(
     _, secret_before = await _held(tenant_id, ref)
     vendor.patch_fails = vendor.create_fails = True
 
-    with pytest.raises(ProblemError) as failed:
-        await _ensure(tenant_id, ref)
+    result = await _ensure(tenant_id, ref)
 
-    assert failed.value.code == "engine_rejected"
+    assert (result.outcome, result.webhook_id) == ("events_pending", old)
     assert old in vendor.endpoints
     assert (await _held(tenant_id, ref)) == (old, secret_before)
 
@@ -574,9 +578,8 @@ async def test_the_sweep_names_a_vendor_side_failure(
     vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     tenant_id, ref = await _route()
-    old = (await _ensure(tenant_id, ref)).webhook_id
-    vendor.endpoints[old]["events"] = ["call.analysed", "call.completed"]
-    vendor.patch_fails = vendor.create_fails = True
+    await _ensure(tenant_id, ref)
+    vendor.get_fails = True
     await _aged(tenant_id, ref, "2000-01-01")
     alerts: list[tuple[str, str]] = []
     monkeypatch.setattr(sweep, "alert", lambda _s, code, **kw: alerts.append((code, kw["detail"])))
@@ -589,6 +592,38 @@ async def test_the_sweep_names_a_vendor_side_failure(
     assert "voice platform's side" in detail
 
 
+async def test_events_the_vendor_cannot_add_alarm_once_a_day_not_as_unchecked(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Production, 17 Oct 2026: the endpoint was on and delivering, and only the newer events
+    could not be added. That is not an unchecked endpoint, and a vendor fault is not worth
+    an alarm every twenty minutes."""
+    tenant_id, ref = await _route()
+    old = (await _ensure(tenant_id, ref)).webhook_id
+    vendor.endpoints[old]["events"] = ["call.analysed", "call.completed"]
+    vendor.patch_fails = vendor.create_fails = True
+    today = datetime.now(UTC).astimezone(IST).date().isoformat()
+    await get_redis().delete(sweep._EVENTS_PENDING_KEY.format(engine=ENGINE, day=today))
+    alerts: list[str] = []
+    monkeypatch.setattr(sweep, "alert", lambda _s, code, **_kw: alerts.append(code))
+    monkeypatch.setattr(get_settings(), "engine", ENGINE)
+
+    for _ in range(2):
+        await _aged(tenant_id, ref, "2000-01-01")
+        summary = await sweep.reconcile_engine_webhooks({})
+        assert "events_pending=0" not in summary
+
+    # Other tests' routes share this database and the vendor fails their creates too, so
+    # only this route's own lines and the once-a-day alarm are asserted.
+    assert alerts.count("engine_webhook_events_pending") == 1
+    assert not [
+        r
+        for r in caplog.records
+        if r.getMessage() == "engine_webhook_check_failed" and r.tenant_id == str(tenant_id)
+    ], "an endpoint that is on and delivering was reported as unchecked"
+    assert old in vendor.endpoints
+
+
 async def test_a_failed_patch_names_which_change_and_the_endpoint_state(
     vendor: FakeThinnest, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -599,8 +634,7 @@ async def test_a_failed_patch_names_which_change_and_the_endpoint_state(
     vendor.endpoints[old]["events"] = ["call.analysed", "call.completed"]
     vendor.patch_fails = vendor.create_fails = True
 
-    with pytest.raises(ProblemError):
-        await _ensure(tenant_id, ref)
+    assert (await _ensure(tenant_id, ref)).outcome == "events_pending"
 
     [line] = [r for r in caplog.records if r.getMessage() == "engine_webhook_patch_failed"]
     assert (line.op, line.vendor_status, line.vendor_code) == ("subscribe", 500, "internal_error")

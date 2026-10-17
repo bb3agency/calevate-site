@@ -311,6 +311,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_webhook_reenabled": "attention",
     "engine_webhook_redelivery_failed": "attention",
     "engine_webhook_sweep_incomplete": "attention",
+    # The endpoint is on and delivering what it holds; the vendor cannot save the newer
+    # events. Nothing is lost for call results, and the fix is theirs: attention, once a day.
+    "engine_webhook_events_pending": "attention",
     # D-691, a `contact.opted_out` the vendor reported and we could not file. The vendor's
     # own workspace list still refuses the number, so nobody is rung meanwhile: attention.
     "engine_optout_abandoned": "attention",

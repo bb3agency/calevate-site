@@ -47,7 +47,13 @@ THINNEST: Final = "thinnest"
 WEBHOOK_ENGINES: Final = frozenset({THINNEST})
 
 WebhookOutcome = Literal[
-    "not_applicable", "registered", "replaced", "healthy", "reenabled", "resubscribed"
+    "not_applicable",
+    "registered",
+    "replaced",
+    "healthy",
+    "reenabled",
+    "resubscribed",
+    "events_pending",
 ]
 
 
@@ -239,10 +245,10 @@ def _log_patch_failed(
 
 
 def _vendor_could_not_save(exc: EngineRejectedError) -> bool:
-    """A 5xx on `PATCH /webhooks/{id}`: the vendor failed to save the change, which its docs
-    call safe to retry (`snapshots/2026-10-15/pages/api-reference/webhooks/
-    update-webhook.md:525-526`). Production answered `500 internal_error` "Could not save the
-    endpoint." on every sweep for one endpoint, so retrying the same PATCH is not a repair."""
+    """A 5xx on a webhook write: the vendor failed to save it, which its docs call safe to
+    retry (`snapshots/2026-10-15/pages/api-reference/webhooks/update-webhook.md:525-526`).
+    Production answered `500 internal_error` to the event-list PATCH and to the create on
+    every sweep for one endpoint, so retrying the same write is not a repair."""
     return exc.vendor_status is not None and exc.vendor_status >= 500
 
 
@@ -262,8 +268,23 @@ async def _resubscribe_by_replacing(
     new endpoint either, the old one is still standing and still delivering the events it had.
     For the moment both exist an event reaches both urls; the old one's signature no longer
     matches the stored secret and is refused, and the inbox dedupes on the event id. Only
-    called on an endpoint that is on with no failures in a row, so nothing owed is dropped."""
-    created = await webhooks.create(engine_agent_ref=engine_agent_ref, url=url)
+    called on an endpoint that is on with no failures in a row, so nothing owed is dropped.
+
+    When the vendor cannot create it either (production, 17 Oct 2026: `500 internal_error`
+    "Could not add the endpoint." with the full event list), the old endpoint is kept, is
+    healthy, and is reported as `events_pending` rather than as unchecked: it still delivers
+    every event it holds, and only the newer ones are missing."""
+    try:
+        created = await webhooks.create(engine_agent_ref=engine_agent_ref, url=url)
+    except EngineRejectedError as exc:
+        if not _vendor_could_not_save(exc):
+            raise
+        await _mark_checked(session, engine, engine_agent_ref)
+        log.warning(
+            "engine_webhook_events_pending",
+            extra={"engine": engine, "webhook_id": held, "vendor_status": exc.vendor_status},
+        )
+        return WebhookRegistration(outcome="events_pending", webhook_id=held)
     await _store(
         session,
         engine=engine,

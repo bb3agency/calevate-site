@@ -30,13 +30,16 @@ republish, so it is named in the alarm instead.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any, Final
 from uuid import UUID
 
 from sqlalchemy import text
 
+from apps.api.billing.plans import IST
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
@@ -64,6 +67,42 @@ WHERE r.engine = :engine AND r.engine_agent_ref = :ref AND r.active
     SELECT 1 FROM prompt_experiment_variants v WHERE v.engine_agent_ref = r.engine_agent_ref
   )
 """
+
+
+#: One `engine_webhook_events_pending` per IST day: the endpoint still delivers what it holds,
+#: and the fix is the vendor's, so a reminder a day is enough and one per sweep is noise.
+_EVENTS_PENDING_KEY: Final = "alert:engine_webhook_events_pending:{engine}:{day}"
+_EVENTS_PENDING_TTL_S: Final = 2 * 86_400
+
+
+async def _alarm_events_pending(engine: str, count: int) -> None:
+    """Fails towards alerting: when Redis cannot answer, the alarm is raised."""
+    day = datetime.now(UTC).astimezone(IST).date().isoformat()
+    try:
+        first = bool(
+            await get_redis().set(
+                _EVENTS_PENDING_KEY.format(engine=engine, day=day),
+                "1",
+                nx=True,
+                ex=_EVENTS_PENDING_TTL_S,
+            )
+        )
+    except Exception:
+        first = True
+    if not first:
+        return
+    alert(
+        "WORKER_DELIVERY",
+        "engine_webhook_events_pending",
+        detail=(
+            f"{count} agent webhook endpoint(s) are on and delivering the events they hold, "
+            "but the voice platform fails (HTTP 5xx) to add the newer ones (contact.erased, "
+            "byok.changed), both in place and on a new endpoint. Call results are not "
+            "affected. Raise it with ThinnestAI quoting engine_webhook_patch_failed; the "
+            "sweep keeps trying every 20 minutes and this is repeated once a day."
+        ),
+        engine=engine,
+    )
 
 
 def _vendor_detail(exc: Exception) -> dict[str, Any]:
@@ -106,7 +145,8 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
                 {"engine": engine, "budget": WEBHOOK_SWEEP_BUDGET},
             )
         ).all()
-    reenabled = registered = unreached = redelivered = retired = agent_absent = vendor_failed = 0
+    reenabled = registered = unreached = redelivered = retired = 0
+    agent_absent = vendor_failed = events_pending = 0
     for tenant_id, ref in rows:
         try:
             async with tenant_session(UUID(str(tenant_id))) as session:
@@ -147,6 +187,10 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
             reenabled += 1
         elif outcome in ("registered", "replaced"):
             registered += 1
+        elif outcome == "events_pending":
+            events_pending += 1
+    if events_pending:
+        await _alarm_events_pending(engine, events_pending)
     if unreached:
         absent_note = (
             f" {agent_absent} of them belong to an agent the voice platform says it does not "
@@ -176,7 +220,8 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
         )
     return (
         f"checked={len(rows)} reenabled={reenabled} redelivered={redelivered} "
-        f"registered={registered} unreached={unreached} retired={retired}"
+        f"registered={registered} unreached={unreached} retired={retired} "
+        f"events_pending={events_pending}"
     )
 
 
