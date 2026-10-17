@@ -68,7 +68,9 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
    * draft rather than leaving the client guessing whether it exists.
    */
   const submit = () => {
-    if (!selectedAgentId) return;
+    // Once a draft exists, Create would make a second one: a failed follow-up is finished
+    // on that draft's own page, which the notice links to.
+    if (!selectedAgentId || followUp !== null) return;
     const usable = campaignNumbers(numbers.data, selectedAgentId).some((n) => n.id === form.numberId);
     create.mutate(
       {
@@ -173,7 +175,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
         numbers={numbers}
         templates={templates}
         create={create}
-        canWrite={write.allowed && !saving}
+        canWrite={write.allowed && !saving && failed === null}
         onSubmit={submit}
         onCancel={() => router.push(href(`/c/${slug}/campaigns`))}
       />

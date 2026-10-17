@@ -121,4 +121,14 @@ describe("downloading the recording", () => {
     expect((await screen.findByRole("alert")).textContent).toBe(detailText);
     expect(clicked).toEqual([]);
   });
+
+  it("gives the refusal's own reason rather than asking for a retry that cannot succeed", async () => {
+    await renderClientPage(
+      page,
+      routes(OWNER, problem(404, { kind: "not_found", type: "https://calevate.tech/problems/not_found", title: "Recording not found", detail: "We could not find that recording." })),
+    );
+    await openPlayer();
+    fireEvent.click(screen.getByRole("button", { name: "Download recording" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("We could not find that recording.");
+  });
 });

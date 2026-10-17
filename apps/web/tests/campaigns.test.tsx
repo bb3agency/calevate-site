@@ -416,6 +416,28 @@ describe("creating a campaign", () => {
     );
   });
 
+  it("does not create a second draft when Create is pressed again after a follow-up failed", async () => {
+    const rendered = await renderClientPage(
+      newCampaignPage(),
+      newRoutes({
+        "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: problem(503, {
+          title: "Upstream unavailable",
+          detail: "We could not save those contacts just now.",
+          retryable: true,
+        }),
+      }),
+    );
+    await fillNew(rendered.container);
+    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
+    await screen.findByText("We could not save those contacts just now.");
+    const finish = screen.getByRole("button", { name: "Create campaign" }) as HTMLButtonElement;
+    expect(finish.disabled).toBe(true);
+    fireEvent.click(finish);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(rendered.calls.filter((c) => c.method === "POST" && c.path === "/v1/campaigns")).toHaveLength(1);
+  });
+
   it("arms a chosen start after the draft exists, with its IST offset", async () => {
     const rendered = await renderClientPage(
       newCampaignPage(),

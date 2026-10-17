@@ -187,8 +187,12 @@ const COVERED_BY_REPRESENTATIVE = ["/legal/"];
  *
  * `/c` is the client-realm chooser and `/auth/...` the realm entries; both are named in
  * SCAN_TARGETS or lead into the authenticated realm the note above explains.
+ * `/auth/account` is the signed-in person's own account screen behind `ClientSessionGate`:
+ * the marketing header always renders its signed-in layer (hidden and inert until a session
+ * answers), so the link is in every home page's DOM, but without a session the page only
+ * sends the visitor to `/auth/sign-in`, which is scanned.
  */
-const NOT_A_PUBLIC_PAGE = ["/c", "/admin"];
+const NOT_A_PUBLIC_PAGE = ["/c", "/admin", "/auth/account"];
 
 // ---------------------------------------------------------------------------
 // Chromium

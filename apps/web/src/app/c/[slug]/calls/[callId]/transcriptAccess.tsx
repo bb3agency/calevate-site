@@ -181,9 +181,14 @@ export function useRecordingDownload(session: Session, callId: string) {
   });
 }
 
-/** The words for a download that did not happen: the server's own for an expired one. */
+/**
+ * The words for a download that did not happen: the refusal's own sentence whenever one
+ * arrived. "Try again in a moment" is only true of a failure that never reached a reason;
+ * said over a refusal (no recording, a role that lost access) it sends the person round
+ * a loop that cannot succeed.
+ */
 function downloadRefusal(error: unknown): string {
-  if (error instanceof ApiProblem && error.code === "recording_expired") return error.message;
+  if (error instanceof ApiProblem) return error.message;
   return "The recording could not be downloaded just now. Try again in a moment.";
 }
 
