@@ -41,6 +41,12 @@ from apps.api.core.settings import get_settings
 
 _IST: Final = ZoneInfo("Asia/Kolkata")
 
+#: The shortest limit a call can be placed with (`maxCallSeconds` minimum 60,
+#: thinnest-findings/mirror/snapshots/2026-10-15/pages/api-reference/calls/
+#: place-call.md:1264-1268), so a test call's last limit may overrun an allowance by under
+#: a minute.
+TRIAL_MIN_CALL_SECONDS: Final = 60
+
 #: What a trial account is refused, by the gate that refuses it.
 TrialLocked = Literal["campaigns", "numbers", "kyc", "inbound", "live_outbound"]
 
@@ -220,7 +226,7 @@ class TrialAccess:
         limit = self.max_call_seconds
         if free is not None:
             limit = min(limit, free - self.seconds_used)
-        return max(60, limit)
+        return max(TRIAL_MIN_CALL_SECONDS, limit)
 
     @property
     def blocker(self) -> tuple[str, str] | None:
@@ -299,16 +305,17 @@ async def trial_studio_seconds_used(
 
 async def refuse_trial_studio_over_cap(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
-) -> None:
+) -> int | None:
     """Refuse a trial test call on a Studio voice once the trial's Studio minutes reach
-    `trial_studio_minutes`. Clear test calls are not asked.
+    `trial_studio_minutes`, and otherwise answer how many Studio seconds are left, which the
+    call's own limit must not exceed. None for a Clear test call, which is not asked.
 
     Called by `agents.service.dispatch_call` inside the intent transaction, after
     `_hold_trial_line` took the platform's trial-line lock: the count and the new call's row
     are serialised with every other test call, so two dials cannot both pass it."""
     trial = await restricting_trial(session, tenant_id=tenant_id)
     if trial is None:
-        return
+        return None
     settings = get_settings()
     on_studio = (
         await session.execute(
@@ -317,10 +324,11 @@ async def refuse_trial_studio_over_cap(
         )
     ).scalar()
     if not on_studio:
-        return
+        return None
     allowance = settings.trial_studio_minutes
-    if await trial_studio_seconds_used(session, tenant_id=tenant_id, trial=trial) < allowance * 60:
-        return
+    used = await trial_studio_seconds_used(session, tenant_id=tenant_id, trial=trial)
+    if used < allowance * 60:
+        return allowance * 60 - used
     raise ProblemError(
         kind="business_rule",
         code=TRIAL_STUDIO_MINUTES_USED_RULE,
@@ -355,6 +363,7 @@ __all__ = [
     "TRIAL_LINE_MARGIN",
     "TRIAL_MINUTES_USED_REASON",
     "TRIAL_MINUTES_USED_RULE",
+    "TRIAL_MIN_CALL_SECONDS",
     "TRIAL_REFUSALS",
     "TRIAL_STUDIO_MINUTES_USED_RULE",
     "TrialAccess",
