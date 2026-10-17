@@ -131,6 +131,10 @@ ALARM_SUMMARIES: Final[dict[str, AlarmSummary]] = {
         "A call recording was lost before we copied it",
         "One call has its lead and transcript but no recording.",
     ),
+    "recording_copy_at_risk": _s(
+        "Call recordings will be lost within a week unless saved",
+        "The clients whose calls are listed: those calls have no copy of their recording.",
+    ),
     "engine_balance_exhausted": _s(
         "The voice platform balance cannot pay for calls",
         "Every client: outbound and test calls are refused until the balance is topped up.",
