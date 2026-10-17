@@ -747,7 +747,8 @@ open, because the 15 Oct reply answered only the §13.1 requests.
 > Thank you for shipping all eight so quickly. We have built every one of them into Calevate:
 > each call is now reconciled on `billing`, Studio is costed on `ttsCharacters`, client agents
 > use our shared clones, a client's retention is set on its workspace, call content is deleted
-> per call, and `contact.erased` and `byok.changed` close the loop. What is still open:
+> per call, and `contact.erased` and `byok.changed` are wired in (question 22 is why one
+> endpoint cannot receive them yet). What is still open:
 >
 > **From the new release**
 > 1. Shared clones: is a developer clone's id in a customer workspace's `GET /voices` the same
@@ -813,6 +814,15 @@ open, because the 15 Oct reply answered only the §13.1 requests.
 >     training, and confirm in writing once done.
 > 21. Any update from Plivo on the TRAI regulation 4 (autodialer) notice, and which access
 >     provider holds the numbers you rent to us.
+>
+> **Webhooks** (failing since we added the two new events)
+> 22. Every sweep since 16 Oct, `PATCH /webhooks/{id}` adding `contact.erased` and
+>     `byok.changed` to an existing endpoint answers `500 internal_error` "Could not save the
+>     endpoint.", and `POST /webhooks` for the same agent with all eight events answers `500
+>     internal_error` "Could not add the endpoint." (17 Oct, 21:21 IST; developer workspace,
+>     endpoint `wh_47764a52-314c-4ada-ab87-ffb8693cfb7f`, on, no failures). Your docs list both
+>     events for agent endpoints. Could you look at why the save fails? Until then that endpoint
+>     keeps its six older events.
 >
 > Thanks,
 > Umesh
