@@ -116,6 +116,7 @@ from apps.api.billing.service import (
     find_topup,
     get_balance,
     lock_tenant_credits,
+    lot_of_entry,
     rate_card_at,
     record_entry,
     remove_credit_from_lots,
@@ -1492,6 +1493,26 @@ async def claimed_refund_total_inr(
     return Decimal(str(total or 0))
 
 
+async def unspent_credit_of_payment(
+    session: AsyncSession, *, tenant_id: UUID, payment_id: str, entry_id: UUID
+) -> Decimal:
+    """What of this payment's purchased credit the client has not spent and is not
+    already being refunded: its lot's remaining credit, less refunds claimed and not yet
+    processed (a processed refund has already taken its credit off the lot)."""
+    lot = await lot_of_entry(session, ledger_entry_id=entry_id)
+    if lot is None:
+        return Decimal("0.00")
+    remaining = (
+        await session.execute(
+            text("SELECT credits_remaining FROM credit_lots WHERE id = :lid"), {"lid": lot.lot_id}
+        )
+    ).scalar()
+    claimed = await claimed_refund_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
+    refunded = await refunded_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
+    pending = max(claimed - refunded, Decimal("0"))
+    return to_paise(max(Decimal(str(remaining or 0)) - pending, Decimal("0")))
+
+
 async def claim_refund(
     session: AsyncSession,
     *,
@@ -1499,6 +1520,7 @@ async def claim_refund(
     payment_id: str,
     amount_inr: Decimal,
     payment_total_inr: Decimal,
+    topup_entry_id: UUID,
 ) -> RefundClaim:
     """Reserve one refund against a payment, or refuse it. **Commit before calling the
     provider.**
@@ -1527,7 +1549,8 @@ async def claim_refund(
     provider either, so this admits a replay and nothing else.
 
     Raises `refund_exceeds_payment` when a NEW claim would take the total past the
-    payment. Nothing is written on that path and nothing has been asked of the provider.
+    payment, and `refund_exceeds_unspent` when it is more than the payment's unspent credit.
+    Nothing is written on either path and nothing has been asked of the provider.
     """
     await lock_tenant_credits(session, tenant_id)
     key = refund_idempotency_key(payment_id=payment_id, amount_inr=amount_inr)
@@ -1553,6 +1576,18 @@ async def claim_refund(
                 f"Refund at most the ₹{to_paise(max(remaining, Decimal('0')))} still "
                 "outstanding on it."
             ),
+        )
+    # Used credit is not refundable (D-699). Checked here, under the lock and against the
+    # committed claims, for the payment ceiling's reason: read before the claim, two refunds
+    # that each fit the unspent credit both pass and together return credit already spent.
+    unspent = await unspent_credit_of_payment(
+        session, tenant_id=tenant_id, payment_id=payment_id, entry_id=topup_entry_id
+    )
+    if amount_inr > unspent:
+        raise ProblemError.business_rule(
+            "refund_exceeds_unspent",
+            f"Only ₹{unspent} of this payment's credit is unspent and refundable.",
+            remediation="Refund at most the unspent credit; used credit is not refundable.",
         )
     await session.execute(
         text(
@@ -2062,6 +2097,7 @@ __all__ = [
     "refunded_total_inr",
     "release_refund_claim",
     "topup_receipt",
+    "unspent_credit_of_payment",
     "verify_checkout_signature",
     "verify_signature",
 ]

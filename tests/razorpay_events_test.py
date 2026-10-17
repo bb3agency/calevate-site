@@ -43,7 +43,7 @@ from apps.api.billing.payment_routes import (
 )
 from apps.api.billing.payment_routes import issue_tenant_refund as _issue_tenant_refund
 from apps.api.billing.payments import RazorpayOrders
-from apps.api.billing.service import get_balance
+from apps.api.billing.service import get_balance, remove_credit_from_lots
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.settings import get_settings
@@ -1309,6 +1309,53 @@ async def test_the_claim_is_committed_before_the_provider_is_called(
         _admin(),
     )
     assert claimed == [Decimal("2000.0000")]
+
+
+async def test_two_refunds_racing_cannot_return_more_than_the_unspent_credit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """₹1,500 of a ₹2,500 payment spent, then ₹1,000 and ₹900 refunds whose unspent-credit
+    reads both happen before either claim. Each fits the ₹1,000 unspent on its own and both
+    fit the payment, so a ceiling read outside the claim's lock lets ₹1,900 go back for
+    ₹1,000 the client had not used (D-699)."""
+    from apps.api.billing import payment_routes
+
+    tenant_id = await _tenant()
+    pid = _payment_id("UNSPENT")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+    async with tenant_session(tenant_id) as session:
+        await remove_credit_from_lots(
+            session, tenant_id=tenant_id, corrected_entry_id=None, amount_inr=Decimal("1500.00")
+        )
+
+    real_claim = payment_routes.claim_refund
+    rival: list[Any] = []
+
+    async def claim_after_a_rival(session: Any, **kwargs: Any) -> Any:
+        # The rival runs start to finish between this request's checks and its claim.
+        if not rival:
+            rival.append(None)
+            rival[0] = await issue_tenant_refund(
+                tenant_id,
+                RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="rival"),
+                _request(),
+                _admin(),
+            )
+        return await real_claim(session, **kwargs)
+
+    monkeypatch.setattr(payment_routes, "claim_refund", claim_after_a_rival)
+    seen = _install_refund(monkeypatch, _refund_by_amount("rfnd_UNSPENT"))
+
+    with pytest.raises(ProblemError) as raised:
+        await issue_tenant_refund(
+            tenant_id,
+            RefundIn(payment_id=pid, amount_inr=Decimal("900.00"), reason="partial"),
+            _request(),
+            _admin(),
+        )
+    assert raised.value.code == "refund_exceeds_unspent"
+    assert rival[0].recorded is True
+    assert len(seen) == 1, "only the rival may reach the provider"
 
 
 async def test_a_refund_the_provider_refuses_releases_its_claim(
