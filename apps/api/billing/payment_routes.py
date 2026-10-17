@@ -66,7 +66,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
@@ -112,7 +111,6 @@ from apps.api.billing.payments import (
     TOKEN_EVENTS,
     RefundEvent,
     claim_refund,
-    claimed_refund_total_inr,
     credit_refund,
     event_name,
     failed_payment_summary,
@@ -123,8 +121,6 @@ from apps.api.billing.payments import (
     payments_not_configured,
     razorpay_api_secret,
     razorpay_orders,
-    refund_idempotency_key,
-    refunded_total_inr,
     release_refund_claim,
     topup_receipt,
     verify_checkout_signature,
@@ -141,7 +137,7 @@ from apps.api.billing.rates import (
     VoiceTier,
     voice_tier_label,
 )
-from apps.api.billing.service import lot_of_entry, plan_tier_of, to_paise
+from apps.api.billing.service import plan_tier_of, to_paise
 from apps.api.billing.wallet import record_attempt
 from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
@@ -1205,39 +1201,6 @@ def refund_confirmation(tenant_id: UUID, payment_id: str) -> str:
     return f"refund_payment:{tenant_id}:{payment_id}"
 
 
-async def unspent_credit_of_payment(
-    session: AsyncSession, *, tenant_id: UUID, payment_id: str, entry_id: UUID
-) -> Decimal:
-    """What of this payment's purchased credit the client has not spent and is not
-    already being refunded: its lot's remaining credit, less refunds claimed and not yet
-    processed (a processed refund has already taken its credit off the lot)."""
-    lot = await lot_of_entry(session, ledger_entry_id=entry_id)
-    if lot is None:
-        return Decimal("0.00")
-    remaining = (
-        await session.execute(
-            text("SELECT credits_remaining FROM credit_lots WHERE id = :lid"), {"lid": lot.lot_id}
-        )
-    ).scalar()
-    claimed = await claimed_refund_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
-    refunded = await refunded_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
-    pending = max(claimed - refunded, Decimal("0"))
-    return to_paise(max(Decimal(str(remaining or 0)) - pending, Decimal("0")))
-
-
-async def _is_refund_replay(*, tenant_id: UUID, payment_id: str, amount_inr: Decimal) -> bool:
-    """A second click on a refund already claimed: let it through to the same key."""
-    key = refund_idempotency_key(payment_id=payment_id, amount_inr=amount_inr)
-    async with tenant_session(tenant_id) as session:
-        row = (
-            await session.execute(
-                text("SELECT 1 FROM refund_intents WHERE tenant_id = :tid AND refund_key = :k"),
-                {"tid": tenant_id, "k": key},
-            )
-        ).first()
-    return row is not None
-
-
 @refund_router.post(
     "",
     response_model=RefundOut,
@@ -1266,9 +1229,10 @@ async def issue_tenant_refund(
 
     1. Resolve the amount — a full refund is the top-up recorded for this payment, read
        from the ledger, so an operator need not retype it and cannot fat-finger it.
-    2. CLAIM the refund and COMMIT the claim (`claim_refund`), which is where the ceiling
-       is now enforced. It has to be a committed row rather than a read, because the act
-       it guards happens after the transaction ends — see below.
+    2. CLAIM the refund and COMMIT the claim (`claim_refund`), which is where both ceilings
+       (the payment and its unspent credit) are enforced. It has to be a committed row
+       rather than a read, because the act it guards happens after the transaction ends —
+       see below.
     3. `issue_refund` calls the provider OUTSIDE any transaction (BACKEND-PATTERNS §5).
        If it raises, the claim this request took is RELEASED: no money moved, so nothing
        may go on counting against what the client can still be refunded.
@@ -1301,37 +1265,12 @@ async def issue_tenant_refund(
             # row would be a compensating entry against nothing — an ops error, not a route.
             raise ProblemError.not_found("Payment")
         topup_amount = existing_topup.amount_inr
-        unspent = await unspent_credit_of_payment(
-            session,
-            tenant_id=tenant_id,
-            payment_id=payload.payment_id,
-            entry_id=existing_topup.entry_id,
-        )
-        claimed = await claimed_refund_total_inr(
-            session, tenant_id=tenant_id, payment_id=payload.payment_id
-        )
+        topup_entry_id = existing_topup.entry_id
 
     # Money back is an operator act with a second factor (D-699), bound to this payment.
     step_up.require(x_confirm_action, refund_confirmation(tenant_id, payload.payment_id))
 
-    # At most the purchased credit of THIS payment the client has not spent (D-699): credit
-    # already used to make calls is not refundable. An amount past what the payment itself
-    # has left is `claim_refund`'s refusal (`refund_exceeds_payment`), checked first so an
-    # operator is told the larger mistake; a repeat of a claimed refund is a replay.
     amount = payload.amount_inr if payload.amount_inr is not None else topup_amount
-    within_payment = amount <= topup_amount - claimed
-    if (
-        within_payment
-        and amount > unspent
-        and not await _is_refund_replay(
-            tenant_id=tenant_id, payment_id=payload.payment_id, amount_inr=amount
-        )
-    ):
-        raise ProblemError.business_rule(
-            "refund_exceeds_unspent",
-            f"Only ₹{to_paise(unspent)} of this payment's credit is unspent and refundable.",
-            remediation="Refund at most the unspent credit; used credit is not refundable.",
-        )
     if amount <= 0:
         raise ProblemError.business_rule(
             "invalid_refund_amount",
@@ -1339,12 +1278,12 @@ async def issue_tenant_refund(
             remediation="Send a positive amount, or omit it to refund the whole payment.",
         )
 
-    # THE CEILING IS ON THE TOTAL, NOT ON THIS REQUEST, and it is enforced by a COMMITTED
-    # CLAIM rather than by a read (`claim_refund`, and the docstring above for why the
-    # read could not hold it). A repeat of an amount already claimed comes back
-    # `claimed=False` and is let through as the replay it is: the provider's own
-    # idempotency key is `(payment_id, amount)`, so it can only collapse onto the refund
-    # that already exists.
+    # BOTH CEILINGS ARE ON THE TOTAL, NOT ON THIS REQUEST — the payment itself and the part
+    # of it the client has not spent (D-699) — and both are enforced by a COMMITTED CLAIM
+    # rather than by a read (`claim_refund`, and the docstring above for why the read could
+    # not hold it). A repeat of an amount already claimed comes back `claimed=False` and is
+    # let through as the replay it is: the provider's own idempotency key is
+    # `(payment_id, amount)`, so it can only collapse onto the refund that already exists.
     async with tenant_session(tenant_id) as session:
         claim = await claim_refund(
             session,
@@ -1352,6 +1291,7 @@ async def issue_tenant_refund(
             payment_id=payload.payment_id,
             amount_inr=amount,
             payment_total_inr=topup_amount,
+            topup_entry_id=topup_entry_id,
         )
 
     try:
@@ -1438,6 +1378,5 @@ __all__ = [
     "refund_confirmation",
     "refund_router",
     "router",
-    "unspent_credit_of_payment",
     "webhook_router",
 ]

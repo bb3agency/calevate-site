@@ -26,7 +26,7 @@ from apps.api.billing import auto_recharge, payments, reconciliation
 from apps.api.billing.dispute_hold import dispute_hold_active
 from apps.api.billing.disputes import DisputeFacts, apply_dispute_event
 from apps.api.billing.payment_objects import record_route, route_for
-from apps.api.billing.payment_routes import unspent_credit_of_payment, webhook_router
+from apps.api.billing.payment_routes import webhook_router
 from apps.api.billing.razorpay_api import (
     MANDATE_MAX_DEBIT_INR,
     ProviderPayment,
@@ -350,12 +350,15 @@ async def test_refund_failed_releases_the_claim_and_moves_no_money(
     payment_id = _id("pay")
     await _fund(tenant_id, payment_id, "1000.00")
     async with tenant_session(tenant_id) as session:
+        topup = await payments.find_topup(session, tenant_id=tenant_id, ref=payment_id)
+        assert topup is not None
         claim = await payments.claim_refund(
             session,
             tenant_id=tenant_id,
             payment_id=payment_id,
             amount_inr=Decimal("400.00"),
             payment_total_inr=Decimal("1000.00"),
+            topup_entry_id=topup.entry_id,
         )
     assert claim.claimed
     body = {
@@ -413,13 +416,13 @@ async def test_the_refundable_amount_is_the_unspent_credit_of_that_payment() -> 
     async with tenant_session(tenant_id) as session:
         entry = await payments.find_topup(session, tenant_id=tenant_id, ref=payment_id)
         assert entry is not None
-        assert await unspent_credit_of_payment(
+        assert await payments.unspent_credit_of_payment(
             session, tenant_id=tenant_id, payment_id=payment_id, entry_id=entry.entry_id
         ) == Decimal("1000.00")
         await remove_credit_from_lots(
             session, tenant_id=tenant_id, corrected_entry_id=None, amount_inr=Decimal("300.00")
         )
-        assert await unspent_credit_of_payment(
+        assert await payments.unspent_credit_of_payment(
             session, tenant_id=tenant_id, payment_id=payment_id, entry_id=entry.entry_id
         ) == Decimal("700.00")
 
