@@ -393,6 +393,7 @@ function summary(over: Partial<WorkspacesSummary> = {}): WorkspacesSummary {
     by_status: { active: 6, plan_limit: 1, failed: 1 },
     failures: [],
     not_provisioned: 2,
+    developer_call_retention: { days: null, plan_days: null, checked_at: null, error_code: null },
     ...over,
   };
 }
@@ -409,6 +410,22 @@ describe("client voice workspaces on the ops dashboard", () => {
     expect(screen.getByText(/Growth — 7 of 10 customers used/)).toBeTruthy();
     expect(screen.getByText("active: 6, plan_limit: 1, failed: 1")).toBeTruthy();
     expect(screen.queryByText("The plan is nearly full")).toBeNull();
+    expect(screen.getByText("Not read yet; recordings there are assumed kept 30 days")).toBeTruthy();
+  });
+
+  it("shows what the platform account last confirmed it keeps calls for (D-809)", async () => {
+    renderAdminPage(<WorkspacesSummaryPanel access={ALLOWED} />, {
+      [ADMIN_ME_PATH]: SUPERADMIN,
+      [WORKSPACE_PATHS.summary]: summary({
+        developer_call_retention: {
+          days: 49,
+          plan_days: 49,
+          checked_at: "2026-10-18T04:51:00Z",
+          error_code: null,
+        },
+      }),
+    });
+    expect(await screen.findByText(/^49 days \(plan allows 49\), checked \S/)).toBeTruthy();
   });
 
   it.each([

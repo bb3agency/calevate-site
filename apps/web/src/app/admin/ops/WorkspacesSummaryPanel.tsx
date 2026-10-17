@@ -3,7 +3,7 @@
 import { Section } from "@/components/console/section";
 import Link from "next/link";
 
-import { NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
+import { NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { useWorkspacesSummary, type WorkspacesSummary } from "@/lib/api/engineWorkspaces";
 
 import type { OpsAccess } from "./opsAccess";
@@ -37,6 +37,19 @@ export function WorkspacesSummaryPanel({ access }: { access: OpsAccess }) {
   return <SummaryCard data={summary.data} />;
 }
 
+type CallRetention = NonNullable<WorkspacesSummary["developer_call_retention"]>;
+
+/**
+ * What the platform account (trial calls, calls from before each client's own workspace)
+ * last confirmed it keeps calls for, read hourly (D-809). The missing-recording alarm dates
+ * those calls' deletion from it, and from 30 days until it has been read.
+ */
+function developerRetention(retention: CallRetention): string {
+  if (retention.days === null) return "Not read yet; recordings there are assumed kept 30 days";
+  const checked = retention.checked_at ? `, checked ${formatIST(retention.checked_at)}` : "";
+  return `${retention.days} days (plan allows ${retention.plan_days ?? "?"})${checked}`;
+}
+
 function SummaryCard({ data }: { data: WorkspacesSummary }) {
   const statuses = Object.entries(data.by_status);
   const tight = data.headroom !== null && data.headroom <= 1;
@@ -64,6 +77,12 @@ function SummaryCard({ data }: { data: WorkspacesSummary }) {
         </dd>
         <dt className="text-ink-muted">Headroom</dt>
         <dd className="text-ink">{data.headroom === null ? "No cap known" : data.headroom}</dd>
+        {data.developer_call_retention && (
+          <>
+            <dt className="text-ink-muted">Platform account keeps calls</dt>
+            <dd className="text-ink">{developerRetention(data.developer_call_retention)}</dd>
+          </>
+        )}
         {statuses.length > 0 && (
           <>
             <dt className="text-ink-muted">By status</dt>

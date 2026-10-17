@@ -6718,7 +6718,7 @@
       },
       "CallRetentionOut": {
         "additionalProperties": false,
-        "description": "The call retention last confirmed on the client's workspace (D-798).",
+        "description": "The call retention last confirmed on a workspace: a client's (D-798) or our developer\nworkspace (D-809, which has no `error_code`).",
         "properties": {
           "checked_at": {
             "anyOf": [
@@ -45284,6 +45284,16 @@
             "title": "Counted",
             "type": "integer"
           },
+          "developer_call_retention": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallRetentionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "failures": {
             "items": {
               "$ref": "#/components/schemas/WorkspaceFailureOut"
@@ -45347,7 +45357,8 @@
           "provisioned",
           "by_status",
           "failures",
-          "not_provisioned"
+          "not_provisioned",
+          "developer_call_retention"
         ],
         "title": "WorkspacesSummaryOut",
         "type": "object"

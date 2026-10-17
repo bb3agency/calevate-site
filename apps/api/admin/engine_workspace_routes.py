@@ -59,6 +59,7 @@ from apps.api.tenancy.engine_workspace import (
     engine_has_workspaces,
     queue_workspace_offboarding,
     queue_workspace_provisioning,
+    read_developer_retention,
     read_retention_record,
     read_workspace_state,
     workspace_directory,
@@ -124,7 +125,8 @@ class TenantNumbersCountOut(BaseModel):
 
 
 class CallRetentionOut(BaseModel):
-    """The call retention last confirmed on the client's workspace (D-798)."""
+    """The call retention last confirmed on a workspace: a client's (D-798) or our developer
+    workspace (D-809, which has no `error_code`)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -814,6 +816,10 @@ class WorkspacesSummaryOut(BaseModel):
     failures: list[WorkspaceFailureOut]
     #: Live clients with no workspace row at all yet: the backfill still owed.
     not_provisioned: int
+    #: What our developer workspace (trial calls, calls from before D-693) last confirmed
+    #: (D-809); the missing-recording alarm dates its calls' deletion from `days`. None on an
+    #: engine without workspaces.
+    developer_call_retention: CallRetentionOut | None
 
 
 _LIVE_TENANTS = (
@@ -841,11 +847,13 @@ async def workspaces_summary(_: OpsViewer) -> WorkspacesSummaryOut:
             by_status={},
             failures=[],
             not_provisioned=0,
+            developer_call_retention=None,
         )
     async with admin_session() as directory:
         tenants = {
             UUID(str(r[0])): str(r[1]) for r in (await directory.execute(text(_LIVE_TENANTS))).all()
         }
+        developer = await read_developer_retention(directory)
     rows = await workspace_directory()
     errors = await _error_codes()
     plan = get_settings().thinnest_customer_plan
@@ -885,6 +893,12 @@ async def workspaces_summary(_: OpsViewer) -> WorkspacesSummaryOut:
         by_status=by_status,
         failures=failures[:50],
         not_provisioned=sum(1 for t in tenants if t not in have_row),
+        developer_call_retention=CallRetentionOut(
+            days=developer.days,
+            plan_days=developer.plan_days,
+            checked_at=developer.checked_at,
+            error_code=None,
+        ),
     )
 
 

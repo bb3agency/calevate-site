@@ -17,7 +17,7 @@ import httpx
 import pytest
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.thinnest_customer_data import (
     ThinnestCustomerData,
     set_thinnest_customer_data,
@@ -92,6 +92,39 @@ def alarms(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     raised: list[str] = []
     monkeypatch.setattr(engine_retention, "alert", lambda _stage, code, **_kw: raised.append(code))
     return raised
+
+
+async def _developer_record() -> tuple[int | None, int | None, bool]:
+    """What `platform_state` holds for the developer workspace: days, plan, whether read."""
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT developer_retention_days, developer_retention_plan_days, "
+                    "developer_retention_checked_at IS NOT NULL FROM platform_state WHERE id = 1"
+                )
+            )
+        ).one()
+    return row[0], row[1], bool(row[2])
+
+
+@pytest.fixture(autouse=True)
+async def _developer_record_unread() -> Any:
+    """`platform_state` is one row for every test: each starts and ends "never read"."""
+
+    async def _clear() -> None:
+        async with untenanted_session() as session:
+            await session.execute(
+                text(
+                    "UPDATE platform_state SET developer_retention_days = NULL, "
+                    "developer_retention_plan_days = NULL, "
+                    "developer_retention_checked_at = NULL WHERE id = 1"
+                )
+            )
+
+    await _clear()
+    yield
+    await _clear()
 
 
 async def _client_workspace() -> tuple[UUID, str]:
@@ -213,6 +246,31 @@ async def test_the_hourly_check_repairs_drift_everywhere_and_alarms(
     assert alarms == ["engine_workspace_retention_repaired", "engine_workspace_retention_drift"]
 
 
+async def test_the_developer_workspaces_answer_is_kept_until_the_next_good_read(
+    vendor: RetentionVendor, alarms: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-809: what the developer workspace confirmed is recorded on an in-step read too, and
+    a failed read leaves the last answer for `recording_watch` rather than clearing it."""
+    from apps.workers import workspace_walk
+
+    vendor.plan = 49
+    vendor.held[DEVELOPER] = 49
+
+    async def _walk(_sweep: str, **_kw: Any) -> Any:
+        yield workspace_walk.DEVELOPER
+
+    monkeypatch.setattr(engine_retention, "walk_workspaces", _walk)
+    assert (await engine_retention.sweep_engine_retention({})).endswith(
+        "in_step=1 repaired=0 failed=0"
+    )
+    assert await _developer_record() == (49, 49, True)
+
+    vendor.fail.add(DEVELOPER)
+    assert (await engine_retention.sweep_engine_retention({})).endswith("failed=1")
+    assert await _developer_record() == (49, 49, True)
+    assert alarms == ["engine_workspace_retention_drift"]
+
+
 async def test_the_developer_workspace_is_held_at_the_new_tenant_defaults(
     vendor: RetentionVendor, alarms: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -226,6 +284,7 @@ async def test_the_developer_workspace_is_held_at_the_new_tenant_defaults(
     monkeypatch.setattr(engine_retention, "walk_workspaces", _walk)
     assert (await engine_retention.sweep_engine_retention({})).endswith("repaired=1 failed=0")
     assert vendor.patches == [(DEVELOPER, 90)]
+    assert await _developer_record() == (90, 365, True)
     monkeypatch.setattr(get_settings(), "engine", "fake")
     assert await engine_retention.sweep_engine_retention({}) == "not_applicable"
 

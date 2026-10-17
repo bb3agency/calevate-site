@@ -8,15 +8,19 @@ import type { AlertEpisode, AlertReport, RecordingRecopy } from "@/lib/api/alert
 import { renderAdminRoute } from "./adminRoute";
 
 /**
- * The recording alarms' one action (D-808): a `recording_copy_*` episode names a call, and
- * its drawer asks for that call's recording to be copied again. Pinned here: the button is
- * offered only on those alarms and only when the episode names both the client and the call,
- * it posts to that client's call, and the server's sentence is what the operator reads.
+ * The recording alarms' one action (D-808): a `recording_copy_*` episode names calls, and
+ * its drawer asks for each call's recording to be copied again. Pinned here: the button is
+ * offered only on those alarms and only for a call named with its client, one per listed call
+ * (`call_<n>` = `<tenant>:<call>`, D-809), each posts to its own client's call, and the
+ * server's sentence is what the operator reads.
  */
 
 const TENANT = "0192f0aa-7777-7000-8000-0000000000bb";
 const CALL = "0192f0aa-7777-7000-8000-0000000000c1";
 const RECOPY_PATH = `/v1/ops/tenants/${TENANT}/calls/${CALL}/recording/recopy`;
+const OTHER_TENANT = "0192f0aa-7777-7000-8000-0000000000cc";
+const OTHER_CALL = "0192f0aa-7777-7000-8000-0000000000c2";
+const OTHER_PATH = `/v1/ops/tenants/${OTHER_TENANT}/calls/${OTHER_CALL}/recording/recopy`;
 
 const ME: AdminMe = {
   realm: "admin",
@@ -33,7 +37,7 @@ function episode(over: Partial<AlertEpisode>): AlertEpisode {
     severity: "page",
     service: "workers",
     detail: "1 call(s) with no recording copy are within 7 days of the voice platform deleting theirs",
-    ids: { tenant_id: TENANT, call_id: CALL, call_ids: CALL },
+    ids: { tenant_id: TENANT, call_id: CALL, call_1: `${TENANT}:${CALL}` },
     first_seen_at: "2026-10-17T03:51:00Z",
     last_seen_at: "2026-10-17T04:51:00Z",
     occurrences: 2,
@@ -88,6 +92,64 @@ describe("copying a missing recording again from its alarm", () => {
     await waitFor(() => expect(within(dialog).getByText(QUEUED.note)).toBeTruthy());
     const posts = calls.filter((call) => call.method === "POST");
     expect(posts.map((call) => call.path)).toEqual([RECOPY_PATH]);
+  });
+
+  it("offers one re-copy per listed call, each to its own client's call", async () => {
+    const ids = {
+      tenant_id: TENANT,
+      call_id: CALL,
+      // Out of order on purpose: the stored map's key order is not the alarm's order.
+      call_2: `${OTHER_TENANT}:${OTHER_CALL}`,
+      call_1: `${TENANT}:${CALL}`,
+    };
+    const other: RecordingRecopy = {
+      ...QUEUED,
+      tenant_id: OTHER_TENANT,
+      call_id: OTHER_CALL,
+      queued: false,
+      outcome: "already_copied",
+      note: "Already copied. Nothing to do.",
+    };
+    const { calls } = await renderAdminRoute(
+      <AlertsPage />,
+      routes([episode({ ids })], {
+        [`POST ${RECOPY_PATH}`]: QUEUED,
+        [`POST ${OTHER_PATH}`]: other,
+      }),
+    );
+
+    const dialog = await openDrawer("recording_copy_at_risk");
+    expect(within(dialog).getByRole("heading", { name: "Recordings of 2 calls" })).toBeTruthy();
+    const rows = within(dialog).getAllByRole("listitem");
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining(CALL),
+      expect.stringContaining(OTHER_CALL),
+    ]);
+    const [first, second] = rows;
+    if (!first || !second) throw new Error("expected two rows");
+    fireEvent.click(within(second).getByRole("button", { name: "Copy recording again" }));
+
+    await waitFor(() => expect(within(second).getByText(other.note)).toBeTruthy());
+    expect(within(first).queryByText(QUEUED.note)).toBeNull();
+    const posts = calls.filter((call) => call.method === "POST");
+    expect(posts.map((call) => call.path)).toEqual([OTHER_PATH]);
+  });
+
+  it("offers the one call a missing-copy alarm names", async () => {
+    await renderAdminRoute(
+      <AlertsPage />,
+      routes([
+        episode({
+          code: "recording_copy_missing",
+          severity: "attention",
+          ids: { tenant_id: TENANT, call_id: CALL },
+        }),
+      ]),
+    );
+
+    const dialog = await openDrawer("recording_copy_missing");
+    expect(within(dialog).getByRole("heading", { name: "Recording of this call" })).toBeTruthy();
+    expect(within(dialog).getAllByRole("button", { name: "Copy recording again" })).toHaveLength(1);
   });
 
   it("is not offered on an alarm that is not about a missing recording", async () => {

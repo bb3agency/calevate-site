@@ -13,7 +13,9 @@ why. Here:
 OUR DEVELOPER WORKSPACE holds free-trial calls and every client's calls from before its own
 workspace (D-693). No retention setting exists for that data as a whole, so it gets the
 platform defaults of every new tenant (`scripts/seed.DEFAULT_RETENTION_POLICIES`): the
-shortest promise any tenant there was made at sign-up.
+shortest promise any tenant there was made at sign-up. What it confirms, the period and the
+plan's window, is recorded on `platform_state` (D-809), where `workers/recording_watch`
+reads when the platform deletes a call held there.
 
 Ids and day counts only in logs and alarms (hard rule 6).
 """
@@ -30,7 +32,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.thinnest_customer_data import thinnest_customer_data
 from apps.api.tenancy.engine_retention import (
     call_content_days,
@@ -41,6 +43,7 @@ from apps.api.tenancy.engine_workspace import (
     engine_has_workspaces,
     is_own_workspace,
     read_workspace_state,
+    record_developer_retention,
     record_retention_check,
 )
 from apps.workers.workspace_walk import WalkReport, walk_workspaces
@@ -104,6 +107,16 @@ async def _client_leg(tenant_id: UUID, workspace: str, *, repair: bool) -> str:
     return outcome
 
 
+async def _developer_leg() -> str:
+    """Our developer workspace held at `DEVELOPER_RETENTION_DAYS`, and what it confirmed
+    recorded (D-809): `workers/recording_watch` dates the platform's deletion of a trial or
+    pre-D-693 call from it. A failure leaves the last confirmed answer in place."""
+    outcome, days, plan = await _apply(None, DEVELOPER_RETENTION_DAYS, repair=True)
+    async with untenanted_session() as session:
+        await record_developer_retention(session, days=days, plan_days=plan)
+    return outcome
+
+
 def _alarm(repaired: int, failed: int) -> None:
     if repaired:
         alert(
@@ -161,7 +174,7 @@ async def sweep_engine_retention(ctx: dict[str, Any]) -> str:
     async for visit in walk_workspaces("engine_retention", report=report):
         try:
             if visit.tenant_id is None or visit.workspace is None:
-                outcome, _days, _plan = await _apply(None, DEVELOPER_RETENTION_DAYS, repair=True)
+                outcome = await _developer_leg()
             else:
                 outcome = await _client_leg(visit.tenant_id, visit.workspace, repair=True)
         except ProblemError as exc:

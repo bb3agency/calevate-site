@@ -28,7 +28,7 @@ import {
   SEVERITY_ORDER,
   WINDOW_CHOICES,
   openCounts,
-  recopyTargetOf,
+  recopyTargetsOf,
   severityLabel,
   severityTone,
   useAlerts,
@@ -58,9 +58,9 @@ import { StatusPill } from "@/components/console/statusPill";
  *   carries on. An episode ends only when the condition stops
  *   (`workers/alerts.sweep_alert_clears`); a code that is too loud is fixed in
  *   `alarm_severity.py`, in a reviewed diff.
- * - A recording alarm names a call, and its drawer can ask for that call's recording to be
- *   copied again (D-808). That changes no row here: the episode ends when the sweep stops
- *   finding the call.
+ * - A recording alarm names calls, and its drawer can ask for each one's recording to be
+ *   copied again (D-808, D-809). That changes no row here: the episode ends when the sweep
+ *   stops finding the calls.
  *
  * `ops:manage` (superadmin only) is asked of `GET /v1/admin/me` and gates the READ: the
  * screen is one GET, so a refused session gets the reason instead of a 403 that reads
@@ -406,7 +406,7 @@ const COLUMNS = (open: (id: string) => void): DataColumn<AlertEpisode>[] => [
 function EpisodeDetail({ episode }: { episode: AlertEpisode }) {
   // `ids` is optional on the generated type (omitted when a call site passed none).
   const ids = Object.entries(episode.ids ?? {});
-  const recopy = recopyTargetOf(episode);
+  const recopy = recopyTargetsOf(episode);
   return (
     <div className="space-y-4">
       <dl className="divide-y divide-line text-body">
@@ -438,39 +438,65 @@ function EpisodeDetail({ episode }: { episode: AlertEpisode }) {
           }
         />
       </dl>
-      {recopy && <RecopyAction key={`${recopy.tenantId}/${recopy.callId}`} target={recopy} />}
+      {recopy.length > 0 && <RecopyActions targets={recopy} />}
     </div>
   );
 }
 
 /**
- * The one action on this board (D-808): a recording alarm names a call, and that call's
- * copy can be asked for again. The hourly sweep already re-copies every missing call on its
- * own; this is for an operator who has fixed the cause and will not wait for the next hour.
- * The answer is the server's sentence, printed beside the button, because a refusal (already
- * held, erased, deleted on the platform) is information, not a failure.
+ * The one action on this board (D-808): a recording alarm names calls, and each call's copy
+ * can be asked for again, one button per call because the calls can belong to different
+ * clients and each answer is about one call (D-809). The hourly sweep already re-copies every
+ * missing call on its own; this is for an operator who has fixed the cause and will not wait
+ * for the next hour.
  */
-function RecopyAction({ target }: { target: RecopyTarget }) {
-  const recopy = useRecopyRecording();
+function RecopyActions({ targets }: { targets: RecopyTarget[] }) {
   const headingId = useId();
-  const answer = recopy.data;
+  const one = targets.length === 1;
   return (
     <section aria-labelledby={headingId} className="space-y-2 border-t border-line pt-4">
       <h3 id={headingId} className="text-body font-semibold text-ink">
-        Recording of call <MonoValue>{target.callId}</MonoValue>
+        {one ? "Recording of this call" : `Recordings of ${formatCount(targets.length)} calls`}
       </h3>
       <p className="text-meta text-ink-muted">
-        Every hourly check asks for this call&apos;s recording again by itself. Copy it now if
-        you have fixed what stopped it.
+        {one
+          ? "Every hourly check asks for this call's recording again by itself. Copy it now if you have fixed what stopped it."
+          : "Every hourly check asks for these recordings again by itself, the soonest to be deleted first. Copy one now if you have fixed what stopped it."}
       </p>
-      <button
-        type="button"
-        className={SECONDARY_BUTTON_SM}
-        disabled={recopy.isPending}
-        onClick={() => recopy.mutate(target)}
-      >
-        {recopy.isPending ? "Asking…" : "Copy recording again"}
-      </button>
+      <ul className="divide-y divide-line">
+        {targets.map((target) => (
+          <RecopyRow key={`${target.tenantId}/${target.callId}`} target={target} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * One call's re-copy. The answer is the server's sentence, printed under the button, because
+ * a refusal (already held, erased, deleted on the platform) is information, not a failure.
+ */
+function RecopyRow({ target }: { target: RecopyTarget }) {
+  const recopy = useRecopyRecording();
+  const callLabelId = useId();
+  const answer = recopy.data;
+  return (
+    <li className="space-y-2 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span id={callLabelId} className="min-w-0 break-all text-meta">
+          <span className="text-ink-muted">Call </span>
+          <MonoValue>{target.callId}</MonoValue>
+        </span>
+        <button
+          type="button"
+          className={SECONDARY_BUTTON_SM}
+          aria-describedby={callLabelId}
+          disabled={recopy.isPending}
+          onClick={() => recopy.mutate(target)}
+        >
+          {recopy.isPending ? "Asking…" : "Copy recording again"}
+        </button>
+      </div>
       {answer && (
         <div role="status">
           <NoticeBox tone={answer.queued ? "ok" : "neutral"}>{answer.note}</NoticeBox>
@@ -483,7 +509,7 @@ function RecopyAction({ target }: { target: RecopyTarget }) {
           actionLabel="Copy recording again"
         />
       )}
-    </section>
+    </li>
   );
 }
 
