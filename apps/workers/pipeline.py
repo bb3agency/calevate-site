@@ -187,6 +187,7 @@ from apps.workers.moments import (
     prompt_line_turns,
 )
 from apps.workers.redaction import redact
+from apps.workers.set_aside import set_aside, set_aside_ids
 from apps.workers.storage import (
     RecordingNotReadyError,
     RecordingUnavailableError,
@@ -4813,6 +4814,15 @@ OUTSTANDING_PROBE_HORIZON = timedelta(hours=24)
 #: from the end closest to falling past the horizon rather than churning the newest rows.
 OUTSTANDING_PROBE_PER_TENANT = 50
 
+#: How long a call the probe asked about and could not move (still running, unreadable, or
+#: settled with nothing owed) is left out of later probes (`workers/set_aside.py`). Without
+#: it those rows head every read for up to `OUTSTANDING_PROBE_HORIZON`, and a tenant with
+#: more of them than the cap never has a newer lost call probed. Two hours is every fourth
+#: half-hourly tick: a call that has since ended is still reached the same morning, and a
+#: tenant's cap covers four times as many rows across the horizon.
+OUTSTANDING_PROBE_SET_ASIDE = timedelta(hours=2)
+_OUTSTANDING_SET_ASIDE_SWEEP = "outstanding_probe"
+
 #: Vendor requests this sweep will make in total, across every tenant. The per-tenant cap
 #: bounds one tenant; this bounds the SWEEP, which is what keeps a fleet-wide incident from
 #: turning one cron tick into thousands of requests against the engine we are already
@@ -4860,6 +4870,7 @@ _OUTSTANDING_CALLS_SQL = (
     "AND (c.status <> ALL(:terminal) OR (c.status = 'completed' "
     "  AND NOT EXISTS (SELECT 1 FROM usage_events u WHERE u.call_id = c.id) "
     "  AND NOT EXISTS (SELECT 1 FROM transcript_turns t WHERE t.call_id = c.id))) "
+    "AND NOT (c.engine_call_id = ANY(CAST(:set_aside AS text[]))) "
     "ORDER BY began LIMIT :cap"
 )
 
@@ -4881,6 +4892,9 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
     abandoned = 0
     probes = 0
     truncated = False
+    excluded = await set_aside_ids(_OUTSTANDING_SET_ASIDE_SWEEP)
+    # Asked and not moved: still running, unreadable, or settled with nothing owed.
+    unmoved: list[str] = []
     for tenant_id in await callable_tenants():
         if probes >= OUTSTANDING_PROBE_BUDGET:
             truncated = True
@@ -4895,6 +4909,7 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
                             "after": OUTSTANDING_PROBE_AFTER,
                             "horizon": OUTSTANDING_PROBE_HORIZON,
                             "cap": OUTSTANDING_PROBE_PER_TENANT,
+                            "set_aside": excluded,
                         },
                     )
                 ).all()
@@ -4921,10 +4936,12 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
                     extra={"execution_id": execution_id, "engine": engine.name},
                 )
                 unreached += 1
+                unmoved.append(execution_id)
                 continue
             if not snapshot.terminal:
                 if datetime.now(UTC) - began >= CALL_ABANDONED_AFTER:
                     abandoned += 1
+                unmoved.append(execution_id)
                 continue
             if str(status) in TERMINAL_STATUSES and (
                 await _pipeline_settled(engine.name, snapshot) == "settled"
@@ -4936,6 +4953,7 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
                 # calls in general look like (D-187). Asking it a second way here is how
                 # the poller would start re-driving healthy calls, which is the defect its
                 # whole history is made of.
+                unmoved.append(execution_id)
                 continue
             await enqueue(
                 INGEST_JOB,
@@ -4953,6 +4971,7 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
             record_reconciliation_repair(kind="outside_listing_window")
             repaired += 1
 
+    await set_aside(_OUTSTANDING_SET_ASIDE_SWEEP, unmoved, for_=OUTSTANDING_PROBE_SET_ASIDE)
     if abandoned:
         # NOT a repair: there is nothing to re-drive, because the engine says the call has
         # not ended. Either it is genuinely still up hours later — platform minutes burning

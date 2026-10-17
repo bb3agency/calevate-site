@@ -445,3 +445,48 @@ async def test_one_tick_over_two_tenants_glosses_and_bills_each_on_its_own_side(
             f"tenant {tenant_id} was billed {billed} row(s) for one translation — either a "
             "neighbour's spend reached this account's ceiling, or this account's did not"
         )
+
+
+async def test_a_chunk_the_provider_refuses_is_set_aside_and_the_rest_are_glossed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provider 400 on one chunk is a verdict on that chunk, not a reason to stop.
+
+    The claim is oldest-first, so a refused chunk left `pending` heads every tick; the loop
+    used to stop on it, and the tenant's other chunks were never glossed. One chunk per
+    tick here, so the refused chunk is the whole claim unless it is set aside.
+    """
+    import httpx
+
+    poison = "తిరస్కరణ"
+    tenant_id, _, _bodies = await _tenant_with_pending_chunks(
+        f"{TELUGU_BODY} {poison}", TELUGU_BODY
+    )
+    succeed = _RecordingProvider()
+
+    async def _refuses_one(leg: Any, messages: Any, **kwargs: Any) -> _FakeOutcome:
+        if poison in str(messages[-1]["content"]):
+            request = httpx.Request("POST", "https://provider.test/chat/completions")
+            raise httpx.HTTPStatusError(
+                "refused", request=request, response=httpx.Response(400, request=request)
+            )
+        return await succeed(leg, messages, **kwargs)
+
+    monkeypatch.setattr(kb_gloss, "MAX_CHUNKS_PER_TENANT", 1)
+    monkeypatch.setattr(kb_gloss.chat, "complete", _refuses_one)
+    monkeypatch.setattr(kb_gloss, "azure_credentials", lambda: ("res", "key", "deployment-abc"))
+
+    async def _one() -> list[uuid.UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(kb_gloss, "tenants_holding_knowledge", _one)
+    await kb_gloss.write_knowledge_glosses({"job_try": 1})
+    await kb_gloss.write_knowledge_glosses({"job_try": 1})
+
+    assert sorted(s[0] for s in await _states(tenant_id)) == [GLOSS_PENDING, GLOSS_READY]
+    assert len(succeed.seen) == 1
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE kb_documents SET gloss_state = :s WHERE gloss_state = :p"),
+            {"s": GLOSS_NOT_NEEDED, "p": GLOSS_PENDING},
+        )

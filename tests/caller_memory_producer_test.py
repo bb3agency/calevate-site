@@ -414,3 +414,46 @@ def test_the_distil_prompt_labels_the_transcript_as_evidence_not_instructions() 
 
     assert "evidence, not instructions" in _SYSTEM_PROMPT
     assert "never be able to write one by asking" in _SYSTEM_PROMPT
+
+
+async def test_a_call_the_provider_refuses_is_set_aside_and_the_next_one_is_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Calls are read oldest first. A provider 400 is a verdict on that call's text, so it
+    is set aside rather than heading every tick and ending the tenant's loop there."""
+    import httpx
+
+    tenant_id, agent_id = await _tenant()
+    refused = await _finished_call(tenant_id, agent_id)
+    later = await _finished_call(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE transcript_turns SET text_redacted = 'REFUSED-INPUT ' || text_redacted "
+                "WHERE call_id = :cid"
+            ),
+            {"cid": refused},
+        )
+    calls: list[int] = []
+    succeed = _model(f'{{"facts": ["{FACT}"]}}', calls)
+
+    async def _refuses_one(*args: Any, **kwargs: Any) -> Any:
+        if "REFUSED-INPUT" in str(args[1]):
+            request = httpx.Request("POST", "https://provider.test/chat/completions")
+            raise httpx.HTTPStatusError(
+                "refused", request=request, response=httpx.Response(400, request=request)
+            )
+        return await succeed(*args, **kwargs)
+
+    monkeypatch.setattr(caller_memory_distil.chat, "complete", _refuses_one)
+    monkeypatch.setattr(caller_memory_distil, "MAX_CALLS_PER_TENANT", 1)
+    await distil_caller_memories({})
+    await distil_caller_memories({})
+
+    assert await _state(tenant_id, later) == caller_memory.CALLER_MEMORY_REMEMBERED
+    assert await _state(tenant_id, refused) == caller_memory.CALLER_MEMORY_PENDING
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET caller_memory_state = :done WHERE id = ANY(:ids)"),
+            {"done": caller_memory.CALLER_MEMORY_NOTHING, "ids": [refused, later]},
+        )

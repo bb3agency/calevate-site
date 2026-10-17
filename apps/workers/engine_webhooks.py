@@ -130,6 +130,28 @@ async def _retire_if_orphaned(tenant_id: UUID, engine: str, ref: str) -> bool:
     return rowcount_of(result) > 0
 
 
+#: `webhook_checked_at` is the sweep's queue order and nothing else reads it. A failed check
+#: rolls back with its session, so without this a failing route keeps the front of the
+#: queue and, once there are `WEBHOOK_SWEEP_BUDGET` of them, no other endpoint is checked.
+#: Stamped as visited, it is asked again when its turn comes round; the alarm still names
+#: every failure.
+_STAMP_VISITED_SQL = """
+UPDATE engine_agent_routes SET webhook_checked_at = now()
+WHERE engine = :engine AND engine_agent_ref = :ref
+"""
+
+
+async def _stamp_visited(tenant_id: UUID, engine: str, ref: str) -> None:
+    try:
+        async with tenant_session(tenant_id) as session:
+            await session.execute(text(_STAMP_VISITED_SQL), {"engine": engine, "ref": ref})
+    except Exception as exc:
+        log.warning(
+            "engine_webhook_visit_unstamped",
+            extra={"engine": engine, "tenant_id": str(tenant_id), "reason": type(exc).__name__},
+        )
+
+
 async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
     engine = get_settings().engine
     if engine not in WEBHOOK_ENGINES:
@@ -178,6 +200,7 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
             elif isinstance(exc, EngineRejectedError) and (exc.vendor_status or 0) >= 500:
                 vendor_failed += 1
             unreached += 1
+            await _stamp_visited(UUID(str(tenant_id)), engine, str(ref))
             continue
         # A switched-off endpoint is re-enabled, alarmed and re-sent inside
         # `ensure_agent_webhook`, the same as when a publish finds it so.

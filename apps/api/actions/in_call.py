@@ -211,10 +211,12 @@ async def _within_limit(tool: LoadedTool, call: CallFacts) -> bool:
         return True
     key = f"actions:per-call:{tool.id}:{call.call_ref}"
     try:
-        redis = get_redis()
-        count = int(await redis.incr(key))
-        if count == 1:
-            await redis.expire(key, _LIMIT_TTL_S)
+        # INCR and EXPIRE NX in one round trip, `core/ratelimit.check`'s shape: as two
+        # requests a failure between them left a counter with no expiry.
+        pipe = get_redis().pipeline()
+        pipe.incr(key)
+        pipe.expire(key, _LIMIT_TTL_S, nx=True)
+        count = int((await pipe.execute())[0])
     except Exception as exc:
         log.warning(
             "client_action_limit_unreadable",

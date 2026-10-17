@@ -493,3 +493,55 @@ async def test_the_job_meters_what_it_spent(stub_provider: Any) -> None:
             .all()
         )
     assert "copilot_memory_distillation" in [str(f) for f in features]
+
+
+async def test_a_conversation_the_provider_refuses_is_set_aside_not_retried_first(
+    stub_provider: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Groups are read oldest first. A provider 400 is a verdict on that conversation, so
+    it is set aside rather than heading every tick and ending the tenant's loop there."""
+    import httpx
+
+    tenant_id, user_id = await _tenant_with_user()
+    refused = f"mk{uuid.uuid4().hex[:10]}"
+    later = f"mk{uuid.uuid4().hex[:10]}"
+    for turn in range(copilot_memory.MIN_EPISODES):
+        await _write(
+            tenant_id,
+            user_id,
+            f"Asked: turn {turn} {refused}",
+            route="/first",
+            age_minutes=copilot_memory.IDLE_WINDOW_MINUTES + 60,
+        )
+        await _write(
+            tenant_id,
+            user_id,
+            f"Asked: turn {turn} {later}",
+            route="/second",
+            age_minutes=copilot_memory.IDLE_WINDOW_MINUTES + 5,
+        )
+    provider = stub_provider(["The clinic opens at nine."])
+    succeed = provider.complete
+
+    async def complete(leg: Any, messages: Any, **kwargs: Any) -> chat.ChatOutcome:
+        if any(refused in str(message.get("content", "")) for message in messages):
+            request = httpx.Request("POST", "https://provider.test/chat/completions")
+            raise httpx.HTTPStatusError(
+                "refused", request=request, response=httpx.Response(400, request=request)
+            )
+        return await succeed(leg, messages, **kwargs)
+
+    monkeypatch.setattr(copilot_memory.chat, "complete", complete)
+    monkeypatch.setattr(copilot_memory, "MAX_GROUPS_PER_TENANT", 1)
+
+    await copilot_memory.distil_copilot_memories({})
+    await copilot_memory.distil_copilot_memories({})
+
+    assert provider.calls_for(later) == 1, "the conversation behind the refused one is read"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE copilot_memories SET distilled_at = now() "
+                "WHERE kind = 'episodic' AND distilled_at IS NULL"
+            )
+        )

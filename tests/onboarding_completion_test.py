@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from apps.api.admin import service as admin_service
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.tenancy.onboarding import complete_onboarding_if_finished
@@ -164,3 +165,43 @@ async def test_the_hourly_sweep_moves_an_account_finished_before_the_move_existe
     assert await _status(finished) == "active"
     assert await _completions(finished) == 1
     assert await _status(unfinished) == "onboarding", "no owner has joined it"
+
+
+async def test_the_sweep_reaches_a_finished_account_behind_unfinished_newer_ones(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The sweep reads accounts in `onboarding` newest first, capped. One it asks and finds
+    unfinished is set aside for a while, so accounts nobody finishes cannot fill every read
+    and leave an older finished one reading "Onboarding" for ever."""
+    from apps.workers import onboarding_completion
+
+    prefix = f"onbdsa{uuid.uuid4().hex[:6]}"
+
+    async def _named(suffix: str) -> uuid.UUID:
+        created = await admin_service.create_organization(
+            name="Sunrise Dental",
+            slug=f"{prefix}-{suffix}",
+            vertical_template="clinic",
+            billing_email=None,
+            language="te-IN",
+            created_by=None,
+        )
+        return uuid.UUID(str(created["id"]))
+
+    finished = await _named("old")
+    await _owner(finished)
+    await seed_business_profile(finished)
+    await _named("new")
+    monkeypatch.setattr(
+        onboarding_completion,
+        "_ONBOARDING",
+        onboarding_completion._ONBOARDING.replace(
+            "WHERE deleted_at IS NULL", f"WHERE slug LIKE '{prefix}-%' AND deleted_at IS NULL"
+        ),
+    )
+    monkeypatch.setattr(onboarding_completion, "SWEEP_BUDGET", 1)
+
+    await onboarding_completion.complete_finished_onboardings({})
+    await onboarding_completion.complete_finished_onboardings({})
+
+    assert await _status(finished) == "active"

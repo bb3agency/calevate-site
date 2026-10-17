@@ -489,6 +489,25 @@ def provider_of(leg: ChatLeg) -> str:
     return leg.dialect
 
 
+#: Statuses that are the provider's verdict on what was SENT (RFC 9110 §15.5.1, §15.5.14,
+#: §15.5.21): the identical request gets the identical answer. 401/403/404 are about the
+#: credential or the deployment, 408/409/429 and 5xx about the moment, so none of those
+#: says anything about one input.
+_INPUT_REFUSED_STATUSES: Final = frozenset({400, 413, 422})
+
+
+def refused_this_input(exc: BaseException) -> bool:
+    """Did the provider refuse what this request carried, rather than fail to serve it?
+
+    A sweep sets such an input aside (`workers/set_aside.py`) instead of asking for it at
+    the head of every tick; anything else is transient or a configuration fault and is
+    left to the next tick unchanged."""
+    return (
+        isinstance(exc, httpx.HTTPStatusError)
+        and exc.response.status_code in _INPUT_REFUSED_STATUSES
+    )
+
+
 async def complete(
     leg: ChatLeg,
     messages: Sequence[ChatMessage],
@@ -859,6 +878,7 @@ __all__ = [
     "complete",
     "embed",
     "provider_of",
+    "refused_this_input",
     "replayed_tool_call",
     "stream",
     "usage_from_body",

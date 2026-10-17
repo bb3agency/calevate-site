@@ -423,9 +423,16 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
                 review_state = "approved"
 
         if review_state not in ("approved", "archived"):
-            # Waiting for a human. Not an error and not a retry: the row sits at
-            # `received`, the client's screen says what it is waiting for, and the confirm
-            # route enqueues this job again.
+            # Waiting for a human (or rejected). Not an error and not a retry: the row sits
+            # at `received`, the client's screen says what it is waiting for, and the
+            # confirm route enqueues this job again. `updated_at` is stamped because it is
+            # the sweep's stalled-row order (`_STALLED_SQL`): left as it was, the row heads
+            # every capped read and enough of them hold back every genuinely stalled upload.
+            # `publish_kb_source` moves a refused typed source back the same way.
+            await session.execute(
+                text("UPDATE kb_uploads SET updated_at = now() WHERE id = :id"),
+                {"id": upload_id},
+            )
             return "awaiting_review"
 
         await _mark(session, upload_id, UPLOAD_PROCESSING)

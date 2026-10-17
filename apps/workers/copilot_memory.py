@@ -69,8 +69,23 @@ from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import chat
 from apps.workers.extraction import AZURE_PROVIDER, azure_credentials
+from apps.workers.set_aside import (
+    REFUSED_INPUT_SET_ASIDE,
+    RefusalStreak,
+    set_aside,
+    set_aside_ids,
+)
 
 log = get_logger(__name__)
+
+#: The `set_aside` name for conversations the provider refused to read.
+_SET_ASIDE_SWEEP: Final = "copilot_distil"
+
+
+def _group_key(user_id: UUID, route: str | None) -> str:
+    """How `_GROUPS_SQL` spells one (person, screen) conversation it should leave out."""
+    return str(user_id) if route is None else f"{user_id}:{route}"
+
 
 #: The minute this cron fires. :25, which is clear of every other fleet-wide fan-out in
 #: `settings.CRON_JOBS` — the poller (:00/:10/...), `report_stalled_pipeline` (:05/:35) and
@@ -153,10 +168,15 @@ _SYSTEM_PROMPT: Final = (
 #: ONE ROW PER (person, screen) WHOSE CONVERSATION HAS GONE QUIET. `HAVING max(...)` is the
 #: idle test, `count(*)` is `MIN_EPISODES`, and the partial index
 #: `ix_copilot_memories_pending_distillation` is exactly this predicate's shape.
+#:
+#: `:set_aside` leaves out conversations the provider refused (`_group_key`), which would
+#: otherwise head every tick.
 _GROUPS_SQL = f"""
 SELECT user_id, screen_route, count(*) AS episodes
 FROM copilot_memories
 WHERE kind = '{KIND_EPISODIC}' AND distilled_at IS NULL
+  AND NOT ((user_id::text || coalesce(':' || screen_route, ''))
+           = ANY(CAST(:set_aside AS text[])))
 GROUP BY user_id, screen_route
 HAVING count(*) >= :min_episodes
    AND max(created_at) < now() - make_interval(mins => :idle_minutes)
@@ -380,6 +400,7 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
     budget = MAX_GROUPS_PER_TICK
     distilled_groups = 0
     facts_written = 0
+    excluded = await set_aside_ids(_SET_ASIDE_SWEEP)
     for tenant_id in tenants:
         if budget <= 0:
             break
@@ -392,27 +413,46 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
                             "min_episodes": MIN_EPISODES,
                             "idle_minutes": IDLE_WINDOW_MINUTES,
                             "limit": min(MAX_GROUPS_PER_TENANT, budget),
+                            "set_aside": excluded,
                         },
                     )
                 ).all()
+            refusals = RefusalStreak()
             for group in groups:
                 if budget <= 0:
                     break
                 budget -= 1
                 distilled_groups += 1
+                route = None if group[1] is None else str(group[1])
                 # ONE TRANSACTION PER GROUP, not per tenant. Each group's model call is paid
                 # for the moment it returns, and its facts, stamp and `usage_events` rows
                 # must commit with it: sharing the tenant's transaction let a provider error
                 # on a LATER group roll all three back, so the spend went unrecorded (hard
                 # rule 7) and the next tick paid for the same conversation again.
-                async with tenant_session(tenant_id) as session:
-                    facts_written += await _distil_group(
-                        session,
-                        tenant_id=tenant_id,
-                        user_id=UUID(str(group[0])),
-                        route=None if group[1] is None else str(group[1]),
-                        leg=leg,
+                try:
+                    async with tenant_session(tenant_id) as session:
+                        facts_written += await _distil_group(
+                            session,
+                            tenant_id=tenant_id,
+                            user_id=UUID(str(group[0])),
+                            route=route,
+                            leg=leg,
+                        )
+                except httpx.HTTPStatusError as failure:
+                    if not chat.refused_this_input(failure):
+                        raise
+                    # A refusal of THIS conversation: asked again only after a while, so it
+                    # cannot head every tick and keep the ones behind it from being read.
+                    log.warning("copilot_distil_input_refused", extra={"tenant_id": str(tenant_id)})
+                    await set_aside(
+                        _SET_ASIDE_SWEEP,
+                        [_group_key(UUID(str(group[0])), route)],
+                        for_=REFUSED_INPUT_SET_ASIDE,
                     )
+                    if refusals.refused():
+                        break
+                    continue
+                refusals.answered()
         except (httpx.HTTPError, TimeoutError) as failure:
             # The provider, for THIS tenant's call. The episodes keep their NULL
             # `distilled_at`, so the next tick picks the same conversation up — which is

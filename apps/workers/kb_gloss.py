@@ -105,6 +105,12 @@ from apps.api.kb.gloss import GLOSS_NOT_NEEDED, GLOSS_PENDING, GLOSS_READY, need
 from apps.api.kb.service import refresh_projection_keys
 from apps.workers import chat
 from apps.workers.extraction import AZURE_PROVIDER, azure_credentials
+from apps.workers.set_aside import (
+    REFUSED_INPUT_SET_ASIDE,
+    RefusalStreak,
+    set_aside,
+    set_aside_ids,
+)
 
 log = get_logger(__name__)
 
@@ -179,12 +185,19 @@ _SYSTEM_PROMPT: Final = (
 #: the reviewer sees it on the preview screen, and it is wanted for an ARCHIVED source
 #: because a rollback (FLOWS §7) makes an archived version live again by moving a pointer
 #: rather than by re-ingesting it. Rejected is the one status certain never to be spoken.
+#:
+#: `:set_aside` leaves out chunks the provider refused (`workers/set_aside.py`): they stay
+#: `pending`, and without it they would head every claim.
 _CLAIM_SQL: Final = (
     "SELECT d.id, d.content FROM kb_documents d "
     "JOIN kb_sources s ON s.id = d.source_id "
     f"WHERE d.gloss_state = '{GLOSS_PENDING}' AND s.status <> 'rejected' "
+    "AND NOT (d.id = ANY(CAST(:set_aside AS uuid[]))) "
     "ORDER BY d.id LIMIT :limit FOR UPDATE OF d SKIP LOCKED"
 )
+
+#: The `set_aside` name for chunks the provider refused to translate.
+_SET_ASIDE_SWEEP: Final = "kb_gloss"
 
 _MARK_SQL: Final = (
     "UPDATE kb_documents SET gloss = :gloss, gloss_model = :model, gloss_state = :state, "
@@ -397,6 +410,7 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
     translated = 0
     not_needed = 0
     rekeyed = 0
+    set_aside_chunks = await set_aside_ids(_SET_ASIDE_SWEEP)
     for tenant_id in tenants:
         # THE PAID HALF IS BUDGETED; THE RE-KEY BELOW IS NOT, AND THE LOOP NO LONGER BREAKS.
         # It used to `break` the moment the tick's translations were spent, which was right
@@ -406,11 +420,16 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
         # are all settled, so a budgeted loop would never look at it again. What it costs is
         # one short transaction per tenant holding knowledge, twice an hour.
         if budget > 0:
+            refusals = RefusalStreak()
             try:
                 async with tenant_session(tenant_id) as session:
                     rows = (
                         await session.execute(
-                            text(_CLAIM_SQL), {"limit": min(MAX_CHUNKS_PER_TENANT, budget)}
+                            text(_CLAIM_SQL),
+                            {
+                                "limit": min(MAX_CHUNKS_PER_TENANT, budget),
+                                "set_aside": set_aside_chunks,
+                            },
                         )
                     ).all()
                     for row in rows:
@@ -442,10 +461,21 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
                                 "kb_gloss_provider_failed",
                                 extra={
                                     "tenant_id": str(tenant_id),
+                                    "chunk_id": str(row[0]),
                                     "error": type(failure).__name__,
                                 },
                             )
-                            break
+                            if not chat.refused_this_input(failure):
+                                break
+                            # A refusal of THIS text is asked again only after a while, so
+                            # it cannot head every claim and starve the chunks behind it.
+                            await set_aside(
+                                _SET_ASIDE_SWEEP, [str(row[0])], for_=REFUSED_INPUT_SET_ASIDE
+                            )
+                            if refusals.refused():
+                                break
+                            continue
+                        refusals.answered()
                         if paid:
                             translated += 1
                         else:
