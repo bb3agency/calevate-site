@@ -32440,6 +32440,60 @@
         "title": "RecordingLinkOut",
         "type": "object"
       },
+      "RecordingRecopyOut": {
+        "additionalProperties": false,
+        "description": "What one operator re-copy request did.",
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "queued",
+                  "already_queued"
+                ],
+                "type": "string"
+              },
+              {
+                "enum": [
+                  "call_not_found",
+                  "erased",
+                  "content_deleted",
+                  "already_copied",
+                  "not_connected",
+                  "own_runtime"
+                ],
+                "type": "string"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "boolean"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "call_id",
+          "queued",
+          "outcome",
+          "note"
+        ],
+        "title": "RecordingRecopyOut",
+        "type": "object"
+      },
       "RecurrenceIn": {
         "additionalProperties": false,
         "description": "A standing instruction: which weekdays, at what IST time, until when.\n\n`days` are ISO weekday numbers (1 = Monday), the same vocabulary\n`datetime.isoweekday()` and the service use \u2014 one numbering across the wire, the rule\nand the UI, because a second one is an off-by-one that dials on the wrong day.\n\n`at` is an IST wall-clock \"HH:MM\", NOT an instant, and that is the whole difference\nbetween a repeat and a start. \"10am every Tuesday\" means ten o'clock on each of those\nTuesdays; an instant would freeze one particular Tuesday's ten o'clock and the\nschedule would have to re-derive the intent from it. The pattern is enforced here so\nthe generated TypeScript client cannot send \"10\" or \"10:00 AM\".\n\n`until` is optional and offset-carrying for the same reason `ScheduleIn.start_at` is:\na bare local date on the wire is a date the server has to guess the zone of.",
@@ -71822,6 +71876,57 @@
           }
         },
         "summary": "Publish a language's reviewed spoken style to every live agent (step-up, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/tenants/{tenant_id}/calls/{call_id}/recording/recopy": {
+      "post": {
+        "description": "Queues the same copy the post-call pipeline runs, for one connected call whose recording we do not hold, and nothing else of the pipeline: no metering, no extraction. Refused, with the reason in `outcome`, for a call already copied, erased, deleted on the voice platform or never connected. The hourly missing-recording sweep queues the same job on its own; this is for a call an operator does not want to wait an hour for.",
+        "operationId": "recopy_call_recording_route_v1_ops_tenants__tenant_id__calls__call_id__recording_recopy_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingRecopyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Copy one call's recording from the voice platform again (audited)",
         "tags": [
           "ops"
         ],
