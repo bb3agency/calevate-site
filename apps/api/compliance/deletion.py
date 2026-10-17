@@ -302,6 +302,14 @@ CALLER_MEMORY_KEY: Final = "caller_memories_erased"
 # nothing counted them.
 UNIDENTIFIED_COUNT_KEY: Final = "calls_without_an_identifiable_party"
 
+# How many dials to this person the voice platform had booked and not yet connected when
+# the erasure ran, each asked to be called off by the recall job after commit (D-807,
+# `dnc_recall.enqueue_erasure_recall`). The certificate says "asked", never "cancelled":
+# the platform's answer arrives after the certificate is written. Duplicated in
+# `apps.workers.retention` for the reason the keys above are, pinned by
+# `tests/erasure_certificate_test`. ABSENT IS NOT ZERO: proofs before D-810 carry no key.
+RECALLED_DIALS_KEY: Final = "booked_dials_recall_requested"
+
 #: Calls no phone number can match, because neither party was ever recorded on them.
 #:
 #: Its own outcome word rather than the `by name` entry's `not_reachable_without_the_number`
@@ -413,9 +421,9 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     f"{RECORDING_FLOOR_DAYS}-day floor Calevate applies to call recordings as a matter "
     "of its own platform policy. Those are not destroyed early and they are not kept "
     "indefinitely either: each one is scheduled, and the "
-    "certificate states the date the last of them is destroyed on. Whether an under-age "
-    "recording should be destroyed on request ANYWAY is an open decision, and this "
-    "notice states the position rather than resolving it.",
+    "certificate states the date the last of them is destroyed on. Calevate has decided "
+    "that a request does not destroy an under-age recording early, and the voice "
+    "platform's copy of one is asked deleted only once Calevate holds its own.",
     "The consent records for these calls are retained, and they carry the caller's "
     "number. They are the append-only proof that the calls were lawful — an entry can "
     "be added but never edited or deleted — and destroying them would remove the "
@@ -546,10 +554,10 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "force'. A retention obligation therefore DEFERS an erasure rather than "
             "cancelling it, and DPDP §8(7)'s storage limitation makes keeping the data "
             "beyond that obligation a breach in itself — which is why the deferral is a "
-            "scheduled destruction and not an exemption. Whether an under-age recording "
-            "should be destroyed on request anyway is an open decision we have not yet "
-            "taken; until we do, the pointer is cleared at every age and no under-age "
-            "audio is destroyed early."
+            "scheduled destruction and not an exemption. Calevate has decided that a "
+            "request does not destroy an under-age recording early: the pointer is "
+            "cleared at every age, and no under-age audio is destroyed early, by us or, "
+            "while we do not yet hold our own copy, at the voice platform."
         ),
     ),
     ErasureLimitation(
@@ -702,10 +710,14 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "cost. In a workspace of the business's own on that platform the person's "
             "contact entry is erased too; in a workspace shared with other businesses it is "
             "not, because erasing it there would remove the person's history with every "
-            "business sharing it. The deletion is asked once this request completes and "
-            "the platform may take a few nights to remove a recording it was still "
-            "writing. Do not tell the data principal that copy is gone until the task for "
-            "this request says the platform confirmed it."
+            "business sharing it. The deletion is asked once this request completes, "
+            "except where Calevate does not yet hold its own copy of a connected call's "
+            f"recording that is still inside the {RECORDING_FLOOR_DAYS}-day floor: that "
+            "call's copy, and the contact entry, are asked deleted once Calevate holds its "
+            "copy or the floor has passed, so no recording the floor keeps is destroyed at "
+            "the platform before Calevate holds it. The platform may take a few nights to "
+            "remove a recording it was still writing. Do not tell the data principal that "
+            "copy is gone until the task for this request says the platform confirmed it."
         ),
         # `apps/web/src/lib/legal/subprocessors.ts` is the client-facing copy this entry
         # must agree with. Per-call deletion: snapshots/2026-10-15/pages/api-reference/
@@ -1206,6 +1218,7 @@ __all__ = [
     "KB_OUTCOME",
     "MAX_LIST",
     "PROCESSOR_OUTCOME",
+    "RECALLED_DIALS_KEY",
     "RECORDING_FLOOR_DAYS",
     "STATUS_COMPLETED",
     "STATUS_PENDING",

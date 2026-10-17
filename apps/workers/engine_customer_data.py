@@ -8,7 +8,8 @@ is never written to, because the developer workspace holds every client's data.
 
 `erase_engine_contact` finds the contact by the person's number in the client's workspace
 and erases it (`DELETE /contacts/{id}`, recordings included; `api-reference/contacts/
-delete-contact.md:7`). Each contact's queued recording count is recorded on the erasure's
+delete-contact.md:7`), once we hold our own copy of the recordings that DELETE takes (D-810).
+Each contact's queued recording count is recorded on the erasure's
 `voice_engine` task (`compliance/processor_erasure`); the platform's `contact.erased`
 delivery sets it to 0 when the last recording is gone (`workers/engine_workspace_events`).
 
@@ -30,11 +31,13 @@ from calevate_shared.engine import tenant_of_pipecat_ref
 from calevate_shared.engine_scope import raw_of, scope_of
 from sqlalchemy import text
 
+from apps.api.compliance.engine_content import calls_awaiting_our_copy
 from apps.api.compliance.engine_dnc import (
     ENGINE_DNC_REMOVE_JOB,
     removal_context,
 )
 from apps.api.compliance.processor_erasure import (
+    held_contacts,
     mark_task_requested,
     record_engine_contact_progress,
     settle_voice_engine_task,
@@ -194,8 +197,8 @@ async def remove_engine_dnc(ctx: dict[str, Any], payload: dict[str, Any]) -> str
 
 
 _TASK_SQL: Final = (
-    "SELECT id FROM processor_erasure_tasks WHERE request_ref = :rid "
-    "AND processor = 'voice_engine' ORDER BY id LIMIT 1"
+    "SELECT id, vendor_refs, vendor_reference FROM processor_erasure_tasks "
+    "WHERE request_ref = :rid AND processor = 'voice_engine' ORDER BY id LIMIT 1"
 )
 
 #: A contact found and not yet confirmed gone, in the task's progress record.
@@ -210,6 +213,15 @@ async def erase_engine_contact(ctx: dict[str, Any], payload: dict[str, Any]) -> 
     more (`processor_erasure.record_engine_contact_progress`). So a contact that vanished
     between attempts without our DELETE answering stays unsettled until the platform's
     `contact.erased` says it is gone, or an operator closes the task.
+
+    THE DELETE WAITS FOR OUR COPY (D-810, founder 18 Oct 2026). Erasing a contact deletes
+    that person's recordings at the platform at once (`workspace/data-and-erasure.md:21`),
+    so while any of the task's calls in this workspace is connected, inside the 90-day floor
+    and without a recording copy of ours, the contacts found are recorded as held and
+    nothing is deleted; the rule is `engine_content.calls_awaiting_our_copy`, the one the
+    per-call deletion obeys. The nightly retention sweep queues a held erasure again with no
+    subject (`retention._release_held_contacts`), and that run deletes the contacts the
+    task recorded, once the rule allows it.
     """
     tenant_id = UUID(str(payload["tenant_id"]))
     request_id = UUID(str(payload["request_id"]))
@@ -220,11 +232,36 @@ async def erase_engine_contact(ctx: dict[str, Any], payload: dict[str, Any]) -> 
         log.warning("engine_contact_erasure_skipped", extra={"request_id": str(request_id)})
         return "not_provisioned"
     async with tenant_session(tenant_id) as session:
-        task_id = (await session.execute(text(_TASK_SQL), {"rid": request_id})).scalar()
+        task = (await session.execute(text(_TASK_SQL), {"rid": request_id})).first()
+    task_id = task.id if task is not None else None
     try:
-        phone = _open_subject(payload.get("subject"), request_id=request_id)
         client = thinnest_customer_data()
-        contacts = await client.contact_ids(workspace, phone)
+        if "subject" in payload:
+            phone = _open_subject(payload.get("subject"), request_id=request_id)
+            contacts = await client.contact_ids(workspace, phone)
+        else:
+            contacts = held_contacts(task.vendor_reference) if task is not None else []
+        if task is not None and contacts:
+            async with tenant_session(tenant_id) as session:
+                waiting = await calls_awaiting_our_copy(
+                    session,
+                    raw_call_ids=[str(ref) for ref in (task.vendor_refs or [])],
+                    workspace=workspace,
+                )
+                if waiting:
+                    await record_engine_contact_progress(
+                        session, task_id=task.id, progress={}, held=contacts
+                    )
+            if waiting:
+                log.info(
+                    "engine_contact_erasure_held",
+                    extra={
+                        "request_id": str(request_id),
+                        "contacts": len(contacts),
+                        "calls_waiting": waiting,
+                    },
+                )
+                return f"held contacts={len(contacts)} calls_waiting={waiting}"
         if task_id is not None and contacts:
             async with tenant_session(tenant_id) as session:
                 await record_engine_contact_progress(

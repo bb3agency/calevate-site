@@ -14,6 +14,8 @@ import uuid
 from typing import Any
 
 import pytest
+from apps.api.compliance.deletion import RECALLED_DIALS_KEY
+from apps.api.compliance.deletion_proof import certificate
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
@@ -106,7 +108,24 @@ async def test_a_subject_erasure_calls_off_that_persons_booked_dial_only(
         [{"engine_call_id": erased_ref, "to": ERASED}, {"engine_call_id": other_ref, "to": OTHER}]
     )
 
-    await _erase_subject(tenant_id, ERASED)
+    request_id = await _request(tenant_id, ERASED)
+    await retention.execute_deletion_request(
+        {}, {"tenant_id": str(tenant_id), "request_id": str(request_id)}
+    )
+
+    # The certificate states the dials asked to be called off (D-810), from the count the
+    # erasure itself enqueued.
+    async with tenant_session(tenant_id) as session:
+        proof = (
+            await session.execute(
+                text("SELECT proof FROM deletion_requests WHERE id = :r"), {"r": request_id}
+            )
+        ).scalar_one()
+    assert proof["scope"][RECALLED_DIALS_KEY] == 1
+    document = certificate(proof)
+    assert document is not None
+    assert any(line.startswith("1 booked call to this person") for line in document["erased"])
+    assert proof["actions"]["booked_dials"].startswith("1 booked call(s)")
 
     [payload] = await _recall_payloads(tenant_id)
     assert payload == {"tenant_id": str(tenant_id), "erasure": "subject", "call_ids": [str(erased)]}
@@ -140,6 +159,15 @@ async def test_a_tenant_erasure_calls_off_every_booked_dial(
     await retention.execute_tenant_erasure(
         {}, {"tenant_id": str(tenant_id), "request_id": str(request_id)}
     )
+
+    async with tenant_session(tenant_id) as session:
+        proof = (
+            await session.execute(
+                text("SELECT proof FROM tenant_erasure_requests WHERE id = :r"),
+                {"r": request_id},
+            )
+        ).scalar_one()
+    assert proof["actions"]["booked_dials"].startswith("3 booked call(s)")
 
     [payload] = await _recall_payloads(tenant_id)
     assert payload["erasure"] == "tenant"

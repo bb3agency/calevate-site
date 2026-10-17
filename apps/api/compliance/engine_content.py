@@ -21,6 +21,7 @@ from typing import Final
 from uuid import UUID
 
 from calevate_shared.engine import tenant_of_pipecat_ref
+from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,6 +63,14 @@ _TENANT_CANDIDATES_SQL: Final = (
     "WHERE c.tenant_id = :tid AND c.engine_call_id IS NOT NULL "
     "AND (c.engine_content_deleted_at IS NULL "
     "OR COALESCE(c.engine_content_recordings_pending, 0) > 0) ORDER BY c.id"
+)
+#: The same rule over a `voice_engine` task's calls (its raw vendor ids), for the contact
+#: erasure: `DELETE /contacts/{id}` takes the person's recordings with it
+#: (`workspace/data-and-erasure.md:21`), so it waits on exactly what a per-call deletion
+#: waits on (D-810).
+_TASK_CALLS_READY_SQL: Final = (
+    f"SELECT c.engine_call_id, {_READY_SQL} FROM calls c "
+    "WHERE split_part(c.engine_call_id, '@', 1) = ANY(:refs) ORDER BY c.id"
 )
 _MARK_SQL: Final = (
     "UPDATE calls SET engine_content_delete_requested_at = now(), updated_at = now() "
@@ -122,9 +131,27 @@ async def queue_engine_content_deletion(
     return len(owed)
 
 
+async def calls_awaiting_our_copy(
+    session: AsyncSession, *, raw_call_ids: Sequence[str], workspace: str
+) -> int:
+    """How many of these calls, held in `workspace`, the platform may not yet lose: a
+    connected call inside the floor whose recording we do not hold. Calls in another
+    workspace are not counted, since a contact erasure acts on one workspace only."""
+    if not raw_call_ids:
+        return 0
+    rows = (
+        await session.execute(
+            text(_TASK_CALLS_READY_SQL),
+            {"refs": list(raw_call_ids), "floor": RECORDING_FLOOR_DAYS},
+        )
+    ).all()
+    return sum(1 for handle, ready in rows if not ready and scope_of(str(handle)) == workspace)
+
+
 __all__ = [
     "CONTENT_DELETE_CHUNK",
     "ENGINE_CONTENT_DELETE_JOB",
+    "calls_awaiting_our_copy",
     "deletes_call_content",
     "queue_engine_content_deletion",
 ]

@@ -118,6 +118,7 @@ from apps.api.compliance.processor_erasure import (
     VOICE_PLATFORM_CONTENT_DELETION_SENTENCE,
     VOICE_PLATFORM_TENANT_CONTENT_SENTENCE,
     engine_held_call_refs,
+    held_contact_erasures,
     open_tasks_for_request,
 )
 from apps.api.core.alerting import alert
@@ -230,6 +231,11 @@ UNIDENTIFIED_COUNT_KEY = "calls_without_an_identifiable_party"
 # look. The certificate says the two states in two different sentences.
 CALLER_VECTOR_KEY = "caller_vectors_erased"
 CALLER_MEMORY_KEY = "caller_memories_erased"
+
+# How many booked, not yet connected dials to this person the recall job is asked to call
+# off (D-807, D-810). `apps.api.compliance.deletion.RECALLED_DIALS_KEY`, duplicated for the
+# reason the keys above are; `tests/erasure_certificate_test.py` pins the spellings.
+RECALLED_DIALS_KEY = "booked_dials_recall_requested"
 
 # Rows touched by ONE statement. Small enough that the sweep never holds a lock long
 # enough to matter to a live call writing to the same tables.
@@ -478,6 +484,9 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     # the tenant's recording or transcript period, or still owed a day after an earlier
     # request. Counted in CALLS queued, not deleted: the deletion is a job after this tick.
     "engine_content_queued": 0,
+    # Contact erasures held back for our recording copy (D-810) queued again; the job
+    # deletes the contacts once the copy is ours or the floor has passed.
+    "engine_contact_erasures_requeued": 0,
     "deferred": 0,
 }
 
@@ -1004,6 +1013,9 @@ async def sweep_tenant(tenant_id: UUID) -> dict[str, int]:
             tenant_id=tenant_id,
             ttl_days=call_content_days((str(row[0]), int(row[1])) for row in policies),
         )
+        totals["engine_contact_erasures_requeued"] += await _release_held_contacts(
+            session, tenant_id=tenant_id
+        )
     return totals
 
 
@@ -1069,6 +1081,26 @@ async def _queue_engine_content(
     )
     queued += await queue_engine_content_deletion(session, tenant_id=tenant_id, call_ids=list(owed))
     return queued
+
+
+async def _release_held_contacts(session: AsyncSession, *, tenant_id: UUID) -> int:
+    """Queue every contact erasure of this tenant held back for our recording copy again.
+
+    The job, not this sweep, decides whether the copy has landed or the floor has passed
+    (`engine_customer_data.erase_engine_contact`), so the rule lives in one place; a run
+    that is still too early records nothing new and costs no vendor request. The payload
+    carries no subject: the task already names the contacts found."""
+    if not deletes_call_content():
+        return 0
+    requests = await held_contact_erasures(session)
+    for request_id in requests:
+        # The literal, so `scripts/check_job_wiring` reads the job name at its enqueue site.
+        await enqueue_outbox(
+            session,
+            job="erase_engine_contact",
+            payload={"tenant_id": str(tenant_id), "request_id": str(request_id)},
+        )
+    return len(requests)
 
 
 async def _sweep_in_batches(
@@ -2017,13 +2049,11 @@ async def _erase_recordings(
 
     Returns `(within_floor, destroyed, latest_scheduled_destruction)`.
 
-    THE TENSION, AND WHAT THIS FUNCTION DOES AND DOES NOT DECIDE. SEC-COMP §4 records an
-    open decision: for a recording younger than the retention floor, §4's erasure duty and
-    §1's floor point opposite ways, and the founder reserves the choice. This function
-    does not take it. It never destroys a recording inside the floor, and it does not make
-    the POINTER clear conditional on age — the caller still nulls `recording_url` for
-    every matched call, exactly as before, which is what §4 forbids changing without the
-    decision.
+    THE TENSION, AND THE DECISION THIS FUNCTION CARRIES OUT. For a recording younger than
+    the retention floor, §4's erasure duty and §1's floor point opposite ways; the founder
+    decided (D-810, SEC-COMP §4) that the floor holds. This function never destroys a
+    recording inside the floor, and it does not make the POINTER clear conditional on age —
+    the caller still nulls `recording_url` for every matched call.
 
     **A CALL MAY HAVE TWO RECORDINGS AND THIS FUNCTION NEVER HAD TO LEARN THAT** (D-533):
     the SELECT emits one row per OBJECT, the loop below was already per object, and a hold
@@ -2041,7 +2071,7 @@ async def _erase_recordings(
     breach on its own. A deferral is therefore a SCHEDULE, and the hold row is the handle
     the sweep needs to keep it. Before this function existed the pointer clear destroyed
     that handle, so an erasure request made the audio permanently undeletable — which is
-    not either side of the open decision, it is the failure to have one.
+    not either side of the decision, it is the failure to have one.
 
     Storage refusing to answer RAISES (`StorageUnavailableError` is an `arq.Retry`), which
     rolls the transaction back and leaves `completed_at` NULL for the retry. Same contract
@@ -2856,7 +2886,9 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         # would still ring, and the platform refuses to delete a booked call's content
         # (409). Called off after commit by the recall job; after the outbox scrub above,
         # which would otherwise delete the job.
-        await enqueue_erasure_recall(session, tenant_id=tenant_id, call_ids=list(calls))
+        dials_recalled = await enqueue_erasure_recall(
+            session, tenant_id=tenant_id, call_ids=list(calls)
+        )
 
         # LOOKED AT, never changed — see `_search_knowledge_base` for why the erasure
         # stops at a count. Run last, so a store this request could not reach has already
@@ -2924,9 +2956,17 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 # a number only this file knew would be a promise with no reader.
                 CALLER_VECTOR_KEY: caller_vectors.vectors,
                 CALLER_MEMORY_KEY: caller_vectors.memories,
+                # Read by name: the certificate says how many booked dials were asked to
+                # be called off (D-810). The count the enqueue saw in this transaction; the
+                # platform's answer comes after commit and is not claimed here.
+                RECALLED_DIALS_KEY: dials_recalled,
             },
             "actions": {
                 "calls": "phone numbers, recording pointer and summary cleared",
+                "booked_dials": (
+                    f"{dials_recalled} booked call(s) to this person not yet connected "
+                    "asked to be called off at the voice platform before they ring"
+                ),
                 "recordings": (
                     f"{recordings_destroyed} audio file(s) destroyed in object storage; "
                     f"{recordings_in_floor} scheduled for destruction on expiry of the "
@@ -3153,9 +3193,9 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
     if recordings_in_floor:
         # A WARNING, not an `alert()`: this is an expected, disclosed state under the
         # position the docs record, not a job that died, and an alarm that fires on
-        # normal operation is an alarm nobody reads. It is here so the open decision has
-        # a rate in the log stream — "how often does this actually collide?" is the
-        # first question whoever resolves it will ask. Ids and counts only.
+        # normal operation is an alarm nobody reads. It gives the floor decision (D-810)
+        # a rate in the log stream: how often an erasure collides with it. Ids and counts
+        # only.
         log.warning(
             _FLOOR_COLLISION_LOG,
             extra={"request_id": str(request_id), "recordings": recordings_in_floor},
@@ -3829,7 +3869,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # Every dial the platform has booked for this client and not rung is called off
         # after commit (the subject erasure's reason). After the outbox scrub, which deletes
         # every pending message of this tenant.
-        await enqueue_erasure_recall(session, tenant_id=tenant_id, call_ids=None)
+        dials_recalled = await enqueue_erasure_recall(session, tenant_id=tenant_id, call_ids=None)
+        proof["actions"]["booked_dials"] = (
+            f"{dials_recalled} booked call(s) not yet connected asked to be called off at "
+            "the voice platform before they ring"
+        )
 
         # THE OBLIGATIONS, RECORDED (D-433). No vendor call is made from here:
         # `_WITHDRAW_ROUTES_SQL` records why — a third-party round trip inside the one
@@ -4090,6 +4134,7 @@ __all__ = [
     "FLOOR_COUNT_KEY",
     "HOLD_UNTIL_KEY",
     "KB_MATCH_KEY",
+    "RECALLED_DIALS_KEY",
     "RECORDING_FLOOR_DAYS",
     "REDACTED_MARK",
     "RELIABILITY_PRUNE_AFTER",

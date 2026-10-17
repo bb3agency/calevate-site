@@ -554,7 +554,12 @@ ported per client wish.
   whole workspace (D-691), so a data principal's erasure also queues `erase_engine_contact`
   only in the client's own workspace; the `voice_engine` task closes itself when ThinnestAI
   has confirmed every call and, for a contact, sent `contact.erased`
-  (THINNEST-INTEGRATION §6). Our own copies are always erased by us. A `telephony`
+  (THINNEST-INTEGRATION §6). Both deletions take the person's recordings at ThinnestAI, so
+  both wait while a connected call inside the 90-day floor has no recording copy of ours:
+  a call is marked and re-asked by the nightly sweep (D-803), and the contact is recorded
+  as held on the task and queued again by the same sweep until the copy lands, the floor
+  passes or the call ends unconnected (D-810, SEC-COMP §4). Our own copies are always
+  erased by us. A `telephony`
   processor-erasure task is opened only for an erased call that carries a carrier call id,
   which a ThinnestAI call never does: such rows come only from test calls placed on our own
   runtime before D-763 (`runbooks/processor-erasure.md`).
