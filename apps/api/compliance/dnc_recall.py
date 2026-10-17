@@ -22,6 +22,7 @@ has not changed, that is the whole list.
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
@@ -35,9 +36,18 @@ from apps.api.reliability.service import enqueue_outbox
 #: `tests/dnc_recall_test.py` pins the two spellings together so they cannot drift.
 DNC_RECALL_JOB = "recall_dials_for_dnc"
 
+#: The recall's `cause` for a withdrawn consent. A do-not-call entry is the default and
+#: writes no cause, so a payload queued before the field existed reads the same way. The
+#: worker uses it only for the sentence a call-back it calls off shows the client.
+RECALL_CAUSE_CONSENT = "consent"
+
 
 async def enqueue_dnc_recall(
-    session: AsyncSession, *, tenant_id: UUID | None, phones: list[str]
+    session: AsyncSession,
+    *,
+    tenant_id: UUID | None,
+    phones: list[str],
+    cause: str | None = None,
 ) -> None:
     """Ask the recall job to pull back queued dials to `phones`. Do not commit here.
 
@@ -52,17 +62,16 @@ async def enqueue_dnc_recall(
     """
     if not phones:
         return
-    await enqueue_outbox(
-        session,
-        job=DNC_RECALL_JOB,
-        payload={
-            "tenant_id": str(tenant_id) if tenant_id is not None else None,
-            # Sorted and de-duplicated so two enqueues for the same suppression produce
-            # the same payload — which is what makes an outbox row inspectable, and what
-            # a dedupe key would need if this ever grows one.
-            "phones": sorted(set(phones)),
-        },
-    )
+    payload: dict[str, Any] = {
+        "tenant_id": str(tenant_id) if tenant_id is not None else None,
+        # Sorted and de-duplicated so two enqueues for the same suppression produce
+        # the same payload — which is what makes an outbox row inspectable, and what
+        # a dedupe key would need if this ever grows one.
+        "phones": sorted(set(phones)),
+    }
+    if cause is not None:
+        payload["cause"] = cause
+    await enqueue_outbox(session, job=DNC_RECALL_JOB, payload=payload)
 
 
 #: Outbound dials of the session's tenant the vendor accepted and has not been asked to
@@ -117,4 +126,9 @@ async def enqueue_erasure_recall(
     return len(dials)
 
 
-__all__ = ["DNC_RECALL_JOB", "enqueue_dnc_recall", "enqueue_erasure_recall"]
+__all__ = [
+    "DNC_RECALL_JOB",
+    "RECALL_CAUSE_CONSENT",
+    "enqueue_dnc_recall",
+    "enqueue_erasure_recall",
+]

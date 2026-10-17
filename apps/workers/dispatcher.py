@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.deletion import RECORDING_FLOOR_DAYS
 from apps.api.compliance.processor_erasure import (
-    HELD_UNTIL_SQL,
+    HELD_PAST_FLOOR_SQL,
     NOT_HELD_SQL,
     OVERDUE_AFTER_DAYS,
 )
@@ -368,13 +368,15 @@ WHERE completed_at IS NULL AND requested_at < :cutoff
 #: It rides the SAME bounded per-tenant walk rather than adding a second full-fleet
 #: sweep — one way per problem, and the walk is already the expensive part.
 #:
-#: A `voice_engine` task held for our own recording copy is not counted until its floor
-#: date passes (`processor_erasure.NOT_HELD_SQL`, D-811); `held_past_floor` counts the
-#: overdue ones that were held, which the nightly retention sweep should have released.
+#: A `voice_engine` task is judged per call (`processor_erasure.NOT_HELD_SQL`, D-811,
+#: D-812): it is not counted while every outstanding call it names waits inside its
+#: recording floor, and is counted once any one of them is ready and still outstanding.
+#: `held_past_floor` counts the overdue ones with a call that waited and is now past its
+#: floor, which the nightly retention sweep should have released.
 _OVERDUE_PROCESSOR_TASKS = f"""
 SELECT count(*) FILTER (WHERE t.status = 'open')      AS unasked,
        count(*) FILTER (WHERE t.status = 'requested') AS unanswered,
-       count(*) FILTER (WHERE {HELD_UNTIL_SQL} IS NOT NULL) AS held_past_floor
+       count(*) FILTER (WHERE {HELD_PAST_FLOOR_SQL}) AS held_past_floor
 FROM processor_erasure_tasks t
 WHERE t.status IN ('open', 'requested') AND t.opened_at < :cutoff AND {NOT_HELD_SQL}
 """
@@ -536,8 +538,8 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
                     if held_past_floor
                     else ""
                 )
-                + " A task still inside its recording floor is not counted and needs "
-                "nothing. runbooks/processor-erasure.md"
+                + " A task whose outstanding calls all still wait inside their recording "
+                "floor is not counted and needs nothing. runbooks/processor-erasure.md"
             ),
         )
     if budget.exhausted:

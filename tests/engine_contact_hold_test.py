@@ -369,3 +369,61 @@ async def test_an_overdue_task_waiting_on_no_recording_pages_as_before(
     [detail] = await _processor_alarm(monkeypatch, tenant_id)
     assert "1 never sent to the processor" in detail
     assert "waited by design" not in detail
+
+
+async def _add_ready_call(tenant_id: uuid.UUID, *, content_deleted: bool = False) -> None:
+    """A second call on the task: never connected, so nothing holds its content deletion
+    back; the deletion is still outstanding unless `content_deleted`."""
+    raw = f"out_{uuid.uuid4()}"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
+                "ended_at, engine_content_deleted_at, created_at, updated_at) "
+                "SELECT :id, tenant_id, agent_id, :e, 'outbound', 'no_answer', "
+                "now() - interval '40 days', "
+                "CASE WHEN :deleted THEN now() ELSE NULL END, "
+                "now() - interval '40 days', now() FROM calls LIMIT 1"
+            ),
+            {"id": uuid.uuid4(), "e": f"{raw}@{WORKSPACE}", "deleted": content_deleted},
+        )
+        await session.execute(
+            text(
+                "UPDATE processor_erasure_tasks SET vendor_refs = vendor_refs || "
+                "jsonb_build_array(CAST(:r AS text)) WHERE processor = 'voice_engine'"
+            ),
+            {"r": raw},
+        )
+
+
+async def test_a_stuck_ready_call_pages_although_another_call_of_its_task_is_held(
+    monkeypatch: pytest.MonkeyPatch, vendor: FakeWorkspaceVendor
+) -> None:
+    """Judged per call (D-812): a held call inside its floor does not excuse a sibling call
+    whose deletion nothing holds back and which is still outstanding past the overdue age."""
+    tenant_id, _request_id, call_id = await _erased(monkeypatch)
+    await _first_run(tenant_id)
+    await _add_ready_call(tenant_id)
+    await _age(tenant_id, call_id, task_days=OVERDUE_AFTER_DAYS + 5, call_days=40)
+
+    [detail] = await _processor_alarm(monkeypatch, tenant_id)
+    assert "1 never sent to the processor" in detail
+    assert "waited by design" not in detail
+    async with tenant_session(tenant_id) as session:
+        [task] = await overdue_tasks(session, tenant_id=tenant_id)
+    assert task.held_until is not None and task.held_until > datetime.now(UTC)
+
+
+async def test_a_ready_call_already_deleted_leaves_a_held_task_quiet(
+    monkeypatch: pytest.MonkeyPatch, vendor: FakeWorkspaceVendor
+) -> None:
+    """Only an outstanding call counts: once the ready call's content is gone, the task
+    waits on its held call alone and is not overdue inside that call's floor."""
+    tenant_id, _request_id, call_id = await _erased(monkeypatch)
+    await _first_run(tenant_id)
+    await _add_ready_call(tenant_id, content_deleted=True)
+    await _age(tenant_id, call_id, task_days=OVERDUE_AFTER_DAYS + 5, call_days=40)
+
+    assert await _processor_alarm(monkeypatch, tenant_id) == []
+    async with tenant_session(tenant_id) as session:
+        assert await overdue_tasks(session, tenant_id=tenant_id) == []

@@ -34,7 +34,7 @@ from apps.api.agents import service as agents_service
 from apps.api.agents.models import series_for_e164
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance import consent
-from apps.api.compliance.dnc_recall import DNC_RECALL_JOB
+from apps.api.compliance.dnc_recall import DNC_RECALL_JOB, RECALL_CAUSE_CONSENT
 from apps.api.compliance.export import build_subject_export
 from apps.api.compliance.registration import (
     outbound_entity_blockers,
@@ -721,6 +721,9 @@ async def test_a_withdrawal_recalls_the_dials_already_queued_for_that_person() -
     # E.164, so a recall carrying ` 90000 00123 ` would find nothing and report success —
     # which is the silent shape of this failure rather than the loud one.
     assert queued[0][0]["phones"] == [SUBJECT]
+    # So a call-back the recall calls off says consent was withdrawn, not "added to your
+    # do-not-call list" for a number that is not on it.
+    assert queued[0][0]["cause"] == RECALL_CAUSE_CONSENT
 
 
 async def test_a_grant_recalls_nothing() -> None:

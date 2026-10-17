@@ -363,15 +363,21 @@ async def defer(session: AsyncSession, callback_id: UUID, *, rule: str, reason: 
     watching a callback sit at "waiting" deserves to see "this account has no calling
     credit left" now rather than in two hours.
     """
-    await session.execute(
+    await _defer_where(session, "id = :key", callback_id, rule=rule, reason=reason)
+
+
+async def _defer_where(
+    session: AsyncSession, match: str, key: UUID, *, rule: str, reason: str | None
+) -> int:
+    result = await session.execute(
         text(
             "UPDATE scheduled_callbacks SET status = 'scheduled', "
             "  attempts = attempts - 1, next_attempt_at = :next_try, "
             "  last_refusal_rule = :rule, last_refusal_reason = :reason, updated_at = now() "
-            "WHERE id = :id AND status = 'dialing'"
+            f"WHERE {match} AND status = 'dialing'"
         ),
         {
-            "id": callback_id,
+            "key": key,
             "rule": rule,
             "reason": reason,
             # `next_attempt_at`, NEVER `requested_at`. Moving the promise forward on each
@@ -381,6 +387,39 @@ async def defer(session: AsyncSession, callback_id: UUID, *, rule: str, reason: 
             "next_try": datetime.now(UTC) + RETRY_AFTER,
         },
     )
+    return rowcount_of(result)
+
+
+async def defer_recalled(
+    session: AsyncSession, *, call_id: UUID, rule: str, reason: str | None
+) -> int:
+    """`defer` for the call-back whose dial a recall stopped before it rang (D-812).
+
+    The halt's recall closes that dial `failed`, which `settle_dialled` would read as a
+    call-back that failed; no phone rang, so it goes back to waiting exactly as if the gate
+    had refused it at fire time. Keyed on the dial and on `dialing`, which is the CAS
+    against `settle_dialled` having ended it first. Returns how many.
+    """
+    return await _defer_where(session, "last_call_id = :key", call_id, rule=rule, reason=reason)
+
+
+async def cancel_recalled(session: AsyncSession, *, call_id: UUID, reason: str) -> int:
+    """Call off the call-back whose dial a person-level recall stopped before it rang.
+
+    The suppression's own `cancel_for_phones` leaves a `dialing` row alone because its
+    phone may be ringing; once the platform confirms it stopped the dial unrung, the
+    promise ends the way that door ends every other one, with the same sentence, rather
+    than as `failed` through `settle_dialled`. Returns how many.
+    """
+    result = await session.execute(
+        text(
+            "UPDATE scheduled_callbacks SET status = 'cancelled', settled_at = now(), "
+            "  last_refusal_reason = :reason, updated_at = now() "
+            "WHERE last_call_id = :call AND status = 'dialing'"
+        ),
+        {"call": call_id, "reason": reason},
+    )
+    return rowcount_of(result)
 
 
 async def settle(
@@ -622,9 +661,11 @@ __all__ = [
     "cancel_for_phones",
     "cancel_for_phones_fleet_wide",
     "cancel_one",
+    "cancel_recalled",
     "claim_due",
     "context_note",
     "defer",
+    "defer_recalled",
     "expire_stale",
     "get_callback",
     "link_callback_to_call",

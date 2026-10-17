@@ -38,7 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.compliance import consent
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.consent_policy import read_policy, write_policy
-from apps.api.compliance.dnc_recall import enqueue_dnc_recall
+from apps.api.compliance.dnc_recall import RECALL_CAUSE_CONSENT, enqueue_dnc_recall
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
@@ -278,7 +278,12 @@ async def record_call(
         # In the SAME transaction as the ledger row, so the recall cannot outlive a rolled
         # back withdrawal and a committed withdrawal cannot lose its recall.
         assert state.phone_e164 is not None  # the writer normalised or refused
-        await enqueue_dnc_recall(session, tenant_id=principal.tenant_id, phones=[state.phone_e164])
+        await enqueue_dnc_recall(
+            session,
+            tenant_id=principal.tenant_id,
+            phones=[state.phone_e164],
+            cause=RECALL_CAUSE_CONSENT,
+        )
     await write_audit(
         session,
         action="call_consent.recorded",

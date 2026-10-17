@@ -46,13 +46,19 @@ from arq import Retry
 from calevate_shared.engine import RecallOutcome, VoiceEngine
 from sqlalchemy import text
 
+from apps.api.compliance.dnc_recall import RECALL_CAUSE_CONSENT
+from apps.api.compliance.models import (
+    CALLBACK_CONSENT_WITHDRAWN_REASON,
+    CALLBACK_SUPPRESSED_REASON,
+)
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.reliability.service import enqueue_outbox
-from apps.workers.dial_recall import QueuedDial
+from apps.workers.dial_recall import QueuedDial, close_called_off_dial
+from apps.workers.retention import CALLBACK_ERASED_REASON
 
 log = get_logger(__name__)
 
@@ -100,36 +106,28 @@ async def _queued_dials_to(
     return [QueuedDial(UUID(str(r[0])), UUID(str(r[1])), str(r[2])) for r in rows]
 
 
-#: A booked dial the platform confirmed it cancelled before ringing ends as a call that
-#: never connected: `failed`, the status the adapter gives the platform's own `cancelled`
-#: (`engine/thinnest._STATUS_MAP`). Left `queued`, it read as a call that may yet connect,
-#: so `engine_content._READY_SQL` held its content deletion and the erasure's contact
-#: DELETE (D-810) for up to 90 days. The status guard is the CAS: an ingest that settled
-#: the row first wins, and a later webhook cannot reopen a terminal row
-#: (`pipeline._upsert_call_row`).
-_SETTLE_CALLED_OFF_SQL = (
-    "UPDATE calls SET status = 'failed', ended_at = COALESCE(ended_at, now()), "
-    "updated_at = now() WHERE id = ANY(:ids) AND status IN ('queued', 'ringing')"
-)
-
-
-async def _stamp(tenant_id: UUID, call_ids: list[UUID], *, called_off_unrung: bool = False) -> None:
+async def _stamp(
+    tenant_id: UUID, call_ids: list[UUID], *, called_off_reason: str | None = None
+) -> None:
     """The one-way stamp both recall paths share, so neither re-stops the other's work.
 
     ITS OWN COMMITTED TRANSACTION, PER DIAL, AND THAT IS THE POINT (see `_recall`). Batched
     after the loop it was a stamp that only existed if the loop finished, which is the one
     condition under which it was needed.
 
-    `called_off_unrung` (an erasure's dial the platform says it cancelled before ringing)
-    also closes the row as never connected, in the same transaction: a redelivery skips
-    stamped dials, so a stamp committed without it would leave the row `queued` for good.
+    `called_off_reason`, given for a dial the platform says it cancelled before ringing,
+    also closes the row as never connected and settles its campaign contact and call-back
+    as refused for the person (`dial_recall.close_called_off_dial`; the reason is what the
+    client reads on the call-back), in the same transaction: a redelivery skips stamped
+    dials, so a stamp committed without it would leave the row `queued` for good.
 
     A list rather than one id because `dial_recall._stamp_recalled` takes a list and the
     two are read side by side; the caller passes one.
     """
     async with tenant_session(tenant_id) as session:
-        if called_off_unrung:
-            await session.execute(text(_SETTLE_CALLED_OFF_SQL), {"ids": call_ids})
+        if called_off_reason is not None:
+            for call_id in call_ids:
+                await close_called_off_dial(session, call_id, person_reason=called_off_reason)
         await session.execute(
             text(
                 "UPDATE calls SET recall_requested_at = now(), updated_at = now() "
@@ -148,14 +146,15 @@ async def _has_not_rung(engine: VoiceEngine, dial: QueuedDial) -> bool:
 
 
 async def _stop_dials(
-    engine: VoiceEngine, dials: list[QueuedDial], *, unrung_only: bool
+    engine: VoiceEngine, dials: list[QueuedDial], *, unrung_only: bool, callback_reason: str
 ) -> tuple[dict[RecallOutcome, list[UUID]], list[UUID], list[UUID]]:
     """Ask the engine to stop each dial; the verdicts, the dials it refused or could not be
     asked about, and (with `unrung_only`) the dials left alone because they had rung.
 
     `unrung_only` is the erasure's rule: a booked dial is called off, but a phone already
     ringing or a call already answered is not hung up on. A dial that starts ringing
-    between the read and the stop is ended on the line and comes back `ALREADY_RUNNING`."""
+    between the read and the stop is ended on the line and comes back `ALREADY_RUNNING`.
+    `callback_reason` is what a call-back the stop calls off says to the client."""
     verdicts: dict[RecallOutcome, list[UUID]] = defaultdict(list)
     refused: list[UUID] = []
     rung: list[UUID] = []
@@ -189,7 +188,7 @@ async def _stop_dials(
         await _stamp(
             dial.tenant_id,
             [dial.call_id],
-            called_off_unrung=unrung_only and outcome is RecallOutcome.PREVENTED,
+            called_off_reason=callback_reason if outcome is RecallOutcome.PREVENTED else None,
         )
     return verdicts, refused, rung
 
@@ -254,7 +253,9 @@ async def _recall_erased(tenant_id: UUID, call_ids: list[str], scope: str) -> st
         log.info("erasure_recall_nothing_booked", extra={"tenant_id": str(tenant_id)})
         return "found=0"
 
-    verdicts, refused, rung = await _stop_dials(engine, dials, unrung_only=True)
+    verdicts, refused, rung = await _stop_dials(
+        engine, dials, unrung_only=True, callback_reason=CALLBACK_ERASED_REASON
+    )
     prevented = verdicts[RecallOutcome.PREVENTED]
     undetermined = (
         verdicts[RecallOutcome.ALREADY_RUNNING] + verdicts[RecallOutcome.UNKNOWN] + refused
@@ -307,7 +308,7 @@ async def _recall_erased(tenant_id: UUID, call_ids: list[str], scope: str) -> st
     )
 
 
-async def _recall(phones: list[str], tenant_id: UUID | None) -> str:
+async def _recall(phones: list[str], tenant_id: UUID | None, *, callback_reason: str) -> str:
     """One suppression's worth of recall, and the verdict for each dial it reached."""
     engine = get_engine()
     dials = await _queued_dials_to(phones, tenant_id, DNC_RECALL_SCAN_LIMIT)
@@ -320,7 +321,9 @@ async def _recall(phones: list[str], tenant_id: UUID | None) -> str:
         )
         return "found=0"
 
-    verdicts, refused, _rung = await _stop_dials(engine, dials, unrung_only=False)
+    verdicts, refused, _rung = await _stop_dials(
+        engine, dials, unrung_only=False, callback_reason=callback_reason
+    )
 
     prevented = verdicts[RecallOutcome.PREVENTED]
     # EVERYTHING THAT IS NOT `PREVENTED`, together, because the distinction that matters to
@@ -377,6 +380,15 @@ async def _recall(phones: list[str], tenant_id: UUID | None) -> str:
     return f"found={len(dials)} prevented={len(prevented)} undetermined={len(undetermined)}"
 
 
+def _callback_reason(payload: dict[str, Any]) -> str:
+    """What a call-back this recall calls off says: the sentence its suppression's own door
+    writes (`compliance.models`), so the client cannot tell which path stopped it. A
+    payload without `cause` predates it and came from a do-not-call entry."""
+    if payload.get("cause") == RECALL_CAUSE_CONSENT:
+        return CALLBACK_CONSENT_WITHDRAWN_REASON
+    return CALLBACK_SUPPRESSED_REASON
+
+
 async def recall_dials_for_dnc(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """THE JOB. Pull back the queued dials to numbers a suppression just covered.
 
@@ -420,7 +432,7 @@ async def recall_dials_for_dnc(ctx: dict[str, Any], payload: dict[str, Any]) -> 
     try:
         if erasure and tenant_id is not None:
             return await _recall_erased(tenant_id, call_ids, str(erasure))
-        return await _recall(phones, tenant_id)
+        return await _recall(phones, tenant_id, callback_reason=_callback_reason(payload))
     except Exception as exc:
         log.warning(
             "dnc_recall_job_failed",

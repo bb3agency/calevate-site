@@ -560,7 +560,8 @@ ported per client wish.
   as held on the task and queued again by the same sweep until the copy lands, the floor
   passes or the call ends unconnected (D-810, SEC-COMP §4). A booked dial the platform
   confirms it cancelled before ringing is closed as never connected at once, and a task
-  waiting this way is not overdue until its floor date passes (D-811). Our own copies are always
+  is not overdue while every outstanding call it names waits inside its floor, but is once any
+  one of them is ready and still outstanding (D-811, D-812). Our own copies are always
   erased by us. A `telephony`
   processor-erasure task is opened only for an erased call that carries a carrier call id,
   which a ThinnestAI call never does: such rows come only from test calls placed on our own

@@ -1338,6 +1338,47 @@ def _dial_failure_reason(exc: BaseException) -> str:
     return type(exc).__name__
 
 
+#: A refusal about the person: terminal, never retried.
+_SETTLE_PERSON_REFUSED = "status = 'dnc_blocked'"
+#: A refusal about us (the halt, the account, the hour): back on the ladder in thirty
+#: minutes with the claim's attempt refunded, because no phone rang.
+_SETTLE_REFUNDED = (
+    "status = 'pending', next_attempt_at = now() + interval '30 minutes', attempts = attempts - 1"
+)
+
+
+async def settle_recalled_contact(
+    session: AsyncSession, *, call_id: UUID, person_refused: bool
+) -> str | None:
+    """Settle the contact of a dial the platform confirmed it stopped before ringing.
+
+    Called by the recall jobs in the transaction that closes the call `failed` (D-812).
+    Without it the contact stayed `dialing` behind a `failed` call, so
+    `_settle_unanswered_dials` (or `resolve_campaign_contact`) spent a rung on a dial that
+    never rang, and on the last rung `_exhaust_contact` queued the escalation message,
+    which for a DNC recall is a message to a person who has just asked us to stop.
+
+    The settlement is `_refuse_contact`'s, because a recall is the same refusal arriving
+    after the dial left: a suppression or consent withdrawal (`dnc_recall`) is about the
+    person and ends `dnc_blocked`; the big red switch (`dial_recall`) is about us, so the
+    attempt is refunded and the contact is dialled again once the halt is lifted and its
+    thirty minutes have passed. Both ladder writers key on `status = 'dialing'`, so a
+    contact settled here is invisible to them; that is also the CAS against an erasure or
+    a pipeline that settled it first. Returns the status written, or None.
+    """
+    settle = _SETTLE_PERSON_REFUSED if person_refused else _SETTLE_REFUNDED
+    row = (
+        await session.execute(
+            text(
+                f"UPDATE campaign_contacts SET {settle}, updated_at = now() "
+                f"WHERE last_call_id = :call AND {_STILL_CLAIMED} RETURNING status"
+            ),
+            {"call": call_id},
+        )
+    ).first()
+    return None if row is None else str(row[0])
+
+
 async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str) -> None:
     """Settle one claimed contact the gate would not let us dial.
 
@@ -1366,12 +1407,9 @@ async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str) -> None:
     # ENGINE_PERSON_REFUSALS`) is a fact about the person too; it is the vendor's refusal and
     # not the gate's, so it is not a member of the gate's set.
     if rule in PERSON_LEVEL_REFUSALS or rule in ENGINE_PERSON_REFUSALS:
-        settle = "status = 'dnc_blocked'"
+        settle = _SETTLE_PERSON_REFUSED
     else:
-        settle = (
-            "status = 'pending', next_attempt_at = now() + interval '30 minutes', "
-            "attempts = attempts - 1"
-        )
+        settle = _SETTLE_REFUNDED
     await session.execute(
         text(
             f"UPDATE campaign_contacts SET {settle}, updated_at = now() "
@@ -1711,4 +1749,5 @@ __all__ = [
     "dispatch_campaign_tick",
     "emit_campaign_completed",
     "resolve_campaign_contact",
+    "settle_recalled_contact",
 ]

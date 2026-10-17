@@ -70,8 +70,11 @@ from apps.api.db.base import uuid7
 __all__ = [
     "CALL_CLOCK_SQL",
     "CALL_COPY_SAFE_SQL",
+    "CALL_OUTSTANDING_SQL",
+    "CALL_READY_SQL",
     "CONTACT_HELD",
     "CONTACT_NOT_ASKED",
+    "HELD_PAST_FLOOR_SQL",
     "HELD_UNTIL_SQL",
     "NOT_HELD_SQL",
     "OVERDUE_AFTER_DAYS",
@@ -167,25 +170,56 @@ CALL_CLOCK_SQL: Final = (
     "COALESCE(c.ended_at, c.created_at + make_interval(secs => COALESCE(c.duration_s, 0)))"
 )
 
-#: The instant a `voice_engine` task (alias `t`) stops waiting for our own recording copy:
-#: the latest floor date among the calls it names that are not `CALL_COPY_SAFE_SQL`. NULL
-#: for a task that waits on none, and for every other processor. Takes `:floor`.
-HELD_UNTIL_SQL: Final = (
-    f"(SELECT max({CALL_CLOCK_SQL}) + make_interval(days => :floor) FROM calls c "
-    "WHERE t.processor = 'voice_engine' "
-    "AND split_part(c.engine_call_id, '@', 1) IN "
-    "(SELECT jsonb_array_elements_text(t.vendor_refs)) "
-    f"AND NOT {CALL_COPY_SAFE_SQL})"
+#: Whether the platform's copy of a call (alias `c`) may go now without taking the only
+#: copy of a recording inside the floor: it is copy-safe, or its floor has passed. The one
+#: rule for D-803's per-call content deletion (`engine_content._READY_SQL`), D-810's
+#: contact DELETE and the overdue alarm below. Takes `:floor`.
+CALL_READY_SQL: Final = (
+    f"({CALL_COPY_SAFE_SQL} OR {CALL_CLOCK_SQL} <= now() - make_interval(days => :floor))"
+)
+#: A call (alias `c`) whose content the platform has not confirmed gone: not deleted, or
+#: deleted with recording files still queued.
+CALL_OUTSTANDING_SQL: Final = (
+    "(c.engine_content_deleted_at IS NULL OR COALESCE(c.engine_content_recordings_pending, 0) > 0)"
 )
 
-#: Whether a task (alias `t`) may count as overdue at all: it is not waiting by design for
-#: a recording floor still to pass. A task an erasure holds for our copy (D-803's content
-#: deletion, D-810's contact DELETE) goes on its own once the copy lands or the floor
-#: passes, so paging for it before then would ask an operator to do nothing, daily, for up
-#: to 60 days; one still open after its floor date is stuck and counts. Takes `:floor`. The
-#: alarm (`workers/dispatcher`) and `overdue_tasks` share it, so the page and the
-#: operator's list agree.
-NOT_HELD_SQL: Final = f"COALESCE({HELD_UNTIL_SQL}, '-infinity'::timestamptz) <= now()"
+#: The outstanding calls a `voice_engine` task (alias `t`) names, matched on the vendor's
+#: raw id, the form the task quotes. Empty for every other processor.
+_TASK_OUTSTANDING_CALLS: Final = (
+    "FROM calls c WHERE t.processor = 'voice_engine' "
+    "AND split_part(c.engine_call_id, '@', 1) IN "
+    "(SELECT jsonb_array_elements_text(t.vendor_refs)) "
+    f"AND {CALL_OUTSTANDING_SQL}"
+)
+
+#: The instant a `voice_engine` task (alias `t`) stops waiting for our own recording copy:
+#: the latest floor date among its outstanding calls that are not `CALL_COPY_SAFE_SQL`.
+#: NULL for a task that waits on none, and for every other processor. Takes `:floor`.
+HELD_UNTIL_SQL: Final = (
+    f"(SELECT max({CALL_CLOCK_SQL}) + make_interval(days => :floor) "
+    f"{_TASK_OUTSTANDING_CALLS} AND NOT {CALL_COPY_SAFE_SQL})"
+)
+
+#: Whether a task (alias `t`) may count as overdue, judged per call (D-812): it names no
+#: outstanding call (its contact half, or another processor's request, is what is open),
+#: or at least one outstanding call is `CALL_READY_SQL`, whose deletion nothing holds back
+#: and which is therefore stuck whatever its siblings wait for. A task whose outstanding
+#: calls all wait inside their floor (D-803's content deletion, D-810's contact DELETE)
+#: goes on its own once a copy lands or a floor passes, so paging for it before then would
+#: ask an operator to do nothing, daily, for up to 60 days. Takes `:floor`. The alarm
+#: (`workers/dispatcher`) and `overdue_tasks` share it, so the page and the list agree.
+NOT_HELD_SQL: Final = (
+    f"(NOT EXISTS (SELECT 1 {_TASK_OUTSTANDING_CALLS}) "
+    f"OR EXISTS (SELECT 1 {_TASK_OUTSTANDING_CALLS} AND {CALL_READY_SQL}))"
+)
+
+#: Whether a counted task (alias `t`) has an outstanding call that waited for our copy and
+#: whose floor has now passed: the nightly retention sweep should already have sent it.
+#: Takes `:floor`.
+HELD_PAST_FLOOR_SQL: Final = (
+    f"EXISTS (SELECT 1 {_TASK_OUTSTANDING_CALLS} AND NOT {CALL_COPY_SAFE_SQL} "
+    f"AND {CALL_CLOCK_SQL} <= now() - make_interval(days => :floor))"
+)
 
 # An opaque vendor identifier: uuids, the vendor's own prefixed ids, Twilio-shaped SIDs.
 # Deliberately NOT permissive — the point is to REFUSE anything that could be a phone
@@ -527,11 +561,11 @@ async def mark_task_requested(session: AsyncSession, *, task_id: UUID) -> None:
 
 
 #: The calls a `voice_engine` task names whose content the platform has not yet confirmed
-#: gone: not deleted, or deleted with recording files still queued. Matched on the vendor's
-#: raw id, the form the task quotes (`engine_held_call_refs`); RLS keeps it to the tenant.
+#: gone (`CALL_OUTSTANDING_SQL`). Matched on the vendor's raw id, the form the task quotes
+#: (`engine_held_call_refs`); RLS keeps it to the tenant.
 _CALLS_OWED_SQL: Final = (
-    "SELECT count(*) FROM calls WHERE split_part(engine_call_id, '@', 1) = ANY(:refs) "
-    "AND (engine_content_deleted_at IS NULL OR COALESCE(engine_content_recordings_pending, 0) > 0)"
+    "SELECT count(*) FROM calls c WHERE split_part(c.engine_call_id, '@', 1) = ANY(:refs) "
+    f"AND {CALL_OUTSTANDING_SQL}"
 )
 
 
@@ -642,9 +676,9 @@ async def overdue_tasks(
     about one tenant usually wants to send every outstanding request in one email rather
     than the ones that happen to have crossed a 30-day line.
 
-    A task held for a recording floor still to pass (`NOT_HELD_SQL`) is the alarm's
-    exception and is left out unless `include_held`; `--all` includes it, with its
-    `held_until`, so the operator sees what it waits for.
+    A task whose outstanding calls all wait for a recording floor still to pass
+    (`NOT_HELD_SQL`) is the alarm's exception and is left out unless `include_held`;
+    `--all` includes it, with its `held_until`, so the operator sees what it waits for.
     """
     days = OVERDUE_AFTER_DAYS if min_days is None else min_days
     rows = await session.execute(

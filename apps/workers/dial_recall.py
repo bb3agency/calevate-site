@@ -25,12 +25,13 @@ cron would be a fleet-wide scan every N minutes for a thing that is almost never
 halt before it stops anything, because an operator who halted and released inside the
 job's queue latency must not have their campaign torn down behind them.
 
-WHAT IT DOES NOT WRITE. Not the call's `status`. The engine's own report of the call
-moves the row terminal with its own cause, and a `failed` written here first would be a
-second answer to a question the engine owns. The
-one thing this job stamps is `calls.recall_requested_at` — see migration d5c81f30ab47 for
-why that column is what keeps a second halt from re-stopping every dial it already
-stopped and then alarming about it.
+WHAT IT WRITES. Every dial it stopped gets `calls.recall_requested_at` (migration
+d5c81f30ab47: the stamp keeps a second halt from re-stopping every dial it already stopped
+and then alarming about it). Only a dial the engine says it caught before ringing
+(`PREVENTED`, the vendor's own adjudication) is also closed as never connected, with its
+campaign contact and call-back handed back without spending an attempt (`close_called_off_dial`,
+D-812). Any other verdict leaves the status to the engine's own report, because the phone
+may have rung.
 
 HARD RULE 6. Every id here is a call row id, a tenant id, or the vendor's opaque
 execution handle. No number and no transcript reaches this module.
@@ -45,13 +46,17 @@ from uuid import UUID
 from arq import Retry
 from calevate_shared.engine import RecallOutcome
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.callbacks import service as callbacks
+from apps.api.compliance.service import BIG_RED_SWITCH_REASON, BIG_RED_SWITCH_RULE
 from apps.api.core.alerting import alert
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
+from apps.workers.campaign_dispatch import settle_recalled_contact
 
 log = get_logger(__name__)
 
@@ -103,16 +108,65 @@ async def _queued_dials(limit: int) -> list[QueuedDial]:
     return [QueuedDial(UUID(str(r[0])), UUID(str(r[1])), str(r[2])) for r in rows]
 
 
-async def _stamp_recalled(tenant_id: UUID, call_ids: list[UUID]) -> None:
+#: A booked dial the platform confirmed it cancelled before ringing ends as a call that
+#: never connected: `failed`, the status the adapter gives the platform's own `cancelled`
+#: (`engine/thinnest._STATUS_MAP`). Left `queued`, it read as a call that may yet connect,
+#: so `engine_content._READY_SQL` held an erasure's content deletion and contact DELETE
+#: (D-810) for up to 90 days. The status guard is the CAS: an ingest that settled the row
+#: first wins, and a later webhook cannot reopen a terminal row
+#: (`pipeline._upsert_call_row`).
+_SETTLE_CALLED_OFF_SQL = (
+    "UPDATE calls SET status = 'failed', ended_at = COALESCE(ended_at, now()), "
+    "updated_at = now() WHERE id = :id AND status IN ('queued', 'ringing') RETURNING id"
+)
+
+
+async def close_called_off_dial(
+    session: AsyncSession, call_id: UUID, *, person_reason: str | None
+) -> bool:
+    """Close a dial the platform stopped before it rang, and settle what it was dialled for.
+
+    One writer for every recall (the halt, a suppression, an erasure), so the call, its
+    campaign contact and its call-back are settled together, in the caller's transaction
+    with the recall stamp. `person_reason` is set when the stop was about the person (a
+    suppression, a withdrawn consent, an erasure: never dial again) and is the sentence the
+    client reads on the call-back it calls off; None is the halt, which is about us, so the
+    contact and the call-back go back to waiting with the attempt refunded. Only a call this
+    closed is followed through: a call the engine settled first did reach the network, and
+    its own outcome already drives the ladder and `callbacks.settle_dialled`.
+    """
+    closed = (await session.execute(text(_SETTLE_CALLED_OFF_SQL), {"id": call_id})).first()
+    if closed is None:
+        return False
+    await settle_recalled_contact(
+        session, call_id=call_id, person_refused=person_reason is not None
+    )
+    if person_reason is None:
+        await callbacks.defer_recalled(
+            session, call_id=call_id, rule=BIG_RED_SWITCH_RULE, reason=BIG_RED_SWITCH_REASON
+        )
+    else:
+        await callbacks.cancel_recalled(session, call_id=call_id, reason=person_reason)
+    return True
+
+
+async def _stamp_recalled(
+    tenant_id: UUID, call_ids: list[UUID], *, called_off_unrung: bool = False
+) -> None:
     """Record that the vendor accepted a stop for these dials.
 
     Written per tenant under that tenant's own policies rather than untenanted, for hard
     rule 1's reason: there is no platform-wide write to `calls` in this tree and this is
-    not the place to invent the first one.
+    not the place to invent the first one. `called_off_unrung` (a `PREVENTED` verdict)
+    closes the dials in the same transaction: a re-run skips stamped dials, so a stamp
+    committed alone would leave the row `queued` for good.
     """
     if not call_ids:
         return
     async with tenant_session(tenant_id) as session:
+        if called_off_unrung:
+            for call_id in call_ids:
+                await close_called_off_dial(session, call_id, person_reason=None)
         await session.execute(
             text(
                 "UPDATE calls SET recall_requested_at = now(), updated_at = now() "
@@ -186,7 +240,11 @@ async def _recall() -> str:
         # that dials "will run to its end" when they were stopped on the first pass. One
         # indexed UPDATE beside a vendor round trip, on the path where being wrong is
         # most expensive.
-        await _stamp_recalled(dial.tenant_id, [dial.call_id])
+        await _stamp_recalled(
+            dial.tenant_id,
+            [dial.call_id],
+            called_off_unrung=outcome is RecallOutcome.PREVENTED,
+        )
 
     total_prevented = sum(len(v) for v in prevented.values())
     # THE NUMBER AN OPERATOR ACTS ON. Everything we cannot say we stopped, together —
@@ -283,4 +341,4 @@ async def recall_queued_dials(ctx: dict[str, Any]) -> str:
         raise
 
 
-__all__ = ["RECALL_SCAN_LIMIT", "recall_queued_dials"]
+__all__ = ["RECALL_SCAN_LIMIT", "close_called_off_dial", "recall_queued_dials"]

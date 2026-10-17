@@ -63,11 +63,16 @@ async def _list(tenant_id: UUID, *, all_open: bool) -> int:
         print(f"  task      {task.id}")
         print(f"  processor {task.processor}   status {task.status}   open {task.days_open}d")
         if task.held_until is not None:
-            # Held for our own copy of a recording (D-810): it goes on its own by this
-            # date, and erasing the contact by hand first deletes the only copy.
+            # Calls held for our own copy of a recording (D-810): they go on their own by
+            # this date, and erasing the contact by hand first deletes the only copy. A task
+            # listed without `--all` while still held also has a ready call that is stuck
+            # (D-812): that call's content deletion is the thing to chase.
             held = task.held_until.astimezone(IST).date().isoformat()
             if task.held_until > datetime.now(UTC):
-                print(f"  held      until {held} (waits for our recording copy; send nothing)")
+                print(
+                    f"  held      until {held} (some calls wait for our recording copy; "
+                    "send nothing for them)"
+                )
             else:
                 print(f"  held      floor passed {held}; the nightly sweep should have sent it")
         # The subject hash, never the number (hard rule 6). It is here so an operator

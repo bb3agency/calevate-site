@@ -642,6 +642,18 @@ async def _upsert_call(
     return resolved
 
 
+#: The existing row (`calls`, in the upsert's conflict arm) is one an erasure has reached:
+#: its caller's (`erased_subject_ref`) or its whole engagement's (`tenant_erasure_requests`,
+#: `recording_watch`'s predicate). Both erasures clear the phone columns, and the upsert's
+#: fill-the-gap `COALESCE` would otherwise write the number back from a late webhook or a
+#: poller re-read (D-812). The erasure's own re-file for late records
+#: (`deletion.refile_erasure_for_late_records`) reads the snapshot, not this row.
+_ERASED_CALL_SQL: Final = (
+    "(calls.erased_subject_ref IS NOT NULL OR EXISTS (SELECT 1 FROM tenant_erasure_requests e "
+    "WHERE e.tenant_id = calls.tenant_id))"
+)
+
+
 async def _upsert_call_row(
     tenant_id: UUID, agent_id: UUID, snapshot: ExecutionSnapshot, engine_agent_ref: str | None
 ) -> UUID:
@@ -661,9 +673,12 @@ async def _upsert_call_row(
                     # `failed` is a default, not an outcome.
                     "  status = CASE WHEN :stated THEN EXCLUDED.status ELSE calls.status END, "
                     # A party the first event did not carry is filled by a later one;
-                    # one already recorded is never replaced.
-                    "  from_e164 = COALESCE(calls.from_e164, EXCLUDED.from_e164), "
-                    "  to_e164 = COALESCE(calls.to_e164, EXCLUDED.to_e164), "
+                    # one already recorded is never replaced, and one an erasure
+                    # cleared is never filled again (`_ERASED_CALL_SQL`).
+                    f"  from_e164 = CASE WHEN {_ERASED_CALL_SQL} THEN calls.from_e164 "
+                    "    ELSE COALESCE(calls.from_e164, EXCLUDED.from_e164) END, "
+                    f"  to_e164 = CASE WHEN {_ERASED_CALL_SQL} THEN calls.to_e164 "
+                    "    ELSE COALESCE(calls.to_e164, EXCLUDED.to_e164) END, "
                     "  started_at = COALESCE(calls.started_at, EXCLUDED.started_at), "
                     "  ended_at = COALESCE(EXCLUDED.ended_at, calls.ended_at), "
                     "  duration_s = COALESCE(EXCLUDED.duration_s, calls.duration_s), "

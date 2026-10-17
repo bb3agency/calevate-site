@@ -27,8 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.deletion import RECORDING_FLOOR_DAYS
 from apps.api.compliance.processor_erasure import (
-    CALL_CLOCK_SQL,
-    CALL_COPY_SAFE_SQL,
+    CALL_OUTSTANDING_SQL,
+    CALL_READY_SQL,
     VOICE_PLATFORM_DELETING_ENGINES,
 )
 from apps.api.core.logging import get_logger
@@ -48,11 +48,9 @@ CONTENT_DELETE_CHUNK: Final = 50
 #: recording inside the retention floor (`deletion.RECORDING_FLOOR_DAYS`): we hold the AI
 #: leg's audio ourselves (its pointer, or an erasure's hold on it, since an erasure clears
 #: the pointer before it queues this), the call never connected so nothing was recorded, or
-#: the floor has passed. Built from the fragments that also date a held erasure task's
-#: floor for the overdue alarm (`processor_erasure.HELD_UNTIL_SQL`), so the two agree.
-_READY_SQL: Final = (
-    f"({CALL_COPY_SAFE_SQL} OR {CALL_CLOCK_SQL} <= now() - make_interval(days => :floor))"
-)
+#: the floor has passed. `processor_erasure.CALL_READY_SQL`, the rule the overdue alarm
+#: judges a held erasure task's calls by, so the two agree.
+_READY_SQL: Final = CALL_READY_SQL
 _CANDIDATES_SQL: Final = (
     f"SELECT c.id, c.engine_call_id, {_READY_SQL} FROM calls c "
     "WHERE c.id = ANY(:ids) AND c.engine_call_id IS NOT NULL ORDER BY c.id"
@@ -60,8 +58,7 @@ _CANDIDATES_SQL: Final = (
 _TENANT_CANDIDATES_SQL: Final = (
     f"SELECT c.id, c.engine_call_id, {_READY_SQL} FROM calls c "
     "WHERE c.tenant_id = :tid AND c.engine_call_id IS NOT NULL "
-    "AND (c.engine_content_deleted_at IS NULL "
-    "OR COALESCE(c.engine_content_recordings_pending, 0) > 0) ORDER BY c.id"
+    f"AND {CALL_OUTSTANDING_SQL} ORDER BY c.id"
 )
 #: The same rule over a `voice_engine` task's calls (its raw vendor ids), for the contact
 #: erasure: `DELETE /contacts/{id}` takes the person's recordings with it
