@@ -286,6 +286,11 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # for, gone, with no retry left. Rare and terminal, which is what earns the rung.
     "post_call_abandoned": "page",
     "recording_copy_failed": "attention",
+    # Connected calls with no recording copy while the voice platform still holds its own
+    # (D-805): recoverable today, so the console. Within a week of the platform deleting
+    # it, the audio is days from gone against our 90-day floor, which is the page rung.
+    "recording_copy_missing": "attention",
+    "recording_copy_at_risk": "page",
     # Hard rule 7: a call metered with no attested price for the voice it spoke.
     "cartesia_call_without_attested_tts_price": "page",
     # The same failure on an engine priced by attested minute (D-678): minutes metered

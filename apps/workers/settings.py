@@ -245,6 +245,7 @@ from apps.workers.razorpay_jobs import (
     send_payment_notice,
     sweep_auto_recharge,
 )
+from apps.workers.recording_watch import RECORDING_WATCH_MINUTE, report_missing_recordings
 from apps.workers.retention import (
     apply_retention,
     execute_deletion_request,
@@ -739,6 +740,16 @@ CRON_JOBS = [
         traced_job(reconcile_outstanding_calls),
         walk=fleet_wide("one tenant_session per callable tenant, plus vendor reads"),
         minute={15, 45},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # Connected calls whose recording we never copied, alarmed with the days left before
+    # the voice platform deletes its copy (D-805). Hourly: the nearest deadline it reports
+    # is measured in days, so an hour of latency costs nothing. `max_tries` explicit for
+    # its neighbours' reason.
+    _cron(
+        traced_job(report_missing_recordings),
+        walk=fleet_wide("one tenant_session per callable tenant"),
+        minute={RECORDING_WATCH_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # Forwarded lines (D-746): a line that normally brings calls and has been silent three
