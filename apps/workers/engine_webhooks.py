@@ -106,7 +106,7 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
                 {"engine": engine, "budget": WEBHOOK_SWEEP_BUDGET},
             )
         ).all()
-    reenabled = registered = unreached = redelivered = retired = agent_absent = 0
+    reenabled = registered = unreached = redelivered = retired = agent_absent = vendor_failed = 0
     for tenant_id, ref in rows:
         try:
             async with tenant_session(UUID(str(tenant_id))) as session:
@@ -135,6 +135,8 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
                     retired += 1
                     continue
                 agent_absent += 1
+            elif isinstance(exc, EngineRejectedError) and (exc.vendor_status or 0) >= 500:
+                vendor_failed += 1
             unreached += 1
             continue
         # A switched-off endpoint is re-enabled, alarmed and re-sent inside
@@ -153,13 +155,21 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
             if agent_absent
             else ""
         )
+        vendor_note = (
+            f" {vendor_failed} failed on the voice platform's side (HTTP 5xx, it could not "
+            "save or read the endpoint) and is retried next sweep; if it repeats, raise it "
+            "with ThinnestAI quoting the engine_error line."
+            if vendor_failed
+            else ""
+        )
         alert(
             "WORKER_DELIVERY",
             "engine_webhook_sweep_incomplete",
             detail=(
                 f"{unreached} of {len(rows)} agent webhook endpoint(s) could not be checked; "
-                "a switched-off endpoint among them is still losing deliveries."
-                f"{absent_note} See engine_webhook_check_failed (vendor_status, vendor_code) "
+                "any switched-off endpoint among them is still losing deliveries."
+                f"{absent_note}{vendor_note} See engine_webhook_check_failed (vendor_status, "
+                "vendor_code) "
                 "and the engine_error line before it in the worker log."
             ),
             engine=engine,

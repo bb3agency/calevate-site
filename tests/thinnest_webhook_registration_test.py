@@ -40,12 +40,21 @@ class FakeThinnest:
         #: Agents the vendor answers `404 That agent was not found.` for on create
         #: (`snapshots/2026-10-15/pages/api-reference/webhooks/create-webhook.md:510-517`).
         self.absent_agents: set[str] = set()
+        #: `500 internal_error` "Could not save the endpoint.", as production answered a
+        #: `PATCH /webhooks/{id}` (and possibly a create) on 17 Oct 2026.
+        self.patch_fails = False
+        self.create_fails = False
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"] == "Bearer ta_live_test"
         path = request.url.path.removeprefix("/api/v1")
         self.calls.append((request.method, path))
+        could_not_save = httpx.Response(
+            500, json={"error": "Could not save the endpoint.", "code": "internal_error"}
+        )
         if path == "/webhooks" and request.method == "POST":
+            if self.create_fails:
+                return could_not_save
             body = json.loads(request.content)
             if body["agent"] in self.absent_agents:
                 return httpx.Response(404, json={"error": "That agent was not found."})
@@ -78,6 +87,8 @@ class FakeThinnest:
         if request.method == "GET":
             return httpx.Response(200, json=row)
         if request.method == "PATCH":
+            if self.patch_fails and "events" in json.loads(request.content):
+                return could_not_save
             row.update(json.loads(request.content))
             row["delivery"]["failuresInARow"] = 0
             return httpx.Response(200, json=row)
@@ -482,3 +493,116 @@ async def test_a_route_an_agent_still_publishes_under_is_kept_and_named_in_the_a
     [(code, detail)] = alerts
     assert code == "engine_webhook_sweep_incomplete"
     assert "republish that agent" in detail
+
+
+_ALL_EVENTS = [
+    "byok.changed",
+    "call.analysed",
+    "call.completed",
+    "call.problem",
+    "contact.erased",
+    "contact.opted_out",
+    "conversation.escalated",
+    "lead.captured",
+]
+
+
+async def test_an_endpoint_the_vendor_cannot_resubscribe_is_replaced_create_first(
+    vendor: FakeThinnest,
+) -> None:
+    """Production, 17 Oct 2026: `PATCH /webhooks/{id}` with the new events answered `500
+    internal_error` on every sweep. A healthy endpoint is replaced by one created with every
+    event, and the old one is deleted only after the new secret is stored."""
+    tenant_id, ref = await _route()
+    old = (await _ensure(tenant_id, ref)).webhook_id
+    vendor.endpoints[old]["events"] = ["call.analysed", "call.completed"]
+    vendor.patch_fails = True
+    vendor.calls.clear()
+
+    result = await _ensure(tenant_id, ref)
+
+    assert result.outcome == "replaced"
+    assert result.webhook_id != old
+    assert old not in vendor.endpoints
+    assert vendor.endpoints[result.webhook_id]["events"] == _ALL_EVENTS
+    held, secret = await _held(tenant_id, ref)
+    assert (held, secret) == (result.webhook_id, f"sec-{result.webhook_id}")
+    writes = [c for c in vendor.calls if c[0] in ("POST", "DELETE")]
+    assert writes == [("POST", "/webhooks"), ("DELETE", f"/webhooks/{old}")]
+
+
+async def test_when_the_vendor_cannot_create_either_the_old_endpoint_is_kept(
+    vendor: FakeThinnest,
+) -> None:
+    tenant_id, ref = await _route()
+    old = (await _ensure(tenant_id, ref)).webhook_id
+    vendor.endpoints[old]["events"] = ["call.analysed", "call.completed"]
+    _, secret_before = await _held(tenant_id, ref)
+    vendor.patch_fails = vendor.create_fails = True
+
+    with pytest.raises(ProblemError) as failed:
+        await _ensure(tenant_id, ref)
+
+    assert failed.value.code == "engine_rejected"
+    assert old in vendor.endpoints
+    assert (await _held(tenant_id, ref)) == (old, secret_before)
+
+
+async def test_a_failing_endpoint_is_resent_before_it_is_replaced(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An endpoint switched off still owes deliveries; deleting it would drop them. This sweep
+    re-enables and re-sends on it, and the next one replaces it."""
+    tenant_id, ref = await _route()
+    old = (await _ensure(tenant_id, ref)).webhook_id
+    vendor.endpoints[old]["events"] = ["call.analysed", "call.completed"]
+    vendor.endpoints[old]["enabled"] = False
+    vendor.patch_fails = True
+    monkeypatch.setattr(registration_module, "alert", lambda *_a, **_k: None)
+
+    first = await _ensure(tenant_id, ref)
+    assert (first.outcome, first.webhook_id, first.redelivered) == ("reenabled", old, True)
+    assert vendor.endpoints[old]["enabled"] is True
+
+    second = await _ensure(tenant_id, ref)
+    assert second.outcome == "replaced"
+    assert old not in vendor.endpoints
+    assert vendor.endpoints[second.webhook_id]["events"] == _ALL_EVENTS
+
+
+async def test_the_sweep_names_a_vendor_side_failure(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tenant_id, ref = await _route()
+    old = (await _ensure(tenant_id, ref)).webhook_id
+    vendor.endpoints[old]["events"] = ["call.analysed", "call.completed"]
+    vendor.patch_fails = vendor.create_fails = True
+    await _aged(tenant_id, ref, "2000-01-01")
+    alerts: list[tuple[str, str]] = []
+    monkeypatch.setattr(sweep, "alert", lambda _s, code, **kw: alerts.append((code, kw["detail"])))
+    monkeypatch.setattr(get_settings(), "engine", ENGINE)
+
+    await sweep.reconcile_engine_webhooks({})
+
+    [(code, detail)] = alerts
+    assert code == "engine_webhook_sweep_incomplete"
+    assert "voice platform's side" in detail
+
+
+async def test_a_failed_patch_names_which_change_and_the_endpoint_state(
+    vendor: FakeThinnest, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`PATCH /webhooks/{id}` carries both the event list and the on switch, so the line says
+    which one failed and what the vendor had just reported for the endpoint."""
+    tenant_id, ref = await _route()
+    old = (await _ensure(tenant_id, ref)).webhook_id
+    vendor.endpoints[old]["events"] = ["call.analysed", "call.completed"]
+    vendor.patch_fails = vendor.create_fails = True
+
+    with pytest.raises(ProblemError):
+        await _ensure(tenant_id, ref)
+
+    [line] = [r for r in caplog.records if r.getMessage() == "engine_webhook_patch_failed"]
+    assert (line.op, line.vendor_status, line.vendor_code) == ("subscribe", 500, "internal_error")
+    assert (line.endpoint_enabled, line.failures_in_a_row) == (True, 0)
+    assert line.events_held == "call.analysed,call.completed"

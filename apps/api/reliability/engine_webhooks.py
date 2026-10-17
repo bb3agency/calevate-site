@@ -214,6 +214,81 @@ async def _register(
     return created.endpoint.webhook_id
 
 
+def _log_patch_failed(
+    op: Literal["subscribe", "enable"],
+    engine: str,
+    webhook_id: str,
+    current: WebhookEndpoint,
+    exc: EngineRejectedError,
+) -> None:
+    """Which `PATCH /webhooks/{id}` failed, and the endpoint as the vendor had just read it.
+    Both PATCHes share one route, so `engine_error` alone cannot say which change was refused."""
+    log.warning(
+        "engine_webhook_patch_failed",
+        extra={
+            "engine": engine,
+            "op": op,
+            "webhook_id": webhook_id,
+            "vendor_status": exc.vendor_status,
+            "vendor_code": exc.vendor_code,
+            "endpoint_enabled": current.enabled,
+            "failures_in_a_row": current.failures_in_a_row,
+            "events_held": ",".join(current.events),
+        },
+    )
+
+
+def _vendor_could_not_save(exc: EngineRejectedError) -> bool:
+    """A 5xx on `PATCH /webhooks/{id}`: the vendor failed to save the change, which its docs
+    call safe to retry (`snapshots/2026-10-15/pages/api-reference/webhooks/
+    update-webhook.md:525-526`). Production answered `500 internal_error` "Could not save the
+    endpoint." on every sweep for one endpoint, so retrying the same PATCH is not a repair."""
+    return exc.vendor_status is not None and exc.vendor_status >= 500
+
+
+async def _resubscribe_by_replacing(
+    session: AsyncSession,
+    webhooks: ThinnestWebhooks,
+    *,
+    engine: str,
+    engine_agent_ref: str,
+    url: str,
+    held: str,
+) -> WebhookRegistration:
+    """Bring a healthy endpoint's events up to date when the vendor cannot save them in place:
+    create a new endpoint with every event, store its secret, then delete the old one.
+
+    Create FIRST rather than `_register`'s delete-then-create: if the vendor cannot save the
+    new endpoint either, the old one is still standing and still delivering the events it had.
+    For the moment both exist an event reaches both urls; the old one's signature no longer
+    matches the stored secret and is refused, and the inbox dedupes on the event id. Only
+    called on an endpoint that is on with no failures in a row, so nothing owed is dropped."""
+    created = await webhooks.create(engine_agent_ref=engine_agent_ref, url=url)
+    await _store(
+        session,
+        engine=engine,
+        engine_agent_ref=engine_agent_ref,
+        webhook_id=created.endpoint.webhook_id,
+        secret=created.signing_secret,
+    )
+    try:
+        await webhooks.delete(held)
+    except ProblemError as exc:
+        # Not raised: the new secret is stored in this transaction, and failing it would
+        # orphan the new endpoint at the vendor. The old one's deliveries are refused for a
+        # stale signature until the vendor switches it off, and the next `_register` for this
+        # agent deletes it as an endpoint at our url we hold no secret for.
+        log.warning(
+            "engine_webhook_old_endpoint_left",
+            extra={"engine": engine, "webhook_id": held, "code": exc.code},
+        )
+    log.warning(
+        "engine_webhook_resubscribed_by_replacement",
+        extra={"engine": engine, "webhook_id": created.endpoint.webhook_id, "was": held},
+    )
+    return WebhookRegistration(outcome="replaced", webhook_id=created.endpoint.webhook_id)
+
+
 async def ensure_agent_webhook(
     session: AsyncSession,
     *,
@@ -276,11 +351,36 @@ async def ensure_agent_webhook(
     # secret for no reason. `("*",)` is every event, which includes ours.
     resubscribed = current.events not in (SUBSCRIBED_EVENTS, ("*",))
     if resubscribed:
-        await webhooks.subscribe(held, SUBSCRIBED_EVENTS)
+        try:
+            await webhooks.subscribe(held, SUBSCRIBED_EVENTS)
+        except EngineRejectedError as exc:
+            _log_patch_failed("subscribe", engine, held, current, exc)
+            if not _vendor_could_not_save(exc):
+                raise
+            if current.enabled and current.failures_in_a_row == 0:
+                return await _resubscribe_by_replacing(
+                    session,
+                    webhooks,
+                    engine=engine,
+                    engine_agent_ref=engine_agent_ref,
+                    url=url,
+                    held=held,
+                )
+            # Deliveries are failing or switched off: re-enable and re-send on THIS endpoint
+            # first, since deleting it would drop what it still owes; the next sweep replaces it.
+            resubscribed = False
+            log.warning(
+                "engine_webhook_resubscribe_deferred",
+                extra={"engine": engine, "webhook_id": held, "vendor_status": exc.vendor_status},
+            )
     if not current.enabled:
         # Switched off by the vendor: deliveries were being lost. Wherever this runs, a
         # publish or the sweep, the re-enable re-sends what failed and an operator is told.
-        await webhooks.enable(held)
+        try:
+            await webhooks.enable(held)
+        except EngineRejectedError as exc:
+            _log_patch_failed("enable", engine, held, current, exc)
+            raise
         await _mark_checked(session, engine, engine_agent_ref)
         _alarm_reenabled(engine, engine_agent_ref)
         redelivered = await _redeliver(
