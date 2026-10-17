@@ -819,7 +819,8 @@ describe("deleting a clone", () => {
         [`DELETE ${OPS_CLONES_PATH}?voice_id=engine%3Aclone-ravi&confirm=true`]: {
           voice_id: "engine:clone-ravi",
           moved_agents: 2,
-          next_step: "Republish the two agents to pick their new voice.",
+          next_step:
+            "The clone was deleted. The voice platform moved 2 agent(s) to its standard voice; move them to another voice and republish them.",
         },
       }),
     );
@@ -833,7 +834,12 @@ describe("deleting a clone", () => {
     expect(attempt).toBe(1);
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete and move those agents" }));
 
-    expect(await screen.findByText(/Ravi was deleted/)).toBeTruthy();
+    // The server's sentence already names the deletion and the move; it is shown once.
+    expect(
+      await screen.findByText(
+        "Ravi: The clone was deleted. The voice platform moved 2 agent(s) to its standard voice; move them to another voice and republish them.",
+      ),
+    ).toBeTruthy();
     const deletes = calls.filter((c) => c.method === "DELETE");
     expect(deletes.map((c) => c.path.endsWith("confirm=true"))).toEqual([false, true]);
     expect(deletes[1]!.headers["X-Confirm-Action"]).toBe("delete_voice_clone:engine:clone-ravi");

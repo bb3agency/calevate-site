@@ -26,6 +26,7 @@ import {
   type EngineMinutePrice,
   type EngineMinutePrices,
 } from "@/lib/api/engineMinutePricing";
+import { providerLabel } from "@/lib/api/llmModels";
 import { lookup } from "@/lib/lookup";
 
 type Access = { allowed: boolean; reason: string | null };
@@ -33,7 +34,6 @@ type Access = { allowed: boolean; reason: string | null };
 /** Rupees per minute: positive, at most six decimals. The server re-checks. */
 const RUPEES_PER_MIN = "^(?:0*[1-9]\\d{0,5}(?:\\.\\d{1,6})?|0*\\.\\d{0,5}[1-9]\\d{0,5})$";
 
-const ENGINE_LABELS: Record<string, string> = { thinnest: "ThinnestAI" };
 const KEY_LABELS: Record<string, string> = {
   platform: "Platform minute (telephony included)",
   standard: "Voice band: standard",
@@ -143,7 +143,7 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
               <li key={rowId(row)} className="flex flex-wrap items-start gap-3 px-3 py-2.5 text-body">
                 <div className="min-w-0 flex-1">
                   <p className="font-medium text-ink">
-                    {lookup(ENGINE_LABELS, row.engine) ?? row.engine} ·{" "}
+                    {providerLabel(row.engine)} ·{" "}
                     {lookup(KEY_LABELS, row.rate_key) ?? row.rate_key}
                   </p>
                   <p className="text-meta text-ink-muted">{saleNote(row)}</p>
@@ -211,7 +211,7 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
             })}
           >
             <p className="text-body font-medium text-ink">
-              {lookup(ENGINE_LABELS, editing.engine) ?? editing.engine} ·{" "}
+              {providerLabel(editing.engine)} ·{" "}
               {lookup(KEY_LABELS, editing.rate_key) ?? editing.rate_key}
             </p>
             <div className="grid gap-3 sm:grid-cols-3">
