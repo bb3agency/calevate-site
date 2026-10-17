@@ -824,5 +824,12 @@ open, because the 15 Oct reply answered only the §13.1 requests.
 >     events for agent endpoints. Could you look at why the save fails? Until then that endpoint
 >     keeps its six older events.
 >
+> **Recordings**
+> 23. When a whole line is forwarded to a person's phone (no agent on the call), is that call
+>     recorded, and is the audio available from `GET /calls/{id}/recording`? The voice guide
+>     says phone calls are recorded on every number, and the phone-number page does not say
+>     either way for a forwarded line. We keep our own copy of every recording and alarm when
+>     one is missing, so we need to know whether to expect one.
+>
 > Thanks,
 > Umesh
