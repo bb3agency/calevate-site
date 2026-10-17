@@ -10,8 +10,9 @@ from uuid import UUID
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.core.alarm_severity import severity_of
+from apps.api.core.logging import redact_mapping
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import recording_watch
 from apps.workers.pipeline import PIPELINE_STALL_AFTER
 from apps.workers.settings import WorkerSettings
@@ -92,6 +93,22 @@ def _only(*tenants: UUID) -> Any:
 
 def _parsed(result: str) -> dict[str, int]:
     return {key: int(value) for key, value in (part.split("=") for part in result.split())}
+
+
+async def _developer_retention(days: int | None) -> None:
+    async with untenanted_session() as session:
+        await session.execute(
+            text("UPDATE platform_state SET developer_retention_days = :days WHERE id = 1"),
+            {"days": days},
+        )
+
+
+@pytest.fixture(autouse=True)
+async def _developer_retention_unread() -> Any:
+    """`platform_state` is one row for every test: each starts from "never read"."""
+    await _developer_retention(None)
+    yield
+    await _developer_retention(None)
 
 
 async def test_a_connected_call_with_no_copy_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -233,7 +250,8 @@ async def test_a_copy_days_from_deletion_pages(monkeypatch: pytest.MonkeyPatch) 
     }
     risk = next(kw for _s, code, kw in fired if code == "recording_copy_at_risk")
     assert risk["call_id"] == str(gone)
-    assert risk["call_ids"] == f"{gone},{soonest}"
+    assert (risk["call_1"], risk["call_2"]) == (f"{tenant_id}:{gone}", f"{tenant_id}:{soonest}")
+    assert "call_3" not in risk
     assert "2 call(s) with no recording copy are within 7 days" in risk["detail"]
     assert "1 may already be gone" in risk["detail"]
     assert severity_of("recording_copy_at_risk") == "page"
@@ -268,6 +286,57 @@ async def test_a_client_workspace_deletes_on_its_confirmed_retention() -> None:
     deletes = {copy.call_id: copy.deletes_at - copy.ended for copy in found}
 
     assert deletes == {in_workspace: timedelta(days=7), in_developer: timedelta(days=30)}
+
+
+async def test_a_developer_workspace_call_deletes_on_its_confirmed_retention() -> None:
+    """Once the hourly retention sweep has recorded what our developer workspace keeps
+    (D-809), a call held there is dated from that, not from the plan floor."""
+    tenant_id, agent_id = await _tenant("recdevret")
+    call_id = await _call(tenant_id, agent_id, ended_ago=timedelta(days=3))
+    async with tenant_session(tenant_id) as session:
+        [unread] = await recording_watch.missing_copies(session, now=datetime.now(UTC))
+    assert unread.deletes_at - unread.ended == timedelta(days=30)
+
+    await _developer_retention(49)
+    async with tenant_session(tenant_id) as session:
+        [read] = await recording_watch.missing_copies(session, now=datetime.now(UTC))
+
+    assert read.call_id == call_id
+    assert read.deletes_at - read.ended == timedelta(days=49)
+
+
+async def test_the_at_risk_alarm_names_each_call_with_its_own_tenant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Calls of two clients, so a re-copy can be asked for each from the alarm (D-809)."""
+    first_tenant, first_agent = await _tenant("recpairone")
+    second_tenant, second_agent = await _tenant("recpairtwo")
+    soonest = await _call(first_tenant, first_agent, ended_ago=timedelta(days=27))
+    later = await _call(second_tenant, second_agent, ended_ago=timedelta(days=25))
+    fired = _capture(monkeypatch)
+    monkeypatch.setattr(recording_watch, "callable_tenants", _only(first_tenant, second_tenant))
+
+    await recording_watch.report_missing_recordings({})
+
+    risk = next(kw for _s, code, kw in fired if code == "recording_copy_at_risk")
+    named = {key: value for key, value in risk.items() if key.startswith("call_")}
+    assert named == {
+        "call_id": str(soonest),
+        "call_1": f"{first_tenant}:{soonest}",
+        "call_2": f"{second_tenant}:{later}",
+    }
+
+
+def test_the_named_calls_are_bounded_and_survive_redaction_whole() -> None:
+    """Each pair is stored as written: `core/alert_records.record` redacts ids with
+    `redact_mapping`, which caps a value at 200 characters and masks phone-shaped runs."""
+    pairs = [(uuid.uuid4(), uuid.uuid4()) for _ in range(recording_watch.AT_RISK_IDS_NAMED + 5)]
+
+    ids = recording_watch.at_risk_call_ids(pairs)
+
+    assert len(ids) == recording_watch.AT_RISK_IDS_NAMED
+    assert ids["call_1"] == f"{pairs[0][0]}:{pairs[0][1]}"
+    assert redact_mapping(ids) == ids
 
 
 def test_the_grace_outlasts_the_copy_and_its_re_drive() -> None:

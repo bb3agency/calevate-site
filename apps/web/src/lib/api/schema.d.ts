@@ -13157,7 +13157,8 @@ export interface components {
         };
         /**
          * CallRetentionOut
-         * @description The call retention last confirmed on the client's workspace (D-798).
+         * @description The call retention last confirmed on a workspace: a client's (D-798) or our developer
+         *     workspace (D-809, which has no `error_code`).
          */
         CallRetentionOut: {
             /** Checked At */
@@ -28246,6 +28247,7 @@ export interface components {
             };
             /** Counted */
             counted: number;
+            developer_call_retention: components["schemas"]["CallRetentionOut"] | null;
             /** Failures */
             failures: components["schemas"]["WorkspaceFailureOut"][];
             /** Headroom */

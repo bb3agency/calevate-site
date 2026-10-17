@@ -280,6 +280,14 @@ class PlatformState(Base):
     studio_developer_ready: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
+    # Not a switch: what our developer workspace last confirmed from `GET /workspace`, its
+    # `callRetentionDays` and `planRetentionDays`, written by the hourly retention sweep
+    # (`tenancy/engine_workspace.record_developer_retention`, D-809). The same facts
+    # `tenant_engine_workspaces.retention_*` hold for a client workspace;
+    # `workers/recording_watch` reads them for calls held in the developer workspace.
+    developer_retention_days: Mapped[int | None] = mapped_column(Integer)
+    developer_retention_plan_days: Mapped[int | None] = mapped_column(Integer)
+    developer_retention_checked_at: Mapped[datetime | None]
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
     )

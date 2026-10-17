@@ -491,6 +491,33 @@ async def read_retention_record(session: AsyncSession, tenant_id: UUID) -> Reten
     return RetentionRecord(days=row[0], plan_days=row[1], checked_at=row[2], error_code=row[3])
 
 
+async def record_developer_retention(session: AsyncSession, *, days: int, plan_days: int) -> None:
+    """Record our developer workspace's confirmed `callRetentionDays` and `planRetentionDays`
+    (D-809) on `platform_state`, as `record_retention_check` does for a client workspace. A
+    failed read records nothing, so the last confirmed answer stands."""
+    await session.execute(
+        text(
+            "UPDATE platform_state SET developer_retention_days = :days, "
+            "developer_retention_plan_days = :plan, developer_retention_checked_at = now(), "
+            "updated_at = now() WHERE id = 1"
+        ),
+        {"days": days, "plan": plan_days},
+    )
+
+
+async def read_developer_retention(session: AsyncSession) -> RetentionRecord:
+    """What our developer workspace last confirmed; all None until the first read."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT developer_retention_days, developer_retention_plan_days, "
+                "developer_retention_checked_at FROM platform_state WHERE id = 1"
+            )
+        )
+    ).one()
+    return RetentionRecord(days=row[0], plan_days=row[1], checked_at=row[2], error_code=None)
+
+
 async def workspaces_in_review(*, limit: int = 1000) -> list[WorkspaceRow]:
     """Active client workspaces whose business-details application is being checked, by the
     status last read from the voice platform, ordered by tenant."""
@@ -534,8 +561,10 @@ __all__ = [
     "own_workspace",
     "queue_workspace_offboarding",
     "queue_workspace_provisioning",
+    "read_developer_retention",
     "read_retention_record",
     "read_workspace_state",
+    "record_developer_retention",
     "record_developer_studio_check",
     "record_own_model_check",
     "record_retention_check",

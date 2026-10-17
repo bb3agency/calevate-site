@@ -57,9 +57,9 @@ COPY_GRACE: Final = timedelta(hours=2)
 
 #: The shortest window any ThinnestAI plan keeps recordings (pay-as-you-go,
 #: update-workspace.md:596-597). Used wherever we do not hold the number the platform
-#: confirmed: our developer workspace (trial calls, calls from before D-693), whose plan we
-#: never record, and a client workspace not yet checked. A longer real window only makes the
-#: alarm early, never late.
+#: confirmed: a workspace the hourly retention sweep has not yet read (`workers/
+#: engine_retention`; the developer workspace's answer is on `platform_state`, D-809). A
+#: longer real window only makes the alarm early, never late.
 PLAN_FLOOR_DAYS: Final = 30
 
 #: The sweep's minute past the hour: one no other cron fires on.
@@ -68,10 +68,27 @@ RECORDING_WATCH_MINUTE: Final = 51
 #: A missing copy this close to the platform's deletion pages instead of waiting for today.
 AT_RISK_DAYS: Final = 7
 
-#: Call ids the at-risk alarm names, soonest first: each is a call an operator may have to
+#: Calls the at-risk alarm names, soonest first: each is a call an operator may have to
 #: re-copy by hand or, failing that, download, so they need the list; a bound keeps the alert
 #: body small.
 AT_RISK_IDS_NAMED: Final = 20
+
+#: The at-risk alarm names each call as `call_<n>` = `<tenant_id>:<call_id>`, n from 1,
+#: soonest first (D-809). One scalar per call because alert ids are a flat map of strings
+#: (`core/alerting.alert`) and each value is cut at `core/logging.MAX_FREE_TEXT` characters
+#: when stored, so one joined list would keep five calls of twenty. The tenant travels with
+#: each call because the re-copy route is tenant-scoped and the listed calls can span
+#: tenants.
+AT_RISK_CALL_KEY: Final = "call_"
+
+
+def at_risk_call_ids(pairs: list[tuple[UUID, UUID]]) -> dict[str, str]:
+    """`call_<n>` ids for the first `AT_RISK_IDS_NAMED` (tenant, call) pairs, in order."""
+    return {
+        f"{AT_RISK_CALL_KEY}{index}": f"{tenant_id}:{call_id}"
+        for index, (tenant_id, call_id) in enumerate(pairs[:AT_RISK_IDS_NAMED], start=1)
+    }
+
 
 #: How long past the platform's deletion a missing copy is still reported. The audio is gone
 #: by then, but the alarm on its last days should not stop the instant they run out.
@@ -90,8 +107,9 @@ PAST_DELETION_DAYS: Final = 3
 #: * `erased_subject_ref`, or a whole-engagement erasure on file: the pointer is null because
 #:   an erasure cleared it, not because a copy is missing.
 #: * The platform's deletion falls the workspace's confirmed `callRetentionDays` after the
-#:   call for a call held in the client's own workspace (`<raw>@org_…`), and the plan floor
-#:   otherwise. The clock is `workers/retention._call_clock`'s.
+#:   call for a call held in the client's own workspace (`<raw>@org_…`), our developer
+#:   workspace's confirmed one for any other, and the plan floor where neither has been
+#:   read. The clock is `workers/retention._call_clock`'s.
 _MISSING_SQL: Final = """
 WITH missing AS (
   SELECT c.id,
@@ -100,7 +118,8 @@ WITH missing AS (
     CASE WHEN strpos(c.engine_call_id, :scope_marker) > 0
       THEN COALESCE((SELECT w.retention_days FROM tenant_engine_workspaces w
                      WHERE w.tenant_id = c.tenant_id), :plan_floor)
-      ELSE :plan_floor END AS keep_days
+      ELSE COALESCE((SELECT s.developer_retention_days FROM platform_state s WHERE s.id = 1),
+                    :plan_floor) END AS keep_days
   FROM calls c
   WHERE c.status = 'completed'
     AND c.recording_url IS NULL
@@ -373,7 +392,7 @@ async def report_missing_recordings(ctx: dict[str, Any]) -> str:
             ),
             tenant_id=str(soonest_tenant),
             call_id=str(soonest.call_id),
-            call_ids=",".join(str(copy.call_id) for _tenant, copy in at_risk[:AT_RISK_IDS_NAMED]),
+            **at_risk_call_ids([(tenant_id, copy.call_id) for tenant_id, copy in at_risk]),
         )
     return (
         f"missing={len(found)} at_risk={len(at_risk)} unreached={unreached} "
@@ -382,6 +401,7 @@ async def report_missing_recordings(ctx: dict[str, Any]) -> str:
 
 
 __all__ = [
+    "AT_RISK_CALL_KEY",
     "AT_RISK_DAYS",
     "AT_RISK_IDS_NAMED",
     "COPY_GRACE",
@@ -394,6 +414,7 @@ __all__ = [
     "RecopyRefusal",
     "RecopySource",
     "RecopyTarget",
+    "at_risk_call_ids",
     "enqueue_recopy",
     "missing_copies",
     "recopy_call_recording",

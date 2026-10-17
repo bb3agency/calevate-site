@@ -242,3 +242,41 @@ async def test_the_ops_summary_counts_workspaces_against_the_plan(
     assert (body["plan"], body["plan_cap"]) == ("pro", 100)
     assert body["headroom"] == max(100 - body["counted"], 0)
     assert body["by_status"].get("plan_limit", 0) >= 1
+
+
+async def test_the_ops_summary_shows_what_the_developer_workspace_keeps(
+    account: FakeAccount,
+) -> None:
+    """D-809: the period the hourly sweep confirmed there, which the missing-recording alarm
+    dates trial and pre-D-693 calls from."""
+    from apps.api.tenancy.engine_workspace import record_developer_retention
+
+    async def _summary() -> Any:
+        async with _http() as http:
+            answer = await http.get(
+                "/v1/admin/engine-workspaces/summary", headers=await _admin_headers()
+            )
+        assert answer.status_code == 200, answer.text
+        return answer.json()["developer_call_retention"]
+
+    async def _clear() -> None:
+        async with untenanted_session() as session:
+            await session.execute(
+                text(
+                    "UPDATE platform_state SET developer_retention_days = NULL, "
+                    "developer_retention_plan_days = NULL, "
+                    "developer_retention_checked_at = NULL WHERE id = 1"
+                )
+            )
+
+    await _clear()
+    try:
+        unread = await _summary()
+        assert unread == {"days": None, "plan_days": None, "checked_at": None, "error_code": None}
+        async with untenanted_session() as session:
+            await record_developer_retention(session, days=49, plan_days=49)
+        read = await _summary()
+    finally:
+        await _clear()
+    assert (read["days"], read["plan_days"], read["error_code"]) == (49, 49, None)
+    assert read["checked_at"] is not None

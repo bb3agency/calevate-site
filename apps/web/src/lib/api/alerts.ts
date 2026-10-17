@@ -161,8 +161,9 @@ export function openCounts(report: AlertReport): { severity: AlertSeverity; tota
 export type RecordingRecopy = Schemas["RecordingRecopyOut"];
 
 /**
- * The alarms that name a call whose recording we never copied (D-805). Their drawer offers
- * that call's re-copy (D-808); no other alarm carries a call the action could apply to.
+ * The alarms that name calls whose recording we never copied (D-805). Their drawer offers a
+ * re-copy of each named call (D-808, D-809); no other alarm carries a call the action could
+ * apply to.
  */
 export const RECOPY_ALARM_CODES: readonly string[] = [
   "recording_copy_missing",
@@ -174,18 +175,52 @@ export interface RecopyTarget {
   callId: string;
 }
 
+/** `call_<n>`: one listed call of `recording_copy_at_risk`, n from 1 (D-809). */
+const LISTED_CALL_KEY = /^call_(\d+)$/;
+
+/** `<tenant_id>:<call_id>`, the value of a listed call; null for anything else. */
+function listedCall(value: unknown): RecopyTarget | null {
+  if (typeof value !== "string") return null;
+  const parts = value.split(":");
+  if (parts.length !== 2) return null;
+  const [tenantId, callId] = parts;
+  if (!tenantId || !callId) return null;
+  return { tenantId, callId };
+}
+
 /**
- * The call a recording alarm names, from the episode's own `ids`, or null. Both ids must be
- * present: the route is tenant-scoped, and a call id alone cannot be resolved to a client.
+ * The calls a recording alarm names, from the episode's own `ids`, in the alarm's order.
+ * `recording_copy_at_risk` lists each call with its own client as `call_<n>`
+ * (`recording_watch.at_risk_call_ids`), because the calls it lists can belong to different
+ * clients; `recording_copy_missing`, and an at-risk episode recorded before D-809, name one
+ * call as `tenant_id` and `call_id`. A call with no client is not offered: the route is
+ * tenant-scoped, and a call id alone cannot be resolved to a client.
  */
-export function recopyTargetOf(episode: AlertEpisode): RecopyTarget | null {
-  if (!RECOPY_ALARM_CODES.includes(episode.code)) return null;
+export function recopyTargetsOf(episode: AlertEpisode): RecopyTarget[] {
+  if (!RECOPY_ALARM_CODES.includes(episode.code)) return [];
   const ids = episode.ids ?? {};
+  const listed = Object.entries(ids)
+    .flatMap(([key, value]) => {
+      const match = LISTED_CALL_KEY.exec(key);
+      const target = match ? listedCall(value) : null;
+      return match && target ? [{ position: Number(match[1]), target }] : [];
+    })
+    .sort((a, b) => a.position - b.position)
+    .map(({ target }) => target);
+  if (listed.length > 0) {
+    const seen = new Set<string>();
+    return listed.filter(({ tenantId, callId }) => {
+      const key = `${tenantId}/${callId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
   const tenantId = lookup(ids, "tenant_id");
   const callId = lookup(ids, "call_id");
-  if (typeof tenantId !== "string" || typeof callId !== "string") return null;
-  if (tenantId === "" || callId === "") return null;
-  return { tenantId, callId };
+  if (typeof tenantId !== "string" || typeof callId !== "string") return [];
+  if (tenantId === "" || callId === "") return [];
+  return [{ tenantId, callId }];
 }
 
 export function recopyPath({ tenantId, callId }: RecopyTarget): string {
