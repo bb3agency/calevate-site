@@ -104,6 +104,12 @@ from apps.api.retrieval.embedding import (
 )
 from apps.workers import chat
 from apps.workers.kb_gloss import tenants_holding_knowledge
+from apps.workers.set_aside import (
+    REFUSED_INPUT_SET_ASIDE,
+    RefusalStreak,
+    set_aside,
+    set_aside_ids,
+)
 
 log = get_logger(__name__)
 
@@ -162,6 +168,9 @@ _PROJECTION_TABLE: Final = "kb_chunks"
 #: call, and metered like every other embedding, so a configuration change costs a
 #: measured, capped amount rather than an unbounded one. Leaving stale vectors in place
 #: to save that spend would be choosing a corrupt index over a bill.
+#:
+#: `:set_aside` leaves out chunks the provider refused (`_embed_singly`), which would
+#: otherwise head every claim.
 _CLAIM_SQL: Final = (
     "SELECT c.id, d.content, coalesce(d.gloss, '') FROM kb_chunks c "
     "JOIN kb_documents d ON d.id = c.document_id "
@@ -171,8 +180,12 @@ _CLAIM_SQL: Final = (
     f"     OR (c.embed_state = '{EMBED_READY}' "
     "         AND (c.embed_model IS DISTINCT FROM :model "
     "              OR c.embed_dim IS DISTINCT FROM :dim))) "
+    "AND NOT (c.id = ANY(CAST(:set_aside AS uuid[]))) "
     "ORDER BY c.id LIMIT :limit FOR UPDATE OF c SKIP LOCKED"
 )
+
+#: The `set_aside` name for chunks the provider refused to embed.
+_SET_ASIDE_SWEEP: Final = "kb_embed"
 
 #: `CAST(:vec AS vector)` because psycopg renders a Python list as a Postgres array, which
 #: the `vector` type will not accept; the type's own text form is the bracketed literal.
@@ -299,6 +312,44 @@ async def _embed_batch(
     return stored
 
 
+async def _embed_singly(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    claimed: list[tuple[UUID, str, str]],
+    leg: chat.ChatLeg,
+) -> tuple[int, list[str], bool]:
+    """A batch the provider refused, asked one chunk at a time: how many were stored, the
+    chunks refused (now set aside), and whether to stop asking for this tenant this tick.
+
+    The refusal names no input, so asking singly is how the chunk it was about is found and
+    set aside while the rest are bought. Asking costs nothing until the provider answers
+    (`_embed_batch` writes after the answer), so this runs inside the batch's transaction
+    with its claims still held; chunks not asked stay `pending`."""
+    stored = 0
+    refusals = RefusalStreak()
+    refused: list[str] = []
+    stop = False
+    for item in claimed:
+        try:
+            stored += await _embed_batch(session, tenant_id=tenant_id, claimed=[item], leg=leg)
+        except httpx.HTTPStatusError as failure:
+            if not chat.refused_this_input(failure):
+                raise
+            refused.append(str(item[0]))
+            log.warning(
+                "kb_embed_input_refused",
+                extra={"tenant_id": str(tenant_id), "chunk_id": str(item[0])},
+            )
+            if refusals.refused():
+                stop = True
+                break
+            continue
+        refusals.answered()
+    await set_aside(_SET_ASIDE_SWEEP, refused, for_=REFUSED_INPUT_SET_ASIDE)
+    return stored, refused, stop
+
+
 async def _column_can_hold_our_vectors() -> bool:
     """Will `kb_chunks.embedding` accept a vector of the width this deployment buys?
 
@@ -391,12 +442,14 @@ async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
 
     budget = MAX_CHUNKS_PER_TICK
     embedded = 0
+    excluded = await set_aside_ids(_SET_ASIDE_SWEEP)
     for tenant_id in tenants:
         if budget <= 0:
             break
         try:
             remaining = min(MAX_CHUNKS_PER_TENANT, budget)
             while remaining > 0:
+                stop = False
                 # ONE TRANSACTION PER BATCH, the claim included. A batch is paid for when
                 # the provider answers, and its vectors, states and `usage_events` rows must
                 # commit with it: a tenant-wide transaction let a LATER batch's failure roll
@@ -413,6 +466,7 @@ async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
                                 # `ready` row not matching both is stale and re-claimed.
                                 "model": EMBEDDING_MODEL,
                                 "dim": EMBEDDING_DIMS,
+                                "set_aside": excluded,
                             },
                         )
                     ).all()
@@ -421,9 +475,21 @@ async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
                     claimed = [(UUID(str(r[0])), str(r[1]), str(r[2])) for r in rows]
                     budget -= len(claimed)
                     remaining -= len(claimed)
-                    embedded += await _embed_batch(
+                    try:
+                        embedded += await _embed_batch(
+                            session, tenant_id=tenant_id, claimed=claimed, leg=leg
+                        )
+                        continue
+                    except httpx.HTTPStatusError as failure:
+                        if not chat.refused_this_input(failure):
+                            raise
+                    stored, refused, stop = await _embed_singly(
                         session, tenant_id=tenant_id, claimed=claimed, leg=leg
                     )
+                    embedded += stored
+                    excluded.extend(refused)
+                if stop:
+                    break
         except (httpx.HTTPError, TimeoutError) as failure:
             # The provider, for THIS batch. Its claims roll back, so those chunks stay
             # `pending` and the next tick picks them up — the correct

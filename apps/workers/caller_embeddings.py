@@ -122,8 +122,17 @@ from apps.api.retrieval.embedding import (
 )
 from apps.api.retrieval.models import EMBED_READY, EMBED_REFUSED
 from apps.workers import chat
+from apps.workers.set_aside import (
+    REFUSED_INPUT_SET_ASIDE,
+    RefusalStreak,
+    set_aside,
+    set_aside_ids,
+)
 
 log = get_logger(__name__)
+
+#: The `set_aside` name for chunks the provider refused to embed.
+_SET_ASIDE_SWEEP: Final = "caller_embed"
 
 #: The table this sweep fills. Named once because the width preflight reads its column
 #: type out of the catalogue and a second spelling would check a table nobody writes.
@@ -183,6 +192,9 @@ MAX_DISCOVER_PER_SCOPE: Final = 256
 #: `IS DISTINCT FROM` rather than `<>`, because both columns are nullable: a row written
 #: before either was recorded compares NULL against a real value, and `<>` answers NULL and
 #: skips exactly the un-provenanced rows most likely to be stale.
+#:
+#: `:set_aside` leaves out chunks the provider refused (`_set_aside_key`), which would
+#: otherwise head every claim.
 _CLAIM_SQL: Final = f"""
 SELECT c.subject_id, c.idx FROM caller_chunks c
  WHERE c.subject_kind = :kind
@@ -191,6 +203,8 @@ SELECT c.subject_id, c.idx FROM caller_chunks c
         OR (c.embed_state = '{EMBED_READY}'
             AND (c.embed_model IS DISTINCT FROM :model
                  OR c.embed_dim IS DISTINCT FROM :dim)))
+   AND NOT ((c.subject_kind || ':' || c.subject_id::text || ':' || c.idx::text)
+            = ANY(CAST(:set_aside AS text[])))
  ORDER BY c.occurred_at DESC, c.subject_id, c.idx
  LIMIT :limit FOR UPDATE OF c SKIP LOCKED
 """
@@ -378,6 +392,45 @@ async def _embed_claimed(
     return stored
 
 
+def _set_aside_key(kind: str, key: ChunkKey) -> str:
+    """How `_CLAIM_SQL` spells a chunk it should leave out."""
+    return f"{kind}:{key[0]}:{key[1]}"
+
+
+async def _embed_singly(
+    session: AsyncSession,
+    *,
+    projection: CallerProjection,
+    keys: list[ChunkKey],
+    leg: chat.ChatLeg,
+) -> tuple[int, list[str], bool]:
+    """A batch the provider refused, asked one chunk at a time, for `kb_embeddings.
+    _embed_singly`'s reason: how many were stored, the chunks refused (now set aside), and
+    whether to stop asking for this tenant this tick."""
+    stored = 0
+    refusals = RefusalStreak()
+    refused: list[str] = []
+    stop = False
+    for key in keys:
+        try:
+            stored += await _embed_claimed(session, projection=projection, keys=[key], leg=leg)
+        except httpx.HTTPStatusError as failure:
+            if not chat.refused_this_input(failure):
+                raise
+            refused.append(_set_aside_key(projection.subject_kind, key))
+            log.warning(
+                "caller_embed_input_refused",
+                extra={"scope": projection.subject_kind, "subject_id": str(key[0])},
+            )
+            if refusals.refused():
+                stop = True
+                break
+            continue
+        refusals.answered()
+    await set_aside(_SET_ASIDE_SWEEP, refused, for_=REFUSED_INPUT_SET_ASIDE)
+    return stored, refused, stop
+
+
 @dataclass
 class _Tally:
     """What one tenant's share of the tick did, kept outside its transactions so a failure
@@ -387,8 +440,11 @@ class _Tally:
     embedded: int = 0
 
 
-async def _sweep_tenant(tally: _Tally, *, tenant_id: UUID, leg: chat.ChatLeg, budget: int) -> None:
-    """Discover then embed, for every registered scope, counted into `tally`.
+async def _sweep_tenant(
+    tally: _Tally, *, tenant_id: UUID, leg: chat.ChatLeg, budget: int, excluded: list[str]
+) -> None:
+    """Discover then embed, for every registered scope, counted into `tally`. `excluded` is
+    the tick's set-aside chunks; ones refused here are added to it.
 
     ONE TRANSACTION PER DISCOVERY AND PER BATCH, not one per tenant. A batch is paid for
     when the provider answers, and its vectors, states and platform-ledger rows must commit
@@ -402,6 +458,7 @@ async def _sweep_tenant(tally: _Tally, *, tenant_id: UUID, leg: chat.ChatLeg, bu
         async with tenant_session(tenant_id) as session:
             tally.projected += await _discover(session, tenant_id=tenant_id, projection=projection)
         while remaining > 0:
+            stop = False
             async with tenant_session(tenant_id) as session:
                 rows = (
                     await session.execute(
@@ -413,6 +470,7 @@ async def _sweep_tenant(tally: _Tally, *, tenant_id: UUID, leg: chat.ChatLeg, bu
                             # row not matching both is stale and re-claimed.
                             "model": EMBEDDING_MODEL,
                             "dim": EMBEDDING_DIMS,
+                            "set_aside": excluded,
                         },
                     )
                 ).all()
@@ -420,9 +478,21 @@ async def _sweep_tenant(tally: _Tally, *, tenant_id: UUID, leg: chat.ChatLeg, bu
                     break
                 keys: list[ChunkKey] = [(UUID(str(row[0])), int(row[1])) for row in rows]
                 remaining -= len(keys)
-                tally.embedded += await _embed_claimed(
+                try:
+                    tally.embedded += await _embed_claimed(
+                        session, projection=projection, keys=keys, leg=leg
+                    )
+                    continue
+                except httpx.HTTPStatusError as failure:
+                    if not chat.refused_this_input(failure):
+                        raise
+                stored, refused, stop = await _embed_singly(
                     session, projection=projection, keys=keys, leg=leg
                 )
+                tally.embedded += stored
+                excluded.extend(refused)
+            if stop:
+                return
 
 
 async def _column_can_hold_our_vectors() -> bool:
@@ -520,13 +590,16 @@ async def embed_caller_chunks(ctx: dict[str, Any]) -> str:
 
     budget = MAX_CHUNKS_PER_TICK
     projected = 0
+    excluded = await set_aside_ids(_SET_ASIDE_SWEEP)
     embedded = 0
     for tenant_id in tenants:
         if budget <= 0:
             break
         tally = _Tally()
         try:
-            await _sweep_tenant(tally, tenant_id=tenant_id, leg=leg, budget=budget)
+            await _sweep_tenant(
+                tally, tenant_id=tenant_id, leg=leg, budget=budget, excluded=excluded
+            )
         except (httpx.HTTPError, TimeoutError) as failure:
             # The provider, for THIS batch. Its claims roll back, so those chunks stay
             # `pending` and the next tick picks them up — the correct response to a

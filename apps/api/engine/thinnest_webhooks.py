@@ -71,6 +71,11 @@ SUBSCRIBED_EVENTS: Final = tuple(
 #: (webhooks.md:74), and a signature from that agent's secret is still required.
 AGENT_QUERY_PARAM: Final = "agent"
 
+#: List Webhooks pages: the vendor's largest page, and our bound on a walk, since a cursor
+#: that never ends must not become an unbounded loop. One agent's endpoints are a handful.
+_LIST_PAGE_SIZE: Final = 100
+_LIST_MAX_PAGES: Final = 5
+
 
 @dataclass(frozen=True, slots=True)
 class WebhookEndpoint:
@@ -187,20 +192,28 @@ class ThinnestWebhooks:
         return CreatedEndpoint(endpoint=_endpoint(row, workspace), signing_secret=secret)
 
     async def list_for_agent(self, engine_agent_ref: str) -> list[WebhookEndpoint]:
-        """UNVERIFIED: the page documents no cursor for this list (webhooks.md:46), so it is
-        read as a single response."""
+        """Every endpoint of the agent, page by page: `limit` 1 to 100 and `nextCursor`
+        until it is null (`snapshots/2026-10-15/pages/api-reference/webhooks/
+        list-webhooks.md:453-576`). Refuses rather than answering a partial list, because
+        registration deletes every endpoint at our url from it before creating one."""
         workspace = scope_of(engine_agent_ref)
-        payload = await self._request(
-            "GET",
-            "/webhooks",
-            route="/webhooks",
-            workspace=workspace,
-            params={"agent": raw_of(engine_agent_ref)},
-        )
-        rows = payload.get("items")
-        if not isinstance(rows, list):
-            raise _bad("a webhook list without `items`")
-        return [_endpoint(row, workspace) for row in rows if isinstance(row, dict)]
+        endpoints: list[WebhookEndpoint] = []
+        cursor: str | None = None
+        for _ in range(_LIST_MAX_PAGES):
+            params: dict[str, Any] = {"agent": raw_of(engine_agent_ref), "limit": _LIST_PAGE_SIZE}
+            if cursor is not None:
+                params["cursor"] = cursor
+            payload = await self._request(
+                "GET", "/webhooks", route="/webhooks", workspace=workspace, params=params
+            )
+            rows = payload.get("items")
+            if not isinstance(rows, list):
+                raise _bad("a webhook list without `items`")
+            endpoints.extend(_endpoint(row, workspace) for row in rows if isinstance(row, dict))
+            cursor = _str(payload.get("nextCursor"))
+            if cursor is None:
+                return endpoints
+        raise _bad(f"a webhook list longer than {_LIST_MAX_PAGES} pages")
 
     async def get(self, webhook_id: str) -> WebhookEndpoint:
         workspace = scope_of(webhook_id)

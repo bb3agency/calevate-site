@@ -116,8 +116,17 @@ from apps.api.db.session import tenant_session
 from apps.workers import chat
 from apps.workers.caller_embeddings import tenants_with_caller_data
 from apps.workers.extraction import AZURE_PROVIDER, azure_credentials
+from apps.workers.set_aside import (
+    REFUSED_INPUT_SET_ASIDE,
+    RefusalStreak,
+    set_aside,
+    set_aside_ids,
+)
 
 log = get_logger(__name__)
+
+#: The `set_aside` name for calls the provider refused to read.
+_SET_ASIDE_SWEEP: Final = "caller_memory_distil"
 
 #: The minute this cron fires. The clearance argument is not made here:
 #: `settings.WALK_SHAPES` declares each cron's fan-out where
@@ -218,6 +227,7 @@ _SYSTEM_PROMPT: Final = (
 #: OLDEST FIRST, so a truncated tick resumes where it stopped rather than re-shuffling, and
 #: so the partial index `ix_calls_caller_memory_pending` (agent_id, ended_at) is an index
 #: range rather than a sort.
+#: * `:set_aside` — calls the provider refused, which would otherwise head every tick.
 _PENDING_CALLS_SQL: Final = f"""
 SELECT c.id, c.agent_id, c.from_e164, c.ended_at
 FROM calls c JOIN agents a ON a.id = c.agent_id
@@ -227,6 +237,7 @@ WHERE c.caller_memory_state = '{CALLER_MEMORY_PENDING}'
   AND c.ended_at IS NOT NULL
   AND c.ended_at < now() - make_interval(mins => :settle_minutes)
   AND c.ended_at > now() - make_interval(days => :lookback_days)
+  AND NOT (c.id = ANY(CAST(:set_aside AS uuid[])))
 ORDER BY c.ended_at
 LIMIT :limit
 """
@@ -450,7 +461,9 @@ class _Tally:
     facts: int = 0
 
 
-async def _sweep_tenant(tally: _Tally, *, tenant_id: UUID, leg: chat.ChatLeg, budget: int) -> None:
+async def _sweep_tenant(
+    tally: _Tally, *, tenant_id: UUID, leg: chat.ChatLeg, budget: int, excluded: list[str]
+) -> None:
     """One tenant's share of the tick, counted into `tally`."""
     async with tenant_session(tenant_id) as session:
         rows = (
@@ -460,9 +473,11 @@ async def _sweep_tenant(tally: _Tally, *, tenant_id: UUID, leg: chat.ChatLeg, bu
                     "settle_minutes": SETTLE_MINUTES,
                     "lookback_days": LOOKBACK_DAYS,
                     "limit": min(MAX_CALLS_PER_TENANT, budget),
+                    "set_aside": excluded,
                 },
             )
         ).all()
+    refusals = RefusalStreak()
     for row in rows:
         if tally.spent >= budget:
             break
@@ -473,23 +488,35 @@ async def _sweep_tenant(tally: _Tally, *, tenant_id: UUID, leg: chat.ChatLeg, bu
         # with it: sharing the tenant's transaction let a provider error on a LATER call roll
         # all three back, so the spend went unbilled (hard rule 7) and the next tick bought
         # the same conversation again.
-        async with tenant_session(tenant_id) as session:
-            if not phone:
-                # No subject to file a fact under: an erasure has already NULLed the number,
-                # or the poller never learned it. `skipped`, because no model was asked — and
-                # settled rather than left pending, so it is not re-discovered every hour for
-                # a fortnight.
-                await _mark(session, call_id, CALLER_MEMORY_SKIPPED)
-                continue
-            written, spent_a_call = await _distil_call(
-                session,
-                tenant_id=tenant_id,
-                call_id=call_id,
-                agent_id=UUID(str(row[1])),
-                phone_e164=phone,
-                occurred_at=row[3],
-                leg=leg,
-            )
+        try:
+            async with tenant_session(tenant_id) as session:
+                if not phone:
+                    # No subject to file a fact under: an erasure has already NULLed the
+                    # number, or the poller never learned it. `skipped`, because no model
+                    # was asked — and settled rather than left pending, so it is not
+                    # re-discovered every hour for a fortnight.
+                    await _mark(session, call_id, CALLER_MEMORY_SKIPPED)
+                    continue
+                written, spent_a_call = await _distil_call(
+                    session,
+                    tenant_id=tenant_id,
+                    call_id=call_id,
+                    agent_id=UUID(str(row[1])),
+                    phone_e164=phone,
+                    occurred_at=row[3],
+                    leg=leg,
+                )
+        except httpx.HTTPStatusError as failure:
+            if not chat.refused_this_input(failure):
+                raise
+            # A refusal of THIS call's text: asked again only after a while, so it cannot
+            # head every tick and keep the calls behind it from being read.
+            log.warning("caller_memory_distil_input_refused", extra={"call_id": str(call_id)})
+            await set_aside(_SET_ASIDE_SWEEP, [str(call_id)], for_=REFUSED_INPUT_SET_ASIDE)
+            if refusals.refused():
+                return
+            continue
+        refusals.answered()
         tally.facts += written
         tally.spent += 1 if spent_a_call else 0
 
@@ -539,13 +566,16 @@ async def distil_caller_memories(ctx: dict[str, Any]) -> str:
         raise
 
     budget = MAX_CALLS_PER_TICK
+    excluded = await set_aside_ids(_SET_ASIDE_SWEEP)
     facts_written = 0
     for tenant_id in tenants:
         if budget <= 0:
             break
         tally = _Tally()
         try:
-            await _sweep_tenant(tally, tenant_id=tenant_id, leg=leg, budget=budget)
+            await _sweep_tenant(
+                tally, tenant_id=tenant_id, leg=leg, budget=budget, excluded=excluded
+            )
         except (httpx.HTTPError, TimeoutError) as failure:
             # The provider, for THIS tenant's call. That call's transaction rolls back, so it
             # keeps its `pending` marker and the next tick picks it up — the correct

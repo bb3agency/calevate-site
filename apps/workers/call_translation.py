@@ -64,8 +64,12 @@ _FEATURE_OF_PAYER: Final[dict[str, str]] = {
 #: The backfill reaches back this far, newest first (founder decision 3).
 BACKFILL_WINDOW: Final = timedelta(days=30)
 #: Calls queued per backfill tick. Each is one model round trip in its own job, so a tick
-#: costs one read per client and at most this many enqueues.
+#: costs at most this many enqueues.
 BACKFILL_BATCH: Final = 20
+#: Candidates read per page while walking a client's window back past calls already tried:
+#: a client with nothing left to try is still one read, and a window full of tried calls a
+#: few pages rather than one page per `BACKFILL_BATCH`.
+_CANDIDATE_PAGE: Final = 500
 #: Hourly, at a minute no other fleet-wide walk uses (`tests/job_registration_test.py`).
 BACKFILL_MINUTE: Final = 37
 #: The backfill tries each call ONCE. A call whose second attempt also fails keeps its
@@ -75,14 +79,21 @@ _ATTEMPTED_KEY: Final = "call_translation:backfilled:{call_id}"
 _ATTEMPTED_TTL_S: Final = int((BACKFILL_WINDOW + timedelta(days=1)).total_seconds())
 
 _LIVE_TENANTS_SQL: Final = "SELECT id FROM organizations WHERE deleted_at IS NULL ORDER BY id"
+#: One page of a tenant's candidates, newest first, after the (`at`, `id`) keyset of the
+#: previous page. Paged because a call the backfill has tried keeps `failed` (its marker is
+#: in Redis, not here): a single capped read was filled by tried calls and never reached
+#: the older ones nobody had tried.
 _CANDIDATES_SQL: Final = (
     "SELECT c.id, COALESCE(c.started_at, c.created_at) AS at FROM calls c "
     "WHERE c.status = 'completed' "
     "AND c.translation_state IN ('unavailable', 'failed') "
     "AND COALESCE(c.started_at, c.created_at) >= now() - :window "
+    "AND (CAST(:before_at AS timestamptz) IS NULL "
+    "     OR (COALESCE(c.started_at, c.created_at), c.id) "
+    "        < (CAST(:before_at AS timestamptz), CAST(:before_id AS uuid))) "
     "AND EXISTS (SELECT 1 FROM transcript_turns t "
     "            WHERE t.call_id = c.id AND t.tenant_id = c.tenant_id) "
-    "ORDER BY at DESC LIMIT :batch"
+    "ORDER BY at DESC, c.id DESC LIMIT :batch"
 )
 
 
@@ -291,6 +302,43 @@ async def translate_call_job(ctx: dict[str, Any], payload: dict[str, Any]) -> st
     return state
 
 
+async def _untried_candidates(tenant_id: UUID, budget: WalkBudget) -> list[tuple[Any, UUID]]:
+    """Up to `BACKFILL_BATCH` of this tenant's newest candidates the backfill has not tried,
+    as (`at`, call id), reading back through the window a page at a time past the ones it
+    has. The window bounds the walk; the tick's budget stops it early."""
+    redis = get_redis()
+    untried: list[tuple[Any, UUID]] = []
+    before_at: Any = None
+    before_id: UUID | None = None
+    page_size = _CANDIDATE_PAGE
+    while len(untried) < BACKFILL_BATCH:
+        async with tenant_session(tenant_id) as session:
+            rows = (
+                await session.execute(
+                    text(_CANDIDATES_SQL),
+                    {
+                        "window": BACKFILL_WINDOW,
+                        "batch": page_size,
+                        "before_at": before_at,
+                        "before_id": before_id,
+                    },
+                )
+            ).all()
+        if not rows:
+            break
+        ids = [UUID(str(row[0])) for row in rows]
+        tried = await redis.mget([_ATTEMPTED_KEY.format(call_id=call_id) for call_id in ids])
+        untried.extend(
+            (row[1], call_id)
+            for row, call_id, marker in zip(rows, ids, tried, strict=True)
+            if marker is None
+        )
+        if len(rows) < page_size or budget.spent():
+            break
+        before_at, before_id = rows[-1][1], ids[-1]
+    return untried[:BACKFILL_BATCH]
+
+
 async def backfill_call_translations(ctx: dict[str, Any]) -> str:
     """THE BACKFILL TICK. Finds the newest untranslated calls of the last 30 days across
     every client and queues one `translate_call` job each, at our cost. Idempotent: a call
@@ -309,23 +357,15 @@ async def backfill_call_translations(ctx: dict[str, Any]) -> str:
         if budget.spent():
             break
         reached += 1
-        async with tenant_session(tenant_id) as session:
-            rows = (
-                await session.execute(
-                    text(_CANDIDATES_SQL),
-                    {"window": BACKFILL_WINDOW, "batch": BACKFILL_BATCH * 2},
-                )
-            ).all()
-        found.extend((row[1], tenant_id, UUID(str(row[0]))) for row in rows)
+        found.extend(
+            (at, tenant_id, call_id) for at, call_id in await _untried_candidates(tenant_id, budget)
+        )
 
     found.sort(key=lambda item: item[0], reverse=True)
-    redis = get_redis()
     queued = 0
     for _at, tenant_id, call_id in found:
         if queued >= BACKFILL_BATCH:
             break
-        if await redis.exists(_ATTEMPTED_KEY.format(call_id=call_id)):
-            continue
         await enqueue(
             JOB_NAME,
             {"tenant_id": str(tenant_id), "call_id": str(call_id), "payer": "platform"},

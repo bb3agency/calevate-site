@@ -145,3 +145,54 @@ async def test_a_later_batch_failing_does_not_unrecord_a_batch_already_paid_for(
         "the paid batch is stored; the failed one is left for the next tick"
     )
     assert await _platform_rows() > before, "the batch that was paid for is on the ledger"
+
+
+async def test_a_chunk_the_provider_refuses_does_not_hold_back_its_batch(
+    monkeypatch: pytest.MonkeyPatch, priced: Any
+) -> None:
+    """A 400 for a batch is a verdict on something in it: the batch is asked one chunk at
+    a time, the refused chunk is set aside, and the other is embedded — rather than both
+    staying `pending` at the head of every claim."""
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id = uuid.UUID(str(tenant_id))
+    scope, subjects = _stub_scope(uuid.UUID(str(agent_id)))
+
+    async def _only_this_tenant() -> list[uuid.UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(caller_embeddings, "registered_projections", lambda: (scope,))
+    monkeypatch.setattr(caller_embeddings, "tenants_with_caller_data", _only_this_tenant)
+    monkeypatch.setattr(caller_embeddings, "embedding_leg", lambda: _LEG)
+    bought: list[int] = []
+
+    async def _refuses_one(leg: ChatLeg, inputs: Sequence[str], **_: Any) -> EmbeddingOutcome:
+        if any("(0)" in item for item in inputs):
+            request = httpx.Request("POST", "https://example.invalid/embeddings")
+            raise httpx.HTTPStatusError(
+                "refused", request=request, response=httpx.Response(400, request=request)
+            )
+        bought.append(len(inputs))
+        return EmbeddingOutcome(
+            vectors=tuple(tuple(0.0 for _ in range(EMBEDDING_DIMS)) for _ in inputs),
+            usage=TokenUsage(11 * len(inputs), 0),
+        )
+
+    monkeypatch.setattr(chat, "embed", _refuses_one)
+    await caller_embeddings.embed_caller_chunks({})
+    await caller_embeddings.embed_caller_chunks({})
+
+    async with tenant_session(tenant_id) as session:
+        states = sorted(
+            (str(row[0]), bool(row[1]))
+            for row in (
+                await session.execute(
+                    text(
+                        "SELECT embed_state, embedding IS NOT NULL FROM caller_chunks "
+                        "WHERE subject_id = ANY(:ids)"
+                    ),
+                    {"ids": subjects},
+                )
+            ).all()
+        )
+    assert states == [("pending", False), ("ready", True)]
+    assert bought == [1]

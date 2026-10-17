@@ -426,3 +426,61 @@ def test_the_filename_falls_back_to_the_slug_and_never_trusts_the_key() -> None:
     )
     assert odd == "shop-a-x-call-2026-10-11-0530.audio"
     assert '"' not in odd and ";" not in odd
+
+
+async def test_the_backfill_reaches_past_calls_it_has_already_tried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The backfill tries each call once and reads newest first. Calls it has already
+    tried stay `failed`, so a page of them used to fill every read and the older calls it
+    had never tried were never reached."""
+    now = datetime.now(UTC)
+    tenant_id, untried, _slug, _headers = await _telugu_call(
+        state="failed", started=now - timedelta(days=2)
+    )
+    async with tenant_session(tenant_id) as session:
+        agent_id, lead_id, phone = (
+            await session.execute(
+                text("SELECT agent_id, lead_id, to_e164 FROM calls WHERE id = :c"),
+                {"c": untried},
+            )
+        ).one()
+    tried = []
+    for hours in (1, 2, 3):
+        call_id = await _finished_call(tenant_id, agent_id, lead_id, phone)
+        tried.append(call_id)
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text(
+                    "UPDATE calls SET translation_state = 'failed', started_at = :at WHERE id = :c"
+                ),
+                {"at": now - timedelta(hours=hours), "c": call_id},
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO transcript_turns (id, tenant_id, call_id, idx, speaker, text, "
+                    "text_redacted, created_at, updated_at) VALUES (:id, :tid, :cid, 0, "
+                    "'caller', :t, :t, now(), now())"
+                ),
+                {"id": uuid7(), "tid": tenant_id, "cid": call_id, "t": TELUGU_REDACTED},
+            )
+        await get_redis().set(f"call_translation:backfilled:{call_id}", "1", ex=3600)
+    await get_redis().delete(f"call_translation:backfilled:{untried}")
+    queued: list[str] = []
+
+    async def _enqueue(job: str, payload: dict[str, str], *, job_id: str) -> str:
+        queued.append(payload["call_id"])
+        return job_id
+
+    monkeypatch.setattr(call_translation, "enqueue", _enqueue)
+    monkeypatch.setattr(call_translation, "BACKFILL_BATCH", 1)
+    monkeypatch.setattr(call_translation, "_CANDIDATE_PAGE", 2)
+    monkeypatch.setattr(
+        call_translation,
+        "_LIVE_TENANTS_SQL",
+        f"SELECT id FROM organizations WHERE id = '{tenant_id}'",
+    )
+
+    await call_translation.backfill_call_translations({})
+
+    assert queued == [str(untried)]

@@ -20,7 +20,11 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
-from apps.api.engine.thinnest_webhooks import ThinnestWebhooks, set_thinnest_webhooks
+from apps.api.engine.thinnest_webhooks import (
+    ThinnestWebhooks,
+    set_thinnest_webhooks,
+    thinnest_webhooks,
+)
 from apps.api.reliability import engine_webhooks as registration_module
 from apps.api.reliability.engine_intake_keys import open_webhook_secret
 from apps.api.reliability.engine_webhooks import agent_webhook_url, ensure_agent_webhook
@@ -74,9 +78,20 @@ class FakeThinnest:
             self.endpoints[webhook_id] = row
             return httpx.Response(201, json={**row, "signingSecret": f"sec-{webhook_id}"})
         if path == "/webhooks" and request.method == "GET":
+            # Pages of `limit` (default 25) with `nextCursor`, as `snapshots/2026-10-15/
+            # pages/api-reference/webhooks/list-webhooks.md:453-576` documents.
             agent = request.url.params.get("agent")
             items = [r for r in self.endpoints.values() if r["agent"] == agent]
-            return httpx.Response(200, json={"items": items})
+            limit = int(request.url.params.get("limit") or 25)
+            start = int(request.url.params.get("cursor") or 0)
+            following = start + limit if start + limit < len(items) else None
+            return httpx.Response(
+                200,
+                json={
+                    "items": items[start : start + limit],
+                    "nextCursor": None if following is None else str(following),
+                },
+            )
         if path.endswith("/redeliver") and request.method == "POST":
             # redeliver-webhook-events.md:7: `{since}` queues what failed, `202 {queued}`.
             self.redelivered.append((path.split("/")[2], json.loads(request.content)))
@@ -640,3 +655,53 @@ async def test_a_failed_patch_names_which_change_and_the_endpoint_state(
     assert (line.op, line.vendor_status, line.vendor_code) == ("subscribe", 500, "internal_error")
     assert (line.endpoint_enabled, line.failures_in_a_row) == (True, 0)
     assert line.events_held == "call.analysed,call.completed"
+
+
+async def test_a_route_that_keeps_failing_moves_to_the_back_of_the_sweep(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sweep reads the routes checked longest ago, capped. A route whose check fails is
+    stamped as visited too, so failing routes rotate rather than holding the front of the
+    queue and keeping every other endpoint from being checked."""
+    failing_tenant, failing = await _route()
+    tenant_id, ref = await _route()
+    webhook_id = (await _ensure(tenant_id, ref)).webhook_id
+    vendor.endpoints[webhook_id]["enabled"] = False
+    await _aged(failing_tenant, failing, "1990-01-01")
+    await _aged(tenant_id, ref, "1990-01-02")
+    real = sweep.ensure_agent_webhook
+
+    async def _fails_for_one(session: Any, *, engine: str, engine_agent_ref: str) -> Any:
+        if engine_agent_ref == failing:
+            raise ProblemError(kind="dependency", code="engine_unreachable", title="t", detail="d")
+        return await real(session, engine=engine, engine_agent_ref=engine_agent_ref)
+
+    monkeypatch.setattr(sweep, "ensure_agent_webhook", _fails_for_one)
+    monkeypatch.setattr(sweep, "alert", lambda *_a, **_k: None)
+    monkeypatch.setattr(sweep, "WEBHOOK_SWEEP_BUDGET", 1)
+    monkeypatch.setattr(get_settings(), "engine", ENGINE)
+
+    await sweep.reconcile_engine_webhooks({})
+    await sweep.reconcile_engine_webhooks({})
+
+    assert vendor.endpoints[webhook_id]["enabled"] is True
+
+
+async def test_every_page_of_an_agents_endpoints_is_read(vendor: FakeThinnest) -> None:
+    """List Webhooks answers a page at a time with `nextCursor` (list-webhooks.md:453-576,
+    snapshot 2026-10-15). Registration deletes every endpoint at our url from this list
+    before creating one, so a list cut at the first page leaves the rest behind."""
+    agent = f"ag_{uuid.uuid4()}"
+    for n in range(30):
+        vendor.endpoints[f"wh_{n}"] = {
+            "id": f"wh_{n}",
+            "agent": agent,
+            "url": "https://hooks.calevate.example/x",
+            "events": ["call.completed"],
+            "enabled": True,
+            "delivery": {"failuresInARow": 0},
+        }
+
+    listed = await thinnest_webhooks().list_for_agent(agent)
+
+    assert sorted(endpoint.webhook_id for endpoint in listed) == sorted(vendor.endpoints)

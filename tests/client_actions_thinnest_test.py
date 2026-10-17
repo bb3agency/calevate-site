@@ -399,3 +399,27 @@ async def test_an_inbound_lookup_runs_under_the_opening_line_with_no_filler(
     assert action["speakBefore"] is None
     assert CALLER_LOOKUP_TIMING in action["description"]
     assert action["parameters"] == []
+
+
+async def test_the_per_call_counter_is_never_left_without_an_expiry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """INCR and EXPIRE in one round trip. Sent as two, a failure between them (a dropped
+    connection, a worker killed) left the counter with no expiry for ever."""
+    from types import SimpleNamespace
+
+    from apps.api.core.redis import get_redis
+
+    redis = get_redis()
+
+    async def _lost(*_args: Any, **_kwargs: Any) -> bool:
+        raise ConnectionError("connection lost between the two commands")
+
+    monkeypatch.setattr(redis, "expire", _lost)
+    tool = SimpleNamespace(kind="whatsapp", id=uuid.uuid4())
+    call = SimpleNamespace(call_ref=f"call_{uuid.uuid4().hex}")
+
+    assert await in_call._within_limit(tool, call)  # type: ignore[arg-type]
+
+    ttl = await redis.ttl(f"actions:per-call:{tool.id}:{call.call_ref}")
+    assert 0 < ttl <= in_call._LIMIT_TTL_S

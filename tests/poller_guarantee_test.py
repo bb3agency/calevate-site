@@ -1175,3 +1175,47 @@ async def test_the_direct_probe_does_not_re_drive_a_call_that_owed_nothing(
         "a call the engine reports nothing for was re-driven anyway — that is a billed "
         "extraction on a healthy call, on every sweep"
     )
+
+
+async def test_a_call_still_running_does_not_hold_back_the_calls_behind_it(
+    repairs: _Repairs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The probe reads each tenant's oldest outstanding calls, capped. A call it visits and
+    cannot change (still running, unreadable, settled) is set aside for a while, so the
+    cap reaches the calls behind it instead of re-reading the same head every tick."""
+    tenant_id, agent_ref, running = await _long_call_lost_at_the_end("blocker")
+    engine = get_engine()
+    engine._calls[running]["status"] = "in_progress"  # type: ignore[attr-defined]
+    engine._calls[running]["ended_at"] = None  # type: ignore[attr-defined]
+    behind = f"exec_behind_{RUN}"
+    engine.seed_inbound_call(  # type: ignore[attr-defined]
+        call_id=behind,
+        agent_ref=agent_ref,
+        from_e164=f"+9198{uuid.uuid4().int % 100000000:08d}",
+        to_e164="+911140000000",
+    )
+    engine._calls[behind]["started_at"] = datetime.now(UTC) - timedelta(minutes=40)  # type: ignore[attr-defined]
+    engine._calls[behind]["ended_at"] = datetime.now(UTC) - timedelta(minutes=2)  # type: ignore[attr-defined]
+    async with tenant_session(tenant_id) as session:
+        agent_id = (
+            await session.execute(
+                text("SELECT id FROM agents WHERE engine_agent_ref = :r"), {"r": agent_ref}
+            )
+        ).scalar_one()
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                "status, started_at, created_at, updated_at) VALUES (:id, :t, :a, :e, "
+                "'inbound', 'in_progress', now() - interval '40 minutes', "
+                "now() - interval '40 minutes', now())"
+            ),
+            {"id": uuid7(), "t": tenant_id, "a": agent_id, "e": behind},
+        )
+    monkeypatch.setattr(pipeline, "OUTSTANDING_PROBE_PER_TENANT", 1)
+
+    repairs.forget()
+    await _sweep_one_tenant(monkeypatch, tenant_id)
+    await _sweep_one_tenant(monkeypatch, tenant_id)
+
+    assert behind in repairs.executions()
+    assert running not in repairs.executions()

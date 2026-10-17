@@ -706,3 +706,48 @@ async def test_the_sweep_reaches_link_sources_at_all(monkeypatch: pytest.MonkeyP
 
 async def _noop_ingest(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     return "noop"
+
+
+async def test_an_upload_waiting_for_review_does_not_hold_back_a_stalled_one(
+    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stalled-upload read is oldest-first and capped. An upload waiting for a person
+    sits at `received` and a re-drive leaves it there, so it must move to the back of the
+    read; otherwise enough of them hold back every genuinely stalled upload."""
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    waiting = uuid.UUID(str((await _upload_pdf(tenant_id, agent_id, name="Waiting"))["source_id"]))
+    stalled = uuid.UUID(
+        str(
+            (await _upload_pdf(tenant_id, agent_id, name="Stalled", auto_approve=True))["source_id"]
+        )
+    )
+    async with tenant_session(tenant_id) as session:
+        for sid, at in ((waiting, "1990-01-01"), (stalled, "1990-01-02")):
+            await session.execute(
+                text(
+                    "UPDATE kb_uploads SET ingest_status = 'received', "
+                    "updated_at = CAST(:at AS timestamptz) WHERE source_id = :sid"
+                ),
+                {"at": f"{at} 00:00:00+00", "sid": sid},
+            )
+
+    real = kb_ingest.ingest_kb_source
+    seen: list[uuid.UUID] = []
+
+    async def _record(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+        source_id = uuid.UUID(str(payload["source_id"]))
+        seen.append(source_id)
+        return await real(ctx, payload) if source_id == waiting else "recorded"
+
+    monkeypatch.setattr(kb_ingest, "ingest_kb_source", _record)
+    monkeypatch.setattr(kb_ingest, "MAX_RETRIES_PER_TICK", 1)
+    try:
+        await kb_ingest.sweep_kb_uploads({})
+        await kb_ingest.sweep_kb_uploads({})
+    finally:
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text("UPDATE kb_uploads SET ingest_status = 'error' WHERE source_id = ANY(:s)"),
+                {"s": [waiting, stalled]},
+            )
+    assert seen == [waiting, stalled]

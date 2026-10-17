@@ -388,3 +388,41 @@ async def test_a_row_with_no_recorded_provenance_is_re_bought_too(
     calls.clear()
     await kb_embeddings.embed_knowledge_chunks({})
     assert calls == [1], "an un-provenanced vector was skipped — `<>` instead of IS DISTINCT FROM"
+
+
+async def test_a_chunk_the_provider_refuses_does_not_hold_back_its_batch(
+    monkeypatch: pytest.MonkeyPatch, priced: Any
+) -> None:
+    """A 400 for a batch is a verdict on something in it. The batch is asked one chunk at
+    a time, the refused chunk is set aside, and the rest are embedded — rather than the
+    whole batch staying `pending` at the head of every claim."""
+    import httpx
+
+    tenant_id, _agent_id = await _tenant_with_pending_chunk("REFUSED-INPUT opening hours.")
+    async with tenant_session(tenant_id) as session:
+        second = await kb_service.submit_source(
+            session, tenant_id=tenant_id, name="Parking", body="Parking is free."
+        )
+        await kb_service.approve_source(session, source_id=second["id"], approved_by=None)
+        await kb_service.publish_source(
+            session, tenant_id=tenant_id, source_id=uuid.UUID(str(second["id"]))
+        )
+    await _settle_gloss(tenant_id)
+    await _only_tenant(monkeypatch, tenant_id)
+    calls: list[int] = []
+    succeed = _counting_embed(calls)
+
+    async def _refuses_one(leg: ChatLeg, inputs: Sequence[str], **kwargs: Any) -> Any:
+        if any("REFUSED-INPUT" in item for item in inputs):
+            request = httpx.Request("POST", "https://example.invalid/embeddings")
+            raise httpx.HTTPStatusError(
+                "refused", request=request, response=httpx.Response(400, request=request)
+            )
+        return await succeed(leg, inputs, **kwargs)
+
+    monkeypatch.setattr(chat, "embed", _refuses_one)
+    await kb_embeddings.embed_knowledge_chunks({})
+    await kb_embeddings.embed_knowledge_chunks({})
+
+    assert sorted(await _states(tenant_id)) == [("pending", False), ("ready", True)]
+    assert calls == [1], "the good chunk was bought once, on its own"
