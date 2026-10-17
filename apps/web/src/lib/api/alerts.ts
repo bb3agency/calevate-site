@@ -25,7 +25,7 @@
  */
 
 import { livePoll } from "@/lib/live/liveStatus";
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { useMutation, useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { lookup } from "@/lib/lookup";
 
@@ -155,4 +155,51 @@ export function openCounts(report: AlertReport): { severity: AlertSeverity; tota
     severity,
     total: lookup(report.open_by_severity, severity) ?? 0,
   }));
+}
+
+/** What one re-copy request did: `POST /v1/ops/tenants/{t}/calls/{c}/recording/recopy`. */
+export type RecordingRecopy = Schemas["RecordingRecopyOut"];
+
+/**
+ * The alarms that name a call whose recording we never copied (D-805). Their drawer offers
+ * that call's re-copy (D-808); no other alarm carries a call the action could apply to.
+ */
+export const RECOPY_ALARM_CODES: readonly string[] = [
+  "recording_copy_missing",
+  "recording_copy_at_risk",
+];
+
+export interface RecopyTarget {
+  tenantId: string;
+  callId: string;
+}
+
+/**
+ * The call a recording alarm names, from the episode's own `ids`, or null. Both ids must be
+ * present: the route is tenant-scoped, and a call id alone cannot be resolved to a client.
+ */
+export function recopyTargetOf(episode: AlertEpisode): RecopyTarget | null {
+  if (!RECOPY_ALARM_CODES.includes(episode.code)) return null;
+  const ids = episode.ids ?? {};
+  const tenantId = lookup(ids, "tenant_id");
+  const callId = lookup(ids, "call_id");
+  if (typeof tenantId !== "string" || typeof callId !== "string") return null;
+  if (tenantId === "" || callId === "") return null;
+  return { tenantId, callId };
+}
+
+export function recopyPath({ tenantId, callId }: RecopyTarget): string {
+  return `/v1/ops/tenants/${encodeURIComponent(tenantId)}/calls/${encodeURIComponent(callId)}/recording/recopy`;
+}
+
+/**
+ * Queue one call's re-copy. No confirmation header: the route takes none, because a
+ * re-copy fills a pointer we are missing and sends nothing anywhere new
+ * (`ops/routes.recopy_call_recording_route`).
+ */
+export function useRecopyRecording() {
+  return useMutation({
+    mutationFn: (target: RecopyTarget) =>
+      apiRequest<RecordingRecopy>(adminSession(), recopyPath(target), { method: "POST" }),
+  });
 }

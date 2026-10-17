@@ -1,4 +1,4 @@
-"""The missing-recording-copy sweep (D-805): `apps/workers/recording_watch.py`."""
+"""The missing-recording-copy sweep (D-805, re-copies D-808): `apps/workers/recording_watch.py`."""
 
 from __future__ import annotations
 
@@ -102,7 +102,13 @@ async def test_a_connected_call_with_no_copy_is_reported(monkeypatch: pytest.Mon
 
     result = await recording_watch.report_missing_recordings({})
 
-    assert _parsed(result) == {"missing": 1, "at_risk": 0, "unreached": 0}
+    assert _parsed(result) == {
+        "missing": 1,
+        "at_risk": 0,
+        "unreached": 0,
+        "recopies": 1,
+        "recopies_pending": 0,
+    }
     [(stage, code, kwargs)] = fired
     assert (stage, code) == ("WORKER_DELIVERY", "recording_copy_missing")
     assert kwargs["call_id"] == str(call_id)
@@ -177,7 +183,13 @@ async def test_one_tenant_that_cannot_be_checked_is_counted_and_still_alerts(
 
     result = await recording_watch.report_missing_recordings({})
 
-    assert _parsed(result) == {"missing": 1, "at_risk": 0, "unreached": 1}
+    assert _parsed(result) == {
+        "missing": 1,
+        "at_risk": 0,
+        "unreached": 1,
+        "recopies": 1,
+        "recopies_pending": 0,
+    }
     detail = next(kw["detail"] for _s, code, kw in fired if code == "recording_copy_missing")
     assert "1 of 2 tenant(s) could not be checked" in detail
 
@@ -192,7 +204,13 @@ async def test_a_sweep_that_reached_nobody_still_alerts(monkeypatch: pytest.Monk
 
     result = await recording_watch.report_missing_recordings({})
 
-    assert _parsed(result) == {"missing": 0, "at_risk": 0, "unreached": 1}
+    assert _parsed(result) == {
+        "missing": 0,
+        "at_risk": 0,
+        "unreached": 1,
+        "recopies": 0,
+        "recopies_pending": 0,
+    }
     assert [code for _s, code, _kw in fired] == ["recording_copy_missing"]
 
 
@@ -206,7 +224,13 @@ async def test_a_copy_days_from_deletion_pages(monkeypatch: pytest.MonkeyPatch) 
 
     result = await recording_watch.report_missing_recordings({})
 
-    assert _parsed(result) == {"missing": 3, "at_risk": 2, "unreached": 0}
+    assert _parsed(result) == {
+        "missing": 3,
+        "at_risk": 2,
+        "unreached": 0,
+        "recopies": 3,
+        "recopies_pending": 0,
+    }
     risk = next(kw for _s, code, kw in fired if code == "recording_copy_at_risk")
     assert risk["call_id"] == str(gone)
     assert risk["call_ids"] == f"{gone},{soonest}"

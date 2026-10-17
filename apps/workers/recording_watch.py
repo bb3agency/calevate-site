@@ -14,6 +14,12 @@ whose pipeline never ran, nor says how long is left. The recording is also not o
 artefacts `pipeline._expected_artifacts` re-drives for. This sweep looks at the outcome
 instead of the attempts: a connected call with no copy, past the time a copy takes.
 
+Each missing copy it finds is also re-copied (D-808): `recopy_call_recording` reads the call
+from the engine again and runs the pipeline's own `_copy_recordings` on it and no other
+stage, so metering and extraction are never re-run. The same job backs the operator's
+per-call action (`POST /v1/ops/tenants/{tenant_id}/calls/{call_id}/recording/recopy`). A
+call whose re-copy keeps failing stays missing, so the sweep keeps alarming on it.
+
 Ids and counts only in logs and alarms (hard rule 6).
 """
 
@@ -21,9 +27,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Final
+from typing import Any, Final, Literal
 from uuid import UUID
 
+from arq import Retry
 from calevate_shared.engine import PIPECAT_REF_PREFIX
 from calevate_shared.engine_scope import SCOPE_SEPARATOR, WORKSPACE_PREFIX
 from sqlalchemy import text
@@ -31,8 +38,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
 from apps.api.db.session import tenant_session
-from apps.workers.pipeline import callable_tenants
+from apps.api.engine import get_engine
+from apps.workers.engine_delivery import post_call_truth
+from apps.workers.pipeline import _copy_recordings, _is_transient, _retry_after, callable_tenants
 
 log = get_logger(__name__)
 
@@ -58,8 +68,9 @@ RECORDING_WATCH_MINUTE: Final = 51
 #: A missing copy this close to the platform's deletion pages instead of waiting for today.
 AT_RISK_DAYS: Final = 7
 
-#: Call ids the at-risk alarm names, soonest first: each is a download an operator has to
-#: make by hand, so they need the list, and a bound keeps the alert body small.
+#: Call ids the at-risk alarm names, soonest first: each is a call an operator may have to
+#: re-copy by hand or, failing that, download, so they need the list; a bound keeps the alert
+#: body small.
 AT_RISK_IDS_NAMED: Final = 20
 
 #: How long past the platform's deletion a missing copy is still reported. The audio is gone
@@ -135,12 +146,154 @@ def _days(delta: timedelta) -> float:
     return delta.total_seconds() / 86400
 
 
+#: The arq name of the per-call re-copy. The API's operator action imports it from here.
+RECOPY_JOB: Final = "recopy_call_recording"
+
+#: Re-copies one sweep asks for, soonest deletion first. Each is one engine read and one
+#: recording download, so an outage that left hundreds of calls uncopied is worked through
+#: over a few hours instead of in one burst against the platform that has just been failing.
+RECOPY_PER_SWEEP: Final = 50
+
+#: Why a call is not re-copied. The job returns it as its outcome and the operator action
+#: answers with it, so both say the same thing about the same call.
+RecopyRefusal = Literal[
+    "call_not_found", "erased", "content_deleted", "already_copied", "not_connected", "own_runtime"
+]
+
+#: Who asked for a re-copy. Part of the job id, so the sweep's hourly request and an
+#: operator's press are deduped separately: an operator retrying a call the sweep queued an
+#: hour ago is not refused for that hour.
+RecopySource = Literal["sweep", "operator"]
+
+#: The same exclusions as `_MISSING_SQL`, read for one call. Erasure is checked first: a
+#: call whose caller or whole engagement was erased must not be fetched again, whatever
+#: else is true of it.
+_RECOPY_TARGET_SQL: Final = """
+SELECT c.engine_call_id,
+  c.status,
+  c.recording_url IS NOT NULL,
+  c.engine_content_deleted_at IS NOT NULL,
+  c.erased_subject_ref IS NOT NULL
+    OR EXISTS (SELECT 1 FROM tenant_erasure_requests e WHERE e.tenant_id = c.tenant_id)
+FROM calls c
+WHERE c.id = :id
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class RecopyTarget:
+    """A call's engine handle, or why it is not to be re-copied (then the handle is "")."""
+
+    engine_call_id: str
+    refusal: RecopyRefusal | None
+
+
+async def recopy_target(session: AsyncSession, call_id: UUID) -> RecopyTarget:
+    """Whether this call's recording may be re-copied. Runs in the call's `tenant_session`."""
+    row = (await session.execute(text(_RECOPY_TARGET_SQL), {"id": call_id})).first()
+    if row is None:
+        return RecopyTarget("", "call_not_found")
+    engine_call_id, status, held, content_deleted, erased = row
+    refusal: RecopyRefusal | None = None
+    if erased:
+        refusal = "erased"
+    elif content_deleted:
+        refusal = "content_deleted"
+    elif held:
+        refusal = "already_copied"
+    elif status != "completed" or not engine_call_id:
+        refusal = "not_connected"
+    elif str(engine_call_id).startswith(f"{PIPECAT_REF_PREFIX}:"):
+        refusal = "own_runtime"
+    return RecopyTarget("" if refusal else str(engine_call_id), refusal)
+
+
+def recopy_job_id(tenant_id: UUID, call_id: UUID, *, source: RecopySource) -> str:
+    return job_id_for(RECOPY_JOB, str(tenant_id), str(call_id), source)
+
+
+async def enqueue_recopy(tenant_id: UUID, call_id: UUID, *, source: RecopySource) -> bool:
+    """Queue one call's re-copy. False when one from the same source is already queued."""
+    queued = await enqueue(
+        RECOPY_JOB,
+        {"tenant_id": str(tenant_id), "call_id": str(call_id)},
+        job_id=recopy_job_id(tenant_id, call_id, source=source),
+    )
+    return queued is not None
+
+
+async def recopy_call_recording(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """Copy one call's recording(s) again, through the pipeline's own copy and nothing else.
+
+    The snapshot is read the way the pipeline reads it (`post_call_truth`, no delivery in
+    hand), because ThinnestAI's recording address and fetch rules come from the call's
+    current record (`ThinnestEngine.recording_source`). `_copy_recordings` keeps its guard
+    per leg and its `recording_copy_failed` / `recording_source_gone` alarms, and a storage
+    failure raises its own `arq.Retry`.
+    """
+    tenant_id = UUID(str(payload["tenant_id"]))
+    call_id = UUID(str(payload["call_id"]))
+    async with tenant_session(tenant_id) as session:
+        target = await recopy_target(session, call_id)
+    if target.refusal is not None:
+        return target.refusal
+    attempt = int(ctx.get("job_try", 1))
+    try:
+        snapshot = await post_call_truth(
+            get_engine(),
+            tenant_id=tenant_id,
+            call_id=call_id,
+            execution_id=target.engine_call_id,
+            delivery=None,
+        )
+    except Exception as exc:
+        # arq retries only an `arq.Retry`; anything else would end the job on its first try.
+        if _is_transient(exc) and attempt < WORKER_MAX_TRIES:
+            raise Retry(defer=_retry_after(attempt)) from exc
+        log.warning(
+            "recording_recopy_unreadable",
+            extra={
+                "tenant_id": str(tenant_id),
+                "call_id": str(call_id),
+                "error": type(exc).__name__,
+            },
+        )
+        raise
+    return await _copy_recordings(tenant_id, call_id, snapshot)
+
+
+async def _request_recopies(found: list[tuple[UUID, MissingCopy]]) -> tuple[int, int, int]:
+    """Queue re-copies for the soonest `RECOPY_PER_SWEEP` missing copies.
+
+    Returns (queued, already queued, not queued). The first enqueue failure stops the loop:
+    every later one would wait out the same Redis connect timeout.
+    """
+    soonest = sorted(found, key=lambda pair: pair[1].deletes_at)[:RECOPY_PER_SWEEP]
+    queued = pending = 0
+    for index, (tenant_id, copy) in enumerate(soonest):
+        try:
+            fresh = await enqueue_recopy(tenant_id, copy.call_id, source="sweep")
+        except Exception:
+            log.exception(
+                "recording_recopy_enqueue_failed",
+                extra={"tenant_id": str(tenant_id), "call_id": str(copy.call_id)},
+            )
+            return queued, pending, len(soonest) - index
+        if fresh:
+            queued += 1
+        else:
+            pending += 1
+    return queued, pending, 0
+
+
 async def report_missing_recordings(ctx: dict[str, Any]) -> str:
     """Hourly: every tenant asked, in its own session, for connected calls with no copy.
 
     Same shape as `dispatcher.report_stalled_pipeline`: one tenant's failure is counted as
     unreached and the sweep goes on, and an unreached tenant alarms on its own, because a
-    sweep that could not look reads exactly like one that found nothing.
+    sweep that could not look reads exactly like one that found nothing. Each call found is
+    queued for `recopy_call_recording` before the alarms are raised; the alarms still fire,
+    because a queued re-copy is not yet a copy.
     """
     del ctx
     now = datetime.now(UTC)
@@ -175,6 +328,19 @@ async def report_missing_recordings(ctx: dict[str, Any]) -> str:
         if unreached
         else ""
     )
+    # Before the alarms, so what they say about the re-copies is what was done.
+    queued, pending, not_queued = await _request_recopies(found)
+    recopy_note = ""
+    if found:
+        recopy_note = (
+            f"; re-copies requested for {queued}, already queued for {pending}"
+            + (f", could not be queued for {not_queued}" if not_queued else "")
+            + (
+                f", the rest wait for the next sweep ({RECOPY_PER_SWEEP} per sweep)"
+                if len(found) > RECOPY_PER_SWEEP
+                else ""
+            )
+        )
     if found or unreached:
         oldest_tenant, oldest = min(found, key=lambda pair: pair[1].ended, default=(None, None))
         detail = f"{len(found)} connected call(s) across {tenants_affected} tenant(s) have no copy"
@@ -185,7 +351,12 @@ async def report_missing_recordings(ctx: dict[str, Any]) -> str:
                 f"voice platform deletes it in {_days(oldest.deletes_at - now):.1f} day(s)"
             )
             ids = {"tenant_id": str(oldest_tenant), "call_id": str(oldest.call_id)}
-        alert("WORKER_DELIVERY", "recording_copy_missing", detail=detail + floor_note, **ids)
+        alert(
+            "WORKER_DELIVERY",
+            "recording_copy_missing",
+            detail=detail + recopy_note + floor_note,
+            **ids,
+        )
     if at_risk:
         soonest_tenant, soonest = at_risk[0]
         past = sum(1 for _tenant, copy in at_risk if copy.deletes_at <= now)
@@ -197,13 +368,17 @@ async def report_missing_recordings(ctx: dict[str, Any]) -> str:
                 f"of the voice platform deleting theirs; the soonest goes in "
                 f"{max(_days(soonest.deletes_at - now), 0.0):.1f} day(s)"
                 + (f"; {past} may already be gone" if past else "")
+                + recopy_note
                 + floor_note
             ),
             tenant_id=str(soonest_tenant),
             call_id=str(soonest.call_id),
             call_ids=",".join(str(copy.call_id) for _tenant, copy in at_risk[:AT_RISK_IDS_NAMED]),
         )
-    return f"missing={len(found)} at_risk={len(at_risk)} unreached={unreached}"
+    return (
+        f"missing={len(found)} at_risk={len(at_risk)} unreached={unreached} "
+        f"recopies={queued} recopies_pending={pending}"
+    )
 
 
 __all__ = [
@@ -212,8 +387,17 @@ __all__ = [
     "COPY_GRACE",
     "PAST_DELETION_DAYS",
     "PLAN_FLOOR_DAYS",
+    "RECOPY_JOB",
+    "RECOPY_PER_SWEEP",
     "RECORDING_WATCH_MINUTE",
     "MissingCopy",
+    "RecopyRefusal",
+    "RecopySource",
+    "RecopyTarget",
+    "enqueue_recopy",
     "missing_copies",
+    "recopy_call_recording",
+    "recopy_job_id",
+    "recopy_target",
     "report_missing_recordings",
 ]

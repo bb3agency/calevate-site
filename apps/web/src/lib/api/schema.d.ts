@@ -10077,6 +10077,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/tenants/{tenant_id}/calls/{call_id}/recording/recopy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy one call's recording from the voice platform again (audited)
+         * @description Queues the same copy the post-call pipeline runs, for one connected call whose recording we do not hold, and nothing else of the pipeline: no metering, no extraction. Refused, with the reason in `outcome`, for a call already copied, erased, deleted on the voice platform or never connected. The hourly missing-recording sweep queues the same job on its own; this is for a call an operator does not want to wait an hour for.
+         */
+        post: operations["recopy_call_recording_route_v1_ops_tenants__tenant_id__calls__call_id__recording_recopy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/tenants/{tenant_id}/spend-cap/recompute": {
         parameters: {
             query?: never;
@@ -23199,6 +23219,22 @@ export interface components {
             expires_in_s: number;
             /** Url */
             url: string;
+        };
+        /**
+         * RecordingRecopyOut
+         * @description What one operator re-copy request did.
+         */
+        RecordingRecopyOut: {
+            /** Call Id */
+            call_id: string;
+            /** Note */
+            note: string;
+            /** Outcome */
+            outcome: ("queued" | "already_queued") | ("call_not_found" | "erased" | "content_deleted" | "already_copied" | "not_connected" | "own_runtime");
+            /** Queued */
+            queued: boolean;
+            /** Tenant Id */
+            tenant_id: string;
         };
         /**
          * RecurrenceIn
@@ -46124,6 +46160,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LanguageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    recopy_call_recording_route_v1_ops_tenants__tenant_id__calls__call_id__recording_recopy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingRecopyOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

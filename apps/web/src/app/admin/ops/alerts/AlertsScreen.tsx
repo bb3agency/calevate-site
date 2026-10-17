@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { WriteFailure } from "@/app/admin/writeFailure";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { Drawer } from "@/components/console/drawer";
 import { EmptyState } from "@/components/console/emptyState";
@@ -15,6 +16,7 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
   formatCountOf,
@@ -26,11 +28,14 @@ import {
   SEVERITY_ORDER,
   WINDOW_CHOICES,
   openCounts,
+  recopyTargetOf,
   severityLabel,
   severityTone,
   useAlerts,
+  useRecopyRecording,
   type AlertEpisode,
   type AlertReport,
+  type RecopyTarget,
 } from "@/lib/api/alerts";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
@@ -42,7 +47,7 @@ import { StatusPill } from "@/components/console/statusPill";
  * happening — the console half of `GET /v1/ops/alerts` (D-591). The inbox gets only the
  * loudest kind (`apps/api/core/alarm_severity.py`); this board gets all of it.
  *
- * It is a report, not a control:
+ * It is a report, with one per-call action:
  *
  * - Nothing is derived. "Open" is the server's `cleared_at === null` and "emailed" is the
  *   transport's own `emailed`. Deriving the second from the severity would paint a `page`
@@ -53,6 +58,9 @@ import { StatusPill } from "@/components/console/statusPill";
  *   carries on. An episode ends only when the condition stops
  *   (`workers/alerts.sweep_alert_clears`); a code that is too loud is fixed in
  *   `alarm_severity.py`, in a reviewed diff.
+ * - A recording alarm names a call, and its drawer can ask for that call's recording to be
+ *   copied again (D-808). That changes no row here: the episode ends when the sweep stops
+ *   finding the call.
  *
  * `ops:manage` (superadmin only) is asked of `GET /v1/admin/me` and gates the READ: the
  * screen is one GET, so a refused session gets the reason instead of a 403 that reads
@@ -398,36 +406,84 @@ const COLUMNS = (open: (id: string) => void): DataColumn<AlertEpisode>[] => [
 function EpisodeDetail({ episode }: { episode: AlertEpisode }) {
   // `ids` is optional on the generated type (omitted when a call site passed none).
   const ids = Object.entries(episode.ids ?? {});
+  const recopy = recopyTargetOf(episode);
   return (
-    <dl className="divide-y divide-line text-body">
-      <DetailRow label="Kind" value={<SeverityPill severity={episode.severity} />} />
-      <DetailRow
-        label="Where"
-        value={
-          <>
-            <MonoValue>{episode.stage}</MonoValue>
-            <span className="ml-2 text-ink-muted">{episode.service}</span>
-          </>
-        }
-      />
-      <DetailRow label="Times" value={formatCount(episode.occurrences)} />
-      <DetailRow label="Started" value={formatIST(episode.first_seen_at)} />
-      <DetailRow label="Last seen" value={formatIST(episode.last_seen_at)} />
-      <DetailRow label="Email" value={<EmailState episode={episode} />} />
-      <DetailRow
-        label="What happened"
-        value={
-          <>
-            <span className="break-words">{episode.detail ?? "—"}</span>
-            {ids.length > 0 && (
-              <span className="mt-1 block break-words text-meta text-ink-muted">
-                {ids.map(([key, value]) => `${key}=${String(value)}`).join(" · ")}
-              </span>
-            )}
-          </>
-        }
-      />
-    </dl>
+    <div className="space-y-4">
+      <dl className="divide-y divide-line text-body">
+        <DetailRow label="Kind" value={<SeverityPill severity={episode.severity} />} />
+        <DetailRow
+          label="Where"
+          value={
+            <>
+              <MonoValue>{episode.stage}</MonoValue>
+              <span className="ml-2 text-ink-muted">{episode.service}</span>
+            </>
+          }
+        />
+        <DetailRow label="Times" value={formatCount(episode.occurrences)} />
+        <DetailRow label="Started" value={formatIST(episode.first_seen_at)} />
+        <DetailRow label="Last seen" value={formatIST(episode.last_seen_at)} />
+        <DetailRow label="Email" value={<EmailState episode={episode} />} />
+        <DetailRow
+          label="What happened"
+          value={
+            <>
+              <span className="break-words">{episode.detail ?? "—"}</span>
+              {ids.length > 0 && (
+                <span className="mt-1 block break-words text-meta text-ink-muted">
+                  {ids.map(([key, value]) => `${key}=${String(value)}`).join(" · ")}
+                </span>
+              )}
+            </>
+          }
+        />
+      </dl>
+      {recopy && <RecopyAction key={`${recopy.tenantId}/${recopy.callId}`} target={recopy} />}
+    </div>
+  );
+}
+
+/**
+ * The one action on this board (D-808): a recording alarm names a call, and that call's
+ * copy can be asked for again. The hourly sweep already re-copies every missing call on its
+ * own; this is for an operator who has fixed the cause and will not wait for the next hour.
+ * The answer is the server's sentence, printed beside the button, because a refusal (already
+ * held, erased, deleted on the platform) is information, not a failure.
+ */
+function RecopyAction({ target }: { target: RecopyTarget }) {
+  const recopy = useRecopyRecording();
+  const headingId = useId();
+  const answer = recopy.data;
+  return (
+    <section aria-labelledby={headingId} className="space-y-2 border-t border-line pt-4">
+      <h3 id={headingId} className="text-body font-semibold text-ink">
+        Recording of call <MonoValue>{target.callId}</MonoValue>
+      </h3>
+      <p className="text-meta text-ink-muted">
+        Every hourly check asks for this call&apos;s recording again by itself. Copy it now if
+        you have fixed what stopped it.
+      </p>
+      <button
+        type="button"
+        className={SECONDARY_BUTTON_SM}
+        disabled={recopy.isPending}
+        onClick={() => recopy.mutate(target)}
+      >
+        {recopy.isPending ? "Asking…" : "Copy recording again"}
+      </button>
+      {answer && (
+        <div role="status">
+          <NoticeBox tone={answer.queued ? "ok" : "neutral"}>{answer.note}</NoticeBox>
+        </div>
+      )}
+      {recopy.error && (
+        <WriteFailure
+          error={recopy.error}
+          onRetry={() => recopy.mutate(target)}
+          actionLabel="Copy recording again"
+        />
+      )}
+    </section>
   );
 }
 

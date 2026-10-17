@@ -245,7 +245,11 @@ from apps.workers.razorpay_jobs import (
     send_payment_notice,
     sweep_auto_recharge,
 )
-from apps.workers.recording_watch import RECORDING_WATCH_MINUTE, report_missing_recordings
+from apps.workers.recording_watch import (
+    RECORDING_WATCH_MINUTE,
+    recopy_call_recording,
+    report_missing_recordings,
+)
 from apps.workers.retention import (
     apply_retention,
     execute_deletion_request,
@@ -355,6 +359,10 @@ FUNCTIONS: list[Any] = [
         # (`crm/translation.request_translation`) or the backfill below.
         translate_call_job,
         run_post_call_pipeline,
+        # D-808. One call's recording copied again, queued by the missing-recording sweep
+        # and by the operator's per-call action. Unregistered, both would report a re-copy
+        # requested while nothing ran, until the platform deleted the only copy.
+        recopy_call_recording,
         notify_hot_lead,
         # D-23: the client's CRM hears about leads and calls through the same outbox as
         # every other side effect, so a delivery cannot outlive a rolled-back write.

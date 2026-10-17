@@ -144,6 +144,7 @@ from apps.api.ops.service import (
 )
 from apps.api.reliability.service import read_dead_letter_queue, replay_dead_letters
 from apps.workers.kb_orphans import account_kb_report
+from apps.workers.recording_watch import RecopyRefusal, enqueue_recopy, recopy_target
 
 router = APIRouter(prefix="/v1/ops", tags=["ops"])
 
@@ -1384,6 +1385,110 @@ async def read_reply_times(
     Opening one of the listed calls goes through view-as, which audits the entry.
     """
     return await reply_time_report(session, days=days)
+
+
+RecopyOutcome = Literal["queued", "already_queued"] | RecopyRefusal
+
+#: The sentence the console prints for each outcome.
+_RECOPY_NOTES: Final[dict[str, str]] = {
+    "queued": (
+        "Queued. The recording is copied from the voice platform within a few minutes; if "
+        "it cannot be, the recording alarms say why."
+    ),
+    "already_queued": (
+        "A re-copy you asked for is already queued for this call. Check the alerts again "
+        "in a few minutes."
+    ),
+    "erased": "Not queued: this call's caller or the whole account was erased.",
+    "content_deleted": (
+        "Not queued: the voice platform has said this call's content is deleted, so there "
+        "is nothing left to copy."
+    ),
+    "already_copied": "Not queued: we already hold this call's recording.",
+    "not_connected": "Not queued: this call never connected, so it has no recording.",
+    "own_runtime": (
+        "Not queued: this call ran on our former voice runtime, which no platform holds a "
+        "recording for."
+    ),
+}
+
+
+class RecordingRecopyOut(BaseModel):
+    """What one operator re-copy request did."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: str
+    call_id: str
+    queued: bool
+    outcome: RecopyOutcome
+    #: One sentence the console prints verbatim.
+    note: str
+
+
+@router.post(
+    "/tenants/{tenant_id}/calls/{call_id}/recording/recopy",
+    response_model=RecordingRecopyOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Copy one call's recording from the voice platform again (audited)",
+    description=(
+        "Queues the same copy the post-call pipeline runs, for one connected call whose "
+        "recording we do not hold, and nothing else of the pipeline: no metering, no "
+        "extraction. Refused, with the reason in `outcome`, for a call already copied, "
+        "erased, deleted on the voice platform or never connected. The hourly "
+        "missing-recording sweep queues the same job on its own; this is for a call an "
+        "operator does not want to wait an hour for."
+    ),
+)
+async def recopy_call_recording_route(
+    tenant_id: UUID,
+    call_id: UUID,
+    request: Request,
+    principal: Principal = Depends(requires("ops:manage", realm="admin")),
+) -> RecordingRecopyOut:
+    """The operator's per-call re-copy (D-808).
+
+    **NO STEP-UP**, for `refresh_voice_catalogue_route`'s reason: it fetches a recording we
+    are obliged to hold into our own bucket, under the key the pipeline would have used,
+    and writes the pointer only while it is empty. Nothing is sent anywhere a person did
+    not already expect; the client's CRM hears `recording.ready` once, the first time the
+    pointer is set, exactly as it would have from the pipeline.
+
+    The eligibility is `recording_watch.recopy_target`, the same read the job makes, so
+    the console and the job cannot disagree about a call. The enqueue happens outside any
+    transaction, and the audit row is written only for a request that queued a job.
+    """
+    async with tenant_session(tenant_id) as session:
+        if not await tenant_exists(session, tenant_id):
+            raise ProblemError.not_found("Organization")
+        target = await recopy_target(session, call_id)
+    if target.refusal == "call_not_found":
+        raise ProblemError.not_found("Call")
+    outcome: RecopyOutcome
+    if target.refusal is not None:
+        outcome = target.refusal
+    elif await enqueue_recopy(tenant_id, call_id, source="operator"):
+        outcome = "queued"
+        async with tenant_session(tenant_id) as session:
+            await write_audit(
+                session,
+                action="ops.recording_recopy",
+                actor=principal,
+                tenant_id=tenant_id,
+                object_type="call",
+                object_id=str(call_id),
+                ip=client_request_ip(request),
+                summary={"call_id": str(call_id)},
+            )
+    else:
+        outcome = "already_queued"
+    return RecordingRecopyOut(
+        tenant_id=str(tenant_id),
+        call_id=str(call_id),
+        queued=outcome == "queued",
+        outcome=outcome,
+        note=_RECOPY_NOTES[outcome],
+    )
 
 
 @router.get(
