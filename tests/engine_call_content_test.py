@@ -369,8 +369,8 @@ async def test_the_sweep_queues_calls_past_the_shorter_period_and_the_unsettled(
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE calls SET engine_content_delete_requested_at = now() - interval '2 days' "
-                "WHERE id = :c"
+                "UPDATE calls SET engine_content_delete_requested_at = now() - interval '2 days', "
+                "recording_url = 'recordings/stale.wav' WHERE id = :c"
             ),
             {"c": stale},
         )
@@ -422,6 +422,80 @@ async def test_a_tenant_with_no_call_content_policy_still_gets_the_backstop(
     assert (await retention.sweep_tenant(tenant_id))["engine_content_queued"] == 0
     monkeypatch.setattr(get_settings(), "engine", "fake")
     assert (await retention.sweep_tenant(tenant_id))["engine_content_queued"] == 0
+
+
+# --- the retention floor ---------------------------------------------------------------------
+
+
+async def _sent(tenant_id: UUID) -> set[str]:
+    return {
+        c for p in await _outbox(jobs.ENGINE_CONTENT_DELETE_JOB, tenant_id) for c in p["call_ids"]
+    }
+
+
+async def test_an_erasure_never_deletes_a_recording_we_do_not_hold_inside_the_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "engine", "thinnest")
+    tenant_id, call_id, phone, _ecid = await _tenant_with_a_platform_call()
+    # The call has ended but our copy of its recording has not landed.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET recording_url = NULL WHERE id = :c"), {"c": call_id}
+        )
+    request_id = await _request(tenant_id, phone)
+    await retention.execute_deletion_request(
+        {}, {"tenant_id": str(tenant_id), "request_id": str(request_id)}
+    )
+
+    # Owed, but the platform's copy is the only one and is not asked deleted.
+    assert (await _call_state(tenant_id, call_id))[0] is not None
+    assert await _sent(tenant_id) == set()
+
+    # The backstop a day later: still inside the floor, still held back.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET engine_content_delete_requested_at = now() - interval '2 days' "
+                "WHERE id = :c"
+            ),
+            {"c": call_id},
+        )
+    await retention.sweep_tenant(tenant_id)
+    assert await _sent(tenant_id) == set()
+
+    # Once the floor has passed the backstop sends it.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET engine_content_delete_requested_at = now() - interval '2 days', "
+                "ended_at = now() - interval '91 days', created_at = now() - interval '91 days' "
+                "WHERE id = :c"
+            ),
+            {"c": call_id},
+        )
+    await retention.sweep_tenant(tenant_id)
+    assert await _sent(tenant_id) == {str(call_id)}
+
+
+async def test_a_call_that_never_connected_or_whose_audio_we_hold_goes_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "engine", "thinnest")
+    tenant_id, held, _phone, _ecid = await _tenant_with_a_platform_call()
+    unanswered = await _add_call(tenant_id, f"out_{uuid.uuid4()}")
+    not_copied = await _add_call(tenant_id, f"out_{uuid.uuid4()}")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET status = 'no_answer' WHERE id = :c"), {"c": unanswered}
+        )
+        owed = await engine_content.queue_engine_content_deletion(
+            session, tenant_id=tenant_id, call_ids=[held, unanswered, not_copied]
+        )
+
+    assert owed == 3
+    assert await _sent(tenant_id) == {str(held), str(unanswered)}
+    assert (await _call_state(tenant_id, not_copied))[0] is not None
 
 
 async def test_queued_jobs_carry_ids_only(monkeypatch: pytest.MonkeyPatch) -> None:
