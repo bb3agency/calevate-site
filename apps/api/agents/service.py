@@ -73,7 +73,7 @@ unguarded.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import (
@@ -171,6 +171,7 @@ from apps.api.billing.engine_minutes import (
 from apps.api.compliance.caller_memory import recall
 from apps.api.compliance.platform_dnc import PLATFORM_DNC_BLOCK_CODE, platform_dnc_refusal
 from apps.api.compliance.trial_access import (
+    TRIAL_MIN_CALL_SECONDS,
     refuse_on_trial,
     refuse_trial_numbers,
     refuse_trial_studio_over_cap,
@@ -1034,7 +1035,7 @@ async def _ensure_results_webhook(
     *,
     ref: str,
     agent_id: UUID,
-    created: bool,
+    reclaim: bool,
     session: AsyncSession,
     rate_key: EngineRateKey,
     own_model: str | None = None,
@@ -1044,14 +1045,15 @@ async def _ensure_results_webhook(
     A no-op on an engine that does not sign deliveries per endpoint. Called after the
     `engine_agent_routes` row is written, in the same transaction, because the endpoint's
     sealed secret is stored on that row. A failure fails the publish rather than leaving an
-    agent live whose calls never report back; the vendor agent this publish created is
-    reclaimed first, for `_reclaim_orphan`'s reason. On an engine metered by the minute it
-    also stamps the rate key the agent's minutes are metered at (`billing/engine_minutes`).
+    agent live whose calls never report back; with `reclaim`, the vendor agent this publish
+    created is deleted first, for `_reclaim_orphan`'s reason. On an engine metered by the
+    minute it also stamps the rate key the agent's minutes are metered at
+    (`billing/engine_minutes`).
     """
     try:
         await ensure_agent_webhook(session, engine=engine.name, engine_agent_ref=ref)
     except Exception:
-        if created:
+        if reclaim:
             await _reclaim_orphan(engine, agent_id, ref, "results_webhook_not_registered")
         raise
     if engine.name in ATTESTED_MINUTE_ENGINES:
@@ -1071,17 +1073,17 @@ async def _ensure_in_call_actions(
     *,
     agent_id: UUID,
     ref: str,
-    created: bool,
+    reclaim: bool,
 ) -> None:
     """Register (or converge) the vendor agent's in-call actions — opt-out, call-back,
     call-back cancel — on an engine that reaches our tools that way
-    (`reliability/engine_actions.py`). A no-op elsewhere. A failure fails the publish,
-    reclaiming a vendor agent this publish created, for `_reclaim_orphan`'s reason: an agent
-    live without its opt-out tool is one a caller cannot be removed from mid-call."""
+    (`reliability/engine_actions.py`). A no-op elsewhere. A failure fails the publish, with
+    `reclaim` deleting a vendor agent this publish created, for `_reclaim_orphan`'s reason:
+    an agent live without its opt-out tool is one a caller cannot be removed from mid-call."""
     try:
         await ensure_agent_actions(session, engine=engine.name, engine_agent_ref=ref)
     except Exception:
-        if created:
+        if reclaim:
             await _reclaim_orphan(engine, agent_id, ref, "in_call_actions_not_registered")
         raise
     # The caller lookup (D-716). Never fails the publish: without it a call still goes
@@ -1097,18 +1099,19 @@ async def _publish_business_facts(
     *,
     agent_id: UUID,
     ref: str,
-    created: bool,
+    reclaim: bool,
     script: str | None,
 ) -> None:
     """Push the script's [T0 FACTS] block as the vendor agent's facts document, on an engine
     that keeps facts out of the prompt (`agents/engine_facts.py`). A failure fails the
-    publish, reclaiming a vendor agent this publish created, for `_reclaim_orphan`'s reason."""
+    publish, with `reclaim` deleting a vendor agent this publish created, for
+    `_reclaim_orphan`'s reason."""
     try:
         await sync_business_facts(
             session, engine, agent_id=agent_id, ref=ref, facts=block_of(script)
         )
     except Exception:
-        if created:
+        if reclaim:
             await _reclaim_orphan(engine, agent_id, ref, "business_facts_not_published")
         raise
 
@@ -2697,132 +2700,141 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
             ),
         )
 
-    result = await session.execute(
-        text(
-            "UPDATE agents SET engine_agent_ref = :ref, engine = :engine, status = 'live', "
-            "live_tts_voice = :live_voice, live_tts_provider = :live_provider, "
-            "live_verify_state = :verify_state, live_verified_at = :verified_at, "
-            # THE SOFT-DELETE GUARD, and it is not belt-and-braces. `_load_agent` filters
-            # on `deleted_at IS NULL`, but this UPDATE used to name the id alone — so a
-            # delete committed between the two would be silently undone here, resurrecting
-            # a deleted agent to `status = 'live'` AND writing it a routing row that makes
-            # the vendor's next inbound webhook resolve to it. The lock above makes the
-            # window small; the predicate makes it closed. Zero rows is a refusal.
-            #
-            # `status <> 'archived'` is the same guard for the same window on the state a
-            # client can reach without an erasure (D-440): archiving takes the agent off
-            # the numbers it answers, and a publish landing a moment later would put it
-            # back on them as `live`. The early refusal above words it; this closes it.
-            "updated_at = now() WHERE id = :aid AND deleted_at IS NULL "
-            "AND status <> 'archived'"
-        ),
-        {
-            "ref": ref,
-            "engine": engine.name,
-            "aid": agent_id,
-            # Read off the config we JUST handed the engine, not re-read from the row.
-            # This statement is the only moment the two are provably equal, and a
-            # re-read here would record whatever a concurrent voice write
-            # committed in between — a mirror that claims the engine holds a voice it
-            # was never sent. Written inside the same transaction as `engine_agent_ref`
-            # and after the vendor call, so a vendor failure rolls the mirror back with
-            # it and our row never over-promises (the `kb.publish_source` ordering).
-            # RECOMPOSED FROM THE CONFIG, not re-read from the row and not the bare
-            # speaker. `ModelConfig` carries the SPLIT pair the vendor's two keys take;
-            # this column, `agents.tts_voice` and `publishing.py::voice_diverged` are all
-            # written in catalogue IDs, so recording `config.models.tts_voice` alone here
-            # would record the bare speaker against a configured `<model>:<speaker>` and report
-            # every published agent as permanently diverged.
-            "live_voice": voice_id_of(config.models.tts_model, config.models.tts_voice),
-            "live_provider": config.models.tts_provider,
-            "verify_state": verdict.stored_state,
-            # NULL unless something was actually proven. A timestamp on an `unreachable`
-            # would let a screen render "confirmed just now" over an answer nobody read.
-            "verified_at": datetime.now(UTC) if verdict.proven else None,
-        },
-    )
-    if rowcount_of(result) == 0:
-        if created:
-            await _reclaim_orphan(engine, agent_id, ref, "agent_deleted_during_publish")
-        raise ProblemError.conflict(
-            "agent_deleted_during_publish",
-            "This agent was deleted or archived while it was being published.",
-            remediation=(
-                "Nothing was recorded as live. Restore the agent, or recreate it if it is "
-                "still needed."
+    # From here on a failure rolls back every row that names `ref`, so a vendor agent this
+    # publish created is reclaimed by the handler at the end of this block.
+    try:
+        result = await session.execute(
+            text(
+                "UPDATE agents SET engine_agent_ref = :ref, engine = :engine, status = 'live', "
+                "live_tts_voice = :live_voice, live_tts_provider = :live_provider, "
+                "live_verify_state = :verify_state, live_verified_at = :verified_at, "
+                # THE SOFT-DELETE GUARD, and it is not belt-and-braces. `_load_agent` filters
+                # on `deleted_at IS NULL`, but this UPDATE used to name the id alone — so a
+                # delete committed between the two would be silently undone here, resurrecting
+                # a deleted agent to `status = 'live'` AND writing it a routing row that makes
+                # the vendor's next inbound webhook resolve to it. The lock above makes the
+                # window small; the predicate makes it closed. Zero rows is a refusal.
+                #
+                # `status <> 'archived'` is the same guard for the same window on the state a
+                # client can reach without an erasure (D-440): archiving takes the agent off
+                # the numbers it answers, and a publish landing a moment later would put it
+                # back on them as `live`. The early refusal above words it; this closes it.
+                "updated_at = now() WHERE id = :aid AND deleted_at IS NULL "
+                "AND status <> 'archived'"
             ),
+            {
+                "ref": ref,
+                "engine": engine.name,
+                "aid": agent_id,
+                # Read off the config we JUST handed the engine, not re-read from the row.
+                # This statement is the only moment the two are provably equal, and a
+                # re-read here would record whatever a concurrent voice write
+                # committed in between — a mirror that claims the engine holds a voice it
+                # was never sent. Written inside the same transaction as `engine_agent_ref`
+                # and after the vendor call, so a vendor failure rolls the mirror back with
+                # it and our row never over-promises (the `kb.publish_source` ordering).
+                # RECOMPOSED FROM THE CONFIG, not re-read from the row and not the bare
+                # speaker. `ModelConfig` carries the SPLIT pair the vendor's two keys take;
+                # this column, `agents.tts_voice` and `publishing.py::voice_diverged` are all
+                # written in catalogue IDs, so recording `config.models.tts_voice` alone here
+                # would record the bare speaker against a configured `<model>:<speaker>` and report
+                # every published agent as permanently diverged.
+                "live_voice": voice_id_of(config.models.tts_model, config.models.tts_voice),
+                "live_provider": config.models.tts_provider,
+                "verify_state": verdict.stored_state,
+                # NULL unless something was actually proven. A timestamp on an `unreachable`
+                # would let a screen render "confirmed just now" over an answer nobody read.
+                "verified_at": datetime.now(UTC) if verdict.proven else None,
+            },
         )
-    await session.execute(
-        text(
-            "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
-            "active, created_at, updated_at) VALUES (:engine, :ref, :tid, :aid, true, now(), "
-            "now()) ON CONFLICT (engine, engine_agent_ref) DO UPDATE SET "
-            "tenant_id = EXCLUDED.tenant_id, agent_id = EXCLUDED.agent_id, active = true, "
-            "updated_at = now()"
-        ),
-        {"engine": engine.name, "ref": ref, "tid": tenant_id, "aid": agent_id},
-    )
-    if moved_from is not None:
-        await _after_workspace_move(
-            session, tenant_id=tenant_id, agent_id=agent_id, old_ref=moved_from
+        if rowcount_of(result) == 0:
+            raise ProblemError.conflict(
+                "agent_deleted_during_publish",
+                "This agent was deleted or archived while it was being published.",
+                remediation=(
+                    "Nothing was recorded as live. Restore the agent, or recreate it if it is "
+                    "still needed."
+                ),
+            )
+        await session.execute(
+            text(
+                "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
+                "active, created_at, updated_at) VALUES (:engine, :ref, :tid, :aid, true, now(), "
+                "now()) ON CONFLICT (engine, engine_agent_ref) DO UPDATE SET "
+                "tenant_id = EXCLUDED.tenant_id, agent_id = EXCLUDED.agent_id, active = true, "
+                "updated_at = now()"
+            ),
+            {"engine": engine.name, "ref": ref, "tid": tenant_id, "aid": agent_id},
         )
-    await _ensure_results_webhook(
-        engine,
-        ref=ref,
-        agent_id=agent_id,
-        created=created,
-        session=session,
-        rate_key=rate_key,
-        own_model=config.engine_own_model,
-    )
-    await _publish_business_facts(
-        engine, session, agent_id=agent_id, ref=ref, created=created, script=agent["prompt"]
-    )
-    await _ensure_in_call_actions(
-        engine,
-        session,
-        agent_id=agent_id,
-        ref=ref,
-        created=created,
-    )
-    if moved_from is not None:
-        await _resync_agent_numbers(session, agent_id=agent_id)
-    # THE INBOUND HALF OF PUBLISHING (D-420). Publishing is "make the engine hold what our
-    # database says", and until now that covered the agent and stopped short of the one
-    # fact that decides whether a client's number rings anything at all. It runs AFTER the
-    # routing row so the two engine-side facts about this agent — who it is, and which
-    # numbers it answers — are written in one transaction's worth of intent; it cannot fail
-    # the publish (see the function) because the agent itself is already verified live.
-    answers_inbound = agent_answers_inbound(agent["direction"])
-    routing = await route_inbound_numbers(
-        session, engine, agent_id=agent_id, ref=ref, answers=answers_inbound
-    )
-    await _warn_if_answering_nothing(
-        session, agent_id=agent_id, answers_inbound=answers_inbound, routing=routing
-    )
-    # AND THE LAST WORD ON WHAT IT SAYS, AND ON WHETHER IT SAYS ANYTHING AT ALL (8 Sep
-    # 2026; D-564). A publish writes the agent's REAL script and rebinds its numbers,
-    # which for a client whose calling credit has run out — or for an agent the drift
-    # sweep has proven cannot tell a caller it is an AI — is an undo of a cutover
-    # performed by whichever of this function's thirteen callers happened to run. See
-    # `_settle_inbound_silence` for why the re-application belongs here and not in the
-    # reconcilers alone. AFTER `route_inbound_numbers`, because an agent that is not bound
-    # to a number has nothing to be silent on.
-    await _settle_inbound_silence(
-        session,
-        engine,
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        ref=ref,
-        answers=answers_inbound,
-        # THE ONLY TRUE THIS ARGUMENT EVER TAKES (D-564), and it is the read-back's own
-        # word rather than an inference from "the publish did not raise". `publish_agent`
-        # refuses only `not_applied`; `unreadable` and `unreachable` reach this line
-        # having proven nothing, and a compliance silence must outlive a publish that
-        # proved nothing.
-        truthful_answer_proven=verdict.truthful_answer_applied is True,
-    )
-    await republish_running_variants(session, tenant_id=tenant_id, agent_id=agent_id)
+        if moved_from is not None:
+            await _after_workspace_move(
+                session, tenant_id=tenant_id, agent_id=agent_id, old_ref=moved_from
+            )
+        await _ensure_results_webhook(
+            engine,
+            ref=ref,
+            agent_id=agent_id,
+            reclaim=False,
+            session=session,
+            rate_key=rate_key,
+            own_model=config.engine_own_model,
+        )
+        await _publish_business_facts(
+            engine, session, agent_id=agent_id, ref=ref, reclaim=False, script=agent["prompt"]
+        )
+        await _ensure_in_call_actions(
+            engine,
+            session,
+            agent_id=agent_id,
+            ref=ref,
+            reclaim=False,
+        )
+        if moved_from is not None:
+            await _resync_agent_numbers(session, agent_id=agent_id)
+        # THE INBOUND HALF OF PUBLISHING (D-420). Publishing is "make the engine hold what our
+        # database says", and until now that covered the agent and stopped short of the one
+        # fact that decides whether a client's number rings anything at all. It runs AFTER the
+        # routing row so the two engine-side facts about this agent — who it is, and which
+        # numbers it answers — are written in one transaction's worth of intent; it cannot fail
+        # the publish (see the function) because the agent itself is already verified live.
+        answers_inbound = agent_answers_inbound(agent["direction"])
+        routing = await route_inbound_numbers(
+            session, engine, agent_id=agent_id, ref=ref, answers=answers_inbound
+        )
+        await _warn_if_answering_nothing(
+            session, agent_id=agent_id, answers_inbound=answers_inbound, routing=routing
+        )
+        # AND THE LAST WORD ON WHAT IT SAYS, AND ON WHETHER IT SAYS ANYTHING AT ALL (8 Sep
+        # 2026; D-564). A publish writes the agent's REAL script and rebinds its numbers,
+        # which for a client whose calling credit has run out — or for an agent the drift
+        # sweep has proven cannot tell a caller it is an AI — is an undo of a cutover
+        # performed by whichever of this function's thirteen callers happened to run. See
+        # `_settle_inbound_silence` for why the re-application belongs here and not in the
+        # reconcilers alone. AFTER `route_inbound_numbers`, because an agent that is not bound
+        # to a number has nothing to be silent on.
+        await _settle_inbound_silence(
+            session,
+            engine,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            ref=ref,
+            answers=answers_inbound,
+            # THE ONLY TRUE THIS ARGUMENT EVER TAKES (D-564), and it is the read-back's own
+            # word rather than an inference from "the publish did not raise". `publish_agent`
+            # refuses only `not_applied`; `unreadable` and `unreachable` reach this line
+            # having proven nothing, and a compliance silence must outlive a publish that
+            # proved nothing.
+            truthful_answer_proven=verdict.truthful_answer_applied is True,
+        )
+        await republish_running_variants(session, tenant_id=tenant_id, agent_id=agent_id)
+    except Exception as exc:
+        # One handler for every step after the create: the three engine seams are called
+        # with `reclaim=False` so the agent is deleted once, and the steps after them (the
+        # arms' republish, the number resync) and the database writes are covered too.
+        if created:
+            reason = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
+            await _reclaim_orphan(engine, agent_id, ref, reason)
+        raise
     log.info(
         "agent_published",
         extra={
@@ -3147,21 +3159,21 @@ async def publish_variant(
         engine,
         ref=ref,
         agent_id=agent_id,
-        created=not existing_ref,
+        reclaim=not existing_ref,
         session=session,
         rate_key=rate_key,
         own_model=config.engine_own_model,
     )
     # The arm's own vendor agent holds the facts its own script carries.
     await _publish_business_facts(
-        engine, session, agent_id=agent_id, ref=ref, created=not existing_ref, script=body
+        engine, session, agent_id=agent_id, ref=ref, reclaim=not existing_ref, script=body
     )
     await _ensure_in_call_actions(
         engine,
         session,
         agent_id=agent_id,
         ref=ref,
-        created=not existing_ref,
+        reclaim=not existing_ref,
     )
     log.info(
         "agent_variant_published",
@@ -3616,7 +3628,19 @@ async def dispatch_call(
     async with tenant_session(tenant_id) as intent:
         if trial is not None:
             await _hold_trial_line(intent)
-            await refuse_trial_studio_over_cap(intent, tenant_id=tenant_id, agent_id=agent_id)
+            studio_left = await refuse_trial_studio_over_cap(
+                intent, tenant_id=tenant_id, agent_id=agent_id
+            )
+            if studio_left is not None:
+                # A Studio test call stops where the trial's Studio minutes do, not at the
+                # general free minutes' limit; never under the platform's 60-second minimum
+                # (snapshots/2026-10-15/pages/api-reference/calls/place-call.md:1264-1268).
+                trial = replace(
+                    trial,
+                    max_call_seconds=min(
+                        trial.max_call_seconds, max(TRIAL_MIN_CALL_SECONDS, studio_left)
+                    ),
+                )
         if engine_capped:
             await _hold_engine_line(intent)
         await intent.execute(

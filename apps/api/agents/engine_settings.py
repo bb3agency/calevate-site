@@ -18,13 +18,14 @@ its agent only in its script, so the agent's own config is the arm's settings to
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final, Protocol, runtime_checkable
 from uuid import UUID
 
 from calevate_shared.engine import AgentConfig, EngineAgentRef
 from calevate_shared.engine_scope import is_customer_workspace, scope_of
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -121,6 +122,36 @@ class SettingsCheck:
     repaired: bool
 
 
+async def _voice_as_workspace_holds(
+    session: AsyncSession,
+    engine: object,
+    *,
+    row: Mapping[str, object],
+    config: AgentConfig,
+    workspace: str,
+) -> AgentConfig:
+    """`config` with its voice as the customer `workspace` names it. When that workspace
+    does not list our clone (`shared_clone_not_listed`: the clone was deleted, or the plan
+    lists no shared clones) the voice is left out of the comparison rather than the whole
+    check skipped, so recording, the call cap, the hand-over and every other setting are
+    still compared and repaired, and no repair sends a voice id the workspace cannot hold.
+    The voice itself is the withdrawn-voice alarm's (`workers/engine_reconciliation`)."""
+    from apps.api.agents.shared_clones import SHARED_CLONE_NOT_LISTED, voice_in_workspace
+
+    try:
+        return await voice_in_workspace(
+            session,
+            engine,
+            catalogue_voice=row.get("engine_voice_id"),
+            config=config,
+            workspace=workspace,
+        )
+    except ProblemError as exc:
+        if exc.code != SHARED_CLONE_NOT_LISTED:
+            raise
+        return config.model_copy(update={"engine_voice_id": None})
+
+
 async def check_agent_settings(
     *, tenant_id: UUID, agent_id: UUID, engine_agent_ref: str
 ) -> SettingsCheck | None:
@@ -130,7 +161,6 @@ async def check_agent_settings(
     (not evidence of drift; the next tick asks again)."""
     from apps.api.agents.handoff import spec_for
     from apps.api.agents.service import _load_agent, _to_config
-    from apps.api.agents.shared_clones import voice_in_workspace
     from apps.api.healer.protection import healer_holds_line
 
     engine = get_engine()
@@ -151,12 +181,8 @@ async def check_agent_settings(
             # still on a pre-D-797 copy reads as voice drift and is repaired onto it.
             workspace = scope_of(engine_agent_ref)
             if is_customer_workspace(workspace):
-                config = await voice_in_workspace(
-                    session,
-                    engine,
-                    catalogue_voice=row.get("engine_voice_id"),
-                    config=config,
-                    workspace=str(workspace),
+                config = await _voice_as_workspace_holds(
+                    session, engine, row=row, config=config, workspace=str(workspace)
                 )
         drifted = await settings.settings_drift(engine_agent_ref, config)
     except ProblemError as exc:

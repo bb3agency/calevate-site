@@ -163,6 +163,53 @@ async def test_a_legacy_agent_is_recreated_in_the_clients_workspace_and_retired_
     assert len(await _retire_jobs(agent)) == 1
 
 
+async def test_a_move_that_fails_after_the_create_deletes_the_new_vendor_agent(
+    attested: set[str],  # noqa: F811
+    no_webhook: None,  # noqa: F811
+    hosted_rows: CatalogueRows,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A step after the engine seams failing (here the running arms' republish) rolls back
+    every row naming the agent the move created, so that agent is deleted, and the legacy
+    one keeps answering with no retirement owed."""
+    tenant_id, agent_id = await _agent()
+    voice = await hosted_rows.add("engine", vendor_id=f"asha-{uuid.uuid4().hex[:6]}")
+    await _set_columns(tenant_id, agent_id, voice, "prana-voice")
+    tenant, agent = UUID(str(tenant_id)), UUID(str(agent_id))
+    legacy = f"fakeagent_legacy_{uuid.uuid4().hex[:8]}"
+    engine = HostingEngine()
+    engine._agents[legacy] = AgentConfig(
+        tenant_id=str(tenant),
+        agent_id=str(agent),
+        name="old",
+        direction="inbound",
+        system_prompt="x",
+        opening_line="Hello",
+    )
+    async with tenant_session(tenant) as session:
+        await session.execute(
+            text("UPDATE agents SET engine_agent_ref = :r, engine = 'thinnest' WHERE id = :a"),
+            {"r": legacy, "a": agent},
+        )
+
+    async def _arms_refused(*_: Any, **__: Any) -> int:
+        raise ProblemError(
+            kind="dependency", code="engine_publish_not_applied", title="x", detail="x"
+        )
+
+    monkeypatch.setattr(agents_service, "republish_running_variants", _arms_refused)
+    with selected(engine), pytest.raises(ProblemError) as refused:
+        await _publish(tenant, agent)
+
+    assert refused.value.code == "engine_publish_not_applied"
+    created = [ref for ref in engine._agents if ref != legacy]
+    assert engine.deleted == created and len(created) == 1, (
+        "the agent the move created was left standing"
+    )
+    assert await _agent_ref(tenant, agent) == legacy
+    assert await _retire_jobs(agent) == []
+
+
 async def test_the_old_agent_waits_for_its_live_call_then_is_deleted(
     account: FakeAccount, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -346,17 +393,27 @@ async def test_a_voice_that_is_not_our_clone_is_the_same_id_everywhere(
 
 
 class _SettingsEngine(HostingEngine):
-    """Holds each agent's voice as the vendor would, and compares and repairs only that."""
+    """Holds each agent's voice and call cap as the vendor would, and compares and repairs
+    those two. A voice left unset is not compared, as `thinnest._settings_drift` skips it."""
 
     def __init__(self) -> None:
         super().__init__()
         self.held: dict[str, str | None] = {}
+        self.cap: dict[str, int] = {}
 
     async def settings_drift(self, ref: str, cfg: AgentConfig) -> list[str]:
-        return ["voice"] if self.held.get(ref) != cfg.engine_voice_id else []
+        drifted = []
+        if cfg.engine_voice_id is not None and self.held.get(ref) != cfg.engine_voice_id:
+            drifted.append("voice")
+        if self.cap.get(ref, cfg.max_call_duration_s) != cfg.max_call_duration_s:
+            drifted.append("max_call_seconds")
+        return drifted
 
     async def repair_settings(self, ref: str, cfg: AgentConfig, drifted: Any) -> None:
-        self.held[ref] = cfg.engine_voice_id
+        if "voice" in drifted:
+            self.held[ref] = cfg.engine_voice_id
+        if "max_call_seconds" in drifted:
+            self.cap[ref] = cfg.max_call_duration_s
 
 
 async def test_the_drift_sweep_moves_an_agent_off_its_old_copy_and_then_holds_still(
@@ -377,16 +434,21 @@ async def test_the_drift_sweep_moves_an_agent_off_its_old_copy_and_then_holds_st
     with selected(engine):
         first = await check_agent_settings(tenant_id=tenant, agent_id=agent, engine_agent_ref=ref)
         second = await check_agent_settings(tenant_id=tenant, agent_id=agent, engine_agent_ref=ref)
-        # The workspace stops listing it: the sweep checks nothing it cannot resolve and never
-        # "repairs" the agent onto an id that workspace does not hold.
+        # The workspace stops listing it (the clone was deleted, or the plan lists none): the
+        # voice is never "repaired" onto an id that workspace does not hold, and every other
+        # setting is still compared and put back.
         engine.hosted_in[workspace] = []
         engine.held[ref] = "standard-voice"
+        engine.cap[ref] = 7200
         unlisted = await check_agent_settings(
             tenant_id=tenant, agent_id=agent, engine_agent_ref=ref
         )
     assert first is not None and (first.drifted, first.repaired) == (("voice",), True)
     assert second is not None and second.drifted == ()
-    assert unlisted is None and engine.held[ref] == "standard-voice"
+    assert unlisted is not None
+    assert (unlisted.drifted, unlisted.repaired) == (("max_call_seconds",), True)
+    assert engine.held[ref] == "standard-voice"
+    assert engine.cap[ref] != 7200
 
 
 # --- an engine without workspaces is unchanged -------------------------------------------

@@ -35,7 +35,7 @@ async def _webhook(agent_id: UUID, created: bool) -> None:
         ENGINE,  # type: ignore[arg-type]
         ref=REF,
         agent_id=agent_id,
-        created=created,
+        reclaim=created,
         session=None,  # type: ignore[arg-type]
         rate_key="base",  # type: ignore[arg-type]
     )
@@ -47,7 +47,7 @@ async def _facts(agent_id: UUID, created: bool) -> None:
         None,  # type: ignore[arg-type]
         agent_id=agent_id,
         ref=REF,
-        created=created,
+        reclaim=created,
         script="[IDENTITY]\nReceptionist.\n",
     )
 
@@ -58,7 +58,7 @@ async def _actions(agent_id: UUID, created: bool) -> None:
         None,  # type: ignore[arg-type]
         agent_id=agent_id,
         ref=REF,
-        created=created,
+        reclaim=created,
     )
 
 
