@@ -129,7 +129,7 @@ from apps.api.core.alerting import (
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
-from apps.api.core.redis import get_redis
+from apps.api.core.redis import get_redis, release_lease
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.dial_lines import dial_backoff_remaining_s, outbound_line_pool
 
@@ -326,8 +326,8 @@ async def _tick_lease() -> AsyncIterator[bool]:
     would hold one of the worker's 16 pooled connections for the whole tick, and arq
     already requires Redis to have delivered this job at all — so no Redis means no tick,
     and the lease adds no failure mode that was not already fatal. `SET NX PX` +
-    compare-and-delete is the primitive BACKEND-PATTERNS §5 names and
-    `compliance/audit.py` already uses; this is that, not a second one.
+    compare-and-delete (`core/redis.release_lease`) is the primitive BACKEND-PATTERNS §5
+    names.
 
     FAILS OPEN on a Redis error, like the audit chain's lock: a tick that refuses to run
     because Redis hiccuped is a campaign that stops dialling, and the claim CAS still
@@ -352,13 +352,7 @@ async def _tick_lease() -> AsyncIterator[bool]:
         if held:
             try:
                 # Compare-and-delete: never release a lease the NEXT tick now holds.
-                await redis.eval(  # type: ignore[misc]
-                    "if redis.call('get', KEYS[1]) == ARGV[1] then "
-                    "return redis.call('del', KEYS[1]) else return 0 end",
-                    1,
-                    _TICK_LEASE_KEY,
-                    token,
-                )
+                await release_lease(redis, _TICK_LEASE_KEY, token)
             except Exception:
                 log.warning("dispatch_tick_lease_release_failed")
 

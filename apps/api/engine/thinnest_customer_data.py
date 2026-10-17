@@ -42,7 +42,7 @@ import httpx
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
-from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL
+from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL, KEY_SCOPE_CODES
 from apps.api.engine.thinnest_workspace import WORKSPACE_HEADER, workspace_headers
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, EngineRejectedError, vendor_request
 
@@ -242,7 +242,7 @@ class ThinnestCustomerData:
                 return CallContentDeletion(outcome="workspace_deleted")
             if exc.vendor_status == 409:
                 return CallContentDeletion(outcome="busy")
-            if exc.vendor_status == 403:
+            if exc.vendor_status == 403 and exc.vendor_code in KEY_SCOPE_CODES:
                 raise key_not_full() from exc
             raise
         if payload.get("contentDeleted") is not True:

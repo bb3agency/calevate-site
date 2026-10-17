@@ -542,6 +542,21 @@ def test_a_call_that_was_not_recorded_is_an_outcome_not_a_retry() -> None:
     assert raised.value.reason == "not_recorded"
 
 
+def test_a_workspace_the_vendor_does_not_know_is_retried_not_read_as_unrecorded() -> None:
+    # get-call-recording.md:551: an unknown `Thinnest-Workspace` is a 404 as well, and says
+    # nothing about the recording.
+    source = _engine(lambda _: httpx.Response(404)).recording_source(_snapshot())
+    assert source is not None
+    misaddressed = httpx.Response(
+        404, json={"error": "Workspace not found.", "code": "workspace_not_found"}
+    )
+    with pytest.raises(storage.StorageUnavailableError):
+        storage._apply_source_rules(misaddressed, source.rules)
+    unrecorded = httpx.Response(404, json={"error": "This call was not recorded.", "code": "x"})
+    with pytest.raises(storage.RecordingUnavailableError):
+        storage._apply_source_rules(unrecorded, source.rules)
+
+
 def test_a_deleted_recording_is_terminal() -> None:
     with pytest.raises(storage.RecordingUnavailableError) as raised:
         storage._apply_source_rules(_answer(410), _RULES)

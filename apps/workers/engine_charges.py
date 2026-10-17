@@ -474,12 +474,17 @@ async def engine_tenants(engine: str) -> list[UUID]:
 
 #: Priced minute rows of an attested-minute engine metered without the fee and not yet
 #: restated. Unqualified columns are the outer row's, which `_ROW_COST_SQL` relies on.
+#: A row whose fee rounds to nothing (a zero-length call's ₹0 minute) is left out here
+#: rather than skipped after reading: nothing is ever written for it, so it would head every
+#: batch and hold back the calls after it. `:half_quantum` is where `fee_delta`'s
+#: ROUND_HALF_UP first reaches one `MONEY_Q`.
 _WITHOUT_FEE_SQL = text(
     f"SELECT call_id, {_ROW_COST_SQL}, occurred_at, meta->>'engine_rate_key', "
     f"meta->>'{LEDGER_RUNG_KEY}', meta->>'voice_tier' FROM usage_events u "
     "WHERE unit_type = 'platform_min' AND call_id IS NOT NULL AND unit_cost_paid IS NOT NULL "
     "AND meta->>'engine_rate_key' IS NOT NULL "
     f"AND meta->>'{TOPUP_FEE_META_KEY}' IS NULL "
+    f"AND ({_ROW_COST_SQL}) * :fee >= :half_quantum "
     "AND NOT EXISTS (SELECT 1 FROM usage_events r WHERE r.tenant_id = u.tenant_id "
     "AND r.call_id = u.call_id AND r.unit_type = 'other' AND r.meta->>'kind' = :kind) "
     "ORDER BY call_id LIMIT :cap"
@@ -512,14 +517,18 @@ async def restate_tenant_minutes(tenant_id: UUID, *, fee: Decimal) -> list[tuple
         await lock_tenant_credits(session, tenant_id)
         rows = (
             await session.execute(
-                _WITHOUT_FEE_SQL, {"kind": FEE_RESTATEMENT_META_KIND, "cap": _RESTATE_BATCH}
+                _WITHOUT_FEE_SQL,
+                {
+                    "kind": FEE_RESTATEMENT_META_KIND,
+                    "cap": _RESTATE_BATCH,
+                    "fee": fee,
+                    "half_quantum": MONEY_Q / 2,
+                },
             )
         ).all()
         for call_id, metered, occurred_at, rate_key, rung, voice in rows:
             metered_inr = Decimal(str(metered))
             delta = fee_delta(metered_inr, fee=fee)
-            if delta == 0:
-                continue
             already = (
                 await session.execute(
                     _RESTATED_SQL,
@@ -587,10 +596,11 @@ async def restate_minutes_without_fee(engine: str) -> int:
 #: metered with `meta.topup_fee` above it, or a restatement written at `meta.fee` above it.
 #: A call has at most one of them (one `platform_min` row per call by
 #: `ux_usage_events_tenant_call_unit`, and a restatement only for a minute row without
-#: `topup_fee`), so the row LIMIT never splits a call across two batches.
+#: `topup_fee`), so the row LIMIT never splits a call across two batches. A ₹0 row has no
+#: excess and is left out for the reason `_WITHOUT_FEE_SQL` gives.
 _OVERSTATED_SQL = text(
     f"SELECT call_id, unit_type, {_ROW_COST_SQL}, occurred_at, meta FROM usage_events u "
-    "WHERE call_id IS NOT NULL AND unit_cost_paid IS NOT NULL AND ("
+    f"WHERE call_id IS NOT NULL AND unit_cost_paid IS NOT NULL AND ({_ROW_COST_SQL}) > 0 AND ("
     "(unit_type = 'platform_min' AND meta->>'engine_rate_key' IS NOT NULL "
     f"AND meta->>'{TOPUP_FEE_META_KEY}' IS NOT NULL "
     f"AND CAST(meta->>'{TOPUP_FEE_META_KEY}' AS numeric) > :fee) "

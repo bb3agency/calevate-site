@@ -45,6 +45,7 @@ class ContentVendor:
     def __init__(self) -> None:
         self.status: dict[str, int] = {}
         self.pending: dict[str, int] = {}
+        self.code: dict[str, str] = {}
         self.seen: list[tuple[str, str | None]] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -63,9 +64,8 @@ class ContentVendor:
                 },
             )
         codes = {403: "key_scope_build", 404: "not_found", 409: "call_live", 410: "gone"}
-        return httpx.Response(
-            status, json={"error": "refused", "code": codes.get(status, "unavailable")}
-        )
+        code = self.code.get(raw, codes.get(status, "unavailable"))
+        return httpx.Response(status, json={"error": "refused", "code": code})
 
 
 @pytest.fixture
@@ -243,6 +243,22 @@ async def test_a_key_that_cannot_delete_alarms_at_once(
     assert alarms == ["engine_call_content_delete_failed"]
 
 
+async def test_a_403_about_anything_but_the_key_is_not_called_a_key_problem(
+    monkeypatch: pytest.MonkeyPatch, vendor: ContentVendor, alarms: list[str]
+) -> None:
+    # A key that belongs to one customer workspace is refused acting as another with a 403
+    # too (delete-call-content.md:556-557); errors.md:20-37 says to branch on `code`.
+    _tenant_id, _request_id, _call_id, engine_call_id, payload = await _erasure(monkeypatch)
+    vendor.status[engine_call_id] = 403
+    vendor.code[engine_call_id] = "workspace_header_forbidden"
+    with pytest.raises(Retry):
+        await jobs.delete_engine_call_content({"job_try": 1}, payload)
+    with pytest.raises(ProblemError) as refused:
+        await jobs.delete_engine_call_content({"job_try": 3}, payload)
+    assert refused.value.code != "engine_key_not_full"
+    assert alarms == ["engine_call_content_delete_failed"]
+
+
 async def test_our_own_runtimes_calls_and_another_tenants_calls_are_never_sent(
     monkeypatch: pytest.MonkeyPatch, vendor: ContentVendor
 ) -> None:
@@ -370,6 +386,25 @@ async def test_the_sweep_queues_calls_past_the_shorter_period_and_the_unsettled(
     assert (await _call_state(tenant_id, fresh_call))[0] is None
     # Marked, so tomorrow's tick does not queue the same call again.
     assert (await retention.sweep_tenant(tenant_id))["engine_content_queued"] == 0
+
+
+async def test_our_own_runtimes_old_calls_do_not_fill_the_sweeps_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A call our former runtime ran is never queued (no vendor holds it), so it is never
+    # marked either; if the due query selected it, it would head every night's batch.
+    monkeypatch.setattr(get_settings(), "engine", "thinnest")
+    monkeypatch.setattr(retention, "ENGINE_CONTENT_BATCH", 2)
+    tenant_id, _call, _phone, _ecid = await _tenant_with_a_platform_call()
+    for n in range(2):
+        await _add_call(tenant_id, f"pipecat:{tenant_id}:old{n}", age_days=200 + n)
+    platform_call = await _add_call(tenant_id, f"out_{uuid.uuid4()}", age_days=100)
+
+    assert (await retention.sweep_tenant(tenant_id))["engine_content_queued"] == 1
+    queued = {
+        c for p in await _outbox(jobs.ENGINE_CONTENT_DELETE_JOB, tenant_id) for c in p["call_ids"]
+    }
+    assert queued == {str(platform_call)}
 
 
 async def test_a_tenant_with_no_call_content_policy_still_gets_the_backstop(

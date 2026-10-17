@@ -100,6 +100,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.engine import PIPECAT_REF_PREFIX
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1009,10 +1010,13 @@ async def sweep_tenant(tenant_id: UUID) -> dict[str, int]:
 #: nightly tick takes the rest.
 ENGINE_CONTENT_BATCH: Final = 500
 
-#: Calls past the period whose platform content was never queued for deletion.
+#: Calls past the period whose platform content was never queued for deletion. A call our
+#: former runtime ran is left out here, not only by `queue_engine_content_deletion`: that
+#: call is never marked, so selecting it would put it at the head of every night's batch.
 _ENGINE_CONTENT_DUE_SQL = f"""
 SELECT c.id FROM calls c
 WHERE c.engine_call_id IS NOT NULL AND c.engine_content_delete_requested_at IS NULL
+  AND c.engine_call_id NOT LIKE :own_runtime_refs
   AND {_CLOCK} < :cutoff
 ORDER BY {_CLOCK} LIMIT :batch
 """
@@ -1047,6 +1051,7 @@ async def _queue_engine_content(
                     {
                         "cutoff": datetime.now(UTC) - timedelta(days=ttl_days),
                         "batch": ENGINE_CONTENT_BATCH,
+                        "own_runtime_refs": f"{PIPECAT_REF_PREFIX}:%",
                     },
                 )
             )

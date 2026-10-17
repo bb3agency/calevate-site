@@ -150,6 +150,7 @@ from apps.api.engine.thinnest_workspace import (
 from apps.api.engine.trial_line import TRIAL_LINE_AGENT_NAME, TrialLineAgent
 from apps.api.engine.vendor_http import (
     REQUEST_TIMEOUT_S,
+    SCOPE_NOT_FOUND_CODES,
     EngineRejectedError,
     recipient_opted_out_error,
     vendor_audio_request,
@@ -382,6 +383,10 @@ _NAME_TAG_RE: Final = re.compile(r" #cv-[0-9a-f]{12}$")
 # The code `agents.service.DIAL_NOT_PLACED_CODES` already treats as "refused before any
 # request was sent".
 DIAL_PRECONDITION_FAILED: Final = "carrier_dial_precondition_failed"
+
+#: The 403 codes that say our key's level is too low for the request (errors.md:89-90 in
+#: snapshots/2026-10-15). Another 403 is about the person, the number or the workspace.
+KEY_SCOPE_CODES: Final = frozenset({"key_scope_build", "key_scope_read"})
 
 #: The vendor's 409 code when `voice.surfaces` names phone on an agent with no number
 #: (docs.thinnest.ai api-reference/agents/update-agent, read 12 Oct 2026).
@@ -913,7 +918,7 @@ def _dial_refusal(exc: EngineRejectedError) -> ProblemError:
         # The person, on the workspace's shared list. Whether the entry is this client's is
         # decided above the adapter (`compliance/platform_dnc.py`).
         return recipient_opted_out_error()
-    if code in ("key_scope_build", "key_scope_read"):
+    if code in KEY_SCOPE_CODES:
         alert(
             "CORE_LOGIC",
             "engine_key_cannot_place_calls",
@@ -3620,6 +3625,8 @@ class ThinnestEngine:
                 content_types=frozenset({"audio/mpeg"}),
                 not_ready_status=404,
                 gone_status=410,
+                # `Workspace not found.` is a 404 too (get-call-recording.md:551).
+                misaddressed_codes=SCOPE_NOT_FOUND_CODES,
             ),
             auth_headers={
                 AUTH_HEADER: f"{AUTH_SCHEME} {self._api_key}",
@@ -3901,6 +3908,7 @@ NOTICE_EVENTS: Final = tuple(_NOTICE_KINDS)
 
 __all__ = [
     "BASE_URL",
+    "KEY_SCOPE_CODES",
     "LLM_KEY_NOT_INSTALLED",
     "NOTICE_EVENTS",
     "PAUSED_LINE_MESSAGE",

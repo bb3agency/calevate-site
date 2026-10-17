@@ -571,6 +571,15 @@ SELECT id, name FROM kb_sources
 WHERE tenant_id = :tenant_id AND id = ANY(:source_ids) AND is_active = true
 """
 
+#: A due link whose source is not active (an archived version, one waiting for approval) is
+#: stamped as visited rather than left as it was: the due read is oldest-first and capped,
+#: so unstamped rows would head every tick and, once there were enough of them, no active
+#: link would be re-read. Re-visited a day later, so a version made live again is re-read.
+_LINK_SKIPPED_SQL = """
+UPDATE kb_uploads SET last_checked_at = now()
+WHERE tenant_id = :tenant_id AND id = ANY(:upload_ids)
+"""
+
 _STALLED_SQL = """
 SELECT u.tenant_id, u.source_id
 FROM kb_uploads u
@@ -723,6 +732,7 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
 
     changed = 0
     checked = 0
+    skipped: dict[UUID, list[UUID]] = {}
     for row in due:
         # A source that is inactive, or that the tenant's own seat cannot see, is not an
         # error and not an alarm — it is a link whose source was switched off between the
@@ -730,6 +740,7 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
         # as a lookup.
         name = names.get((UUID(str(row[1])), UUID(str(row[2]))))
         if name is None:
+            skipped.setdefault(UUID(str(row[1])), []).append(UUID(str(row[0])))
             continue
         checked += 1
         try:
@@ -743,6 +754,11 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
                 changed += 1
         except Exception as exc:
             _sweep_item_failed(failures, "link", UUID(str(row[2])), exc)
+    for owner, upload_ids in skipped.items():
+        async with tenant_session(owner) as session:
+            await session.execute(
+                text(_LINK_SKIPPED_SQL), {"tenant_id": owner, "upload_ids": upload_ids}
+            )
 
     log.info(
         "kb_upload_sweep",
