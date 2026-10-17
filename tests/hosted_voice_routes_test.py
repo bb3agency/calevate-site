@@ -234,7 +234,7 @@ async def test_no_studio_workspace_ready_keeps_the_studio_voices_last_listed(
     engine = HostingEngine(key_state=OFF_KEY)
     async with admin_session() as session:
         result = await sync_voice_catalogue(session, engine)
-        assert await hosted_voices.studio_voices_ready(session)
+        assert await hosted_voices.studio_voices_listed(session)
     assert result.note == hosted_voices.STUDIO_KEY_OFF_REASON
     assert engine.own_keys_listed == 0
     assert (await _entry(voice)).withdrawn_at is None
@@ -340,12 +340,15 @@ def test_the_rate_card_holds_studio_back_until_our_voice_key_is_on() -> None:
     assert ours is not None and ours[0] == "clear"
 
 
-async def test_studio_is_on_sale_only_with_its_voices_listed_and_its_minute_attested(
+async def test_studio_is_on_sale_only_with_its_voices_listed_its_minute_attested_and_our_key_on(
     hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """D-727 sells Studio while our developer workspace is on our key, as last checked
+    (D-806)."""
     from datetime import UTC, datetime
 
     from apps.api.billing import payment_routes
+    from apps.api.tenancy.engine_workspace import record_developer_studio_check
 
     now = datetime.now(UTC)
     attested: set[str] = set()
@@ -359,7 +362,12 @@ async def test_studio_is_on_sale_only_with_its_voices_listed_and_its_minute_atte
         assert not await payment_routes._studio_on_sale(session, engine="thinnest", at=now)
         attested.add("byok_voice")
         await hosted_rows.add("byok")
-        assert await payment_routes._studio_on_sale(session, engine="thinnest", at=now)
+        assert not await payment_routes._studio_on_sale(session, engine="thinnest", at=now)
+        await record_developer_studio_check(session, ready=True)
+        try:
+            assert await payment_routes._studio_on_sale(session, engine="thinnest", at=now)
+        finally:
+            await record_developer_studio_check(session, ready=False)
 
 
 @pytest.mark.parametrize(

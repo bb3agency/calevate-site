@@ -89,7 +89,6 @@ from apps.api.agents.hosted_voices import (
     set_person_clone,
     sold_hosted_band,
     studio_listing_workspace,
-    studio_voices_ready,
     sync_hosted_voices,
     withdraw_hosted_voice,
 )
@@ -98,6 +97,7 @@ from apps.api.agents.shared_clones import forget_clone
 from apps.api.agents.studio_voices import (
     StudioReadiness,
     prepare_studio,
+    studio_open_to,
     studio_readiness,
 )
 from apps.api.agents.voice_consent import (
@@ -636,7 +636,7 @@ async def list_hosted(
         voices=voices,
         cached=await count_hosted_voices(session),
         offered=offered,
-        studio_ready=await studio_voices_ready(session),
+        studio_ready=await studio_open_to(session, tenant_id=None),
         clear_band=sold_hosted_band(),
         note=(
             f"{offered} voice(s) offered to clients. Add a voice from the full list, check "

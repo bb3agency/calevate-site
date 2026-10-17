@@ -156,7 +156,7 @@ from apps.api.agents.own_model import (
 )
 from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
 from apps.api.agents.reply_length import resolve_max_reply_tokens
-from apps.api.agents.t0_block import block_of, without_block
+from apps.api.agents.t0_block import block_of, with_knowledge_of, without_block
 from apps.api.agents.verification import verify_publish
 from apps.api.agents.voice_tuning import TUNING_COLUMNS, config_tuning
 from apps.api.agents.voices import get_voice, speech_for_voice_id, voice_id_of
@@ -1101,14 +1101,21 @@ async def _publish_business_facts(
     ref: str,
     reclaim: bool,
     script: str | None,
+    variant_id: UUID | None = None,
 ) -> None:
     """Push the script's [T0 FACTS] block as the vendor agent's facts document, on an engine
-    that keeps facts out of the prompt (`agents/engine_facts.py`). A failure fails the
-    publish, with `reclaim` deleting a vendor agent this publish created, for
+    that keeps facts out of the prompt, and the client's published knowledge
+    (`agents/engine_facts.py`); `variant_id` names the experiment arm `ref` speaks. A failure
+    fails the publish, with `reclaim` deleting a vendor agent this publish created, for
     `_reclaim_orphan`'s reason."""
     try:
         await sync_business_facts(
-            session, engine, agent_id=agent_id, ref=ref, facts=block_of(script)
+            session,
+            engine,
+            agent_id=agent_id,
+            ref=ref,
+            facts=block_of(script),
+            variant_id=variant_id,
         )
     except Exception:
         if reclaim:
@@ -2316,13 +2323,18 @@ async def _after_workspace_move(
 
     * the claims on the OLD agent's knowledge copies go — those copies are deleted with the
       old agent (`DELETE /agents/{id}` "takes the agent's knowledge with it", agents.md:82) —
-      so the D-689 catch-up this publish runs attaches every live source to the new one;
+      so the D-689 catch-up this publish runs attaches every live source to the new one. An
+      experiment arm's claims are its own vendor agent's and go when that arm moves
+      (`publish_variant`);
     * the old agent's deletion is owed through the outbox, so it runs only after this
       transaction commits. Its route stays active until then, so a late delivery for a call
       it took before the move still verifies; the retire job switches it off.
     """
     await session.execute(
-        text("DELETE FROM engine_kb_routes WHERE agent_id = :aid AND tenant_id = :tid"),
+        text(
+            "DELETE FROM engine_kb_routes WHERE agent_id = :aid AND tenant_id = :tid "
+            "AND variant_id IS NULL"
+        ),
         {"aid": agent_id, "tid": tenant_id},
     )
     from apps.api.reliability.service import enqueue_outbox
@@ -2963,6 +2975,14 @@ def in_call_model(agent: AgentRow, *, engine: VoiceEngine) -> str | None:
     return fields.own_model or fields.model_id
 
 
+def _arm_script(agent: AgentRow, body: str) -> str:
+    """An experiment arm's script: its own frozen body carrying the pinned facts and the
+    [T0 FACTS] block of the agent's applied version, which every knowledge change recompiles
+    (D-689, D-806). An arm is republished whenever its agent is (`republish_running_variants`),
+    so it carries what the agent carries."""
+    return with_knowledge_of(agent["prompt"], body, identity=f"{agent['name']}.")
+
+
 def _variant_config(
     tenant_id: UUID,
     agent: AgentRow,
@@ -2991,12 +3011,15 @@ def _variant_config(
     the second script over the first. The bridge back to the real agent is
     `engine_agent_routes`, which is written below and is the only mapping any inbound
     path consults.
+
+    The script is the arm's with the client's knowledge sections taken from the agent
+    (`_arm_script`), so a fact pinned or published while the test runs reaches the arms.
     """
     return _to_config(tenant_id, agent, engine=engine, handoff=handoff).model_copy(
         update={
             "agent_id": str(variant_id),
             "name": f"{agent['name']} [variant {label}]",
-            "system_prompt": _script_for(engine, body),
+            "system_prompt": _script_for(engine, _arm_script(agent, body)),
             # The arm's body keeps its own outline; the agent's steps are not the arm's.
             "script_steps": (),
             # THE ARM'S OWN AI SENTENCE, THROUGH THE AGENT'S OWN TOGGLES (D-163). A
@@ -3145,6 +3168,12 @@ async def publish_variant(
     if moved_from is not None:
         from apps.api.reliability.service import enqueue_outbox
 
+        # The old arm's knowledge copies go with it (`_after_workspace_move`), so the
+        # catch-up below attaches every live source to the new one.
+        await session.execute(
+            text("DELETE FROM engine_kb_routes WHERE variant_id = :vid AND tenant_id = :tid"),
+            {"vid": variant_id, "tid": tenant_id},
+        )
         await enqueue_outbox(
             session,
             job=RETIRE_MOVED_AGENT_JOB,
@@ -3164,9 +3193,15 @@ async def publish_variant(
         rate_key=rate_key,
         own_model=config.engine_own_model,
     )
-    # The arm's own vendor agent holds the facts its own script carries.
+    # The arm's own vendor agent holds the client's facts and published knowledge.
     await _publish_business_facts(
-        engine, session, agent_id=agent_id, ref=ref, reclaim=not existing_ref, script=body
+        engine,
+        session,
+        agent_id=agent_id,
+        ref=ref,
+        reclaim=not existing_ref,
+        script=_arm_script(agent, body),
+        variant_id=variant_id,
     )
     await _ensure_in_call_actions(
         engine,

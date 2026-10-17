@@ -314,6 +314,44 @@ async def record_studio_check(
     )
 
 
+async def studio_on_in_workspace(session: AsyncSession, tenant_id: UUID) -> bool:
+    """Did the last check of this tenant's workspace find our Cartesia key on, in its tenant
+    session? Switched on once and no error recorded since."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT studio_enabled_at IS NOT NULL AND studio_error_code IS NULL "
+                "FROM tenant_engine_workspaces WHERE tenant_id = :tid"
+            ),
+            {"tid": tenant_id},
+        )
+    ).first()
+    return row is not None and bool(row[0])
+
+
+async def record_developer_studio_check(session: AsyncSession, *, ready: bool) -> None:
+    """Record what our developer workspace answered about our Cartesia key (D-806): the
+    same test a trial's Studio publish makes (`studio_voices.require_developer_studio`)."""
+    await session.execute(
+        text(
+            "UPDATE platform_state SET studio_developer_ready = :ready, updated_at = now() "
+            "WHERE id = 1"
+        ),
+        {"ready": ready},
+    )
+
+
+async def developer_studio_ready(session: AsyncSession) -> bool:
+    """Did the last check find our developer workspace on our Cartesia key? Never checked
+    reads as not ready."""
+    value = (
+        await session.execute(
+            text("SELECT studio_developer_ready FROM platform_state WHERE id = 1")
+        )
+    ).scalar()
+    return bool(value)
+
+
 async def own_model_workspaces(*, limit: int = 1000) -> list[StudioWorkspace]:
     """Every ACTIVE client workspace where our Google (model) key was confirmed on (D-764),
     the earliest first. A rotation of the key reaches each and the hourly check verifies
@@ -487,6 +525,7 @@ __all__ = [
     "WorkspaceState",
     "WorkspaceStatus",
     "active_workspaces",
+    "developer_studio_ready",
     "engine_has_workspaces",
     "external_ref_for",
     "is_own_workspace",
@@ -497,11 +536,13 @@ __all__ = [
     "queue_workspace_provisioning",
     "read_retention_record",
     "read_workspace_state",
+    "record_developer_studio_check",
     "record_own_model_check",
     "record_retention_check",
     "record_studio_check",
     "resolve_workspace",
     "studio_enabled",
+    "studio_on_in_workspace",
     "studio_workspaces",
     "tenant_for_workspace",
     "workspace_directory",

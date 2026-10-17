@@ -46,7 +46,6 @@ from apps.api.agents.hosted_voices import (
     offered_hosted_voices,
     preview_object,
     rung_of_source,
-    studio_voices_ready,
 )
 from apps.api.agents.llm_models import LlmReasonAudience
 from apps.api.agents.llm_tiers import engine_model_token
@@ -56,6 +55,7 @@ from apps.api.agents.own_model import (
     own_model_label,
     own_model_on,
 )
+from apps.api.agents.studio_voices import studio_open_to
 from apps.api.agents.voice_offer import tts_price_is_billable
 from apps.api.billing.engine_minutes import attested_rate_keys
 from apps.api.core.auth import requires
@@ -63,7 +63,7 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
-from apps.api.db.session import untenanted_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.catalogue import EngineCatalogue, HoldsCatalogue, HostsVoices
 from apps.api.engine.hosted_platform import engine_platform_label
@@ -170,13 +170,14 @@ class EngineCatalogueOut(BaseModel):
     models: list[EngineCatalogueModelOut]
 
 
-#: What a client reads while Studio is not ready on this deployment. No vendor name (D-679).
+#: What a client reads while Studio is not open to its account, beside the note and on each
+#: Studio voice. No vendor name (D-679).
 STUDIO_NOT_READY_NOTE: Final = "Studio voices are not available yet."
 
 
 def _studio_note(*, studio_ready: bool) -> str | None:
     """Why a reader cannot choose a Studio voice, or None. A free-trial account may choose one
-    like any other (D-727): its agents speak Studio in our developer workspace."""
+    like any other while our developer workspace is on our key (D-727, D-806)."""
     return None if studio_ready else STUDIO_NOT_READY_NOTE
 
 
@@ -212,8 +213,14 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
     async with untenanted_session() as session:
         attested = await attested_rate_keys(session, engine=engine.name, at=datetime.now(UTC))
         rows = await offered_hosted_voices(session)
-        studio_ready = await studio_voices_ready(session)
         bands = await recorded_bands(session, engine=engine.name)
+        account = principal.tenant_id if audience == "client" else None
+        studio_ready = account is None and await studio_open_to(session, tenant_id=None)
+    if account is not None:
+        # Whether THIS account's Studio publish would go through: a trial's needs our
+        # developer workspace, a paying client's its own (D-806).
+        async with tenant_session(account) as session:
+            studio_ready = await studio_open_to(session, tenant_id=account)
     studio_note = _studio_note(studio_ready=studio_ready)
     is_client = audience == "client"
     # A client chooses a tier, never one of the engine's models, and never reads their
@@ -231,7 +238,9 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
         audience=audience,
     )
     reasons = [
-        hosted_voice_unofferable_reason(
+        STUDIO_NOT_READY_NOTE
+        if row.source == "byok" and not studio_ready
+        else hosted_voice_unofferable_reason(
             row,
             attested=attested,
             voice_key_priced=voice_key_priced,
