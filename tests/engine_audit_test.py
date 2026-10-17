@@ -1624,6 +1624,15 @@ _VENDOR_ONLY_KEYS = frozenset(
         "ratePerMinuteMicro",
         "ttsCharacters",
         "voicePlan",
+        # D-797/D-798 camelCase nouns only ThinnestAI spells: a shared clone's marker, a
+        # call whose content was deleted, and the `contact.erased` / `byok.changed` event
+        # fields. Ours are `HostedVoice.shared_from_developer`, `calls.engine_content_
+        # deleted_at`, the erased contact's id and `OwnVoiceKeyState`.
+        "byokEnabled",
+        "contactId",
+        "contentDeleted",
+        "erasedAt",
+        "sharedFromDeveloper",
     }
 )
 
@@ -1649,6 +1658,13 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         # (`CallBilling`, `CallBilling.keys`, the billing module).
         "billing",
         "keys",
+        # D-797/D-798 reads that are words of ours too: `own` (`OwnVoiceKeyState.using ==
+        # "own"`, our own-key vocabulary), `change` (the WhatsApp webhook reads it) and
+        # `workspaceId`, which the voice-runtime receiver reads to refuse a delivery about
+        # another workspace (`signed_intake.py`).
+        "change",
+        "own",
+        "workspaceId",
         # A phone number's display name on ThinnestAI, and a word this product uses for
         # its own form fields and connections (D-704 shows it in the trial-number picker).
         "label",

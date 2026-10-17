@@ -173,6 +173,9 @@ THREE STATES, THREE ALARMS (they used to be two, and two of them read alike)
   PUBLISHED rung is serving. Money is still converting at a rate somebody published
   today; what changed is the PROVENANCE on every `usage_events` row written from now on,
   and hard rule 4 means those rows can never be annotated later. Not urgent, and said so.
+  Raised when the serving source CHANGES and then at most once per IST day while it
+  persists (`degraded_alarm_due`), not on every five-minute pull: a feed that is behind
+  for a week was 288 identical alarms a day, which buried the ones that mattered.
 * `fx_rate_stale` (CORE_LOGIC, raised by `ops/fx_rates.refresh_fx_snapshot`) — EVERY
   published rung is past the ceiling, so the typed constant is serving. This is what that
   alarm meant before the ladder existed; it now means it about the whole ladder.
@@ -1030,6 +1033,7 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
         raise failure
 
     serving_state: ServingRung
+    degraded_alarmed_on: date | None = None
     if result.serving is None:
         # EVERY published rung answered and every one of them is behind the ceiling. Not a
         # pull failure — the feeds are working, they are simply not publishing — so this
@@ -1053,24 +1057,16 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
         # provenance stamped on every `usage_events` row from this moment on, and hard
         # rule 4 means none of those rows can be annotated afterwards. So an operator is
         # told at the moment it moves, rather than discovering it in a reconciliation.
-        alert(
-            "CORE_LOGIC",
-            "fx_source_degraded",
-            detail=(
-                f"The preferred USD/INR source {PREFERRED_RUNG.source} could not serve "
-                f"({preferred_reason}{f'/{preferred_code}' if preferred_code else ''}), so vendor "
-                f"costs are converting at {rung.source} — {rung.why}. The rate is real and "
-                f"published ({observation.as_of.isoformat()}), but every usage_events row "
-                "written from "
-                "now on records the fallback source and cannot be re-stamped later. "
-                f"Every rung that could not serve: {', '.join(str(r) for r in result.refusals)}."
-            ),
-            source=rung.source,
-            preferred_source=PREFERRED_RUNG.source,
-            reason=preferred_reason,
-            # See the `fx_pull_failed` call above for why this is not `code=`.
-            refusal_code=preferred_code or preferred_reason,
-        )
+        previous = await last_check()
+        today = now.astimezone(_IST).date()
+        degraded_alarmed_on = today
+        if degraded_alarm_due(previous, serving_source=rung.source, today=today):
+            _alert_source_degraded(rung, observation, preferred_reason, preferred_code, result)
+        else:
+            log.info(
+                "fx_source_degraded_ongoing",
+                extra={"source": rung.source, "refusal_code": preferred_code or preferred_reason},
+            )
 
     # Every tick that gets here completed, whether or not it stored a row: a daily
     # publication polled every five minutes inserts once, so the observation rows cannot
@@ -1081,6 +1077,7 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
             checked_at=now,
             serving_source=result.serving[0].source if result.serving else None,
             serving_as_of=result.serving[1].as_of if result.serving else None,
+            degraded_alarmed_on=degraded_alarmed_on,
         )
     )
     # This process is made current immediately rather than waiting for its own poll: the
@@ -1098,6 +1095,44 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
     }
     log.info("fx_rate_pulled", extra=summary)
     return json.dumps(summary)
+
+
+def degraded_alarm_due(previous: FxCheck | None, *, serving_source: str, today: date) -> bool:
+    """Is `fx_source_degraded` owed on this tick? Yes when the serving source differs from
+    the last tick's (preferred to fallback, or between fallbacks), when it has not been
+    raised yet this IST day, or when no previous tick is readable — a lost record raises
+    rather than silences."""
+    if previous is None or previous.serving_source != serving_source:
+        return True
+    return previous.degraded_alarmed_on != today
+
+
+def _alert_source_degraded(
+    rung: FxRung,
+    observation: FxObservation,
+    preferred_reason: RungRefusal,
+    preferred_code: FxRefusalCode | None,
+    result: LadderResult,
+) -> None:
+    alert(
+        "CORE_LOGIC",
+        "fx_source_degraded",
+        detail=(
+            f"The preferred USD/INR source {PREFERRED_RUNG.source} could not serve "
+            f"({preferred_reason}{f'/{preferred_code}' if preferred_code else ''}), so vendor "
+            f"costs are converting at {rung.source} — {rung.why}. The rate is real and "
+            f"published ({observation.as_of.isoformat()}), but every usage_events row "
+            "written from now on records the fallback source and cannot be re-stamped later. "
+            f"Every rung that could not serve: {', '.join(str(r) for r in result.refusals)}. "
+            "Raised again only if the serving source changes, or once a day (IST) while "
+            "this persists."
+        ),
+        source=rung.source,
+        preferred_source=PREFERRED_RUNG.source,
+        reason=preferred_reason,
+        # See the `fx_pull_failed` call above for why this is not `code=`.
+        refusal_code=preferred_code or preferred_reason,
+    )
 
 
 __all__ = [
@@ -1122,6 +1157,7 @@ __all__ = [
     "RungRefusal",
     "RungRefused",
     "ServingRung",
+    "degraded_alarm_due",
     "fetch_published_rate",
     "parse_fbil_response",
     "parse_rate_response",

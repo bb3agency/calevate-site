@@ -77,6 +77,7 @@ from apps.workers.fx_pull import (
     FxFeedUnreachableError,
     FxPullError,
     FxRung,
+    degraded_alarm_due,
     fetch_published_rate,
     parse_fbil_response,
     parse_rate_response,
@@ -1496,4 +1497,92 @@ def test_the_window_asked_for_outlives_a_publication_gap_longer_than_the_ceiling
     assert start <= _date(2026, 9, 11), (
         "the real gap this was measured against (last publication 11 Sep, asked on 22 Sep) "
         "must fall inside the window"
+    )
+
+
+# --- fx_source_degraded cadence --------------------------------------------------------
+
+
+_DEGRADED_ANSWERS: dict[str, Any] = {
+    "test:fbil": (FBIL_RATE, _stale_date()),
+    "test:default": (DEFAULT_RATE, date.today()),
+}
+
+
+async def test_a_persisting_fallback_raises_the_degraded_alarm_once_not_every_pull(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FBIL behind for a week was 288 identical `fx_source_degraded` a day. The source has
+    not changed and it was raised today, so the next pull logs and does not raise."""
+    alerts, _ = _install_ladder(monkeypatch, _DEGRADED_ANSWERS)
+
+    await pull_fx_rate({"job_try": 1})
+    await pull_fx_rate({"job_try": 1})
+
+    assert [code for code, _ in alerts] == ["fx_source_degraded"]
+    check = await last_check()
+    assert check is not None and check.serving_source == "test:default"
+    assert check.degraded_alarmed_on is not None
+
+
+async def test_the_degraded_alarm_is_raised_again_when_the_serving_source_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Between fallbacks is a change of provenance on every ledger row, so it is raised
+    even on a day the alarm already fired."""
+    alerts, _ = _install_ladder(monkeypatch, _DEGRADED_ANSWERS)
+    await record_check(
+        FxCheck(
+            checked_at=datetime.now(UTC),
+            serving_source="test:another-fallback",
+            serving_as_of=date.today(),
+            degraded_alarmed_on=datetime.now(UTC).date(),
+        )
+    )
+
+    await pull_fx_rate({"job_try": 1})
+
+    assert [code for code, _ in alerts] == ["fx_source_degraded"]
+
+
+async def test_the_degraded_alarm_is_raised_once_on_a_new_ist_day(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    alerts, _ = _install_ladder(monkeypatch, _DEGRADED_ANSWERS)
+    await record_check(
+        FxCheck(
+            checked_at=datetime.now(UTC),
+            serving_source="test:default",
+            serving_as_of=date.today(),
+            degraded_alarmed_on=date(2000, 1, 1),
+        )
+    )
+
+    await pull_fx_rate({"job_try": 1})
+    await pull_fx_rate({"job_try": 1})
+
+    assert [code for code, _ in alerts] == ["fx_source_degraded"]
+
+
+def test_the_degraded_alarm_rule() -> None:
+    """A preferred-serving tick records no alarm day, so returning to a fallback is a
+    change; an unreadable previous tick raises rather than silences."""
+    today = date(2026, 10, 17)
+    preferred = FxCheck(
+        checked_at=datetime(2026, 10, 17, tzinfo=UTC),
+        serving_source="fbil:refrates",
+        serving_as_of=today,
+    )
+    ongoing = FxCheck(
+        checked_at=datetime(2026, 10, 17, tzinfo=UTC),
+        serving_source="frankfurter:default",
+        serving_as_of=today,
+        degraded_alarmed_on=today,
+    )
+    assert degraded_alarm_due(None, serving_source="frankfurter:default", today=today)
+    assert degraded_alarm_due(preferred, serving_source="frankfurter:default", today=today)
+    assert not degraded_alarm_due(ongoing, serving_source="frankfurter:default", today=today)
+    assert degraded_alarm_due(ongoing, serving_source="frankfurter:FBIL", today=today)
+    assert degraded_alarm_due(
+        ongoing, serving_source="frankfurter:default", today=today + timedelta(days=1)
     )

@@ -16,6 +16,16 @@ signed_intake.py`). Calls whose events are past the 7 days are settled from the 
 
 One `ensure_agent_webhook` per active route, each in its OWN tenant session: one tenant's
 failure is counted and the sweep carries on, as every fleet-wide walk here does.
+
+A ROUTE WHOSE VENDOR AGENT IS GONE. A 404 about a missing endpoint is repaired inside
+`ensure_agent_webhook`; a 404 that escapes it is about the AGENT ("The agent is not in this
+workspace", `snapshots/2026-10-15/pages/api-reference/webhooks/create-webhook.md:510-517`).
+The route is switched off only when nothing of ours still names that vendor agent — no
+agent row that is not archived, no experiment arm — because then no call can ever report
+through it and re-asking every twenty minutes only buries the alarm. A route an agent still
+publishes under is never switched off here: a 404 there means the agent we sell is missing
+at the vendor (or was asked for in the wrong workspace), and that needs a person and a
+republish, so it is named in the alarm instead.
 """
 
 from __future__ import annotations
@@ -28,7 +38,9 @@ from sqlalchemy import text
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.reliability.engine_webhooks import WEBHOOK_ENGINES, ensure_agent_webhook
 
 log = get_logger(__name__)
@@ -36,6 +48,47 @@ log = get_logger(__name__)
 WEBHOOK_SWEEP_MINUTES: Final = frozenset({1, 21, 41})
 #: Vendor round trips per sweep, at most. Twenty minutes later the rest are reached.
 WEBHOOK_SWEEP_BUDGET: Final = 200
+
+#: Switches a route off when its vendor agent is gone AND nothing of ours names it any more.
+#: Archived agents count as not naming it: their vendor agent is left standing on purpose
+#: (`agents/lifecycle.py`), so if the vendor no longer has it there is nothing to report.
+_RETIRE_ORPHANED_ROUTE_SQL = """
+UPDATE engine_agent_routes r SET active = false, updated_at = now()
+WHERE r.engine = :engine AND r.engine_agent_ref = :ref AND r.active
+  AND NOT EXISTS (
+    SELECT 1 FROM agents a
+    WHERE a.engine_agent_ref = r.engine_agent_ref
+      AND a.status <> 'archived' AND a.deleted_at IS NULL
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM prompt_experiment_variants v WHERE v.engine_agent_ref = r.engine_agent_ref
+  )
+"""
+
+
+def _vendor_detail(exc: Exception) -> dict[str, Any]:
+    """The vendor's own refusal facts, ids and codes only (hard rule 6): the status, the
+    vendor's error code and reason word, the field it named, and whether the adapter judged
+    it our set-up. The vendor's sentence is on the `engine_error` line logged at the raise."""
+    if not isinstance(exc, EngineRejectedError):
+        return {}
+    return {
+        "vendor_status": exc.vendor_status,
+        "vendor_code": exc.vendor_code,
+        "vendor_error": exc.vendor_error,
+        "vendor_reason": exc.vendor_reason,
+        "vendor_field": exc.vendor_field,
+        "setup_refused": exc.setup_refused,
+    }
+
+
+async def _retire_if_orphaned(tenant_id: UUID, engine: str, ref: str) -> bool:
+    """Switch the route off when no agent or arm of ours still names it. True if it was."""
+    async with tenant_session(tenant_id) as session:
+        result = await session.execute(
+            text(_RETIRE_ORPHANED_ROUTE_SQL), {"engine": engine, "ref": ref}
+        )
+    return rowcount_of(result) > 0
 
 
 async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
@@ -53,7 +106,7 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
                 {"engine": engine, "budget": WEBHOOK_SWEEP_BUDGET},
             )
         ).all()
-    reenabled = registered = unreached = redelivered = 0
+    reenabled = registered = unreached = redelivered = retired = agent_absent = 0
     for tenant_id, ref in rows:
         try:
             async with tenant_session(UUID(str(tenant_id))) as session:
@@ -70,8 +123,18 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
                     # A ProblemError's code says which refusal it was; the class name alone
                     # leaves an operator re-running the sweep by hand to find out.
                     "code": getattr(exc, "code", None),
+                    **_vendor_detail(exc),
                 },
             )
+            if isinstance(exc, EngineRejectedError) and exc.object_absent:
+                if await _retire_if_orphaned(UUID(str(tenant_id)), engine, str(ref)):
+                    log.warning(
+                        "engine_webhook_route_retired",
+                        extra={"engine": engine, "tenant_id": str(tenant_id)},
+                    )
+                    retired += 1
+                    continue
+                agent_absent += 1
             unreached += 1
             continue
         # A switched-off endpoint is re-enabled, alarmed and re-sent inside
@@ -83,19 +146,27 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
         elif outcome in ("registered", "replaced"):
             registered += 1
     if unreached:
+        absent_note = (
+            f" {agent_absent} of them belong to an agent the voice platform says it does not "
+            "have in that workspace while one of our agents still publishes under it: "
+            "republish that agent."
+            if agent_absent
+            else ""
+        )
         alert(
             "WORKER_DELIVERY",
             "engine_webhook_sweep_incomplete",
             detail=(
                 f"{unreached} of {len(rows)} agent webhook endpoint(s) could not be checked; "
-                "a switched-off endpoint among them is still losing deliveries. See "
-                "engine_webhook_check_failed in the worker log."
+                "a switched-off endpoint among them is still losing deliveries."
+                f"{absent_note} See engine_webhook_check_failed (vendor_status, vendor_code) "
+                "and the engine_error line before it in the worker log."
             ),
             engine=engine,
         )
     return (
         f"checked={len(rows)} reenabled={reenabled} redelivered={redelivered} "
-        f"registered={registered} unreached={unreached}"
+        f"registered={registered} unreached={unreached} retired={retired}"
     )
 
 

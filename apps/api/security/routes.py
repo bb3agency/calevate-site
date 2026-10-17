@@ -234,9 +234,15 @@ async def receive_csp_report(request: Request) -> Response:
         alert(
             "BROWSER_RUNTIME",
             CSP_VIOLATION_CODE,
+            # The source origin and line are what tell a visitor's add-on (code from an
+            # origin that is not ours) from a screen we broke (our own bundle refusing an
+            # origin it needs), so the alarm carries them rather than only the log line.
             detail=(
                 f"{len(recorded)} Content-Security-Policy violation(s) in one report: "
-                f"{first.fingerprint} on {first.document_realm}"
+                f"{first.fingerprint} on {first.document_realm}, from "
+                f"{first.source_origin or 'an unnamed source'}"
+                f"{f' line {first.line_number}' if first.line_number is not None else ''}"
+                f" ({first.disposition or 'disposition not stated'})"
             ),
         )
     return Response(status_code=204)

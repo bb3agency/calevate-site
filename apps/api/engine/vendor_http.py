@@ -900,6 +900,9 @@ async def _vendor_response(
             "engine_error",
             extra={
                 "engine": engine,
+                # GET and PATCH share a route template (`/webhooks/{id}`), so the method is
+                # what tells a failed read from a refused change.
+                "method": method.upper(),
                 "status": response.status_code,
                 "route": route,
                 "vendor_error": vendor_error,

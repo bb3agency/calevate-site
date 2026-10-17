@@ -74,10 +74,13 @@ async def refresh_voice_catalogue(ctx: dict[str, Any]) -> str:
     nothing" answerable without reading a day of logs — and changing nothing is the
     expected outcome of almost every run.
 
-    **THE SYNC AND THE INSTALL ARE ONE COMMIT'S WORTH OF WORK BUT TWO STEPS**, deliberately.
-    The install re-reads the table rather than using the rows it just built, because the
-    table is what the OTHER processes will read: a worker that installed the listing
-    directly could serve a catalogue that a failed COMMIT means nobody else will ever see.
+    **THE SYNC AND THE INSTALL ARE TWO SESSIONS**, deliberately. The install re-reads the
+    table rather than using the rows it just built, because the table is what the OTHER
+    processes will read: a worker that installed the listing directly could serve a
+    catalogue that a failed COMMIT means nobody else will ever see. The sync commits by
+    LEAVING its block — `untenanted_session` is `session.begin()`, which commits on exit
+    and refuses any statement after an explicit `commit()` inside it — so the install
+    opens a fresh session that can only see what was committed.
 
     A sync that read nothing is NOT an error here and does not retry. `sync_voice_catalogue`
     already alerted and already refused to apply it, and the previous catalogue is standing
@@ -88,7 +91,7 @@ async def refresh_voice_catalogue(ctx: dict[str, Any]) -> str:
         engine = get_engine()
         async with untenanted_session() as session:
             result = await sync_voice_catalogue(session, engine)
-            await session.commit()
+        async with untenanted_session() as session:
             in_force = await load_voice_catalogue(session)
     except Exception as exc:
         log.warning(

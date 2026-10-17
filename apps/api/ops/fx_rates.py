@@ -303,6 +303,10 @@ class FxCheck:
     #: the ceiling (the feeds work and are behind).
     serving_source: str | None
     serving_as_of: date | None
+    #: The IST day `fx_source_degraded` was last raised for the source serving now, or
+    #: `None` while the preferred rung serves. The pull raises it when the serving source
+    #: changes and then at most once per IST day (`fx_pull.degraded_alarm_due`).
+    degraded_alarmed_on: date | None = None
 
 
 async def record_check(check: FxCheck) -> None:
@@ -313,6 +317,9 @@ async def record_check(check: FxCheck) -> None:
             "checked_at": check.checked_at.isoformat(),
             "serving_source": check.serving_source,
             "serving_as_of": check.serving_as_of.isoformat() if check.serving_as_of else None,
+            "degraded_alarmed_on": (
+                check.degraded_alarmed_on.isoformat() if check.degraded_alarmed_on else None
+            ),
         }
     )
     try:
@@ -333,10 +340,12 @@ async def last_check() -> FxCheck | None:
     try:
         data = json.loads(raw)
         as_of = data.get("serving_as_of")
+        alarmed_on = data.get("degraded_alarmed_on")
         return FxCheck(
             checked_at=datetime.fromisoformat(data["checked_at"]),
             serving_source=data.get("serving_source"),
             serving_as_of=date.fromisoformat(as_of) if as_of else None,
+            degraded_alarmed_on=date.fromisoformat(alarmed_on) if alarmed_on else None,
         )
     except (ValueError, KeyError, TypeError) as exc:
         log.warning("fx_check_unreadable", extra={"reason": type(exc).__name__})

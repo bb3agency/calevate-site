@@ -37,6 +37,9 @@ class FakeThinnest:
         self.calls: list[tuple[str, str]] = []
         self.redelivered: list[tuple[str, dict[str, Any]]] = []
         self.redeliver_status = 202
+        #: Agents the vendor answers `404 That agent was not found.` for on create
+        #: (`snapshots/2026-10-15/pages/api-reference/webhooks/create-webhook.md:510-517`).
+        self.absent_agents: set[str] = set()
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"] == "Bearer ta_live_test"
@@ -44,6 +47,8 @@ class FakeThinnest:
         self.calls.append((request.method, path))
         if path == "/webhooks" and request.method == "POST":
             body = json.loads(request.content)
+            if body["agent"] in self.absent_agents:
+                return httpx.Response(404, json={"error": "That agent was not found."})
             webhook_id = f"wh_{uuid.uuid4().hex[:10]}"
             row = {
                 "id": webhook_id,
@@ -397,3 +402,83 @@ async def test_a_publish_that_reenables_an_endpoint_resends_and_alarms(
     assert (result.outcome, result.redelivered) == ("reenabled", True)
     assert "engine_webhook_reenabled" in alerts
     assert [wid for wid, _ in vendor.redelivered] == [webhook_id]
+
+
+async def _active(tenant_id: uuid.UUID, ref: str) -> bool:
+    async with tenant_session(tenant_id) as session:
+        return bool(
+            (
+                await session.execute(
+                    text(
+                        "SELECT active FROM engine_agent_routes "
+                        "WHERE engine = 'thinnest' AND engine_agent_ref = :ref"
+                    ),
+                    {"ref": ref},
+                )
+            ).scalar_one()
+        )
+
+
+async def test_a_route_whose_vendor_agent_is_gone_and_unnamed_is_switched_off(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """No agent or arm of ours names this vendor agent any more (`_route`'s agent publishes
+    under a different ref), and the vendor no longer has it: nothing can report through the
+    route, so it is switched off instead of failing every sweep. The failure line carries
+    the vendor's status so the cause is in the log, not behind a re-run."""
+    tenant_id, ref = await _route()
+    vendor.absent_agents.add(ref)
+    await _aged(tenant_id, ref, "2000-01-01")
+    alerts: list[tuple[str, str]] = []
+    monkeypatch.setattr(sweep, "alert", lambda _s, code, **kw: alerts.append((code, kw["detail"])))
+    monkeypatch.setattr(get_settings(), "engine", ENGINE)
+
+    summary = await sweep.reconcile_engine_webhooks({})
+
+    assert not await _active(tenant_id, ref)
+    assert "retired=" in summary and "retired=0" not in summary
+    failed = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "engine_webhook_check_failed" and r.tenant_id == str(tenant_id)
+    ]
+    assert [(r.vendor_status, r.code) for r in failed] == [(404, "engine_rejected")]
+
+    await _aged(tenant_id, ref, "2000-01-01")
+    caplog.clear()
+    await sweep.reconcile_engine_webhooks({})
+    assert not [
+        r
+        for r in caplog.records
+        if r.getMessage() == "engine_webhook_check_failed" and r.tenant_id == str(tenant_id)
+    ], "a switched-off route was swept again"
+
+
+async def test_a_route_an_agent_still_publishes_under_is_kept_and_named_in_the_alarm(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The vendor says the agent we sell is missing (or it was asked for in the wrong
+    workspace). Switching its route off would hide that; the alarm says to republish."""
+    ref = f"ag_{uuid.uuid4()}"
+    tenant_id, agent_id = await _seed_tenant(ref)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
+                "active, created_at, updated_at) VALUES ('thinnest', :ref, :tid, :aid, true, "
+                "'2000-01-01', now())"
+            ),
+            {"ref": ref, "tid": tenant_id, "aid": agent_id},
+        )
+    vendor.absent_agents.add(ref)
+    await _aged(tenant_id, ref, "2000-01-01")
+    alerts: list[tuple[str, str]] = []
+    monkeypatch.setattr(sweep, "alert", lambda _s, code, **kw: alerts.append((code, kw["detail"])))
+    monkeypatch.setattr(get_settings(), "engine", ENGINE)
+
+    await sweep.reconcile_engine_webhooks({})
+
+    assert await _active(tenant_id, ref)
+    [(code, detail)] = alerts
+    assert code == "engine_webhook_sweep_incomplete"
+    assert "republish that agent" in detail

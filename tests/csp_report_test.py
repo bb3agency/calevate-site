@@ -301,3 +301,30 @@ def test_an_ordinary_console_realm_still_survives_the_shape_check() -> None:
             _legacy_body(**{"document-uri": f"https://app.calevate.tech{path}"})
         )
         assert violation.document_realm == expected, path
+
+
+def test_an_extension_injecting_inline_code_into_our_page_is_noise_too() -> None:
+    """An add-on injecting a script reports `blocked-uri: inline` with ITSELF as the
+    source file. The refused thing looks like ours; the code that tried it is not."""
+    [injected] = csp_reports.parse_reports(
+        _legacy_body(**{"source-file": "chrome-extension://abcdefghijklmnop/content.js"})
+    )
+    assert csp_reports.is_extension_noise(injected)
+    [ours] = csp_reports.parse_reports(_legacy_body())
+    assert not csp_reports.is_extension_noise(ours), "our own bundle's refusal is a real one"
+
+
+async def test_the_alarm_names_where_the_refused_code_came_from(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The source origin and line are what separate a visitor's add-on from a screen we
+    broke, so an operator reads them on the alarm rather than hunting the log line."""
+    details: list[str] = []
+    monkeypatch.setattr(
+        "apps.api.security.routes.alert",
+        lambda stage, code, **kw: details.append(kw["detail"]),
+    )
+    assert await _post(_legacy_body()) == 204
+    [detail] = details
+    assert "script-src|inline" in detail
+    assert "from https://app.calevate.tech line 41 (enforce)" in detail

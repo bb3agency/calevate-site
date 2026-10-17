@@ -79,7 +79,8 @@ async def sweep_alert_clears(ctx: dict[str, Any]) -> str:
                 text(_CLOSE_SQL), {"quiet_s": ALERT_CLEAR_AFTER_S, "batch": CLEAR_BATCH}
             )
         ).all()
-        await session.commit()
+    # Leaving the block commits the closes before any notice is mailed, so a mail that
+    # fails cannot reopen an episode and a second worker cannot announce it again.
 
     announced = 0
     for row in rows:

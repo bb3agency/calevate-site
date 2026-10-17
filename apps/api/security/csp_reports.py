@@ -301,8 +301,15 @@ def parse_reports(payload: object) -> list[CspViolation]:
 
 
 def is_extension_noise(violation: CspViolation) -> bool:
-    """A violation caused by something running in the user's own browser, not by us."""
-    return scheme_of(violation.blocked_origin) in EXTENSION_SCHEMES
+    """A violation caused by something running in the user's own browser, not by us.
+
+    Either half names an extension: what was refused (an extension's own script), or the
+    code that tried to run it (an extension injecting an inline script or an `eval` into
+    our page, which reports `blocked-uri: inline` with the extension as `source-file`)."""
+    return (
+        scheme_of(violation.blocked_origin) in EXTENSION_SCHEMES
+        or scheme_of(violation.source_origin) in EXTENSION_SCHEMES
+    )
 
 
 __all__ = [
