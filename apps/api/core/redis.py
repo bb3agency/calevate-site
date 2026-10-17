@@ -33,6 +33,18 @@ def get_redis() -> Redis:
     return _client
 
 
+_RELEASE_LUA = (
+    "if redis.call('get', KEYS[1]) == ARGV[1] then "
+    "return redis.call('del', KEYS[1]) else return 0 end"
+)
+
+
+async def release_lease(redis: Redis, key: str, token: str) -> bool:
+    """Delete a `SET NX` lease only while it still holds `token`: a holder whose lease
+    expired and was taken by another must not free the new holder's. True if it was ours."""
+    return bool(await redis.eval(_RELEASE_LUA, 1, key, token))  # type: ignore[misc]
+
+
 async def close_redis() -> None:
     global _client
     if _client is not None:
@@ -40,4 +52,4 @@ async def close_redis() -> None:
         _client = None
 
 
-__all__ = ["close_redis", "get_redis"]
+__all__ = ["close_redis", "get_redis", "release_lease"]

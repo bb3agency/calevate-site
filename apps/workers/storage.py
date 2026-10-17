@@ -364,11 +364,28 @@ def _host_allowed(url: str, hosts: frozenset[str]) -> bool:
     return parsed.scheme == "https" and parsed.host.lower().rstrip(".") in hosts
 
 
+#: The most of an error answer parsed to find its `code`; an error envelope is a sentence.
+_ERROR_BODY_MAX_BYTES = 4096
+
+
+def _error_code(response: httpx.Response) -> str | None:
+    """The `code` of a read `{error, code}` body, or None for any other body."""
+    try:
+        body = json.loads(response.content[:_ERROR_BODY_MAX_BYTES])
+    except (httpx.ResponseNotRead, ValueError):
+        return None
+    code = body.get("code") if isinstance(body, dict) else None
+    return code if isinstance(code, str) else None
+
+
 def _apply_source_rules(response: httpx.Response, rules: RecordingFetchRules) -> None:
     """A source's own answers for "not yet", "none" and "deleted", and its audio type."""
     status = response.status_code
     if rules.not_ready_status is not None and status == rules.not_ready_status:
         retry_after = response.headers.get("retry-after")
+        code = _error_code(response) if rules.misaddressed_codes else None
+        if code in rules.misaddressed_codes:
+            raise StorageUnavailableError(f"recording source refused: {code}")
         if retry_after is None:
             raise RecordingUnavailableError("not_recorded")
         try:
@@ -426,6 +443,9 @@ async def _fetch_recording(
                     url = str(response.next_request.url) if response.next_request else ""
                     continue
                 if rules is not None:
+                    if rules.misaddressed_codes and response.status_code == rules.not_ready_status:
+                        # An error answer from the source's own host: its code is read.
+                        await response.aread()
                     _apply_source_rules(response, rules)
                 response.raise_for_status()
                 declared = response.headers.get("content-length")

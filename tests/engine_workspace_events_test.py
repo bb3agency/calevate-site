@@ -422,6 +422,32 @@ async def test_a_check_already_running_holds_the_next_event_back(checks: Checks)
         await get_redis().delete(lease)
 
 
+def test_the_lease_outlives_the_longest_a_check_can_run() -> None:
+    assert WorkerSettings.job_timeout < events.BYOK_LEASE_S
+
+
+async def test_a_check_that_outlived_its_lease_leaves_the_next_holders_alone(
+    checks: Checks, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = f"org_{uuid.uuid4().hex}"
+    tenant_id, ref = await _route(workspace)
+    await give_own_workspace(tenant_id, workspace=workspace)
+    await _keys_of_ours(tenant_id, studio=True, own_model=False)
+    lease = f"calevate:byok-check:{workspace}"
+
+    async def slow_check(_engine: Any, _tenant: UUID, _workspace: str) -> str:
+        # The lease expires mid-check and the next event's check takes it.
+        await get_redis().set(lease, "next-holder", ex=60)
+        return "ok"
+
+    monkeypatch.setattr(events, "check_studio_workspace", slow_check)
+    try:
+        assert await events.ingest_engine_workspace_event({}, _job(ref, _byok())) == "studio=ok"
+        assert await get_redis().get(lease) == "next-holder"
+    finally:
+        await get_redis().delete(lease)
+
+
 async def test_nothing_is_checked_on_an_engine_hosting_no_voices(
     checks: Checks, monkeypatch: pytest.MonkeyPatch
 ) -> None:

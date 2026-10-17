@@ -560,6 +560,56 @@ async def test_a_minute_metered_with_a_higher_fee_is_corrected_and_one_at_the_fe
     assert rows[nine]["fee_was"] == "0.09"
 
 
+async def _zero_length_minutes(tenant_id: uuid.UUID, meta: dict[str, str], count: int) -> None:
+    """Minute rows of zero-length calls (cost ₹0) whose call ids sort before every other."""
+    async with tenant_session(tenant_id) as session:
+        for _n in range(count):
+            call_id = uuid.UUID(int=uuid.uuid4().int >> 64)
+            await session.execute(
+                text(
+                    "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                    "status, created_at, updated_at) SELECT :id, tenant_id, agent_id, :ecid, "
+                    "'outbound', 'completed', now(), now() FROM calls WHERE tenant_id = :t "
+                    "LIMIT 1"
+                ),
+                {"id": call_id, "t": tenant_id, "ecid": f"out_{uuid.uuid4().hex}"},
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, "
+                    "unit_cost_paid, occurred_at, meta, created_at) VALUES (:i, :t, :c, "
+                    "'platform_min', 0, 0, now(), CAST(:m AS jsonb), now())"
+                ),
+                {"i": uuid7(), "t": tenant_id, "c": call_id, "m": json.dumps(meta)},
+            )
+
+
+@pytest.mark.rls
+async def test_zero_cost_minutes_never_hold_the_restatement_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A ₹0 minute has no fee to restate and is never written for, so if the batch selected
+    # it, it would head every hourly batch and the calls after it would never be restated.
+    tenant_id, _ref, calls = await _production_tenant()
+    await _zero_length_minutes(tenant_id, {"engine_rate_key": "premium"}, 2)
+    monkeypatch.setattr(engine_charges, "_RESTATE_BATCH", 2)
+    written = await engine_charges.restate_tenant_minutes(tenant_id, fee=Decimal("0.10"))
+    written += await engine_charges.restate_tenant_minutes(tenant_id, fee=Decimal("0.10"))
+    assert {call_id for call_id, _d in written} == {call_id for call_id, _e, _c in calls}
+
+
+@pytest.mark.rls
+async def test_zero_cost_minutes_never_hold_the_correction_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, _ref, _calls = await _production_tenant()
+    await _zero_length_minutes(tenant_id, {"engine_rate_key": "premium", "topup_fee": "0.10"}, 2)
+    ten = await _minute_with_fee(tenant_id, fee="0.10", cost="2.75", priced=True)
+    monkeypatch.setattr(engine_charges, "_RESTATE_BATCH", 2)
+    written = dict(await engine_charges.correct_tenant_fees(tenant_id, fee=Decimal("0.0236")))
+    assert written == {ten: Decimal("0.1910")}
+
+
 def test_the_excess_is_zero_when_nothing_is_over_the_fee() -> None:
     fee = Decimal("0.0236")
     excess = engine_charges.fee_excess

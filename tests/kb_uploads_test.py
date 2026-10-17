@@ -692,6 +692,16 @@ async def test_the_sweep_reaches_link_sources_at_all(monkeypatch: pytest.MonkeyP
         )
     await kb_ingest.sweep_kb_uploads({})
     assert seen == [], "a switched-off source was still re-read"
+    # Stamped as visited: every link change archives a version, and an unstamped one stays
+    # the oldest due row for ever, so enough of them would fill every tick's read.
+    async with tenant_session(tenant_id) as session:
+        stamped = (
+            await session.execute(
+                text("SELECT last_checked_at FROM kb_uploads WHERE source_id = :sid"),
+                {"sid": source_id},
+            )
+        ).scalar_one()
+    assert stamped is not None
 
 
 async def _noop_ingest(ctx: dict[str, Any], payload: dict[str, Any]) -> str:

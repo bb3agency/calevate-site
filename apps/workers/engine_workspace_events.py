@@ -33,6 +33,7 @@ switch, each its own event) is checked in turn rather than concurrently.
 from __future__ import annotations
 
 import json
+import secrets
 from typing import Any, Final, NoReturn, Protocol, runtime_checkable
 from uuid import UUID
 
@@ -45,7 +46,7 @@ from apps.api.compliance.processor_erasure import record_contact_erased
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.core.redis import get_redis
+from apps.api.core.redis import get_redis, release_lease
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.catalogue import RunsOwnModel
@@ -70,9 +71,11 @@ log = get_logger(__name__)
 #: Enqueued by voice-runtime (`signed_intake.ENGINE_WORKSPACE_EVENT_JOB`); equal by test.
 ENGINE_WORKSPACE_EVENT_JOB: Final = "ingest_engine_workspace_event"
 
-#: One own-key check per workspace at a time. Longer than a check takes (a few vendor reads
-#: and, on drift, the repair's writes), so a crashed holder frees it on its own.
-BYOK_LEASE_S: Final = 120
+#: One own-key check per workspace at a time. A repair walks every published agent with two
+#: vendor requests each, so no fixed estimate bounds it; arq's `job_timeout` (300 s) does,
+#: and the lease outlives it so a running check is never overlapped. A crashed holder still
+#: frees it on its own.
+BYOK_LEASE_S: Final = 330
 _BYOK_LEASE_KEY: Final = "calevate:byok-check:{workspace}"
 #: How long an event waits for the lease before it is tried again.
 _LEASE_RETRY_S: Final = 30.0
@@ -190,7 +193,8 @@ async def _byok_changed(
         return "unattributable"
     redis = get_redis()
     lease = _BYOK_LEASE_KEY.format(workspace=workspace or "developer")
-    if not await redis.set(lease, "1", nx=True, ex=BYOK_LEASE_S):
+    token = secrets.token_hex(16)
+    if not await redis.set(lease, token, nx=True, ex=BYOK_LEASE_S):
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=_LEASE_RETRY_S)
         # The check holding the lease reads the state after this change too, and the hourly
@@ -201,7 +205,7 @@ async def _byok_changed(
             return f"developer={await check_developer_studio(engine)}"
         return await _check_client(engine, tenant)
     finally:
-        await redis.delete(lease)
+        await release_lease(redis, lease, token)
 
 
 async def _check_client(engine: Any, tenant: UUID) -> str:

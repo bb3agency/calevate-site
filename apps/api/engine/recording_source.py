@@ -22,12 +22,16 @@ class RecordingFetchRules:
     * `not_ready_status`: answered WITH `Retry-After` it means "the audio has not landed",
       a wait; answered without, "there is no recording", which is not a failure.
     * `gone_status`: the vendor deleted it, which no retry will undo.
+    * `misaddressed_codes`: error `code`s that, on a `not_ready_status` answer, refuse WHERE
+      we asked (a workspace the vendor does not know) rather than say anything about the
+      recording. A failure to retry and alarm on, never "not recorded".
     """
 
     allowed_hosts: frozenset[str]
     content_types: frozenset[str]
     not_ready_status: int | None = None
     gone_status: int | None = None
+    misaddressed_codes: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
