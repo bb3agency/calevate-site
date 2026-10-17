@@ -69,7 +69,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
-from apps.api.agents.hosted_voices import rungs_awaiting_setup, studio_voices_ready
+from apps.api.agents.hosted_voices import rungs_awaiting_setup
+from apps.api.agents.studio_voices import studio_open_to
 from apps.api.billing.credit_packs import (
     CreditPack,
     pack_by_id,
@@ -610,13 +611,14 @@ def voice_tier_not_offered(engine: str, *, studio_ready: bool) -> tuple[VoiceTie
 
 
 async def _studio_on_sale(session: AsyncSession, *, engine: str, at: datetime) -> bool:
-    """On an engine whose voices are sold by band: are Studio voices switched on and their
-    minute attested? False elsewhere, where the answer is not asked."""
+    """On an engine whose voices are sold by band: is Studio open on this deployment
+    (`studio_voices.studio_open_to`) and its minute attested? False elsewhere, where the
+    answer is not asked."""
     if engine not in BAND_SOLD_ENGINES:
         return False
     if BYOK_VOICE_RATE_KEY not in await attested_rate_keys(session, engine=engine, at=at):
         return False
-    return await studio_voices_ready(session)
+    return await studio_open_to(session, tenant_id=None)
 
 
 def _published_platform_fee() -> Decimal | None:

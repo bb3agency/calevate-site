@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Final
 
+from calevate_shared.call_script import QUICK_FACTS_HEADER
+
 # The section marker PROMPT-GUIDE §2 uses. One spelling: two modules writing different
 # headers would each silently append their own block.
 T0_HEADER: Final = "[T0 FACTS]"
@@ -120,6 +122,58 @@ def splice_t0_block(body: str | None, block: str, *, identity: str) -> str:
     return "\n".join([*lines[:start], block, *lines[end:]]).rstrip() + "\n"
 
 
+def _section_of(lines: list[str], header: str) -> tuple[int, int] | None:
+    """Where the section opened by `header` sits in `lines`, trailing blank lines excluded."""
+    start = next((i for i, line in enumerate(lines) if line.startswith(header)), None)
+    if start is None:
+        return None
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("[")), len(lines))
+    while end > start + 1 and not lines[end - 1].strip():
+        end -= 1
+    return start, end
+
+
+def _with_quick_facts_of(source: list[str], body: str) -> str:
+    """`body` with its [QUICK FACTS] section replaced by `source`'s, or removed when `source`
+    has none. One `body` lacks goes before its [T0 FACTS] block, else at the end: where
+    `call_script.splice_quick_facts` puts it."""
+    lines = body.splitlines()
+    wanted = _section_of(source, QUICK_FACTS_HEADER)
+    section = source[wanted[0] : wanted[1]] if wanted else []
+    held = _section_of(lines, QUICK_FACTS_HEADER)
+    if held is not None:
+        if lines[held[0] : held[1]] == section:
+            return body
+        tail = lines[held[1] :]
+        while tail and not tail[0].strip():
+            tail.pop(0)
+        gap = [""] if section and tail else []
+        return "\n".join([*lines[: held[0]], *section, *gap, *tail]).strip() + "\n"
+    if not section:
+        return body
+    at = next((i for i, line in enumerate(lines) if line.startswith(T0_HEADER)), len(lines))
+    return "\n".join([*lines[:at], *section, "", *lines[at:]]).strip() + "\n"
+
+
+def with_knowledge_of(source: str | None, body: str, *, identity: str) -> str:
+    """`body` carrying exactly the client knowledge `source` carries: its [QUICK FACTS]
+    section (the pinned facts) and its [T0 FACTS] block (the business profile and the
+    published knowledge), each replaced, inserted or removed to match. Every other line of
+    `body` is kept, and a `body` that already matches comes back unchanged.
+
+    For an experiment arm (`agents/service._variant_config`): the arm's script is a frozen
+    prompt version, while both sections belong to the client (D-689, D-719) and are
+    recompiled onto the agent's own version on every change, so the arm takes them from the
+    agent's applied body and differs from its agent in the script alone (D-806).
+    """
+    out = body
+    block = block_of(source)
+    if block != block_of(body):
+        out = splice_t0_block(body, block, identity=identity) if block else without_block(body)
+    # The facts block first, so a quick-facts section inserted lands before it.
+    return _with_quick_facts_of((source or "").splitlines(), out)
+
+
 __all__ = [
     "T0_HEADER",
     "T0_KNOWLEDGE_MARKER",
@@ -127,5 +181,6 @@ __all__ = [
     "facts_without_knowledge",
     "intake_lines",
     "splice_t0_block",
+    "with_knowledge_of",
     "without_block",
 ]

@@ -233,8 +233,8 @@ class PlatformState(Base):
     shut. The outbound halt lives in the same row because it is the same question —
     "is the platform allowed to do work right now" — and one row means one read.
 
-    Not tenant-scoped and deliberately not RLS'd: it is global by definition, written
-    only through the audited admin ops surface (step-up confirmation, §7).
+    Not tenant-scoped and deliberately not RLS'd: it is global by definition. Its switches
+    are written only through the audited admin ops surface (step-up confirmation, §7).
     """
 
     __tablename__ = "platform_state"
@@ -273,6 +273,13 @@ class PlatformState(Base):
     # underneath us, so "we believed it on this date" is a different fact from
     # "it was granted on this date".
     tm_verified_at: Mapped[datetime | None]
+    # Not a switch: the last answer our developer workspace gave to "are you on our Cartesia
+    # key for the voice?", written by the hourly Studio check and Studio ready
+    # (`tenancy/engine_workspace.record_developer_studio_check`). One workspace for the
+    # platform, so one fact here; the client voice picker reads it (D-806).
+    studio_developer_ready: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
     )

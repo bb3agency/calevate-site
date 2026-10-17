@@ -48,6 +48,7 @@ from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.ops.secret_service import resolve_secrets
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.engine_workspace import (
+    record_developer_studio_check,
     record_studio_check,
     studio_workspaces,
     workspace_for_tenant,
@@ -241,7 +242,9 @@ def alarm_studio_tally(tally: dict[str, int]) -> None:
 
 async def check_developer_studio(engine: HostsVoices) -> str:
     """The developer workspace's half of the hourly check: `ok`, `repaired`, `failed`,
-    or `not_set_up` while Studio ready has never held our key there."""
+    or `not_set_up` while Studio ready has never held our key there. Each definite answer is
+    recorded, since a free-trial account is offered Studio by it (`studio_open_to`, D-806);
+    an unreadable workspace changes nothing."""
     from apps.api.agents.studio_voices import ensure_developer_studio
 
     try:
@@ -250,8 +253,10 @@ async def check_developer_studio(engine: HostsVoices) -> str:
         log.warning("engine_byok_state_unreadable", extra={"code": exc.code})
         return "failed"
     if own_voice_key_ready(state):
+        await _record_developer(ready=True)
         return "ok"
     if state.voice_provider != STUDIO_VOICE_PROVIDER:
+        await _record_developer(ready=False)
         return "not_set_up"
     log.warning(
         "studio_developer_drift",
@@ -262,6 +267,7 @@ async def check_developer_studio(engine: HostsVoices) -> str:
             await ensure_developer_studio(session, engine)
     except ProblemError as exc:
         log.warning("studio_developer_repair_failed", extra={"reason": exc.code})
+        await _record_developer(ready=False)
         alert(
             "CORE_LOGIC",
             "studio_developer_drift",
@@ -284,6 +290,11 @@ async def check_developer_studio(engine: HostsVoices) -> str:
         ),
     )
     return "repaired"
+
+
+async def _record_developer(*, ready: bool) -> None:
+    async with untenanted_session() as session:
+        await record_developer_studio_check(session, ready=ready)
 
 
 __all__ = [

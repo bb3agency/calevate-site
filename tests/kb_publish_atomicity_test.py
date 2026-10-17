@@ -83,7 +83,7 @@ async def _engine_ref(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:
 async def _recorded_handle(tenant_id: uuid.UUID, source_id: uuid.UUID) -> str | None:
     async with tenant_session(tenant_id) as session:
         routes = await kb_service._routes_of_source(session, source_id)
-        return routes[0][1] if routes else None
+        return routes[0].handle if routes else None
 
 
 class _Spy:

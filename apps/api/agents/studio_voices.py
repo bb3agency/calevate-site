@@ -43,7 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.hosted_voices import (
     STUDIO_VOICE_PROVIDER,
     own_voice_key_ready,
-    studio_voices_ready,
+    studio_voices_listed,
 )
 from apps.api.agents.voice_offer import tts_price_is_billable
 from apps.api.billing.engine_minutes import (
@@ -51,6 +51,7 @@ from apps.api.billing.engine_minutes import (
     OWN_VOICE_RATE_KEYS,
     attested_rate_keys,
 )
+from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -59,8 +60,11 @@ from apps.api.engine.catalogue import HostsVoices, OwnVoiceKeyState
 from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.tenancy.engine_workspace import (
     StudioWorkspace,
+    developer_studio_ready,
+    record_developer_studio_check,
     record_studio_check,
     resolve_workspace,
+    studio_on_in_workspace,
     studio_workspaces,
 )
 
@@ -352,6 +356,7 @@ async def ensure_developer_studio(
     worker's untenanted session)."""
     state = await engine.own_key_state()
     if own_voice_key_ready(state):
+        await record_developer_studio_check(session, ready=True)
         return state
     unconfirmed = await _keep_inheriting_agents_off(session, engine)
     if unconfirmed:
@@ -367,17 +372,51 @@ async def ensure_developer_studio(
     state = await engine.own_key_state()
     if not own_voice_key_ready(state):
         raise _developer_not_ready(state)
+    await record_developer_studio_check(session, ready=True)
     log.info("studio_developer_ready")
     return state
 
 
 async def require_developer_studio(engine: HostsVoices) -> None:
     """A trial agent's Studio publish: our developer workspace must answer ready. Read live,
-    never switched on from here; the operator's Studio ready and the hourly repair do that."""
+    never switched on from here; the operator's Studio ready and the hourly repair do that,
+    and record the answer the picker offers by (`studio_open_to`)."""
     state = await engine.own_key_state()
     if not own_voice_key_ready(state):
         log.warning("studio_trial_publish_developer_not_ready", extra={"using": state.using})
         raise studio_account_not_ready()
+
+
+async def studio_open_to(session: AsyncSession, *, tenant_id: UUID | None) -> bool:
+    """May a Studio voice be offered: to the account `tenant_id`, in its tenant session, or,
+    with None, on this deployment at all (the rate card, the ops console)?
+
+    THE PUBLISH'S OWN TESTS, AS LAST RECORDED (D-806). A Studio publish re-reads the vendor
+    live (`agents/service._studio_in_client_workspace`); the offer cannot afford a vendor
+    round trip per page, so it reads what those same tests last found:
+
+    * a free-trial account's agents live in our developer workspace, and their publish needs
+      it on our key (`require_developer_studio`): the last developer check, written by the
+      hourly Studio check and Studio ready (`record_developer_studio_check`);
+    * a paying account's publish switches its own workspace on (`ensure_studio_in`), which
+      needs the Cartesia key in our console unless the workspace already answered ready at
+      its last check;
+    * the deployment sells Studio while the developer workspace is on (D-727's readiness).
+
+    In every case only once Studio voices have been listed. The price of each voice is the
+    per-voice question (`hosted_voices.hosted_voice_unofferable_reason`). Not withdrawing
+    the voices instead (what `hosted_voices.withdraw_own_key_voices` did before D-717) is
+    the point: a withdrawn voice is refused on every publish (`engine_choice._check_voice`),
+    so a developer workspace found off would also stop paying clients' Studio agents, whose
+    own workspaces still speak.
+    """
+    if not await studio_voices_listed(session):
+        return False
+    if tenant_id is None or await restricting_trial(session, tenant_id=tenant_id) is not None:
+        return await developer_studio_ready(session)
+    if get_settings().cartesia_api_key:
+        return True
+    return await studio_on_in_workspace(session, tenant_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -433,7 +472,7 @@ async def studio_readiness(
         developer_switch_on=own_voice_key_ready(state),
         minute_attested=BYOK_VOICE_RATE_KEY in attested,
         synthesis_priced=tts_price_is_billable(STUDIO_VOICE_PROVIDER),
-        voices_listed=await studio_voices_ready(session),
+        voices_listed=await studio_voices_listed(session),
         workspaces=tuple(await studio_workspaces()),
     )
 
@@ -503,5 +542,6 @@ __all__ = [
     "published_routes",
     "require_developer_studio",
     "studio_account_not_ready",
+    "studio_open_to",
     "studio_readiness",
 ]

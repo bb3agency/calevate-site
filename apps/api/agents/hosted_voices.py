@@ -30,7 +30,8 @@ on the route.
 
 A client may choose a voice in a sold band that an operator ADDED (`origin = operator`) AND
 ENABLED, that the engine still lists, whose minute is priced, and — for Studio — once its
-voices have been listed from a Studio client workspace (`studio_voices_ready`).
+voices have been listed and the account's Studio publish would go through as the last checks
+recorded (`studio_voices.studio_open_to`, D-806).
 """
 
 from __future__ import annotations
@@ -280,11 +281,10 @@ async def live_studio_agents(session: AsyncSession, *, engine: str) -> int:
     )
 
 
-async def studio_voices_ready(session: AsyncSession) -> bool:
-    """Can Studio voices be offered, as the catalogue records it? Our own-key voices are
-    listed from a Studio client workspace (`sync_hosted_voices`), so a listed one is the
-    cached answer the rate card and the picker read without a vendor round trip. A publish
-    switches Studio on in its client's own workspace and reads it back live (D-717)."""
+async def studio_voices_listed(session: AsyncSession) -> bool:
+    """Has a ready workspace listed our own-key voices (`sync_hosted_voices`)? Necessary for
+    offering Studio, not sufficient: whether an account's Studio publish would go through is
+    `studio_voices.studio_open_to`."""
     return bool(
         (
             await session.execute(
@@ -296,7 +296,7 @@ async def studio_voices_ready(session: AsyncSession) -> bool:
 
 def rungs_awaiting_setup(engine: str, *, studio_ready: bool) -> frozenset[VoiceTier]:
     """The rungs `engine` sells whose voices cannot be spoken until a setup step is done:
-    the own-voice-key rung until its voices are listed (D-688, D-717)."""
+    the own-voice-key rung until Studio is open (`studio_voices.studio_open_to`)."""
     rung = client_voice_tier(engine, BYOK_VOICE_RATE_KEY)
     return frozenset({rung}) if rung is not None and not studio_ready else frozenset()
 
@@ -418,17 +418,6 @@ async def _apply_listing(
     )
     pruned = int(result.rowcount or 0)  # type: ignore[attr-defined]
     return len(rows), pruned
-
-
-async def withdraw_own_key_voices(session: AsyncSession, *, now: datetime | None = None) -> int:
-    """Stamp every own-key voice as not speakable: the workspace is not on our voice key, so
-    no agent can be put on one. Curation is kept, so they return as they were when it is."""
-    result = await session.execute(
-        update(PlatformVoiceCatalogEntry)
-        .where(_still_listed("byok"))
-        .values(withdrawn_at=now or datetime.now(UTC))
-    )
-    return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
 
 def _alert_empty(engine: str, source: HostedVoiceSource) -> None:
@@ -1218,8 +1207,9 @@ def hosted_voice_unofferable_reason(
     whose problem they are: the minute not priced, then — for Studio — our voice provider's
     own synthesis not priced, which is a second cost on that minute (hard rule 7;
     `voice_offer.tts_price_is_billable`).
-    A Studio voice while our voice key is off is not here: the sync withdraws it then, so it
-    is not on offer at all (`withdraw_own_key_voices`)."""
+    Whether this account's Studio publish would go through is not here: it is per account,
+    not per voice, and the picker asks `studio_voices.studio_open_to`. A publish asks the
+    vendor live (`agents/service._studio_in_client_workspace`)."""
     if row.rate_key not in attested:
         if audience == "client":
             return "Not available yet: this voice has not been priced."
@@ -1314,8 +1304,7 @@ __all__ = [
     "sold_hosted_band",
     "source_rate_key",
     "studio_listing_workspace",
-    "studio_voices_ready",
+    "studio_voices_listed",
     "sync_hosted_voices",
     "withdraw_hosted_voice",
-    "withdraw_own_key_voices",
 ]

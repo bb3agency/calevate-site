@@ -79,6 +79,7 @@ async def sync_business_facts(
     agent_id: UUID,
     ref: str,
     facts: str | None,
+    variant_id: UUID | None = None,
 ) -> None:
     """Make the vendor agent `ref` hold what our tables say it should know.
 
@@ -87,9 +88,10 @@ async def sync_business_facts(
 
     * on an engine that keeps facts out of the prompt, the facts document — the intake half
       of `facts` only (`t0_block.facts_without_knowledge`; see the module docstring);
-    * on an engine with a knowledge base, the tenant's published knowledge, for the agent's
-      OWN vendor agent (`kb/service.converge_agent_knowledge`). An experiment arm holds no
-      knowledge of ours, by construction.
+    * on an engine with a knowledge base, the tenant's published knowledge
+      (`kb/service.converge_agent_knowledge`), on the agent's own vendor agent or on the
+      running experiment arm `variant_id` names: an arm carries the client's knowledge like
+      every other agent of the client (D-689, D-806).
 
     A no-op on an engine with neither.
     """
@@ -113,9 +115,9 @@ async def sync_business_facts(
         await _sync_facts_document(
             session, engine, agent_id=agent_id, ref=ref, facts=facts_without_knowledge(facts)
         )
-    if holds_kb and owner[1] == ref:
+    if holds_kb and (variant_id is not None or owner[1] == ref):
         await converge_agent_knowledge(
-            session, engine, tenant_id=tenant_id, agent_id=agent_id, ref=ref
+            session, engine, tenant_id=tenant_id, agent_id=agent_id, ref=ref, variant_id=variant_id
         )
 
 
@@ -187,42 +189,35 @@ async def _sync_facts_document(
     )
 
 
-async def recorded_facts_handles(session: AsyncSession, *, agent_id: UUID) -> set[str]:
-    """The facts document recorded for the agent's OWN vendor agent, for the KB
-    reconciliation's "what do we believe is attached". Joined through `agents`, which is
-    FORCE-RLS'd, so an untenanted read answers empty as `kb/service._ROUTE_JOIN` does; an
-    experiment arm's copy is on the arm's vendor agent (`recorded_facts_handle`)."""
+async def recorded_facts_handles(
+    session: AsyncSession, *, agent_id: UUID, variant_id: UUID | None = None
+) -> set[str]:
+    """The facts document recorded for the agent's own vendor agent, or for its experiment
+    arm `variant_id`, for the KB reconciliation's "what do we believe is attached". Joined
+    through `agents` or `prompt_experiment_variants`, both FORCE-RLS'd, so an untenanted read
+    answers empty as `kb/service._ROUTE_JOIN` does."""
+    holder = (
+        "JOIN agents a ON a.id = r.agent_id AND a.engine_agent_ref = r.engine_agent_ref "
+        "WHERE r.agent_id = :aid"
+        if variant_id is None
+        else "JOIN prompt_experiment_variants v ON v.engine_agent_ref = r.engine_agent_ref "
+        "WHERE r.agent_id = :aid AND v.id = :vid"
+    )
     rows = (
         await session.execute(
             text(
-                "SELECT r.facts_kb_ref FROM engine_agent_routes r JOIN agents a "
-                "ON a.id = r.agent_id AND a.engine_agent_ref = r.engine_agent_ref "
-                "WHERE r.agent_id = :aid AND r.facts_kb_ref IS NOT NULL"
+                f"SELECT r.facts_kb_ref FROM engine_agent_routes r {holder} "
+                "AND r.facts_kb_ref IS NOT NULL"
             ),
-            {"aid": agent_id},
+            {"aid": agent_id, "vid": variant_id},
         )
     ).scalars()
     return {str(row) for row in rows}
 
 
-async def recorded_facts_handle(session: AsyncSession, *, engine_agent_ref: str) -> str | None:
-    """The facts document recorded for ONE vendor agent."""
-    value = (
-        await session.execute(
-            text(
-                "SELECT facts_kb_ref FROM engine_agent_routes "
-                "WHERE engine_agent_ref = :ref AND facts_kb_ref IS NOT NULL"
-            ),
-            {"ref": engine_agent_ref},
-        )
-    ).scalar()
-    return str(value) if value else None
-
-
 __all__ = [
     "FACTS_REPLACE_FAILED",
     "FACTS_TITLE",
-    "recorded_facts_handle",
     "recorded_facts_handles",
     "sync_business_facts",
 ]

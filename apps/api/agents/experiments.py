@@ -104,6 +104,7 @@ from apps.api.agents.proportions import (
     wilson_interval,
 )
 from apps.api.agents.service import ArmToPublish, publish_variants
+from apps.api.agents.t0_block import with_knowledge_of
 from apps.api.compliance.disclosure import bundled_disclosure_line
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -921,6 +922,12 @@ async def conclude(
 
     new_version: int | None = None
     async with tenant_session(tenant_id) as session:
+        # The knowledge lock before any row is written, for `service._hold_tenant_knowledge`'s
+        # lock order: the arms' knowledge is withdrawn below, and a knowledge publish holding
+        # the lock writes the arms' routes.
+        from apps.api.kb.service import lock_tenant_knowledge, withdraw_arm_knowledge
+
+        await lock_tenant_knowledge(session, tenant_id=tenant_id)
         promoted_id: UUID | None = None
         arm: Any = None
         if promote_label is not None:
@@ -978,6 +985,21 @@ async def conclude(
             ),
             {"tid": tenant_id, "eid": experiment_id},
         )
+        # A concluded arm is no longer a fan-out target, so its copies of the client's
+        # knowledge come down now rather than staying billed and going stale (D-806).
+        concluded_arms = (
+            await session.execute(
+                text(
+                    "SELECT id FROM prompt_experiment_variants WHERE experiment_id = :eid "
+                    "ORDER BY id"
+                ),
+                {"eid": experiment_id},
+            )
+        ).scalars()
+        for variant_id in list(concluded_arms):
+            await withdraw_arm_knowledge(
+                session, tenant_id=tenant_id, agent_id=agent_id, variant_id=UUID(str(variant_id))
+            )
 
         if promote_label is not None and arm is not None:
             # The arm's disclosure becomes the agent's: the promoted script and the
@@ -1011,11 +1033,24 @@ async def conclude(
                     "aid": agent_id,
                 },
             )
+            # The arm's script with the client's current knowledge sections, as the arm
+            # itself was published (`service._arm_script`): its frozen body would bring back
+            # the pinned facts and [T0 FACTS] block of the day the test started.
+            current = (
+                await session.execute(
+                    text(
+                        "SELECT a.name, pv.body FROM agents a LEFT JOIN prompt_versions pv "
+                        "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
+                        "WHERE a.id = :aid"
+                    ),
+                    {"aid": agent_id},
+                )
+            ).one()
             new_version = await prompts.insert_prompt_version(
                 session,
                 tenant_id=tenant_id,
                 agent_id=agent_id,
-                body=str(arm[2]),
+                body=with_knowledge_of(current[1], str(arm[2]), identity=f"{current[0]}."),
                 notes=f"promoted variant {promote_label} (v{int(arm[3])}) from experiment",
                 created_by=created_by,
                 # STAGED, then applied below through the one publishing path. Setting

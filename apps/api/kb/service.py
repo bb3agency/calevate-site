@@ -22,8 +22,9 @@ invisible-character refusal, the size ceilings, the chunker — run on every pat
 WHOSE KNOWLEDGE (D-689). A source belongs to the CLIENT, and every agent of the client
 answers from it: T0 is compiled for each agent from the same live
 set, and on an engine that keeps knowledge per vendor agent each source is one copy per
-agent (`engine_kb_routes`, one claim per source and agent), fanned out at publish and
-caught up when an agent is published later (`converge_agent_knowledge`).
+vendor agent (`engine_kb_routes`, one claim per source and holder: the agent's own vendor
+agent, or one arm of its running script test, D-806), fanned out at publish and caught up
+when an agent or an arm is published later (`converge_agent_knowledge`).
 
 Chunking is paragraph-aware with a size cap rather than a fixed window: KB answers are
 read aloud, and a chunk cut mid-sentence becomes a sentence the agent says badly.
@@ -694,34 +695,59 @@ def _engine_name() -> str:
 #: the untenanted read answering empty rather than the platform's whole handle set.
 _ROUTE_JOIN = "FROM engine_kb_routes r JOIN kb_sources s ON s.id = r.source_id WHERE "
 
+#: The claims of ONE holder: the agent's own vendor agent (`variant_id` NULL) or one arm of
+#: its script test (D-806). Every per-holder read and write spells it this way.
+_HOLDER = "r.agent_id = :aid AND r.variant_id IS NOT DISTINCT FROM CAST(:vid AS uuid)"
 
-async def _engine_kb_ref(session: AsyncSession, source_id: UUID, agent_id: UUID) -> str | None:
-    """The engine's handle for this source's copy on ONE agent, or None if nothing of ours
+
+async def _engine_kb_ref(
+    session: AsyncSession, source_id: UUID, agent_id: UUID, variant_id: UUID | None = None
+) -> str | None:
+    """The engine's handle for this source's copy on ONE holder, or None if nothing of ours
     is attached there. See `_remember_engine_kb_ref` for why it lives where it lives."""
     value = (
         await session.execute(
-            text(f"SELECT r.engine_kb_ref {_ROUTE_JOIN} r.source_id = :sid AND r.agent_id = :aid"),
-            {"sid": source_id, "aid": agent_id},
+            text(f"SELECT r.engine_kb_ref {_ROUTE_JOIN} r.source_id = :sid AND {_HOLDER}"),
+            {"sid": source_id, "aid": agent_id, "vid": variant_id},
         )
     ).scalar()
     return str(value) if value else None
 
 
-async def _routes_of_source(session: AsyncSession, source_id: UUID) -> list[tuple[UUID, str]]:
-    """`(agent_id, handle)` for every agent holding a copy of this source, in agent order."""
+@dataclass(frozen=True, slots=True)
+class KbRoute:
+    """One recorded copy of a source: its holder and the vendor's handle for it."""
+
+    agent_id: UUID
+    #: The experiment arm holding the copy, or None for the agent's own vendor agent.
+    variant_id: UUID | None
+    handle: str
+
+
+async def _routes_of_source(session: AsyncSession, source_id: UUID) -> list[KbRoute]:
+    """Every recorded copy of this source, agents' own first, in agent order."""
     rows = (
         await session.execute(
             text(
-                f"SELECT r.agent_id, r.engine_kb_ref {_ROUTE_JOIN} r.source_id = :sid "
-                "ORDER BY r.agent_id"
+                f"SELECT r.agent_id, r.variant_id, r.engine_kb_ref {_ROUTE_JOIN} "
+                "r.source_id = :sid ORDER BY r.agent_id, r.variant_id NULLS FIRST"
             ),
             {"sid": source_id},
         )
     ).all()
-    return [(UUID(str(row[0])), str(row[1])) for row in rows]
+    return [
+        KbRoute(
+            agent_id=UUID(str(row[0])),
+            variant_id=UUID(str(row[1])) if row[1] is not None else None,
+            handle=str(row[2]),
+        )
+        for row in rows
+    ]
 
 
-async def _engine_kb_digest(session: AsyncSession, source_id: UUID, agent_id: UUID) -> str | None:
+async def _engine_kb_digest(
+    session: AsyncSession, source_id: UUID, agent_id: UUID, variant_id: UUID | None = None
+) -> str | None:
     """The content digest of the document we last uploaded for this source to ONE agent.
 
     THE IDEMPOTENCY KEY (D-488), and it is stored rather than recomputed because the two
@@ -739,8 +765,8 @@ async def _engine_kb_digest(session: AsyncSession, source_id: UUID, agent_id: UU
     """
     value = (
         await session.execute(
-            text(f"SELECT r.digest {_ROUTE_JOIN} r.source_id = :sid AND r.agent_id = :aid"),
-            {"sid": source_id, "aid": agent_id},
+            text(f"SELECT r.digest {_ROUTE_JOIN} r.source_id = :sid AND {_HOLDER}"),
+            {"sid": source_id, "aid": agent_id, "vid": variant_id},
         )
     ).scalar()
     return str(value) if value else None
@@ -753,14 +779,16 @@ async def _remember_engine_kb_ref(
     engine_kb_ref: str | None,
     *,
     digest: str | None = None,
+    variant_id: UUID | None = None,
 ) -> None:
-    """Record (or clear) the engine's handle for a source's copy on one agent.
+    """Record (or clear) the engine's handle for a source's copy on one holder.
 
-    ONE ROW PER (SOURCE, AGENT) SINCE D-689. A source belongs to the tenant and every agent
-    answers from it, and on an engine whose knowledge is per agent (ThinnestAI: `POST
+    ONE ROW PER (SOURCE, HOLDER). A source belongs to the tenant and every agent answers from
+    it (D-689), and on an engine whose knowledge is per agent (ThinnestAI: `POST
     /agents/{id}/knowledge`, no account-level knowledge base) that is one vendor document on
-    each agent. The primary key is still the vendor handle, so two rows can never claim one
-    vendor object.
+    each vendor agent: the agent's own, and each arm of its running script test, which is a
+    vendor agent of its own (`variant_id`, D-806). The primary key is still the vendor
+    handle, so two rows can never claim one vendor object.
 
     **IT USED TO LIVE IN `kb_documents.meta ->> 'engine_kb_ref'` AND NOW HAS A TABLE
     (D-519, migration `f1c9e0a73b46`).** The old home was the one the KB migration
@@ -790,34 +818,40 @@ async def _remember_engine_kb_ref(
     see (`kb/orphans.py`).
 
     `tenant_id` is SELECTed from `kb_sources` and the agent is JOINed on the same tenant
-    rather than trusted, so the claim can only ever name the tenant that owns the source
-    and one of that tenant's agents — under RLS a session scoped elsewhere selects no row
-    and writes nothing, rather than attributing a vendor object to the wrong client.
+    rather than trusted, and an arm JOINed through its experiment onto that agent, so the
+    claim can only ever name the tenant that owns the source and one of that tenant's agents
+    — under RLS a session scoped elsewhere selects no row and writes nothing, rather than
+    attributing a vendor object to the wrong client.
     """
     if engine_kb_ref is None:
         await session.execute(
-            text("DELETE FROM engine_kb_routes WHERE source_id = :sid AND agent_id = :aid"),
-            {"sid": source_id, "aid": agent_id},
+            text(f"DELETE FROM engine_kb_routes r WHERE r.source_id = :sid AND {_HOLDER}"),
+            {"sid": source_id, "aid": agent_id, "vid": variant_id},
         )
         return
     await session.execute(
         text(
             "INSERT INTO engine_kb_routes (engine, engine_kb_ref, tenant_id, agent_id, "
-            "source_id, digest, created_at, updated_at) "
-            "SELECT :engine, :ref, s.tenant_id, a.id, s.id, :digest, now(), now() "
+            "variant_id, source_id, digest, created_at, updated_at) "
+            "SELECT :engine, :ref, s.tenant_id, a.id, CAST(:vid AS uuid), s.id, :digest, "
+            "now(), now() "
             "FROM kb_sources s JOIN agents a ON a.id = :aid AND a.tenant_id = s.tenant_id "
-            "WHERE s.id = :sid "
-            # The (source, agent) pair keeps its claim and re-points it: a republish mints a
+            "WHERE s.id = :sid AND (CAST(:vid AS uuid) IS NULL OR EXISTS ("
+            "  SELECT 1 FROM prompt_experiment_variants v "
+            "  JOIN prompt_experiments e ON e.id = v.experiment_id "
+            "  WHERE v.id = CAST(:vid AS uuid) AND e.agent_id = a.id)) "
+            # The (source, holder) pair keeps its claim and re-points it: a republish mints a
             # new vendor object, and the row that named the old one must now name the new
             # one. A DIFFERENT pair claiming a handle this one already holds violates the
             # primary key and raises, which is the point of the constraint.
-            "ON CONFLICT (source_id, agent_id) DO UPDATE SET engine = EXCLUDED.engine, "
-            "engine_kb_ref = EXCLUDED.engine_kb_ref, digest = EXCLUDED.digest, "
-            "updated_at = now()"
+            "ON CONFLICT (source_id, agent_id, variant_id) DO UPDATE SET "
+            "engine = EXCLUDED.engine, engine_kb_ref = EXCLUDED.engine_kb_ref, "
+            "digest = EXCLUDED.digest, updated_at = now()"
         ),
         {
             "sid": source_id,
             "aid": agent_id,
+            "vid": variant_id,
             "ref": engine_kb_ref,
             "digest": digest,
             "engine": _engine_name(),
@@ -924,8 +958,20 @@ def _render_refusal_words(exc: KnowledgePdfError) -> tuple[str, str]:
     )
 
 
-async def _publish_config(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> AgentConfig:
-    """The agent's configuration, exactly as a publish would send it.
+#: One experiment arm of an agent, as `service._variant_config` takes it.
+_ARM_SQL = """
+SELECT v.label, v.disclosure_line, pv.body FROM prompt_experiment_variants v
+JOIN prompt_experiments e ON e.id = v.experiment_id
+JOIN prompt_versions pv ON pv.id = v.prompt_version_id
+WHERE v.id = :vid AND e.agent_id = :aid
+"""
+
+
+async def _publish_config(
+    session: AsyncSession, tenant_id: UUID, agent_id: UUID, variant_id: UUID | None = None
+) -> AgentConfig:
+    """The configuration of the agent, or of its experiment arm `variant_id`, exactly as a
+    publish would send it.
 
     WHY THIS FUNCTION EXISTS (D-488). On an engine that keeps the knowledge linkage as
     AGENT state, attaching a document is a WRITE to the agent — and on the engine this
@@ -946,10 +992,14 @@ async def _publish_config(session: AsyncSession, tenant_id: UUID, agent_id: UUID
     """
     # Deferred, exactly as `agents/publishing.py` does it: `agents/service` sits inside an
     # import cycle with the publish chain, and a module-level import here closes it.
-    from apps.api.agents.service import _load_agent, _to_config
+    from apps.api.agents.service import _load_agent, _to_config, _variant_config
 
-    return _to_config(
-        tenant_id, await _load_agent(session, tenant_id, agent_id), engine=get_engine()
+    agent = await _load_agent(session, tenant_id, agent_id)
+    if variant_id is None:
+        return _to_config(tenant_id, agent, engine=get_engine())
+    arm = (await session.execute(text(_ARM_SQL), {"vid": variant_id, "aid": agent_id})).one()
+    return _variant_config(
+        tenant_id, agent, variant_id, str(arm[0]), str(arm[2]), str(arm[1]), engine=get_engine()
     )
 
 
@@ -1034,22 +1084,41 @@ async def try_lock_tenant_knowledge(session: AsyncSession, *, tenant_id: UUID) -
 
 @dataclass(frozen=True, slots=True)
 class KbTarget:
-    """One agent whose vendor agent holds copies of the tenant's knowledge."""
+    """One vendor agent that holds copies of the tenant's knowledge: an agent's own, or one
+    arm of its running script test (`variant_id`)."""
 
     agent_id: UUID
     engine_ref: str
+    variant_id: UUID | None = None
 
 
-#: The agents a source is fanned out to at the VENDOR: every agent of the tenant that has
-#: a vendor agent and has not been retired. An archived agent's documents were withdrawn
-#: when it was archived (`withdraw_agent_knowledge`); a restored one is caught up on its
-#: next publish. Ordered so the attach order — and therefore which agent a partial failure
-#: reaches — is reproducible.
+#: The vendor agents a source is fanned out to: every agent of the tenant that has a vendor
+#: agent and has not been retired, and every published arm of a script test RUNNING on one
+#: of them, which answers that agent's callers with its own script and the client's
+#: knowledge (D-806). An archived agent's documents were withdrawn when it was archived
+#: (`withdraw_agent_knowledge`) and a concluded arm's when it concluded
+#: (`withdraw_arm_knowledge`); a restored agent is caught up on its next publish. Ordered so
+#: the attach order — and therefore which holder a partial failure reaches — is
+#: reproducible.
 _VENDOR_TARGETS_SQL = """
-SELECT id, engine_agent_ref FROM agents
+SELECT id, engine_agent_ref, NULL::uuid AS variant_id FROM agents
 WHERE tenant_id = :tid AND deleted_at IS NULL AND status <> 'archived'
   AND engine_agent_ref IS NOT NULL
-ORDER BY id
+UNION ALL
+SELECT a.id, v.engine_agent_ref, v.id FROM prompt_experiment_variants v
+JOIN prompt_experiments e ON e.id = v.experiment_id AND e.status = 'running'
+JOIN agents a ON a.id = e.agent_id
+WHERE a.tenant_id = :tid AND a.deleted_at IS NULL AND a.status <> 'archived'
+  AND v.engine_agent_ref IS NOT NULL
+ORDER BY 1, 3 NULLS FIRST
+"""
+
+#: The published arms of the script test running on one agent, as knowledge holders.
+_RUNNING_ARMS_SQL = """
+SELECT v.id, v.engine_agent_ref FROM prompt_experiment_variants v
+JOIN prompt_experiments e ON e.id = v.experiment_id AND e.status = 'running'
+WHERE e.agent_id = :aid AND v.engine_agent_ref IS NOT NULL
+ORDER BY v.id
 """
 
 #: The agents whose T0 block carries the tenant's knowledge: every agent of
@@ -1065,7 +1134,23 @@ ORDER BY id
 async def vendor_targets(session: AsyncSession, *, tenant_id: UUID) -> list[KbTarget]:
     """See `_VENDOR_TARGETS_SQL`. `tenant_id` is restated on top of RLS."""
     rows = (await session.execute(text(_VENDOR_TARGETS_SQL), {"tid": tenant_id})).all()
-    return [KbTarget(agent_id=UUID(str(row[0])), engine_ref=str(row[1])) for row in rows]
+    return [
+        KbTarget(
+            agent_id=UUID(str(row[0])),
+            engine_ref=str(row[1]),
+            variant_id=UUID(str(row[2])) if row[2] is not None else None,
+        )
+        for row in rows
+    ]
+
+
+async def running_arms(session: AsyncSession, *, agent_id: UUID) -> list[KbTarget]:
+    """See `_RUNNING_ARMS_SQL`."""
+    rows = (await session.execute(text(_RUNNING_ARMS_SQL), {"aid": agent_id})).all()
+    return [
+        KbTarget(agent_id=agent_id, engine_ref=str(row[1]), variant_id=UUID(str(row[0])))
+        for row in rows
+    ]
 
 
 async def knowledge_agents(session: AsyncSession, *, tenant_id: UUID) -> list[UUID]:
@@ -1075,9 +1160,9 @@ async def knowledge_agents(session: AsyncSession, *, tenant_id: UUID) -> list[UU
 
 
 async def _same_name_copies_on(
-    session: AsyncSession, *, agent_id: UUID, name: str, keep: UUID
+    session: AsyncSession, *, target: KbTarget, name: str, keep: UUID
 ) -> list[tuple[UUID, str]]:
-    """Every copy of another version of `name` this agent holds, with its handle.
+    """Every copy of another version of `name` this holder has, with its handle.
 
     WHAT A PUBLISH OF `keep` WITHDRAWS FROM ONE AGENT, read from the claims rather than from
     `is_active`: normally exactly the live version it replaces, and also any older version a
@@ -1088,17 +1173,20 @@ async def _same_name_copies_on(
     rows = (
         await session.execute(
             text(
-                f"SELECT r.source_id, r.engine_kb_ref {_ROUTE_JOIN} r.agent_id = :aid "
+                f"SELECT r.source_id, r.engine_kb_ref {_ROUTE_JOIN} {_HOLDER} "
                 "AND s.name = :name AND s.id <> :sid ORDER BY s.version"
             ),
-            {"aid": agent_id, "name": name, "sid": keep},
+            {"aid": target.agent_id, "vid": target.variant_id, "name": name, "sid": keep},
         )
     ).all()
     return [(UUID(str(row[0])), str(row[1])) for row in rows]
 
 
-async def recorded_handles_of_agent(session: AsyncSession, agent_id: UUID) -> set[str]:
-    """Every engine handle we believe is attached to this agent, across all sources.
+async def recorded_handles_of_agent(
+    session: AsyncSession, agent_id: UUID, variant_id: UUID | None = None
+) -> set[str]:
+    """Every engine handle we believe is attached to this agent's own vendor agent, or to
+    its experiment arm `variant_id`, across all sources.
 
     Agent-wide rather than per-name: the question the reconciliation asks is "can we
     account for everything the engine is holding", which no single name can answer.
@@ -1117,13 +1205,15 @@ async def recorded_handles_of_agent(session: AsyncSession, agent_id: UUID) -> se
     """
     rows = (
         await session.execute(
-            text(f"SELECT r.engine_kb_ref {_ROUTE_JOIN} r.agent_id = :aid"),
-            {"aid": agent_id},
+            text(f"SELECT r.engine_kb_ref {_ROUTE_JOIN} {_HOLDER}"),
+            {"aid": agent_id, "vid": variant_id},
         )
     ).scalars()
     # The business-facts document an engine that keeps facts out of the prompt holds for
-    # this agent (`agents/engine_facts.py`) is ours too.
-    return {str(row) for row in rows} | await recorded_facts_handles(session, agent_id=agent_id)
+    # this vendor agent (`agents/engine_facts.py`) is ours too.
+    return {str(row) for row in rows} | await recorded_facts_handles(
+        session, agent_id=agent_id, variant_id=variant_id
+    )
 
 
 async def _reconcile_engine_state(
@@ -1206,6 +1296,7 @@ async def _detach_superseded(
     engine_kb_ref: str,
     *,
     agent_id: UUID,
+    variant_id: UUID | None = None,
     agent: AgentConfig | None,
     attached: list[str] | None,
 ) -> None:
@@ -1245,7 +1336,7 @@ async def _detach_superseded(
             "kb_detach_already_done",
             extra={"source_id": str(source_id), "agent_id": str(agent_id)},
         )
-        await _remember_engine_kb_ref(session, source_id, agent_id, None)
+        await _remember_engine_kb_ref(session, source_id, agent_id, None, variant_id=variant_id)
         return
     try:
         await engine.detach_kb(engine_ref, engine_kb_ref, agent=agent)
@@ -1271,7 +1362,7 @@ async def _detach_superseded(
                 "Try publishing again."
             ),
         ) from exc
-    await _remember_engine_kb_ref(session, source_id, agent_id, None)
+    await _remember_engine_kb_ref(session, source_id, agent_id, None, variant_id=variant_id)
 
 
 async def _restore_withdrawn(
@@ -1606,20 +1697,19 @@ async def _attach_to_agent(
     and never the handle just attached: on an engine that hands back the same id for the
     same document, withdrawing "the old copy" would delete the new one.
     """
-    config = await _publish_config(session, tenant_id, target.agent_id)
+    agent_id, variant_id = target.agent_id, target.variant_id
+    config = await _publish_config(session, tenant_id, agent_id, variant_id)
     attached_now = await _reconcile_engine_state(
         engine,
         target.engine_ref,
-        agent_id=target.agent_id,
-        accounted=await recorded_handles_of_agent(session, target.agent_id),
+        agent_id=agent_id,
+        accounted=await recorded_handles_of_agent(session, agent_id, variant_id),
     )
-    withdraw = await _same_name_copies_on(
-        session, agent_id=target.agent_id, name=name, keep=source_id
-    )
-    own_handle = await _engine_kb_ref(session, source_id, target.agent_id)
+    withdraw = await _same_name_copies_on(session, target=target, name=name, keep=source_id)
+    own_handle = await _engine_kb_ref(session, source_id, agent_id, variant_id)
     unchanged = (
         own_handle is not None
-        and await _engine_kb_digest(session, source_id, target.agent_id) == payload.digest
+        and await _engine_kb_digest(session, source_id, agent_id, variant_id) == payload.digest
         and (attached_now is None or own_handle in attached_now)
     )
     minted: str | None = None
@@ -1662,7 +1752,7 @@ async def _complete_on_agent(
     comes down — and re-raises the refusal `_detach_superseded` composed. The rows this
     function wrote before the failure stay true: a copy it withdrew is gone at the vendor.
     """
-    agent_id = rollover.target.agent_id
+    agent_id, variant_id = rollover.target.agent_id, rollover.target.variant_id
     for withdrawn_id, handle in rollover.withdraw:
         try:
             await _detach_superseded(
@@ -1672,6 +1762,7 @@ async def _complete_on_agent(
                 withdrawn_id,
                 handle,
                 agent_id=agent_id,
+                variant_id=variant_id,
                 agent=rollover.config,
                 attached=rollover.attached_now,
             )
@@ -1685,7 +1776,7 @@ async def _complete_on_agent(
             )
             raise
     await _remember_engine_kb_ref(
-        session, source_id, agent_id, rollover.attached_ref, digest=digest
+        session, source_id, agent_id, rollover.attached_ref, digest=digest, variant_id=variant_id
     )
 
 
@@ -1987,16 +2078,15 @@ async def _listing_or_none(engine: VoiceEngine, ref: str, *, agent_id: UUID) -> 
         return None
 
 
-async def _agent_refs(session: AsyncSession, agent_ids: list[UUID]) -> dict[UUID, str | None]:
-    if not agent_ids:
-        return {}
-    rows = (
-        await session.execute(
-            text("SELECT id, engine_agent_ref FROM agents WHERE id = ANY(:ids)"),
-            {"ids": agent_ids},
-        )
-    ).all()
-    return {UUID(str(row[0])): row[1] for row in rows}
+async def _holder_ref(session: AsyncSession, agent_id: UUID, variant_id: UUID | None) -> str | None:
+    """The vendor agent a claim's holder is now: the agent's own, or its arm's."""
+    sql = (
+        "SELECT engine_agent_ref FROM agents WHERE id = :aid"
+        if variant_id is None
+        else "SELECT engine_agent_ref FROM prompt_experiment_variants WHERE id = :vid"
+    )
+    value = (await session.execute(text(sql), {"aid": agent_id, "vid": variant_id})).scalar()
+    return str(value) if value else None
 
 
 async def withdraw_source(session: AsyncSession, *, tenant_id: UUID, source_id: UUID) -> bool:
@@ -2024,24 +2114,26 @@ async def withdraw_source(session: AsyncSession, *, tenant_id: UUID, source_id: 
     await lock_tenant_knowledge(session, tenant_id=tenant_id)
 
     routes = await _routes_of_source(session, source_id)
-    refs = await _agent_refs(session, [agent_id for agent_id, _ in routes])
     engine = get_engine() if routes else None
-    for agent_id, handle in routes:
-        ref = refs.get(agent_id)
+    for route in routes:
+        ref = await _holder_ref(session, route.agent_id, route.variant_id)
         if engine is None or not ref:
             # No vendor agent any more: its knowledge went with it at the vendor.
-            await _remember_engine_kb_ref(session, source_id, agent_id, None)
+            await _remember_engine_kb_ref(
+                session, source_id, route.agent_id, None, variant_id=route.variant_id
+            )
             continue
         require_capability("knowledge_base", engine=engine)
         await _detach_superseded(
             session,
             engine,
-            str(ref),
+            ref,
             source_id,
-            handle,
-            agent_id=agent_id,
+            route.handle,
+            agent_id=route.agent_id,
+            variant_id=route.variant_id,
             agent=None,
-            attached=await _listing_or_none(engine, str(ref), agent_id=agent_id),
+            attached=await _listing_or_none(engine, ref, agent_id=route.agent_id),
         )
 
     await session.execute(
@@ -2092,14 +2184,16 @@ async def converge_agent_knowledge(
     tenant_id: UUID,
     agent_id: UUID,
     ref: str,
+    variant_id: UUID | None = None,
 ) -> CatchUp:
-    """Make one vendor agent hold every live source of its tenant, and nothing archived.
+    """Make one vendor agent hold every live source of its tenant, and nothing archived:
+    the agent's own `ref`, or that of its running experiment arm `variant_id` (D-806).
 
     THE CATCH-UP (D-689). A source is attached to the agents that existed when it was
-    published; an agent published afterwards — new, restored, or one a fan-out could not
-    reach — gets the live sources here, from the agent publish path
+    published; an agent or arm published afterwards — new, restored, or one a fan-out could
+    not reach — gets the live sources here, from the agent and arm publish paths
     (`agents/engine_facts.sync_business_facts`) and from the knowledge sweep
-    (`workers/kb_gloss.py`).
+    (`catch_up_agent`).
 
     WHAT IT TOUCHES, AND WHAT IT NEVER DOES. It attaches a live source that has NO claim on
     this agent, withdraws a copy WE recorded of a version that is no longer live, and
@@ -2128,9 +2222,9 @@ async def converge_agent_knowledge(
                 "SELECT r.source_id, r.engine_kb_ref, s.is_active, r.digest, "
                 "  (SELECT o.digest FROM engine_kb_routes o WHERE o.source_id = r.source_id "
                 "   ORDER BY o.updated_at DESC, o.agent_id LIMIT 1) "
-                f"{_ROUTE_JOIN} r.agent_id = :aid"
+                f"{_ROUTE_JOIN} {_HOLDER}"
             ),
-            {"aid": agent_id},
+            {"aid": agent_id, "vid": variant_id},
         )
     ).all()
     held_ids = {UUID(str(row[0])) for row in held}
@@ -2160,12 +2254,12 @@ async def converge_agent_knowledge(
         # Settled, and decided from our own rows: no vendor call on the common path.
         return CatchUp()
     attached_now = await _listing_or_none(engine, ref, agent_id=agent_id)
-    accounted = await recorded_handles_of_agent(session, agent_id)
+    accounted = await recorded_handles_of_agent(session, agent_id, variant_id)
     if attached_now is not None and any(handle not in accounted for handle in attached_now):
         log.warning("kb_catch_up_skipped_unaccounted", extra={"agent_id": str(agent_id)})
         return CatchUp(skipped_unaccounted=True)
 
-    config = await _publish_config(session, tenant_id, agent_id)
+    config = await _publish_config(session, tenant_id, agent_id, variant_id)
     minted: list[tuple[UUID, str, str]] = []
     try:
         for source_id, name in [*missing, *replace]:
@@ -2181,7 +2275,9 @@ async def converge_agent_knowledge(
             handle = await engine.attach_kb(ref, payload.ref(source_id, name), agent=config)
             minted.append((source_id, handle, digest))
             if source_id not in outdated:
-                await _remember_engine_kb_ref(session, source_id, agent_id, handle, digest=digest)
+                await _remember_engine_kb_ref(
+                    session, source_id, agent_id, handle, digest=digest, variant_id=variant_id
+                )
     except Exception:
         for source_id, handle, _ in minted:
             await _undo_attach(engine, ref, agent=config, attached_ref=handle, source_id=source_id)
@@ -2200,6 +2296,7 @@ async def converge_agent_knowledge(
                 source_id,
                 outdated[source_id],
                 agent_id=agent_id,
+                variant_id=variant_id,
                 agent=config,
                 attached=attached_now,
             )
@@ -2208,7 +2305,9 @@ async def converge_agent_knowledge(
             # tries the replacement again.
             await _undo_attach(engine, ref, agent=config, attached_ref=handle, source_id=source_id)
             continue
-        await _remember_engine_kb_ref(session, source_id, agent_id, handle, digest=digest)
+        await _remember_engine_kb_ref(
+            session, source_id, agent_id, handle, digest=digest, variant_id=variant_id
+        )
         replaced += 1
 
     withdrawn = 0
@@ -2221,6 +2320,7 @@ async def converge_agent_knowledge(
                 source_id,
                 handle,
                 agent_id=agent_id,
+                variant_id=variant_id,
                 agent=config,
                 attached=attached_now,
             )
@@ -2254,34 +2354,84 @@ async def withdraw_agent_knowledge(
     BEST EFFORT, and that is the decision: archiving must not fail because a vendor would
     not delete a document. A copy that would not come down keeps its claim — so it stays
     addressable and visible to the sweeps — and is alerted. Returns the copies withdrawn.
+
+    The agent's experiment arms are its vendor agents too, and their copies go with it.
     """
     await lock_tenant_knowledge(session, tenant_id=tenant_id)
+    holders = (
+        await session.execute(
+            text(
+                "SELECT DISTINCT variant_id FROM engine_kb_routes "
+                "WHERE agent_id = :aid AND tenant_id = :tid ORDER BY variant_id NULLS FIRST"
+            ),
+            {"aid": agent_id, "tid": tenant_id},
+        )
+    ).scalars()
+    withdrawn = 0
+    for variant in list(holders):
+        withdrawn += await _withdraw_held(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            variant_id=UUID(str(variant)) if variant is not None else None,
+        )
+    log.info(
+        "kb_retired_agent_withdrawn", extra={"agent_id": str(agent_id), "withdrawn": withdrawn}
+    )
+    return withdrawn
+
+
+async def withdraw_arm_knowledge(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, variant_id: UUID
+) -> int:
+    """Withdraw every copy of the tenant's knowledge from a concluded experiment arm.
+
+    For `agents/experiments.conclude`: the arm's vendor agent stays standing, as an archived
+    agent's does, and is no longer a fan-out target (`_VENDOR_TARGETS_SQL`), so its copies
+    would otherwise stay billed and go stale. Best effort, as `withdraw_agent_knowledge` is.
+    """
+    await lock_tenant_knowledge(session, tenant_id=tenant_id)
+    withdrawn = await _withdraw_held(
+        session, tenant_id=tenant_id, agent_id=agent_id, variant_id=variant_id
+    )
+    log.info(
+        "kb_concluded_arm_withdrawn",
+        extra={"agent_id": str(agent_id), "variant_id": str(variant_id), "withdrawn": withdrawn},
+    )
+    return withdrawn
+
+
+async def _withdraw_held(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, variant_id: UUID | None
+) -> int:
+    """Detach every recorded copy one holder has; a refusal keeps its claim and alerts."""
     routes = (
         await session.execute(
             text(
-                "SELECT source_id, engine_kb_ref FROM engine_kb_routes "
-                "WHERE agent_id = :aid AND tenant_id = :tid ORDER BY source_id"
+                f"SELECT r.source_id, r.engine_kb_ref FROM engine_kb_routes r WHERE {_HOLDER} "
+                "AND r.tenant_id = :tid ORDER BY r.source_id"
             ),
-            {"aid": agent_id, "tid": tenant_id},
+            {"aid": agent_id, "vid": variant_id, "tid": tenant_id},
         )
     ).all()
     if not routes:
         return 0
-    ref = (await _agent_refs(session, [agent_id])).get(agent_id)
+    ref = await _holder_ref(session, agent_id, variant_id)
     engine = get_engine()
     if not ref or not engine.capabilities.has("knowledge_base"):
         return 0
-    attached = await _listing_or_none(engine, str(ref), agent_id=agent_id)
+    attached = await _listing_or_none(engine, ref, agent_id=agent_id)
     withdrawn = 0
     for source_id, handle in routes:
         try:
             await _detach_superseded(
                 session,
                 engine,
-                str(ref),
+                ref,
                 UUID(str(source_id)),
                 str(handle),
                 agent_id=agent_id,
+                variant_id=variant_id,
                 agent=None,
                 attached=attached,
             )
@@ -2290,9 +2440,9 @@ async def withdraw_agent_knowledge(
                 "CORE_LOGIC",
                 "kb_retired_agent_copy_left",
                 detail=(
-                    "an agent was archived and the voice platform would not remove one of "
-                    "the knowledge documents it held, so the copy stays on the platform "
-                    "and stays recorded until it is removed by hand"
+                    "an agent or a concluded script test arm was retired and the voice "
+                    "platform would not remove one of the knowledge documents it held, so the "
+                    "copy stays on the platform and stays recorded until it is removed by hand"
                 ),
                 tenant_id=str(tenant_id),
                 agent_id=str(agent_id),
@@ -2300,9 +2450,6 @@ async def withdraw_agent_knowledge(
             )
             continue
         withdrawn += 1
-    log.info(
-        "kb_retired_agent_withdrawn", extra={"agent_id": str(agent_id), "withdrawn": withdrawn}
-    )
     return withdrawn
 
 
@@ -2316,7 +2463,8 @@ async def catch_up_agent(
     "Published knowledge:" half in its T0 block, and on an engine with per-agent knowledge
     may hold none of the tenant's documents. `recompile_t0` mints a version only when the
     block actually differs, and `converge_agent_knowledge` touches the vendor only when a
-    claim is missing or stale, so a settled agent costs a handful of reads.
+    claim is missing or stale, so a settled agent costs a handful of reads. The arms of a
+    script test running on the agent are converged with it (D-806).
 
     An agent with no script yet is left alone: compiling a block into it would mint the
     agent's first prompt behind the onboarding wizard's back. TRY-lock, in the caller's
@@ -2343,11 +2491,27 @@ async def catch_up_agent(
             agent_id=agent_id,
             knowledge=await active_knowledge(session, tenant_id=tenant_id),
         )
-    if not row[0]:
-        return CatchUp()
-    return await converge_agent_knowledge(
-        session, get_engine(), tenant_id=tenant_id, agent_id=agent_id, ref=str(row[0])
-    )
+    targets = await running_arms(session, agent_id=agent_id)
+    if row[0]:
+        targets.insert(0, KbTarget(agent_id=agent_id, engine_ref=str(row[0])))
+    engine = get_engine()
+    total = CatchUp()
+    for target in targets:
+        done = await converge_agent_knowledge(
+            session,
+            engine,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            ref=target.engine_ref,
+            variant_id=target.variant_id,
+        )
+        total = CatchUp(
+            attached=total.attached + done.attached,
+            replaced=total.replaced + done.replaced,
+            withdrawn=total.withdrawn + done.withdrawn,
+            skipped_unaccounted=total.skipped_unaccounted or done.skipped_unaccounted,
+        )
+    return total
 
 
 #: The sparse retrieval key, built from the chunk's own text AND its English gloss. It MUST
@@ -2558,6 +2722,7 @@ __all__ = [
     "PUBLISH_KB_SOURCE_JOB",
     "SUPPORTED_SUBMISSION_KINDS",
     "CatchUp",
+    "KbRoute",
     "KbTarget",
     "active_knowledge",
     "approve_source",
@@ -2575,9 +2740,11 @@ __all__ = [
     "recorded_handles_of_agent",
     "refresh_projection_keys",
     "reject_source",
+    "running_arms",
     "submit_source",
     "try_lock_tenant_knowledge",
     "vendor_targets",
     "withdraw_agent_knowledge",
+    "withdraw_arm_knowledge",
     "withdraw_source",
 ]

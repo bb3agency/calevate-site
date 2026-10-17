@@ -173,7 +173,8 @@ async def _publish_text(
 
 async def _routes(tenant_id: uuid.UUID, source_id: uuid.UUID) -> dict[uuid.UUID, str]:
     async with tenant_session(tenant_id) as session:
-        return dict(await kb_service._routes_of_source(session, source_id))
+        routes = await kb_service._routes_of_source(session, source_id)
+    return {route.agent_id: route.handle for route in routes if route.variant_id is None}
 
 
 def _titled(engine: _KbEngine, ref: str) -> list[str]:
@@ -805,7 +806,8 @@ async def test_a_claim_cannot_name_another_tenants_agent() -> None:
     _, agent_b = await _tenant_with_published_agent()
     async with tenant_session(tenant_a) as session:
         await kb_service._remember_engine_kb_ref(session, source_id, agent_b, "stolen")
-        assert agent_b not in dict(await kb_service._routes_of_source(session, source_id))
+        routes = await kb_service._routes_of_source(session, source_id)
+        assert agent_b not in {route.agent_id for route in routes}
 
 
 # --- the orphan sweep counts facts documents as ours --------------------------------------

@@ -187,12 +187,11 @@ async def handles_if_no_publish_in_flight(
     (`KB_SWEEP_MINUTES`) for as long as the client's A/B test runs. Measured, not reasoned
     about: the reproduction is `tests/variant_drift_coverage_test.py`.
 
-    An arm has no knowledge of ours by construction — `kb/service.publish_source` attaches
-    to `agents.engine_agent_ref` and to nothing else — so the honest recorded set for an
-    arm's route is EMPTY, and that is what this returns. It is not a mute: an empty
-    recorded set against a non-empty listing is `unaccounted`, the dangerous direction,
-    which is exactly the right verdict for an arm the vendor is serving knowledge on that
-    we never attached.
+    So an arm's route is compared against the ARM's own recorded copies: since D-806 an arm
+    carries the client's knowledge as its own documents (`kb/service.vendor_targets`), each
+    claimed with its `variant_id`. A ref that is neither the agent's nor an arm's is a moved
+    agent's old vendor agent awaiting deletion, of which we record nothing, so its recorded
+    set is empty and anything it lists reads `unaccounted`.
 
     The alternative — filtering arm routes out of `claim_kb_drift_batch` — was rejected
     twice over. `claim_kb_drift_batch` runs untenanted and `agents` is FORCE-RLS'd on
@@ -244,23 +243,27 @@ async def handles_if_no_publish_in_flight(
         return None
     # WHICH vendor object is this route for? Read under the same lock and in the same
     # tenant session as the handles below, so the answer belongs to the same instant.
-    # A ref that is not the agent's own is an experiment arm's (the only other writer of
-    # this table is `publish_variant`), and nothing of ours has ever attached a document
-    # to one — so the honest recorded set is empty rather than the parent's.
     own_ref = (
         await session.execute(
             text("SELECT engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL"),
             {"aid": agent_id},
         )
     ).scalar()
-    if own_ref != engine_agent_ref:
-        # An arm holds no knowledge of ours except its own business-facts document, on an
-        # engine that keeps facts out of the prompt (`agents/engine_facts.py`).
-        from apps.api.agents.engine_facts import recorded_facts_handle
-
-        arm_facts = await recorded_facts_handle(session, engine_agent_ref=engine_agent_ref)
-        return frozenset({arm_facts} if arm_facts else ())
-    return frozenset(await recorded_handles_of_agent(session, agent_id))
+    if own_ref == engine_agent_ref:
+        return frozenset(await recorded_handles_of_agent(session, agent_id))
+    variant_id = (
+        await session.execute(
+            text(
+                "SELECT v.id FROM prompt_experiment_variants v "
+                "JOIN prompt_experiments e ON e.id = v.experiment_id "
+                "WHERE e.agent_id = :aid AND v.engine_agent_ref = :ref"
+            ),
+            {"aid": agent_id, "ref": engine_agent_ref},
+        )
+    ).scalar()
+    if variant_id is None:
+        return frozenset()
+    return frozenset(await recorded_handles_of_agent(session, agent_id, UUID(str(variant_id))))
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,15 +2,17 @@
 
 The voices are the operator's curated list, never the vendor's live catalogue: only a voice
 an operator ADDED and ENABLED, that the engine still lists, is returned, and it is offerable
-only while its minute is attested; a Studio voice is listed only while our Cartesia key is on
-in the workspace (D-688). The models are the engine's live list, to operators only (a client is
-sent none), refused by name where the engine says they are too slow or not on the plan. On
-any engine that does not host voices the route answers "no such catalogue".
+only while its minute is attested; a Studio voice is offered only while the account's Studio
+publish would go through as last checked (D-806). The models are the engine's live list, to
+operators only (a client is sent none), refused by name where the engine says they are too
+slow or not on the plan. On any engine that does not host voices the route answers "no such
+catalogue".
 """
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 import pytest
@@ -27,7 +29,17 @@ from apps.api.core.errors import ProblemError
 from apps.api.engine.catalogue import CatalogueModel, EngineCatalogue
 from apps.api.engine.fake import FakeEngine
 from apps.workers import storage
-from tests.hosted_voice_fakes import MP3, PRANA, SLOW, CatalogueRows, HostingEngine, selected
+from tests.hosted_voice_fakes import (
+    MP3,
+    OFF_KEY,
+    PRANA,
+    READY_KEY,
+    SLOW,
+    CatalogueRows,
+    HostingEngine,
+    selected,
+)
+from tests.workspace_support import give_own_workspace
 
 LOCKED = CatalogueModel(model_id="gpt-x", label="X", call_capable=True, plan_allows=False)
 NOTHING: frozenset[str] = frozenset()
@@ -180,6 +192,30 @@ def priced(monkeypatch: pytest.MonkeyPatch) -> set[str]:
     return keys
 
 
+@pytest.fixture
+def console_key(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Our Cartesia key in the console, which a paying client's first Studio publish installs
+    in its workspace (`studio_voices.ensure_studio_in`)."""
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setenv("CARTESIA_API_KEY", "sk_car_test")
+    get_settings.cache_clear()
+    yield
+    monkeypatch.delenv("CARTESIA_API_KEY", raising=False)
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+async def developer_check() -> AsyncIterator[None]:
+    """The recorded developer-workspace check is one platform row; put it back after."""
+    yield
+    from apps.api.db.session import untenanted_session
+    from apps.api.tenancy.engine_workspace import record_developer_studio_check
+
+    async with untenanted_session() as session:
+        await record_developer_studio_check(session, ready=False)
+
+
 async def test_the_route_reads_nothing_on_an_engine_that_hosts_no_voices() -> None:
     with selected(FakeEngine()):
         out = await engine_catalogue(_client())
@@ -187,7 +223,7 @@ async def test_the_route_reads_nothing_on_an_engine_that_hosts_no_voices() -> No
 
 
 async def test_the_route_lists_only_added_and_enabled_voices(
-    priced: set[str], hosted_rows: CatalogueRows
+    priced: set[str], hosted_rows: CatalogueRows, console_key: None
 ) -> None:
     offered = await hosted_rows.add("engine", label="Offered", preview=True)
     studio = await hosted_rows.add("byok", label="Studio voice")
@@ -206,7 +242,8 @@ async def test_the_route_lists_only_added_and_enabled_voices(
     assert by_id[offered].rung == "clear" and by_id[offered].offerable
     assert by_id[offered].preview_available
     assert by_id[offered].language_note == "Speaks the agent's language, with an accent: Hindi."
-    # Our key is on (a Studio voice is listed): offered at the Studio rung.
+    # A paying client whose Studio publish can switch its own workspace on: offered at the
+    # Studio rung.
     assert by_id[studio].rung == "studio" and by_id[studio].offerable
     # The client realm reads no model list, so a short one cannot make it incomplete.
     assert out.studio_available is True and out.complete is True
@@ -214,19 +251,97 @@ async def test_the_route_lists_only_added_and_enabled_voices(
     assert out.models == []
 
 
-async def test_with_our_key_off_no_studio_voice_is_listed(
-    priced: set[str], hosted_rows: CatalogueRows
+async def _account(*, trial: bool) -> uuid.UUID:
+    from apps.api.admin import service as admin_service
+    from apps.api.billing.trials import start_trial
+    from apps.api.db.session import tenant_session
+
+    created = await admin_service.create_organization(
+        name="Tea House",
+        slug=f"st-{uuid.uuid4().hex[:8]}",
+        vertical_template="retail",
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    tenant_id = uuid.UUID(str(created["id"]))
+    if trial:
+        async with tenant_session(tenant_id) as session:
+            await start_trial(session, tenant_id=tenant_id, days=14, actor_user_id=None)
+    else:
+        await give_own_workspace(tenant_id)
+    return tenant_id
+
+
+def _client_of(tenant_id: uuid.UUID) -> Principal:
+    return Principal(realm="client", user_id=uuid.uuid4(), tenant_id=tenant_id, role="owner")
+
+
+async def test_a_trial_is_not_offered_studio_while_its_studio_publish_would_be_refused(
+    priced: set[str], hosted_rows: CatalogueRows, console_key: None, developer_check: None
 ) -> None:
-    from apps.api.agents.hosted_voices import withdraw_own_key_voices
-    from apps.api.db.session import admin_session
+    """Studio voices listed, our developer workspace not on our key: a trial agent's Studio
+    publish is refused (`require_developer_studio`, D-727), so the trial's picker must not
+    offer a Studio voice (D-806). Our console key does not change that: a trial's agents
+    live in the developer workspace."""
+    from apps.api.agents.studio_voices import STUDIO_ACCOUNT_NOT_READY, require_developer_studio
+    from apps.workers.studio_voice_key import check_developer_studio
 
     studio = await hosted_rows.add("byok", label="Studio voice")
-    async with admin_session() as session:
-        await withdraw_own_key_voices(session)
-    with selected(HostingEngine()):
-        out = await engine_catalogue(_client())
+    tenant_id = await _account(trial=True)
+    engine = HostingEngine(key_state=OFF_KEY)
+    with selected(engine):
+        assert await check_developer_studio(engine) == "not_set_up"
+        with pytest.raises(ProblemError) as refused:
+            await require_developer_studio(engine)
+        out = await engine_catalogue(_client_of(tenant_id))
+    assert refused.value.code == STUDIO_ACCOUNT_NOT_READY
     assert out.studio_available is False
-    assert studio not in {v.voice_id for v in out.voices}
+    assert out.studio_note == engine_catalogue_routes.STUDIO_NOT_READY_NOTE
+    offer_of = {v.voice_id: v for v in out.voices}[studio]
+    assert not offer_of.offerable
+    assert offer_of.reason == engine_catalogue_routes.STUDIO_NOT_READY_NOTE
+
+
+async def test_a_trial_is_offered_studio_once_the_hourly_check_finds_our_key_on(
+    priced: set[str], hosted_rows: CatalogueRows, developer_check: None
+) -> None:
+    from apps.api.agents.studio_voices import require_developer_studio
+    from apps.workers.studio_voice_key import check_developer_studio
+
+    studio = await hosted_rows.add("byok", label="Studio voice")
+    tenant_id = await _account(trial=True)
+    engine = HostingEngine(key_state=READY_KEY)
+    with selected(engine):
+        assert await check_developer_studio(engine) == "ok"
+        await require_developer_studio(engine)
+        out = await engine_catalogue(_client_of(tenant_id))
+    assert out.studio_available is True and out.studio_note is None
+    assert {v.voice_id: v for v in out.voices}[studio].offerable
+
+
+async def test_a_paying_client_is_offered_studio_by_its_own_workspace_not_ours(
+    priced: set[str], hosted_rows: CatalogueRows, developer_check: None
+) -> None:
+    """A paying client's Studio publish switches its OWN workspace on (D-717): with no
+    Cartesia key in our console that needs the workspace to be on already, and our developer
+    workspace being off changes nothing for it."""
+    from apps.api.db.session import tenant_session
+    from apps.api.tenancy.engine_workspace import record_studio_check
+
+    await hosted_rows.add("byok", label="Studio voice")
+    tenant_id = await _account(trial=False)
+    with selected(HostingEngine(key_state=OFF_KEY)):
+        before = await engine_catalogue(_client_of(tenant_id))
+        async with tenant_session(tenant_id) as session:
+            await record_studio_check(session, tenant_id, error_code=None)
+        after = await engine_catalogue(_client_of(tenant_id))
+        async with tenant_session(tenant_id) as session:
+            await record_studio_check(session, tenant_id, error_code="studio_workspace_not_ready")
+        broken = await engine_catalogue(_client_of(tenant_id))
+    assert before.studio_available is False
+    assert after.studio_available is True
+    assert broken.studio_available is False
 
 
 async def test_an_unpriced_rung_is_listed_and_refused(

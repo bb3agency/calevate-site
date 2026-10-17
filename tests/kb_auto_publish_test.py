@@ -180,7 +180,7 @@ async def test_knowledge_added_before_the_agent_is_published_reaches_it_on_the_s
     assert "caught_up=1" in outcome
     async with tenant_session(tenant_id) as session:
         routes = await service._routes_of_source(session, uuid.UUID(str(created["id"])))
-    assert [agent for agent, _ in routes] == [agent_id]
+    assert [route.agent_id for route in routes] == [agent_id]
 
 
 async def test_a_refused_automatic_publish_goes_live_on_the_next_sweep(
