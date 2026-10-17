@@ -67,6 +67,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.db.base import uuid7
 
 __all__ = [
+    "CONTACT_HELD",
     "CONTACT_NOT_ASKED",
     "OVERDUE_AFTER_DAYS",
     "OWN_RUNTIME_ENGINES",
@@ -86,6 +87,8 @@ __all__ = [
     "VendorRefRejectedError",
     "assert_vendor_refs_are_id_shaped",
     "engine_held_call_refs",
+    "held_contact_erasures",
+    "held_contacts",
     "mark_task_requested",
     "open_tasks_for_request",
     "overdue_tasks",
@@ -244,6 +247,10 @@ VOICE_PLATFORM_ERASURE_SENTENCE: Final = (
 CONTACT_NOT_ASKED: Final = "contact-not-asked"
 #: What `record_engine_contact_progress` writes when the workspace held no contact.
 _NO_CONTACT: Final = "no-contact"
+#: A contact found and not yet asked deleted, written `<contact id>=held`: its DELETE waits
+#: until we hold our own copy of every recording it would take (D-810,
+#: `engine_content.calls_awaiting_our_copy`).
+CONTACT_HELD: Final = "held"
 
 
 def engine_held_call_refs(engine_call_ids: Iterable[str]) -> list[str]:
@@ -379,8 +386,22 @@ def _progress_of(reference: str | None) -> dict[str, int]:
     return progress
 
 
+def held_contacts(reference: str | None) -> list[str]:
+    """The contacts a task records as found and held back (`CONTACT_HELD`), sorted."""
+    held: list[str] = []
+    for part in (reference or "").split(","):
+        contact, sep, mark = part.partition("=")
+        if sep and _ID_SHAPED.match(contact) and mark == CONTACT_HELD:
+            held.append(contact)
+    return sorted(held)
+
+
 async def record_engine_contact_progress(
-    session: AsyncSession, *, task_id: UUID, progress: dict[str, int]
+    session: AsyncSession,
+    *,
+    task_id: UUID,
+    progress: dict[str, int],
+    held: Iterable[str] = (),
 ) -> dict[str, int]:
     """Merge one attempt's contact erasures into the task, and return everything known.
 
@@ -388,9 +409,14 @@ async def record_engine_contact_progress(
     removed the contact; a retry finds the contact gone and learns nothing (`thinnest-
     findings/mirror/snapshots/2026-10-08/pages/api-reference/contacts/delete-contact.md:7`).
     So each contact's count is kept on the task as `<contact id>=<pending>` the moment it is
-    known, and an attempt's view is always this merged record, never its own. Moves an open
-    task to `requested`. Contact ids only (hard rule 6)."""
-    assert_vendor_refs_are_id_shaped(list(progress))
+    known, and an attempt's view is always this merged record, never its own. Contact ids
+    only (hard rule 6).
+
+    `held` records contacts found but not yet asked deleted; a count for one later replaces
+    its mark. A write that asks something of the platform moves an open task to
+    `requested`; a write of held contacts only does not, because nothing was asked."""
+    held = list(held)
+    assert_vendor_refs_are_id_shaped([*progress, *held])
     current = (
         await session.execute(
             text("SELECT vendor_reference FROM processor_erasure_tasks WHERE id = :tid FOR UPDATE"),
@@ -398,17 +424,22 @@ async def record_engine_contact_progress(
         )
     ).scalar()
     merged = {**_progress_of(current), **progress}
+    entries: dict[str, str] = dict.fromkeys(set(held_contacts(current)) | set(held), CONTACT_HELD)
+    entries.update({contact: str(n) for contact, n in merged.items()})
     await session.execute(
         text(
             "UPDATE processor_erasure_tasks SET vendor_reference = :vref, "
-            "requested_at = COALESCE(requested_at, now()), "
-            "status = CASE WHEN status = 'open' THEN 'requested' ELSE status END, "
+            "requested_at = CASE WHEN CAST(:asked AS boolean) "
+            "THEN COALESCE(requested_at, now()) ELSE requested_at END, "
+            "status = CASE WHEN CAST(:asked AS boolean) AND status = 'open' "
+            "THEN 'requested' ELSE status END, "
             "updated_at = now() WHERE id = :tid"
         ),
         {
             "tid": str(task_id),
+            "asked": not held,
             # "no-contact" when nothing was ever found: the vendor reference an operator reads.
-            "vref": ",".join(f"{contact}={n}" for contact, n in sorted(merged.items()))
+            "vref": ",".join(f"{contact}={mark}" for contact, mark in sorted(entries.items()))
             or "no-contact",
         },
     )
@@ -461,9 +492,12 @@ _CALLS_OWED_SQL: Final = (
 
 def _contacts_settled(reference: str | None) -> bool:
     """The contact half of a `voice_engine` task is done: none was asked, the workspace held
-    none, or every contact it erased reported its last recording gone."""
+    none, or every contact it erased reported its last recording gone. A contact still held
+    back is not done."""
     if reference in (CONTACT_NOT_ASKED, _NO_CONTACT):
         return True
+    if held_contacts(reference):
+        return False
     progress = _progress_of(reference)
     return bool(progress) and all(pending == 0 for pending in progress.values())
 
@@ -507,24 +541,42 @@ async def record_contact_erased(session: AsyncSession, *, contact_id: str) -> li
     erasure of ours is waiting on that contact (a contact someone else deleted).
 
     Called in the tenant's own session: RLS keeps a delivery for one client's workspace
-    from reaching another client's tasks."""
+    from reaching another client's tasks. A contact still held back (`CONTACT_HELD`) that
+    someone else erased is gone all the same, so it is settled too."""
     assert_vendor_refs_are_id_shaped([contact_id])
     rows = (
         await session.execute(
             text(
                 "SELECT id, vendor_reference FROM processor_erasure_tasks "
-                "WHERE processor = 'voice_engine' AND status = 'requested' ORDER BY id"
+                "WHERE processor = 'voice_engine' AND status IN ('open', 'requested') "
+                "ORDER BY id"
             )
         )
     ).all()
     touched: list[UUID] = []
     for task_id, reference in rows:
-        if contact_id not in _progress_of(reference):
+        if contact_id not in _progress_of(reference) and contact_id not in held_contacts(reference):
             continue
         await record_engine_contact_progress(session, task_id=task_id, progress={contact_id: 0})
         await settle_voice_engine_task(session, task_id=task_id)
         touched.append(UUID(str(task_id)))
     return touched
+
+
+async def held_contact_erasures(session: AsyncSession) -> list[UUID]:
+    """The erasure requests of the session's tenant whose contact erasure is held back, for
+    the nightly backstop that asks each one again (`retention._release_held_contacts`)."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT request_ref, vendor_reference FROM processor_erasure_tasks "
+                "WHERE processor = 'voice_engine' AND status IN ('open', 'requested') "
+                "AND vendor_reference LIKE :held ORDER BY opened_at"
+            ),
+            {"held": f"%={CONTACT_HELD}%"},
+        )
+    ).all()
+    return [UUID(str(ref)) for ref, reference in rows if held_contacts(reference)]
 
 
 async def overdue_tasks(

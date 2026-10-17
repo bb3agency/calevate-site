@@ -70,6 +70,7 @@ from apps.api.compliance.deletion import (
     HOLD_UNTIL_KEY,
     KB_MATCH_KEY,
     KB_OUTCOME,
+    RECALLED_DIALS_KEY,
     RECORDING_FLOOR_DAYS,
     UNIDENTIFIED_COUNT_KEY,
     UNIDENTIFIED_OUTCOME,
@@ -161,6 +162,9 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
     unidentified = _optional_count(scope.get(UNIDENTIFIED_COUNT_KEY))
     vectors = _optional_count(scope.get(CALLER_VECTOR_KEY))
     remembered = _optional_count(scope.get(CALLER_MEMORY_KEY))
+    # Not echoed into `scope`, which is the response model's whitelist: the sentence in
+    # `erased` is how a reader learns it.
+    recalled = _optional_count(scope.get(RECALLED_DIALS_KEY))
 
     return {
         # Passed through, never recomputed: this module is not given the number, and the
@@ -191,6 +195,7 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
             recordings=destroyed,
             vectors=vectors,
             remembered=remembered,
+            recalled=recalled,
         ),
         "not_erased": _not_erased(floor, hold_until, kb_matched, unidentified),
         "limitations": list(ERASURE_LIMITATIONS),
@@ -210,6 +215,7 @@ def _erased(
     recordings: int | None,
     vectors: int | None,
     remembered: int | None,
+    recalled: int | None,
 ) -> list[str]:
     """The scope counts as sentences, for a reader who does not know our table names.
 
@@ -255,6 +261,13 @@ def _erased(
     # claim — the `not_erased` register is where a silence gets explained, and this
     # erasure's silence is simply that there was no such store to search.
     statements.extend(_caller_sentences(vectors, remembered))
+    # "Asked", because the platform answers after this certificate is written; a call it
+    # had already started is not hung up on (D-807).
+    if recalled:
+        statements.append(
+            f"{_plural(recalled, 'booked call')} to this person that had not yet connected "
+            "— the voice platform was asked to call them off before they ring."
+        )
     return statements
 
 

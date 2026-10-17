@@ -473,3 +473,20 @@ def test_a_proof_that_predates_the_search_store_certifies_nothing_about_it() -> 
     assert not any("searchable cop" in line for line in lines)
     assert not any("remembered about this person" in line for line in lines)
     assert lines, "the rest of the certificate still speaks"
+
+
+# ---------------------------------------------------------------- booked dials (D-810)
+
+
+def test_the_booked_dial_key_is_one_spelling_in_both_packages() -> None:
+    assert deletion.RECALLED_DIALS_KEY == retention.RECALLED_DIALS_KEY
+
+
+def test_the_certificate_states_how_many_booked_calls_were_asked_to_be_called_off() -> None:
+    """It says "asked": the platform answers after the certificate is written (D-807)."""
+    [line] = [
+        line for line in _erased_lines(**{deletion.RECALLED_DIALS_KEY: 2}) if "booked call" in line
+    ]
+    assert line.startswith("2 booked calls")
+    assert "asked to call them off" in line
+    assert "cancelled" not in line
