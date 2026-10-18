@@ -43,6 +43,7 @@ from apps.api.compliance.service import account_stopped_blocker
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
+from apps.api.tenancy import business_copy
 from apps.workers.pipeline import _resolve_agent, _withdrawn_route_tenant
 from apps.workers.retention import ANONYMIZED_PHONE, REDACTED_MARK, execute_tenant_erasure
 from httpx import ASGITransport, AsyncClient
@@ -268,10 +269,12 @@ async def test_filing_the_audit_row_happens_in_the_same_transaction_as_the_reque
             (
                 await session.execute(
                     text(
+                        # Less the examples job every new account queues at birth (D-827).
                         "SELECT job FROM outbox_messages "
-                        "WHERE payload->>'tenant_id' = :tid AND status = 'pending'"
+                        "WHERE payload->>'tenant_id' = :tid AND status = 'pending' "
+                        "AND job <> :at_birth"
                     ),
-                    {"tid": str(tenant_id)},
+                    {"tid": str(tenant_id), "at_birth": business_copy.JOB},
                 )
             )
             .scalars()

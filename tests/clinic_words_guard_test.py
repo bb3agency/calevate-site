@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import ast
 import json
-import re
 from pathlib import Path
+
+from apps.api.tenancy.business_copy import CLINIC_WORDS
 
 ROOT = Path(__file__).resolve().parents[1]
 ROOTS = (
@@ -32,12 +33,9 @@ ROOTS = (
     "scripts",
 )
 
-CLINIC_WORDS = re.compile(
-    r"\b(?:clinics?|hospitals?|patients?|doctors?|dentists?|dental|appointments?|symptoms?|"
-    r"prescriptions?|healthcare|OPD)\b",
-    re.IGNORECASE,
-)
 
+#: `CLINIC_WORDS` is the pattern the AI-written examples are checked against at runtime
+#: (`tenancy/business_copy`), so this guard and that check cannot drift.
 #: (file, words it may hold, reason). `words` is matched against the clinic word found.
 ALLOWED: tuple[tuple[str, frozenset[str], str], ...] = (
     (
@@ -81,6 +79,26 @@ ALLOWED: tuple[tuple[str, frozenset[str], str], ...] = (
         "scripts/check_deploy_env.py",
         frozenset({"symptom"}),
         "'symptom' of a misconfigured deploy, not a health word",
+    ),
+    (
+        "apps/api/tenancy/business_copy.py",
+        frozenset(
+            {
+                "clinics",
+                "hospitals",
+                "patients",
+                "doctors",
+                "dentists",
+                "dental",
+                "appointments",
+                "symptoms",
+                "prescriptions",
+                "healthcare",
+                "opd",
+            }
+        ),
+        "the pattern itself (`CLINIC_WORDS`, which this guard imports), refusing those words "
+        "in a non-clinic account's AI-written examples (D-827)",
     ),
 )
 

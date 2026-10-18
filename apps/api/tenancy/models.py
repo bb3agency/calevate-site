@@ -6,6 +6,7 @@ enums, DATA-MODEL §10) — cheaper to evolve than native PG enums.
 """
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -667,3 +669,68 @@ class TenantEngineWorkspace(PKMixin, TimestampMixin, Base):
     retention_plan_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     retention_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retention_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+#: Why a run of the business copy did not write new copy (D-827). The copy on file stays in
+#: use in every case.
+BUSINESS_COPY_STOP_REASONS: tuple[str, ...] = (
+    "allowance_used_up",
+    "ai_paused",
+    "inputs_unchanged",
+    "provider_unavailable",
+    "answer_unusable",
+    "account_closed",
+)
+#: What asked for a run: account creation, the owner through Pip, the 15-day check, or an
+#: operator.
+BUSINESS_COPY_TRIGGERS: tuple[str, ...] = ("signup", "refresh", "scheduled", "operator")
+
+
+class BusinessCopy(PKMixin, TimestampMixin, Base):
+    """One client's business-tailored examples and suggestions, written by AI (D-827).
+
+    `generated` is the validated `tenancy.business_copy.GeneratedCopy` and holds only the
+    AI's own text: placeholders and suggestions are shown where the client has typed
+    nothing, so replacing this row never replaces a client's words. The other columns are
+    the last run's bookkeeping (migration e4b7c2d9a183).
+    """
+
+    __tablename__ = "business_copies"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", name="uq_business_copies_tenant"),
+        CheckConstraint(
+            "generated IS NULL OR jsonb_typeof(generated) = 'object'", name="generated_is_object"
+        ),
+        CheckConstraint(
+            f"stop_reason IS NULL OR stop_reason IN {BUSINESS_COPY_STOP_REASONS!r}",
+            name="stop_reason_enum",
+        ),
+        CheckConstraint(
+            f"last_trigger IS NULL OR last_trigger IN {BUSINESS_COPY_TRIGGERS!r}",
+            name="last_trigger_enum",
+        ),
+        CheckConstraint("cost_inr IS NULL OR cost_inr >= 0", name="cost_not_negative"),
+        CheckConstraint(
+            "inputs_hash IS NULL OR inputs_hash ~ '^[0-9a-f]{64}$'", name="inputs_hash_hex"
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    generated: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    #: The BCP-47 tag the caller-facing example lines are written in.
+    language: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: sha256 of what the copy in use was written from (`business_copy.inputs_hash`).
+    inputs_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: What the run that wrote the copy in use was metered at, and whether it was ours.
+    #: Unscaled NUMERIC: the ledger's products carry more places than any fixed scale.
+    cost_inr: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
+    absorbed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: Set while a run holds the row; a claim older than `business_copy.CLAIM_TTL` is stale.
+    running_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_trigger: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    stop_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

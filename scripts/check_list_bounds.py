@@ -203,6 +203,19 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "most `extraction_routes.MAX_EXTRACTION_FIELDS` fields (refused on write)."
         )
     ),
+    "GET /v1/business-copy": BoundedByConstruction(
+        by=(
+            "one row per account, its lists capped by `tenancy.business_copy.GeneratedCopy` "
+            "(at most MAX_STEPS steps, MAX_CHIPS details, MAX_QUESTIONS questions) and again "
+            "by the response model's `max_length`."
+        )
+    ),
+    "GET /v1/admin/tenants/{tenant_id}/business-copy": BoundedByConstruction(
+        by="the same render as `GET /v1/business-copy`, for one named tenant."
+    ),
+    "POST /v1/admin/tenants/{tenant_id}/business-copy/refresh": BoundedByConstruction(
+        by="the same render as `GET /v1/business-copy`, for one named tenant."
+    ),
     "GET /v1/admin/tenants/{tenant_id}/lead-fields": BoundedByConstruction(
         by="the same render as `GET /v1/lead-fields`, for one named tenant."
     ),

@@ -15,6 +15,9 @@ this module moves the rest, each through the same service function its old butto
   `crm/resummarise.second_reading`, shown in the confirmation and stored nowhere.
 * `call_test_prepare` — "Make this call a test" (D-822). No model: it fills in the call
   page's test form (`teach/test_cases.write_pending`), which the person checks and saves.
+* `business_copy_refresh` — the account's own examples and suggestions written again
+  (D-827); `tenancy/business_copy.queue_generation` queues it, it spends the AI allowance,
+  and it replaces only the AI's earlier examples.
 
 The first three are `confirm`: the first and third spend the AI allowance, and the second is
 a one-time request that can never be made again. The fourth is `immediate` with an Undo: it
@@ -34,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import lead_fields
 from apps.api.billing.ai_quota import require_ai_assist
+from apps.api.billing.plans import IST
 from apps.api.copilot.actions import (
     DOES_IT,
     PROPOSES_ONLY,
@@ -55,6 +59,7 @@ from apps.api.db.ownership import assert_visible
 from apps.api.kb.curation import CURATE_PERMISSION
 from apps.api.teach import teaching, test_cases
 from apps.api.teach.models import MAX_CASE_EXPECTED_CHARS, MAX_TEACH_WORDS
+from apps.api.tenancy import business_copy
 
 _NULLABLE_TEXT: Final = {"anyOf": [{"type": "string"}, {"type": "null"}]}
 
@@ -496,16 +501,101 @@ CALL_TEST_PREPARE: Final = ActionTool(
 )
 
 
+# --- business_copy_refresh ----------------------------------------------------------------
+
+
+async def _plan_copy_refresh(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Plan:
+    """READ ONLY. A run already in progress is refused here, before any card."""
+    del actor
+    parse_args(_NoArgs, args)
+    state = await business_copy.read_state(session)
+    if state is not None and state.running:
+        raise WriteRefusedError(
+            "the examples are being written right now, so tell the person they will change "
+            "on their screens in a minute"
+        )
+    when = (
+        state.generated_at.astimezone(IST).strftime("%d %b %Y")
+        if state is not None and state.copy is not None and state.generated_at is not None
+        else None
+    )
+    return Plan(
+        object_id="",
+        title="Refresh your examples",
+        summary=(
+            f"{ASSISTANT_NAME} writes your own examples again from your business details, "
+            "knowledge and recent calls: the examples shown in empty fields, suggested script "
+            "steps, details to ask callers and example questions. Anything you typed stays "
+            "exactly as it is."
+        ),
+        current=f"Last refreshed {when}" if when else "Not written yet",
+        proposed="Examples written again from your details as they are now",
+        cost=(
+            "Uses your account's AI help allowance, by what the writing uses; when the "
+            "allowance is used up, nothing is refreshed and your examples stay as they are."
+        ),
+        reversal=(
+            "The new examples replace the earlier ones, which are not kept. Nothing you typed "
+            "is changed."
+        ),
+        args={},
+    )
+
+
+async def _execute_copy_refresh(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Executed:
+    """Queue the run (`tenancy/business_copy.queue_generation`) after the allowance check,
+    so a person at their ceiling meets the ceiling notice rather than a silent skip."""
+    parse_args(_NoArgs, args)
+    await require_ai_assist(session, tenant_id=actor.tenant_id)
+    await business_copy.queue_generation(session, tenant_id=actor.tenant_id, trigger="refresh")
+    return Executed(
+        applied=True,
+        detail=(
+            f"{ASSISTANT_NAME} is writing them; it usually takes under a minute, and your "
+            "screens show the new examples once it is done."
+        ),
+        audit_summary={},
+    )
+
+
+BUSINESS_COPY_REFRESH: Final = ActionTool(
+    name="business_copy_refresh",
+    tier="confirm",
+    undo=None,
+    # The business profile's own permission: the owner's.
+    permission="org:manage",
+    object_type="organization",
+    audit_action="organization.business_copy_refresh_requested",
+    where="on the Business profile screen, under Settings & account",
+    schema=action_schema(
+        "business_copy_refresh",
+        "Write this account's own examples and suggestions again from its current business "
+        "details, knowledge and calls: the examples in empty fields, suggested script steps, "
+        "details to ask callers and example questions. Nothing the person typed changes."
+        + PROPOSES_ONLY,
+        {},
+    ),
+    plan=_plan_copy_refresh,
+    execute=_execute_copy_refresh,
+)
+
+
 #: Registration order is wire order: new actions APPEND.
 ASSIST_ACTIONS: Final[tuple[ActionTool, ...]] = (
     KNOWLEDGE_TEACH,
     LEAD_FIELDS_DRAFT,
     CALL_SUMMARISE_AGAIN,
     CALL_TEST_PREPARE,
+    BUSINESS_COPY_REFRESH,
 )
 
 __all__ = [
     "ASSIST_ACTIONS",
+    "BUSINESS_COPY_REFRESH",
     "CALL_SUMMARISE_AGAIN",
     "CALL_TEST_PREPARE",
     "KNOWLEDGE_TEACH",

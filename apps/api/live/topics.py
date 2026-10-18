@@ -162,6 +162,7 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "kyc_verification_requests": "account",
     "business_profiles": "account",
     "business_contacts": "account",
+    "business_copies": "account",
     "legal_acceptances": "account",
     "deletion_requests": "account",
     "tenant_erasure_requests": "account",

@@ -813,11 +813,17 @@ async def ask_json[T](
     temperature: float = 0.4,
     timeout_s: float = ASSIST_TIMEOUT_S,
     health_leg: provider_health.AiLeg = "script",
+    gemini_only: bool = False,
 ) -> JsonAnswer[T]:
     """THE dashboard AI ladder for a JSON answer: the paid leg `assist_capability` picks (the
     account's own Gemini model when it serves the dashboard, else Azure), the disclosed
     Sarvam leg if that cannot or does not answer, a refusal only when nothing can
     (`run_assist`'s rule).
+
+    `gemini_only` is the ladder with one rung: the Gemini leg `tenant_leg` names, with the
+    one repair, and a refusal where the ladder would have gone to Azure or the Sarvam
+    standby. For a job that reads callers' redacted questions and must not reach a vendor
+    whose terms permit training on inputs (Sarvam ToS s.17.5, D-827).
 
     `parse` turns the model's JSON into the caller's value and returns None for an unusable
     answer, which counts as no answer: the next leg gets its chance. `azure_format` is the
@@ -833,9 +839,15 @@ async def ask_json[T](
     A refusal raised after the paid leg answered is a `SpentRefusalError` carrying that spend, so
     the caller meters it (`crm/assist.meter_refusal`) before the refusal reaches anyone.
     """
-    capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
+    capability = assist_capability(
+        tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, allow_azure=not gemini_only
+    )
     if not capability.available:
         raise assist_unavailable(capability)
+    if gemini_only and capability.provider != GOOGLE_PROVIDER:
+        raise assist_unavailable(
+            AssistCapability(available=False, reason=PROVIDER_UNAVAILABLE_REASON)
+        )
 
     paid_until, standby_until = ladder_deadlines(timeout_s)
     earlier: list[PaidTurn] = []
@@ -899,6 +911,15 @@ async def ask_json[T](
             # Billed as a request, refused as an answer: metered at its own model.
             earlier.append(PaidTurn(spent, capability, model))
         answered_unusably = problems is not None
+        if gemini_only:
+            refusal = (
+                _answer_unusable()
+                if answered_unusably
+                else assist_unavailable(
+                    AssistCapability(available=False, reason=PROVIDER_UNAVAILABLE_REASON)
+                )
+            )
+            raise refused_after_spend(refusal, earlier)
         capability = assist_capability(
             tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, provider_unavailable=True
         )

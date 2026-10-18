@@ -41,6 +41,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES, FakeEngine
+from apps.api.tenancy import business_copy
 from apps.workers import pipeline
 from apps.workers.inbound_cutover import apply_inbound_credit_state
 from calevate_shared.engine import TRUTHFUL_ANSWER_DIRECTIVE, truthful_answer_directive
@@ -130,9 +131,11 @@ async def _outbox_jobs(tenant_id: UUID) -> list[str]:
             await session.execute(
                 text(
                     "SELECT job FROM outbox_messages "
-                    "WHERE payload->>'tenant_id' = :t ORDER BY created_at, id"
+                    "WHERE payload->>'tenant_id' = :t AND job <> :at_birth "
+                    "ORDER BY created_at, id"
                 ),
-                {"t": str(tenant_id)},
+                # Less the examples job every new account queues at birth (D-827).
+                {"t": str(tenant_id), "at_birth": business_copy.JOB},
             )
         ).all()
     return [str(row[0]) for row in rows]

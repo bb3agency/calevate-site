@@ -8,6 +8,7 @@ import { noFill } from "@/lib/copilot/types";
 import { holdRule } from "@/lib/api/holds";
 
 import { AccountStateBanner } from "./AccountStateBanner";
+import { BusinessCopyPanel } from "./BusinessCopyPanel";
 import { BusinessTypeBanner } from "./BusinessTypeBanner";
 import { HoldsBanner } from "./HoldsBanner";
 import { NoOwnerBanner } from "./NoOwnerBanner";
@@ -203,6 +204,8 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       <UsagePanel tenantId={tenantId} />
 
       <MarginPanel tenantId={tenantId} />
+
+      <BusinessCopyPanel tenantId={tenantId} />
 
       <KnowledgeQueue tenantId={tenantId} slug={slug} />
     </div>

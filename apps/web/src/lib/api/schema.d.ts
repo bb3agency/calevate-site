@@ -1880,6 +1880,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/business-copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The client's AI-written examples and suggestions */
+        get: operations["admin_read_business_copy_v1_admin_tenants__tenant_id__business_copy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/business-copy/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write the client's examples and suggestions again, at our cost
+         * @description Queues one run now, whether or not the client's details changed. Our cost, not the client's AI allowance. Refused while a run is in progress.
+         */
+        post: operations["admin_refresh_business_copy_v1_admin_tenants__tenant_id__business_copy_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/business-profile": {
         parameters: {
             query?: never;
@@ -5248,6 +5285,23 @@ export interface paths {
          * @description A declined card moves no money, so it has no ledger entry. This is the list that shows it happened, so a client whose payment failed does not come back to a screen indistinguishable from one they never touched.
          */
         get: operations["read_topup_attempts_v1_billing_wallet_topups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/business-copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This account's own examples and suggestions */
+        get: operations["get_business_copy_v1_business_copy_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -11071,6 +11125,36 @@ export interface components {
             /** Numbers */
             numbers: components["schemas"]["AdminAvailableNumberOut"][];
         };
+        /** AdminBusinessCopyOut */
+        AdminBusinessCopyOut: {
+            /** Absorbed */
+            absorbed: boolean;
+            /** Caller Details */
+            caller_details: string[];
+            /** Cost Inr */
+            cost_inr: string | null;
+            /** Example Questions */
+            example_questions: string[];
+            /** Generated At */
+            generated_at: string | null;
+            /** Language */
+            language: string | null;
+            /** Last Attempt At */
+            last_attempt_at: string | null;
+            /** Last Trigger */
+            last_trigger: string | null;
+            /** Model */
+            model: string | null;
+            placeholders: components["schemas"]["Placeholders"] | null;
+            /** Refreshing */
+            refreshing: boolean;
+            /** Steps */
+            steps: components["schemas"]["StepSuggestion"][];
+            /** Stop Message */
+            stop_message: string | null;
+            /** Stop Reason */
+            stop_reason: ("allowance_used_up" | "ai_paused" | "inputs_unchanged" | "provider_unavailable" | "answer_unusable" | "account_closed") | null;
+        };
         /** AdminBusinessProfileOut */
         AdminBusinessProfileOut: {
             /** Agents Updated */
@@ -12539,6 +12623,29 @@ export interface components {
             note: string | null;
             /** Phone E164 */
             phone_e164: string;
+        };
+        /**
+         * BusinessCopyOut
+         * @description What the screens show. Lists are capped by `GeneratedCopy`'s own bounds.
+         */
+        BusinessCopyOut: {
+            /** Caller Details */
+            caller_details: string[];
+            /** Example Questions */
+            example_questions: string[];
+            /** Generated At */
+            generated_at: string | null;
+            /** Language */
+            language: string | null;
+            placeholders: components["schemas"]["Placeholders"] | null;
+            /** Refreshing */
+            refreshing: boolean;
+            /** Steps */
+            steps: components["schemas"]["StepSuggestion"][];
+            /** Stop Message */
+            stop_message: string | null;
+            /** Stop Reason */
+            stop_reason: ("allowance_used_up" | "ai_paused" | "inputs_unchanged" | "provider_unavailable" | "answer_unusable" | "account_closed") | null;
         };
         /**
          * BusinessDetailsIn
@@ -21975,6 +22082,59 @@ export interface components {
             ids: string[];
         };
         /**
+         * Placeholders
+         * @description The per-trade table's keys (`verticalExamples.ts`), in snake case, for this business.
+         *
+         *     `orgName` and `orgSlug` are not here: they are shown only while an operator creates an
+         *     account, before there is a business to write them for.
+         */
+        Placeholders: {
+            /** Ask On Arrival */
+            ask_on_arrival: string;
+            /** Booking Job Line */
+            booking_job_line: string;
+            /** Booking Job Title */
+            booking_job_title: string;
+            /** Booking Rules */
+            booking_rules: string;
+            /** Branch Label */
+            branch_label: string;
+            /** Contact Name */
+            contact_name: string;
+            /** End Call Rules */
+            end_call_rules: string;
+            /** Extraction Label */
+            extraction_label: string;
+            /** Extraction Options */
+            extraction_options: string;
+            /** Extraction Reason */
+            extraction_reason: string;
+            /** Faq Question */
+            faq_question: string;
+            /** Knowledge Answer */
+            knowledge_answer: string;
+            /** Knowledge Title */
+            knowledge_title: string;
+            /** Lead Search */
+            lead_search: string;
+            /** Script Brief */
+            script_brief: string;
+            /** Service Name */
+            service_name: string;
+            /** Service Note */
+            service_note: string;
+            /** Service Price */
+            service_price: string;
+            /** Staff Name */
+            staff_name: string;
+            /** Staff Role */
+            staff_role: string;
+            /** Staff Spoken */
+            staff_spoken: string;
+            /** Staff Why It Matters */
+            staff_why_it_matters: string;
+        };
+        /**
          * PlanMarginOut
          * @description The gross margin of a committed-volume bundle's rates at our cost floor (D-469).
          *
@@ -25061,6 +25221,17 @@ export interface components {
         StaySignedInIn: {
             /** Stay Signed In */
             stay_signed_in: boolean;
+        };
+        /**
+         * StepSuggestion
+         * @description A step the script builder suggests: its name (English) and how it sounds on the
+         *     phone (the business's main call language).
+         */
+        StepSuggestion: {
+            /** Example Line */
+            example_line: string;
+            /** Name */
+            name: string;
         };
         /** StepUpVerifyIn */
         StepUpVerifyIn: {
@@ -31703,6 +31874,68 @@ export interface operations {
             };
         };
     };
+    admin_read_business_copy_v1_admin_tenants__tenant_id__business_copy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminBusinessCopyOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_refresh_business_copy_v1_admin_tenants__tenant_id__business_copy_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminBusinessCopyOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     admin_get_business_profile_v1_admin_tenants__tenant_id__business_profile_get: {
         parameters: {
             query?: never;
@@ -37630,6 +37863,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TopUpAttemptOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_business_copy_v1_business_copy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessCopyOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

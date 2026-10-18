@@ -94,6 +94,7 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "agent_tests_fix": _l("Preparing fixes for the tests", "Prepared fixes for the tests"),
     "knowledge_teach": _l("Preparing what to teach", "Prepared what to teach"),
     "lead_fields_draft": _l("Preparing the lead details draft", "Prepared the lead details draft"),
+    "business_copy_refresh": _l("Preparing to refresh your examples", "Asked for fresh examples"),
     "call_summarise_again": _l("Preparing a second summary", "Prepared a second summary"),
     "call_test_prepare": _l("Filling in the test form", "Filled in the test form"),
     "open_screen": _l("Opening the screen", "Opened the screen"),

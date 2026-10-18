@@ -20,8 +20,10 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 import { SetupChecklist } from "../../SetupChecklist";
+import { BusinessCopySection } from "./BusinessCopySection";
 import { ProfileSection } from "./ProfileSection";
 
 /**
@@ -71,7 +73,12 @@ export function BusinessProfileScreen() {
   if (profile.isError)
     return <ProblemNotice error={profile.error} onRetry={() => void profile.refetch()} />;
   return (
-    <Profile profile={profile.data} href={href} canWrite={write.allowed} reason={write.reason} />
+    <>
+      <Profile profile={profile.data} href={href} canWrite={write.allowed} reason={write.reason} />
+      <div className="mt-5 max-w-3xl">
+        <BusinessCopySection session={session} canWrite={write.allowed} />
+      </div>
+    </>
   );
 }
 
@@ -89,6 +96,7 @@ function Profile({
   // Seeded once; each section saves its own topic, and this draft keeps whatever is
   // being typed in the other sections.
   const [draft, setDraft] = useState<ProfileDraft>(() => draftFromProfile(profile));
+  const eg = useVerticalExamples(profile.vertical_template ?? null);
   const saved = draftFromProfile(profile);
 
   return (
@@ -139,6 +147,7 @@ function Profile({
               disabled={!canWrite}
               errorAt={errorAt}
               vertical={profile.vertical_template ?? null}
+              examples={eg}
             />
           )}
         />

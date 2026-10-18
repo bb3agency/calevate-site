@@ -7,6 +7,7 @@ import { Disclosure, FIELD, FIELD_HINT, FIELD_LABEL, QUIET_ICON_BUTTON, formatCo
 import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import type { ScriptContext } from "@/lib/api/script";
+import { sameLanguage, useBusinessSuggestions } from "@/lib/useVerticalExamples";
 
 import { chars, issuesFor, sectionDetail, type Issue, type Limits, type Section } from "./scriptModel";
 import { languageName, targetOptions, thenLabel } from "./sectionParts";
@@ -53,6 +54,11 @@ export function SectionEditor({
   const over = used > limits.detailMax;
   const nearLimit = used >= limits.detailMax * LETTERS_SHOWN_FROM;
   const language = languageName(context?.language);
+  // The account's own suggestions (D-827): a step name and example line for this position,
+  // shown only where the field is empty, and the line only when it is in the script's language.
+  const ideas = useBusinessSuggestions();
+  const idea = ideas.steps[index];
+  const ideaLine = idea && sameLanguage(ideas.language, context?.language) ? idea.example_line : null;
   const options = targetOptions(sections, section.id, context);
   const say = section.mode === "say";
   const routeErrors =
@@ -77,7 +83,7 @@ export function SectionEditor({
           className={FIELD}
           value={section.name}
           maxLength={limits.nameMax}
-          placeholder="For example: Find out what they need"
+          placeholder={`For example: ${idea?.name ?? "Find out what they need"}`}
           aria-invalid={errors("name").length > 0 || undefined}
           aria-describedby={errors("name").length ? field("name-err") : undefined}
           onChange={(e) => onChange({ name: e.target.value })}
@@ -124,6 +130,7 @@ export function SectionEditor({
           className={FIELD}
           value={section.sounds_like}
           maxLength={limits.soundsLikeMax}
+          placeholder={ideaLine ? `For example: ${ideaLine}` : undefined}
           aria-invalid={errors("sounds_like").length > 0 || undefined}
           aria-describedby={errors("sounds_like").length ? field("sounds-err") : undefined}
           onChange={(e) => onChange({ sounds_like: e.target.value })}
@@ -171,6 +178,7 @@ export function SectionEditor({
             values={section.collect}
             max={limits.maxCollect}
             suggestions={(context?.collect ?? []).map((c) => c.label)}
+            ideas={ideas.callerDetails}
             onChange={(collect) => onChange({ collect })}
           />
 
@@ -369,12 +377,15 @@ function CollectEditor({
   values,
   max,
   suggestions,
+  ideas,
   onChange,
 }: {
   id: string;
   values: string[];
   max: number;
   suggestions: string[];
+  /** The account's own caller-detail ideas (D-827), offered after its lead details. */
+  ideas: readonly string[];
   onChange: (values: string[]) => void;
 }) {
   const [typed, setTyped] = useState("");
@@ -386,6 +397,8 @@ function CollectEditor({
     setTyped("");
   };
   const offered = suggestions.filter((s) => !has(s));
+  const lead = new Set(suggestions.map((s) => s.trim().toLowerCase()));
+  const extra = ideas.filter((s) => !has(s) && !lead.has(s.trim().toLowerCase()));
   return (
     <div>
       <label className={FIELD_LABEL} htmlFor={id}>
@@ -419,7 +432,7 @@ function CollectEditor({
               className={`${FIELD} mt-0`}
               value={typed}
               maxLength={80}
-              placeholder="For example: delivery area"
+              placeholder={`For example: ${ideas[0] ?? "delivery area"}`}
               onChange={(e) => setTyped(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -432,27 +445,33 @@ function CollectEditor({
               Add
             </button>
           </div>
-          {offered.length > 0 && (
-            <div className="mt-2">
-              <p className="text-meta text-ink-muted">Your lead details:</p>
-              <ul className="mt-1 flex flex-wrap gap-1.5">
-                {offered.map((s) => (
-                  <li key={s}>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-0.5 text-meta text-ink-muted hover:bg-ink/[0.04] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
-                      onClick={() => add(s)}
-                    >
-                      <Plus aria-hidden className="h-3 w-3" />
-                      {s}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <ChipOffer heading="Your lead details:" items={offered} onAdd={add} />
+          <ChipOffer heading="Ideas for your business:" items={extra} onAdd={add} />
         </>
       )}
+    </div>
+  );
+}
+
+function ChipOffer({ heading, items, onAdd }: { heading: string; items: readonly string[]; onAdd: (v: string) => void }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-2">
+      <p className="text-meta text-ink-muted">{heading}</p>
+      <ul className="mt-1 flex flex-wrap gap-1.5">
+        {items.map((s) => (
+          <li key={s}>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-0.5 text-meta text-ink-muted hover:bg-ink/[0.04] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+              onClick={() => onAdd(s)}
+            >
+              <Plus aria-hidden className="h-3 w-3" />
+              {s}
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

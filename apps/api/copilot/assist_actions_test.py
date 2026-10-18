@@ -51,6 +51,8 @@ def test_each_is_on_its_buttons_permission_and_only_the_form_filler_skips_the_cl
         "call_summarise_again": ("confirm", "org:manage"),
         # D-822: it saves nothing; the call page's form is saved by the person.
         "call_test_prepare": ("immediate", "agents:write"),
+        # D-827: the business profile's own permission.
+        "business_copy_refresh": ("confirm", "org:manage"),
     }
     for name, (tier, permission) in expected.items():
         tool = write_tools.tool_named(name)

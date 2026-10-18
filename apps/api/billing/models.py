@@ -190,6 +190,12 @@ ASSIST_FEATURE_LEAD_FIELDS = "lead_fields_draft"
 #: The one AI suggestion of a business type for an account given one by default (D-722):
 #: part of setting the account up, so absorbed too.
 ASSIST_FEATURE_BUSINESS_TYPE = "business_type_suggestion"
+#: The account's business-tailored examples and suggestions (D-827), written by AI from the
+#: business's details. Counts against the monthly AI allowance at the tokens it used.
+ASSIST_FEATURE_BUSINESS_COPY = "business_copy"
+#: The same run when it is ours to pay for (D-827): a trial account's first generation at
+#: signup, and a refresh an operator asked for.
+ASSIST_FEATURE_BUSINESS_COPY_ABSORBED = "business_copy_absorbed"
 #: Features whose cost is OURS: excluded from the allowance like `FREE_ASSIST_FEATURES`, and
 #: unlike them not counted by the fair-use cap, which limits what a person asks for.
 ABSORBED_ASSIST_FEATURES = (
@@ -199,6 +205,7 @@ ABSORBED_ASSIST_FEATURES = (
     ASSIST_FEATURE_CALL_LANGUAGE,
     ASSIST_FEATURE_LEAD_FIELDS,
     ASSIST_FEATURE_BUSINESS_TYPE,
+    ASSIST_FEATURE_BUSINESS_COPY_ABSORBED,
 )
 
 # WHO PAYS FOR A ROW OF THIS UNIT — the one question every reader of `usage_events` has
