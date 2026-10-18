@@ -327,14 +327,12 @@ async def test_a_multi_turn_answer_is_metered_as_one_summed_quantity(
     assert spend.usage == chat.TokenUsage(prompt_tokens=250, output_tokens=30)
 
 
-async def test_one_unreported_turn_makes_the_whole_run_unmeterable(
+async def test_one_unreported_turn_records_the_reported_part_marked_incomplete(
     azure_only: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """D-140's rule. Summing the turns that DID report and calling it the total is a
-    fabricated quantity — smaller than the truth, on an append-only ledger,
-    indistinguishable from a real one, invisible to both the tenant's ceiling and the
-    platform brake. `None` reaches `meter_assist`, which fires `ai_assist_unmeterable` and
-    asks an operator to look."""
+    """D-819 (founder, 18 Oct 2026): the run is recorded as what the turns that reported
+    cost, marked incomplete so the meter raises `ai_usage_incomplete`; it is neither
+    passed off as the whole cost nor dropped to unknown."""
     _scripted(
         monkeypatch,
         [
@@ -349,8 +347,8 @@ async def test_one_unreported_turn_makes_the_whole_run_unmeterable(
         ],
     )
     spend = (await _drain())[-1].spend
-    assert spend is not None
-    assert spend.usage is None
+    assert spend is not None and spend.usage is not None
+    assert (spend.usage.prompt_tokens, spend.usage.incomplete) == (100, True)
 
 
 # --- the one selector, and the disclosed fallback ---------------------------------------
@@ -785,6 +783,8 @@ async def test_a_leg_that_dies_after_a_paid_turn_is_still_metered(
     assert spends[0].capability.provider == extraction_module.AZURE_PROVIDER
     assert spends[0].usage == paid
     assert spends[1].capability.provider == extraction_module.SARVAM_PROVIDER
+    # The dead leg's turns bought no answer the person got: our cost (D-819).
+    assert spends[0].unused is True and spends[1].unused is False
 
 
 async def test_a_leg_that_dies_after_text_was_shown_still_meters_its_paid_turns(
@@ -820,6 +820,7 @@ async def test_a_leg_that_dies_after_text_was_shown_still_meters_its_paid_turns(
     assert len(spends) == 1
     assert spends[0].usage == paid
     assert spends[0].capability.provider == extraction_module.AZURE_PROVIDER
+    assert spends[0].unused is True
 
 
 async def test_a_leg_that_dies_before_completing_a_turn_invents_no_spend(

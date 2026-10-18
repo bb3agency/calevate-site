@@ -1009,10 +1009,11 @@ class Settings(BaseSettings):
     # background jobs (`copilot/model_tiers.route_tier` is the rule).
     copilot_fast_model: GoogleDirectModel = COPILOT_FAST_MODEL_DEFAULT
     copilot_planning_model: GoogleDirectModel = COPILOT_PLANNING_MODEL_DEFAULT
-    # MAY THE ASSISTANT FALL BACK TO AZURE when the chosen Gemini model cannot serve? On by
-    # default: Gemini is the default MODEL, Azure the disclosed backup an operator can turn off.
-    # The founder: Azure stays available as a fallback setting, not the default. Off, a Gemini
-    # failure falls to the disclosed Sarvam leg instead.
+    # MAY THE ASSISTANT ANSWER ON AZURE WHEN ITS GEMINI TIER CANNOT SERVE AT ALL (no key, no
+    # attested price or no data-use attestation for that model)? On by default, with the
+    # substitution disclosed. It is decided before the question is sent (`assist_capability`,
+    # `allow_azure`). A Gemini request that FAILS mid-question falls to the disclosed Sarvam
+    # standby whatever this says: Pip's backup is Sarvam only (founder, 18 Oct 2026, D-819).
     copilot_azure_fallback: bool = True
     # THE FAIR-USE CAP (D-694). The assistant is free; each account may ask this many
     # questions, and spend this many thousand tokens, per IST day before it is told the

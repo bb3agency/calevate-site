@@ -250,6 +250,7 @@ async def _meter_ocr(
     prompt: int | None,
     output: int | None,
     cached: int | None = None,
+    incomplete: bool = False,
 ) -> None:
     if prompt is None or output is None:
         log.warning("kb_teach_ocr_unmeterable", extra={"tenant_id": str(tenant_id)})
@@ -262,6 +263,7 @@ async def _meter_ocr(
             tokens_in=prompt,
             tokens_out=output,
             cached_tokens_in=cached,
+            usage_incomplete=incomplete,
             model=model,
             feature=ASSIST_FEATURE_KB_OCR,
         )
@@ -324,6 +326,7 @@ async def read_upload(
                 refused.prompt_tokens,
                 refused.output_tokens,
                 refused.cached_prompt_tokens,
+                refused.usage_incomplete,
             )
         raise UnreadableError("unreadable") from refused
     if extracted.model is not None:
@@ -333,6 +336,7 @@ async def read_upload(
             extracted.prompt_tokens,
             extracted.output_tokens,
             extracted.cached_prompt_tokens,
+            extracted.usage_incomplete,
         )
     return extracted.text
 

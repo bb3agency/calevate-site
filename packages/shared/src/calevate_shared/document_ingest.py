@@ -206,6 +206,9 @@ class ExtractedText:
     #: How many of `prompt_tokens` the provider served from its prompt cache; `None` when any
     #: read did not say (the ledger then prices all input at the full rate).
     cached_prompt_tokens: int | None = None
+    #: Some image answered without a usage block: the counts are the reported part only
+    #: (`chat.sum_usage`), and the meter raises `ai_usage_incomplete`.
+    usage_incomplete: bool = False
     #: Per-image outcomes for a multi-image source, so an operator can see that page 3 of
     #: 5 was discarded without anyone opening the document. Codes only, never text.
     discarded: tuple[str, ...] = field(default_factory=tuple)

@@ -185,6 +185,7 @@ async def run_language_pass(
     if not chunks:
         chunks = [[]]
     wanted = {idx for idx, _ in turns}
+    answered: list[TokenUsage | None] = []
     for number, chunk in enumerate(chunks):
         want_summaries = number == 0 and not is_english(language)
         if not chunk and not want_summaries:
@@ -209,10 +210,10 @@ async def run_language_pass(
             log.warning("call_language_pass_failed", extra={"error": type(exc).__name__})
             result.failed = True
             return result
-        if outcome.usage is not None:
-            result.usage = (
-                outcome.usage if result.usage is None else result.usage.plus(outcome.usage)
-            )
+        # Every answered chunk counts; one with no usage block marks the total incomplete
+        # rather than vanishing from it (`chat.sum_usage`).
+        answered.append(outcome.usage)
+        result.usage = chat.sum_usage(answered)
         if outcome.finish_reason == "length":
             result.failed = True
         body = _first_json_object(outcome.content)

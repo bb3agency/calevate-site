@@ -71,6 +71,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import (
     ASSIST_META_KIND,
+    alert_usage_incomplete,
     assist_ledger_rows,
     bump_platform_ai_spend,
     cache_log_fields,
@@ -132,6 +133,7 @@ async def record_platform_ai_usage(
     model: str,
     feature: str,
     cached_tokens_in: int | None = None,
+    usage_incomplete: bool = False,
 ) -> PlatformAssistMetered:
     """Meter one admin-copilot answer: two `platform_ai_usage` rows (three with a priced cache
     hit, `ai_quota.assist_ledger_rows`) and the platform counter.
@@ -206,6 +208,7 @@ async def record_platform_ai_usage(
             "system_actor": system_actor,
             "viewing_tenant_id": None if viewing_tenant_id is None else str(viewing_tenant_id),
             **({} if cached_tokens_in is None else {"cached_prompt_tokens": str(cached_tokens_in)}),
+            **({"usage_incomplete": "true"} if usage_incomplete else {}),
         }
     )
     landed = Decimal("0")
@@ -249,6 +252,10 @@ async def record_platform_ai_usage(
     # THE SAME COUNTER THE TENANT METER BUMPS, and the same one `require_ai_assist` reads.
     # One key, one bill, one brake — an admin surface counting against a separate ceiling
     # would be spend on our credential that the only ceiling we have cannot see.
+    if usage_incomplete:
+        alert_usage_incomplete(
+            actor=str(admin_user_id or system_actor), ref=ref, model=model, feature=feature
+        )
     await bump_platform_ai_spend(session, month=landed_month, amount=landed)
     log.info(
         "platform_ai_assist_metered",

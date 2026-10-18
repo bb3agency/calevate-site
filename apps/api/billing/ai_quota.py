@@ -1059,6 +1059,26 @@ def cache_log_fields(*, tokens_in: int, cached_tokens_in: int | None) -> dict[st
     }
 
 
+#: The alarm for a metered AI job whose total is only the reported part (`chat.sum_usage`).
+USAGE_INCOMPLETE_ALARM: Final = "ai_usage_incomplete"
+
+
+def alert_usage_incomplete(**ids: str) -> None:
+    """Tell an operator a recorded AI cost is short: some piece of the job answered without a
+    usage block. Ids, a model and a feature only (hard rule 6). Never raises."""
+    alert(
+        "CORE_LOGIC",
+        USAGE_INCOMPLETE_ALARM,
+        detail=(
+            "An AI job was recorded from the pieces that reported their token use; at least "
+            "one piece answered without a usage block, so the recorded cost is below what "
+            "the provider will bill. Nothing was estimated. Check the provider's response "
+            "shape for the model named here."
+        ),
+        **ids,
+    )
+
+
 async def record_ai_assist_usage(
     session: AsyncSession,
     *,
@@ -1070,9 +1090,14 @@ async def record_ai_assist_usage(
     feature: str,
     extra_meta: dict[str, str] | None = None,
     cached_tokens_in: int | None = None,
+    usage_incomplete: bool = False,
 ) -> AssistMetered:
     """Meter one dashboard assist: two `usage_events` rows (three with a priced cache hit,
     `assist_ledger_rows`) and the platform counter.
+
+    `usage_incomplete` says the counts are the reported part of a job some piece of which
+    answered without a usage block (`chat.sum_usage`): they are recorded as they are, the
+    row says so in `meta.usage_incomplete`, and `ai_usage_incomplete` is raised.
 
     `extra_meta` adds ids to `meta` (never content): an absorbed standby names the surface
     it stood in for and a post-call extraction its call. `cached_tokens_in` is how much of
@@ -1135,6 +1160,7 @@ async def record_ai_assist_usage(
         {
             **(extra_meta or {}),
             **({} if cached_tokens_in is None else {"cached_prompt_tokens": str(cached_tokens_in)}),
+            **({"usage_incomplete": "true"} if usage_incomplete else {}),
             "kind": ASSIST_META_KIND,
             "model": model,
             "feature": feature,
@@ -1177,6 +1203,8 @@ async def record_ai_assist_usage(
         return AssistMetered(recorded=False, cost_inr=Decimal("0"))
 
     await bump_platform_ai_spend(session, month=landed_month, amount=landed)
+    if usage_incomplete:
+        alert_usage_incomplete(tenant_id=str(tenant_id), ref=ref, model=model, feature=feature)
     log.info(
         "ai_assist_metered",
         # Ids, a model name and a rupee total. No tenant name, no prompt, no output.
@@ -1567,10 +1595,12 @@ __all__ = [
     # would make this module a second import path for one predicate — which is how it came
     # to have a second SPELLING in the first place. `billing/rates.py` is where it lives.
     "REFERENCE_ASSIST_TOKENS",
+    "USAGE_INCOMPLETE_ALARM",
     "AiQuota",
     "AssistMetered",
     "ExtraPurchase",
     "PlatformAiSpend",
+    "alert_usage_incomplete",
     "assist_nominal_inr",
     "bump_platform_ai_spend",
     "is_assist_ref",

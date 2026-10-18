@@ -694,6 +694,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # Money leaking a fraction of a rupee at a time, per assist. Real, and not a 3am
     # problem: `usage_events` keeps the evidence and the price can be back-applied.
     "ai_assist_unmeterable": "attention",
+    "ai_usage_incomplete": "attention",
     # An account reached the in-app assistant's daily fair-use cap (D-694). Bounded, one
     # account, and the client has already been told; an operator decides whether to raise it.
     "copilot_fair_use_reached": "attention",

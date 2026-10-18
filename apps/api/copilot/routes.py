@@ -515,6 +515,7 @@ async def ask_copilot(
                         # `meter_assist` reads the live `azure_openai_model` setting — the model
                         # behind Azure's deployment is an operator switch, not a per-run fact.
                         model=spent.model,
+                        unused=spent.unused,
                     )
                     # TRUE IF ANY LEG WAS METERED. The flag reaches the browser as "this
                     # question was charged for", and a run whose Azure leg was metered and whose
