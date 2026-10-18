@@ -1,10 +1,12 @@
-"""Guardrail: no shipped module imports a `*_test.py` file.
+"""Guardrail: nothing the image needs is named `*_test.py`.
 
 The server image leaves out every `**/*_test.py` (`.dockerignore`), because the runtime runs
 no tests. A runtime module named `*_test.py` therefore exists in the working tree, where every
 local check imports it, and is missing from the image, where the import fails at start-up.
 That shipped once (`engine/forwarding_test.py`, 11 Oct 2026) and crash-looped the workers on
-deploy while the whole local gate set was green.
+deploy while the whole local gate set was green. A migration file is loaded by alembic from
+the image too: `b9e4c2d7a316_pip_prepares_a_call_test.py` broke the revision chain on the
+19 Oct 2026 deploy (`KeyError: 'b9e4c2d7a316'`) the same way.
 """
 
 from __future__ import annotations
@@ -48,4 +50,15 @@ def test_no_runtime_module_imports_a_file_the_image_excludes() -> None:
         "These shipped modules import a *_test.py file, which .dockerignore leaves out of the "
         "image, so the import fails in production. Rename the imported module:\n"
         + "\n".join(offenders)
+    )
+
+
+def test_no_migration_file_is_named_like_a_test() -> None:
+    named_like_tests = sorted(
+        p.name for p in (_ROOT / "alembic" / "versions").glob("*.py") if p.name.endswith("_test.py")
+    )
+    assert not named_like_tests, (
+        "These migrations end in `_test.py`, which .dockerignore leaves out of the image, so "
+        "alembic in production cannot find them and every later revision fails. Rename the "
+        "file (the revision id inside it is what alembic reads):\n" + "\n".join(named_like_tests)
     )
