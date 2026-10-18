@@ -1,5 +1,5 @@
 """The test-conversation judge (gaps D1-D5 of docs/evidence/prompting-practices-2026-10.md):
-reason before verdict, the recording rule the agent was given, a judge from another model
+reason before verdict, the platform rules left to code (D-823), a judge from another model
 family, the shuffled order, the account's own Gemini leg on the JSON ladder, and the
 calibration report.
 
@@ -12,7 +12,6 @@ import csv
 import json
 import uuid
 from collections.abc import Sequence
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -29,9 +28,8 @@ from apps.api.engine.catalogue import CatalogueModel
 from apps.workers import agent_test_ai, chat, script_assist
 from apps.workers import agent_test_conversations as worker
 from apps.workers.extraction import TenantModelLeg
-from calevate_shared.engine import COPILOT_FAST_MODEL_DEFAULT, PLATFORM_RULES_TAIL_HEADER
+from calevate_shared.engine import COPILOT_FAST_MODEL_DEFAULT
 from scripts import judge_calibration as calibration
-from tests.agent_test_loop_test import BRIEF
 from tests.hosted_voice_fakes import HostingEngine
 
 
@@ -94,34 +92,15 @@ def test_the_judge_writes_its_reason_before_its_verdict() -> None:
     assert item["required"] == order
 
 
-# --- D2: the recording rule follows the engine -------------------------------------------
+# --- D-823: the rule checks are not the judge's ----------------------------------------
 
 
-def test_the_judge_is_given_the_recording_answer_the_agent_was_given() -> None:
-    """FAILS IF: the judge expects "the call is recorded" from an agent on an engine that
-    records no audio, which would fail the truthful answer hard rule 5 requires."""
-    recorded = agent_test_ai.truthful_answer_rules(BRIEF)
-    assert "say yes: this call is recorded" in recorded
-    unrecorded = agent_test_ai.truthful_answer_rules(replace(BRIEF, call_is_recorded=False))
-    assert "the audio is not recorded" in unrecorded
-    assert "yes: this call is recorded" not in unrecorded
-    assert "you are an AI assistant" in unrecorded
-    # The agent's own override header is not handed to the judge as an instruction.
-    assert PLATFORM_RULES_TAIL_HEADER not in recorded
-    assert "that the call is recorded" not in agent_test_ai.JUDGE_INSTRUCTION
-
-
-async def test_the_judges_request_carries_the_agents_rules(
-    azure: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    legs: list[chat.ChatLeg] = []
-    seen: list[str] = []
-    monkeypatch.setattr(chat, "complete", _answering({"results": []}, legs, seen))
-    with pytest.raises(ProblemError):  # an empty verdict list is no answer on either leg
-        await agent_test_ai.judge_conversations(
-            replace(BRIEF, call_is_recorded=False), ["[k1] t\nCaller: hi\nAgent: hello"], {"k1"}
-        )
-    assert "the audio is not recorded" in seen[0]
+def test_the_judge_is_told_the_platform_rules_are_not_its_to_judge() -> None:
+    """FAILS IF: the judge is asked to grade a rule the platform checks in code, or may name
+    a kind of fix that raises an alarm or sends the owner to a setting."""
+    assert "NOT yours to judge" in agent_test_ai.JUDGE_INSTRUCTION
+    fixes = agent_test_ai._JUDGED_PROPERTIES["fix"]["enum"]  # type: ignore[index]
+    assert "platform" not in fixes and "settings" not in fixes
 
 
 async def test_a_brief_reads_the_engines_recording_fact(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,8 +1,13 @@
 "use client";
 
 /**
- * TEST — practice callers talk to the agent callers hear now, and the failures become fixes
- * the owner reviews (D-724, given its own section by D-748).
+ * TEST — the agent callers hear now is asked what real callers asked, the owner's saved tests
+ * and the four rules every agent must answer right, and the failures become fixes the owner
+ * reviews (D-724, given its own section by D-748, rebuilt by D-823).
+ *
+ * Every failure says who can fix it (D-823): the script or the knowledge (Pip suggests the
+ * fix), a setting (a link to it, with why), our side ("we're fixing this"), or the test
+ * itself, once the owner marks it wrong.
  *
  * Order on the screen is the order of the job: what happened (the summary and the trend),
  * what to do next (run again, or ask Pip for suggested fixes and see each change before keeping
@@ -31,6 +36,7 @@ import {
 import type { Agent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
+  useMarkTestWrong,
   useRunTestConversations,
   useTestConversations,
   type TestResult,
@@ -48,10 +54,13 @@ import { ImprovementReview } from "../script/ImprovementReview";
 import {
   ACTION_LABEL,
   VERDICT,
+  SETTING_LINK,
   WHAT_TO_DO,
   countsOf,
   isFailing,
+  isFixable,
   languageOf,
+  ownerOf,
   trendLine,
 } from "./testCopy";
 
@@ -66,6 +75,7 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
   const { href } = useClientRealm();
   const tests = useTestConversations(session, agent.id);
   const run = useRunTestConversations(session, agent.id);
+  const markWrong = useMarkTestWrong(session, agent.id);
   const write = useWriteAccess(session, "org:manage", "test and improve this agent");
   const [auto, setAuto] = useState(false);
   const [closed, setClosed] = useState<string | null>(null);
@@ -75,6 +85,7 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
   const testing = latest?.status === "queued" || latest?.status === "running" || run.isPending;
   const done = latest?.status === "done" ? latest : null;
   const failing = done ? done.results.filter(isFailing) : [];
+  const fixable = failing.filter(isFixable);
   const counts = done ? countsOf(done.results) : null;
   const improving = done?.improving === true;
   const proposal = done?.improvement ?? null;
@@ -96,10 +107,28 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
             ? "a test is running"
             : "no finished test yet",
       },
-      { key: "what_is_here", label: "What this section does", value: "practice callers talk to the agent callers hear now; failures become suggested fixes" },
-      // Pip's `agent_tests_fix` names the failures to fix by these keys.
-      ...(failing.length > 0
-        ? [{ key: "failed_tests", label: "Tests that need a fix (key: title)", value: failing.map((r) => `${r.key}: ${r.title}`).join("; ") }]
+      {
+        key: "what_is_here",
+        label: "What this section does",
+        value:
+          "the agent callers hear now is asked what real callers asked, saved tests and the rules every agent must answer; failures the script or knowledge can fix become suggested fixes",
+      },
+      // Pip's `agent_tests_fix` names the failures to fix by these keys: only those the script
+      // or the knowledge owns.
+      ...(fixable.length > 0
+        ? [{ key: "failed_tests", label: "Tests the script can fix (key: title)", value: fixable.map((r) => `${r.key}: ${r.title}`).join("; ") }]
+        : []),
+      ...(failing.length > fixable.length
+        ? [
+            {
+              key: "not_the_scripts",
+              label: "Failed tests the script cannot fix (title: who can)",
+              value: failing
+                .filter((r) => !isFixable(r))
+                .map((r) => `${r.title}: ${ownerOf(r) ?? "unknown"}`)
+                .join("; "),
+            },
+          ]
         : []),
     ],
     apply: noFill,
@@ -112,7 +141,7 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
   // Pip works the fixes out (D-820): this prefills its ask box, and the fixes come back here.
   const askForFixes = (key?: string) => {
     setClosed(null);
-    const title = key ? failing.find((r) => r.key === key)?.title : undefined;
+    const title = key ? fixable.find((r) => r.key === key)?.title : undefined;
     openAssistant({ prompt: title ? fixOneRequest(title) : FIX_ALL_REQUEST });
   };
 
@@ -125,13 +154,17 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <p className="max-w-prose text-body text-ink-muted">
-            Practice callers talk to the agent callers hear now, and every answer is checked.
+            Your agent is asked what real callers asked, and every answer is checked.
           </p>
           <InfoTip label="how testing works">
             <p>
-              Each run, new practice callers are written for your business, and the four questions every
-              agent must answer right are always asked: is this a person, is the call recorded, stop
-              calling me, and let me talk to someone.
+              Each run asks the questions your agent could not answer on real calls, your saved tests, and
+              the four questions every agent must answer right: is this a person, is the call recorded,
+              stop calling me, and let me talk to someone. Those four are checked by rules, not by AI.
+            </p>
+            <p className="mt-2">
+              Until your agent has had ten calls in the last 30 days, a few practice callers written for your business
+              are added.
             </p>
             <p className="mt-2">Tests talk to what callers hear now, not to changes still waiting in your draft.</p>
             {data?.cost_note && <p className="mt-2">{data.cost_note}</p>}
@@ -184,8 +217,7 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
       {testing && (
         <div role="status" aria-live="polite" className="space-y-2">
           <p className="text-body text-ink-muted">
-            <span className="text-shimmer">Writing practice callers and talking to your agent.</span> This takes a
-            minute or two.
+            <span className="text-shimmer">Asking your agent its tests.</span> This takes a minute or two.
           </p>
           <Skeleton rows={3} />
         </div>
@@ -202,7 +234,7 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
 
           {failing.length > 0 && (
             <FixPanel
-              count={failing.length}
+              count={fixable.length}
               canWrite={write.allowed}
               improving={improving}
               note={done.improve_note ?? null}
@@ -223,11 +255,18 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
             />
           )}
 
+          {markWrong.error && <ProblemNotice error={markWrong.error} />}
           <Results
             results={done.results}
             canFix={write.allowed && !improving}
             onFix={(key) => askForFixes(key)}
-            scriptHref={href(`/c/${slug}/agents/${agent.id}/script`)}
+            canMarkWrong={write.allowed && !markWrong.isPending}
+            onMarkWrong={(key) => markWrong.mutate({ runId: done.id, key })}
+            links={{
+              script: href(`/c/${slug}/agents/${agent.id}/script`),
+              handover: href(`/c/${slug}/agents/${agent.id}?section=${SETTING_LINK.handover.section}`),
+              agreements: href(`/c/${slug}/agreements`),
+            }}
           />
         </>
       )}
@@ -290,6 +329,7 @@ function FixPanel({
   onImprove,
   onReopen,
 }: {
+  /** Failures the script or the knowledge can fix. */
   count: number;
   canWrite: boolean;
   improving: boolean;
@@ -303,7 +343,9 @@ function FixPanel({
     return (
       <div role="status" aria-live="polite" className="space-y-2">
         <p className="text-body text-ink">
-          <span className="text-shimmer">Working out fixes for {count === 1 ? "1 test" : `${count} tests`}…</span>
+          <span className="text-shimmer">
+            Working out fixes{count > 0 ? ` for ${count === 1 ? "1 test" : `${count} tests`}` : ""}…
+          </span>
         </p>
         <p className="text-meta text-ink-muted">This takes up to two minutes. You can leave this screen; the fixes wait here.</p>
       </div>
@@ -313,10 +355,17 @@ function FixPanel({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <p className="text-body text-ink">
-          {count === 1 ? "1 test needs a fix." : `${count} tests need a fix.`} Get suggested changes and keep the ones you want.
-        </p>
-        {canWrite && (
+        {count > 0 ? (
+          <p className="text-body text-ink">
+            {count === 1 ? "1 test can be fixed in the script or your facts." : `${count} tests can be fixed in the script or your facts.`}{" "}
+            Get suggested changes and keep the ones you want.
+          </p>
+        ) : (
+          <p className="text-body text-ink">
+            None of the failed tests can be fixed in the script. Each one below says who can fix it.
+          </p>
+        )}
+        {canWrite && count > 0 && (
           <button type="button" className={SECONDARY_BUTTON_SM} onClick={onImprove}>
             <PipMark size={16} className="shrink-0" />
             Let {ASSISTANT_NAME} suggest fixes
@@ -333,40 +382,49 @@ function FixPanel({
   );
 }
 
-function Results({
-  results,
-  canFix,
-  onFix,
-  scriptHref,
-}: {
-  results: TestResult[];
+interface ResultLinks {
+  script: string;
+  handover: string;
+  agreements: string;
+}
+
+interface RowActions {
   canFix: boolean;
   onFix: (key: string) => void;
-  scriptHref: string;
-}) {
+  canMarkWrong: boolean;
+  onMarkWrong: (key: string) => void;
+  links: ResultLinks;
+}
+
+function Results({ results, ...actions }: { results: TestResult[] } & RowActions) {
   const failing = results.filter(isFailing);
-  const unchecked = results.filter((r) => r.verdict === "unjudged");
-  const passed = results.filter((r) => r.verdict === "passed");
+  const unchecked = results.filter((r) => r.verdict === "unjudged" && !r.marked_wrong);
+  const passed = results.filter((r) => r.verdict === "passed" && !r.marked_wrong);
+  const wrong = results.filter((r) => r.marked_wrong);
+  const readOnly = { ...actions, canFix: false, canMarkWrong: false };
   return (
     <div className="space-y-8">
-      {failing.length > 0 && (
-        <ResultGroup id="needs-fix" title="Needs a fix" results={failing} canFix={canFix} onFix={onFix} scriptHref={scriptHref} />
-      )}
+      {failing.length > 0 && <ResultGroup id="needs-fix" title="Needs a fix" results={failing} actions={actions} />}
       {unchecked.length > 0 && (
-        <ResultGroup id="read-yourself" title="Read these yourself" results={unchecked} canFix={false} onFix={onFix} scriptHref={scriptHref} />
+        <ResultGroup id="read-yourself" title="Read these yourself" results={unchecked} actions={readOnly} />
       )}
-      {passed.length > 0 && (
-        <details className="group">
-          <summary className="flex min-h-11 cursor-pointer items-center text-body font-medium text-ink">
-            Passed ({passed.length})
-          </summary>
-          <ul className="mt-2 divide-y divide-line border-y border-line">
-            {passed.map((result) => (
-              <ResultRow key={result.key} result={result} canFix={false} onFix={onFix} scriptHref={scriptHref} />
-            ))}
-          </ul>
-        </details>
-      )}
+      {[
+        { label: "Passed", rows: passed },
+        { label: "Marked wrong", rows: wrong },
+      ]
+        .filter((group) => group.rows.length > 0)
+        .map((group) => (
+          <details key={group.label} className="group">
+            <summary className="flex min-h-11 cursor-pointer items-center text-body font-medium text-ink">
+              {group.label} ({group.rows.length})
+            </summary>
+            <ul className="mt-2 divide-y divide-line border-y border-line">
+              {group.rows.map((result) => (
+                <ResultRow key={result.key} result={result} actions={readOnly} />
+              ))}
+            </ul>
+          </details>
+        ))}
     </div>
   );
 }
@@ -375,16 +433,12 @@ function ResultGroup({
   id,
   title,
   results,
-  canFix,
-  onFix,
-  scriptHref,
+  actions,
 }: {
   id: string;
   title: string;
   results: TestResult[];
-  canFix: boolean;
-  onFix: (key: string) => void;
-  scriptHref: string;
+  actions: RowActions;
 }) {
   return (
     <section aria-labelledby={`${id}-heading`}>
@@ -393,29 +447,25 @@ function ResultGroup({
       </h3>
       <ul className="mt-2 divide-y divide-line border-y border-line">
         {results.map((result) => (
-          <ResultRow key={result.key} result={result} canFix={canFix} onFix={onFix} scriptHref={scriptHref} />
+          <ResultRow key={result.key} result={result} actions={actions} />
         ))}
       </ul>
     </section>
   );
 }
 
-function ResultRow({
-  result,
-  canFix,
-  onFix,
-  scriptHref,
-}: {
-  result: TestResult;
-  canFix: boolean;
-  onFix: (key: string) => void;
-  scriptHref: string;
-}) {
+const LINK_CLASS = "min-h-11 text-meta font-medium text-ink underline underline-offset-2 sm:min-h-0";
+
+function ResultRow({ result, actions }: { result: TestResult; actions: RowActions }) {
   const verdict = VERDICT[result.verdict];
   const before = result.before ? VERDICT[result.before] : null;
-  const todo = isFailing(result) ? lookup(WHAT_TO_DO, result.fix) : undefined;
+  const owner = ownerOf(result);
+  const failing = isFailing(result);
+  const todo = (failing || result.marked_wrong) && owner ? WHAT_TO_DO[owner] : undefined;
+  const setting = owner === "setting" ? result.setting : null;
   const tags = [
     result.probe ? PROBE_TAG : null,
+    result.source === "real" ? "From a real call" : null,
     result.source === "saved" ? "Saved test" : null,
     result.source === "retest" ? "Asked again" : null,
   ].filter((tag): tag is string => tag !== null);
@@ -451,24 +501,29 @@ function ResultRow({
             <p className="text-meta text-ink-muted">Textbook words it used: {result.formal_words.join(", ")}</p>
           )}
           {todo && <p className="text-meta text-ink-muted">What to do: {todo}</p>}
-          {isFailing(result) && (canFix || result.fix === "script_step") && result.fix !== "platform" && (
-            <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
-              {canFix && (
-                <button
-                  type="button"
-                  className="min-h-11 text-meta font-medium text-ink underline underline-offset-2 sm:min-h-0"
-                  onClick={() => onFix(result.key)}
-                >
-                  Let {ASSISTANT_NAME} suggest a fix
-                </button>
-              )}
-              {result.fix === "script_step" && (
-                <Link href={scriptHref} className="min-h-11 text-meta font-medium text-ink underline underline-offset-2 sm:min-h-0">
-                  Open the script
-                </Link>
-              )}
-            </div>
-          )}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
+            {setting && setting.reason !== result.reason && <p className="w-full text-meta text-ink">{setting.reason}</p>}
+            {setting && (
+              <Link href={actions.links[setting.area]} className={LINK_CLASS}>
+                {SETTING_LINK[setting.area].label}
+              </Link>
+            )}
+            {failing && isFixable(result) && actions.canFix && (
+              <button type="button" className={LINK_CLASS} onClick={() => actions.onFix(result.key)}>
+                Let {ASSISTANT_NAME} suggest a fix
+              </button>
+            )}
+            {failing && owner === "script" && result.fix === "script_step" && (
+              <Link href={actions.links.script} className={LINK_CLASS}>
+                Open the script
+              </Link>
+            )}
+            {failing && actions.canMarkWrong && (
+              <button type="button" className={LINK_CLASS} onClick={() => actions.onMarkWrong(result.key)}>
+                This test is wrong
+              </button>
+            )}
+          </div>
         </div>
       )}
     </li>

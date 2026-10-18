@@ -664,11 +664,21 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         "`agents/prompt_size.py`, never a caller's row count."
     ),
     "GET /v1/agents/{agent_id}/script/tests": BoundedByConstruction(
-        by="one run's `results`, at most `MAX_GENERATED` scenarios plus `MAX_SAVED` saved "
+        by="one run's `results`, at most `MAX_GENERATED` scenarios, `MAX_REAL_QUESTIONS` "
+        "questions from real calls, `MAX_SAVED` saved "
         "tests and six re-asked failures, each of at most `MAX_TURNS` turns, `history`, "
         "at most `HISTORY_RUNS` runs (`agents.test_conversations` constants), and the run's "
-        "improvement: at most 30 changes and 10 facts (`workers/agent_test_ai."
-        "proposal_from_model`) and `for_keys`, the keys of one run's scenarios."
+        "improvement: at most `MAX_EDITS` edits (`agents/script_edits`) and `MAX_FACTS` facts "
+        "(`workers/agent_test_ai.proposal_from_model`) and `for_keys`, the keys of one run's "
+        "scenarios."
+    ),
+    "POST /v1/agents/{agent_id}/script/tests/{run_id}/results/{key}/wrong": BoundedByConstruction(
+        by="the same shape as `GET .../script/tests`, read back after the label is written."
+    ),
+    "POST /v1/agents/{agent_id}/script/tests/{run_id}/improvement/apply": BoundedByConstruction(
+        by="one `CallScript` under the `calevate_shared.call_script` ceilings, and `skipped`, "
+        "ids of the kept edits sent, at most `script_edits.MAX_EDITS` (`ApplyEditsIn.edits` "
+        "max_length)."
     ),
     "POST /v1/agents/{agent_id}/script/tests": BoundedByConstruction(
         by="the same shape as `GET .../script/tests`: one run's scenarios under "

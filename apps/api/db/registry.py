@@ -108,6 +108,8 @@ TENANT_TABLES = [
     # Pre-launch test conversations (founder decision 11, migration f7c3a9e15d26): what an
     # agent said to scripted caller lines in the engine's sandbox.
     "agent_test_runs",
+    # Tests the owner marked wrong (D-823, migration c7e2a9f4d3b1).
+    "agent_test_labels",
     # The teach box and the improvement loop (founder decisions 9 and 11, migration
     # a8d3f6c1e924): taught facts, a teaching under review, rules waiting for an agent's
     # script, and test cases saved from real calls.

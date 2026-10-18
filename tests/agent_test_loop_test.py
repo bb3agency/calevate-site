@@ -15,6 +15,12 @@ from typing import Any
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle, test_conversations
+from apps.api.agents.script_edits import (
+    EditRejectedError,
+    ScriptEdit,
+    apply_edit,
+    apply_edits,
+)
 from apps.api.agents.test_conversations import (
     PROBES,
     Judged,
@@ -30,11 +36,16 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine.test_chat import TestChatTool, TestChatTurn
-from apps.api.reliability.engine_actions import ACTION_NAMES, OPT_OUT, RETIRED_ACTION_NAMES
+from apps.api.reliability.engine_actions import (
+    ACTION_NAMES,
+    CALLBACK,
+    OPT_OUT,
+    RETIRED_ACTION_NAMES,
+)
 from apps.workers import agent_test_ai, chat
 from apps.workers import agent_test_conversations as worker
 from apps.workers.script_assist import UnusableAnswerError
-from calevate_shared.call_script import CallScript, ConversationStage
+from calevate_shared.call_script import MAX_SCRIPT_STAGES, CallScript, ConversationStage
 from sqlalchemy import text
 from tests.conftest import accept_agreements
 
@@ -180,26 +191,20 @@ def test_stop_calling_without_the_opt_out_action_fails_whatever_the_judge_says()
         unjudged_reason="",
     )
     assert result["verdict"] == "failed" and result["fix"] == "platform"
-    # The step taken but nothing written: a test chat has no number to write (D-748), so
-    # the judge decides on what was said, and the result says what the test cannot show.
+    assert result["owner"] == "platform"
+    # The step taken but nothing written: a test chat has no number to write (D-748), and
+    # the rule is decided in code whatever an AI judge said (D-823); the result says what
+    # the test cannot show.
     for status in ("caller_not_matched", None, "error"):
         taken = decide(
             scenario,
             [_turn("సరే అండి, మళ్ళీ call చేయము.", OPT_OUT_TOOL, status=status)],
-            Judged(verdict="passed", reason="ok"),
-            language="te-IN",
-            unjudged_reason="",
-        )
-        assert taken["verdict"] == "passed"
-        assert taken["limit"] == test_conversations.OPT_OUT_TEST_LIMIT
-        judged_wrong = decide(
-            scenario,
-            [_turn("సరే", OPT_OUT_TOOL, status=status)],
             Judged(verdict="failed", reason="It did not say they were removed.", fix="style"),
             language="te-IN",
             unjudged_reason="",
         )
-        assert judged_wrong["verdict"] == "failed"
+        assert taken["verdict"] == "passed" and taken["owner"] is None
+        assert taken["limit"] == test_conversations.OPT_OUT_TEST_LIMIT
     recorded = decide(
         scenario,
         [_turn("మీ number తీసేశాం అండి.", OPT_OUT_TOOL, status="recorded_in_test")],
@@ -225,25 +230,89 @@ def test_textbook_words_from_the_spoken_style_list_fail_whatever_the_judge_says(
     assert {"క్షమించండి", "ధర", "ధన్యవాదాలు"} <= set(result["formal_words"])
 
 
-def test_without_a_judge_only_the_hard_facts_decide() -> None:
-    ai = decide(
+def test_the_rule_checks_are_decided_in_code_and_never_by_the_judge() -> None:
+    """FAILS IF: an AI judge can pass or fail a rule the platform owns (D-823), or a rule
+    failure reaches the improver rather than us."""
+    said_ai = decide(
         probe_scenario("ai", "te-IN"),
         [_turn("నేను AI assistant ని అండి.")],
+        Judged(verdict="failed", reason="judged", fix="style"),
+        language="te-IN",
+        unjudged_reason="Not checked.",
+    )
+    assert said_ai["verdict"] == "passed" and said_ai["owner"] is None
+    dodged = decide(
+        probe_scenario("ai", "te-IN"),
+        [_turn("మీకు ఏం కావాలి అండి?")],
+        Judged(verdict="passed", reason="judged"),
+        language="te-IN",
+        unjudged_reason="Not checked.",
+    )
+    assert dodged["verdict"] == "failed" and dodged["owner"] == "platform"
+    recording = decide(
+        probe_scenario("recording", "te-IN"),
+        [_turn("అవును అండి, call record అవుతుంది.")],
         None,
         language="te-IN",
         unjudged_reason="Not checked.",
     )
-    assert ai["verdict"] == "passed"
-    other = decide(
-        probe_scenario("person", "te-IN"),
-        [_turn("ఎవరూ లేరు అండి.")],
-        None,
-        language="te-IN",
-        unjudged_reason="Not checked.",
-    )
-    assert other["verdict"] == "unjudged" and other["reason"] == "Not checked."
+    assert recording["verdict"] == "passed"
     retired = next(iter(RETIRED_ACTION_NAMES))
     assert hard_check(probe_scenario("person", "te-IN"), [_turn("x", retired)]).verdict == "failed"
+
+
+def test_asking_for_a_person_is_a_setting_when_nobody_can_be_put_through() -> None:
+    """FAILS IF: the person check expects a hand-over the account cannot make. With nobody
+    to put a caller through to, the result names the setting and why, and is neither a pass
+    nor a failure of the agent; with someone on duty, the test says what it cannot show."""
+    person = probe_scenario("person", "te-IN")
+    turns = [_turn("ఇప్పుడు ఎవరూ అందుబాటులో లేరు అండి.")]
+    off = decide(
+        person,
+        turns,
+        None,
+        language="te-IN",
+        unjudged_reason="",
+        rules=test_conversations.RuleContext(hand_over="off", hand_over_reason="disabled"),
+    )
+    assert off["verdict"] == "unjudged" and off["owner"] == "setting"
+    assert off["setting"]["area"] == "handover"
+    assert "switched off" in off["setting"]["reason"]
+    on_duty = decide(
+        person,
+        turns,
+        None,
+        language="te-IN",
+        unjudged_reason="",
+        rules=test_conversations.RuleContext(hand_over="someone_on_duty"),
+    )
+    assert on_duty["verdict"] == "unjudged" and on_duty["owner"] is None
+    assert on_duty["limit"] == test_conversations.HAND_OVER_TEST_LIMIT
+
+
+def test_a_call_back_step_on_an_account_that_cannot_keep_one_is_ours() -> None:
+    scenario = Scenario(key="k", title="Later", category="objection", turns=("x",), expect="")
+    result = decide(
+        scenario,
+        [_turn("సరే అండి.", ACTION_NAMES[CALLBACK])],
+        Judged(verdict="passed", reason="fine"),
+        language="te-IN",
+        unjudged_reason="",
+        rules=test_conversations.RuleContext(call_backs=False),
+    )
+    assert result["verdict"] == "failed" and result["owner"] == "platform"
+
+
+def test_a_platform_failure_while_agreements_wait_points_at_the_agreements() -> None:
+    result = decide(
+        probe_scenario("ai", "te-IN"),
+        [_turn("మీకు ఏం కావాలి అండి?")],
+        None,
+        language="te-IN",
+        unjudged_reason="",
+        rules=test_conversations.RuleContext(agreements_waiting=True),
+    )
+    assert result["owner"] == "setting" and result["setting"]["area"] == "agreements"
 
 
 def test_the_judges_answer_is_held_to_the_run_and_the_vocabulary() -> None:
@@ -290,16 +359,32 @@ CURRENT = CallScript(
 )
 
 
-def test_a_proposal_keeps_step_ids_and_invents_no_fact() -> None:
+def _edit(op: str, **fields: str) -> dict[str, str]:
+    return {
+        "op": op,
+        "step_id": "",
+        "part": "",
+        "name": "",
+        "objection": "",
+        "text": "",
+        "because": "k1",
+        "why": "Because.",
+        **fields,
+    }
+
+
+def test_a_proposal_is_small_edits_each_checked_on_its_own() -> None:
+    """FAILS IF: the improver's answer is a whole script again, or one bad edit throws the
+    good ones away (D-823). Each edit is applied alone; one that does not fit is dropped."""
     proposal = agent_test_ai.proposal_from_model(
         {
-            "script": {
-                **CURRENT.model_dump(mode="json"),
-                "objections": [{"objection": "Not interested", "response": "సరే అండి, thanks."}],
-            },
-            "changes": [
-                {"target": "objections", "because": "k1", "why": "Lets the caller go politely."},
-                {"target": "step:nope", "because": "k1", "why": "x"},
+            "edits": [
+                _edit("set_step", step_id="s1", text="Greet them and ask what they need."),
+                _edit("set_step", step_id="nope", text="x"),
+                _edit("set_objection", objection="Not interested", text="సరే అండి, thanks."),
+                _edit("set_step", step_id="s1", text="A second change to the same step."),
+                _edit("add_step", step_id="s1", name="Price", text="Give the pinned price."),
+                _edit("set_part", part="ending", text="Thank them and say goodbye."),
             ],
             "facts": [
                 {
@@ -325,8 +410,15 @@ def test_a_proposal_keeps_step_ids_and_invents_no_fact() -> None:
         fact_ids={"f1"},
     )
     assert proposal is not None
-    assert [s["id"] for s in proposal["script"]["stages"]] == ["s1"]
-    assert [c["target"] for c in proposal["changes"]] == ["objections"]
+    assert [e["op"] for e in proposal["edits"]] == [
+        "set_step",
+        "set_objection",
+        "add_step",
+        "set_part",
+    ]
+    assert proposal["dropped"] == 2
+    step = proposal["edits"][0]
+    assert step["label"] == "Step “Greet”" and step["before"] == "Greet the caller."
     assert proposal["facts"] == [
         {
             "action": "add",
@@ -337,19 +429,44 @@ def test_a_proposal_keeps_step_ids_and_invents_no_fact() -> None:
             "why": "Callers ask it.",
         }
     ]
+    # The kept edits are applied to the owner's copy by the same function, one by one.
+    edits = [ScriptEdit.of(e) for e in proposal["edits"]]
+    script, applied, rejected = apply_edits(CURRENT, [edits[0], edits[2]])
+    assert applied == ["e1", "e5"] and rejected == []
+    assert [s.id for s in script.stages] == ["s1", "s2"]
+    assert script.stages[0].instruction == "Greet them and ask what they need."
+    assert script.objections == []
 
 
-def test_a_proposal_that_is_not_a_valid_script_names_what_to_fix() -> None:
-    """An invalid script is refused with the fields and rules it broke, so the ladder can send
-    it back to the model once (`script_assist.ask_json`'s repair) instead of dropping it."""
-    bad = {
-        "script": {"stages": [{"id": "BAD ID", "name": "", "instruction": ""}]},
-        "changes": [],
-        "facts": [],
-    }
+def test_an_answer_whose_every_edit_is_unusable_is_sent_back_once_with_why() -> None:
+    """Every edit broken: refused with the fields and rules, so the ladder repairs once
+    (`script_assist.ask_json`). An empty answer is an honest "nothing here", not a refusal."""
     with pytest.raises(UnusableAnswerError) as refused:
-        agent_test_ai.proposal_from_model(bad, current=CURRENT, keys=set(), fact_ids=set())
-    assert "stages.0.id" in refused.value.problems
+        agent_test_ai.proposal_from_model(
+            {"edits": [_edit("set_step", step_id="BAD", text="x")], "facts": []},
+            current=CURRENT,
+            keys=set(),
+            fact_ids=set(),
+        )
+    assert "edits.0.step_id: unknown_step" in refused.value.problems
+    empty = agent_test_ai.proposal_from_model(
+        {"edits": [], "facts": []}, current=CURRENT, keys=set(), fact_ids=set()
+    )
+    assert empty == {"edits": [], "dropped": 0, "facts": []}
+
+
+def test_a_new_step_stops_at_the_step_limit() -> None:
+    full = CallScript(
+        schema_version=2,
+        stages=[
+            ConversationStage(id=f"s{i}", name=f"Step {i}", instruction="Do it.")
+            for i in range(1, MAX_SCRIPT_STAGES + 1)
+        ],
+    )
+    edit = ScriptEdit(id="e1", op="add_step", name="One more", text="Do more.")
+    with pytest.raises(EditRejectedError) as refused:
+        apply_edit(full, edit)
+    assert (refused.value.field, refused.value.rule) == ("op", "too_many_steps")
 
 
 # --- a whole run, metered, and its RLS -------------------------------------------------
@@ -499,21 +616,40 @@ async def test_a_run_writes_talks_judges_meters_and_retests(
     assert done.status == "done"
     assert {r["probe"] for r in done.results if r.get("probe")} == set(PROBES)
     assert done.results[0]["verdict"] == "failed"  # failures first
-    assert done.score == (len(done.results) - 1, len(done.results)), done.results
+    judged = [r for r in done.results if r["verdict"] != "unjudged"]
+    assert done.score == (len(judged) - 1, len(judged)), done.results
+    # Hand-over is off on this agent: asking for a person is a setting, not a failure.
+    person = next(r for r in done.results if r.get("probe") == "person")
+    assert person["verdict"] == "unjudged" and person["owner"] == "setting"
     assert {"agent_test_generate", "agent_test_judge"} <= features
-    # What the judge itself said is kept beside the stored verdict, for calibration: the
-    # model it ran on, that it shares the agent's family (no other leg is configured here),
-    # and where in its request each conversation sat.
-    records = [r["judge"] for r in done.results]
+    # The rule checks never reach the judge (D-823). What the judge itself said about the
+    # rest is kept beside the stored verdict, for calibration: the model it ran on, that it
+    # shares the agent's family (no other leg is configured here), and where in its request
+    # each conversation sat.
+    assert all(r["judge"] is None for r in done.results if r.get("probe"))
+    records = [r["judge"] for r in done.results if r.get("judge")]
     assert {j["model"] for j in records} == {get_settings().azure_openai_model}
     assert all(j["same_family"] is True for j in records)
     assert sorted(j["position"] for j in records) == list(range(len(records)))
     failed = done.results[0]
     assert failed["judge"]["verdict"] == "failed" and failed["judge"]["reason"] == "Because."
-    # Auto-improve was asked for and a test failed: the proposal is queued.
+    assert failed["owner"] == "knowledge"
+    # Auto-improve was asked for and a test the knowledge owns failed: the proposal is queued.
     assert outbox == [test_conversations.IMPROVE_JOB]
 
-    # "Test again" re-asks the failure word for word and shows before and after.
+    # "Test again" with nothing changed is refused: the same failures would come back.
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as same:
+            await test_conversations.request_run(
+                session, tenant_id=tenant_id, agent_id=agent_id, requested_by=None, retest_of=run.id
+            )
+    assert same.value.code == "agent_tests_nothing_changed"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET handoff_enabled = true WHERE id = :id"), {"id": agent_id}
+        )
+    # Something changed, so "Test again" re-asks the failure word for word and shows before
+    # and after.
     async with tenant_session(tenant_id) as session:
         again = await test_conversations.request_run(
             session, tenant_id=tenant_id, agent_id=agent_id, requested_by=None, retest_of=run.id
@@ -532,25 +668,37 @@ async def test_a_run_writes_talks_judges_meters_and_retests(
     assert "మిర్చి kg ఎంత?" in fake.sent
 
 
-async def test_improving_needs_a_failure_and_the_allowance(
-    azure: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    tenant_id, agent_id = await _agent()
+async def _failed_run(tenant_id: uuid.UUID, agent_id: uuid.UUID, results: list[Any]) -> uuid.UUID:
+    run_id = uuid.uuid4()
     async with tenant_session(tenant_id) as session:
-        run_id = uuid.uuid4()
         await session.execute(
             text(
                 "INSERT INTO agent_test_runs (id, tenant_id, agent_id, status, results, "
                 "created_at, updated_at) VALUES (:id, :t, :a, 'done', CAST(:r AS jsonb), "
                 "now(), now())"
             ),
-            {
-                "id": run_id,
-                "t": tenant_id,
-                "a": agent_id,
-                "r": json.dumps([{"key": "k1", "title": "Price", "verdict": "passed"}]),
-            },
+            {"id": run_id, "t": tenant_id, "a": agent_id, "r": json.dumps(results)},
         )
+    return run_id
+
+
+NOT_INTERESTED = {
+    "key": "k1",
+    "title": "Not interested",
+    "verdict": "needs_fix",
+    "reason": "It pushed.",
+    "fix": "objection",
+    "conversation": [],
+}
+
+
+async def test_improving_needs_a_failure_and_the_allowance(
+    azure: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tenant_id, agent_id = await _agent()
+    run_id = await _failed_run(
+        tenant_id, agent_id, [{"key": "k1", "title": "Price", "verdict": "passed"}]
+    )
     with pytest.raises(ProblemError) as nothing:
         await worker.improve_run(tenant_id, agent_id, run_id, keys=None)
     assert nothing.value.code == "agent_tests_nothing_to_fix"
@@ -558,21 +706,7 @@ async def test_improving_needs_a_failure_and_the_allowance(
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agent_test_runs SET results = CAST(:r AS jsonb) WHERE id = :id"),
-            {
-                "id": run_id,
-                "r": json.dumps(
-                    [
-                        {
-                            "key": "k1",
-                            "title": "Not interested",
-                            "verdict": "needs_fix",
-                            "reason": "It pushed.",
-                            "fix": "objection",
-                            "conversation": [],
-                        }
-                    ]
-                ),
-            },
+            {"id": run_id, "r": json.dumps([NOT_INTERESTED])},
         )
     monkeypatch.setattr(
         chat,
@@ -580,18 +714,16 @@ async def test_improving_needs_a_failure_and_the_allowance(
         _model(
             [
                 {
-                    "script": {
-                        "objections": [{"objection": "Not interested", "response": "సరే అండి."}]
-                    },
-                    "changes": [{"target": "objections", "because": "k1", "why": "Let them go."}],
+                    "edits": [_edit("set_objection", objection="Not interested", text="సరే అండి.")],
                     "facts": [],
                 }
             ]
         ),
     )
-    record = await worker.improve_run(tenant_id, agent_id, run_id, keys=["k1"])
-    assert record["changes"][0]["because"] == "k1"
-    assert record["script"]["objections"][0]["response"] == "సరే అండి."
+    stop, record = await worker.improve_run(tenant_id, agent_id, run_id, keys=["k1"])
+    assert stop == "completed" and record is not None
+    assert record["edits"][0]["because"] == "k1"
+    assert record["edits"][0]["after"] == "సరే అండి."
     async with tenant_session(tenant_id) as session:
         stored = await test_conversations.get_run(session, agent_id, run_id)
         improve_rows = (
@@ -604,16 +736,22 @@ async def test_improving_needs_a_failure_and_the_allowance(
             )
         ).scalar_one()
     assert stored.improvement is not None and stored.improvement["for_keys"] == ["k1"]
+    assert stored.improve_stop == "completed"
     assert improve_rows > 0
 
     # At the allowance ceiling the paid leg is not used: the platform's own standby model
     # answers (absorbed, `meter_assist`'s standby branch), so the client's allowance does not
-    # move. The routes refuse before this point (`require_ai_assist`).
+    # move. The routes refuse before this point (`require_ai_assist`). A new run's failure
+    # is a new question, so it is asked.
+    second = await _failed_run(
+        tenant_id, agent_id, [{**NOT_INTERESTED, "key": "k2", "reason": "It argued."}]
+    )
+
     async def _used_up(_tenant: uuid.UUID) -> bool:
         return True
 
     legs: list[str] = []
-    standby_answer = {"script": {}, "changes": [], "facts": []}
+    standby_answer: dict[str, Any] = {"edits": [], "facts": []}
 
     async def _complete(leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any) -> Any:
         legs.append(leg.dialect)
@@ -621,8 +759,10 @@ async def test_improving_needs_a_failure_and_the_allowance(
 
     monkeypatch.setattr(worker, "_allowance_used", _used_up)
     monkeypatch.setattr(chat, "complete", _complete)
-    await worker.improve_run(tenant_id, agent_id, run_id, keys=None)
+    stop, _ = await worker.improve_run(tenant_id, agent_id, second, keys=None)
     assert legs == ["sarvam"]
+    # Nothing found is said plainly and recorded as the round's stop reason.
+    assert stop == "no_change"
     async with tenant_session(tenant_id) as session:
         after = (
             await session.execute(
@@ -633,7 +773,40 @@ async def test_improving_needs_a_failure_and_the_allowance(
                 {"t": tenant_id},
             )
         ).scalar_one()
+        stopped = await test_conversations.get_run(session, agent_id, second)
     assert after == improve_rows
+    assert stopped.improve_stop == "no_change" and stopped.improve_note == worker.NO_EDITS_NOTE
+
+    # The same question again, with nothing changed, is never asked again.
+    legs.clear()
+    stop, _ = await worker.improve_run(tenant_id, agent_id, second, keys=None)
+    assert stop == "no_change" and legs == []
+    async with tenant_session(tenant_id) as session:
+        again = await test_conversations.get_run(session, agent_id, second)
+    assert again.improve_note == worker.SAME_INPUT_NOTE
+
+
+async def test_a_platform_or_setting_failure_is_never_sent_to_the_improver(
+    azure: None,
+) -> None:
+    tenant_id, agent_id = await _agent()
+    run_id = await _failed_run(
+        tenant_id,
+        agent_id,
+        [
+            {"key": "probe_ai", "title": "AI", "verdict": "failed", "fix": "platform"},
+            {"key": "probe_person", "title": "Person", "verdict": "needs_fix", "owner": "setting"},
+        ],
+    )
+    with pytest.raises(ProblemError) as refused:
+        await worker.improve_run(tenant_id, agent_id, run_id, keys=None)
+    assert refused.value.code == "agent_tests_nothing_fixable_by_script"
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as asked:
+            await test_conversations.request_improvement(
+                session, tenant_id=tenant_id, agent_id=agent_id, run_id=run_id, keys=None
+            )
+    assert asked.value.code == "agent_tests_nothing_fixable_by_script"
 
 
 @pytest.mark.rls

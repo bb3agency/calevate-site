@@ -150,8 +150,15 @@ def test_a_change_naming_several_tests_is_kept_not_a_crash() -> None:
     reached the route as a 500."""
     proposal = agent_test_ai.proposal_from_model(
         {
-            "script": {},
-            "changes": [{"target": "objections", "because": ["k2", "k1"], "why": "x"}],
+            "edits": [
+                {
+                    "op": "set_objection",
+                    "objection": "Too costly",
+                    "text": "సరే అండి.",
+                    "because": ["k2", "k1"],
+                    "why": "x",
+                }
+            ],
             "facts": [{"action": "add", "question": "Delivery?", "because": {"k": 1}, "why": "y"}],
         },
         current=CURRENT,
@@ -159,7 +166,7 @@ def test_a_change_naming_several_tests_is_kept_not_a_crash() -> None:
         fact_ids=set(),
     )
     assert proposal is not None
-    assert proposal["changes"][0]["because"] == "k2"
+    assert proposal["edits"][0]["because"] == "k2"
     assert proposal["facts"][0]["because"] is None
 
 
@@ -343,6 +350,7 @@ async def test_an_improve_job_that_is_refused_tells_the_owner_why(
     assert outcome == "skipped"
     assert not run.improving
     assert run.improve_note is not None and "allowance is used up" in run.improve_note
+    assert run.improve_stop == "budget"
 
     async def _crash(*_: Any, **__: Any) -> Any:
         raise RuntimeError("boom")
@@ -357,6 +365,7 @@ async def test_an_improve_job_that_is_refused_tells_the_owner_why(
     async with tenant_session(tenant_id) as session:
         run = await test_conversations.get_run(session, agent_id, run_id)
     assert run.improve_note == worker.IMPROVE_FAILED_NOTE
+    assert run.improve_stop == "failed"
 
 
 # --- (e) the agent is behind while the agreements wait -------------------------------------

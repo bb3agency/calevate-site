@@ -954,6 +954,11 @@ class LeadFieldDraft(PKMixin, TimestampMixin, Base):
 
 
 AGENT_TEST_RUN_STATUSES = ("queued", "running", "done", "failed")
+#: Why an improve round stopped (D-823): it produced edits (`completed`), it had nothing new
+#: to offer or its input was already answered (`no_change`), no failure was the script's or
+#: the knowledge's to fix (`nothing_fixable_by_script`), the round cap or the AI allowance was
+#: reached (`budget`), or it could not be made (`failed`).
+IMPROVE_STOPS = ("completed", "no_change", "nothing_fixable_by_script", "budget", "failed")
 
 
 class AgentTestRun(PKMixin, TimestampMixin, Base):
@@ -980,6 +985,9 @@ class AgentTestRun(PKMixin, TimestampMixin, Base):
         CheckConstraint(
             "improvement IS NULL OR jsonb_typeof(improvement) = 'object'",
             name="improvement_is_object",
+        ),
+        CheckConstraint(
+            f"improve_stop IS NULL OR improve_stop IN {IMPROVE_STOPS!r}", name="improve_stop_enum"
         ),
     )
 
@@ -1017,6 +1025,43 @@ class AgentTestRun(PKMixin, TimestampMixin, Base):
     improve_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: Why the last "Improve my agent" could not be made, in the owner's words.
     improve_note: Mapped[str | None] = mapped_column(Text)
+    #: The terminal reason of the last improve round (D-823), one of `IMPROVE_STOPS`.
+    improve_stop: Mapped[str | None] = mapped_column(Text)
+    #: What the agent was tested with (`test_conversations.inputs_fingerprint`), so "Test
+    #: again" with nothing changed is refused rather than re-run.
+    inputs_hash: Mapped[str | None] = mapped_column(Text)
+
+
+class AgentTestLabel(PKMixin, TimestampMixin, Base):
+    """A test the owner marked wrong (D-823). The test is left out of that run's score and
+    of the fixes, a saved or standing test stops running, and the label stays for calibrating
+    the judge. `snapshot` holds closed-set values only (verdict, owner, probe, the judge's
+    verdict and model); the conversation stays on the run."""
+
+    __tablename__ = "agent_test_labels"
+    __table_args__ = (
+        CheckConstraint("label IN ('wrong')", name="label_enum"),
+        CheckConstraint("char_length(test_key) BETWEEN 1 AND 120", name="test_key_length"),
+        CheckConstraint("jsonb_typeof(snapshot) = 'object'", name="snapshot_is_object"),
+        UniqueConstraint("run_id", "test_key"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_test_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    test_key: Mapped[str] = mapped_column(Text, nullable=False)
+    case_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("agent_test_cases.id", ondelete="SET NULL")
+    )
+    label: Mapped[str] = mapped_column(Text, nullable=False, server_default="wrong")
+    snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
 
 
 class PhoneNumber(PKMixin, TimestampMixin, Base):

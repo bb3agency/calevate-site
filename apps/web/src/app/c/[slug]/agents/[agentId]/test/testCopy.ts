@@ -4,7 +4,17 @@
  */
 
 import { formatIST } from "@/components/ui";
-import type { FixKind, TestAction, TestHistoryEntry, TestResult, TestRun, TestVerdict } from "@/lib/api/script";
+import type {
+  FixKind,
+  TestAction,
+  TestHistoryEntry,
+  TestOwner,
+  TestResult,
+  TestRun,
+  TestSetting,
+  TestVerdict,
+} from "@/lib/api/script";
+import { lookup } from "@/lib/lookup";
 
 export const VERDICT: Record<TestVerdict, { label: string; tone: string; dot: string }> = {
   passed: { label: "Passed", tone: "text-brand-strong", dot: "bg-brand-strong" },
@@ -13,14 +23,36 @@ export const VERDICT: Record<TestVerdict, { label: string; tone: string; dot: st
   unjudged: { label: "Not checked", tone: "text-ink-muted", dot: "bg-ink-faint" },
 };
 
-/** What the owner does about a failure, by the kind of fix, in one line. */
-export const WHAT_TO_DO: Record<FixKind, string> = {
-  script_step: "Change the script step it names, or let Pip suggest the change.",
+/** What the owner does about a failure, by who can fix it (D-823), in one line. */
+export const WHAT_TO_DO: Record<TestOwner, string> = {
+  script: "Change the script, or let Pip suggest the change.",
   knowledge: "Add or correct the fact in Knowledge, or let Pip suggest it.",
-  objection: "Add a reply for this push-back to the script.",
-  style: "Let Pip suggest better wording for the script.",
-  settings: "Check this agent's settings.",
-  platform: "Ours to fix, not yours: nothing in your script changes this. Contact us if it keeps happening.",
+  setting: "Change the setting below. Nothing in the script fixes this.",
+  platform: "We're fixing this. It is on our side, and nothing in your script changes it.",
+  test: "You marked this test wrong, so it is left out of the score and the fixes.",
+};
+
+/** Who fixes a result stored before D-823, which carries only the kind of fix. */
+const OWNER_OF_FIX: Record<FixKind, TestOwner> = {
+  script_step: "script",
+  objection: "script",
+  style: "script",
+  knowledge: "knowledge",
+  settings: "setting",
+  platform: "platform",
+};
+
+export function ownerOf(result: Pick<TestResult, "owner" | "fix" | "marked_wrong" | "verdict">): TestOwner | null {
+  if (result.marked_wrong) return "test";
+  if (result.owner) return result.owner;
+  if (result.verdict === "passed") return null;
+  return lookup(OWNER_OF_FIX, result.fix) ?? (isFailing(result) ? "script" : null);
+}
+
+/** Where each setting a result can point to lives, relative to the agent's page. */
+export const SETTING_LINK: Record<TestSetting["area"], { label: string; section: string | null }> = {
+  handover: { label: "Open call handling", section: "calls" },
+  agreements: { label: "Open agreements", section: null },
 };
 
 export const ACTION_LABEL: Record<TestAction, string> = {
@@ -30,8 +62,16 @@ export const ACTION_LABEL: Record<TestAction, string> = {
   other: "Used one of its actions",
 };
 
-export function isFailing(result: Pick<TestResult, "verdict">): boolean {
-  return result.verdict === "failed" || result.verdict === "needs_fix";
+/** A test that did not pass and that the owner has not marked wrong. */
+export function isFailing(result: Pick<TestResult, "verdict" | "marked_wrong">): boolean {
+  return !result.marked_wrong && (result.verdict === "failed" || result.verdict === "needs_fix");
+}
+
+/** A failure the script or the knowledge can fix: the ones Pip suggests fixes for. */
+export function isFixable(result: Pick<TestResult, "verdict" | "marked_wrong" | "owner" | "fix">): boolean {
+  if (!isFailing(result)) return false;
+  const owner = ownerOf(result);
+  return owner === "script" || owner === "knowledge";
 }
 
 export interface RunCounts {
@@ -41,11 +81,13 @@ export interface RunCounts {
   total: number;
 }
 
-export function countsOf(results: readonly Pick<TestResult, "verdict">[]): RunCounts {
+/** Tests marked wrong are counted in none of the three, as the score leaves them out. */
+export function countsOf(results: readonly Pick<TestResult, "verdict" | "marked_wrong">[]): RunCounts {
   let passed = 0;
   let failing = 0;
   let unchecked = 0;
   for (const result of results) {
+    if (result.marked_wrong) continue;
     if (result.verdict === "passed") passed += 1;
     else if (isFailing(result)) failing += 1;
     else unchecked += 1;
