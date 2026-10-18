@@ -143,26 +143,33 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
         assert size.total <= INSTRUCTIONS_MAX_CHARS - LONG_MARGIN, (job, size.total)
 
 
-#: The platform layers of the agent below on 14 Oct 2026. The founder's rule of that day: a
-#: prompt change may not grow them past it (quality within budget).
-PLATFORM_LAYERS_MAX = 6_238
+#: The platform layers of the agents below after D-824 cut what ThinnestAI's own speaking
+#: rules already say. The founder's rule of 14 Oct 2026 stands: a prompt change may not grow
+#: them past the last cut (quality within budget).
+PLATFORM_LAYERS_MAX = 5_879
+PLATFORM_LAYERS_ONE_LANGUAGE_MAX = 4_871
 
 
-def test_the_platform_layers_alone_stay_small() -> None:
-    cfg = AgentConfig(
+def _platform_only(languages_extra: list[str]) -> AgentConfig:
+    return AgentConfig(
         tenant_id="t",
         agent_id="a",
         name="A",
         business="Raghava Organics",
         direction="inbound",
         language_primary="te-IN",
-        languages_extra=["hi-IN", "en-IN"],
+        languages_extra=languages_extra,
         system_prompt="",
         opening_line="",
         call_is_recorded=True,
         facts_in_knowledge=True,
         knowledge_tool="search_knowledge",
     )
-    platform = len(compose_engine_prompt(cfg))
-    print(f"platform layers, three languages: {platform} chars")
-    assert platform <= PLATFORM_LAYERS_MAX
+
+
+def test_the_platform_layers_alone_stay_small() -> None:
+    three = len(compose_engine_prompt(_platform_only(["hi-IN", "en-IN"])))
+    one = len(compose_engine_prompt(_platform_only([])))
+    print(f"platform layers: three languages {three} chars, one language {one} chars")
+    assert three <= PLATFORM_LAYERS_MAX
+    assert one <= PLATFORM_LAYERS_ONE_LANGUAGE_MAX

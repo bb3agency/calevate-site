@@ -104,7 +104,7 @@ def test_an_agent_with_extras_is_told_which_languages_it_may_answer_in() -> None
     prompt = compose_engine_prompt(_agent(languages_extra=["hi-IN", "en-IN"]))
 
     assert "--- LANGUAGES ---" in prompt
-    assert "Your main language is Telugu." in prompt
+    assert "Your main language is Telugu;" in prompt
     assert "Hindi and English" in prompt
     # Platform-written, so OUTSIDE the client fence, after the speaking rules.
     assert prompt.index(VOICE_STYLE_GUIDANCE) < prompt.index("--- LANGUAGES ---")
@@ -113,11 +113,11 @@ def test_an_agent_with_extras_is_told_which_languages_it_may_answer_in() -> None
     assert prompt.endswith(truthful_answer_directive(call_is_recorded=True))
     assert TRUTHFUL_ANSWER_MARKER in prompt
     assert "in any language" in prompt
-    assert "apply in every one of these languages" in prompt
+    assert "Every rule here applies in each of them." in prompt
     # The spoken-output rules are unchanged.
     assert "No markdown" in prompt
 
 
 def test_one_extra_language_reads_as_one_name() -> None:
     prompt = compose_engine_prompt(_agent(languages_extra=["hi-IN"]))
-    assert "You may also speak Hindi." in prompt
+    assert "you also speak Hindi." in prompt

@@ -76,6 +76,14 @@ rules, the date line and per-turn blocks such as a transfer instruction. Three t
   own part, no markdown, emoji, dashes, slashes or ellipses, never the time, prices and
   quantities in words, numbers and codes one digit at a time and read back, the caller's
   language and register, the Telugu register lines and the two hard-rule blocks.
+- **Nothing in any of our layers repeats them (D-824, 19 Oct 2026).** Cut against that text:
+  "one point at a time" (their one or two sentences), "never the same way twice" (their
+  "never repeat a sentence you have already said"), "say so" when nothing answers (their
+  "if you do not know, say so"), "booked" from the done-claim rule (their booked, cancelled
+  or confirmed only after a tool succeeded), and price and time from BUSINESS FACTS (their
+  never state an address, price, duration or policy you were not given). Their core,
+  disclosure, hand-over, lead and reply-language rules are not published, so nothing of ours
+  is cut against them until ThinnestAI sends the text (question 5 of the pending email).
 - **Silence is the engine's and the model never sees it.** `nudgeAfterSeconds` and
   `endAfterSilenceSeconds` run outside the model; the nudge is spoken directly and recorded
   as an agent turn, and the model sees no empty turn or event. So the prompt carries no
@@ -108,9 +116,9 @@ that changes this platform text queues one live apply of every live agent at wor
 `docs/evidence/specimen-call-raghava-2026-10-11.md`. It added these rules, each said once.
 
 After the script, in WHAT YOU CAN DO, where a script cannot override them:
-- Nothing is "done" (an order noted, details saved, a booking, a message sent) unless a tool
-  confirmed it on this call; otherwise the agent says what happens next. An action the client
-  connected still confirms.
+- Nothing is "done" (an order noted, details saved, a message sent) unless a tool confirmed
+  it on this call; otherwise the agent says what happens next. A booking is ThinnestAI's own
+  rule (D-824). An action the client connected still confirms.
 - The agent already has the number the call is on. It never asks for it, at most "this same
   number?". A forwarded line with a hidden number keeps its own rule.
 
@@ -124,7 +132,8 @@ In HOW TO SPEAK:
 - Never end the call while the caller is talking or asking something.
 
 In BUSINESS FACTS:
-- Never guess or add to a fact, including what a product is or how it is made.
+- Never add to a fact: what a product is or how it is made, stock, anything medical, legal
+  or financial (a price, duration, address or policy nobody gave it is ThinnestAI's rule).
 - Say names of products, places and people as the facts give them, never translated.
 
 A client gives a product's local name in the script builder, under "Names and how to say
@@ -142,9 +151,10 @@ layers stay within their 14 Oct size (the three-language cap below):
   business is `organizations.name`, stripped of hyphen runs and brackets and cut to 80
   characters; renaming the business re-applies every live agent. With no name it says "an AI
   assistant on a phone call".
-- A clarification is never asked the same way twice. After two tries the agent says so and
-  offers what the account allows, the same follow-up as "no answer after searching" (WHAT YOU
-  CAN DO, so a script cannot undo it, and a trial agent still offers no call back).
+- After two tries at a clarification the agent offers what the account allows, the same
+  follow-up as "no answer after searching" (WHAT YOU CAN DO, so a script cannot undo it, and
+  a trial agent still offers no call back). Not asking it the same way twice is ThinnestAI's
+  own rule since D-824.
 - Titles are written in full, because a voice reads the short form badly (docs.cartesia.ai
   sonic-3 prompting tips, read 14 Oct 2026). Since D-814 the line is ThinnestAI's own
   speaking rule and not repeated in HOW TO SPEAK.
@@ -195,11 +205,20 @@ Size budget. The hard cap is ThinnestAI's instructions box, 20,000 characters
 refused, never cut, and the script's stages go to the native steps, counted separately. The
 working target is far below it, because every character is read on every turn: ElevenLabs
 says prompts over 2,000 tokens add latency and cost, and Deepgram calls its cap a ceiling,
-not a target (`docs/evidence/prompting-practices-2026-10.md` S3, S5). So the platform layers
-are held to their size of 14 Oct 2026: 6,238 characters for a three-language agent
-(`PLATFORM_LAYERS_MAX` in `tests/agent_prompt_budget_test.py`; about 4,700 to 5,200 for one),
-a starter must leave room for the owner's script and pinned facts, and a whole v2 prompt stays under 8,000 characters
-(`tests/agent_intelligence_test.py`). Telugu and Hindi text costs far more tokens per
+not a target (`docs/evidence/prompting-practices-2026-10.md` S3, S5). Retell puts a typical
+inbound support call's system prompt at 1,500 to 4,000 tokens
+(retellai.com/blog/best-llm-for-voice-ai-agents, 23 Sep 2026). So the platform layers are
+held to their size after D-824 (19 Oct 2026), which cut what ThinnestAI's speaking rules
+already say: 5,879 characters for a three-language agent and 4,871 for one
+(`PLATFORM_LAYERS_MAX`, `PLATFORM_LAYERS_ONE_LANGUAGE_MAX` in
+`tests/agent_prompt_budget_test.py`; 6,056 and 4,986 before). A starter must leave room for
+the owner's script and pinned facts, and the reference v2 prompt is held at 5,832 characters
+(`tests/agent_intelligence_test.py`; the whole-prompt target is 8,000). The layers, in
+order: opening rules (role and fence framing), HOW TO SPEAK, LANGUAGES (extra languages
+only), SPOKEN REGISTER, BUSINESS FACTS, the notices, caller memory (off on ThinnestAI), the
+client script, WHAT YOU CAN DO, CONFIDENTIALITY, the truthful answers, THIS CALL (per-call
+values only); `scripts/prompt_size.py --agent <uuid>` prints each one's length for a real
+agent. Telugu and Hindi text costs far more tokens per
 character than English (D-764 counts each non-ASCII character as one token, an assumption).
 If facts push past budget they move to the knowledge base; that is the signal, not an
 invitation to trim guardrails.
