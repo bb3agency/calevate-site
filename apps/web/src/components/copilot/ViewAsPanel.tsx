@@ -3,7 +3,7 @@
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
-import { panelFrame, type PanelPlacement } from "./CopilotPanel";
+import { panelFrame, type PanelPlacement } from "./panelFrame";
 
 /**
  * WHAT THE ASSISTANT SAYS INSIDE A D-22 VIEW-AS SESSION: that it cannot answer here, and

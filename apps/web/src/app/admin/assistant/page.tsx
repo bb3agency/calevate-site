@@ -11,7 +11,7 @@ import {
 } from "@/components/copilot/workspace/AssistantWorkspace";
 import { RestrictionNote } from "@/components/ui";
 import { adminSession } from "@/lib/api/admin";
-import { resolveAdminDestination } from "@/lib/copilot/navigate";
+import { resolveAdminDestination } from "@/components/admin/adminCopilotDock";
 
 import { useAdminAccess } from "../access";
 

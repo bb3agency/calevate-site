@@ -17,7 +17,7 @@ const STATE_ICON = {
 } as const;
 
 const STATE_TONE: Record<StatusComponent["state"], string> = {
-  operational: "text-emerald-700 dark:text-emerald-300",
+  operational: "text-brand-strong",
   degraded: "text-warn",
   outage: "text-danger",
 };
@@ -37,7 +37,7 @@ export function StatusScreen() {
         <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
           Service status
         </h1>
-        <p className="text-sm text-ink-muted" aria-live="polite">
+        <p className="max-w-prose text-sm text-ink-muted" aria-live="polite">
           {status.isLoading
             ? "Checking…"
             : !data

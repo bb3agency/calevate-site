@@ -196,8 +196,8 @@ export default function WhyCalevatePage() {
                   {figure}
                 </MockStage>
                 <div className="p-5 sm:p-7">
-                  <span className="font-mono text-sm font-semibold text-brand-strong dark:text-brand-bright">
-                    {String(i + 1).padStart(2, "0")}
+                  <span className="text-sm font-semibold tabular-nums text-brand-strong dark:text-brand-bright">
+                    {i + 1}
                   </span>
                   <h3 className={`mt-1.5 ${HOME.itemTitle} font-semibold text-balance text-ink`}>{title}</h3>
                   <p className={`mt-2 text-pretty text-ink-muted ${HOME.bodySm}`}>{body}</p>

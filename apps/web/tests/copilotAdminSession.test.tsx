@@ -44,7 +44,7 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
-const { AdminCopilotDock } = await import("@/components/copilot/CopilotDock");
+const { AdminCopilotDock } = await import("@/components/admin/adminCopilotDock");
 
 function Parent() {
   const [n, setN] = useState(0);

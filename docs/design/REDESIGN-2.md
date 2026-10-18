@@ -261,3 +261,16 @@ serif was taken (the brand decision wins).
   form, whose header comment attributed that shape to the founder; no decision row or
   brief says so, and the review step keeps what it was for (the whole campaign is seen
   before it is created).
+- **A screen of several panels is one copilot surface (D-826).** Wrap the screen in
+  `CopilotSurfaceScope` (`lib/copilot/registry.ts`) and let each panel keep declaring what it
+  owns; the scope merges them. Without it the newest panel hid the rest from Pip.
+- **A button that only opens a form is bordered, never filled (D-826).** The form's submit is
+  the filled one ("Teach the answer" opens, "Save answer" is primary).
+- **On a phone the console title is `text-heading`** and `text-title` from `sm` (D-826), so a
+  screen's name is not cut short beside the menu, bell and Pip buttons.
+- **Marketing and design-taste-frontend (D-826).** Its lint and inspector run on the public
+  pages only, with the brand's palette and type kept. Applied where it agrees with this
+  style: no zero-padded or monospace index numbers (a real sequence keeps a plain numeral),
+  sentence-case labels, no glass on the site header. Not applied, because this style says the
+  opposite: hairlines, outlined boxes, section eyebrows, card shadows on marketing, the
+  highlighted hero phrase. Those wait for the founder.

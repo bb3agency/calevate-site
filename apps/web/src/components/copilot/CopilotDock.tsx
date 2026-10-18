@@ -1,23 +1,37 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence } from "motion/react";
 import { createPortal } from "react-dom";
 
 import { PipMark } from "@/components/illustration/pip";
 import { MAIN_CONTENT_ID } from "@/components/ui";
-import { adminSession } from "@/lib/api/admin";
 import type { Session } from "@/lib/api/client";
 import { useClientRealm } from "@/lib/api/session";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { fallbackSurface } from "@/lib/copilot/fallback";
 import { useAssistantRequests } from "@/lib/copilot/launcher";
-import { resolveAdminDestination, resolveDestination } from "@/lib/copilot/navigate";
+import { resolveDestination } from "@/lib/copilot/navigate";
 import { useCopilotSurfaceHolder, type SurfaceHolder } from "@/lib/copilot/registry";
 
-import { CopilotPanel } from "./CopilotPanel";
 import { ViewAsPanel } from "./ViewAsPanel";
+
+/*
+ * THE PANEL IS ITS OWN CHUNK. The dock is in both consoles' layouts, so a static import put
+ * the whole conversation (the stream, attachments, office-file reading, proposals, jobs)
+ * into the first load of every screen, for a panel that is closed until somebody asks.
+ * It is fetched when the browser is idle after the screen has loaded, and on the
+ * launcher's hover or focus if that comes first, so opening it does not wait on the
+ * network (vercel-react-best-practices: bundle-dynamic-imports, bundle-preload).
+ */
+const loadPanel = () => import("./CopilotPanel");
+const CopilotPanel = dynamic(() => loadPanel().then((m) => m.CopilotPanel), { ssr: false });
+
+function preloadPanel(): void {
+  void loadPanel();
+}
 
 /**
  * The floating launcher, and the panel it anchors — mounted once per realm shell.
@@ -118,6 +132,14 @@ export function CopilotDock({
   // server and first client render identical.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    if (typeof window.requestIdleCallback !== "function") {
+      const timer = window.setTimeout(preloadPanel, 2000);
+      return () => window.clearTimeout(timer);
+    }
+    const idle = window.requestIdleCallback(preloadPanel, { timeout: 4000 });
+    return () => window.cancelIdleCallback(idle);
+  }, []);
   const launcher = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   // Set while the panel is closing, so focus is returned to the launcher — the modal
@@ -214,6 +236,8 @@ export function CopilotDock({
         aria-expanded={isOpen}
         // One name in both states; `aria-expanded` says whether the panel is open.
         aria-label={`Ask ${ASSISTANT_NAME}`}
+        onPointerEnter={preloadPanel}
+        onFocus={preloadPanel}
         onClick={() => {
           shouldRestoreFocus.current = isOpen;
           setIsOpen((open) => !open);
@@ -313,28 +337,6 @@ export function ClientCopilotDock({ placement }: { placement?: "floating" | "hea
       realm="client"
       navigation={{ slug: realm.session.orgSlug, href: realm.href }}
       placement={placement}
-    />
-  );
-}
-
-/** Mounted by `app/admin/layout.tsx`. `adminSession()` takes no org — an operator's
- *  session is not scoped to one tenant, and the screens that are name it in the path. */
-export function AdminCopilotDock() {
-  // HELD, because `adminSession()` BUILDS A NEW OBJECT on every call
-  // (`lib/authn/realmSessions.ts::adminRealmSession` returns an object literal). Called
-  // inline it changed identity on every render of this component, and `session` is a
-  // dependency of `ask`, `reset` and the confirm mutation inside the panel — so all three
-  // were rebuilt on every render, and anything that ever memoises on them would have been
-  // silently defeated. The credential itself is read lazily through `session.token()`, so
-  // holding the wrapper holds nothing stale.
-  const session = useMemo(() => adminSession(), []);
-  // THE ADMIN ASSISTANT CAN OPEN ITS OWN SCREENS (D-694): a destination is accepted only if
-  // it is one of the admin sidebar's own entries.
-  return (
-    <CopilotDock
-      session={session}
-      realm="admin"
-      navigation={{ slug: "", href: (path) => path, resolve: resolveAdminDestination }}
     />
   );
 }

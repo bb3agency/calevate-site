@@ -12,9 +12,8 @@
  * the agent is taking calls it cannot be deleted, and the notice carries the one move that
  * changes that.
  *
- * Each panel declares its own copilot surface and the newest declaration wins, so
- * "What it is", the one with fields the assistant can fill, is mounted after the two that
- * only state facts.
+ * Each panel declares its own copilot surface; the tab's `CopilotSurfaceScope` merges them, so
+ * the assistant sees call handling, the model and what the agent is together.
  */
 
 import Link from "next/link";
@@ -25,6 +24,7 @@ import { movesFor } from "@/lib/agentState";
 import { useAgentLifecycle, type Agent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { CopilotSurfaceScope } from "@/lib/copilot/registry";
 
 import { AgentIdentity } from "../../AgentIdentity";
 import { AgentLifecycle } from "../../AgentLifecycle";
@@ -38,44 +38,51 @@ export function SettingsTab({ agent, slug }: { agent: Agent; slug: string }) {
   const { href } = useClientRealm();
   const canDelete = movesFor(agent.status).includes("archive");
   return (
-    <div className="max-w-3xl space-y-12">
-      <div id={CALL_HANDLING_ANCHOR} className="scroll-mt-24">
+    <CopilotSurfaceScope
+      route="/c/{slug}/agents/{id}"
+      title={`Agent: settings (${agent.name})`}
+      realm="client"
+      facts={[{ key: "agent_id", label: "Agent id", value: agent.id }]}
+    >
+      <div className="max-w-3xl space-y-12">
+        <div id={CALL_HANDLING_ANCHOR} className="scroll-mt-24">
+          <Section
+            headingLevel={3}
+            title="How it handles calls"
+            description="How long a call may run, when it replies, putting callers through to a person, and remembering callers."
+          >
+            <CallHandlingSection agent={agent} />
+          </Section>
+        </div>
+
+        <Section headingLevel={3} title="Model">
+          <AgentModel agent={agent} slug={slug} />
+        </Section>
+
         <Section
           headingLevel={3}
-          title="How it handles calls"
-          description="How long a call may run, when it replies, putting callers through to a person, and remembering callers."
+          title="What it is"
+          description="Its name, which way its calls go, and the language it speaks. Changing what it does can stop it answering your numbers."
         >
-          <CallHandlingSection agent={agent} />
+          <AgentIdentity agent={agent} />
+        </Section>
+
+        <Section
+          headingLevel={3}
+          title="Leads and calling hours"
+          description="Where leads come from and when your agents may call them are set once for your whole business."
+          action={
+            <Link href={href(`/c/${slug}/lead-sources`)} className={TEXT_ACTION}>
+              Open leads and hours
+            </Link>
+          }
+        />
+
+        <Section headingLevel={3} title="Delete this agent">
+          {canDelete ? <AgentLifecycle agent={agent} only={["archive"]} /> : <SwitchOffFirst agent={agent} />}
         </Section>
       </div>
-
-      <Section headingLevel={3} title="Model">
-        <AgentModel agent={agent} slug={slug} />
-      </Section>
-
-      <Section
-        headingLevel={3}
-        title="What it is"
-        description="Its name, which way its calls go, and the language it speaks. Changing what it does can stop it answering your numbers."
-      >
-        <AgentIdentity agent={agent} />
-      </Section>
-
-      <Section
-        headingLevel={3}
-        title="Leads and calling hours"
-        description="Where leads come from and when your agents may call them are set once for your whole business."
-        action={
-          <Link href={href(`/c/${slug}/lead-sources`)} className={TEXT_ACTION}>
-            Open leads and hours
-          </Link>
-        }
-      />
-
-      <Section headingLevel={3} title="Delete this agent">
-        {canDelete ? <AgentLifecycle agent={agent} only={["archive"]} /> : <SwitchOffFirst agent={agent} />}
-      </Section>
-    </div>
+    </CopilotSurfaceScope>
   );
 }
 

@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import {
+  createContext,
+  createElement,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
-import type { CopilotSurface } from "./types";
+import type { CopilotFact, CopilotField, CopilotSurface } from "./types";
 
 /**
  * Where a screen says what it holds, and where the dock in the layout reads it.
@@ -113,6 +122,7 @@ export function useCopilotSurfaceHolder(): SurfaceHolder | null {
  * unobservable: it is read from a click handler, and a click cannot land inside that gap.
  */
 export function useCopilotSurface(surface: CopilotSurface | null): void {
+  const scope = useContext(SurfaceScope);
   const latest = useRef(surface);
   // No dependency array: after EVERY commit, the holder sees exactly what was rendered.
   useEffect(() => {
@@ -136,6 +146,116 @@ export function useCopilotSurface(surface: CopilotSurface | null): void {
   const declares = surface !== null;
   useEffect(() => {
     if (!declares) return undefined;
-    return registerSurfaceHolder({ read: () => latest.current as CopilotSurface });
-  }, [declares]);
+    const holder = { read: () => latest.current as CopilotSurface };
+    return scope ? scope.add(holder) : registerSurfaceHolder(holder);
+  }, [declares, scope]);
+}
+
+/**
+ * ONE SCREEN, SEVERAL PANELS, ONE SURFACE.
+ *
+ * A tab that mounts several panels which each declare themselves (an agent's Settings: call
+ * handling, the model, what it is) would otherwise show the assistant only the newest of
+ * them, because the stack above answers with its top. Inside a scope, every
+ * `useCopilotSurface` below it is a PART, and the scope registers ONE holder that merges
+ * the parts at read time: the scope's route and title, every part's fields and facts in
+ * mount order (a field id or fact key seen twice keeps its first), each fill routed to the
+ * part that declared that field, and `unsaved` true when any part says so.
+ *
+ * The alternative was to lift every panel's fields into the parent's one declaration (as
+ * the teach box once took its screen's extra fields as a prop). That moves each panel's
+ * state and queries up into a screen that does not otherwise need them; a scope leaves
+ * each panel declaring what it owns.
+ *
+ * The holder's identity is stable for the scope's life, so a part arriving or leaving (a
+ * disclosure opening) changes what the next read returns without re-registering, and the
+ * dock, which closes its panel when the holder changes, stays open.
+ */
+interface ScopeValue {
+  add: (part: SurfaceHolder) => () => void;
+}
+
+const SurfaceScope = createContext<ScopeValue | null>(null);
+
+type ScopeOwn = Pick<CopilotSurface, "route" | "title" | "realm"> & { facts: CopilotFact[] };
+
+export function CopilotSurfaceScope({
+  route,
+  title,
+  realm,
+  facts = NO_FACTS,
+  children,
+}: {
+  route: string;
+  title: string;
+  realm: CopilotSurface["realm"];
+  /** Facts about the whole screen, listed before any part's. */
+  facts?: CopilotFact[];
+  children: ReactNode;
+}) {
+  const parts = useRef<SurfaceHolder[]>([]);
+  const own = useRef<ScopeOwn>({ route, title, realm, facts });
+  useEffect(() => {
+    own.current = { route, title, realm, facts };
+  });
+  const value = useMemo<ScopeValue>(
+    () => ({
+      add: (part) => {
+        parts.current = [...parts.current, part];
+        return () => {
+          parts.current = parts.current.filter((p) => p !== part);
+        };
+      },
+    }),
+    [],
+  );
+  useEffect(
+    () =>
+      registerSurfaceHolder({
+        read: () => mergeSurfaces(own.current, parts.current.map((part) => part.read())),
+      }),
+    [],
+  );
+  return createElement(SurfaceScope.Provider, { value }, children);
+}
+
+const NO_FACTS: CopilotFact[] = [];
+
+/** The scope's merge, pure so a test can drive it without a render. */
+export function mergeSurfaces(own: ScopeOwn, parts: CopilotSurface[]): CopilotSurface {
+  const fields: CopilotField[] = [];
+  const owner = new Map<string, CopilotSurface>();
+  const facts: CopilotFact[] = [...own.facts];
+  const keys = new Set(own.facts.map((fact) => fact.key));
+  for (const part of parts) {
+    for (const field of part.fields) {
+      if (owner.has(field.id)) continue;
+      owner.set(field.id, part);
+      fields.push(field);
+    }
+    for (const fact of part.facts ?? []) {
+      if (keys.has(fact.key)) continue;
+      keys.add(fact.key);
+      facts.push(fact);
+    }
+  }
+  const said = parts.flatMap((part) => (part.unsaved === undefined ? [] : [part.unsaved]));
+  const tenantId = parts.find((part) => part.tenantId !== undefined)?.tenantId;
+  return {
+    route: own.route,
+    title: own.title,
+    realm: own.realm,
+    ...(tenantId !== undefined ? { tenantId } : {}),
+    fields,
+    facts,
+    apply: (items) => {
+      for (const part of parts) {
+        const mine = items.filter((item) => owner.get(item.field_id) === part);
+        if (mine.length > 0) part.apply(mine);
+      }
+    },
+    // A part that did not say is not a part with nothing to lose (see `unsaved` in
+    // types.ts): the answer is unknown unless every part gave one, and true once any did.
+    unsaved: said.includes(true) ? true : said.length === parts.length ? false : undefined,
+  };
 }

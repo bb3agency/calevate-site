@@ -135,11 +135,11 @@ export function IndustryTabs() {
           <div className="grid gap-10 lg:grid-cols-2 lg:gap-14">
             <div>
               <h3 className="text-xl font-semibold text-ink sm:text-2xl">{industry.name}</h3>
-              <p className="mt-4 text-sm font-semibold tracking-[0.14em] text-ink-faint uppercase">
+              <p className="mt-4 text-sm font-medium text-ink-muted">
                 What it asks the caller
               </p>
               <p className="mt-2.5 text-lg text-pretty text-ink-muted sm:text-xl">“{industry.asks}”</p>
-              <p className="mt-8 text-sm font-semibold tracking-[0.14em] text-ink-faint uppercase">
+              <p className="mt-8 text-sm font-medium text-ink-muted">
                 The questions a new agent starts with
               </p>
               <ul data-seed-fields className="mt-2 flex flex-wrap gap-2">
@@ -167,7 +167,7 @@ export function IndustryTabs() {
             </div>
 
             <div className="rounded-xl border border-line bg-app/50 p-5">
-              <p className="text-sm font-semibold tracking-[0.14em] text-ink-faint uppercase">
+              <p className="text-sm font-medium text-ink-muted">
                 What you receive
               </p>
               <ul className="mt-3 flex flex-wrap gap-2">

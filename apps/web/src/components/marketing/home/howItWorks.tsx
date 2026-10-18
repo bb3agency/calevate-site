@@ -12,26 +12,26 @@ import { CallMock, FieldListMock, LeadRecordMock } from "./mockups/stepMockups";
  * heading and sentence carry the meaning — so the screens are hidden from assistive
  * technology and the step reads as heading, then sentence.
  *
- * Step 02 follows D-669: a new agent VOLUNTEERS neither notice and opens with the greeting;
+ * Step 2 follows D-669: a new agent VOLUNTEERS neither notice and opens with the greeting;
  * each is a per-agent toggle (D-163). The unswitchable guarantee is about the ANSWER and
  * lives in the trust chapter.
  */
 
 const STEPS: readonly { step: string; title: string; body: string; figure: ReactNode }[] = [
   {
-    step: "01",
+    step: "1",
     title: "You say what matters",
     body: "Tell the agent about your business and list what it has to find out from each caller. That list becomes your columns.",
     figure: <FieldListMock />,
   },
   {
-    step: "02",
+    step: "2",
     title: "It takes the call",
     body: "Someone rings, or the agent works through a list you gave it. It opens with your greeting, says it is an AI whenever a caller asks, and answers from what you approved.",
     figure: <CallMock />,
   },
   {
-    step: "03",
+    step: "3",
     title: "You get a lead, not a recording to wade through",
     body: "The enquiry lands filled in and sorted, with the audio attached and the key moments timestamped if you want to hear it yourself.",
     figure: <LeadRecordMock />,
@@ -60,7 +60,7 @@ export function HowItWorks() {
                 <div className="w-full max-w-xs">{figure}</div>
               </MockStage>
               <div className="border-t border-line bg-surface p-5 sm:p-7">
-                <span className="font-mono text-sm font-semibold text-brand-strong dark:text-brand-bright">
+                <span className="text-sm font-semibold tabular-nums text-brand-strong dark:text-brand-bright">
                   {step}
                 </span>
                 <h3 className={`mt-2 ${HOME.itemTitle} font-semibold text-balance text-ink`}>{title}</h3>

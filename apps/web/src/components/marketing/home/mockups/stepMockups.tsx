@@ -49,7 +49,7 @@ export function FieldListMock() {
   );
 }
 
-/** Step 02: the call itself — the same card the hero uses, so the two read as one product. */
+/** Step 2: the call itself — the same card the hero uses, so the two read as one product. */
 export function CallMock() {
   return <CallCard className="mk-rise mk-s1" />;
 }

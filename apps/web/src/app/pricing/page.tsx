@@ -400,12 +400,9 @@ export default async function PricingPage() {
               one surface (UX-DOCTRINE §1), as the homepage's cost chapter does it. */}
           <Reveal className="mt-10 overflow-hidden rounded-2xl border border-line sm:mt-12">
             <div className="grid grid-cols-1 gap-px bg-line lg:grid-cols-3">
-              {METERED.map(({ title, body }, index) => (
+              {METERED.map(({ title, body }) => (
                 <section key={title} className="bg-surface p-5 sm:p-8">
-                  <span aria-hidden className="font-mono text-xs text-ink-faint">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  <h3 className="mt-3 text-[17px] font-semibold text-ink sm:text-xl">{title}</h3>
+                  <h3 className="text-[17px] font-semibold text-ink sm:text-xl">{title}</h3>
                   <p className="mt-2 text-sm text-pretty text-ink-muted sm:text-base">{body}</p>
                 </section>
               ))}

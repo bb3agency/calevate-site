@@ -193,12 +193,9 @@ export default async function RoiPage() {
           {/* One surface in three cells, not three cards (UX-DOCTRINE §1). */}
           <Reveal className="mt-10 overflow-hidden rounded-2xl border border-line sm:mt-12">
             <dl className="grid grid-cols-1 gap-px bg-line lg:grid-cols-3">
-              {AGAINST.map(({ term, detail }, index) => (
+              {AGAINST.map(({ term, detail }) => (
                 <div key={term} className="bg-surface p-5 sm:p-8">
-                  <span aria-hidden className="font-mono text-xs text-ink-faint">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  <dt className="mt-3 text-[17px] font-semibold text-balance text-ink sm:text-xl">
+                  <dt className="text-[17px] font-semibold text-balance text-ink sm:text-xl">
                     {term}
                   </dt>
                   <dd className="mt-2 text-sm text-pretty text-ink-muted sm:text-base">{detail}</dd>

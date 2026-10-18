@@ -24,7 +24,7 @@ import {
   sidebarPanelClass,
   useSidebarCollapse,
 } from "@/components/sidebarCollapse";
-import { AdminCopilotDock } from "@/components/copilot/CopilotDock";
+import { AdminCopilotDock } from "@/components/admin/adminCopilotDock";
 import { OfflineBanner } from "@/components/offline";
 import { ADMIN_REALM_IDENTITY_CLASS } from "@/components/realmChrome";
 import {
@@ -40,7 +40,7 @@ import { currentNavItem } from "@/lib/nav";
 import { AdminIdleTimeoutModal } from "@/components/authn/adminIdleTimeoutModal";
 import { SidebarSignOut } from "@/components/authn/sidebarSignOut";
 import { StepUpPrompt } from "@/components/authn/stepUpPrompt";
-import { AdminLiveUpdates } from "@/components/live/LiveUpdates";
+import { AdminLiveUpdates } from "@/components/admin/adminLiveUpdates";
 import { adminAuthn, ADMIN_SIGN_IN_PATH } from "@/lib/authn/adminAuthn";
 import {
   AdminSessionGate,

@@ -8,7 +8,8 @@
  *   on the calling system, and is refused with the server's reason while there is no
  *   script or the agreements are outstanding); off is `POST .../deactivate`. No confirm
  *   step: the consequence is in the ⓘ beside it, and switching back is the same switch.
- * - **Try it** opens the Training tab, where the chat and the practice call are (D-825).
+ * - **Try it** opens the Training tab, where the chat and the practice call are (D-825),
+ *   through the tabs' own unsaved-edits guard (D-826) like the ⋯ menu's Delete.
  * - **Put it live** is the one filled button, and only while the script's draft differs
  *   from what callers hear. It is the same step as the builder's (`script/PutLive.tsx`), so
  *   on the Script tab, where the builder shows its own, the header leaves it out.
@@ -25,6 +26,7 @@ import { MessageSquareText } from "lucide-react";
 import { formatINR, ProblemNotice, PRIMARY_BUTTON, RestrictionNote, SECONDARY_BUTTON, ToggleSwitch } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
+import { useSectionLink } from "@/components/console/settingsLayout";
 import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
 import { STATUS_COPY, isDeleted, movesFor } from "@/lib/agentState";
 import { useAgentLifecycle, type Agent, type LifecycleMove } from "@/lib/api/agents";
@@ -67,6 +69,9 @@ export function AgentHeader({
   const moves = movesFor(agent.status);
   const staged = pending.data ? stagedScript(pending.data) : undefined;
   const base = `/c/${slug}/agents/${agent.id}`;
+  // Guarded by the layout when the header is drawn inside it; a plain link otherwise.
+  const training = useSectionLink("training");
+  const settings = useSectionLink("settings");
 
   const items: RowMenuItem[] = deleted
     ? []
@@ -82,7 +87,9 @@ export function AgentHeader({
               },
             ]
           : []),
-        { id: "delete", label: "Delete…", tone: "danger" as const, href: href(`${base}?section=settings`) },
+        settings
+          ? { id: "delete", label: "Delete…", tone: "danger" as const, onSelect: settings.go }
+          : { id: "delete", label: "Delete…", tone: "danger" as const, href: href(`${base}?section=settings`) },
       ];
 
   const status = lookup(STATUS_COPY, agent.status);
@@ -121,7 +128,8 @@ export function AgentHeader({
               <>
                 <OnOffSwitch agent={agent} canWrite={write.allowed} move={move} />
                 <Link
-                  href={href(`${base}?section=training`)}
+                  href={training?.href ?? href(`${base}?section=training`)}
+                  onClick={training?.onClick}
                   scroll={false}
                   className={`${SECONDARY_BUTTON} flex-1 sm:flex-none`}
                 >

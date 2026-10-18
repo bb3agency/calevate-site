@@ -92,7 +92,7 @@ const MENU_LINK =
 
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-header border-b border-line bg-surface/85 backdrop-blur-md">
+    <header className="sticky top-0 z-header border-b border-line bg-surface">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-5 py-3 sm:gap-4 sm:px-6 xl:max-w-7xl 2xl:max-w-[90rem]">
         {/* Square mark on a phone, wordmark from `sm` — one element, one request. The row
             does not fit at 320px otherwise; `BrandHeaderMark` carries the measurement. */}

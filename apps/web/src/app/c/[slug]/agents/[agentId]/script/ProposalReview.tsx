@@ -180,14 +180,14 @@ function Quote({ tone, text }: { tone: "before" | "after"; text: string }) {
         after ? "border-brand text-ink" : "border-line text-ink-muted"
       }`}
     >
-      <span className="block text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+      <span className="block font-medium text-ink-muted">
         {after ? "Suggested" : "Now"}
       </span>
       <span className={`block whitespace-pre-wrap ${long && !open ? "line-clamp-4" : ""}`}>{text}</span>
       {long && (
         <button
           type="button"
-          className="mt-0.5 text-[11px] font-medium text-brand-strong hover:underline"
+          className="mt-0.5 font-medium text-brand-strong hover:underline"
           onClick={(e) => {
             // Inside the row's label: a click here must not tick or untick the change.
             e.preventDefault();

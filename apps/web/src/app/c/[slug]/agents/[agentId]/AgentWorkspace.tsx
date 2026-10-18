@@ -142,10 +142,12 @@ function LiveAgent({ agent, slug, leadsLink }: { agent: Agent; slug: string; lea
     // The Script tab's flow picture and the editor beside it use the width a desktop has,
     // so the shell takes the wide rail while that tab is open.
     <div className="space-y-6" {...(active === "script" ? WIDE_RAIL : {})}>
-      <AgentHeader agent={agent} slug={slug} onScriptTab={active === "script"} />
       <SettingsLayout
         label="About this agent"
         menu="tabs"
+        // Inside the layout so its links to a tab ("Try it", "Delete…") take the
+        // unsaved-edits guard the tabs themselves take.
+        header={<AgentHeader agent={agent} slug={slug} onScriptTab={active === "script"} />}
         sections={sections}
         aliases={LEGACY_SECTIONS}
         renderSection={(id) => {

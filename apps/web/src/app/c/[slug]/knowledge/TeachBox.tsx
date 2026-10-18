@@ -34,7 +34,7 @@ import {
   type Teaching,
 } from "@/lib/api/teach";
 
-import { useKnowledgeCopilot, type TeachSurface } from "./copilot";
+import { useKnowledgeCopilot } from "./copilot";
 
 /** The voice note stops itself here: the speech-to-text step takes clips under 30 s. */
 const MAX_RECORDING_S = 30;
@@ -72,7 +72,6 @@ export function TeachBox({
   reason,
   answering,
   headingLevel = 2,
-  surface,
 }: {
   allowed: boolean;
   reason: string | null;
@@ -80,8 +79,6 @@ export function TeachBox({
   answering?: { gapId: string | null; question: string; key: number } | null;
   /** 3 inside an agent's Training tab, whose tab label is the h2. */
   headingLevel?: 2 | 3;
-  /** Where the box sits and what else that screen declares, when it is not Knowledge. */
-  surface?: TeachSurface;
 }) {
   const session = useClientSession();
   const hear = useHearVoiceNote(session);
@@ -105,7 +102,6 @@ export function TeachBox({
     body: words,
     setBody: setWords,
     answering: asked ? { gapId: linkedGap, question: asked } : null,
-    surface,
   });
 
   useEffect(() => {
