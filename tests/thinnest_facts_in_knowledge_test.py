@@ -49,16 +49,11 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 # --- every other engine: byte-identical -------------------------------------------
 
 #: sha256 of `compose_engine_prompt` for the two configs below. A change here is a change to
-#: every other engine's prompt: re-pinned for D-714 (each platform rule said once, the spoken
-#: register, the cannot-help block), for D-739 (the turn-shape and spoken-voice rules), for
-#: D-749 (the specimen call's rules), for D-752 (the tightened platform layers) and for the
-#: do-not-call tool's narrowed trigger (ending a call is not an opt-out) and for the vendor
-#: prompting guides (the role sentence, the two-tries limit, titles in full, the in-call
-#: examples) and for D-814 (HOW TO SPEAK no longer repeats ThinnestAI's speaking rules), each
-#: of which changed every engine's platform layers on purpose.
+#: every other engine's prompt, so it is re-pinned only by a decision that changes the
+#: platform layers on purpose (last: D-824, the lines ThinnestAI's speaking rules already say).
 PINNED = (
-    "da144cf80dba1a22998a50bc86357b49d6f65b405589d1d8f9d0f2d624b84fde",
-    "fab62d987825772e0f99a9e14bc2f837d1ef94e98cccebc71e9b0fc40af81f85",
+    "e9895927b23c217c4eab6fd7e7618bff7f144ab791167a0b6847086a4af22cc9",
+    "3330233e9daec29f8fd4764f49d5851de8cb89330775011e901c92578a654edf",
 )
 
 

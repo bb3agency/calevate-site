@@ -2736,11 +2736,12 @@ def platform_rules_preamble(cfg: AgentConfig) -> str:
 #: (founder, 18 Oct 2026); their text is `docs/vendor/thinnest-speaking-rules-2026-10-18.md`
 #: (VENDOR-STATED, ThinnestAI email of 18 Oct 2026). So the turn length, one question per
 #: turn, titles in full, no brackets and varying the opening are theirs and not said here
-#: twice; every line below says something theirs does not.
+#: twice; every line below says something theirs does not. D-824 took out the last two
+#: overlaps: "one point at a time" (their one or two sentences a turn) and "never the same way
+#: twice" (their "never repeat a sentence you have already said").
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
-    "- Lead with the answer, one point at a time, then wait. More only if asked. Never re-ask "
-    "what they already said.\n"
+    "- Lead with the answer, then wait; more only if asked. Never re-ask what they said.\n"
     "- Say only your own part, never the caller's words.\n"
     "- Unsure or not interested? Offer once, then close politely.\n"
     "- Let them finish; talked over, stop, answer, then carry on.\n"
@@ -2751,10 +2752,9 @@ VOICE_STYLE_GUIDANCE: Final = (
     "- Read back what you note and wait for a yes. Numbers and codes one digit at a time, a "
     "few at a time; a mobile has ten, never fewer.\n"
     # Each language's own script and its English words are in its SPOKEN REGISTER line.
-    "- Reply in the same language and register as the caller; never formal or written-style "
-    'words, never "uhm".\n'
-    "- Missed it? Ask them to repeat it, never the same way twice; never guess. Asked to "
-    "repeat? Say it shorter.\n"
+    "- Match the caller's language and register; never formal or written-style words, never "
+    '"uhm".\n'
+    "- Missed it? Ask them to repeat it; never guess. Asked to repeat? Say it shorter.\n"
     "- After a tool or search, never narrate or greet again.\n"
     "- End the call only after a goodbye or when asked, never while they talk or ask."
 )
@@ -2783,14 +2783,17 @@ def _knowledge_section(cfg: AgentConfig) -> str:
         )
     else:
         where = "Answer about the business from the facts in this prompt and your knowledge search."
-    # Two rules are said elsewhere and not here: that the quick facts win (their own
-    # `[QUICK FACTS]` lead says it, and only where there are some) and what to say when
-    # nothing answers (the cannot-help rules after the script, where a script cannot undo it).
+    # Said elsewhere and not here: that the quick facts win (their own `[QUICK FACTS]` lead),
+    # what to say when nothing answers (the cannot-help rules after the script), and never
+    # guessing a price, duration, address or policy, which ThinnestAI's own speaking rules say
+    # (`docs/vendor/thinnest-speaking-rules-2026-10-18.md`, D-824). What those rules do not
+    # name stays: a product's nature and making (D-749), stock, and anything medical, legal
+    # or financial.
     return (
         "--- BUSINESS FACTS ---\n"
-        f"{where} Never guess or add to a fact (price, stock, time, what a product is or how it "
-        "is made, anything medical, legal or financial). Say every name as your facts give "
-        "it, never translated. Two possible answers? Ask which they meant."
+        f"{where} Never add to a fact: what a product is or how it is made, stock, anything "
+        "medical, legal or financial. Say every name as your facts give it, never translated. "
+        "Two possible answers? Ask which they meant."
     )
 
 
@@ -2827,9 +2830,12 @@ CANNOT_HELP_HEADER: Final = "--- PLATFORM RULES: WHAT YOU CAN DO ---"
 #: "details saved" on an agent with no action that records or saves anything. Phrased by what
 #: confirms it, a tool's answer on this call, so an agent whose client connected a booking,
 #: WhatsApp, payment-link or sheet action still says it was done once that action succeeds.
+#: "Booked, cancelled or confirmed" is ThinnestAI's own speaking rule
+#: (`docs/vendor/thinnest-speaking-rules-2026-10-18.md`), so this names only the claims theirs
+#: does not, the ones the 11 Oct call made (D-824).
 ACTION_CLAIM_RULE: Final = (
-    "- Never say something is done (order noted, details saved, booked, sent) unless a tool "
-    "confirmed it on this call; else say what happens next."
+    "- Never say an order is noted, details saved or anything sent unless a tool confirmed it "
+    "on this call; else say what happens next."
 )
 
 #: The number a call is on is already the lead's (`leads.phone_e164` comes from the call), so
@@ -2901,9 +2907,10 @@ def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
         f"{CANNOT_HELP_HEADER}\n"
         # The two-tries limit lives here rather than in HOW TO SPEAK so a script cannot undo
         # it, and ends on what this account allows; without it an agent that cannot make out
-        # a caller asks again until the caller hangs up.
-        f"- No answer after searching, or still unclear after two tries: say so, then "
-        f"{follow_up}.\n"
+        # a caller asks again until the caller hangs up. Saying that it does not know is
+        # ThinnestAI's speaking rule ("If you do not know, say so"), so this says only what
+        # follows.
+        f"- No answer after searching, or still unclear after two tries: {follow_up}.\n"
         f"{person}\n"
         # The do-not-call tool is the voice platform's own, always attached and not
         # describable by us (not in the switchable list, `api-reference/tools/
@@ -3735,10 +3742,9 @@ def _languages_section(cfg: AgentConfig) -> str:
     others = extras[0] if len(extras) == 1 else ", ".join(extras[:-1]) + " and " + extras[-1]
     return (
         "--- LANGUAGES ---\n"
-        f"Your main language is {primary}. You may also speak {others}. Answer in the one the "
-        f"caller speaks and switch when they do; in any other language, reply in {primary} "
-        "and offer these.\n"
-        "All rules here, PLATFORM RULES included, apply in every one of these languages."
+        f"Your main language is {primary}; you also speak {others}. Use the caller's and "
+        f"switch when they do; in any other language, reply in {primary} and offer these. "
+        "Every rule here applies in each of them."
     )
 
 

@@ -798,7 +798,7 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
     if purpose:
         goal = (
             f"{goal}\n" if goal else ""
-        ) + f"On calls you place, say early, in one sentence, why you call: {purpose}"
+        ) + f"On calls you place, say early why you call: {purpose}"
     add("[GOAL]", goal)
     add(OPENING_HEADER, script.opening_line)
 
@@ -814,7 +814,7 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
         style_lines.append(CODE_MIX_SENTENCES[style.code_mix])
     if style.sample_phrases:
         phrases = " / ".join(_quote(p) for p in style.sample_phrases)
-        style_lines.append(f"Phrases you can use, varied and never every turn: {phrases}")
+        style_lines.append(f"Phrases you can use, not every turn: {phrases}")
     if style.pronunciations:
         said = "; ".join(f"{p.word.strip()} as {_quote(p.say_as)}" for p in style.pronunciations)
         style_lines.append(f"Say these names exactly like this: {said}")
@@ -841,8 +841,9 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
                 line += " — needed"
             lines.append(line)
         add(
-            # "One per turn" is HOW TO SPEAK's, said once for every agent (D-752).
-            "[WHAT TO COLLECT] When it fits. Ask for nothing else.",
+            # One question a turn, short turns and varied wording are ThinnestAI's own speaking
+            # rules (D-814), so no lead in this compiler repeats them (D-824).
+            "[WHAT TO COLLECT] Only these, when it fits.",
             "\n".join(lines),
         )
 

@@ -178,8 +178,8 @@ def test_the_standard_set_carries_the_shape_callers() -> None:
 def test_the_prompt_says_the_turn_and_voice_rules() -> None:
     block = VOICE_STYLE_GUIDANCE.lower()
     # The turn length, one question a turn and no brackets are ThinnestAI's own speaking
-    # rules, read on every call after ours (D-814).
-    assert "one point at a time" in block and "then wait" in block
+    # rules, read on every call after ours (D-814, D-824).
+    assert "lead with the answer, then wait" in block
     assert "never the caller's words" in block
     assert "actions or notes" in block and "say the time" in block
     assert "never re-ask" in block

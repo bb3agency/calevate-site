@@ -170,16 +170,17 @@ def test_the_spoken_register_is_concrete_for_telugu() -> None:
     assert "never formal or written-style words" in prompt
 
 
-def test_a_clarification_is_never_asked_the_same_way_twice_and_stops_after_two_tries() -> None:
+def test_a_clarification_stops_after_two_tries_at_what_the_account_allows() -> None:
     """A production call of 11 Oct 2026 asked one question three times. After two tries the
-    agent falls back on what the account allows, so a trial agent still offers no call back."""
+    agent falls back on what the account allows, so a trial agent still offers no call back.
+    Not asking it the same way twice is ThinnestAI's own speaking rule (D-824)."""
     body = compile_call_script(V2)
     paying = compose_engine_prompt(_cfg(body))
-    assert "Ask them to repeat it, never the same way twice" in paying
-    assert "or still unclear after two tries: say so, then offer a call back" in paying
+    assert "Ask them to repeat it; never guess." in paying
+    assert "or still unclear after two tries: offer a call back" in paying
     trial = compose_engine_prompt(_cfg(body, callbacks_offered=False))
     assert (
-        "or still unclear after two tries: say so, then say the business will get back to "
+        "or still unclear after two tries: say the business will get back to "
         "them. Never offer or book a call back"
     ) in trial
     # After the client script, so a script cannot undo it.
@@ -256,9 +257,10 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     prompt = compose_engine_prompt(
         _cfg(compile_call_script(V2), facts_in_knowledge=True, knowledge_tool="search_knowledge")
     )
-    # Not the engine's box (20,000, `engine/thinnest.INSTRUCTIONS_MAX_CHARS`): the latency
-    # target `docs/PROMPT-GUIDE.md` §2 sets for a whole prompt.
-    assert len(prompt) < 8_000
+    # Not the engine's box (20,000, `engine/thinnest.INSTRUCTIONS_MAX_CHARS`): this prompt's
+    # size after D-824 (5,960 before), held so the platform text cannot regrow unnoticed; the
+    # guide's whole-prompt target (`docs/PROMPT-GUIDE.md` §2) is 8,000.
+    assert len(prompt) <= 5_832
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------
