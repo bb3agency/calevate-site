@@ -61,7 +61,6 @@ import PreferenceScrubPage from "@/app/admin/tenants/[tenantId]/dnd-scrub/page";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
 import TenantCampaignSetupPage from "@/app/admin/tenants/[tenantId]/campaign-setup/page";
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
-import AgentScriptPage from "@/app/c/[slug]/agents/[agentId]/script/page";
 import NewAgentPage from "@/app/c/[slug]/agents/new/page";
 import AgentsPage from "@/app/c/[slug]/agents/page";
 import AiAssistPage from "@/app/c/[slug]/ai-assist/page";
@@ -2663,92 +2662,6 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
-    // The structured call-script builder. Swept with a populated script so axe sees the
-    // real authoring surface — labelled fields for the opening line, each step and FAQ, the
-    // variable inserts, and the AI-assist panel — the state where a missing label bites.
-    file: "c/[slug]/agents/[agentId]/script/page.tsx",
-    realm: "client",
-    element: () => (
-      <AgentScriptPage
-        params={Promise.resolve({ slug: "acme", agentId: "agent-1" })}
-      />
-    ),
-    routes: {
-      "/v1/agents/agent-1": AGENT,
-      "/v1/me": ME,
-      "/v1/agents/agent-1/script": SCRIPT,
-      "/v1/agents/agent-1/pending": settledPending(),
-      "/v1/agents/agent-1/script/proposal": { proposal: null },
-      "/v1/agents/agent-1/script/proposed-rules": [
-        {
-          id: "rule-1",
-          agent_id: "agent-1",
-          text: "Never promise delivery on Sundays.",
-          status: "pending",
-          created_at: "2026-10-10T09:00:00Z",
-        },
-      ],
-      "POST /v1/agents/agent-1/script/preview": {
-        compiled: "",
-        instructions_chars: 3100,
-        instructions_limit: 8000,
-        native_steps: 2,
-      },
-      "/v1/agents/agent-1/script/tests": {
-        available: true,
-        unavailable_reason: null,
-        cost_note: "Tests are not charged to your account.",
-        latest: {
-          id: "run-1",
-          status: "done",
-          prompt_version: 4,
-          is_current: true,
-          round: 1,
-          retest_of: null,
-          auto_improve: false,
-          score: { passed: 1, judged: 2, total: 2 },
-          results: [
-            {
-              key: "r1_1",
-              title: "Asks the price of a kilo of chilli",
-              category: "business",
-              probe: null,
-              source: "generated",
-              turns: [{ said: "How much is a kilo?", reply: "Let me check that for you." }],
-              expect: "Gives the pinned price.",
-              verdict: "needs_fix",
-              reason: "It did not give the price it already knows.",
-              fix: "knowledge",
-              step_id: null,
-              formal_words: [],
-              before: null,
-            },
-            {
-              key: "probe_ai",
-              title: "Asks if it is talking to a person",
-              category: "compliance",
-              probe: "ai",
-              source: "standard",
-              turns: [{ said: "Am I talking to a real person?", reply: "I am an AI assistant for the clinic." }],
-              expect: "Says it is an AI.",
-              verdict: "passed",
-              reason: "It answered truthfully.",
-              fix: null,
-              step_id: null,
-              formal_words: [],
-              before: null,
-            },
-          ],
-          improvement: null,
-          note: null,
-          created_at: "2026-10-10T10:00:00Z",
-          completed_at: "2026-10-10T10:00:30Z",
-        },
-        history: [],
-      },
-    },
-  },
-  {
     file: "c/[slug]/agents/new/page.tsx",
     realm: "client",
     element: () => <NewAgentPage params={slug} />,
@@ -5120,25 +5033,118 @@ const AUTHN_SCREENS: Screen[] = [
 ];
 
 /**
- * The agent workspace's other sections (D-657). Overview is swept by the screen's own
- * entry; each other section is a separate mount and is swept under its own search, so
- * moving a panel into a section cannot take it out of the sweep.
+ * The Script tab (D-825; the builder had its own route before). Swept with a populated
+ * script so axe sees the real authoring surface: labelled fields for the opening line and
+ * each step, the field chips, the Pip panel and a rule waiting for a place.
+ */
+const SCRIPT_TAB_ROUTES = {
+  "/v1/agents/agent-1": AGENT,
+  "/v1/me": ME,
+  "/v1/agents/agent-1/script": SCRIPT,
+  "/v1/agents/agent-1/pending": settledPending(),
+  "/v1/agents/agent-1/script/proposal": { proposal: null },
+  "/v1/agents/agent-1/script/proposed-rules": [
+    {
+      id: "rule-1",
+      agent_id: "agent-1",
+      text: "Never promise delivery on Sundays.",
+      status: "pending",
+      created_at: "2026-10-10T09:00:00Z",
+    },
+  ],
+  "POST /v1/agents/agent-1/script/preview": {
+    compiled: "",
+    instructions_chars: 3100,
+    instructions_limit: 8000,
+    native_steps: 2,
+  },
+  "/v1/agents/agent-1/script/tests": {
+    available: true,
+    unavailable_reason: null,
+    cost_note: "Tests are not charged to your account.",
+    latest: {
+      id: "run-1",
+      status: "done",
+      prompt_version: 4,
+      is_current: true,
+      round: 1,
+      retest_of: null,
+      auto_improve: false,
+      score: { passed: 1, judged: 2, total: 2 },
+      results: [
+        {
+          key: "r1_1",
+          title: "Asks the price of a kilo of chilli",
+          category: "business",
+          probe: null,
+          source: "generated",
+          turns: [{ said: "How much is a kilo?", reply: "Let me check that for you." }],
+          expect: "Gives the pinned price.",
+          verdict: "needs_fix",
+          reason: "It did not give the price it already knows.",
+          fix: "knowledge",
+          step_id: null,
+          formal_words: [],
+          before: null,
+        },
+        {
+          key: "probe_ai",
+          title: "Asks if it is talking to a person",
+          category: "compliance",
+          probe: "ai",
+          source: "standard",
+          turns: [{ said: "Am I talking to a real person?", reply: "I am an AI assistant for the clinic." }],
+          expect: "Says it is an AI.",
+          verdict: "passed",
+          reason: "It answered truthfully.",
+          fix: null,
+          step_id: null,
+          formal_words: [],
+          before: null,
+        },
+      ],
+      improvement: null,
+      note: null,
+      created_at: "2026-10-10T10:00:00Z",
+      completed_at: "2026-10-10T10:00:30Z",
+    },
+    history: [],
+  },
+};
+
+/** Training lists the business's knowledge read-only, a pinned fact first. */
+const TRAINING_TAB_ROUTES = {
+  "/v1/kb/knows": {
+    facts: [
+      { id: "f1", text: "Red chilli powder is ₹120 for 250 g.", pinned: true, origin: "taught", created_at: "2026-10-10T09:00:00Z" },
+      { id: "f2", text: "We deliver in Kukatpally.", pinned: false, origin: "taught", created_at: "2026-10-10T09:00:00Z" },
+    ],
+    facts_state: "live",
+    items: [],
+  },
+  "/v1/kb/teach/open": { teaching: null },
+};
+
+/**
+ * The agent page's other tabs (D-825). Overview is swept by the screen's own entry; each
+ * other tab is a separate mount and is swept under its own search, so moving a panel into
+ * a tab cannot take it out of the sweep.
  */
 const AGENT_WORKSPACE = CLIENT_SCREENS.find(
   (entry) => entry.file === "c/[slug]/agents/[agentId]/page.tsx",
 ) as Screen;
 const AGENT_SECTION_SCREENS: Screen[] = [
   "script",
-  "test",
-  "voice",
-  "model",
-  "calls",
+  "training",
+  "actions",
   "captured",
-  "knowledge",
-  "advanced",
+  "voice",
+  "settings",
 ].map((id) => ({
   ...AGENT_WORKSPACE,
   search: `section=${id}`,
+  ...(id === "script" ? { routes: { ...AGENT_WORKSPACE.routes, ...SCRIPT_TAB_ROUTES } } : {}),
+  ...(id === "training" ? { routes: { ...AGENT_WORKSPACE.routes, ...TRAINING_TAB_ROUTES } } : {}),
   // The Voice section lists the voice platform's voices. A client is sent no models (D-679).
   ...(id === "voice"
     ? {

@@ -1,7 +1,14 @@
 "use client";
 
 import { useCopilotSurface } from "@/lib/copilot/registry";
-import { asText } from "@/lib/copilot/types";
+import { asText, type CopilotSurface } from "@/lib/copilot/types";
+
+/**
+ * The screen a teach box sits on when it is not the Knowledge page (an agent's Training
+ * tab, D-825): its route and title, plus what else that screen holds. The registry keeps
+ * one live surface, so a screen with a teach box declares its other fields through it.
+ */
+export type TeachSurface = Pick<CopilotSurface, "route" | "title" | "fields" | "facts" | "apply">;
 
 /*
  * THE TEACH BOX, DECLARED TO THE SCREEN ASSISTANT.
@@ -17,14 +24,16 @@ export function useKnowledgeCopilot({
   body,
   setBody,
   answering,
+  surface,
 }: {
   body: string;
   setBody: (value: string) => void;
   answering: { gapId: string | null; question: string } | null;
+  surface?: TeachSurface;
 }) {
   useCopilotSurface({
-    route: "/c/{slug}/knowledge",
-    title: "Teach your agents something",
+    route: surface?.route ?? "/c/{slug}/knowledge",
+    title: surface?.title ?? "Teach your agents something",
     realm: "client",
     fields: [
       {
@@ -34,17 +43,22 @@ export function useKnowledgeCopilot({
         value: body,
         help: "Plain words, in any language the agents speak. It is sorted into facts every agent gets and rules for one agent, and the owner checks each before it is saved.",
       },
+      ...(surface?.fields ?? []),
     ],
-    facts: answering
-      ? [
-          { key: "answering_question", label: "The caller's question being answered", value: answering.question },
-          ...(answering.gapId ? [{ key: "gap_id", label: "Its question id", value: answering.gapId }] : []),
-        ]
-      : [],
+    facts: [
+      ...(surface?.facts ?? []),
+      ...(answering
+        ? [
+            { key: "answering_question", label: "The caller's question being answered", value: answering.question },
+            ...(answering.gapId ? [{ key: "gap_id", label: "Its question id", value: answering.gapId }] : []),
+          ]
+        : []),
+    ],
     apply: (items) => {
       for (const item of items) {
         if (item.field_id === "kb-teach") setBody(asText(item.value));
       }
+      surface?.apply(items.filter((item) => item.field_id !== "kb-teach"));
     },
   });
 }

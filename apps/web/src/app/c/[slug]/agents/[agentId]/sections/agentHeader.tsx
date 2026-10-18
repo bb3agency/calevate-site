@@ -8,10 +8,10 @@
  *   on the calling system, and is refused with the server's reason while there is no
  *   script or the agreements are outstanding); off is `POST .../deactivate`. No confirm
  *   step: the consequence is in the ⓘ beside it, and switching back is the same switch.
- * - **Try it** opens a side panel: ring my phone where the account can, a chat with the agent,
- *   and a link to the Test section.
+ * - **Try it** opens the Training tab, where the chat and the practice call are (D-825).
  * - **Put it live** is the one filled button, and only while the script's draft differs
- *   from what callers hear. It is the same step as the builder's (`script/PutLive.tsx`).
+ *   from what callers hear. It is the same step as the builder's (`script/PutLive.tsx`), so
+ *   on the Script tab, where the builder shows its own, the header leaves it out.
  * - A deleted agent has one move: **Bring it back**.
  *
  * Delete is in the ⋯ menu and only points at Settings, where its consequences are stated
@@ -20,11 +20,9 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { FlaskConical } from "lucide-react";
+import { MessageSquareText } from "lucide-react";
 
 import { formatINR, ProblemNotice, PRIMARY_BUTTON, RestrictionNote, SECONDARY_BUTTON, ToggleSwitch } from "@/components/ui";
-import { Drawer } from "@/components/console/drawer";
-import { TryChat } from "@/components/improvement/TryChat";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
@@ -35,7 +33,6 @@ import { usePendingChanges } from "@/lib/api/publishing";
 import { useScript, useUndoScript } from "@/lib/api/script";
 import { type Spend, useSpend } from "@/lib/api/spend";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
-import { activeTrial, useWallet } from "@/lib/api/wallet";
 import { lookup } from "@/lib/lookup";
 
 import { LiveBadge, liveState } from "../../AgentBadge";
@@ -43,9 +40,17 @@ import { MOVE_COPY } from "../../AgentLifecycle";
 import { stagedScript, voiceTierLine } from "../../panels/publishing";
 import { PutLiveDialog, usePutLive } from "../script/PutLive";
 import { hasUnpublished, workingCopy } from "../script/scriptDraft";
-import { TryIt } from "./tryIt";
 
-export function AgentHeader({ agent, slug }: { agent: Agent; slug: string }) {
+export function AgentHeader({
+  agent,
+  slug,
+  onScriptTab = false,
+}: {
+  agent: Agent;
+  slug: string;
+  /** The Script tab is open, and the builder there carries its own Put it live. */
+  onScriptTab?: boolean;
+}) {
   const { href } = useClientRealm();
   const session = useClientSession();
   const pending = usePendingChanges(session, agent.id);
@@ -62,12 +67,10 @@ export function AgentHeader({ agent, slug }: { agent: Agent; slug: string }) {
   const moves = movesFor(agent.status);
   const staged = pending.data ? stagedScript(pending.data) : undefined;
   const base = `/c/${slug}/agents/${agent.id}`;
-  const [trying, setTrying] = useState(false);
 
   const items: RowMenuItem[] = deleted
     ? []
     : [
-        { id: "script", label: "Open the script builder", href: href(`${base}/script`) },
         ...(staged
           ? [
               {
@@ -79,7 +82,7 @@ export function AgentHeader({ agent, slug }: { agent: Agent; slug: string }) {
               },
             ]
           : []),
-        { id: "delete", label: "Delete…", tone: "danger" as const, href: href(`${base}?section=advanced`) },
+        { id: "delete", label: "Delete…", tone: "danger" as const, href: href(`${base}?section=settings`) },
       ];
 
   const status = lookup(STATUS_COPY, agent.status);
@@ -117,11 +120,17 @@ export function AgentHeader({ agent, slug }: { agent: Agent; slug: string }) {
             {!deleted && (
               <>
                 <OnOffSwitch agent={agent} canWrite={write.allowed} move={move} />
-                <button type="button" className={`${SECONDARY_BUTTON} flex-1 sm:flex-none`} onClick={() => setTrying(true)}>
-                  <FlaskConical aria-hidden className="h-4 w-4" />
+                <Link
+                  href={href(`${base}?section=training`)}
+                  scroll={false}
+                  className={`${SECONDARY_BUTTON} flex-1 sm:flex-none`}
+                >
+                  <MessageSquareText aria-hidden className="h-4 w-4" />
                   Try it
-                </button>
-                <PutLiveButton agent={agent} canWrite={write.allowed} reason={write.reason} voiceLine={tierLine} />
+                </Link>
+                {!onScriptTab && (
+                  <PutLiveButton agent={agent} canWrite={write.allowed} reason={write.reason} voiceLine={tierLine} />
+                )}
               </>
             )}
             {items.length > 0 && <RowMenu label={agent.name} items={items} />}
@@ -131,7 +140,6 @@ export function AgentHeader({ agent, slug }: { agent: Agent; slug: string }) {
       <RestrictionNote reason={write.reason} />
       {move.error && <ProblemNotice error={move.error} />}
       {undo.error && <ProblemNotice error={undo.error} />}
-      {trying && <TryItPanel agent={agent} slug={slug} onClose={() => setTrying(false)} />}
     </div>
   );
 }
@@ -243,31 +251,4 @@ function PutLiveButton({
 function agentMonthLine(spend: Spend, agentId: string): string {
   const row = spend.by_agent.find((entry) => entry.agent_id === agentId);
   return row ? `${formatINR(row.charged_inr)} this month` : "Nothing spent this month";
-}
-
-/** "Try it": ring my phone where the account can, a chat with the agent, and the way to the
- * Test section, where the practice callers and their fixes live (D-748). */
-function TryItPanel({ agent, slug, onClose }: { agent: Agent; slug: string; onClose: () => void }) {
-  const session = useClientSession();
-  const { href } = useClientRealm();
-  const wallet = useWallet(session);
-  const [number, setNumber] = useState("");
-  const write = useWriteAccess(session, "org:manage", "test this agent");
-  const trial = wallet.data ? activeTrial(wallet.data) : null;
-  const onTrial = trial !== null && trial.test_calls_only === true;
-  return (
-    <Drawer open onClose={onClose} title="Try it" description="Hear and test what callers hear now.">
-      <div className="space-y-8">
-        <TryIt agent={agent} slug={slug} onTrial={onTrial} number={number} onNumber={setNumber} />
-        <TryChat agentId={agent.id} canWrite={write.allowed} />
-        <p className="text-body text-ink-muted">
-          Practice callers and suggested fixes are in{" "}
-          <Link href={href(`/c/${slug}/agents/${agent.id}?section=test`)} className="font-medium text-ink underline underline-offset-2" onClick={onClose}>
-            Test
-          </Link>
-          .
-        </p>
-      </div>
-    </Drawer>
-  );
 }

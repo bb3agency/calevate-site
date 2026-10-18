@@ -265,7 +265,7 @@ describe("where it struggled", () => {
       "/c/acme/calls/call-9",
     );
     expect(screen.getByRole("link", { name: "Fix in script" }).getAttribute("href")).toBe(
-      "/c/acme/agents/agent-1/script#stages",
+      "/c/acme/agents/agent-1?section=script#stages",
     );
     fireEvent.click(screen.getByRole("button", { name: "Add the answer" }));
     expect(await screen.findByText(/Answering a caller who asked/)).toBeTruthy();

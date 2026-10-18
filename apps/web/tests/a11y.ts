@@ -314,10 +314,16 @@ export const UNSWEPT_SCREENS: Record<string, string> = {
       "a server redirect into c/[slug]/billing (D-525) — it renders no markup to scan",
     ]),
   ),
-  "c/[slug]/agents/[agentId]/test/page.tsx": (
-    "a server redirect into the agent page's Test section, `?section=test` (D-748) — it " +
-    "renders no markup to scan, and under jsdom `redirect()` throws `NEXT_REDIRECT`. What it " +
-    "redirects TO is swept: the agent workspace under `section=test`."
+  ...Object.fromEntries(
+    ["test", "script"].map((tab) => [
+      `c/[slug]/agents/[agentId]/${tab}/page.tsx`,
+      // D-748 folded the Test page and D-825 the script builder into the agent page, and
+      // left these files as server redirects to its tabs (`[agentId]/tabRedirect.ts`).
+      // CLOSED BY: deleting these files, a decision about old links.
+      "a server redirect into a tab of the agent page (D-825) — it renders no markup to " +
+        "scan, and under jsdom `redirect()` throws `NEXT_REDIRECT`. What it redirects TO is " +
+        "swept: the agent page under `section=training` and `section=script`.",
+    ]),
   ),
   "admin/tenants/[tenantId]/invitations/page.tsx": (
     "a server redirect into admin/tenants/[tenantId]/members (D-661), where members and " +

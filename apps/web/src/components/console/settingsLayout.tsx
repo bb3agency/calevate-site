@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { useTabs } from "@/components/interior/tabs";
 import { ScrollRegion } from "@/components/ui";
 import { UnsavedRegistry, type UnsavedRegistryValue } from "@/lib/useUnsavedGuard";
 
@@ -23,14 +24,21 @@ export type SettingsSection = {
 /** The search param that holds the open section, unless a screen needs another name. */
 export const SECTION_PARAM = "section";
 
+const NO_ALIASES: Readonly<Record<string, string>> = {};
+
 /**
- * Which section is open: the URL's, when it names one of `sections`; otherwise the first.
- * Exported so a screen can read the same answer (for its copilot surface, say) without a
- * second parse.
+ * Which section is open: the URL's, when it names one of `sections` (directly or through
+ * `aliases`); otherwise the first. Exported so a screen can read the same answer (for its
+ * copilot surface, say) without a second parse.
  */
-export function useActiveSection(sections: SettingsSection[], param = SECTION_PARAM): string {
+export function useActiveSection(
+  sections: SettingsSection[],
+  param = SECTION_PARAM,
+  aliases: Readonly<Record<string, string>> = NO_ALIASES,
+): string {
   const params = useSearchParams();
-  const wanted = params.get(param);
+  const asked = params.get(param);
+  const wanted = asked !== null && Object.hasOwn(aliases, asked) ? aliases[asked] : asked;
   return sections.some((s) => s.id === wanted) ? (wanted as string) : (sections[0]?.id ?? "");
 }
 
@@ -63,6 +71,21 @@ export function useActiveSection(sections: SettingsSection[], param = SECTION_PA
  * browser's Back button changes the URL without asking; the guard's `beforeunload` half
  * still covers a reload or a closed tab.)
  *
+ * `menu="tabs"` (D-825) draws the sections as a WAI-ARIA tab list over one panel, for a
+ * screen with a few peer parts that each want the full width (the agent page). It keeps the
+ * URL, the unsaved-edits guard and the one-mounted-section rule above. Two things differ
+ * from the link menu:
+ *
+ * - Manual activation: the arrow keys move focus and Enter or Space opens the tab. The APG
+ *   recommends automatic activation only when a panel shows without delay; each of these
+ *   panels mounts its own reads, so arrowing across them would fire requests per key press
+ *   (w3.org/WAI/ARIA/apg/patterns/tabs, "Keyboard Interaction").
+ * - No entry fade and no focus move on a switch: focus stays on the tab, as the pattern
+ *   expects, and a switch that may come from the keyboard is not animated.
+ *
+ * `aliases` maps section ids a screen no longer has to the one that now holds their
+ * content, so a bookmarked `?section=test` still opens where testing lives.
+ *
  * Never put a compliance control or its qualifying sentence in a section other than the
  * one that opens first (UX-DOCTRINE §8.7).
  */
@@ -72,6 +95,7 @@ export function SettingsLayout({
   renderSection,
   param = SECTION_PARAM,
   menu = "column",
+  aliases,
   className = "",
 }: {
   /** Names the section menu: "Agent settings". */
@@ -83,13 +107,16 @@ export function SettingsLayout({
    * "column" (default): a sticky left column from `lg`, a scrolling row of pills below it.
    * "row": the scrolling row at every width — for a layout nested inside another page's
    * own section column, where a second column would leave the content too narrow.
+   * "tabs": a tab list above the panel at every width. Sections with `href` are not drawn.
    */
-  menu?: "column" | "row";
+  menu?: "column" | "row" | "tabs";
+  aliases?: Readonly<Record<string, string>>;
   className?: string;
 }) {
   const pathname = usePathname();
   const params = useSearchParams();
-  const active = useActiveSection(sections.filter((s) => !s.href), param);
+  const inPlace = sections.filter((s) => !s.href);
+  const active = useActiveSection(inPlace, param, aliases);
   const row = menu === "row";
   const router = useRouter();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -120,6 +147,50 @@ export function SettingsLayout({
     return `${pathname}?${next.toString()}`;
   };
   const current = sections.find((s) => s.id === active);
+
+  const confirm =
+    pending !== null ? (
+      <ConfirmDialog
+        title="Leave without saving?"
+        confirmLabel="Discard changes"
+        pendingLabel="Discarding…"
+        cancelLabel="Keep editing"
+        pending={false}
+        error={null}
+        onCancel={() => setPending(null)}
+        onConfirm={() => {
+          const to = pending;
+          setPending(null);
+          drafts.current.clear();
+          picked.current = menu !== "tabs";
+          router.push(hrefFor(to), { scroll: false });
+        }}
+      >
+        <p>Your changes in {current?.label ?? "this section"} have not been saved.</p>
+      </ConfirmDialog>
+    ) : null;
+
+  if (menu === "tabs") {
+    return (
+      <TabbedSections
+        label={label}
+        sections={inPlace}
+        active={active}
+        className={className}
+        onPick={(id) => {
+          if (id === active) return;
+          if (drafts.current.size > 0) {
+            setPending(id);
+            return;
+          }
+          router.push(hrefFor(id), { scroll: false });
+        }}
+      >
+        <UnsavedRegistry.Provider value={registry}>{renderSection(active)}</UnsavedRegistry.Provider>
+        {confirm}
+      </TabbedSections>
+    );
+  }
 
   return (
     <div className={`${row ? "" : "gap-8 lg:grid lg:grid-cols-[200px_minmax(0,1fr)]"} ${className}`}>
@@ -201,26 +272,92 @@ export function SettingsLayout({
           <UnsavedRegistry.Provider value={registry}>{renderSection(active)}</UnsavedRegistry.Provider>
         </div>
       </section>
-      {pending !== null && (
-        <ConfirmDialog
-          title="Leave without saving?"
-          confirmLabel="Discard changes"
-          pendingLabel="Discarding…"
-          cancelLabel="Keep editing"
-          pending={false}
-          error={null}
-          onCancel={() => setPending(null)}
-          onConfirm={() => {
-            const to = pending;
-            setPending(null);
-            drafts.current.clear();
-            picked.current = true;
-            router.push(hrefFor(to), { scroll: false });
-          }}
-        >
-          <p>Your changes in {current?.label ?? "this section"} have not been saved.</p>
-        </ConfirmDialog>
-      )}
+      {confirm}
+    </div>
+  );
+}
+
+/**
+ * The tab list and the one panel under it. The look is the kit's underline tabs
+ * (`interior/tabs`): a row of words on a hairline, the open one in ink and medium weight
+ * with a brand underline, so the open tab differs by weight and line as well as colour.
+ * On a phone the row scrolls sideways inside a named `ScrollRegion` rather than wrapping
+ * into a second row, and the open tab is brought into view when the page opens on it.
+ */
+function TabbedSections({
+  label,
+  sections,
+  active,
+  onPick,
+  className,
+  children,
+}: {
+  label: string;
+  sections: SettingsSection[];
+  active: string;
+  onPick: (id: string) => void;
+  className: string;
+  children: ReactNode;
+}) {
+  const items = useMemo(() => sections.map((s) => ({ value: s.id, label: s.label })), [sections]);
+  const tabs = useTabs({ items, value: active, onValueChange: onPick, activation: "manual" });
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const bring = () => {
+      const list = listRef.current;
+      const tab = list?.querySelector<HTMLElement>('[aria-selected="true"]');
+      const region = list?.parentElement;
+      if (!tab || !region) return;
+      // Scrolled inside the row only: `scrollIntoView` would also move the page.
+      const box = region.getBoundingClientRect();
+      const at = tab.getBoundingClientRect();
+      if (at.left < box.left) region.scrollLeft -= box.left - at.left + 16;
+      else if (at.right > box.left + region.clientWidth) region.scrollLeft += at.right - (box.left + region.clientWidth) + 16;
+    };
+    bring();
+    // Measured again whenever the row changes width (the web font arriving, a badge
+    // appearing once its count is read), or the open tab can end up half off the row.
+    if (typeof ResizeObserver === "undefined" || !listRef.current) return;
+    const watch = new ResizeObserver(bring);
+    watch.observe(listRef.current);
+    return () => watch.disconnect();
+  }, [active]);
+
+  const current = sections.find((s) => s.id === active);
+  return (
+    <div className={className}>
+      <ScrollRegion
+        label={label}
+        className="-mx-4 border-b border-line px-4 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden"
+      >
+        <div ref={listRef} {...tabs.tabListProps} aria-label={label} className="flex w-max gap-5 pr-4 sm:gap-6 sm:pr-0">
+          {sections.map((section, index) => {
+            const selected = section.id === active;
+            return (
+              <button
+                key={section.id}
+                {...tabs.getTabProps({ value: section.id, label: section.label }, index)}
+                className={`-mb-px flex h-11 shrink-0 items-center gap-1.5 border-b-2 text-body outline-none transition-colors duration-(--duration-fast) focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-brand ${
+                  selected ? "border-brand-strong font-medium text-ink" : "border-transparent text-ink-muted hover:text-ink"
+                }`}
+              >
+                {section.label}
+                {section.badge !== undefined && (
+                  <span className="rounded-full bg-warn/15 px-1.5 text-[12px] font-medium tabular-nums text-ink">
+                    {section.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </ScrollRegion>
+      <div key={active} {...tabs.getPanelProps(active)} className="min-w-0 pt-6 outline-none focus-visible:ring-2 focus-visible:ring-brand">
+        {/* The panel is named by its tab; this heading puts it in the heading outline. */}
+        <h2 className="sr-only">{current?.label}</h2>
+        {children}
+      </div>
     </div>
   );
 }

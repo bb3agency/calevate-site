@@ -1,16 +1,14 @@
 "use client";
 
 /**
- * OVERVIEW — what is left before this agent's first call, anything waiting to go live, and
- * the opening notices.
+ * OVERVIEW — what is left before this agent's first call, anything waiting to go live, the
+ * opening notices, and its latest calls (the old Calls entry, D-825).
  *
- * The notices are HERE and nowhere else: this is the section that opens first, so the
- * truthful-answer guarantee and the two switches under it are never behind a section switch
- * (doctrine §8 rule 7, D-657). On a phone the checklist folds to its "N of M done" summary
- * so they are on the first screen.
+ * The notices are HERE and nowhere else: this is the tab that opens first, so the
+ * truthful-answer guarantee and the two switches under it are never behind a tab switch
+ * (doctrine §8 rule 7). On a phone the checklist folds to its "N of M done" summary so they
+ * are on the first screen. Hearing the agent for yourself is in Training.
  */
-
-import { useState } from "react";
 
 import { ProblemNotice, Skeleton, formatINR } from "@/components/ui";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
@@ -22,13 +20,12 @@ import { activeTrial, trialEndsAt, useWallet, walletState, type Wallet } from "@
 import { useCalls } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
-import { asText } from "@/lib/copilot/types";
+import { noFill } from "@/lib/copilot/types";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
 import { LatestCalls } from "../../../LatestCalls";
 import { OpeningNotices } from "../../panels/openingNotices";
 import { PendingBanner } from "../../panels/publishing";
-import { TryIt } from "./tryIt";
 
 const PHONE = "(max-width: 639px)";
 
@@ -51,10 +48,6 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
   // ITS LAST CALLS (founder, REDESIGN-2): what this agent has actually been doing, the
   // first thing an owner checks after "is it live".
   const recent = useCalls(session, { agent_id: agent.id, limit: 5 });
-  // The test-call number lives here so the one declaration below can offer it as a field.
-  const [testNumber, setTestNumber] = useState("");
-  const trial = wallet.data ? activeTrial(wallet.data) : null;
-  const onTrial = trial !== null && trial.test_calls_only === true;
 
   // OVERVIEW, DECLARED TO THE ASSISTANT. It is the section that opens first, so this is
   // what the assistant sees on an agent unless another section is open.
@@ -62,17 +55,7 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
     route: "/c/{slug}/agents/{id}",
     title: `Agent: ${agent.name}`,
     realm: "client",
-    fields: onTrial
-      ? [
-          {
-            id: "agent-test-call-number",
-            label: "Your phone number for a test call",
-            type: "text",
-            value: testNumber,
-            personal: "phone",
-          },
-        ]
-      : [],
+    fields: [],
     facts: [
       { key: "agent_id", label: "Agent id", value: agent.id },
       { key: "name", label: "Agent name", value: agent.name },
@@ -89,11 +72,7 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
         value: pending.data ? (pending.data.has_pending ? "yes" : "none") : pending.error ? "could not be read" : "still loading",
       },
     ],
-    apply: (items) => {
-      for (const item of items) {
-        if (item.field_id === "agent-test-call-number") setTestNumber(asText(item.value));
-      }
-    },
+    apply: noFill,
   });
 
   return (
@@ -111,10 +90,9 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
       )}
       {pending.data && <PendingBanner state={pending.data} />}
       <OpeningNotices agent={agent} />
-      <TryIt agent={agent} slug={slug} onTrial={onTrial} number={testNumber} onNumber={setTestNumber} />
       <LatestCalls
         recent={recent}
-        allHref={href(`/c/${slug}/calls`)}
+        allHref={href(`/c/${slug}/calls?agent_id=${agent.id}`)}
         callHref={(id) => href(`/c/${slug}/calls/${id}`)}
       />
     </div>
@@ -171,7 +149,7 @@ function SetupChecklist({
       id: "script",
       label: "Write its script",
       state: scriptDone ? "done" : "todo",
-      link: scriptDone ? undefined : { href: href(`${base}/script`), label: "Write" },
+      link: scriptDone ? undefined : { href: href(`${base}?section=script`), label: "Write" },
     });
   } else {
     items.push(unknown("script", "Write its script"));
@@ -189,7 +167,7 @@ function SetupChecklist({
         ? {}
         : {
             detail: "The greeting it opens every call with, after any notices you switched on.",
-            link: { href: href(`${base}/script`), label: "Write" },
+            link: { href: href(`${base}?section=script`), label: "Write" },
           }),
     });
   }

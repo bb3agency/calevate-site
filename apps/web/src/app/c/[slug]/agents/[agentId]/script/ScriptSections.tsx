@@ -28,7 +28,6 @@ import {
   FIELD_LABEL,
   NoticeBox,
   QUIET_ICON_BUTTON,
-  SECONDARY_BUTTON_SM,
   ToggleSwitch,
 } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
@@ -629,8 +628,8 @@ export function VariableBar({
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="flex items-center gap-1">
-        <span className={FIELD_LABEL}>Insert a field</span>
-        <InfoTip label="fields" align="start">
+        <span className="text-meta text-ink-muted">Add a caller detail</span>
+        <InfoTip label="these fields" align="start">
           It goes where your cursor was in the last box you typed in.
           {places && " On a call this agent places, it is filled from the lead."}
           {answers && " On a call it answers, it is filled only when the caller has called before."}
@@ -642,7 +641,7 @@ export function VariableBar({
           <button
             key={v.key}
             type="button"
-            className={SECONDARY_BUTTON_SM}
+            className="press inline-flex min-h-7 items-center gap-1 rounded-full border border-line px-2.5 text-meta text-ink hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
             onClick={() => onInsert(v.key)}
           >
             <Plus aria-hidden className="h-3 w-3" />

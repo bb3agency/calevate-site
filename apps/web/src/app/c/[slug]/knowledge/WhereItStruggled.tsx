@@ -100,7 +100,7 @@ export function WhereItStruggled({
               ) : null}
               <Link
                 className={SECONDARY_BUTTON_SM}
-                href={`/c/${session.orgSlug}/agents/${struggle.agent_id}/script#${lookup(SCRIPT_PLACE, struggle.kind) ?? "stages"}`}
+                href={`/c/${session.orgSlug}/agents/${struggle.agent_id}?section=script#${lookup(SCRIPT_PLACE, struggle.kind) ?? "stages"}`}
               >
                 Fix in script
               </Link>

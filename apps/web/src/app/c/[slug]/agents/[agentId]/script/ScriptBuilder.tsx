@@ -1,12 +1,14 @@
 "use client";
 
 /**
- * THE SCRIPT BUILDER (client realm).
+ * THE SCRIPT BUILDER (client realm), the agent page's Script tab since D-825.
  *
- * WHAT AN OWNER DOES HERE: lay out the call as numbered steps joined by "when … go to"
- * ways out, write what the agent does in each, set the opening line, how it talks and how
- * it ends, and put the result live. On a desktop the steps are a flow picture or a list;
- * on a phone they are a list. Both are views of `script.stages` (`scriptModel.ts`).
+ * WHAT AN OWNER DOES HERE: write the opening line (with the caller details it may name),
+ * lay out the call as numbered steps, each with what the agent does there and an example
+ * line, set how it talks and how it ends, and put the result live. The steps are a list at
+ * every width, each opening in place; a desktop can show them as a flow picture instead,
+ * from More options. Both are views of `script.stages` (`scriptModel.ts`). Asking Pip for a
+ * change is a panel beside the steps ("Tell Pip what to change", D-820).
  *
  * HOW SAVING WORKS (founder decision, 10 Oct 2026): the working copy autosaves a moment
  * after typing stops (`PUT .../script/draft`, carrying the `saved_at` it started from so a
@@ -15,21 +17,24 @@
  * the server would refuse (an empty section name, a branch to nowhere) is not sent; the
  * save line says what to finish instead.
  *
- * HOW THE PAGE IS ORDERED (founder, 11 Oct 2026: "all of it is too much to read"): by how
- * often an owner needs each thing. The opening line and the steps are on the page, because
- * they are what gets edited; the parts set once (role, goal, speech, push-backs, what it may
- * do, ending, example) are a summary list whose rows open in place (`ScriptParts`); History,
- * the full instructions and hand-writing are in the bar's ⋯ menu. Help is one line, with
- * the reason behind an ⓘ. The bar's one filled button is "Put it live".
+ * HOW THE PAGE IS ORDERED (founder, 11 Oct 2026: "all of it is too much to read"; 19 Oct
+ * 2026: simpler than Outpero's): by how often an owner needs each thing. The opening line
+ * and the steps are on the page, because they are what gets edited; a step's rarer options
+ * are under its own More options (`SectionEditor`); the parts set once (role, goal, speech,
+ * push-backs, what it may do, ending, example) are a summary list whose rows open in place
+ * (`ScriptParts`); History, the full instructions, the flow picture and hand-writing are in
+ * the bar's ⋯ menu. Help is one line, with the reason behind an ⓘ. The bar's one filled
+ * button is "Put it live". The flow picture loads only when asked for (`next/dynamic`).
  *
  * The truthful-answer rules are not on this screen and nothing here can remove them; "What
  * the agent reads" shows them added after the owner's script.
  */
 
 import { useQueryClient } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { LayoutList, Plus, Waypoints } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Plus } from "lucide-react";
 
 import {
   NoticeBox,
@@ -97,7 +102,6 @@ import {
   updateSection,
   validate,
 } from "./scriptModel";
-import { FlowCanvas } from "./FlowCanvas";
 import { SectionList } from "./SectionList";
 import { SectionEditor } from "./SectionEditor";
 import { HandWritten } from "./HandWritten";
@@ -109,17 +113,21 @@ import { voiceTierLine } from "../../panels/publishing";
 
 const PREVIEW_DELAY_MS = 1500;
 
+/** Most owners never open the flow picture, so its code is fetched only when they do. */
+const FlowCanvas = dynamic(() => import("./FlowCanvas").then((m) => m.FlowCanvas), {
+  ssr: false,
+  loading: () => <Skeleton rows={6} label="Drawing the call" />,
+});
+
 export function ScriptBuilder({
   agentId,
-  backHref,
   knowledgeHref,
-  testHref,
+  trainingHref,
 }: {
   agentId: string;
-  backHref: string;
   knowledgeHref: string;
-  /** The agent's Test section, where practice callers run against what callers hear. */
-  testHref: string;
+  /** The agent's Training tab, where the chat, the practice call and the tests are. */
+  trainingHref: string;
 }) {
   const session = useClientSession();
   const loaded = useScript(session, agentId);
@@ -132,8 +140,8 @@ export function ScriptBuilder({
     loaded.data && !deleted
       ? null
       : {
-          route: "/c/{slug}/agents/{id}/script",
-          title: "Call script",
+          route: "/c/{slug}/agents/{id}",
+          title: "Agent: script",
           realm: "client",
           fields: [],
           facts: [
@@ -173,9 +181,8 @@ export function ScriptBuilder({
         <Editor
           agentId={agentId}
           out={loaded.data}
-          backHref={backHref}
           knowledgeHref={knowledgeHref}
-          testHref={testHref}
+          trainingHref={trainingHref}
           agentName={agent.data?.name ?? "This agent"}
           agentOn={agent.data ? agent.data.published && agent.data.status === "live" : false}
         />
@@ -187,17 +194,15 @@ export function ScriptBuilder({
 function Editor({
   agentId,
   out,
-  backHref,
   knowledgeHref,
-  testHref,
+  trainingHref,
   agentName,
   agentOn,
 }: {
   agentId: string;
   out: ScriptOut;
-  backHref: string;
   knowledgeHref: string;
-  testHref: string;
+  trainingHref: string;
   agentName: string;
   agentOn: boolean;
 }) {
@@ -217,8 +222,7 @@ function Editor({
   const [saveFailed, setSaveFailed] = useState(false);
 
   const [selected, setSelected] = useState<string | null>(null);
-  const [view, setView] = useState<"flow" | "list">("flow");
-  const [askOpen, setAskOpen] = useState(false);
+  const [view, setView] = useState<"flow" | "list">("list");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [published, setPublished] = useState<{ live: boolean } | null>(null);
@@ -342,8 +346,8 @@ function Editor({
   );
 
   useCopilotSurface({
-    route: "/c/{slug}/agents/{id}/script",
-    title: raw ? "Call script (hand-written)" : "Call script",
+    route: "/c/{slug}/agents/{id}",
+    title: raw ? "Agent: script (hand-written)" : "Agent: script",
     realm: "client",
     fields: scriptCopilotFields(script, raw),
     // The agent's id and name first: a request to change this script names the agent by them.
@@ -372,7 +376,6 @@ function Editor({
   const keep = (next: CallScript) => {
     setUndoTo(script);
     edit(next);
-    setAskOpen(false);
   };
 
   const save = saveState({
@@ -413,21 +416,143 @@ function Editor({
           ? { text: "Live", tone: "ok" }
           : { text: "Ready · agent is off", tone: "neutral" };
 
+  // Pip's panel sits beside the steps when the list leaves room for it; the flow picture
+  // wants the full width, so with it, and on a narrow screen, the panel follows the steps.
+  const twoColumns = sidePanel && !showCanvas;
+  const pip = <PipAsk handWritten={raw} />;
+  const steps = (
+    <section id="stages" aria-labelledby="call-heading" className={`scroll-mt-24 space-y-4 ${showCanvas ? "" : "max-w-3xl"}`}>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-1">
+            <h3 id="call-heading" className="text-heading text-ink">
+              How the call goes
+            </h3>
+            <InfoTip label="the steps" align="start">
+              Step 1 starts the call and each step leads to the next. Open a step to change what
+              the agent does there; where it goes instead is under More options.
+            </InfoTip>
+          </div>
+          <p className="text-meta text-ink-muted">
+            {sections.length} of {limits.maxSections} steps
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {showCanvas && sections.some((s) => s.position) && write.allowed && (
+            <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => edit(tidy)}>
+              Tidy up
+            </button>
+          )}
+          {write.allowed && sections.length > 0 && sections.length < limits.maxSections && (
+            <button type="button" className={SECONDARY_BUTTON_SM} onClick={addOne}>
+              <Plus aria-hidden className="h-3.5 w-3.5" />
+              Add a step
+            </button>
+          )}
+        </div>
+      </div>
+      {issues.some((i) => i.field === "sections") && (
+        <p className="text-meta text-danger">{issues.find((i) => i.field === "sections")?.message}</p>
+      )}
+
+      {sections.length === 0 ? (
+        <div className="rounded-card border border-dashed border-line px-4 py-8 text-center">
+          <p className="text-body text-ink">No steps yet.</p>
+          <p className="mx-auto mt-1 max-w-md text-meta text-ink-muted">
+            Most calls go: greet, find out the need, help, agree what happens next.
+          </p>
+          {write.allowed && (
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button type="button" className={SECONDARY_BUTTON} onClick={addOne}>
+                <Plus aria-hidden className="h-4 w-4" />
+                Add a step
+              </button>
+              <AskAssistant label={`Let ${ASSISTANT_NAME} draft the whole script`} prompt={WHOLE_REQUEST} size="md" />
+            </div>
+          )}
+        </div>
+      ) : showCanvas ? (
+        <div className={sidePanel ? "grid gap-6 2xl:grid-cols-[minmax(0,1fr)_380px]" : ""}>
+          <div className="min-w-0">
+            <FlowCanvas
+              sections={sections}
+              context={context}
+              issues={issues}
+              selected={selected}
+              readOnly={!write.allowed}
+              onSelect={setSelected}
+              onPosition={(id, at) => edit((s) => setPosition(s, id, at))}
+              onConnect={(from, to) => {
+                edit((s) => connect(s, from, to, limits.maxBranches).script);
+                setSelected(from);
+              }}
+            />
+          </div>
+          {sidePanel && (
+            <aside
+              aria-label="Edit the chosen step"
+              className={`min-w-0 self-start rounded-card border border-line bg-surface ${BELOW_PAGE_BAR_STICKY}`}
+            >
+              {selectedSection ? (
+                <>
+                  <p className="border-b border-line px-4 py-3 text-body font-semibold text-ink">
+                    Step {selectedIndex + 1}
+                  </p>
+                  <div className="p-4">{editor}</div>
+                </>
+              ) : (
+                <div className="px-4 py-8 text-center">
+                  <p className="text-body text-ink">Choose a step to edit it here.</p>
+                  <p className="mx-auto mt-1 max-w-64 text-meta text-ink-muted">
+                    Drag a step to move it, or its dot to another step to add a way out.
+                  </p>
+                </div>
+              )}
+            </aside>
+          )}
+        </div>
+      ) : (
+        <SectionList
+          sections={sections}
+          context={context}
+          issues={issues}
+          selected={selected}
+          readOnly={!write.allowed}
+          onOpen={(id) => setSelected((open) => (open === id ? null : id))}
+          onMove={(from, to) => edit((s) => moveSection(s, from, to))}
+          editor={editor}
+        />
+      )}
+      {showCanvas && !sidePanel && selectedSection && (
+        <Drawer
+          open
+          onClose={() => setSelected(null)}
+          title={`${selectedIndex + 1}. ${selectedSection.name.trim() || "Untitled step"}`}
+          description="Changes save by themselves."
+        >
+          {editor}
+        </Drawer>
+      )}
+      {sections.length > 0 && (
+        <fieldset disabled={!write.allowed} className="min-w-0">
+          <legend className="sr-only">How closely it follows the steps</legend>
+          <StrictnessSection value={script.adherence ?? "flexible"} onChange={(v) => setField("adherence", v)} />
+        </fieldset>
+      )}
+    </section>
+  );
+
   return (
     <div className="space-y-6">
       <ScriptToolbar
-        backHref={backHref}
-        agentName={agentName}
         save={save}
         room={room}
         unpublished={unpublished}
         canWrite={write.allowed}
         writeReason={write.reason}
         publishing={putLive.pending}
-        askOpen={askOpen}
         live={live}
         onPublish={() => setPublishing(true)}
-        onAsk={() => setAskOpen((o) => !o)}
         menu={[
           { id: "history", label: "History", onSelect: () => setHistoryOpen(true) },
           {
@@ -437,6 +562,13 @@ function Editor({
             disabled: issues.length > 0,
             hint: issues.length > 0 ? "Finish the marked parts first." : undefined,
           },
+          ...(desktop && !raw && sections.length > 0
+            ? [
+                showCanvas
+                  ? { id: "list", label: "Show the steps as a list", onSelect: () => setView("list") }
+                  : { id: "flow", label: "Show the call as a flow", onSelect: () => setView("flow") },
+              ]
+            : []),
           raw
             ? { id: "sections", label: "Use steps instead", onSelect: () => setToText(true), disabled: !write.allowed }
             : { id: "text", label: "Write it by hand instead", onSelect: () => setToText(true), disabled: !write.allowed },
@@ -444,8 +576,6 @@ function Editor({
       />
 
       <RestrictionNote reason={write.reason} />
-      {askOpen && <PipAsk handWritten={raw} />}
-      <PipProposal agentId={agentId} script={script} canWrite={write.allowed} onKeep={keep} />
       {conflict && (
         <NoticeBox
           tone="warn"
@@ -508,184 +638,63 @@ function Editor({
         />
       )}
 
-      {raw ? (
-        <section aria-labelledby="hand-heading" className="max-w-3xl space-y-3">
-          <h3 id="hand-heading" className="text-heading text-ink">
-            Written by hand
-          </h3>
-          <HandWritten script={script} readOnly={!write.allowed} onChange={(text) => setField("raw_override", text)} />
-        </section>
-      ) : (
-        <>
-          <div className="max-w-3xl">
-            <TaughtRules agentId={agentId} script={script} canWrite={write.allowed} onChange={(next) => edit(next)} />
+      {/* The steps and the Pip panel side by side where there is room for both at a
+          readable width; one column below that, with the panel under the opening line. */}
+      <div className={twoColumns ? "grid gap-8 xl:grid-cols-[minmax(0,1fr)_340px]" : ""}>
+        <div className="min-w-0 space-y-8">
+          <div className="max-w-3xl space-y-8">
+          <PipProposal agentId={agentId} script={script} canWrite={write.allowed} onKeep={keep} />
+          {raw ? (
+            <section aria-labelledby="hand-heading" className="space-y-3">
+              <h3 id="hand-heading" className="text-heading text-ink">
+                Written by hand
+              </h3>
+              <HandWritten script={script} readOnly={!write.allowed} onChange={(text) => setField("raw_override", text)} />
+            </section>
+          ) : (
+            <fieldset disabled={!write.allowed} className="min-w-0 space-y-3">
+              <legend className="sr-only">Opening line</legend>
+              <OpeningSection value={script.opening_line} onChange={(v) => setField("opening_line", v)} trackFocus={trackFocus} />
+              <VariableBar
+                standard={out.standard_variables}
+                custom={script.variables}
+                direction={out.context?.direction}
+                onInsert={insertVariable}
+              />
+            </fieldset>
+          )}
+          {raw && !twoColumns && pip}
           </div>
-          <fieldset disabled={!write.allowed} className="min-w-0 max-w-3xl space-y-3">
-            <legend className="sr-only">Opening line</legend>
-            <OpeningSection value={script.opening_line} onChange={(v) => setField("opening_line", v)} trackFocus={trackFocus} />
-            <VariableBar
-              standard={out.standard_variables}
-              custom={script.variables}
-              direction={out.context?.direction}
-              onInsert={insertVariable}
-            />
-          </fieldset>
-
-          <section id="stages" aria-labelledby="call-heading" className="scroll-mt-24 space-y-4">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-1">
-                  <h3 id="call-heading" className="text-heading text-ink">
-                    How the call goes
-                  </h3>
-                  <InfoTip label="the steps" align="start">
-                    Step 1 starts the call, and each step says where the call goes next. Open a
-                    step to change what the agent does there.
-                  </InfoTip>
-                </div>
-                <p className="text-meta text-ink-muted">
-                  {sections.length} of {limits.maxSections} steps
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {desktop && (
-                  <div className="inline-flex rounded-md border border-line" role="group" aria-label="Show the steps as">
-                    <ViewButton on={view === "flow"} onClick={() => setView("flow")} icon={<Waypoints aria-hidden className="h-4 w-4" />} label="Flow" />
-                    <ViewButton on={view === "list"} onClick={() => setView("list")} icon={<LayoutList aria-hidden className="h-4 w-4" />} label="List" />
-                  </div>
-                )}
-                {showCanvas && sections.some((s) => s.position) && write.allowed && (
-                  <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => edit(tidy)}>
-                    Tidy up
-                  </button>
-                )}
-                {write.allowed && sections.length > 0 && sections.length < limits.maxSections && (
-                  <button type="button" className={SECONDARY_BUTTON_SM} onClick={addOne}>
-                    <Plus aria-hidden className="h-3.5 w-3.5" />
-                    Add a step
-                  </button>
-                )}
+          {!raw && (
+            <div className="space-y-8">
+              {steps}
+              {!twoColumns && pip}
+              <div className="max-w-3xl space-y-8">
+              <TaughtRules agentId={agentId} script={script} canWrite={write.allowed} onChange={(next) => edit(next)} />
+              <fieldset disabled={!write.allowed} className="min-w-0">
+                <legend className="sr-only">About the agent and the call</legend>
+                <ScriptParts
+                  script={script}
+                  context={context}
+                  issues={issues}
+                  openPart={arrivedAt}
+                  knowledgeHref={knowledgeHref}
+                  setField={setField}
+                  edit={edit}
+                  trackFocus={trackFocus}
+                />
+              </fieldset>
               </div>
             </div>
-            {issues.some((i) => i.field === "sections") && (
-              <p className="text-meta text-danger">{issues.find((i) => i.field === "sections")?.message}</p>
-            )}
-
-            {sections.length === 0 ? (
-              <div className="rounded-card border border-dashed border-line px-4 py-8 text-center">
-                <p className="text-body text-ink">No steps yet.</p>
-                <p className="mx-auto mt-1 max-w-md text-meta text-ink-muted">
-                  Most calls go: greet, find out the need, help, agree what happens next.
-                </p>
-                {write.allowed && (
-                  <div className="mt-4 flex flex-wrap justify-center gap-2">
-                    <button type="button" className={SECONDARY_BUTTON} onClick={addOne}>
-                      <Plus aria-hidden className="h-4 w-4" />
-                      Add a step
-                    </button>
-                    <AskAssistant label={`Let ${ASSISTANT_NAME} draft the whole script`} prompt={WHOLE_REQUEST} size="md" />
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div
-                className={
-                  sidePanel
-                    ? "grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_400px] min-[1800px]:grid-cols-[minmax(0,1fr)_440px]"
-                    : ""
-                }
-              >
-                <div className="min-w-0">
-                  {showCanvas ? (
-                    <FlowCanvas
-                      sections={sections}
-                      context={context}
-                      issues={issues}
-                      selected={selected}
-                      readOnly={!write.allowed}
-                      onSelect={setSelected}
-                      onPosition={(id, at) => edit((s) => setPosition(s, id, at))}
-                      onConnect={(from, to) => {
-                        edit((s) => connect(s, from, to, limits.maxBranches).script);
-                        setSelected(from);
-                      }}
-                    />
-                  ) : (
-                    <SectionList
-                      sections={sections}
-                      context={context}
-                      issues={issues}
-                      selected={selected}
-                      readOnly={!write.allowed}
-                      onOpen={setSelected}
-                      onMove={(from, to) => edit((s) => moveSection(s, from, to))}
-                    />
-                  )}
-                </div>
-                {sidePanel && (
-                  <aside
-                    aria-label="Edit the chosen step"
-                    className={`min-w-0 self-start rounded-card border border-line bg-surface ${BELOW_PAGE_BAR_STICKY}`}
-                  >
-                    {selectedSection ? (
-                      <>
-                        <p className="border-b border-line px-4 py-3 text-body font-semibold text-ink">
-                          Step {selectedIndex + 1}
-                        </p>
-                        <div className="p-4">{editor}</div>
-                      </>
-                    ) : (
-                      <div className="px-4 py-8 text-center">
-                        <p className="text-body text-ink">Choose a step to edit it here.</p>
-                        {showCanvas && (
-                          <p className="mx-auto mt-1 max-w-64 text-meta text-ink-muted">
-                            Drag a step to move it, or its dot to another step to add a way out.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </aside>
-                )}
-              </div>
-            )}
-            {!sidePanel && selectedSection && (
-              <Drawer
-                open
-                onClose={() => setSelected(null)}
-                title={`${selectedIndex + 1}. ${selectedSection.name.trim() || "Untitled step"}`}
-                description="Changes save by themselves."
-              >
-                {editor}
-              </Drawer>
-            )}
-            {sections.length > 0 && (
-              <fieldset disabled={!write.allowed} className="min-w-0 max-w-3xl">
-                <legend className="sr-only">How closely it follows the steps</legend>
-                <StrictnessSection value={script.adherence ?? "flexible"} onChange={(v) => setField("adherence", v)} />
-              </fieldset>
-            )}
-          </section>
-
-          <fieldset disabled={!write.allowed} className="min-w-0 max-w-3xl">
-            <legend className="sr-only">About the agent and the call</legend>
-            <ScriptParts
-              script={script}
-              context={context}
-              issues={issues}
-              openPart={arrivedAt}
-              knowledgeHref={knowledgeHref}
-              setField={setField}
-              edit={edit}
-              trackFocus={trackFocus}
-            />
-          </fieldset>
-        </>
-      )}
+          )}
+        </div>
+        {twoColumns && <aside className={`min-w-0 self-start ${BELOW_PAGE_BAR_STICKY}`}>{pip}</aside>}
+      </div>
 
       <p className="max-w-3xl text-body text-ink-muted">
         Put your changes live, then{" "}
-        <Link href={testHref} className="font-medium text-ink underline underline-offset-2">
-          test your agent
+        <Link href={trainingHref} className="font-medium text-ink underline underline-offset-2">
+          try it in Training
         </Link>{" "}
         to hear how callers are answered now.
       </p>
@@ -777,31 +786,5 @@ function Editor({
         </ConfirmDialog>
       )}
     </div>
-  );
-}
-
-function ViewButton({
-  on,
-  onClick,
-  icon,
-  label,
-}: {
-  on: boolean;
-  onClick: () => void;
-  icon: ReactNode;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={on}
-      onClick={onClick}
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium first:rounded-l-md last:rounded-r-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand touch:min-h-11 ${
-        on ? "bg-ink/[0.07] text-ink" : "text-ink-muted hover:bg-ink/[0.04]"
-      }`}
-    >
-      {icon}
-      {label}
-    </button>
   );
 }

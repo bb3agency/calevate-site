@@ -1,9 +1,12 @@
 "use client";
 
 /**
- * TEST — the agent callers hear now is asked what real callers asked, the owner's saved tests
- * and the four rules every agent must answer right, and the failures become fixes the owner
- * reviews (D-724, given its own section by D-748, rebuilt by D-823).
+ * PRACTICE CALLERS — the agent callers hear now is asked what real callers asked, the owner's
+ * saved tests and the four rules every agent keeps, and the failures become fixes the owner
+ * reviews (D-724, given its own section by D-748, rebuilt by D-823). Since D-825 it sits
+ * behind a closed disclosure at the foot of the Training tab, under the real-call work, and
+ * declares its copilot surface only while open (`declare`), so a closed panel never answers
+ * for the teach box above it.
  *
  * Every failure says who can fix it (D-823): the script or the knowledge (Pip suggests the
  * fix), a setting (a link to it, with why), our side ("we're fixing this"), or the test
@@ -24,7 +27,6 @@ import { useState } from "react";
 
 import { InfoTip } from "@/components/console/infoTip";
 import { PipMark } from "@/components/illustration/pip";
-import { SavedTests } from "@/components/improvement/SavedTests";
 import {
   NoticeBox,
   PRIMARY_BUTTON_SM,
@@ -51,6 +53,7 @@ import { noFill } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 
 import { ImprovementReview } from "../script/ImprovementReview";
+import { CALL_HANDLING_ANCHOR } from "../sections/settingsTab";
 import {
   ACTION_LABEL,
   VERDICT,
@@ -64,13 +67,22 @@ import {
   trendLine,
 } from "./testCopy";
 
-const PROBE_TAG = "Must answer right";
+const PROBE_TAG = "A rule every agent keeps";
 
 /** What Pip is asked for the fixes, in the words the owner sees in its ask box (D-820). */
 export const FIX_ALL_REQUEST = "Suggest fixes for the tests this agent failed.";
 export const fixOneRequest = (title: string) => `Suggest a fix for this agent's failed test “${title}”.`;
 
-export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: string }) {
+export function TestSection({
+  agent,
+  slug,
+  declare = true,
+}: {
+  agent: Pick<Agent, "id">;
+  slug: string;
+  /** Whether this panel is on screen and so the one the assistant should see. */
+  declare?: boolean;
+}) {
   const session = useClientSession();
   const { href } = useClientRealm();
   const tests = useTestConversations(session, agent.id);
@@ -91,9 +103,9 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
   const proposal = done?.improvement ?? null;
   const showReview = done !== null && proposal !== null && !improving && closed !== proposal.created_at;
 
-  useCopilotSurface({
+  useCopilotSurface(declare ? {
     route: "/c/{slug}/agents/{id}",
-    title: "Agent: test",
+    title: "Agent: practice callers",
     realm: "client",
     fields: [],
     facts: [
@@ -102,7 +114,7 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
         key: "state",
         label: "What is on screen",
         value: counts
-          ? `the latest test: ${counts.passed} passed, ${counts.failing} need a fix, ${counts.unchecked} not checked`
+          ? `the latest test: ${counts.passed} passed, ${counts.failing} need a fix, ${counts.unchecked} for the owner to read`
           : testing
             ? "a test is running"
             : "no finished test yet",
@@ -111,7 +123,7 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
         key: "what_is_here",
         label: "What this section does",
         value:
-          "the agent callers hear now is asked what real callers asked, saved tests and the rules every agent must answer; failures the script or knowledge can fix become suggested fixes",
+          "the agent callers hear now is asked what real callers asked, saved tests and the rules every agent keeps; failures the script or knowledge can fix become suggested fixes",
       },
       // Pip's `agent_tests_fix` names the failures to fix by these keys: only those the script
       // or the knowledge owns.
@@ -132,7 +144,7 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
         : []),
     ],
     apply: noFill,
-  });
+  } : null);
 
   const start = () =>
     run.mutate(
@@ -224,7 +236,7 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
       )}
       {latest?.status === "failed" && !testing && (
         <NoticeBox tone="warn" title="The tests could not finish this time.">
-          <p className="text-meta text-ink-muted">Test again in a minute. If it keeps happening, contact us.</p>
+          <p className="text-meta text-ink-muted">Test again in a minute.</p>
         </NoticeBox>
       )}
 
@@ -263,20 +275,13 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
             canMarkWrong={write.allowed && !markWrong.isPending}
             onMarkWrong={(key) => markWrong.mutate({ runId: done.id, key })}
             links={{
-              script: href(`/c/${slug}/agents/${agent.id}/script`),
-              handover: href(`/c/${slug}/agents/${agent.id}?section=${SETTING_LINK.handover.section}`),
+              script: href(`/c/${slug}/agents/${agent.id}?section=script`),
+              handover: href(`/c/${slug}/agents/${agent.id}?section=${SETTING_LINK.handover.section}#${CALL_HANDLING_ANCHOR}`),
               agreements: href(`/c/${slug}/agreements`),
             }}
           />
         </>
       )}
-
-      <section aria-labelledby="saved-tests-heading" className="space-y-2 border-t border-line pt-6">
-        <h3 id="saved-tests-heading" className="text-heading text-ink">
-          Your saved tests
-        </h3>
-        <SavedTests agentId={agent.id} canWrite={write.allowed} />
-      </section>
     </div>
   );
 }
@@ -294,13 +299,13 @@ function Summary({
   const tiles: { label: string; value: number; tone: string }[] = [
     { label: "Passed", value: counts.passed, tone: "text-brand-strong" },
     { label: "Need a fix", value: counts.failing, tone: counts.failing > 0 ? "text-danger" : "text-ink" },
-    { label: "Not checked", value: counts.unchecked, tone: "text-ink" },
+    { label: "For you to read", value: counts.unchecked, tone: "text-ink" },
   ];
   return (
     <section aria-labelledby="test-summary-heading" className="space-y-3">
-      <h3 id="test-summary-heading" className="sr-only">
+      <h4 id="test-summary-heading" className="sr-only">
         Latest test
-      </h3>
+      </h4>
       <dl className="grid grid-cols-3 divide-x divide-line border-y border-line">
         {tiles.map((tile) => (
           <div key={tile.label} className="px-3 py-3 first:pl-0">
@@ -442,9 +447,9 @@ function ResultGroup({
 }) {
   return (
     <section aria-labelledby={`${id}-heading`}>
-      <h3 id={`${id}-heading`} className="text-heading text-ink">
+      <h4 id={`${id}-heading`} className="text-heading text-ink">
         {title} <span className="font-normal text-ink-muted">({results.length})</span>
-      </h3>
+      </h4>
       <ul className="mt-2 divide-y divide-line border-y border-line">
         {results.map((result) => (
           <ResultRow key={result.key} result={result} actions={actions} />

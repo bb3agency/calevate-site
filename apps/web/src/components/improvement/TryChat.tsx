@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 
 import { Section } from "@/components/console/section";
-import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
 import { useClientSession } from "@/lib/api/session";
 import { useTryChat } from "@/lib/api/teach";
 
@@ -14,7 +14,15 @@ type Turn = { from: "you" | "agent"; text: string; lookedUp?: boolean };
  * can reach a real person, and nothing here changes the agent. For the agent page:
  * `<TryChat agentId={agent.id} />`.
  */
-export function TryChat({ agentId, canWrite = true }: { agentId: string; canWrite?: boolean }) {
+export function TryChat({
+  agentId,
+  canWrite = true,
+  headingLevel = 2,
+}: {
+  agentId: string;
+  canWrite?: boolean;
+  headingLevel?: 2 | 3;
+}) {
   const session = useClientSession();
   const send = useTryChat(session, agentId);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -49,7 +57,8 @@ export function TryChat({ agentId, canWrite = true }: { agentId: string; canWrit
 
   return (
     <Section
-      title="Try it"
+      headingLevel={headingLevel}
+      title="Try it in a chat"
       info={<p>Type what a caller would say. Your live agent answers, exactly as it would on a call.</p>}
       action={
         turns.length ? (
@@ -114,7 +123,7 @@ export function TryChat({ agentId, canWrite = true }: { agentId: string; canWrit
           />
           <button
             type="submit"
-            className={PRIMARY_BUTTON_SM}
+            className={SECONDARY_BUTTON_SM}
             disabled={!canWrite || !message.trim() || send.isPending}
           >
             Send

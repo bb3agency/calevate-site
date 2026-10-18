@@ -319,6 +319,7 @@ export function Disclosure({
   headingLevel = 2,
   children,
   className,
+  onToggle,
 }: {
   title: string;
   subtitle?: ReactNode;
@@ -328,12 +329,15 @@ export function Disclosure({
   headingLevel?: 2 | 3 | 4;
   children: ReactNode;
   className?: string;
+  /** Told when the reader opens or closes it, for content that should act only while open. */
+  onToggle?: (open: boolean) => void;
 }) {
   const inline = variant === "inline";
   const Heading = headingLevel === 4 ? "h4" : headingLevel === 3 ? "h3" : "h2";
   return (
     <details
       open={defaultOpen}
+      onToggle={onToggle ? (event) => onToggle(event.currentTarget.open) : undefined}
       className={clsx(
         "group",
         inline

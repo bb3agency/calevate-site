@@ -17,7 +17,15 @@ import { useDeleteTestCase, useRunTestCases, useTestCases, type TestCase } from 
  * owner compares each answer with what they expected. For the agent page:
  * `<SavedTests agentId={agent.id} />`.
  */
-export function SavedTests({ agentId, canWrite = true }: { agentId: string; canWrite?: boolean }) {
+export function SavedTests({
+  agentId,
+  canWrite = true,
+  headingLevel = 2,
+}: {
+  agentId: string;
+  canWrite?: boolean;
+  headingLevel?: 2 | 3;
+}) {
   const session = useClientSession();
   const cases = useTestCases(session, agentId);
   const run = useRunTestCases(session, agentId);
@@ -27,6 +35,7 @@ export function SavedTests({ agentId, canWrite = true }: { agentId: string; canW
 
   return (
     <Section
+      headingLevel={headingLevel}
       title="Saved tests"
       info={
         <p>

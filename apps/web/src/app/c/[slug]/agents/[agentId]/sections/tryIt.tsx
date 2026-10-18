@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * HEAR IT FOR YOURSELF — the "talk to your agent" moment, on the agent's own screen.
+ * PRACTICE CALL — hearing the agent on a real phone, in the agent's Training tab (D-825).
+ * Phone only: there is no in-browser call (founder, 19 Oct 2026).
  *
  * Built only from what already exists, never a new request:
  *
@@ -10,11 +11,10 @@
  *   the same gate, daily cap and blocked reasons, which are the server's words;
  * - any other account hears an answering agent by ringing its own number, so the block
  *   says that and links to where the number is;
- * - an agent that can do neither yet (switched off, or a dial-out agent on a paid
- *   account, whose calls go out through campaigns) renders nothing rather than a
- *   promise the product cannot keep.
+ * - an agent that can do neither yet says why in one line and what changes that, rather
+ *   than offering a call the product cannot place.
  *
- * The number is owned by the screen (`Overview`) so the one copilot declaration there can
+ * The number is owned by the screen (Training) so the one copilot declaration there can
  * offer it as a field.
  */
 
@@ -50,15 +50,48 @@ export function TryIt({
   if (!onTrial && isAnsweringNow(agent) && agent.direction !== "outbound" && agent.inbound_number_count > 0) {
     return <RingYourNumber slug={slug} />;
   }
-  return null;
+  return <NoCallYet agent={agent} slug={slug} onTrial={onTrial} />;
 }
+
+/** Why no practice call can be placed yet, and the one move that changes it. */
+function NoCallYet({ agent, slug, onTrial }: { agent: Agent; slug: string; onTrial: boolean }) {
+  const { href } = useClientRealm();
+  let line: string;
+  let move: { href: string; label: string } | null = null;
+  if (!isAnsweringNow(agent)) {
+    line = "Switch it on with Taking calls at the top of this page, then come back to ring it.";
+  } else if (onTrial) {
+    line = "On the free trial, a practice call comes from an agent that makes calls. Try this one in the chat.";
+  } else if (agent.direction === "outbound") {
+    line = "The calls it makes go out through your campaigns. Try it in the chat.";
+  } else {
+    line = "Give it a phone number, then ring that number from your own phone.";
+    move = { href: href(`/c/${slug}/phone-number`), label: "Get a number" };
+  }
+  return (
+    <Section
+      headingLevel={3}
+      title={PRACTICE_TITLE}
+      description={line}
+      action={
+        move ? (
+          <Link href={move.href} className={SECONDARY_BUTTON}>
+            {move.label}
+          </Link>
+        ) : undefined
+      }
+    />
+  );
+}
+
+const PRACTICE_TITLE = "Practice call";
 
 function RingYourNumber({ slug }: { slug: string }) {
   const { href } = useClientRealm();
   return (
     <Section
       headingLevel={3}
-      title="Hear it for yourself"
+      title={PRACTICE_TITLE}
       description="Ring your number from any phone. This agent answers it the way your callers hear it."
       action={
         <Link href={href(`/c/${slug}/phone-number`)} className={SECONDARY_BUTTON}>
@@ -148,7 +181,7 @@ function TrialTestCall({
   return (
     <Section
       headingLevel={3}
-      title="Hear it for yourself"
+      title={PRACTICE_TITLE}
       description={`${agent.name} rings the number you type, from a shared trial number, and talks to you as it would to a caller.`}
     >
       {body}

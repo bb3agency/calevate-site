@@ -159,7 +159,7 @@ a click only when getting it wrong is cheap. A control that stops a client's pho
 one that carries a legal obligation, stays visible however seldom it is used.
 
 **Its own route** when the thing has its own unsaved state, its own save/apply ladder, or
-enough controls to be a screen (the script builder, campaign creation, an invoice).
+enough controls to be a screen (campaign creation, an invoice).
 GOV.UK's advice when a page has too much on it is to "simplify and reduce the amount of
 content" or "split the content across multiple pages" *before* reaching for a device that
 hides it (`src/components/tabs/index.md`, read 25 Aug 2026). Splitting beats hiding.
@@ -201,6 +201,17 @@ on its own. The opening-notice switches and the truthful-answer guarantee above 
 in **Overview**, above the fold, so §8 rule 7 still holds: they are never behind a section
 switch. The same layout may be used by any screen whose parts are settings an owner
 visits one at a time rather than reads in sequence.
+
+**D-825 turns the agent page into seven plain tabs** (founder, 19 Oct 2026): Overview ·
+Script · Training · Actions · What it notes · Voice · Settings, drawn by `SettingsLayout`'s
+`menu="tabs"` as a WAI-ARIA tab list with manual activation and still addressed by
+`?section=` (old ids open the tab that holds them now). This is the decision-log entry the
+tabs rule above asks for: each tab is complete on its own and visited, not read in order.
+Overview still opens first and still holds the notice switches under the truthful-answer
+guarantee. The script builder is the Script tab rather than its own route; the layout's
+unsaved-edits guard and the builder's autosave cover its draft. Inside a tab, rarer controls
+sit under a `<Disclosure>` whose closed row states what it holds: a step's "More options",
+Training's practice callers.
 
 **D-661 applies it to the admin console.** Every client's admin pages share one header
 (name, status, one primary action) and a grouped section menu — Overview, Agents, Numbers,

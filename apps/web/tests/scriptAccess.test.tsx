@@ -1,7 +1,7 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import AgentScriptPage from "@/app/c/[slug]/agents/[agentId]/script/page";
+import { ScriptBuilder } from "@/app/c/[slug]/agents/[agentId]/script/ScriptBuilder";
 import type { Me } from "@/lib/api/client";
 import { EMPTY_SCRIPT, type ScriptOut } from "@/lib/api/script";
 
@@ -41,7 +41,11 @@ const SCRIPT: ScriptOut = {
 };
 
 const page = (
-  <AgentScriptPage params={Promise.resolve({ slug: "acme", agentId: "agent-1" })} />
+  <ScriptBuilder
+    agentId="agent-1"
+    knowledgeHref="/c/acme/knowledge"
+    trainingHref="/c/acme/agents/agent-1?section=training"
+  />
 );
 
 function routes(who: Me, script: ScriptOut = SCRIPT) {
