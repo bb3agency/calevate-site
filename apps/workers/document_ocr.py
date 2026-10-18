@@ -224,8 +224,10 @@ class PaidOcrUnusableError(OcrUnusableError):
         prompt_tokens: int,
         output_tokens: int,
         cached_prompt_tokens: int | None = None,
+        usage_incomplete: bool = False,
     ) -> None:
         super().__init__(reason=reason, images=images)
+        self.usage_incomplete = usage_incomplete
         self.model = model
         self.prompt_tokens = prompt_tokens
         self.output_tokens = output_tokens
@@ -289,6 +291,11 @@ def ocr_leg() -> chat.ChatLeg:
     )
 
 
+#: The discard reasons `_transcribe` gives when the provider did NOT answer (a refusal or a
+#: transport failure): no tokens were billed for those images.
+_UNANSWERED_PREFIX: Final = "provider_"
+
+
 async def ocr_images(
     images: Sequence[OcrImage],
     *,
@@ -320,23 +327,17 @@ async def ocr_images(
 
     pages: list[str] = []
     discarded: list[str] = []
-    prompt_tokens = 0
-    output_tokens = 0
-    cached_tokens = 0
-    cached_known = True
-    usage_seen = False
+    # One entry per image the provider ANSWERED (a refusal or a dropped connection was not
+    # billed): its usage, or None when it answered without one (`chat.sum_usage`).
+    answered: list[chat.TokenUsage | None] = []
     try:
         for image in images:
             if time.monotonic() >= deadline:
                 discarded.append(f"page {image.position}: not_attempted")
                 continue
             text, reason, usage = await _transcribe(leg, image, http)
-            if usage is not None:
-                usage_seen = True
-                prompt_tokens += usage.prompt_tokens
-                output_tokens += usage.output_tokens
-                cached_tokens += usage.cached_prompt_tokens
-                cached_known = cached_known and usage.cached_reported
+            if reason is None or not reason.startswith(_UNANSWERED_PREFIX):
+                answered.append(usage)
             if reason is not None:
                 discarded.append(f"page {image.position}: {reason}")
                 continue
@@ -355,15 +356,17 @@ async def ocr_images(
         },
     )
 
+    spent = chat.sum_usage(answered)
     if not pages:
-        if usage_seen:
+        if spent is not None:
             raise PaidOcrUnusableError(
                 reason="all_images_discarded",
                 images=len(images),
                 model=DOCUMENT_OCR_MODEL,
-                prompt_tokens=prompt_tokens,
-                output_tokens=output_tokens,
-                cached_prompt_tokens=cached_tokens if cached_known else None,
+                prompt_tokens=spent.prompt_tokens,
+                output_tokens=spent.output_tokens,
+                cached_prompt_tokens=spent.cached_tokens_in,
+                usage_incomplete=spent.incomplete,
             )
         raise OcrUnusableError(reason="all_images_discarded", images=len(images))
 
@@ -385,9 +388,10 @@ async def ocr_images(
         # the ledger: `usage_events` with our `unit_cost_paid`, priced through
         # `billing/rates.llm_inr_per_ktok(DOCUMENT_OCR_MODEL)` (NUMERIC INR, hard rule 7), which
         # raises unless an operator has attested the Google price.
-        prompt_tokens=prompt_tokens if usage_seen else None,
-        output_tokens=output_tokens if usage_seen else None,
-        cached_prompt_tokens=cached_tokens if usage_seen and cached_known else None,
+        prompt_tokens=spent.prompt_tokens if spent is not None else None,
+        output_tokens=spent.output_tokens if spent is not None else None,
+        cached_prompt_tokens=spent.cached_tokens_in if spent is not None else None,
+        usage_incomplete=spent.incomplete if spent is not None else False,
         discarded=tuple(discarded),
     )
 

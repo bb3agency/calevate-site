@@ -170,6 +170,11 @@ FREE_ASSIST_FEATURES = ("copilot",)
 #: spend board read it — and never counted against the client's monthly AI allowance or the
 #: assistant's fair-use cap. `meta.standby_for` names the surface it stood in for.
 ASSIST_FEATURE_STANDBY = "assist_standby"
+#: A paid turn that ANSWERED but whose answer the client did not get: unusable after the
+#: repair, truncated, or cut off when its leg died (founder, 18 Oct 2026: "our cost").
+#: Recorded at its own model, never counted against the client's monthly AI allowance or the
+#: assistant's fair-use cap. `meta.unused_for` names the surface it was spent for.
+ASSIST_FEATURE_UNUSED = "assist_unused"
 #: The first post-call extraction pass (Sarvam): part of serving the call, so absorbed too.
 ASSIST_FEATURE_CALL_EXTRACTION = "call_extraction"
 #: The after-call language pass (`workers/call_language`): English for each turn and the
@@ -189,6 +194,7 @@ ASSIST_FEATURE_BUSINESS_TYPE = "business_type_suggestion"
 #: unlike them not counted by the fair-use cap, which limits what a person asks for.
 ABSORBED_ASSIST_FEATURES = (
     ASSIST_FEATURE_STANDBY,
+    ASSIST_FEATURE_UNUSED,
     ASSIST_FEATURE_CALL_EXTRACTION,
     ASSIST_FEATURE_CALL_LANGUAGE,
     ASSIST_FEATURE_LEAD_FIELDS,

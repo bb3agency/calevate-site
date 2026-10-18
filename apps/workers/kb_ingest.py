@@ -287,6 +287,7 @@ async def _extract(
                 prompt_tokens=refused.prompt_tokens,
                 output_tokens=refused.output_tokens,
                 cached_tokens_in=refused.cached_prompt_tokens,
+                usage_incomplete=refused.usage_incomplete,
             )
         await _mark(
             session,
@@ -304,6 +305,7 @@ async def _extract(
             prompt_tokens=extracted.prompt_tokens,
             output_tokens=extracted.output_tokens,
             cached_tokens_in=extracted.cached_prompt_tokens,
+            usage_incomplete=extracted.usage_incomplete,
         )
     return extracted
 
@@ -316,6 +318,7 @@ async def _meter_ocr(
     prompt_tokens: int | None,
     output_tokens: int | None,
     cached_tokens_in: int | None = None,
+    usage_incomplete: bool = False,
 ) -> None:
     """Hard rule 7, in the SAME transaction as the text the call produced.
 
@@ -343,6 +346,7 @@ async def _meter_ocr(
         tokens_in=prompt_tokens,
         tokens_out=output_tokens,
         cached_tokens_in=cached_tokens_in,
+        usage_incomplete=usage_incomplete,
         model=model,
         feature=ASSIST_FEATURE_KB_OCR,
     )

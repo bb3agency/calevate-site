@@ -177,6 +177,7 @@ async def run_copilot_job(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
                         result=spent,
                         feature=ASSIST_FEATURE_COPILOT,
                         model=spent.model,
+                        unused=spent.unused,
                     )
     if status == "cancelled":
         return "cancelled"

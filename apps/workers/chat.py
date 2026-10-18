@@ -34,8 +34,8 @@ error bodies quote the request, and on some callers the request is a call transc
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from typing import Any, Final, Literal
 
 import httpx
@@ -110,6 +110,10 @@ class TokenUsage:
     #: says the count was missing (D-816). Google documents no cached field on its
     #: OpenAI-compatible surface (ai.google.dev/gemini-api/docs/openai, read 18 Oct 2026).
     cached_reported: bool = False
+    #: Did a piece of this job (a chunk, an image, a turn) answer without a usage block? The
+    #: counts are then the reported part only: recorded as such and alarmed
+    #: (`ai_usage_incomplete`), never left as if it were the whole cost and never dropped.
+    incomplete: bool = False
 
     @property
     def cached_tokens_in(self) -> int | None:
@@ -132,7 +136,28 @@ class TokenUsage:
             output_tokens=self.output_tokens + other.output_tokens,
             cached_prompt_tokens=self.cached_prompt_tokens + other.cached_prompt_tokens,
             cached_reported=self.cached_reported and other.cached_reported,
+            incomplete=self.incomplete or other.incomplete,
         )
+
+
+def sum_usage(parts: Iterable[TokenUsage | None]) -> TokenUsage | None:
+    """Every answered piece of one metered job as one quantity.
+
+    A piece that answered without a usage block is `None`: the sum is the reported part,
+    marked `incomplete`, so the ledger records what is known and the meter raises
+    `ai_usage_incomplete` (founder, 18 Oct 2026). `None` only when no piece reported.
+    Pass only pieces that ANSWERED: a request that failed was not billed.
+    """
+    total: TokenUsage | None = None
+    missing = False
+    for part in parts:
+        if part is None:
+            missing = True
+            continue
+        total = part if total is None else total.plus(part)
+    if total is not None and missing:
+        total = replace(total, incomplete=True)
+    return total
 
 
 def usage_from_body(body: Mapping[str, Any]) -> TokenUsage | None:
@@ -912,5 +937,6 @@ __all__ = [
     "refused_this_input",
     "replayed_tool_call",
     "stream",
+    "sum_usage",
     "usage_from_body",
 ]

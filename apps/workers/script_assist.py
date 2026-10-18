@@ -751,11 +751,9 @@ def _parsed_with_problems[T](
 
 
 def _usage_sum(first: TokenUsage | None, second: TokenUsage | None) -> TokenUsage | None:
-    """Both attempts of one request as one metered quantity; unknown when either did not
-    report, for `TokenUsage.plus`'s reason (a partial sum would read as the whole cost)."""
-    if first is None or second is None:
-        return None
-    return first.plus(second)
+    """Both answered attempts of one request as one metered quantity (`chat.sum_usage`): the
+    reported part, marked incomplete when one attempt sent no usage block."""
+    return chat.sum_usage([first, second])
 
 
 def _parsed[T](

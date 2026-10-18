@@ -1727,9 +1727,11 @@ def assist_capability(
        fact reported as a fact about their account (see the branch that decides it).
 
     `allow_azure=False` removes rungs 1 and 2's Azure arm and nothing else (D-694): the
-    assistant passes its `copilot_azure_fallback` setting, because there Azure is a
-    fallback an operator switches on rather than the default. Every other caller keeps the
-    default and its behaviour.
+    assistant passes its `copilot_azure_fallback` setting, so whether Azure may answer when
+    the assistant's Gemini tier cannot serve at all is an operator switch. It never reaches
+    the re-ask after a failure: `provider_unavailable` skips every paid rung, so a Gemini
+    failure mid-question goes to the Sarvam standby (Pip's only backup, D-819). Every other
+    caller keeps the default and its behaviour.
 
     `tenant_leg`, `quota_exhausted` and `provider_unavailable` are ARGUMENTS rather than
     reads, and for one reason: none is knowable from configuration. The first is a row this

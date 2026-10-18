@@ -102,7 +102,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
-from apps.api.billing.models import ASSIST_FEATURE_STANDBY
+from apps.api.billing.models import ASSIST_FEATURE_STANDBY, ASSIST_FEATURE_UNUSED
 from apps.api.billing.platform_ai import record_platform_ai_usage
 from apps.api.billing.rates import llm_price_is_billable
 from apps.api.core.alerting import alert
@@ -378,8 +378,15 @@ async def meter_assist(
     result: MeterableAssist,
     feature: str = ASSIST_FEATURE_RESUMMARISE,
     model: str | None = None,
+    unused: bool = False,
 ) -> AssistMetering:
     """Turn one `AssistResult` into `usage_events` rows, or say why it did not.
+
+    `unused` marks a paid turn that ANSWERED but whose answer the client did not get (it
+    was unusable, truncated, or its leg died before the answer finished). It is our cost
+    (founder, 18 Oct 2026): recorded at its own model under `ASSIST_FEATURE_UNUSED`, which
+    the monthly AI allowance and the assistant's fair-use cap exclude, with
+    `meta.unused_for` naming the surface, and reported as not charged.
 
     `AssistResult.usage is None` IS THE INTERESTING CASE and it has two causes that must
     not be handled the same way — `AssistResult`'s own docstring says so, and this is the
@@ -518,6 +525,7 @@ async def meter_assist(
         tokens_in=usage.prompt_tokens,
         tokens_out=usage.output_tokens,
         cached_tokens_in=usage.cached_tokens_in,
+        usage_incomplete=usage.incomplete,
         # THE MODEL, AND THE PRICE IS DERIVED FROM IT rather than passed beside it
         # (D-410). This call used to hand over two rupee figures and a model name as
         # three independent arguments, which is a ledger row whose `unit_cost_paid` can
@@ -526,9 +534,10 @@ async def meter_assist(
         # `record_ai_assist_usage` reads `rates.llm_inr_per_ktok(model)` and refuses an
         # unpriced identifier, so that row is now unrepresentable.
         model=model,
-        feature=feature,
+        feature=ASSIST_FEATURE_UNUSED if unused else feature,
+        extra_meta={"unused_for": feature} if unused else None,
     )
-    return AssistMetering(metered=metered.recorded, cost_inr=metered.cost_inr)
+    return AssistMetering(metered=metered.recorded and not unused, cost_inr=metered.cost_inr)
 
 
 def _billable_standby_usage(
@@ -580,6 +589,7 @@ async def _meter_standby(
         tokens_in=usage.prompt_tokens,
         tokens_out=usage.output_tokens,
         cached_tokens_in=usage.cached_tokens_in,
+        usage_incomplete=usage.incomplete,
         model=SARVAM_DEFAULT_LLM,
         feature=ASSIST_FEATURE_STANDBY,
         extra_meta={"standby_for": feature},
@@ -595,7 +605,9 @@ async def meter_earlier(
     feature: str,
 ) -> bool:
     """Meter each paid turn that answered in front of the answer the user got, one row set
-    per turn under its own ref and at its own model (`PaidTurn`). True if any was charged.
+    per turn under its own ref and at its own model (`PaidTurn`), as our cost
+    (`meter_assist(unused=True)`). True if any was charged to the client, which an unused
+    turn never is.
 
     Never raises for an ordinary outcome, for `meter_assist`'s reason."""
     charged = False
@@ -607,6 +619,7 @@ async def meter_earlier(
             result=turn,
             feature=feature,
             model=turn.model,
+            unused=True,
         )
         charged = charged or metering.metered
     return charged
@@ -721,6 +734,7 @@ async def meter_platform_assist(
         tokens_in=usage.prompt_tokens,
         tokens_out=usage.output_tokens,
         cached_tokens_in=usage.cached_tokens_in,
+        usage_incomplete=usage.incomplete,
         model=model,
         feature=feature,
     )

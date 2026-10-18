@@ -539,6 +539,10 @@ class CopilotSpend:
     usage: TokenUsage | None
     capability: AssistCapability
     model: str | None = None
+    #: The turns of a leg that died before its answer finished: paid, but the answer the
+    #: person got (or the refusal) came from elsewhere. Our cost, never their fair-use count
+    #: (`crm/assist.meter_assist(unused=)`).
+    unused: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -748,28 +752,25 @@ def chat_leg(provider: str, *, model: str | None) -> chat.ChatLeg | None:
     return None
 
 
-def _sum_usage(turns: Sequence[chat.ChatOutcome]) -> TokenUsage | None:
-    """The whole loop's cost as one quantity, or None if any turn did not report its own.
+def _sum_usage(
+    turns: Sequence[chat.ChatOutcome], *, unreported_turn: bool = False
+) -> TokenUsage | None:
+    """The whole loop's cost as one quantity (`chat.sum_usage`).
 
     ONE `usage_events` ROW PAIR PER USER ACTION, not per model turn: `read_ai_quota`'s
     `requests_used` is a `COUNT(DISTINCT ref)` over the paid unit types, so N rows for one
     question would make the request count and the rupee ceiling disagree about the same
     month.
 
-    **A SINGLE UNREPORTED TURN POISONS THE WHOLE SUM, and that is the point.** Summing the
-    turns that DID report and calling it the total is a fabricated quantity — smaller than
-    the truth, on an append-only ledger, indistinguishable from a real one, and invisible
-    to both the tenant's ceiling and the platform brake. D-140 refused exactly that trade
-    for exactly that reason. `None` reaches `meter_assist`, which fires
-    `ai_assist_unmeterable` and asks an operator to look; a plausible invented number asks
-    nobody anything.
+    A turn that reported no usage (or, with `unreported_turn`, a stream cut before its
+    terminal frame) makes the sum the REPORTED part, marked `incomplete`: the ledger records
+    what is known and the meter raises `ai_usage_incomplete` (founder, 18 Oct 2026). It is
+    `None` only when no turn reported, which `meter_assist` alarms as unmeterable.
     """
-    total: TokenUsage | None = None
-    for outcome in turns:
-        if outcome.usage is None:
-            return None
-        total = outcome.usage if total is None else total.plus(outcome.usage)
-    return total
+    parts: list[TokenUsage | None] = [outcome.usage for outcome in turns]
+    if unreported_turn:
+        parts.append(None)
+    return chat.sum_usage(parts)
 
 
 def _no_answer_sentence(finish_reason: str | None) -> str:
@@ -1637,14 +1638,17 @@ async def _run_tool_loop(
             # out-of-turns message below, which blames a turn limit this run never reached
             # and tells the person to narrow a request that was never the problem.
             #
-            # THE SPEND IS `None` RATHER THAN THE SUM SO FAR, and that is `_sum_usage`'s
-            # rule applied to a turn that never reported at all: a turn happened, it was
-            # paid for, and we do not know what it cost. `meter_assist` fires
-            # `ai_assist_unmeterable` on that, which is an operator looking at a real
-            # interruption rather than a fabricated total on an append-only ledger.
+            # The spend is the completed turns' known usage, marked incomplete for the cut
+            # one (`_sum_usage`); with no completed turn it is unknown and alarmed as such.
             log.warning("copilot_turn_incomplete", extra={"turn": turn_index})
             yield CopilotEvent(text=strip_invisible(NO_ANSWER_MESSAGE))
-            yield CopilotEvent(spend=CopilotSpend(usage=None, capability=capability, model=model))
+            yield CopilotEvent(
+                spend=CopilotSpend(
+                    usage=_sum_usage(turns, unreported_turn=True),
+                    capability=capability,
+                    model=model,
+                )
+            )
             return
         turns.append(outcome)
         if outcome.finish_reason == "length":
@@ -1655,9 +1659,9 @@ async def _run_tool_loop(
             # that HIT the ceiling spent the ceiling.
             log.warning("copilot_answer_truncated", extra={"turn": turn_index})
         if outcome.usage is None:
-            # Not an error, and not silence either. `_sum_usage` will make the whole run
-            # unmeterable off the back of this; the log line is what lets an operator tell
-            # "the stream was cut" from "Azure stopped sending the block".
+            # Not an error, and not silence either. `_sum_usage` records the run as the
+            # reported part and the meter alarms it; the log line is what lets an operator
+            # tell "the stream was cut" from "the provider stopped sending the block".
             log.warning(
                 "copilot_turn_unmetered",
                 extra={"turn": turn_index, "finish_reason": outcome.finish_reason},
@@ -2376,7 +2380,9 @@ async def _answer_pdf_turn(
         # answer is already on the screen (hard rule 7).
         if turns and not spent_emitted:
             yield CopilotEvent(
-                spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
+                spend=CopilotSpend(
+                    usage=_sum_usage(turns), capability=capability, model=model, unused=True
+                )
             )
         if streamed:
             raise
@@ -2420,7 +2426,10 @@ async def _answer_pdf_turn(
         if fallback_turns and not fallback_spent:
             yield CopilotEvent(
                 spend=CopilotSpend(
-                    usage=_sum_usage(fallback_turns), capability=capability, model=model
+                    usage=_sum_usage(fallback_turns),
+                    capability=capability,
+                    model=model,
+                    unused=True,
                 )
             )
         if said_note:
@@ -2604,7 +2613,9 @@ async def _answer_stream(
             # fallback's spend below is a SECOND row rather than a replacement.
             if turns and not spent_emitted:
                 yield CopilotEvent(
-                    spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
+                    spend=CopilotSpend(
+                        usage=_sum_usage(turns), capability=capability, model=model, unused=True
+                    )
                 )
             if streamed_anything:
                 # Part of the answer is on the screen, so no fallback; the paid turns
