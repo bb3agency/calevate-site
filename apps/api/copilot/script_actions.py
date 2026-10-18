@@ -289,7 +289,7 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
         raise WriteRefusedError(
             "this agent has no finished test run, so offer to run its tests first"
         )
-    failures = test_conversations.needs_improving(run)
+    failures = test_conversations.failing(run)
     keys = sorted({strip_invisible(k.strip()) for k in parsed.test_keys or [] if k.strip()})
     if keys:
         known = {str(r.get("key")) for r in failures}
@@ -301,6 +301,15 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
         failures = [r for r in failures if str(r.get("key")) in set(keys)]
     if not failures:
         raise WriteRefusedError("every test in the latest run passed, so there is nothing to fix")
+    # Rules the platform owns, settings and tests marked wrong are never the script's to fix
+    # (D-823): the person is told who can fix them instead.
+    failures = [r for r in failures if r in test_conversations.needs_improving(run)]
+    if not failures:
+        raise WriteRefusedError(
+            "none of these failed tests is the script's or the facts' to fix: each result in "
+            "the Test section says who can (a setting to change, or our side, which we are "
+            "fixing), so tell the person that instead"
+        )
     if run.improving:
         raise WriteRefusedError(
             "fixes for this run are already being worked out, so tell the person they will "

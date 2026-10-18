@@ -501,13 +501,26 @@ export interface TestTurn {
   actions?: TestAction[];
 }
 
+/** Who can fix a failure (D-823). */
+export type TestOwner = "script" | "knowledge" | "setting" | "platform" | "test";
+
+/** Why the last "Improve my agent" round stopped (D-823). */
+export type ImproveStop = "completed" | "no_change" | "nothing_fixable_by_script" | "budget" | "failed";
+
+export interface TestSetting {
+  /** `handover` (the agent's call handling) or `agreements` (the account's agreements). */
+  area: "handover" | "agreements";
+  /** Why this setting decides the result. */
+  reason: string;
+}
+
 export interface TestResult {
   key: string;
   title: string;
   category: string;
-  /** `ai` · `recording` · `stop_calling` · `person` for a compliance check. */
+  /** `ai` · `recording` · `stop_calling` · `person` for a rule every agent must answer. */
   probe: string | null;
-  /** `generated` · `standard` · `saved` · `retest`. */
+  /** `generated` · `standard` · `saved` · `retest` · `real`. */
   source: string;
   turns: TestTurn[];
   expect: string;
@@ -520,11 +533,22 @@ export interface TestResult {
   before: TestVerdict | null;
   /** What a test chat cannot show for this check, in the owner's words. */
   limit?: string | null;
+  /** Who can fix it; null when it passed. */
+  owner?: TestOwner | null;
+  /** The setting that decides it, when `owner` is `setting`. */
+  setting?: TestSetting | null;
+  /** The owner marked this test wrong: out of the score and the fixes. */
+  marked_wrong?: boolean;
 }
 
-export interface ProposedChange {
-  /** `step:<id>` or a part of the script (`opening_line`, `objections`, `style`, ...). */
-  target: string;
+/** One suggested edit, kept or left with its own tick box. */
+export interface ScriptEdit {
+  id: string;
+  op: "set_step" | "add_step" | "set_objection" | "set_part";
+  /** What it changes, in the owner's words. */
+  label: string;
+  before: string;
+  after: string;
   because: string | null;
   why: string;
 }
@@ -540,11 +564,11 @@ export interface ProposedFact {
 }
 
 export interface Improvement {
-  script: CallScript;
-  base_script: CallScript;
   base: "draft" | "live";
-  changes: ProposedChange[];
+  edits: ScriptEdit[];
   facts: ProposedFact[];
+  /** Suggested edits that did not fit the script and were left out. */
+  dropped?: number;
   for_keys: string[];
   disclosure: string | null;
   created_at: string;
@@ -572,6 +596,8 @@ export interface TestRun {
   improving?: boolean;
   /** Why the last "Improve my agent" could not be made. */
   improve_note?: string | null;
+  /** Why the last improve round stopped. */
+  improve_stop?: ImproveStop | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -622,5 +648,42 @@ export function useRunTestConversations(
     mutationFn: (body) =>
       apiRequest<TestConversations>(session, `${base(agentId)}/tests`, { method: "POST", body: body ?? {} }),
     onSuccess: (data) => client.setQueryData(testsKey(session.orgSlug, agentId), data),
+  });
+}
+
+/** "This test is wrong" (D-823): the test leaves the run's score and the fixes. */
+export function useMarkTestWrong(
+  session: Session,
+  agentId: string,
+): UseMutationResult<TestConversations, Error, { runId: string; key: string }> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ runId, key }) =>
+      apiRequest<TestConversations>(
+        session,
+        `${base(agentId)}/tests/${runId}/results/${encodeURIComponent(key)}/wrong`,
+        { method: "POST" },
+      ),
+    onSuccess: (data) => client.setQueryData(testsKey(session.orgSlug, agentId), data),
+  });
+}
+
+export interface AppliedEdits {
+  script: CallScript;
+  /** Kept edits that no longer fit the working copy, left out. */
+  skipped: string[];
+}
+
+/** The working copy with the kept suggested edits made. Nothing is saved. */
+export function useApplySuggestedEdits(
+  session: Session,
+  agentId: string,
+): UseMutationResult<AppliedEdits, Error, { runId: string; script: CallScript; edits: string[] }> {
+  return useMutation({
+    mutationFn: ({ runId, script, edits }) =>
+      apiRequest<AppliedEdits>(session, `${base(agentId)}/tests/${runId}/improvement/apply`, {
+        method: "POST",
+        body: { script, edits },
+      }),
   });
 }

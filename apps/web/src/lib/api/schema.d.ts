@@ -3835,6 +3835,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/script/tests/{run_id}/improvement/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The working script with the kept suggested edits made (nothing is saved)
+         * @description The one place a kept edit is applied: the same `script_edits.apply_edit` that built
+         *     the proposal, onto the copy the owner holds now, so an edit made since is never undone.
+         */
+        post: operations["apply_suggested_edits_v1_agents__agent_id__script_tests__run_id__improvement_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/tests/{run_id}/results/{key}/wrong": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark a test that did not pass as wrong: out of the score and the fixes */
+        post: operations["mark_test_wrong_v1_agents__agent_id__script_tests__run_id__results__key__wrong_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/script/undo": {
         parameters: {
             query?: never;
@@ -12087,6 +12125,18 @@ export interface components {
             /** Window Days */
             window_days: number;
         };
+        /** ApplyEditsIn */
+        ApplyEditsIn: {
+            /** Edits */
+            edits: string[];
+            script: components["schemas"]["CallScript"];
+        };
+        /** ApplyEditsOut */
+        ApplyEditsOut: {
+            script: components["schemas"]["CallScript"];
+            /** Skipped */
+            skipped: string[];
+        };
         /**
          * ApplyIn
          * @description `expected_version` is the CAS token (BACKEND-PATTERNS §5): the staged version
@@ -18355,7 +18405,9 @@ export interface components {
         };
         /**
          * ImprovementOut
-         * @description The "Improve my agent" proposal, reviewed change by change, never applied by itself.
+         * @description The "Improve my agent" proposal: small edits and facts, each kept or left on its own,
+         *     never applied by itself. Kept edits are applied to the working copy by
+         *     `POST .../tests/{run_id}/improvement/apply`.
          */
         ImprovementOut: {
             /**
@@ -18363,9 +18415,6 @@ export interface components {
              * @enum {string}
              */
             base: "draft" | "live";
-            base_script: components["schemas"]["CallScript"];
-            /** Changes */
-            changes: components["schemas"]["ProposedChangeOut"][];
             /**
              * Created At
              * Format: date-time
@@ -18373,11 +18422,17 @@ export interface components {
             created_at: string;
             /** Disclosure */
             disclosure: string | null;
+            /**
+             * Dropped
+             * @default 0
+             */
+            dropped: number;
+            /** Edits */
+            edits: components["schemas"]["ScriptEditOut"][];
             /** Facts */
             facts: components["schemas"]["ProposedFactOut"][];
             /** For Keys */
             for_keys: string[];
-            script: components["schemas"]["CallScript"];
         };
         /**
          * InFlightOut
@@ -22379,15 +22434,6 @@ export interface components {
             /** Pending */
             pending: number;
         };
-        /** ProposedChangeOut */
-        ProposedChangeOut: {
-            /** Because */
-            because: string | null;
-            /** Target */
-            target: string;
-            /** Why */
-            why: string;
-        };
         /** ProposedFactOut */
         ProposedFactOut: {
             /**
@@ -24024,6 +24070,29 @@ export interface components {
             register_name: string | null;
             /** Register Needs Review */
             register_needs_review: boolean;
+        };
+        /**
+         * ScriptEditOut
+         * @description One suggested edit, kept or left with its own tick box (D-823).
+         */
+        ScriptEditOut: {
+            /** After */
+            after: string;
+            /** Because */
+            because: string | null;
+            /** Before */
+            before: string;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Op
+             * @enum {string}
+             */
+            op: "set_step" | "add_step" | "set_objection" | "set_part";
+            /** Why */
+            why: string;
         };
         /**
          * ScriptLimitsOut
@@ -26176,10 +26245,18 @@ export interface components {
             key: string;
             /** Limit */
             limit?: string | null;
+            /**
+             * Marked Wrong
+             * @default false
+             */
+            marked_wrong: boolean;
+            /** Owner */
+            owner?: ("script" | "knowledge" | "setting" | "platform" | "test") | null;
             /** Probe */
             probe: string | null;
             /** Reason */
             reason: string;
+            setting?: components["schemas"]["TestSettingOut"] | null;
             /** Source */
             source: string;
             /** Step Id */
@@ -26212,6 +26289,8 @@ export interface components {
             id: string;
             /** Improve Note */
             improve_note?: string | null;
+            /** Improve Stop */
+            improve_stop?: ("completed" | "no_change" | "nothing_fixable_by_script" | "budget" | "failed") | null;
             improvement: components["schemas"]["ImprovementOut"] | null;
             /**
              * Improving
@@ -26245,6 +26324,16 @@ export interface components {
             passed: number;
             /** Total */
             total: number;
+        };
+        /** TestSettingOut */
+        TestSettingOut: {
+            /**
+             * Area
+             * @enum {string}
+             */
+            area: "handover" | "agreements";
+            /** Reason */
+            reason: string;
         };
         /** TestWebhookIn */
         TestWebhookIn: {
@@ -35256,6 +35345,75 @@ export interface operations {
                 "application/json": components["schemas"]["RunTestsIn"] | null;
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestConversationsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    apply_suggested_edits_v1_agents__agent_id__script_tests__run_id__improvement_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyEditsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyEditsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    mark_test_wrong_v1_agents__agent_id__script_tests__run_id__results__key__wrong_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                run_id: string;
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

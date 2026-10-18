@@ -484,6 +484,8 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             await s.execute(text(sql), {"i": row_id, "t": tenant_id, **extra})
             ids[key] = str(row_id)
         ids["version"] = "1"
+        # A test's key inside a run: the run id is what a neighbour must not reach.
+        ids["key"] = "k1"
     return ids
 
 
@@ -736,6 +738,14 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # agent under the caller's tenant session.
     ("GET", "/v1/agents/{agent_id}/script/tests", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/tests", {}, {}),
+    # D-823: marking a test wrong and applying kept edits, both resolved through the run.
+    ("POST", "/v1/agents/{agent_id}/script/tests/{run_id}/results/{key}/wrong", {}, {}),
+    (
+        "POST",
+        "/v1/agents/{agent_id}/script/tests/{run_id}/improvement/apply",
+        {"script": {}, "edits": []},
+        {},
+    ),
     ("PUT", "/v1/agents/{agent_id}/script/draft", {"script": {}}, {}),
     ("POST", "/v1/agents/{agent_id}/script/publish", {"summary": "Changed the greeting"}, {}),
     ("GET", "/v1/agents/{agent_id}/script/versions", {}, {}),

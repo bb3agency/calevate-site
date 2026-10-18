@@ -153,7 +153,7 @@ def test_the_hard_check_fails_a_bad_reply_before_the_judge() -> None:
     result = decide(scenario, turns, None, language="te-IN", unjudged_reason="not judged")
     assert result["verdict"] == "failed"
     clean = [Turn(said="AI aa?", reply="నేను AI assistant ని అండి.")]
-    assert hard_check(scenario, clean, language="te-IN").floor_pass
+    assert hard_check(scenario, clean, language="te-IN").verdict == "passed"
 
 
 def test_a_textbook_word_now_fails_the_scenario_even_when_the_judge_passed_it() -> None:

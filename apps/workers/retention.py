@@ -3639,7 +3639,9 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         await session.execute(text("DELETE FROM whatsapp_accounts"))
         # The teach box and the improvement loop: saved tests hold callers' redacted lines,
         # and the facts, teachings and waiting rules are the business's own words. Test runs
-        # carry copies of those saved lines.
+        # carry copies of those saved lines; the owner's "this test is wrong" labels point at
+        # them.
+        await session.execute(text("DELETE FROM agent_test_labels"))
         await session.execute(text("DELETE FROM agent_test_runs"))
         await session.execute(text("DELETE FROM agent_test_cases"))
         await session.execute(text("DELETE FROM call_test_case_drafts"))

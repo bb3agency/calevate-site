@@ -28,7 +28,7 @@ discarded it (`DELETE .../proposal/{id}`). The test routes below still gate on t
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import (
@@ -46,13 +46,14 @@ from calevate_shared.call_script import (
     upgrade_to_v2,
 )
 from calevate_shared.spoken_style import example_exchange, native_reviewed, style_for
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import publishing, script_builder, script_proposals, test_conversations
 from apps.api.agents.engine_limits import too_long_sentence
+from apps.api.agents.script_edits import MAX_EDITS, ScriptEdit, apply_edits
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
@@ -403,6 +404,15 @@ class TestTurnOut(BaseModel):
     )
 
 
+class TestSettingOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: `handover` (the agent's call handling) or `agreements` (the account's agreements).
+    area: Literal["handover", "agreements"]
+    #: Why this setting decides the result, in the owner's words.
+    reason: str
+
+
 class TestResultOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -431,13 +441,28 @@ class TestResultOut(BaseModel):
     before: TestVerdict | None
     #: What a test chat cannot show for this check, in the owner's words, or null.
     limit: str | None = None
+    #: Who can fix it (D-823): `script`, `knowledge`, `setting`, `platform` (ours, and we
+    #: are told), or `test` once the owner marked it wrong. Null when it passed.
+    owner: Literal["script", "knowledge", "setting", "platform", "test"] | None = None
+    #: The setting that decides it, when `owner` is `setting`.
+    setting: TestSettingOut | None = None
+    #: The owner marked this test wrong: it is left out of the score and the fixes.
+    marked_wrong: bool = False
 
 
-class ProposedChangeOut(BaseModel):
+class ScriptEditOut(BaseModel):
+    """One suggested edit, kept or left with its own tick box (D-823)."""
+
     model_config = ConfigDict(extra="forbid")
 
-    #: `step:<id>`, or a part of the script (`opening_line`, `objections`, `style`, ...).
-    target: str
+    id: str
+    #: `set_step` · `add_step` · `set_objection` · `set_part`.
+    op: Literal["set_step", "add_step", "set_objection", "set_part"]
+    #: What it changes, in the owner's words.
+    label: str
+    #: The words now (empty for something new) and the words suggested.
+    before: str
+    after: str
     #: The test it fixes.
     because: str | None
     why: str
@@ -457,19 +482,18 @@ class ProposedFactOut(BaseModel):
 
 
 class ImprovementOut(BaseModel):
-    """The "Improve my agent" proposal, reviewed change by change, never applied by itself."""
+    """The "Improve my agent" proposal: small edits and facts, each kept or left on its own,
+    never applied by itself. Kept edits are applied to the working copy by
+    `POST .../tests/{run_id}/improvement/apply`."""
 
     model_config = ConfigDict(extra="forbid")
 
-    #: The proposed script. Diff it against `base_script` to list the changes; apply the
-    #: kept ones to the editor's working copy.
-    script: CallScript
-    #: The script the proposal was made from.
-    base_script: CallScript
     #: `draft` (the autosaved working copy) or `live` (what callers hear).
     base: Literal["draft", "live"]
-    changes: list[ProposedChangeOut]
+    edits: list[ScriptEditOut]
     facts: list[ProposedFactOut]
+    #: Edits the AI suggested that did not fit the script and were left out.
+    dropped: int = 0
     #: The tests it was made for.
     for_keys: list[str]
     #: Set when a fallback model wrote it (D-127 G-6): show it.
@@ -509,6 +533,11 @@ class TestRunOut(BaseModel):
     improving: bool = False
     #: Why the last "Improve my agent" could not be made, in the owner's words.
     improve_note: str | None = None
+    #: Why the last improve round stopped: `completed` · `no_change` ·
+    #: `nothing_fixable_by_script` · `budget` · `failed`.
+    improve_stop: (
+        Literal["completed", "no_change", "nothing_fixable_by_script", "budget", "failed"] | None
+    ) = None
     created_at: datetime
     completed_at: datetime | None
 
@@ -569,9 +598,9 @@ def _actions(tools: Any) -> list[TestAction]:
     return out
 
 
-def _result_out(raw: dict[str, Any]) -> TestResultOut:
+def _result_out(raw: dict[str, Any], wrong_keys: frozenset[str] = frozenset()) -> TestResultOut:
     """A stored result on today's wire. Runs before D-724 kept one `said`/`reply` pair and
-    an `advice` sentence."""
+    an `advice` sentence; results before D-823 carry no owner, which is read from `fix`."""
     conversation = raw.get("conversation")
     turns = (
         [
@@ -587,6 +616,12 @@ def _result_out(raw: dict[str, Any]) -> TestResultOut:
         else [TestTurnOut(said=str(raw.get("said", "")), reply=str(raw.get("reply", "")))]
     )
     before = raw.get("before")
+    verdict = test_conversations.result_verdict(raw)
+    wrong = str(raw.get("key", "")) in wrong_keys
+    owner: test_conversations.Owner | None = (
+        "test" if wrong else test_conversations.result_owner(raw)
+    )
+    setting = raw.get("setting")
     return TestResultOut(
         key=str(raw.get("key", "")),
         title=str(raw.get("title", "")),
@@ -595,22 +630,43 @@ def _result_out(raw: dict[str, Any]) -> TestResultOut:
         source=str(raw.get("source") or "standard"),
         turns=turns,
         expect=str(raw.get("expect") or ""),
-        verdict=test_conversations.result_verdict(raw),
+        verdict=verdict,
         reason=str(raw.get("reason") or raw.get("advice") or ""),
         fix=raw.get("fix") or None,
         step_id=raw.get("step_id") or None,
         formal_words=[str(w) for w in raw.get("formal_words") or []],
         before=test_conversations.result_verdict({"verdict": before}) if before else None,
         limit=str(raw["limit"]) if raw.get("limit") else None,
+        owner=None if verdict == "passed" and not wrong else owner,
+        setting=(
+            TestSettingOut.model_validate(setting)
+            if isinstance(setting, dict) and owner == "setting"
+            else None
+        ),
+        marked_wrong=wrong,
     )
 
 
+_EDIT_FIELDS: Final = frozenset(ScriptEditOut.model_fields)
+
+
 def _improvement_out(raw: dict[str, Any] | None) -> ImprovementOut | None:
-    if not raw:
+    """The stored proposal, or None. A proposal made before D-823 is a whole script with no
+    edits, which nothing on today's screen can review; the owner asks for fixes again."""
+    if not raw or not isinstance(raw.get("edits"), list):
         return None
-    return ImprovementOut.model_validate(
-        {k: raw.get(k) for k in ImprovementOut.model_fields if k in raw}
-        | {"facts": raw.get("facts") or [], "changes": raw.get("changes") or []}
+    return ImprovementOut(
+        base=raw.get("base") or "live",
+        edits=[
+            ScriptEditOut.model_validate({k: v for k, v in e.items() if k in _EDIT_FIELDS})
+            for e in raw["edits"]
+            if isinstance(e, dict)
+        ],
+        facts=[ProposedFactOut.model_validate(f) for f in raw.get("facts") or []],
+        dropped=int(raw.get("dropped") or 0),
+        for_keys=[str(k) for k in raw.get("for_keys") or []],
+        disclosure=raw.get("disclosure"),
+        created_at=raw["created_at"],
     )
 
 
@@ -624,11 +680,12 @@ def _run_out(run: test_conversations.TestRun, live_version: int | None) -> TestR
         retest_of=run.retest_of,
         auto_improve=run.auto_improve,
         score=_score(run),
-        results=[_result_out(r) for r in run.results if isinstance(r, dict)],
+        results=[_result_out(r, run.wrong_keys) for r in run.results if isinstance(r, dict)],
         improvement=_improvement_out(run.improvement),
         note=run.note,
         improving=run.improving,
         improve_note=run.improve_note,
+        improve_stop=run.improve_stop,  # type: ignore[arg-type]
         created_at=run.created_at,
         completed_at=run.completed_at,
     )
@@ -724,6 +781,92 @@ async def run_test_conversations(
         },
     )
     return await _tests_out(session, agent_id, principal.tenant_id)
+
+
+@router.post(
+    "/tests/{run_id}/results/{key}/wrong",
+    response_model=TestConversationsOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Mark a test that did not pass as wrong: out of the score and the fixes",
+)
+async def mark_test_wrong(
+    agent_id: UUID,
+    run_id: UUID,
+    key: Annotated[str, Path(min_length=1, max_length=120)],
+    session: Session,
+    request: Request,
+    principal: ScriptWriter,
+) -> TestConversationsOut:
+    assert principal.tenant_id is not None
+    await test_conversations.mark_wrong(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        run_id=run_id,
+        key=key,
+        by=principal.user_id,
+    )
+    await write_audit(
+        session,
+        action="agent.test_marked_wrong",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="agent",
+        object_id=str(agent_id),
+        ip=client_request_ip(request),
+        summary={"run_id": str(run_id)},
+    )
+    return await _tests_out(session, agent_id, principal.tenant_id)
+
+
+class ApplyEditsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: The owner's working copy: the draft, or the live script when there is no draft.
+    script: CallScript
+    #: The edits kept, by id, in the order to apply them.
+    edits: list[Annotated[str, Field(max_length=8)]] = Field(max_length=MAX_EDITS)
+
+
+class ApplyEditsOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: `script` with the kept edits made. Nothing is saved: the caller saves it as the
+    #: draft or puts it live, as it does any edit.
+    script: CallScript
+    #: Kept edits that no longer fit the working copy (their step was removed since, or the
+    #: step limit was reached), left out.
+    skipped: list[str]
+
+
+@router.post(
+    "/tests/{run_id}/improvement/apply",
+    response_model=ApplyEditsOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="The working script with the kept suggested edits made (nothing is saved)",
+)
+async def apply_suggested_edits(
+    agent_id: UUID,
+    run_id: UUID,
+    payload: ApplyEditsIn,
+    session: Session,
+    principal: ScriptWriter,
+) -> ApplyEditsOut:
+    """The one place a kept edit is applied: the same `script_edits.apply_edit` that built
+    the proposal, onto the copy the owner holds now, so an edit made since is never undone."""
+    run = await test_conversations.get_run(session, agent_id, run_id)
+    stored = (run.improvement or {}).get("edits") or []
+    by_id = {str(e.get("id")): e for e in stored if isinstance(e, dict)}
+    if any(i not in by_id for i in payload.edits):
+        raise ProblemError.business_rule(
+            "agent_tests_unknown_edit",
+            "These suggestions have changed since you opened them.",
+            remediation="Close the suggestions and open them again.",
+        )
+    script, _applied, rejected = apply_edits(
+        upgrade_to_v2(payload.script), [ScriptEdit.of(by_id[i]) for i in payload.edits]
+    )
+    return ApplyEditsOut(script=script, skipped=[edit.id for edit, _why in rejected])
 
 
 # --- the suggestion Pip prepared (D-820) ------------------------------------------------

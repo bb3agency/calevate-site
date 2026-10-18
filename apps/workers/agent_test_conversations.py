@@ -1,15 +1,17 @@
-"""Runs one queued set of test conversations, and prepares an auto-improve proposal
-(`apps/api/agents/test_conversations.py` describes the loop, D-724).
+"""Runs one queued set of test conversations, and prepares the "Improve my agent" proposal
+(`apps/api/agents/test_conversations.py` describes the loop, D-724, D-823).
 
-`run_agent_test_conversations`: claim the queued run, write this run's callers with the
-dashboard AI (or fall back to the standard set), talk to the live agent through the engine's
-test chat with a pause between messages, judge every conversation with the AI and the hard
-checks, and store the results worst first. One attempt: a run that cannot finish is marked
-failed with a machine code and the owner may start another.
+`run_agent_test_conversations`: claim the queued run; gather its tests, real calls first
+(re-asked failures, the standing specimen callers, questions from real calls, saved tests),
+with AI-written practice callers only for an agent with few real calls; talk to the live
+agent through the engine's test chat with a pause between messages; decide the rule checks
+in code and judge the rest with the AI; store the results worst first, each with its owner.
+A failure on our side raises `agent_test_platform_rule_failed`. One attempt: a run that
+cannot finish is marked failed with a machine code and the owner may start another.
 
-`improve_agent_test_run`: the auto-improve step, queued by a finished run with failures
-when its owner asked for it. It writes the proposal onto the run for the owner to review;
-it never changes the script and never puts anything live.
+`improve_agent_test_run`: the proposal for the failures the script or the knowledge owns,
+small edits the owner keeps one by one. It never changes the script and never puts anything
+live, and every round ends with a stop reason (`test_conversations.ImproveStop`).
 
 Generation, judging and improving are separate metered AI requests (`meter_assist`, one
 feature name each). The routes refuse a new run or proposal at the allowance ceiling; a
@@ -23,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any, Final, cast
 from uuid import UUID
 
@@ -39,31 +42,43 @@ from apps.api.agents.test_conversations import (
     ASSIST_FEATURE_TEST_GENERATE,
     ASSIST_FEATURE_TEST_IMPROVE,
     ASSIST_FEATURE_TEST_JUDGE,
+    AUTO_STOP_NOTES,
+    ENOUGH_REAL_CALLS,
     IMPROVE_JOB,
     MAX_GENERATED,
     MAX_SAVED,
     MAX_TURNS,
+    NOTHING_FOR_THE_SCRIPT,
     PROBES,
     RUN_JOB,
     AgentBrief,
+    ImproveStop,
     Judged,
     Scenario,
     Turn,
+    WrongTests,
+    auto_improve_stop,
     decide,
     ensure_probes,
+    failing,
     get_run,
     load_brief,
     needs_improving,
+    probe_scenario,
     queue_improvement,
+    real_call_scenarios,
     standard_scenarios,
-    store_improve_failure,
+    store_improve_stop,
     store_improvement,
+    waiting_update,
     wants_auto_improvement,
     within_budget,
     worst_first,
+    wrong_tests,
 )
 from apps.api.agents.test_window import send_test_message
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
+from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
@@ -75,12 +90,15 @@ from apps.api.engine.test_chat import RunsTestChat, TestChatTool
 from apps.workers.agent_test_ai import (
     conversation_text,
     generate_scenarios,
+    improve_request,
     improvement_record,
+    input_hash,
     judge_conversations,
     judge_leg,
     judge_order,
     model_family,
     propose_improvement,
+    safe_line,
 )
 from apps.workers.extraction import TenantModelLeg
 from apps.workers.script_assist import JsonAnswer
@@ -140,10 +158,30 @@ LEFT_OUT_REASON: Final = (
 )
 
 
-#: The fallback when the improve job fails on something that is not an AI refusal.
+#: The fallback when the improve job fails on something that is not an AI refusal: our
+#: fault, alarmed as `agent_test_improve_crashed`.
 IMPROVE_FAILED_NOTE: Final = (
-    "Suggestions could not be worked out this time. Try again in a few minutes; if it keeps "
-    "happening, contact us."
+    "Suggestions could not be worked out this time. That is on our side and we're fixing "
+    "it. Try again in a few minutes."
+)
+
+#: The note on a run whose tests came from real calls alone.
+FROM_REAL_CALLS_NOTE: Final = (
+    "These tests come from your real calls, so no practice callers were written this time."
+)
+
+#: An improve round whose input was already answered: the same tests, failing the same
+#: way, on the same script and facts. The model is not asked again (founder, D-823).
+SAME_INPUT_NOTE: Final = (
+    "These failures, on this script and these facts, already had suggestions worked out, "
+    "so they were not worked out again. Keep a suggestion or change the script or a fact, "
+    "then test again."
+)
+
+#: An improve round that found nothing in the script or the facts to change.
+NO_EDITS_NOTE: Final = (
+    "No change to the script or your facts would fix these tests. Each result says why it "
+    "failed and who can fix it."
 )
 
 Pause = Callable[[], Awaitable[None]]
@@ -236,13 +274,13 @@ async def _saved_scenarios(tenant_id: UUID, agent_id: UUID) -> list[Scenario]:
     ]
 
 
-def _retests(previous: list[dict[str, Any]]) -> list[Scenario]:
+def _retests(previous: list[dict[str, Any]], wrong: WrongTests) -> list[Scenario]:
     out = []
     for raw in previous:
         if raw.get("verdict") not in ("needs_fix", "failed"):
             continue
         scenario = Scenario.of(raw)
-        if scenario.turns:
+        if scenario.turns and wrong.keeps(scenario):
             out.append(
                 Scenario(
                     key=scenario.key,
@@ -266,7 +304,11 @@ async def write_scenarios(
     count: int,
     tenant_leg: TenantModelLeg | None,
 ) -> tuple[list[Scenario], str | None]:
-    """This run's fresh callers, and a note when they are not AI-written."""
+    """This run's rule checks and, for an agent with fewer than `ENOUGH_REAL_CALLS` real
+    calls, a few AI-written practice callers; and the run's note. An agent with enough real
+    calls is tested on them alone and nothing is written (or charged)."""
+    if brief.real_calls >= ENOUGH_REAL_CALLS:
+        return [probe_scenario(p, brief.language) for p in PROBES], FROM_REAL_CALLS_NOTE
     exhausted = await _allowance_used(tenant_id)
     try:
         answer = await generate_scenarios(
@@ -386,7 +428,15 @@ async def judge_all(
 ) -> tuple[dict[str, Judged], str, dict[str, dict[str, Any]]]:
     """The AI judge's verdicts, the reason to show where it could not judge, and per
     scenario what the judge itself said, on which model and at which position (kept on
-    the result for calibration: the stored verdict may be a hard check's instead)."""
+    the result for calibration: the stored verdict may be a hard check's instead).
+
+    The rule checks (`PROBES`) are decided in code and never sent to the judge; a run with
+    nothing else asks it nothing."""
+    pairs = [(s, c) for s, c in zip(scenarios, conversations, strict=True) if s.probe is None]
+    if not pairs:
+        return {}, LEFT_OUT_REASON, {}
+    scenarios = [s for s, _c in pairs]
+    conversations = [c for _s, c in pairs]
     exhausted = await _allowance_used(tenant_id)
     order = judge_order(len(scenarios), seed=seed)
     texts = [
@@ -493,30 +543,35 @@ async def run_agent_test_conversations(
             brief = await load_brief(session, agent_id)
             tenant_leg = await account_assist_leg(session)
             previous = await get_run(session, agent_id, retest_of) if retest_of else None
-        retests = _retests(previous.results) if previous is not None else []
-        count = max(len(PROBES) + 1, MAX_GENERATED - len(retests))
+            wrong = await wrong_tests(session, agent_id)
+            agreements_waiting = await waiting_update(session, tenant_id, agent_id) is not None
+        round_key = f"r{run_id.hex[-6:]}"
+        retests = _retests(previous.results, wrong) if previous is not None else []
         fresh, note = await write_scenarios(
             brief,
             tenant_id=tenant_id,
-            round_key=f"r{run_id.hex[-6:]}",
-            count=count,
+            round_key=round_key,
+            count=MAX_GENERATED,
             tenant_leg=tenant_leg,
         )
         retested_probes = {s.probe for s in retests if s.probe}
         fresh = [s for s in fresh if s.probe is None or s.probe not in retested_probes]
-        saved = await _saved_scenarios(tenant_id, agent_id)
-        # Two standing callers for the failure classes of a real call (D-749), ahead of the
-        # AI-written ones so the message cap never drops them; a class being retested
-        # already runs.
+        saved = [s for s in await _saved_scenarios(tenant_id, agent_id) if wrong.keeps(s)]
         retested = {s.key for s in retests}
+        # Two standing callers for the failure classes of a real call (D-749), and the
+        # questions real callers asked that the agent could not answer, ahead of the
+        # AI-written ones so the message cap drops those first; a test being retested
+        # already runs.
         specimen = [
             s
-            for s in specimen_scenarios(
-                brief.language, brief.business_type, round_key=f"r{run_id.hex[-6:]}"
-            )
-            if s.key not in retested
+            for s in specimen_scenarios(brief.language, brief.business_type, round_key=round_key)
+            if s.key not in retested and wrong.keeps(s)
         ]
-        scenarios = within_budget(retests + specimen + fresh + saved)
+        real = [
+            replace(s, turns=tuple(safe_line(t) for t in s.turns))
+            for s in real_call_scenarios(brief, skip=frozenset(retested) | wrong.keys)
+        ]
+        scenarios = within_budget(retests + specimen + real + saved + fresh)
         async with tenant_session(tenant_id) as session:
             await session.execute(
                 text(
@@ -550,6 +605,7 @@ async def run_agent_test_conversations(
         await _finish(tenant_id, run_id, status="failed", results=None, failure="crashed")
         return "failed"
 
+    rules = brief.rules(agreements_waiting=agreements_waiting)
     before = {str(r.get("key")): r.get("verdict") for r in (previous.results if previous else [])}
     results = [
         {
@@ -559,6 +615,7 @@ async def run_agent_test_conversations(
                 judged.get(scenario.key),
                 language=brief.language,
                 unjudged_reason=unjudged_reason,
+                rules=rules,
             ),
             "before": before.get(scenario.key),
             "judge": judge_record.get(scenario.key),
@@ -571,15 +628,66 @@ async def run_agent_test_conversations(
     await _finish(
         tenant_id, run_id, status="done", results=worst_first(results), failure=None, note=note
     )
+    _alarm_platform_failures(results, tenant_id=tenant_id, agent_id=agent_id, run_id=run_id)
     async with tenant_session(tenant_id) as session:
         finished = await get_run(session, agent_id, run_id)
         if wants_auto_improvement(finished):
             await queue_improvement(session, tenant_id=tenant_id, run_id=run_id)
+        else:
+            stop = auto_improve_stop(finished)
+            if stop is not None:
+                await store_improve_stop(
+                    session, agent_id=agent_id, run_id=run_id, stop=stop, note=AUTO_STOP_NOTES[stop]
+                )
     log.info(
         "agent_tests_done",
         extra={"run_id": str(run_id), "scenarios": len(results), "round": round_no},
     )
     return "done"
+
+
+#: The alarm when a run's failure is ours to fix (`runbooks/alarm-index.md`).
+PLATFORM_FAILURE_CODE: Final = "agent_test_platform_rule_failed"
+
+
+def _alarm_platform_failures(
+    results: list[dict[str, Any]], *, tenant_id: UUID, agent_id: UUID, run_id: UUID
+) -> None:
+    """One alarm per run whose failures include one the platform owns: a rule check our
+    prompt or action should have made pass, or a reply shape only the platform prompt can
+    change. The owner is told "we're fixing this", so somebody here has to be told too."""
+    ours = [
+        r
+        for r in results
+        if r.get("owner") == "platform" and r.get("verdict") in ("failed", "needs_fix")
+    ]
+    if not ours:
+        return
+    alert(
+        "CORE_LOGIC",
+        PLATFORM_FAILURE_CODE,
+        detail=(
+            f"{len(ours)} test(s) failed on a rule the platform owns; checks: "
+            + ", ".join(sorted({str(r.get("probe") or r.get("fix") or "shape") for r in ours}))
+        ),
+        tenant_id=str(tenant_id),
+        agent_id=str(agent_id),
+        run_id=str(run_id),
+    )
+
+
+async def _answered_before(tenant_id: UUID, agent_id: UUID, request_hash: str) -> bool:
+    """Has the improver already been asked exactly this, for this agent?"""
+    async with tenant_session(tenant_id) as session:
+        return (
+            await session.execute(
+                text(
+                    "SELECT 1 FROM agent_test_runs WHERE agent_id = :aid "
+                    "AND improvement->>'input_hash' = :hash LIMIT 1"
+                ),
+                {"aid": agent_id, "hash": request_hash},
+            )
+        ).first() is not None
 
 
 async def improve_run(
@@ -588,36 +696,50 @@ async def improve_run(
     run_id: UUID,
     *,
     keys: list[str] | None,
-) -> dict[str, Any]:
-    """The proposal for this run's failures (all of them, or `keys`), stored on the run.
+) -> tuple[ImproveStop, dict[str, Any] | None]:
+    """The proposal for this run's failures the script or the knowledge owns (all of them,
+    or `keys`), stored on the run, and why the round stopped.
 
     The base is the autosaved draft when there is one, else the script callers hear: the
-    owner reviews changes to what they are editing. Raises the assist refusal (allowance
-    used up, no model) and `agent_tests_nothing_to_fix`."""
+    owner reviews changes to what they are editing. A request identical to one already
+    answered for this agent is not asked again (`no_change`), and an answer with no edits
+    and no facts says so (`no_change`). Raises the assist refusal (allowance used up, no
+    model), `agent_tests_nothing_to_fix` and `agent_tests_nothing_fixable_by_script`."""
     async with tenant_session(tenant_id) as session:
         run = await get_run(session, agent_id, run_id)
-        failures = needs_improving(run)
+        chosen = failing(run)
         if keys:
-            failures = [r for r in failures if str(r.get("key")) in set(keys)]
-        if not failures:
+            chosen = [r for r in chosen if str(r.get("key")) in set(keys)]
+        if not chosen:
             raise ProblemError.business_rule(
                 "agent_tests_nothing_to_fix", "Every chosen test passed. There is nothing to fix."
+            )
+        failures = [r for r in chosen if r in needs_improving(run)]
+        if not failures:
+            raise ProblemError.business_rule(
+                "agent_tests_nothing_fixable_by_script", NOTHING_FOR_THE_SCRIPT
             )
         brief = await load_brief(session, agent_id)
         tenant_leg = await account_assist_leg(session)
         draft = await script_builder.read_draft(session, agent_id)
         loaded = await script_builder.load_agent_script(session, agent_id)
-    exhausted = await _allowance_used(tenant_id)
     # A v1 script is reviewed in the v2 steps, exactly as the builder opens it.
     base = upgrade_to_v2(draft.script if draft is not None else loaded.script)
     if base.is_raw:
-        # Suggestions are reviewed step by step; a hand-written script has no steps to
-        # change, and rewriting it whole would drop the owner's own words.
+        # Suggestions are edits to steps and parts; a hand-written script has none.
         raise ProblemError.business_rule(
             "agent_tests_hand_written",
             "Suggested fixes need a script in steps.",
             remediation="Turn the hand-written script into steps in the script builder first.",
         )
+    request_hash = input_hash(improve_request(brief, base, failures))
+    if await _answered_before(tenant_id, agent_id, request_hash):
+        async with tenant_session(tenant_id) as session:
+            await store_improve_stop(
+                session, agent_id=agent_id, run_id=run_id, stop="no_change", note=SAME_INPUT_NOTE
+            )
+        return "no_change", None
+    exhausted = await _allowance_used(tenant_id)
     answer = await propose_improvement(
         brief, base, failures, tenant_leg=tenant_leg, quota_exhausted=exhausted
     )
@@ -629,10 +751,32 @@ async def improve_run(
         base_saved_at=draft.saved_at if draft is not None else None,
         base_version=loaded.version,
         for_keys=[str(r.get("key")) for r in failures],
+        request_hash=request_hash,
     )
+    found = bool(record.get("edits") or record.get("facts"))
+    stop: ImproveStop = "completed" if found else "no_change"
     async with tenant_session(tenant_id) as session:
-        await store_improvement(session, agent_id=agent_id, run_id=run_id, improvement=record)
-    return record
+        await store_improvement(
+            session,
+            agent_id=agent_id,
+            run_id=run_id,
+            improvement=record,
+            stop=stop,
+            note=None if found else NO_EDITS_NOTE,
+        )
+    return stop, record
+
+
+#: The stop reason a refused improve round records, by the refusal's code; any other is
+#: `failed`.
+_REFUSAL_STOPS: Final[dict[str, ImproveStop]] = {
+    "assist_quota_exhausted": "budget",
+    "agent_tests_nothing_fixable_by_script": "nothing_fixable_by_script",
+    "agent_tests_nothing_to_fix": "no_change",
+}
+
+#: The alarm when the improve job itself crashed: our fault, and the owner is told so.
+IMPROVE_CRASHED_CODE: Final = "agent_test_improve_crashed"
 
 
 async def improve_agent_test_run(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -650,7 +794,7 @@ async def improve_agent_test_run(ctx: dict[str, Any], payload: dict[str, Any]) -
     raw_keys = payload.get("keys")
     keys = [str(k) for k in raw_keys] if isinstance(raw_keys, list) else None
     try:
-        await improve_run(tenant_id, agent_id, run_id, keys=keys)
+        stop, _record = await improve_run(tenant_id, agent_id, run_id, keys=keys)
     except ProblemError as refused:
         log.info(
             "agent_tests_improve_refused", extra={"run_id": str(run_id), "reason": refused.code}
@@ -661,30 +805,47 @@ async def improve_agent_test_run(ctx: dict[str, Any], payload: dict[str, Any]) -
             if refused.code in _AI_REFUSAL
             else " ".join(p for p in (refused.detail, refused.remediation) if p)
         )
-        await _improve_failed(tenant_id, agent_id, run_id, note)
+        await _improve_stopped(
+            tenant_id, agent_id, run_id, _REFUSAL_STOPS.get(refused.code, "failed"), note
+        )
         return "skipped"
     except Exception:
         # The screen waits on this run until a proposal or a note arrives, so a crash is
-        # written down for the owner as well as logged for us.
+        # written down for the owner as well as raised for us.
         log.exception("agent_tests_improve_crashed", extra={"run_id": str(run_id)})
-        await _improve_failed(tenant_id, agent_id, run_id, IMPROVE_FAILED_NOTE)
+        alert(
+            "WORKER_TERMINAL",
+            IMPROVE_CRASHED_CODE,
+            detail="the improve job for a test run raised; the owner was told to try again",
+            tenant_id=str(tenant_id),
+            run_id=str(run_id),
+        )
+        await _improve_stopped(tenant_id, agent_id, run_id, "failed", IMPROVE_FAILED_NOTE)
         return "failed"
-    log.info("agent_tests_improved", extra={"run_id": str(run_id)})
-    return "proposed"
+    log.info("agent_tests_improved", extra={"run_id": str(run_id), "stop": stop})
+    return stop
 
 
 _AI_REFUSAL_NOTE: Final = "Suggestions could not be worked out, because {why}"
 
 
-async def _improve_failed(tenant_id: UUID, agent_id: UUID, run_id: UUID, note: str) -> None:
+async def _improve_stopped(
+    tenant_id: UUID, agent_id: UUID, run_id: UUID, stop: ImproveStop, note: str
+) -> None:
     async with tenant_session(tenant_id) as session:
-        await store_improve_failure(session, agent_id=agent_id, run_id=run_id, note=note)
+        await store_improve_stop(session, agent_id=agent_id, run_id=run_id, stop=stop, note=note)
 
 
 __all__ = [
+    "FROM_REAL_CALLS_NOTE",
+    "IMPROVE_CRASHED_CODE",
+    "IMPROVE_FAILED_NOTE",
     "IMPROVE_JOB_NAME",
     "JOB_NAME",
+    "NO_EDITS_NOTE",
     "PAUSE_S",
+    "PLATFORM_FAILURE_CODE",
+    "SAME_INPUT_NOTE",
     "improve_agent_test_run",
     "improve_run",
     "judge_all",

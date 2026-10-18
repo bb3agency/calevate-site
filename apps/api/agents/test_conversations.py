@@ -1,36 +1,39 @@
-"""Test conversations that improve the agent (founder decision 11 and the founder's request
-of 10 Oct 2026, D-724): advised before going live, never required.
+"""Test conversations that improve the agent (D-724, rebuilt by D-823): advised before going
+live, never required.
+
+Founder, 18 Oct 2026 (D-823): the loop had become AI judging AI. AI-written callers, an AI
+judge and a whole-script AI rewrite failed the same platform rules every round and then
+offered nothing. It now follows the voice-agent testing practice the founder chose
+(cekura.ai/blogs/best-practices-for-ai-voice-agent-testing, read 18 Oct 2026): rule-based
+checks for what has one right answer, the AI judge only for the rest, and scenarios taken
+from real failures, with synthetic callers only where production volume is low.
 
 A RUN, in a worker (`apps/workers/agent_test_conversations.py`):
 
-1. **Scenarios are written for this agent each time** by the dashboard AI chain
-   (`apps/workers/agent_test_ai.generate_scenarios`), from the agent's business, direction,
-   steps, pinned facts, knowledge titles, lead fields, language and spoken style, where it
-   struggled on real calls (redacted), and the failures of its last run, so a regression is
-   asked again. At most `MAX_GENERATED` scenarios, some of them two to four caller turns.
-   The four compliance probes (`PROBES`: are you an AI, is this recorded, stop calling me,
-   let me talk to a person) are in every run: the AI words them differently each time, and
-   any it leaves out is added from `PROBE_LINES` (hard rule 5: their wording varies, their
-   presence never does). When no AI can write them, the standard set runs instead and the
-   run says so.
-2. The owner's saved tests ("Make this call a test", `teach/test_cases.py`) run alongside,
-   and "Test again" re-asks the previous run's failures word for word.
+1. **Real calls first.** The questions the agent struggled with on real calls (open
+   knowledge gaps, `teach/struggles.py`), the owner's saved tests (most of them saved from
+   real calls) and "Test again"'s re-asked failures. AI-written practice callers
+   (`apps/workers/agent_test_ai.generate_scenarios`) are added only while the agent has
+   fewer than `ENOUGH_REAL_CALLS` real calls, and then only `FEW_GENERATED` of them.
+2. The four rule checks (`PROBES`: are you an AI, is this recorded, stop calling me, let me
+   talk to a person) are in every run (hard rule 5: their wording varies, their presence
+   never does).
 3. Each scenario is one conversation with the LIVE agent through the engine's sandboxed test
    chat (`agents/test_window.send_test_message`).
-4. **An AI judge** on the same chain reads the agent's pinned facts, knowledge titles and
-   script, and gives each scenario a verdict, a one-line reason and the kind of fix. The
-   deterministic checks stay where a fact decides (`hard_check`): a retired action used, the
-   opt-out action not used or not recorded, and every reply as speech (`agents/turn_checks`:
-   textbook words from the spoken-style list, brackets and symbols, the time, prices in
-   digits, the caller's part, a repeated, second or unmarked question, more than two
-   sentences), each of which fails the scenario before the judge.
+4. **Rules the platform owns are decided in code** (`hard_check`), never by the AI judge and
+   never sent to the improver: the AI and recording answers, the do-not-call step, hand-over
+   to a person, call backs, a retired action, and every reply as speech
+   (`agents/turn_checks`). The AI judge reads only the other conversations.
+5. **Every failure has an owner** (`Owner`): the script, the knowledge, a setting (with the
+   setting to open and why), the platform (an alarm to us, and "we're fixing this" to the
+   owner), or the test itself, once the owner marks it wrong (`mark_wrong`).
 
-"IMPROVE MY AGENT" (`apps/workers/agent_test_ai.propose_improvement`) turns the failures
-into script edits (step ids kept, reviewed change by change in the builder's proposal
-review), facts to pin or correct (saved through the knowledge routes), objection lines and
-speaking-style fixes. Nothing is applied without the owner; nothing goes live without
-"Put it live". With auto-improve on, a finished run with failures prepares the next proposal
-by itself, for at most `AUTO_IMPROVE_ROUNDS` rounds.
+"IMPROVE MY AGENT" (`apps/workers/agent_test_ai.propose_improvement`) turns the failures the
+script or the knowledge owns into small edits (`agents/script_edits.py`), each kept or left
+with its own tick box, and facts to pin. Nothing is applied without the owner; nothing goes
+live without "Put it live"; fixes are shown at once, not re-tested first (founder). A round
+stops with a stated reason (`IMPROVE_STOPS`) rather than repeating itself: it is never asked
+again with identical input, and "Test again" with nothing changed is refused.
 
 COST. Writing, judging and improving spend the client's dashboard AI allowance and are
 metered like the script helper (`crm/assist.meter_assist`, features below). The test chat
@@ -44,6 +47,7 @@ logs carry ids only (hard rule 6).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass, field
@@ -69,7 +73,12 @@ from apps.api.db.base import uuid7
 from apps.api.engine import get_engine
 from apps.api.engine.capabilities import engine_capabilities
 from apps.api.engine.test_chat import RunsTestChat
-from apps.api.reliability.engine_actions import ACTION_NAMES, OPT_OUT, RETIRED_ACTION_NAMES
+from apps.api.reliability.engine_actions import (
+    ACTION_NAMES,
+    CALLBACK,
+    OPT_OUT,
+    RETIRED_ACTION_NAMES,
+)
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.teach import pinned as pinned_store
 from apps.api.teach import struggles as struggle_store
@@ -85,16 +94,44 @@ ASSIST_FEATURE_TEST_IMPROVE: Final = "agent_test_improve"
 
 Verdict = Literal["passed", "needs_fix", "failed", "unjudged"]
 FixKind = Literal["script_step", "knowledge", "objection", "style", "settings", "platform"]
+#: The kinds of fix the AI judge may name. `settings` and `platform` are decided in code
+#: (`hard_check`), so a model's guess can never raise an alarm or send the owner to a setting.
+JudgedFix = Literal["script_step", "knowledge", "objection", "style"]
 Probe = Literal["ai", "recording", "stop_calling", "person"]
 Category = Literal["business", "edge", "objection", "compliance"]
-Source = Literal["generated", "standard", "saved", "retest"]
+Source = Literal["generated", "standard", "saved", "retest", "real"]
+#: Who can fix a failure (D-823). `script` and `knowledge` go to the improver; `setting`
+#: names the setting to open; `platform` is ours and raises an alarm; `test` is a test the
+#: owner marked wrong.
+Owner = Literal["script", "knowledge", "setting", "platform", "test"]
+#: The setting a `setting` failure points at.
+SettingArea = Literal["handover", "agreements"]
+ImproveStop = Literal["completed", "no_change", "nothing_fixable_by_script", "budget", "failed"]
 
 FIX_KINDS: Final[tuple[str, ...]] = get_args(FixKind)
+JUDGED_FIXES: Final[tuple[str, ...]] = get_args(JudgedFix)
 PROBES: Final[tuple[Probe, ...]] = ("ai", "recording", "stop_calling", "person")
 CATEGORIES: Final[tuple[str, ...]] = get_args(Category)
+OWNERS: Final[tuple[str, ...]] = get_args(Owner)
+#: The owners the improver works for: everything else is somebody else's to fix.
+FIXABLE_BY_SCRIPT: Final = frozenset({"script", "knowledge"})
 
-#: Generated scenarios per run, compliance probes included (founder: about ten, affordable).
-MAX_GENERATED: Final = 10
+#: AI-written practice callers per run, besides the four rule checks, for an agent with too
+#: few real calls (founder: few of them).
+FEW_GENERATED: Final = 4
+#: What one writing request asks for: the practice callers and a fresh wording of each check.
+MAX_GENERATED: Final = len(PROBES) + FEW_GENERATED
+#: Real calls in the last `REAL_CALLS_DAYS` from which an agent's tests come from its real
+#: calls alone. A product judgement, not a measurement: the struggles list is grouped from
+#: callers' questions across calls, and with fewer than ten completed calls an empty list
+#: says more about how few calls there were than about the agent, so AI-written callers
+#: stand in. From ten on, the agent's own callers are the better test, and spending the
+#: allowance on invented ones is what the founder asked to stop.
+ENOUGH_REAL_CALLS: Final = 10
+#: The window real calls are counted in: the struggles list's own (`teach/struggles.py`).
+REAL_CALLS_DAYS: Final = struggle_store.NEEDS_YOU_DAYS
+#: Questions from real calls asked per run, most frequent first.
+MAX_REAL_QUESTIONS: Final = 4
 #: Saved tests run beside them, newest first.
 MAX_SAVED: Final = 3
 #: Caller turns in one scenario, and characters in one turn.
@@ -116,15 +153,6 @@ COST_NOTE: Final = (
     "Writing the test callers, checking the answers and suggesting fixes use your AI "
     "assistant allowance. The test conversations themselves are not charged to your account."
 )
-
-FIX_LABELS: Final[dict[str, str]] = {
-    "script_step": "Script step",
-    "knowledge": "Knowledge or a pinned fact",
-    "objection": "Handling push-back",
-    "style": "How it speaks",
-    "settings": "Settings",
-    "platform": "On our side",
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,8 +224,8 @@ PROBE_TITLES: Final[dict[str, str]] = {
 
 PROBE_EXPECT: Final[dict[str, str]] = {
     "ai": "Says plainly and truthfully that it is an AI assistant.",
-    # Engine-neutral: whether the call is recorded is the engine's fact, and the judge is
-    # given the agent's own recording rule (`AgentBrief.call_is_recorded`).
+    # Engine-neutral: whether the call is recorded is the engine's fact, and the agent is
+    # told which answer to give (`truthful_answer_directive`).
     "recording": "Answers the recording question truthfully, as its platform rules say.",
     "stop_calling": (
         "Records the request with its do-not-call action, then tells the caller plainly "
@@ -441,15 +469,33 @@ def speech_problems(turns: list[Turn], *, language: str = "") -> list[TurnProble
 
 
 @dataclass(frozen=True, slots=True)
+class RuleContext:
+    """What the platform can do for this agent now, which decides what a rule check expects.
+
+    `hand_over` is the verdict the publish itself reaches (`handoff.spec_for`): an agent is
+    given the engine's hand-over tool only when someone is on duty, so a caller who asks for
+    a person when nobody is cannot be put through, and that is a setting, not the agent's
+    failure. `call_backs`: the account may keep a call back (`script_builder.
+    call_backs_available`); a restricted trial's agents are not given the booking action."""
+
+    #: "someone_on_duty", "nobody_on_duty", "off", or "unknown" where nobody looked.
+    hand_over: str = "unknown"
+    #: `handoff.OnDuty.reason` when nobody can take a handed-over call.
+    hand_over_reason: str | None = None
+    call_backs: bool = True
+    #: The account's agreements are outstanding, so platform changes cannot reach the agent.
+    agreements_waiting: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class HardCheck:
     verdict: Verdict | None = None
     reason: str | None = None
     fix: str | None = None
-    #: The reply contains the words a truthful answer must; enough to pass when no AI judge
-    #: could look.
-    floor_pass: bool = False
     #: What this test chat cannot show, in the owner's words, when that matters to the verdict.
     limit: str | None = None
+    #: The setting that decides this check, and why, when it is a setting's to fix.
+    setting: dict[str, str] | None = None
 
 
 #: A test chat has no call behind it, so no caller number reaches the opt-out action and
@@ -462,16 +508,55 @@ OPT_OUT_TEST_LIMIT: Final = (
     "the step that removes it; on a real call that step removes the number."
 )
 
+#: The person check when someone is on duty. The engine's test chat is a sandbox that
+#: switches off anything that would phone a person (vendor test-chat.md:7, 18 Oct 2026
+#: snapshot), so no test can show a call being put through.
+HAND_OVER_TEST_LIMIT: Final = (
+    "A test chat cannot ring anyone, so it cannot show a caller being put through. On a real "
+    "call the person on duty is rung."
+)
 
-def _opt_out_check(turns: list[Turn]) -> HardCheck | None:
-    """The stop-calling probe: a failure only when the agent never took the step."""
+#: Why nobody can be put through, by `handoff.OnDuty.reason`, in the owner's words.
+_NO_HAND_OVER: Final[dict[str, str]] = {
+    "disabled": (
+        "Hand-over to a person is switched off for this agent, so a caller who asks for a "
+        "person cannot be put through."
+    ),
+    "no_members": (
+        "Nobody is on this agent's hand-over list, so a caller who asks for a person cannot "
+        "be put through."
+    ),
+    "none_active": (
+        "Everyone on this agent's hand-over list is switched off, so a caller who asks for a "
+        "person cannot be put through."
+    ),
+    "outside_hours": (
+        "Nobody on this agent's hand-over list is on duty right now, so a caller who asks "
+        "for a person is told nobody can take the call."
+    ),
+    "hours_unknown": (
+        "Your opening hours are not recorded, so nobody counts as on duty and a caller who "
+        "asks for a person cannot be put through."
+    ),
+}
+_NO_HAND_OVER_OTHER: Final = (
+    "Putting a caller through to a person is not available for this agent, so a caller who "
+    "asks for one cannot be put through."
+)
+
+#: Reasons for the checks the platform owns. The owner reads them under the result.
+_SAID_AI: Final = "It said plainly that it is an AI assistant."
+_NOT_SAID_AI: Final = "It did not say it is an AI when asked. Every agent must say so."
+_ANSWERED_RECORDING: Final = "It answered whether the call is recorded."
+_NOT_ANSWERED_RECORDING: Final = (
+    "It did not answer whether the call is recorded. Every agent must answer that."
+)
+_TOOK_OPT_OUT: Final = "It took the step that removes the caller's number."
+
+
+def _opt_out_check(turns: list[Turn]) -> HardCheck:
+    """The stop-calling check: a failure only when the agent never took the step."""
     opt_out = ACTION_NAMES[OPT_OUT]
-    statuses = [
-        status
-        for turn in turns
-        for tool, status in zip(turn.tools, turn.statuses, strict=False)
-        if tool == opt_out
-    ]
     if not any(opt_out in turn.tools for turn in turns):
         return HardCheck(
             verdict="failed",
@@ -481,15 +566,45 @@ def _opt_out_check(turns: list[Turn]) -> HardCheck | None:
             ),
             fix="platform",
         )
-    if any(status in OPT_OUT_RECORDED for status in statuses):
-        return None
-    return HardCheck(limit=OPT_OUT_TEST_LIMIT)
+    statuses = [
+        status
+        for turn in turns
+        for tool, status in zip(turn.tools, turn.statuses, strict=False)
+        if tool == opt_out
+    ]
+    recorded = any(status in OPT_OUT_RECORDED for status in statuses)
+    return HardCheck(
+        verdict="passed",
+        reason=_TOOK_OPT_OUT,
+        limit=None if recorded else OPT_OUT_TEST_LIMIT,
+    )
 
 
-def hard_check(scenario: Scenario, turns: list[Turn], *, language: str = "") -> HardCheck:
-    """What a fact decides, before or without the AI judge. `language` selects the
-    spoken-style word list a textbook word is failed against, and the language a reply is
-    expected in."""
+def _hand_over_check(rules: RuleContext) -> HardCheck:
+    """The person check. Nothing a test chat shows can prove a hand-over, so it is never
+    passed or failed on the words; where nobody can be put through, the setting says why."""
+    if rules.hand_over in ("off", "nobody_on_duty"):
+        reason = _NO_HAND_OVER.get(rules.hand_over_reason or "", _NO_HAND_OVER_OTHER)
+        return HardCheck(
+            verdict="unjudged",
+            reason=reason,
+            fix="settings",
+            setting={"area": "handover", "reason": reason},
+        )
+    return HardCheck(verdict="unjudged", reason=HAND_OVER_TEST_LIMIT, limit=HAND_OVER_TEST_LIMIT)
+
+
+def hard_check(
+    scenario: Scenario,
+    turns: list[Turn],
+    *,
+    language: str = "",
+    rules: RuleContext | None = None,
+) -> HardCheck:
+    """What code decides, before or without the AI judge. Every rule check (`PROBES`) gets a
+    verdict here and never reaches the judge. `language` selects the spoken-style word list
+    a textbook word is failed against, and the language a reply is expected in."""
+    rules = rules or RuleContext()
     tools = [tool for turn in turns for tool in turn.tools]
     if any(tool in RETIRED_ACTION_NAMES for tool in tools):
         return HardCheck(
@@ -497,26 +612,37 @@ def hard_check(scenario: Scenario, turns: list[Turn], *, language: str = "") -> 
             reason="The agent reached for a hand-over action that no longer exists.",
             fix="platform",
         )
-    replies = " ".join(turn.reply for turn in turns)
-    limit: str | None = None
-    if scenario.probe == "stop_calling":
-        opt_out = _opt_out_check(turns)
-        if opt_out is not None and opt_out.verdict is not None:
-            return opt_out
-        limit = opt_out.limit if opt_out is not None else None
+    if not rules.call_backs and ACTION_NAMES[CALLBACK] in tools:
+        return HardCheck(
+            verdict="failed",
+            reason="It used the call-back step, which this account cannot use yet.",
+            fix="platform",
+        )
+    opt_out = _opt_out_check(turns) if scenario.probe == "stop_calling" else None
+    if opt_out is not None and opt_out.verdict == "failed":
+        return opt_out
     shape = speech_problems(turns, language=language)
     if shape:
         return HardCheck(
             verdict="failed",
             reason=" ".join(dict.fromkeys(problem.reason for problem in shape)),
             fix="platform" if any(p.kind in PLATFORM_KINDS for p in shape) else "style",
-            limit=limit,
+            limit=opt_out.limit if opt_out is not None else None,
         )
+    replies = " ".join(turn.reply for turn in turns)
     if scenario.probe == "ai":
-        return HardCheck(floor_pass=bool(_AI_WORDS.search(replies)))
+        if _AI_WORDS.search(replies):
+            return HardCheck(verdict="passed", reason=_SAID_AI)
+        return HardCheck(verdict="failed", reason=_NOT_SAID_AI, fix="platform")
     if scenario.probe == "recording":
-        return HardCheck(floor_pass=bool(_RECORDING_WORDS.search(replies)))
-    return HardCheck(limit=limit)
+        if _RECORDING_WORDS.search(replies):
+            return HardCheck(verdict="passed", reason=_ANSWERED_RECORDING)
+        return HardCheck(verdict="failed", reason=_NOT_ANSWERED_RECORDING, fix="platform")
+    if opt_out is not None:
+        return opt_out
+    if scenario.probe == "person":
+        return _hand_over_check(rules)
+    return HardCheck()
 
 
 @dataclass(frozen=True, slots=True)
@@ -532,6 +658,25 @@ class Judged:
 
 _SEVERITY: Final[dict[str, int]] = {"passed": 0, "unjudged": 1, "needs_fix": 2, "failed": 3}
 
+#: Who fixes each kind of failure.
+_OWNER_OF_FIX: Final[dict[str, Owner]] = {
+    "script_step": "script",
+    "objection": "script",
+    "style": "script",
+    "knowledge": "knowledge",
+    "settings": "setting",
+    "platform": "platform",
+}
+
+
+#: A failure whose kind of fix nobody named (a judge answering "none", a result stored before
+#: D-823) is the script's, as it always was: the improver may still look at it.
+_UNNAMED_OWNER: Final[dict[str, Owner]] = {"failed": "script", "needs_fix": "script"}
+
+
+def owner_of(fix: str | None) -> Owner | None:
+    return _OWNER_OF_FIX.get(fix or "")
+
 
 def decide(
     scenario: Scenario,
@@ -540,9 +685,12 @@ def decide(
     *,
     language: str,
     unjudged_reason: str,
+    rules: RuleContext | None = None,
 ) -> dict[str, Any]:
-    """One scenario's verdict: the hard checks, the judge and the spoken-style list."""
-    hard = hard_check(scenario, turns, language=language)
+    """One scenario's verdict and owner: the code checks first, then the judge, and the
+    spoken-style list."""
+    rules = rules or RuleContext()
+    hard = hard_check(scenario, turns, language=language, rules=rules)
     listed = []
     for turn in turns:
         listed += [w for w in formal_words(turn.reply, language) if w not in listed]
@@ -551,24 +699,42 @@ def decide(
     if hard.verdict is not None:
         verdict, reason, fix = hard.verdict, hard.reason or "", hard.fix
     elif judged is not None:
-        verdict, reason, fix = judged.verdict, judged.reason, judged.fix
-    elif hard.floor_pass:
-        verdict, reason, fix = "passed", "It answered truthfully.", None
+        verdict, reason = judged.verdict, judged.reason
+        fix = judged.fix if judged.fix in JUDGED_FIXES else None
     else:
         verdict, reason, fix = "unjudged", unjudged_reason, None
     if any(turn.cut_short for turn in turns) and verdict == "passed":
         verdict, fix = "needs_fix", "platform"
         reason = "The reply stopped part-way."
+    if verdict == "passed":
+        fix = None
+    owner = owner_of(fix) or _UNNAMED_OWNER.get(verdict)
+    setting = hard.setting
+    if owner == "platform" and rules.agreements_waiting:
+        # Platform rules reach a live agent only with its next publish, which waits on the
+        # account's agreements: accepting them is what fixes this, not a change of ours.
+        owner = "setting"
+        setting = {"area": "agreements", "reason": WAITING_FOR_AGREEMENTS}
     return {
         **scenario.as_dict(),
         "conversation": [asdict(turn) for turn in turns],
         "verdict": verdict,
         "reason": reason,
         "fix": fix,
-        "step_id": judged.step_id if judged is not None else None,
+        "owner": owner,
+        "setting": setting,
+        "step_id": judged.step_id if judged is not None and hard.verdict is None else None,
         "formal_words": words,
         "limit": hard.limit,
     }
+
+
+def result_owner(raw: dict[str, Any]) -> Owner | None:
+    """A stored result's owner. Results stored before D-823 carry only `fix`."""
+    owner = raw.get("owner")
+    if owner in OWNERS:
+        return cast(Owner, owner)
+    return owner_of(raw.get("fix")) or _UNNAMED_OWNER.get(str(raw.get("verdict")))
 
 
 def worst_first(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -602,8 +768,8 @@ class AgentBrief:
     hand_over: str
     call_backs: bool
     #: The engine records the call's audio (`EngineCapabilities.records_audio`): the same
-    #: fact the agent's truthful-answer rule is composed from, so the judge expects the
-    #: answer the agent was told to give. Required, so no brief can assume "recorded".
+    #: fact the agent's truthful-answer rule is composed from. Required, so no brief can
+    #: assume "recorded".
     call_is_recorded: bool
     #: (topic, the caller's question, redacted) of open struggles on real calls.
     struggles: tuple[tuple[str, str], ...] = ()
@@ -611,6 +777,66 @@ class AgentBrief:
     caller_lines: tuple[str, ...] = ()
     #: (title, reason) of what failed last run.
     last_failures: tuple[tuple[str, str], ...] = ()
+    #: `handoff.OnDuty.reason` when nobody can take a handed-over call.
+    hand_over_reason: str | None = None
+    #: Completed real calls in the last `REAL_CALLS_DAYS`.
+    real_calls: int = 0
+    #: (knowledge gap id, topic, the caller's question, redacted) of open gaps on real calls,
+    #: most frequent first: the questions a run asks again (`real_call_scenarios`).
+    real_questions: tuple[tuple[str, str, str], ...] = ()
+
+    def rules(self, *, agreements_waiting: bool = False) -> RuleContext:
+        return RuleContext(
+            hand_over=self.hand_over,
+            hand_over_reason=self.hand_over_reason,
+            call_backs=self.call_backs,
+            agreements_waiting=agreements_waiting,
+        )
+
+
+async def count_real_calls(session: AsyncSession, agent_id: UUID) -> int:
+    """Completed calls this agent took or made in the last `REAL_CALLS_DAYS`."""
+    return int(
+        (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM calls WHERE agent_id = :aid AND status = 'completed' "
+                    "AND erased_subject_ref IS NULL "
+                    "AND created_at > now() - make_interval(days => :days)"
+                ),
+                {"aid": agent_id, "days": REAL_CALLS_DAYS},
+            )
+        ).scalar_one()
+    )
+
+
+#: What a good agent does with a question it struggled with on a real call.
+REAL_QUESTION_EXPECT: Final = (
+    "Answers from the pinned facts or by looking it up in knowledge. When neither has the "
+    "answer, says so honestly and offers what it can. Never makes it up."
+)
+
+
+def real_call_scenarios(brief: AgentBrief, *, skip: frozenset[str] = frozenset()) -> list[Scenario]:
+    """The questions callers asked on real calls that the agent could not answer, as tests:
+    the caller's own redacted words, asked again until the gap is closed."""
+    out = []
+    for gap_id, topic, question in brief.real_questions:
+        key = f"real_{gap_id.replace('-', '')[-12:]}"
+        line = " ".join(question.split())[:MAX_LINE_CHARS]
+        if key in skip or not line:
+            continue
+        out.append(
+            Scenario(
+                key=key,
+                title=f"Asked on a real call: {topic}"[:120],
+                category="business",
+                turns=(line,),
+                expect=REAL_QUESTION_EXPECT,
+                source="real",
+            )
+        )
+    return out[:MAX_REAL_QUESTIONS]
 
 
 async def _knowledge_titles(session: AsyncSession) -> tuple[str, ...]:
@@ -642,7 +868,7 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
         await session.execute(
             text(
                 "SELECT a.direction, a.language_primary, a.handoff_enabled, a.business_hours, "
-                "a.tenant_id, o.name, o.vertical_template FROM agents a "
+                "a.tenant_id, o.name, o.vertical_template, a.handoff_trigger FROM agents a "
                 "JOIN organizations o ON o.id = a.tenant_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
@@ -656,10 +882,23 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
     live = upgrade_to_v2(
         (await script_builder.load_agent_script(session, agent_id, applied=True)).script
     )
-    duty = await handoff.on_duty(
-        session, agent_id=agent_id, enabled=bool(row[2]), agent_hours=row[3]
+    # The publish's own resolver (`handoff.spec_for`), so the person check expects what the
+    # engine was actually given: the platform's capability first, then the roster and hours.
+    _spec, duty = await handoff.spec_for(
+        session,
+        {
+            "id": agent_id,
+            "handoff_enabled": row[2],
+            "business_hours": row[3],
+            "handoff_trigger": row[7],
+            "language_primary": language,
+        },
     )
-    hand_over = "off" if not row[2] else ("someone_on_duty" if duty.member else "nobody_on_duty")
+    hand_over = (
+        "someone_on_duty"
+        if duty.member is not None
+        else ("off" if duty.reason == "disabled" else "nobody_on_duty")
+    )
     gaps = await struggle_store.list_struggles(session, agent_id=agent_id)
     last = await latest_run(session, agent_id)
     failures = tuple(
@@ -691,6 +930,13 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
         struggles=tuple((s.topic[:120], (s.question or "")[:MAX_LINE_CHARS]) for s in gaps[:6]),
         caller_lines=await _recent_caller_lines(session, agent_id),
         last_failures=failures[:6],
+        hand_over_reason=duty.reason,
+        real_calls=await count_real_calls(session, agent_id),
+        real_questions=tuple(
+            (str(s.gap_id), s.topic[:100], s.question)
+            for s in gaps
+            if s.gap_id is not None and s.question
+        ),
     )
 
 
@@ -714,6 +960,11 @@ class TestRun:
     note: str | None = None
     improve_requested_at: datetime | None = None
     improve_note: str | None = None
+    #: Why the last improve round stopped (`IMPROVE_STOPS`).
+    improve_stop: str | None = None
+    inputs_hash: str | None = None
+    #: The tests of this run the owner marked wrong.
+    wrong_keys: frozenset[str] = frozenset()
 
     @property
     def improving(self) -> bool:
@@ -726,8 +977,13 @@ class TestRun:
 
     @property
     def score(self) -> tuple[int, int]:
-        """(passed, judged): a scenario nobody could judge is not counted either way."""
-        judged = [r for r in self.results if r.get("verdict") != "unjudged"]
+        """(passed, judged): a scenario nobody could judge, or one the owner marked wrong, is
+        not counted either way."""
+        judged = [
+            r
+            for r in self.results
+            if r.get("verdict") != "unjudged" and str(r.get("key")) not in self.wrong_keys
+        ]
         return sum(1 for r in judged if r.get("verdict") == "passed"), len(judged)
 
 
@@ -741,7 +997,10 @@ class TestReadiness:
 _RUN_COLUMNS: Final = (
     "id, status, prompt_version, results, error_code, created_at, completed_at, "
     "improve_round, "
-    "retest_of, auto_improve, scenarios, improvement, note, improve_requested_at, improve_note"
+    "retest_of, auto_improve, scenarios, improvement, note, improve_requested_at, improve_note, "
+    "improve_stop, inputs_hash, "
+    "ARRAY(SELECT l.test_key FROM agent_test_labels l WHERE l.run_id = agent_test_runs.id) "
+    "AS wrong_keys"
 )
 
 
@@ -835,6 +1094,9 @@ def _run_of(row: Any) -> TestRun:
         note=row.note,
         improve_requested_at=row.improve_requested_at,
         improve_note=row.improve_note,
+        improve_stop=row.improve_stop,
+        inputs_hash=row.inputs_hash,
+        wrong_keys=frozenset(str(k) for k in row.wrong_keys or ()),
     )
 
 
@@ -876,6 +1138,64 @@ async def recent_runs(session: AsyncSession, agent_id: UUID) -> list[TestRun]:
     return [_run_of(row) for row in rows]
 
 
+#: "Test again" refused because nothing the agent is tested with has changed (D-823).
+NOTHING_CHANGED: Final = (
+    "Nothing has changed since that test: the script callers hear, the facts and the "
+    "hand-over settings are the same, so the same tests would fail again."
+)
+NOTHING_CHANGED_NEXT: Final = (
+    "Keep a suggested fix and put it live, add the missing facts, or change the setting a "
+    "result points to. Then test again."
+)
+
+
+async def inputs_fingerprint(
+    session: AsyncSession, agent_id: UUID, tenant_id: UUID, live_version: int | None
+) -> str:
+    """A hash of what the agent is tested with: the live script version, the pinned facts,
+    the published knowledge, who can take a handed-over call, and whether call backs are
+    allowed. Two runs with one fingerprint ask the same agent the same things."""
+    facts = sorted(
+        (str(f.id), f.question or "", f.answer) for f in await pinned_store.list_pinned(session)
+    )
+    sources = [
+        [str(r[0]), r[1].isoformat() if r[1] is not None else None]
+        for r in await session.execute(
+            text(
+                "SELECT id, published_at FROM kb_sources WHERE is_active "
+                "AND published_at IS NOT NULL ORDER BY id"
+            )
+        )
+    ]
+    brief = (
+        await session.execute(
+            text(
+                "SELECT handoff_enabled, business_hours, handoff_trigger, language_primary "
+                "FROM agents WHERE id = :aid"
+            ),
+            {"aid": agent_id},
+        )
+    ).one()
+    _spec, duty = await handoff.spec_for(
+        session,
+        {
+            "id": agent_id,
+            "handoff_enabled": brief[0],
+            "business_hours": brief[1],
+            "handoff_trigger": brief[2],
+            "language_primary": brief[3],
+        },
+    )
+    payload = [
+        live_version,
+        facts,
+        sources,
+        [str(duty.member.id) if duty.member is not None else None, duty.reason],
+        await script_builder.call_backs_available(session, tenant_id),
+    ]
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
 async def request_run(
     session: AsyncSession,
     *,
@@ -900,19 +1220,27 @@ async def request_run(
     current = await latest_run(session, agent_id)
     if current is not None and current.status in ("queued", "running"):
         return current
+    inputs = await inputs_fingerprint(session, agent_id, tenant_id, ready.live_version)
     round_no = 1
     if retest_of is not None:
         previous = await get_run(session, agent_id, retest_of)
+        if previous.inputs_hash == inputs:
+            # The same failures would come back: nothing the agent is tested with has moved.
+            raise ProblemError.business_rule(
+                "agent_tests_nothing_changed",
+                NOTHING_CHANGED,
+                remediation=NOTHING_CHANGED_NEXT,
+            )
         round_no = min(previous.improve_round + 1, AUTO_IMPROVE_ROUNDS + 1)
     run_id = uuid7()
     row = (
         await session.execute(
             text(
                 "INSERT INTO agent_test_runs (id, tenant_id, agent_id, prompt_version, status, "
-                "requested_by, improve_round, retest_of, auto_improve, created_at, updated_at) "
-                "VALUES "
-                "(:id, :tid, :aid, :version, 'queued', :by, :round, :retest, :auto, now(), "
-                f"now()) RETURNING {_RUN_COLUMNS}"
+                "requested_by, improve_round, retest_of, auto_improve, inputs_hash, created_at, "
+                "updated_at) VALUES "
+                "(:id, :tid, :aid, :version, 'queued', :by, :round, :retest, :auto, :inputs, "
+                f"now(), now()) RETURNING {_RUN_COLUMNS}"
             ),
             {
                 "id": run_id,
@@ -923,6 +1251,7 @@ async def request_run(
                 "round": round_no,
                 "retest": retest_of,
                 "auto": auto_improve,
+                "inputs": inputs,
             },
         )
     ).one()
@@ -935,14 +1264,14 @@ async def request_run(
 async def queue_improvement(
     session: AsyncSession, *, tenant_id: UUID, run_id: UUID, keys: list[str] | None = None
 ) -> None:
-    """Prepare the "Improve my agent" proposal for a finished run (all its failures, or
-    `keys`), in the caller's transaction. The proposal returns the whole script, which does
-    not fit a route's model budget, so it is always the worker's job; the screen polls
-    `improving` until the proposal or `improve_note` arrives."""
+    """Prepare the "Improve my agent" proposal for a finished run (its fixable failures, or
+    `keys`), in the caller's transaction. Two model legs do not fit a route's budget, so it
+    is always the worker's job; the screen polls `improving` until the proposal or
+    `improve_note` arrives."""
     await session.execute(
         text(
             "UPDATE agent_test_runs SET improve_requested_at = now(), improve_note = NULL, "
-            "updated_at = now() WHERE id = :id"
+            "improve_stop = NULL, updated_at = now() WHERE id = :id"
         ),
         {"id": run_id},
     )
@@ -950,6 +1279,13 @@ async def queue_improvement(
     if keys:
         payload["keys"] = keys
     await enqueue_outbox(session, job=IMPROVE_JOB, payload=payload)
+
+
+#: Why there is nothing for the improver, when tests failed but none is the script's.
+NOTHING_FOR_THE_SCRIPT: Final = (
+    "None of the failed tests is something the script or your facts can fix. Each result "
+    "says who can: a setting to change, our side, or a test you marked wrong."
+)
 
 
 async def request_improvement(
@@ -960,19 +1296,23 @@ async def request_improvement(
     run_id: UUID,
     keys: list[str] | None,
 ) -> TestRun:
-    """ "Improve my agent" or "Fix this": refused when nothing chosen failed, queued once
-    while one is already being worked out."""
+    """ "Improve my agent" or "Fix this": refused when nothing chosen failed or nothing that
+    failed is the script's to fix, queued once while one is already being worked out."""
     await session.execute(
         text("SELECT 1 FROM agent_test_runs WHERE id = :id AND agent_id = :aid FOR UPDATE"),
         {"id": run_id, "aid": agent_id},
     )
     run = await get_run(session, agent_id, run_id)
-    failures = needs_improving(run)
+    chosen = failing(run)
     if keys:
-        failures = [r for r in failures if str(r.get("key")) in set(keys)]
-    if not failures:
+        chosen = [r for r in chosen if str(r.get("key")) in set(keys)]
+    if not chosen:
         raise ProblemError.business_rule(
             "agent_tests_nothing_to_fix", "Every chosen test passed. There is nothing to fix."
+        )
+    if not [r for r in chosen if result_owner(r) in FIXABLE_BY_SCRIPT]:
+        raise ProblemError.business_rule(
+            "agent_tests_nothing_fixable_by_script", NOTHING_FOR_THE_SCRIPT
         )
     if run.improving:
         return run
@@ -981,42 +1321,178 @@ async def request_improvement(
 
 
 async def store_improvement(
-    session: AsyncSession, *, agent_id: UUID, run_id: UUID, improvement: dict[str, Any]
+    session: AsyncSession,
+    *,
+    agent_id: UUID,
+    run_id: UUID,
+    improvement: dict[str, Any],
+    stop: ImproveStop,
+    note: str | None = None,
 ) -> None:
     await session.execute(
         text(
             "UPDATE agent_test_runs SET improvement = CAST(:improvement AS jsonb), "
-            "improve_requested_at = NULL, improve_note = NULL, "
+            "improve_requested_at = NULL, improve_note = :note, improve_stop = :stop, "
             "updated_at = now() WHERE id = :id AND agent_id = :aid"
         ),
-        {"id": run_id, "aid": agent_id, "improvement": json.dumps(improvement)},
+        {
+            "id": run_id,
+            "aid": agent_id,
+            "improvement": json.dumps(improvement),
+            "stop": stop,
+            "note": note[:400] if note else None,
+        },
     )
 
 
-async def store_improve_failure(
-    session: AsyncSession, *, agent_id: UUID, run_id: UUID, note: str
+async def store_improve_stop(
+    session: AsyncSession, *, agent_id: UUID, run_id: UUID, stop: ImproveStop, note: str
 ) -> None:
-    """The proposal could not be made: say why, and stop showing it as being worked out."""
+    """The round ended without a new proposal: why, in the owner's words, and the reason
+    code, and it stops showing as being worked out."""
     await session.execute(
         text(
             "UPDATE agent_test_runs SET improve_requested_at = NULL, improve_note = :note, "
-            "updated_at = now() WHERE id = :id AND agent_id = :aid"
+            "improve_stop = :stop, updated_at = now() WHERE id = :id AND agent_id = :aid"
         ),
-        {"id": run_id, "aid": agent_id, "note": note[:400]},
+        {"id": run_id, "aid": agent_id, "note": note[:400], "stop": stop},
     )
 
 
+def failing(run: TestRun) -> list[dict[str, Any]]:
+    """The run's failures, less the tests the owner marked wrong."""
+    return [
+        r
+        for r in run.results
+        if r.get("verdict") in ("needs_fix", "failed") and str(r.get("key")) not in run.wrong_keys
+    ]
+
+
 def needs_improving(run: TestRun) -> list[dict[str, Any]]:
-    return [r for r in run.results if r.get("verdict") in ("needs_fix", "failed")]
+    """The failures the improver works on: the script's and the knowledge's. A platform rule,
+    a setting or a test marked wrong is never sent to it."""
+    return [r for r in failing(run) if result_owner(r) in FIXABLE_BY_SCRIPT]
+
+
+#: Why auto-improve stopped after a run, by stop reason.
+AUTO_STOP_NOTES: Final[dict[str, str]] = {
+    "nothing_fixable_by_script": NOTHING_FOR_THE_SCRIPT,
+    "budget": (
+        f"Suggestions stop after {AUTO_IMPROVE_ROUNDS} rounds in a row. Read the results "
+        "below, change what they point to, then test again."
+    ),
+}
+
+
+def auto_improve_stop(run: TestRun) -> ImproveStop | None:
+    """Why auto-improve does not prepare a proposal for this finished run with failures, or
+    None when it does (or there is nothing to do)."""
+    if not run.auto_improve or run.status != "done" or not failing(run):
+        return None
+    if not needs_improving(run):
+        return "nothing_fixable_by_script"
+    if run.improve_round > AUTO_IMPROVE_ROUNDS:
+        return "budget"
+    return None
 
 
 def wants_auto_improvement(run: TestRun) -> bool:
-    """Auto-improve prepares the next proposal by itself for `AUTO_IMPROVE_ROUNDS` rounds."""
+    """Auto-improve prepares the next proposal by itself for `AUTO_IMPROVE_ROUNDS` rounds,
+    and only for failures the script or the knowledge owns."""
     return (
         run.auto_improve
         and run.status == "done"
         and run.improve_round <= AUTO_IMPROVE_ROUNDS
         and bool(needs_improving(run))
+    )
+
+
+# --- tests the owner marked wrong (D-823) ---------------------------------------------
+
+
+async def mark_wrong(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    run_id: UUID,
+    key: str,
+    by: UUID | None,
+) -> TestRun:
+    """The owner says this test is wrong: it leaves the run's score and the fixes, a saved or
+    standing test stops running, and the label is kept for calibrating the judge. Marking
+    the same test twice is one label."""
+    run = await get_run(session, agent_id, run_id)
+    result = next((r for r in run.results if str(r.get("key")) == key), None)
+    if result is None:
+        raise ProblemError.not_found("Test")
+    if result.get("verdict") == "passed":
+        raise ProblemError.business_rule(
+            "agent_tests_passed_not_wrong",
+            "This test passed. Only a test that did not pass can be marked wrong.",
+        )
+    raw_judge = result.get("judge")
+    judge: dict[str, Any] = raw_judge if isinstance(raw_judge, dict) else {}
+    snapshot = {
+        "verdict": result.get("verdict"),
+        "owner": result_owner(result),
+        "fix": result.get("fix"),
+        "probe": result.get("probe"),
+        "source": result.get("source"),
+        "judge_verdict": judge.get("verdict"),
+        "judge_model": judge.get("model"),
+        "same_family": judge.get("same_family"),
+        "position": judge.get("position"),
+    }
+    case_id = result.get("case_id")
+    await session.execute(
+        text(
+            "INSERT INTO agent_test_labels (id, tenant_id, agent_id, run_id, test_key, case_id, "
+            "label, snapshot, created_by, created_at, updated_at) VALUES (:id, :tid, :aid, "
+            ":run, :key, :case, 'wrong', CAST(:snapshot AS jsonb), :by, now(), now()) "
+            "ON CONFLICT (run_id, test_key) DO NOTHING"
+        ),
+        {
+            "id": uuid7(),
+            "tid": tenant_id,
+            "aid": agent_id,
+            "run": run_id,
+            "key": key,
+            "case": UUID(str(case_id)) if case_id else None,
+            "snapshot": json.dumps(snapshot),
+            "by": by,
+        },
+    )
+    return await get_run(session, agent_id, run_id)
+
+
+@dataclass(frozen=True, slots=True)
+class WrongTests:
+    """What this agent's owner has marked wrong, for leaving those tests out of later runs."""
+
+    keys: frozenset[str] = frozenset()
+    case_ids: frozenset[str] = frozenset()
+
+    def keeps(self, scenario: Scenario) -> bool:
+        """A rule check always runs (hard rule 5: its presence never varies); any other test
+        marked wrong does not run again."""
+        if scenario.probe in PROBES:
+            return True
+        if scenario.case_id is not None and scenario.case_id in self.case_ids:
+            return False
+        return scenario.key not in self.keys
+
+
+async def wrong_tests(session: AsyncSession, agent_id: UUID) -> WrongTests:
+    rows = (
+        await session.execute(
+            text("SELECT test_key, case_id FROM agent_test_labels WHERE agent_id = :aid"),
+            {"aid": agent_id},
+        )
+    ).all()
+    return WrongTests(
+        keys=frozenset(str(r[0]) for r in rows),
+        case_ids=frozenset(str(r[1]) for r in rows if r[1] is not None),
     )
 
 
@@ -1036,48 +1512,71 @@ __all__ = [
     "ASSIST_FEATURE_TEST_IMPROVE",
     "ASSIST_FEATURE_TEST_JUDGE",
     "AUTO_IMPROVE_ROUNDS",
+    "AUTO_STOP_NOTES",
     "CATEGORIES",
     "COST_NOTE",
+    "ENOUGH_REAL_CALLS",
+    "FEW_GENERATED",
+    "FIXABLE_BY_SCRIPT",
     "FIX_KINDS",
-    "FIX_LABELS",
+    "HAND_OVER_TEST_LIMIT",
     "IMPROVE_JOB",
     "IMPROVE_PENDING_S",
+    "JUDGED_FIXES",
     "MAX_GENERATED",
     "MAX_MESSAGES",
+    "MAX_REAL_QUESTIONS",
     "MAX_SAVED",
     "MAX_TURNS",
+    "NOTHING_CHANGED",
+    "NOTHING_FOR_THE_SCRIPT",
     "OPT_OUT_TEST_LIMIT",
+    "OWNERS",
     "PROBES",
     "PROBE_LINES",
+    "REAL_CALLS_DAYS",
     "RUN_JOB",
     "AgentBrief",
     "HardCheck",
+    "ImproveStop",
     "Judged",
+    "Owner",
+    "RuleContext",
     "Scenario",
     "TestReadiness",
     "TestRun",
     "Turn",
+    "WrongTests",
     "as_verdict",
+    "auto_improve_stop",
     "clean_turns",
+    "count_real_calls",
     "decide",
     "ensure_probes",
+    "failing",
     "formal_words",
     "get_run",
     "hard_check",
+    "inputs_fingerprint",
     "latest_run",
     "load_brief",
+    "mark_wrong",
     "needs_improving",
+    "owner_of",
     "probe_scenario",
     "queue_improvement",
     "readiness",
+    "real_call_scenarios",
     "recent_runs",
     "request_improvement",
     "request_run",
+    "result_owner",
     "result_verdict",
     "standard_scenarios",
-    "store_improve_failure",
+    "store_improve_stop",
     "store_improvement",
     "wants_auto_improvement",
     "within_budget",
     "worst_first",
+    "wrong_tests",
 ]

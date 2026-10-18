@@ -233,6 +233,11 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # A ThinnestAI agent config that did not state `byok` was refused before it was sent:
     # left unstated it would follow a switched-on workspace onto our voice key.
     "engine_agent_byok_unstated": "attention",
+    # An agent's test failed a rule the platform owns (D-823): one agent, one run, and the
+    # owner was told we are fixing it, so somebody looks today.
+    "agent_test_platform_rule_failed": "attention",
+    # The "Improve my agent" job crashed; the owner was told it is on our side.
+    "agent_test_improve_crashed": "attention",
     # ThinnestAI (D-678). A paged list stopped short, so a publish was refused rather than
     # risk a second live agent, or a knowledge read could not be completed. Retryable and
     # nobody's line is down.

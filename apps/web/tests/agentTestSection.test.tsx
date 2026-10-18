@@ -118,7 +118,7 @@ describe("the Test section", () => {
     expect(screen.getByText("Used its step that removes a number")).toBeTruthy();
     // One plain line, then what to do; what a test cannot show is behind the ⓘ.
     expect(screen.getByText("The caller spoke Telugu and it answered in English.")).toBeTruthy();
-    expect(screen.getByText(/What to do: Ours to fix, not yours/)).toBeTruthy();
+    expect(screen.getByText(/What to do: We're fixing this/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /About what a test cannot show/i })).toBeTruthy();
     expect(screen.queryByText(/Fix on our side: contact us/)).toBeNull();
     expect(screen.getByText(/Your agreements are waiting/)).toBeTruthy();
@@ -155,7 +155,10 @@ describe("the Test section", () => {
   it("shows the fixes being worked out", async () => {
     await renderClientPage(<TestSection agent={AGENT} slug="acme" />, {
       "/v1/me": ME,
-      "/v1/agents/agent-1/script/tests": tests({ improving: true }),
+      "/v1/agents/agent-1/script/tests": tests({
+        improving: true,
+        results: [STOP, result({ key: "g1", title: "Asks the price", verdict: "failed", fix: "knowledge" })],
+      }),
       "/v1/agents/agent-1/test-cases": SAVED,
     });
     expect(await screen.findByText(/Working out fixes for 1 test/)).toBeTruthy();
@@ -171,7 +174,40 @@ describe("the Test section", () => {
     });
     expect(await screen.findByText(/allowance is used up/)).toBeTruthy();
   });
+
+  it("routes each failure to who can fix it, and lets the owner mark a test wrong (D-823)", async () => {
+    const PERSON = result({
+      key: "probe_person",
+      title: "Asks to speak to a person",
+      probe: "person",
+      verdict: "unjudged",
+      reason: "Hand-over to a person is switched off for this agent.",
+      fix: "settings",
+      owner: "setting",
+      setting: { area: "handover", reason: "Hand-over to a person is switched off for this agent." },
+    });
+    const PRICE = result({ key: "g1", title: "Asks the price", verdict: "failed", reason: "It made up a price.", fix: "knowledge", owner: "knowledge" });
+    const { calls } = await renderClientPage(<TestSection agent={AGENT} slug="acme" />, {
+      "/v1/me": ME,
+      "/v1/agents/agent-1/script/tests": tests({ results: [STOP, PRICE, PERSON] }),
+      "POST /v1/agents/agent-1/script/tests/run-2/results/g1/wrong": tests({
+        results: [STOP, { ...PRICE, owner: "test", marked_wrong: true }, PERSON],
+      }),
+      "/v1/agents/agent-1/test-cases": SAVED,
+    });
+    await screen.findByText("Asks the price");
+    // Only the knowledge failure is Pip's to fix; ours says so, without "contact us".
+    expect(screen.getByText(/1 test can be fixed in the script or your facts/)).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Let Pip suggest a fix" })).toHaveLength(1);
+    expect(screen.queryByText(/contact us/i)).toBeNull();
+    // A setting's result links to the setting.
+    expect(screen.getByRole("link", { name: "Open call handling" }).getAttribute("href")).toContain("section=calls");
+    fireEvent.click(screen.getAllByRole("button", { name: "This test is wrong" })[1]);
+    await screen.findByText("Marked wrong (1)");
+    expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/results/g1/wrong"))).toBe(true);
+  });
 });
+
 
 describe("test copy", () => {
   it("names a line's language from its letters", () => {

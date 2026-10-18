@@ -3826,6 +3826,50 @@
         "title": "AlertReport",
         "type": "object"
       },
+      "ApplyEditsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "edits": {
+            "items": {
+              "maxLength": 8,
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Edits",
+            "type": "array"
+          },
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          }
+        },
+        "required": [
+          "script",
+          "edits"
+        ],
+        "title": "ApplyEditsIn",
+        "type": "object"
+      },
+      "ApplyEditsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          },
+          "skipped": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped",
+            "type": "array"
+          }
+        },
+        "required": [
+          "script",
+          "skipped"
+        ],
+        "title": "ApplyEditsOut",
+        "type": "object"
+      },
       "ApplyIn": {
         "additionalProperties": false,
         "description": "`expected_version` is the CAS token (BACKEND-PATTERNS \u00a75): the staged version\nthe operator actually looked at. Optional, because a caller with no screen has\nnothing to be stale about \u2014 but a UI that omits it is choosing last-write-wins.",
@@ -20033,7 +20077,7 @@
       },
       "ImprovementOut": {
         "additionalProperties": false,
-        "description": "The \"Improve my agent\" proposal, reviewed change by change, never applied by itself.",
+        "description": "The \"Improve my agent\" proposal: small edits and facts, each kept or left on its own,\nnever applied by itself. Kept edits are applied to the working copy by\n`POST .../tests/{run_id}/improvement/apply`.",
         "properties": {
           "base": {
             "enum": [
@@ -20042,16 +20086,6 @@
             ],
             "title": "Base",
             "type": "string"
-          },
-          "base_script": {
-            "$ref": "#/components/schemas/CallScript"
-          },
-          "changes": {
-            "items": {
-              "$ref": "#/components/schemas/ProposedChangeOut"
-            },
-            "title": "Changes",
-            "type": "array"
           },
           "created_at": {
             "format": "date-time",
@@ -20069,6 +20103,18 @@
             ],
             "title": "Disclosure"
           },
+          "dropped": {
+            "default": 0,
+            "title": "Dropped",
+            "type": "integer"
+          },
+          "edits": {
+            "items": {
+              "$ref": "#/components/schemas/ScriptEditOut"
+            },
+            "title": "Edits",
+            "type": "array"
+          },
           "facts": {
             "items": {
               "$ref": "#/components/schemas/ProposedFactOut"
@@ -20082,16 +20128,11 @@
             },
             "title": "For Keys",
             "type": "array"
-          },
-          "script": {
-            "$ref": "#/components/schemas/CallScript"
           }
         },
         "required": [
-          "script",
-          "base_script",
           "base",
-          "changes",
+          "edits",
           "facts",
           "for_keys",
           "disclosure",
@@ -30636,37 +30677,6 @@
         "title": "ProposalsOut",
         "type": "object"
       },
-      "ProposedChangeOut": {
-        "additionalProperties": false,
-        "properties": {
-          "because": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Because"
-          },
-          "target": {
-            "title": "Target",
-            "type": "string"
-          },
-          "why": {
-            "title": "Why",
-            "type": "string"
-          }
-        },
-        "required": [
-          "target",
-          "because",
-          "why"
-        ],
-        "title": "ProposedChangeOut",
-        "type": "object"
-      },
       "ProposedFactOut": {
         "additionalProperties": false,
         "properties": {
@@ -34633,6 +34643,64 @@
           "limits"
         ],
         "title": "ScriptContextOut",
+        "type": "object"
+      },
+      "ScriptEditOut": {
+        "additionalProperties": false,
+        "description": "One suggested edit, kept or left with its own tick box (D-823).",
+        "properties": {
+          "after": {
+            "title": "After",
+            "type": "string"
+          },
+          "because": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Because"
+          },
+          "before": {
+            "title": "Before",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "op": {
+            "enum": [
+              "set_step",
+              "add_step",
+              "set_objection",
+              "set_part"
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "op",
+          "label",
+          "before",
+          "after",
+          "because",
+          "why"
+        ],
+        "title": "ScriptEditOut",
         "type": "object"
       },
       "ScriptLimitsOut": {
@@ -40057,6 +40125,29 @@
             ],
             "title": "Limit"
           },
+          "marked_wrong": {
+            "default": false,
+            "title": "Marked Wrong",
+            "type": "boolean"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "enum": [
+                  "script",
+                  "knowledge",
+                  "setting",
+                  "platform",
+                  "test"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
           "probe": {
             "anyOf": [
               {
@@ -40071,6 +40162,16 @@
           "reason": {
             "title": "Reason",
             "type": "string"
+          },
+          "setting": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TestSettingOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "source": {
             "title": "Source",
@@ -40166,6 +40267,24 @@
               }
             ],
             "title": "Improve Note"
+          },
+          "improve_stop": {
+            "anyOf": [
+              {
+                "enum": [
+                  "completed",
+                  "no_change",
+                  "nothing_fixable_by_script",
+                  "budget",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Improve Stop"
           },
           "improvement": {
             "anyOf": [
@@ -40285,6 +40404,29 @@
           "total"
         ],
         "title": "TestScoreOut",
+        "type": "object"
+      },
+      "TestSettingOut": {
+        "additionalProperties": false,
+        "properties": {
+          "area": {
+            "enum": [
+              "handover",
+              "agreements"
+            ],
+            "title": "Area",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "area",
+          "reason"
+        ],
+        "title": "TestSettingOut",
         "type": "object"
       },
       "TestWebhookIn": {
@@ -56891,6 +57033,128 @@
           }
         },
         "summary": "Run test conversations against the agent callers hear now",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/tests/{run_id}/improvement/apply": {
+      "post": {
+        "description": "The one place a kept edit is applied: the same `script_edits.apply_edit` that built\nthe proposal, onto the copy the owner holds now, so an edit made since is never undone.",
+        "operationId": "apply_suggested_edits_v1_agents__agent_id__script_tests__run_id__improvement_apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyEditsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyEditsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The working script with the kept suggested edits made (nothing is saved)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/tests/{run_id}/results/{key}/wrong": {
+      "post": {
+        "operationId": "mark_test_wrong_v1_agents__agent_id__script_tests__run_id__results__key__wrong_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "maxLength": 120,
+              "minLength": 1,
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestConversationsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Mark a test that did not pass as wrong: out of the score and the fixes",
         "tags": [
           "agents"
         ],
