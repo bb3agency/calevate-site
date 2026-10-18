@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.engine_minutes import (
     ATTESTED_MINUTE_ENGINES,
-    ENGINE_RATE_KEYS,
+    PRICED_RATE_KEYS,
     TOPUP_FEE_PLAN_LABELS,
     EngineMinutePrice,
     attest_engine_minute_price,
@@ -199,7 +199,7 @@ async def list_engine_minute_prices(
     rows: list[EngineMinutePriceOut] = []
     for engine in sorted(ATTESTED_MINUTE_ENGINES):
         attested = await attested_minute_prices(session, engine=engine, at=at)
-        rows.extend(_row(engine, key, attested.get(key)) for key in ENGINE_RATE_KEYS)
+        rows.extend(_row(engine, key, attested.get(key)) for key in PRICED_RATE_KEYS)
     return EngineMinutePricesOut(
         prices=rows,
         topup_fees=[

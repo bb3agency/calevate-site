@@ -1517,7 +1517,6 @@ async def _post_call_stages(
                     snapshot.engine_charged_inr,
                     engine=snapshot.engine,
                     billing=snapshot.billing,
-                    forwarded=snapshot.forwarded,
                 ),
             )
 
@@ -3224,7 +3223,10 @@ async def _engine_minute_cost(
             call_id=call_id,
             seconds=_billable_seconds(snapshot, tenant_id=tenant_id, call_id=call_id),
             at=at,
-            forwarded=snapshot.forwarded,
+            # A forward is carrier-only even on a call whose billing the engine did not
+            # report (a call from before it did).
+            carrier_only=snapshot.forwarded
+            or (snapshot.billing is not None and snapshot.billing.carrier_only),
         )
     if not priced.priced:
         alert(
@@ -3250,10 +3252,15 @@ def _own_model_rows(
     """OUR model's cost on a call that answered on our own key (D-764): the call's tokens
     (`ExecutionSnapshot.llm_usage`, which the engine counts for our own key too) per
     thousand, at the model's billable price. Google bills us directly, so nothing of this is
-    in the engine's minute.
+    in the engine's minute. The call's post-call summary and field extraction are not in
+    these tokens and are not on our key: ThinnestAI runs them on its own light model on its
+    own account (snapshots/2026-10-18/pages/api-reference/calls/get-call.md:1180-1181;
+    ThinnestAI email of 18 Oct 2026, VENDOR-STATED), so no cost of ours is owed for them.
 
     Cached input tokens are priced as ordinary input: no cached-input price is attested, and
-    the dearer figure keeps the margin honest (hard rule 7). A model with no billable price
+    the dearer figure keeps the margin honest (hard rule 7). Whether Google bills a cached
+    token at its cached rate is Google's decision; the engine only passes on the count the
+    provider returned (get-call.md:1201-1207). A model with no billable price
     meters its tokens with no cost and alarms, as an unattested minute does; a call the
     engine counted no tokens for (a missed call, a forward) writes nothing."""
     if usage is None or (usage.input_tokens is None and usage.output_tokens is None):

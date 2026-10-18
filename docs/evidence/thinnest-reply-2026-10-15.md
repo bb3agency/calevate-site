@@ -78,7 +78,7 @@ For a forwarded call with no agent, trust `costMicro`.
   - `billedSeconds` is the vendor's own figure for the second half of that.
   - `keys`/`voicePlan` say whether the route's key was what ran.
   - Hard rule 7 still holds: `unit_cost_paid` comes only from an attested rate. Treat `ratePerMinuteMicro` as a cross-check (alarm on disagreement), not as a price source, unless the founder decides otherwise.
-- **Forwarded calls.** `FORWARDED_RATE_KEY = "standard"` (`engine_minutes.py`) rests on the forwarding page. `billing.voicePlan` on a forwarded call would confirm or refute it per call. Until a forwarded call has been observed, the email's "trust `costMicro`" is the only statement.
+- **Forwarded calls.** `FORWARDED_RATE_KEY = "standard"` (`engine_minutes.py`) rests on the forwarding page. `billing.voicePlan` on a forwarded call would confirm or refute it per call. Until a forwarded call has been observed, the email's "trust `costMicro`" is the only statement. **Superseded 18 Oct 2026 (D-813):** a forward is charged the carrier's fee only, ₹0.38/min in 30-second blocks, its `voicePlan` showing the set-up plan (`snapshots/2026-10-18/pages/api-reference/calls/get-call.md:1236-1243`; ThinnestAI email of 18 Oct 2026, VENDOR-STATED); `FORWARDED_RATE_KEY` is replaced by the attested `carrier` price key.
 - **Tests.** The conformance suite and `FakeEngine` need the new snapshot fields, plus fixtures for `billing: null` (booked call), `voicePlan: null` (own-key flat price) and `billedSeconds: null` (not settled).
 
 ## B. Characters sent to the voice
@@ -302,11 +302,10 @@ These are not part of the reply. They are recorded so that the build lanes do no
 These are from `docs/vendor/thinnest-replies-2026-10-12.md`. The docs do not settle them either.
 
 - **§13 question 1.** The live date of per-agent `byok` scopes.
-- **§13 question 2, and §12.2 question 3.** Whether the summary and extraction run on our own LLM key.
+- **§13 question 2, and §12.2 question 3.** Whether the summary and extraction run on our own LLM key. **Answered 18 Oct 2026:** no; they run on ThinnestAI's own light model on its account, and `usage` excludes them (`snapshots/2026-10-18/pages/api-reference/calls/get-call.md:1180-1181`; email, VENDOR-STATED).
 - **§13 question 3, and §11.8 item 1.** The `byok-model` `409` wording. `set-agent-byok-model.md` changed only in its preamble.
-- **§13 question 4.** The Standard plan's per-minute price. `standard` is now a documented `voicePlan` value, but no price is stated.
-- **§13 questions 5–13.**
+- **§13 question 4.** The Standard plan's per-minute price. `standard` is now a documented `voicePlan` value, but no price is stated. **Answered 18 Oct 2026 (VENDOR-STATED, ThinnestAI email):** Standard ₹2.00/min, Premium ₹2.50, Studio ₹3.00 on pay-as-you-go and Pro; Scale 5% off for that workspace only; no further volume rate. Standard is not offered (founder, D-813).- **§13 questions 5–13.**
 - **§13 questions 14–15.** Place Call `calling_not_set_up` and `callingAgent` surfaces. `place-call.md` changed only in its preamble.
 - **New: the shared-clone id (D).** The same id in both workspaces, or a different one?
-- **New: forwarded calls (A).** Is `billing` null, or does it show `voicePlan: standard`?
-- **New: "free trial call" (A).** Whether it covers calls in our developer workspace that our own free-trial agents place.
+- **New: forwarded calls (A).** Is `billing` null, or does it show `voicePlan: standard`? **Answered 18 Oct 2026:** carrier fee only; `voicePlan` and `ratePerMinuteMicro` show the set-up plan, not what was charged; reconcile by `costMicro` (get-call.md:1236-1243 in the 18 Oct snapshot; email, VENDOR-STATED).
+- **New: "free trial call" (A).** Whether it covers calls in our developer workspace that our own free-trial agents place. **Answered 18 Oct 2026:** no. Only a call paid from a free-plan workspace's trial minutes; our developer workspace is on a paid plan, so its test calls carry plan and rate (get-call.md:1246-1249; email, VENDOR-STATED).

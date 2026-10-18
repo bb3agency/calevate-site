@@ -70,18 +70,21 @@ settled call three ways (`billing_findings`) and names what it finds in
   (`expected_billing`), so the alarm says which stack really ran;
 - the engine's billed seconds against our billed minutes, on the engine's rule: 30-second
   steps at half the per-minute rate each (get-call.md:1266-1275), the pulse the meter bills;
-  a call that ended before the agent spoke is rounded to the carrier's block instead
-  (:1276-1285), and a difference there is named as such;
 - the engine's per-minute rate against the attested one, before the top-up fee.
 
+CARRIER-ONLY CALLS (D-813). A call no agent ran on, one that ended before the agent spoke or
+was forwarded to a phone, is charged the phone carrier's fee only, in 30-second blocks, and
+its `voicePlan` and `ratePerMinuteMicro` still name the plan it was set up on, not what was
+charged (snapshots/2026-10-18/pages/api-reference/calls/get-call.md:1236-1243). The meter
+costs it at the attested `carrier` rate on the carrier's block, so its total reconciles by
+`costMicro` like any call's, and only its seconds are checked on `billing`.
+
 It reconciles and never prices: the engine's rate is evidence, and `unit_cost_paid` stays the
-operator-attested rate (hard rule 7). A call that is not settled (`billed_seconds` None) is
-not checked on `billing`. Nor is a forwarded call: the docs say nothing of `billing` on a call
-no agent answered, and ThinnestAI's email of 15 Oct 2026 says to trust `costMicro` for those
-(VENDOR-STATED, `docs/evidence/thinnest-reply-2026-10-15.md` §A), so only the total is
-compared. The hourly sweep reads the call log, which carries no `billing`
-(`api-reference/calls/list-calls.md`), so it compares totals, and reads Get Call for the
-calls it settles itself to check their billing (`check_late_billing`, bounded per run).
+operator-attested rate (hard rule 7). A call with no charge taken (`billed_seconds` None: not
+settled, or a free trial call, which is only one paid from a free-plan workspace's trial
+minutes, :1246-1249) is not checked on `billing`. The hourly sweep reads the call log, which
+carries no `billing`, so it compares totals, and checks the billing of the calls it settles
+itself from List Calls, or Get Call where the listing has none (`check_late_billing`).
 """
 
 from __future__ import annotations
@@ -95,12 +98,14 @@ from typing import Any, Final, cast
 from uuid import UUID
 
 from calevate_shared.engine import ExecutionSnapshot, VoiceEngine
+from calevate_shared.engine_scope import scope_of
 from calevate_shared.events import CallBilling, CallKeys
 from sqlalchemy import text
 
 from apps.api.billing.engine_minutes import (
     BYOK_LLM_VOICE_RATE_KEY,
     BYOK_VOICE_RATE_KEY,
+    CARRIER_BLOCK_SECONDS,
     OWN_VOICE_RATE_KEYS,
     PULSE_SECONDS,
     TOPUP_FEE_META_KEY,
@@ -268,14 +273,16 @@ def billing_findings(
     - **rate**: the engine's per-minute rate against the attested one, priced on our
       minutes before the top-up fee, so a rate gap is not read as a seconds gap.
 
-    A call that ended before the agent spoke (`carrier_only`) is charged the carrier's fee
-    only and rounded to the carrier's block (get-call.md:1276-1285), so the rate is not
-    compared, and differing seconds are named as the carrier's block against our pulse:
-    the block's length is UNKNOWN (no page states it), so it cannot be allowed for. The
-    rate is not compared when either side is unknown: an unpriced minute (already alarmed)
-    or a rate the engine stated in another currency."""
+    A call no agent ran on (`carrier_only`: it ended before the agent spoke, or was
+    forwarded) is charged the carrier's fee only, by the carrier's 30-second block, and its
+    `voicePlan` and `ratePerMinuteMicro` are the ones it was set up on, not what was charged
+    (snapshots/2026-10-18/pages/api-reference/calls/get-call.md:1236-1243). So neither the
+    scope nor the rate is compared for it, only its seconds against our minutes on the
+    carrier's block; its total is compared by `costMicro` like any call's. The rate is not
+    compared either when one side is unknown: an unpriced minute (already alarmed) or a rate
+    the engine stated in another currency."""
     found: list[str] = []
-    expected = expected_billing(rate_key, own_model=own_model)
+    expected = None if billing.carrier_only else expected_billing(rate_key, own_model=own_model)
     if expected is not None and (billing.keys, billing.voice_plan) != expected:
         keys, plan = expected
         found.append(
@@ -285,21 +292,13 @@ def billing_findings(
         )
     if our_minutes is None:
         return found
-    their_minutes = billed_minutes(Decimal(billed_seconds), pulse_s=PULSE_SECONDS[engine])
+    pulse = CARRIER_BLOCK_SECONDS[engine] if billing.carrier_only else PULSE_SECONDS[engine]
+    their_minutes = billed_minutes(Decimal(billed_seconds), pulse_s=pulse)
     if their_minutes != our_minutes:
+        step = "carrier blocks, the carrier's fee only" if billing.carrier_only else "steps"
         found.append(
-            (
-                f"Seconds, not rate: the call ended before the agent spoke and the voice "
-                f"platform billed the phone carrier's block of {billed_seconds}s for the "
-                f"carrier's fee only, against our {PULSE_SECONDS[engine]}-second pulse of "
-                f"{our_minutes} min."
-            )
-            if billing.carrier_only
-            else (
-                f"Seconds, not rate: the voice platform billed {billed_seconds}s "
-                f"({their_minutes} min in {PULSE_SECONDS[engine]}-second steps) against our "
-                f"{our_minutes} min."
-            )
+            f"Seconds, not rate: the voice platform billed {billed_seconds}s "
+            f"({their_minutes} min in {pulse}-second {step}) against our {our_minutes} min."
         )
     if billing.carrier_only or billing.rate_inr_per_min is None or attested_inr_per_min is None:
         return found
@@ -317,7 +316,6 @@ def billing_findings(
 def checked_billing(
     billing: CallBilling | None,
     *,
-    forwarded: bool,
     engine: str,
     rate_key: str | None,
     own_model: bool,
@@ -325,9 +323,10 @@ def checked_billing(
     attested_inr_per_min: object,
 ) -> list[str] | None:
     """`billing_findings` for a call that can be checked; None for one that cannot: no
-    billing, not settled (`billed_seconds` None), or forwarded (module docstring). The meta
-    figures are passed as read from the minute row."""
-    if billing is None or billing.billed_seconds is None or forwarded:
+    billing, or no charge taken (`billed_seconds` None: not settled, or a free trial call
+    paid from a free-plan workspace's trial minutes). The meta figures are passed as read
+    from the minute row."""
+    if billing is None or billing.billed_seconds is None:
         return None
     return billing_findings(
         billing,
@@ -357,7 +356,6 @@ async def reconcile_call_charge(
     *,
     engine: str,
     billing: CallBilling | None = None,
-    forwarded: bool = False,
 ) -> str:
     """Record one settled call's charge and compare it with what we metered for it.
 
@@ -400,7 +398,6 @@ async def reconcile_call_charge(
         )
     checked = checked_billing(
         billing,
-        forwarded=forwarded,
         engine=engine,
         rate_key=rate_key,
         own_model=bool(own_model),
@@ -764,18 +761,28 @@ async def _forget_mismatches(engine: str) -> None:
 # --- billing of calls this sweep settles -----------------------------------------------------
 #
 # A call the pipeline metered before the engine settled it is settled here from the call log,
-# which carries no `billing`, so its scope and seconds are read from Get Call. The calls wait
-# in a Redis hash keyed by our call id: written only by the one `record_engine_charge` that
-# set the charge (a conditional UPDATE, so once per call), removed once checked, so a call is
-# checked at most once. Redis and not a column: `calls` has no free-form field and
-# `usage_events` is an append-only cost ledger, and the alarm memory above already lives here.
-# A Redis loss drops pending checks, never money: the totals were compared already.
+# which carries no `billing`. Its scope and seconds come from List Calls, one listing per
+# workspace that holds a queued call, whose rows carry the same `billing` as Get Call once
+# ThinnestAI's release of 17 Oct 2026 is live (snapshots/2026-10-18/pages/api-reference/calls/
+# list-calls.md:769-773; whats-new/index.md:20-23). A row without a `billing` key (before
+# that release), or a call the listing does not show, is read from Get Call instead. The
+# calls wait in a Redis hash keyed by our call id: written only by the one
+# `record_engine_charge` that set the charge (a conditional UPDATE, so once per call),
+# removed once checked, so a call is checked at most once. Redis and not a column: `calls`
+# has no free-form field and `usage_events` is an append-only cost ledger, and the alarm
+# memory above already lives here. A Redis loss drops pending checks, never money: the
+# totals were compared already.
 
 _BILLING_PENDING_KEY: Final = "engine_charges:billing_pending:{engine}"
 #: Get Call reads per sweep; the rest wait an hour, so a backlog cannot crowd the vendor.
+#: Calls answered from List Calls do not count against it.
 BILLING_CHECKS_PER_RUN: Final = 20
 #: A call Get Call keeps refusing (not a throttle or an outage) is given up after this many.
 BILLING_CHECK_ATTEMPTS: Final = 3
+#: How far back List Calls is read for the queued calls. List Calls filters on when a call
+#: started and the call log's `from` is a date in the workspace's zone a day early, so a
+#: queued call can have started up to a day before the log's window opened.
+LISTED_BILLING_LOOKBACK: Final = timedelta(days=CHARGE_LOOKBACK_DAYS + 1)
 
 
 async def queue_billing_check(
@@ -823,7 +830,6 @@ async def check_settled_billing(
         ).one()
     found = checked_billing(
         snapshot.billing,
-        forwarded=snapshot.forwarded,
         engine=engine,
         rate_key=rate_key,
         own_model=bool(own_model),
@@ -844,10 +850,36 @@ async def check_settled_billing(
     return "variance"
 
 
-async def check_late_billing(engine: VoiceEngine) -> int:
-    """Read Get Call for up to `BILLING_CHECKS_PER_RUN` queued calls and check each one's
-    billing. Returns how many were checked. No database session is open across a vendor
-    read. A busy vendor stops the run with the rest left queued."""
+async def listed_billing(
+    engine: VoiceEngine, engine_call_ids: set[str], *, since: datetime
+) -> dict[str, ExecutionSnapshot]:
+    """The List Calls rows of `engine_call_ids` that carry a `billing` entry, by call id: one
+    listing per workspace the calls belong to. A workspace whose listing fails is skipped,
+    and its calls are read from Get Call."""
+    rows: dict[str, ExecutionSnapshot] = {}
+    for workspace in sorted({scope_of(call_id) for call_id in engine_call_ids}, key=str):
+        try:
+            with in_workspace(workspace):
+                listing = await engine.list_executions(since=since)
+        except ProblemError as exc:
+            log.warning(
+                "engine_billing_listing_unread",
+                extra={"workspace": workspace or "developer", "code": exc.code},
+            )
+            continue
+        rows.update(
+            (snapshot.engine_call_id, snapshot)
+            for snapshot in listing.snapshots
+            if snapshot.billing_reported and snapshot.engine_call_id in engine_call_ids
+        )
+    return rows
+
+
+async def check_late_billing(engine: VoiceEngine, *, now: datetime | None = None) -> int:
+    """Check each queued call's billing, from its List Calls row when that row carries one,
+    else from Get Call for up to `BILLING_CHECKS_PER_RUN` of them. Returns how many were
+    checked. No database session is open across a vendor read. A busy vendor stops the Get
+    Call reads with the rest left queued."""
     key = _BILLING_PENDING_KEY.format(engine=engine.name)
     try:
         redis = get_redis()
@@ -855,30 +887,47 @@ async def check_late_billing(engine: VoiceEngine) -> int:
     except Exception as exc:
         log.warning("engine_charge_memory_unavailable", extra={"reason": type(exc).__name__})
         return 0
+    if not pending:
+        return 0
+    entries = {call_id: json.loads(raw) for call_id, raw in pending.items()}
+    listed = await listed_billing(
+        engine,
+        {str(entry["engine_call_id"]) for entry in entries.values()},
+        since=(now or datetime.now(UTC)) - LISTED_BILLING_LOOKBACK,
+    )
     checked = 0
-    for call_id in sorted(pending)[:BILLING_CHECKS_PER_RUN]:
-        entry = json.loads(pending[call_id])
-        try:
-            snapshot = await engine.get_execution(entry["engine_call_id"])
-        except ProblemError as exc:
-            if _vendor_busy(exc):
-                log.warning(
-                    "engine_billing_check_deferred",
-                    extra={"call_id": call_id, "code": exc.code, "left": len(pending) - checked},
-                )
-                break
-            attempts = int(entry["attempts"]) + 1
-            if attempts >= BILLING_CHECK_ATTEMPTS:
-                log.warning(
-                    "engine_billing_check_abandoned", extra={"call_id": call_id, "code": exc.code}
-                )
-                await cast("Awaitable[int]", redis.hdel(key, call_id))
-            else:
-                await cast(
-                    "Awaitable[int]",
-                    redis.hset(key, call_id, json.dumps(entry | {"attempts": attempts})),
-                )
-            continue
+    fetched = 0
+    busy = False
+    for call_id in sorted(entries):
+        entry = entries[call_id]
+        snapshot = listed.get(entry["engine_call_id"])
+        if snapshot is None:
+            if busy or fetched >= BILLING_CHECKS_PER_RUN:
+                continue
+            fetched += 1
+            try:
+                snapshot = await engine.get_execution(entry["engine_call_id"])
+            except ProblemError as exc:
+                if _vendor_busy(exc):
+                    log.warning(
+                        "engine_billing_check_deferred",
+                        extra={"call_id": call_id, "code": exc.code, "left": len(pending)},
+                    )
+                    busy = True
+                    continue
+                attempts = int(entry["attempts"]) + 1
+                if attempts >= BILLING_CHECK_ATTEMPTS:
+                    log.warning(
+                        "engine_billing_check_abandoned",
+                        extra={"call_id": call_id, "code": exc.code},
+                    )
+                    await cast("Awaitable[int]", redis.hdel(key, call_id))
+                else:
+                    await cast(
+                        "Awaitable[int]",
+                        redis.hset(key, call_id, json.dumps(entry | {"attempts": attempts})),
+                    )
+                continue
         await check_settled_billing(
             UUID(entry["tenant_id"]), UUID(call_id), snapshot, engine=engine.name
         )
@@ -960,7 +1009,7 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
             )
             tally.unreached += 1
     # After the comparison, which queued this run's late-settled calls.
-    billing_checked = await check_late_billing(engine)
+    billing_checked = await check_late_billing(engine, now=now)
     fresh = (
         await _newly_mismatched(engine.name, [call_id for call_id, _m, _e in tally.mismatched])
         if tally.mismatched
@@ -1030,6 +1079,7 @@ __all__ = [
     "CHARGE_TOLERANCE_SHARE",
     "FEE_CORRECTION_META_KIND",
     "FEE_RESTATEMENT_META_KIND",
+    "LISTED_BILLING_LOOKBACK",
     "billing_findings",
     "check_late_billing",
     "check_settled_billing",
@@ -1040,6 +1090,7 @@ __all__ = [
     "expected_billing",
     "fee_delta",
     "fee_excess",
+    "listed_billing",
     "queue_billing_check",
     "reconcile_call_charge",
     "reconcile_engine_charges",

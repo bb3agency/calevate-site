@@ -62,13 +62,26 @@ from apps.api.core.settings import get_settings
 EngineRateKey = Literal["platform", "standard", "premium", "studio", "byok_voice", "byok_llm_voice"]
 ENGINE_RATE_KEYS: Final[tuple[str, ...]] = get_args(EngineRateKey)
 BASE_RATE_KEY: Final[EngineRateKey] = "platform"
-#: What a number forward's connected minute costs us (D-743).
-FORWARDED_RATE_KEY: Final[EngineRateKey] = "standard"
+
+#: The price of a call no agent ran on: one that ended before the agent spoke, or one a
+#: number forward put through to a phone (D-813). It is the phone carrier's fee only, and a
+#: price key, never a route's: no agent is published on it, so it is not an `EngineRateKey`.
+#: ThinnestAI states ₹0.38 a minute (snapshots/2026-10-18/pages/api-reference/calls/
+#: get-call.md:1236-1243, VENDOR-STATED 18 Oct 2026), which reaches money only once an
+#: operator attests it here; until then such a minute is metered unpriced and alarmed.
+CARRIER_RATE_KEY: Final = "carrier"
+#: Every key a per-minute price may be attested for: the route keys and the carrier's fee.
+PRICED_RATE_KEYS: Final[tuple[str, ...]] = (*ENGINE_RATE_KEYS, CARRIER_RATE_KEY)
 
 #: Engines metered by attested minute, and their billing pulse in seconds. ThinnestAI's
-#: 30-second pulse is FOUNDER-RELAYED (evaluation §2), the founder's call of 6 Oct 2026.
+#: 30-second pulse is FOUNDER-RELAYED (evaluation §2), the founder's call of 6 Oct 2026, and
+#: documented since (get-call.md:1283-1292, "30-second steps ... at half of this each").
 PULSE_SECONDS: Final[dict[str, int]] = {"thinnest": 30}
 ATTESTED_MINUTE_ENGINES: Final = frozenset(PULSE_SECONDS)
+#: The carrier's block a carrier-only call is charged in, in seconds: 30 on ThinnestAI
+#: (get-call.md:1236-1243, "charged in 30-second blocks (₹0.19 each)"), so a 4-second call
+#: bills 30 seconds (ThinnestAI email of 18 Oct 2026). A length, not a price.
+CARRIER_BLOCK_SECONDS: Final[dict[str, int]] = {"thinnest": 30}
 
 _SIXTY: Final = Decimal(60)
 
@@ -178,13 +191,13 @@ def _require_engine(engine: str) -> None:
         )
 
 
-def _require_rate_key(rate_key: str) -> None:
-    if rate_key not in ENGINE_RATE_KEYS:
+def _require_rate_key(rate_key: str, *, keys: tuple[str, ...] = PRICED_RATE_KEYS) -> None:
+    if rate_key not in keys:
         raise ProblemError(
             kind="not_found",
             code="engine_minute_price_unknown_rate_key",
             title="No such rate",
-            detail=f"{rate_key!r} is not one of {', '.join(ENGINE_RATE_KEYS)}.",
+            detail=f"{rate_key!r} is not one of {', '.join(keys)}.",
         )
 
 
@@ -329,7 +342,7 @@ async def record_engine_rate_key(
     """Stamp which rate a vendor agent's minutes are metered at, and the model of our own
     key it answers with (None: the engine's own model). For the publish path, in the tenant
     session that wrote the route row."""
-    _require_rate_key(rate_key)
+    _require_rate_key(rate_key, keys=ENGINE_RATE_KEYS)
     await session.execute(
         text(
             "UPDATE engine_agent_routes SET engine_rate_key = :k, engine_own_model = :m, "
@@ -349,7 +362,7 @@ class MinuteCost:
     #: The top-up fee `cost` includes, as a fraction.
     topup_fee: Decimal
     cost: CostBreakdown
-    #: The rate key the CLIENT rung is read from: the agent's own, also on a forwarded call.
+    #: The rate key the CLIENT rung is read from: the agent's own, also on a carrier-only call.
     client_rate_key: str = ""
     #: The model of our own key the call answered with (D-764); None on the engine's own.
     own_model: str | None = None
@@ -367,9 +380,10 @@ async def engine_minute_cost(
     call_id: UUID,
     seconds: Decimal,
     at: datetime,
-    forwarded: bool = False,
+    carrier_only: bool = False,
 ) -> MinuteCost:
-    """This call's supplier cost at the rate attested for its vendor agent's rate key.
+    """This call's supplier cost at the rate attested for its vendor agent's rate key, or
+    for the carrier's fee when no agent ran on it (`carrier_only`).
 
     The whole minute is ONE leg (`platform_inr`): ThinnestAI sells telephony, speech and
     model as one per-minute price (evaluation §2), so splitting it across our per-leg rows
@@ -393,11 +407,15 @@ async def engine_minute_cost(
     ).first()
     route_key = str(stamped[0]) if stamped is not None and stamped[0] else BASE_RATE_KEY
     own_model = str(stamped[1]) if stamped is not None and stamped[1] else None
-    # A forwarded call is billed to us per connected minute "at the standard voice rate"
-    # whatever the agent speaks (docs.thinnest.ai channels/phone-numbers "Forwarding a whole
-    # line", read 11 Oct 2026); the client's rung stays the agent's.
-    rate_key = FORWARDED_RATE_KEY if forwarded else route_key
-    minutes = billed_minutes(seconds, pulse_s=PULSE_SECONDS[engine])
+    # A call no agent ran on is charged the carrier's fee only, by the carrier's block
+    # (get-call.md:1236-1243; D-813). That replaces D-743's "standard voice rate" for a
+    # forward, which channels/phone-numbers.md:567-570 still states: the call's own billing
+    # schema, the 17 Oct changelog (whats-new/index.md:28-30) and ThinnestAI's email of
+    # 18 Oct 2026 all say carrier fee, and `costMicro` decides it either way. The client's
+    # rung stays the agent's.
+    rate_key = CARRIER_RATE_KEY if carrier_only else route_key
+    pulse = CARRIER_BLOCK_SECONDS[engine] if carrier_only else PULSE_SECONDS[engine]
+    minutes = billed_minutes(seconds, pulse_s=pulse)
     price = (await attested_minute_prices(session, engine=engine, at=at)).get(rate_key)
     fee = topup_fee(engine)
     if price is None:
@@ -430,9 +448,11 @@ __all__ = [
     "BASE_RATE_KEY",
     "BYOK_LLM_VOICE_RATE_KEY",
     "BYOK_VOICE_RATE_KEY",
+    "CARRIER_BLOCK_SECONDS",
+    "CARRIER_RATE_KEY",
     "ENGINE_RATE_KEYS",
-    "FORWARDED_RATE_KEY",
     "OWN_VOICE_RATE_KEYS",
+    "PRICED_RATE_KEYS",
     "PULSE_SECONDS",
     "TOPUP_FEE_META_KEY",
     "TOPUP_FEE_PLAN_LABELS",

@@ -1,11 +1,12 @@
 """The healer forwards a broken agent's numbers to the client's own phone (D-743), forwarded
-minutes are costed at the standard rate, and an in-call action from an unexpected address is
-served with one alarm.
+calls are costed at the carrier's fee (D-813), and an in-call action from an unexpected
+address is served with one alarm.
 
 ThinnestAI's number forward (`PATCH /phone-numbers/{number} {forwardTo}`) rings the phone
-before any agent speaks and works whether or not the agent answers; it is billed per
-connected minute at the standard voice rate (docs.thinnest.ai channels/phone-numbers
-"Forwarding a whole line", read 11 Oct 2026).
+before any agent speaks and works whether or not the agent answers (docs.thinnest.ai
+channels/phone-numbers "Forwarding a whole line", read 11 Oct 2026); no agent runs on it, so
+it is charged the carrier's fee only (snapshots/2026-10-18/pages/api-reference/calls/
+get-call.md:1236-1243).
 
 SHARED DATABASE DISCIPLINE: every row is minted here and every assertion is scoped to it.
 """
@@ -25,7 +26,7 @@ import httpx
 import pytest
 from apps.api.agents import service as agents_service
 from apps.api.billing.engine_minutes import (
-    FORWARDED_RATE_KEY,
+    CARRIER_RATE_KEY,
     attest_engine_minute_price,
     engine_minute_cost,
 )
@@ -186,7 +187,10 @@ def test_a_forwarded_call_object_is_read_as_forwarded() -> None:
     assert snap.forwarded and not plain.forwarded
 
 
-async def test_a_forwarded_minute_costs_the_standard_rate_and_keeps_the_clients_rung() -> None:
+async def test_a_forward_costs_the_carriers_fee_by_its_block_and_keeps_the_clients_rung() -> None:
+    """No agent runs on a forward, so it is charged the carrier's fee only, ₹0.38 a minute in
+    30-second blocks (snapshots/2026-10-18/pages/api-reference/calls/get-call.md:1236-1243):
+    a 4-second forward is one block, ₹0.19 (ThinnestAI email of 18 Oct 2026)."""
     actor = uuid.uuid4()
     at = datetime(2002, 1, 1, tzinfo=UTC) + timedelta(
         microseconds=uuid.uuid4().int % 86_400_000_000
@@ -199,7 +203,7 @@ async def test_a_forwarded_minute_costs_the_standard_rate_and_keeps_the_clients_
             ),
             {"id": actor},
         )
-        for key, inr in (("platform", "2.50"), (FORWARDED_RATE_KEY, "2.00")):
+        for key, inr in (("platform", "2.50"), (CARRIER_RATE_KEY, "0.38")):
             await attest_engine_minute_price(
                 session,
                 engine="thinnest",
@@ -216,11 +220,14 @@ async def test_a_forwarded_minute_costs_the_standard_rate_and_keeps_the_clients_
             engine="thinnest",
             tenant_id=tenant_id,
             call_id=uuid7(),
-            seconds=Decimal(60),
+            seconds=Decimal(4),
             at=at,
-            forwarded=True,
+            carrier_only=True,
         )
-    assert priced.rate_key == FORWARDED_RATE_KEY and priced.inr_per_min == Decimal("2.00")
+    assert priced.rate_key == CARRIER_RATE_KEY and priced.inr_per_min == Decimal("0.38")
+    assert priced.billed_minutes == Decimal("0.5")
+    fee = Decimal(1) + priced.topup_fee
+    assert priced.cost.total_inr == (Decimal("0.19") * fee).quantize(Decimal("0.0001"))
     assert priced.client_rate_key == "platform"
 
 

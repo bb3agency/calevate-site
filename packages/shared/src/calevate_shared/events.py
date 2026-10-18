@@ -236,18 +236,24 @@ class CallBilling(BaseModel):
 
     keys: CallKeys
     #: None for a flat own-key price, a free trial call, or a call from before the engine
-    #: reported it.
+    #: reported it. On a `carrier_only` call, the plan the call was set up on, not the one
+    #: it was charged at.
     voice_plan: CallVoicePlan | None = None
     #: The per-minute rate the call was charged at, in rupees; None when the engine stated
-    #: none (a free trial call) or stated it in another currency.
+    #: none (a free trial call) or stated it in another currency. On a `carrier_only` call,
+    #: the rate the call was set up on, not the one it was charged at.
     rate_inr_per_min: Decimal | None = None
     currency: Literal["INR", "USD"] | None = None
-    #: The seconds the charge was for, already rounded up to the engine's step. None until
-    #: the call is settled.
+    #: The seconds the charge was for, already rounded up to the engine's step (the
+    #: carrier's block on a `carrier_only` call). None until a charge was taken, and on a
+    #: free trial call. A free trial call is ONLY one paid from a free-plan workspace's trial
+    #: minutes: a workspace on a paid plan, a developer workspace's own test calls included,
+    #: is charged from its balance and reports plan, rate and seconds.
     billed_seconds: int | None = None
-    #: The call ended before the agent spoke: it is charged the phone carrier's fee only,
-    #: and `billed_seconds` is rounded to the carrier's block rather than the engine's step,
-    #: so neither the per-minute rate nor the step applies to it.
+    #: No agent ran on the call (it ended before the agent spoke, or a number forward put it
+    #: through to a phone): it is charged the phone carrier's fee only, by the carrier's
+    #: block, so neither `voice_plan` nor `rate_inr_per_min` is what was charged and the
+    #: call is reconciled by its total.
     carrier_only: bool = False
 
 

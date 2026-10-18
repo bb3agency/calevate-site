@@ -32,9 +32,10 @@ from apps.api.engine.thinnest import (
     parse_tts_characters,
 )
 from apps.api.engine.vendor_http import EngineRateLimitedError, EngineRejectedError
+from apps.api.ops.config_service import validated_value
 from apps.api.reliability.engine_intake_keys import seal_delivery
 from apps.workers import engine_charges, pipeline
-from calevate_shared.engine import CostBreakdown, ExecutionSnapshot
+from calevate_shared.engine import CostBreakdown, ExecutionListing, ExecutionSnapshot
 from calevate_shared.events import CallBilling, CallLlmUsage
 from sqlalchemy import text
 from tests.smoke_pipeline_test import _seed_tenant
@@ -121,8 +122,17 @@ def test_a_fetched_call_carries_its_billing_and_characters_and_a_listing_row_non
     assert fetched.tts_characters == 1840
     assert fetched.billing is not None and fetched.billing.billed_seconds == 210
     assert fetched.llm_usage is not None and fetched.llm_usage.input_tokens_estimated is False
-    listed = engine._snapshot(_call(), workspace=None)
-    assert (listed.billing, listed.tts_characters) == (None, None)
+    assert fetched.billing_reported
+    # A List Calls row from before ThinnestAI listed billing has no key at all; one after it
+    # carries the object, null for a booked call that has not rung (list-calls.md:769-773,
+    # :985-990 in snapshots/2026-10-18).
+    before_release = engine._snapshot(_call(), workspace=None)
+    assert (before_release.billing, before_release.tts_characters) == (None, None)
+    assert before_release.billing_reported is False
+    booked = engine._snapshot(_call(billing=None), workspace=None)
+    assert booked.billing is None and booked.billing_reported is True
+    listed = engine._snapshot(_call(billing=DOCUMENTED_BILLING), workspace=None)
+    assert listed.billing_reported and listed.billing == parse_billing(DOCUMENTED_BILLING)
 
 
 # --- what the call should have been billed as ----------------------------------------------
@@ -234,17 +244,10 @@ def _billing(**over: Any) -> CallBilling:
     return CallBilling(**(base | over))
 
 
-async def _reconcile(
-    call: tuple[UUID, UUID], billing: CallBilling, *, charged: str = "3", forwarded: bool = False
-) -> str:
+async def _reconcile(call: tuple[UUID, UUID], billing: CallBilling, *, charged: str = "3") -> str:
     tenant_id, call_id = call
     return await engine_charges.reconcile_call_charge(
-        tenant_id,
-        call_id,
-        Decimal(charged),
-        engine="thinnest",
-        billing=billing,
-        forwarded=forwarded,
+        tenant_id, call_id, Decimal(charged), engine="thinnest", billing=billing
     )
 
 
@@ -315,7 +318,7 @@ async def test_the_engines_30_second_steps_match_our_pulse(
 
 
 @pytest.mark.rls
-async def test_unsettled_forwarded_and_foreign_rate_calls_are_not_checked_on_billing(
+async def test_unsettled_and_foreign_rate_calls_are_not_checked_on_billing(
     variance_alarms: list[tuple[str, str]],
 ) -> None:
     wrong_scope = _billing(keys="all", voice_plan=None)
@@ -323,9 +326,6 @@ async def test_unsettled_forwarded_and_foreign_rate_calls_are_not_checked_on_bil
     assert await _reconcile(unsettled, wrong_scope.model_copy(update={"billed_seconds": None})) == (
         "matched"
     )
-    # ThinnestAI's email of 15 Oct 2026: trust `costMicro` on a forwarded call (VENDOR-STATED).
-    forwarded = await _metered_call(rate_key="standard", inr_per_min="3")
-    assert await _reconcile(forwarded, wrong_scope, forwarded=True) == "matched"
     dollars = await _metered_call(rate_key="studio", inr_per_min="3")
     assert await _reconcile(dollars, _billing(rate_inr_per_min=None, currency="USD")) == "matched"
     assert variance_alarms == []
@@ -594,15 +594,89 @@ def _findings(billing: CallBilling, *, our_minutes: Decimal | None) -> list[str]
     )
 
 
-def test_a_carrier_block_is_named_as_seconds_and_never_as_rate() -> None:
-    """Charged the carrier's fee only and rounded to its block (get-call.md:1276-1285), so
-    the rate is not compared; the block's length is not documented, so seconds that differ
-    from our pulse are still named, as the carrier's block."""
-    block = _billing(billed_seconds=60, rate_inr_per_min=Decimal("9"), carrier_only=True)
+def test_a_carrier_block_is_named_as_seconds_and_never_as_rate_or_scope() -> None:
+    """Charged the carrier's fee only, in 30-second blocks, with the plan and rate it was set
+    up on (snapshots/2026-10-18/pages/api-reference/calls/get-call.md:1236-1243): neither the
+    rate nor the scope is compared, and seconds are counted on the carrier's block."""
+    block = _billing(
+        keys="voice", billed_seconds=60, rate_inr_per_min=Decimal("9"), carrier_only=True
+    )
     [finding] = _findings(block, our_minutes=Decimal("0.5"))
-    assert finding.startswith("Seconds, not rate: the call ended before the agent spoke")
-    assert "carrier's block of 60s" in finding and "30-second pulse of 0.5 min" in finding
+    assert finding == (
+        "Seconds, not rate: the voice platform billed 60s (1 min in 30-second carrier blocks, "
+        "the carrier's fee only) against our 0.5 min."
+    )
     assert _findings(block, our_minutes=Decimal(1)) == []
+
+
+def test_a_forwarded_call_is_carrier_only() -> None:
+    """A call a number forward put through to a phone runs no agent (get-call.md:1236-1243)."""
+    assert parse_billing(DOCUMENTED_BILLING, forwarded=True) == CallBilling(
+        keys="off",
+        voice_plan="standard",
+        rate_inr_per_min=Decimal("1.82"),
+        currency="INR",
+        billed_seconds=210,
+        carrier_only=True,
+    )
+    snapshot = ThinnestEngine(api_key="x")._snapshot(
+        _call(billing=DOCUMENTED_BILLING) | {"forwardedTo": "+919812345678"}, workspace=None
+    )
+    assert snapshot.forwarded
+    assert snapshot.billing is not None and snapshot.billing.carrier_only is True
+
+
+@pytest.mark.rls
+async def test_a_carrier_only_call_reconciles_at_the_carriers_fee(
+    variance_alarms: list[tuple[str, str]],
+) -> None:
+    """A 4-second call that ended before the agent spoke, metered at the attested carrier fee
+    on its 30-second block, matches the ₹0.19 it was charged; its billing still names the
+    Studio plan and rate it was set up on, and that is not a variance."""
+    call = await _metered_call(rate_key="carrier", inr_per_min="0.38", minutes="0.5")
+    setup_plan = _billing(billed_seconds=30, carrier_only=True)
+    assert await _reconcile(call, setup_plan, charged="0.19") == "matched"
+    assert variance_alarms == []
+
+
+async def test_a_call_that_ended_before_the_agent_spoke_is_metered_at_the_carriers_fee(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pipeline, "alert", lambda *a, **k: None)
+    at = datetime(2003, 1, 1, tzinfo=UTC) + timedelta(
+        microseconds=uuid.uuid4().int % 86_400_000_000
+    )
+    async with untenanted_session() as session:
+        await attest_engine_minute_price(
+            session,
+            engine="thinnest",
+            rate_key="carrier",
+            inr_per_min=Decimal("0.38"),
+            effective_from=at,
+            source_note="ThinnestAI get-call.md:1236-1243, test",
+            actor_id=await _operator(),
+        )
+    tenant_id, _agent = await _seed_tenant(f"carrier_{uuid.uuid4().hex[:10]}")
+    snapshot = _settled("out_carrier", _billing(billed_seconds=30, carrier_only=True))
+    snapshot = snapshot.model_copy(update={"duration_s": 4, "ended_at": at})
+    priced = await pipeline._engine_minute_cost(tenant_id, uuid7(), snapshot)
+    assert (priced.rate_key, priced.billed_minutes, priced.inr_per_min) == (
+        "carrier",
+        Decimal("0.5"),
+        Decimal("0.38"),
+    )
+    answered = snapshot.model_copy(update={"billing": _billing(billed_seconds=30)})
+    assert (await pipeline._engine_minute_cost(tenant_id, uuid7(), answered)).rate_key != (
+        "carrier"
+    )
+
+
+def test_the_clear_band_cannot_be_set_to_standard() -> None:
+    """The founder's decision of 18 Oct 2026: the Standard band is not offered."""
+    with pytest.raises(ProblemError) as refused:
+        validated_value("thinnest_clear_voice_band", "standard")
+    assert refused.value.code == "config_value_invalid"
+    assert validated_value("thinnest_clear_voice_band", "premium") == "premium"
 
 
 def test_a_minute_row_without_its_minutes_is_checked_on_scope_only() -> None:
@@ -627,13 +701,28 @@ async def pending() -> Any:
 
 
 class _GetCall:
-    """An engine whose Get Call answers from a script: a snapshot, or an error to raise."""
+    """An engine whose Get Call answers from a script (a snapshot, or an error to raise) and
+    whose List Calls answers with `listed`, rows that carry no billing unless given."""
 
     name = "thinnest"
 
-    def __init__(self, answers: dict[str, ExecutionSnapshot | Exception]) -> None:
+    def __init__(
+        self,
+        answers: dict[str, ExecutionSnapshot | Exception],
+        listed: list[ExecutionSnapshot] | Exception | None = None,
+    ) -> None:
         self.answers = answers
+        self.listed = listed if listed is not None else []
         self.asked: list[str] = []
+        self.listings: list[str | None] = []
+
+    async def list_executions(self, *, since: datetime) -> ExecutionListing:
+        from apps.api.engine.thinnest_workspace import current_workspace
+
+        self.listings.append(current_workspace())
+        if isinstance(self.listed, Exception):
+            raise self.listed
+        return ExecutionListing(snapshots=self.listed, complete=True)
 
     async def get_execution(self, call_id: str) -> ExecutionSnapshot:
         self.asked.append(call_id)
@@ -773,3 +862,62 @@ async def test_without_redis_nothing_is_queued_or_read(monkeypatch: pytest.Monke
     monkeypatch.setattr(engine_charges, "get_redis", _down)
     await engine_charges.queue_billing_check("thinnest", uuid.uuid4(), uuid.uuid4(), "out_1")
     assert await _drain(_GetCall({})) == 0
+
+
+def _listed(engine_call_id: str, billing: CallBilling | None) -> ExecutionSnapshot:
+    """A List Calls row from after ThinnestAI listed billing (list-calls.md:769-773)."""
+    return _settled(engine_call_id, billing).model_copy(update={"billing_reported": True})
+
+
+@pytest.mark.rls
+async def test_a_listed_row_with_billing_answers_without_get_call(
+    pending: Any, variance_alarms: list[tuple[str, str]]
+) -> None:
+    _tenant_id, _matched_id, matched_ecid = await _settled_by_sweep()
+    _tenant_id, _wrong_id, wrong_ecid = await _settled_by_sweep()
+    engine = _GetCall(
+        {},
+        listed=[
+            _listed(matched_ecid, _billing()),
+            _listed(wrong_ecid, _billing(keys="voice", voice_plan=None)),
+            _listed("out_someone_else", _billing()),
+        ],
+    )
+    assert await _drain(engine) == 2
+    assert engine.asked == []
+    assert engine.listings == [None]
+    [(code, detail)] = variance_alarms
+    assert code == "engine_call_cost_variance"
+    assert detail.startswith("rate_key=studio: The call ran on keys=voice")
+    assert await pending.hgetall(_PENDING) == {}
+
+
+@pytest.mark.rls
+async def test_a_listed_row_without_billing_falls_back_to_get_call_for_that_row_only(
+    pending: Any, variance_alarms: list[tuple[str, str]]
+) -> None:
+    """Before ThinnestAI's release a row has no `billing` key at all; a row whose `billing`
+    is null still answers (a call with nothing to check)."""
+    _tenant_id, _old_id, old_ecid = await _settled_by_sweep()
+    _tenant_id, _null_id, null_ecid = await _settled_by_sweep()
+    engine = _GetCall(
+        {old_ecid: _settled(old_ecid, _billing(keys="voice", voice_plan=None))},
+        listed=[_settled(old_ecid, None), _listed(null_ecid, None)],
+    )
+    assert await _drain(engine) == 2
+    assert engine.asked == [old_ecid]
+    [(_code, detail)] = variance_alarms
+    assert "keys=voice" in detail
+
+
+async def test_a_listing_that_fails_leaves_its_calls_to_get_call(pending: Any) -> None:
+    workspace = "org_" + "a" * 24
+    entry = {"tenant_id": str(uuid.uuid4()), "engine_call_id": f"out_w@{workspace}", "attempts": 0}
+    await pending.hset(_PENDING, str(uuid.uuid4()), json.dumps(entry))
+    engine = _GetCall(
+        {f"out_w@{workspace}": _settled(f"out_w@{workspace}", None)},
+        listed=EngineRejectedError(status=503),
+    )
+    assert await _drain(engine) == 1
+    assert engine.listings == [workspace]
+    assert engine.asked == [f"out_w@{workspace}"]
