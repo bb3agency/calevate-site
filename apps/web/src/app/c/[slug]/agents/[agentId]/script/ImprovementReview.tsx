@@ -37,7 +37,7 @@ import {
 } from "@/lib/api/script";
 import { useAddFact, useEditFact } from "@/lib/api/teach";
 
-import { ChangeBody, headline } from "./ProposalReview";
+import { ChangeBody, headline, kindLabel } from "./ProposalReview";
 import { applyChanges, diffScripts, type Change } from "./scriptDiff";
 
 /** The proposal's note for one diffed change: `step:<id>` or a part of the script. */
@@ -208,7 +208,10 @@ export function ImprovementReview({
                         onChange={(e) => toggle(change.id, e.target.checked)}
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="block text-body font-medium text-ink">{headline(change)}</span>
+                        <span className="flex flex-wrap items-baseline gap-x-2">
+                          <span className="text-body font-medium text-ink">{headline(change)}</span>
+                          <span className="text-meta text-ink-muted">{kindLabel(change)}</span>
+                        </span>
                         {note?.why && <span className="block text-meta text-ink">{note.why}</span>}
                         {note?.because && titles.has(note.because) && (
                           <span className="block text-meta text-ink-muted">
