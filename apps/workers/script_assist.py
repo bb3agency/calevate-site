@@ -68,6 +68,7 @@ from calevate_shared.spoken_style import writer_guidance
 from pydantic import ValidationError
 
 from apps.api.core import provider_health
+from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.workers import chat
@@ -170,9 +171,17 @@ def edited_script(raw: dict[str, Any], current: CallScript) -> CallScript | None
     fields = {k: v for k, v in raw.items() if k in CallScript.model_fields}
     try:
         edited = CallScript.model_validate({**current.model_dump(), **fields})
-    except ValidationError:
-        log.warning("script_assist_edit_unusable")
-        return None
+    except ValidationError as invalid:
+        # Where and which rule, never the value: the value is the client's script.
+        problems = [
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in invalid.errors(include_input=False, include_url=False)[:8]
+        ]
+        log.warning(
+            "script_assist_edit_unusable",
+            extra={"problems": [p.split(":", 1)[0] for p in problems], "count": len(problems)},
+        )
+        raise UnusableAnswerError("; ".join(problems)) from invalid
     return edited.model_copy(update={"raw_override": None, "schema_version": 2})
 
 
@@ -668,6 +677,59 @@ class JsonAnswer[T]:
     model: str | None = None
 
 
+#: What the paid leg is told when its answer broke the caller's rules, before it is asked once
+#: more. `problems` names fields and rules only, never the answer's text.
+REPAIR_NOTE: Final = (
+    "Your previous answer could not be used because of these problems: {problems}. "
+    "Return the whole JSON again with exactly these fixed and nothing else changed."
+)
+
+
+#: The refusal code when the model answered but the answer still broke the rules after one
+#: repair. Distinct from `provider_unavailable`, whose words ("no assistant answered") would be
+#: untrue here.
+ANSWER_UNUSABLE_CODE: Final = "assist_answer_unusable"
+
+
+def _answer_unusable() -> ProblemError:
+    return ProblemError.business_rule(
+        ANSWER_UNUSABLE_CODE,
+        "AI help could not make that change cleanly this time.",
+        remediation="Try describing the change another way, or edit that part yourself.",
+    )
+
+
+class UnusableAnswerError(ValueError):
+    """A parse refused the model's answer for reasons the model can be told and can fix."""
+
+    def __init__(self, problems: str) -> None:
+        super().__init__(problems)
+        self.problems = problems
+
+
+def _parsed_with_problems[T](
+    parse: Callable[[dict[str, Any]], T | None], data: dict[str, Any] | None
+) -> tuple[T | None, str | None]:
+    """`_parsed`, plus the problems to send back when the parse said what was wrong."""
+    if data is None:
+        return None, None
+    try:
+        return parse(data), None
+    except UnusableAnswerError as unusable:
+        return None, unusable.problems
+    except (TypeError, ValueError, KeyError, AttributeError) as failure:
+        log.warning("script_assist_answer_unusable", extra={"error": type(failure).__name__})
+        return None, None
+
+
+def _usage_sum(first: TokenUsage | None, second: TokenUsage | None) -> TokenUsage | None:
+    """Both attempts of one request as one metered quantity; unknown when either did not
+    report, for `TokenUsage.plus`'s reason (a partial sum would read as the whole cost)."""
+    if first is None or second is None:
+        return None
+    return first.plus(second)
+
+
 def _parsed[T](
     parse: Callable[[dict[str, Any]], T | None], data: dict[str, Any] | None
 ) -> T | None:
@@ -721,37 +783,55 @@ async def ask_json[T](
     spent: TokenUsage | None = None
     if capability.provider in (AZURE_PROVIDER, GOOGLE_PROVIDER):
         response_format = azure_format or {"type": "json_object"}
+        model: str | None
         if capability.provider == GOOGLE_PROVIDER and tenant_leg is not None:
-            model: str | None = tenant_leg.model
-            paid = await _json_via_google(
-                tenant_leg.model,
-                description,
-                instruction,
-                response_format,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                timeout_s=timeout_s,
-            )
+            model = tenant_leg.model
         else:
             model = get_settings().azure_openai_model
-            paid = await _json_via_azure(
-                description,
+
+        async def paid_answer(text: str) -> _RawJson | None:
+            if capability.provider == GOOGLE_PROVIDER and tenant_leg is not None:
+                return await _json_via_google(
+                    tenant_leg.model,
+                    text,
+                    instruction,
+                    response_format,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    timeout_s=timeout_s,
+                )
+            return await _json_via_azure(
+                text,
                 instruction,
                 response_format,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 timeout_s=timeout_s,
             )
-        value = _parsed(parse, paid.data) if paid is not None else None
-        if value is not None and paid is not None:
-            return JsonAnswer(value=value, capability=capability, usage=paid.usage, model=model)
-        # Billed as a request, refused as an answer: it rides the fallback to the meter.
+
+        paid = await paid_answer(description)
+        value, problems = _parsed_with_problems(parse, paid.data if paid is not None else None)
         spent = paid.usage if paid is not None else None
+        if value is None and problems is not None:
+            # ONE REPAIR on the same leg, told what was wrong, before the fallback. A long
+            # structured answer that breaks one validation rule is usually right everywhere
+            # else, and the fallback leg is slower and weaker at exactly this kind of answer.
+            repaired = await paid_answer(
+                f"{description}\n\n{REPAIR_NOTE.format(problems=problems)}"
+            )
+            spent = _usage_sum(spent, repaired.usage if repaired is not None else None)
+            value = _parsed(parse, repaired.data) if repaired is not None else None
+        if value is not None:
+            return JsonAnswer(value=value, capability=capability, usage=spent, model=model)
+        answered_unusably = problems is not None
+        # Billed as a request, refused as an answer: it rides the fallback to the meter.
         capability = assist_capability(
             tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, provider_unavailable=True
         )
         if not capability.available:
-            raise assist_unavailable(capability)
+            raise _answer_unusable() if answered_unusably else assist_unavailable(capability)
+    else:
+        answered_unusably = False
 
     sarvam = await _json_via_sarvam(
         description,
@@ -762,7 +842,11 @@ async def ask_json[T](
     )
     value = _parsed(parse, sarvam.data) if sarvam is not None else None
     if value is None:
-        # Both legs silent: a refusal the owner can act on, not an empty answer.
+        # Both legs silent: a refusal the owner can act on, not an empty answer. When the
+        # paid leg DID answer and only the shape was wrong, saying "no assistant answered"
+        # would be untrue and would send the owner to support for a rewording problem.
+        if answered_unusably:
+            raise _answer_unusable()
         raise assist_unavailable(
             AssistCapability(available=False, reason=PROVIDER_UNAVAILABLE_REASON)
         )
@@ -814,12 +898,15 @@ async def draft_script(
 
 
 __all__ = [
+    "ANSWER_UNUSABLE_CODE",
     "CONVERT_INSTRUCTION",
     "EDIT_INSTRUCTION",
     "OWNER_QUESTIONS",
+    "REPAIR_NOTE",
     "JsonAnswer",
     "ScriptBrief",
     "ScriptDraft",
+    "UnusableAnswerError",
     "ask_json",
     "draft_script",
     "edited_script",

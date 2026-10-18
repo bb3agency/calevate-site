@@ -7,6 +7,7 @@ model's JSON into a validated `CallScript`. Both run with no network and no data
 
 from __future__ import annotations
 
+import pytest
 from apps.workers.script_assist import (
     _DRAFT_SCHEMA,
     _SYSTEM_INSTRUCTION,
@@ -91,8 +92,12 @@ def test_an_edit_keeps_the_current_script_and_its_section_ids() -> None:
     edited = _edited_script({"goal": "Take orders warmly.", "unknown": 1}, current)
     assert edited is not None
     assert edited.goal == "Take orders warmly." and edited.stages[0].id == "need"
-    # A shape no save would accept is no draft, never half an edit.
-    assert _edited_script({"stages": [{"id": "Bad Id"}]}, current) is None
+    # A shape no save would accept is no draft, never half an edit, and the refusal names the
+    # field so the model can be asked to fix it.
+    from apps.workers.script_assist import UnusableAnswerError
+
+    with pytest.raises(UnusableAnswerError, match=r"stages\.0"):
+        _edited_script({"stages": [{"id": "Bad Id"}]}, current)
 
 
 def test_every_writer_follows_the_spoken_style_guide() -> None:

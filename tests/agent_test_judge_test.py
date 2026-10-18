@@ -16,6 +16,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
+import httpx
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import assist_leg, lifecycle, test_conversations
@@ -356,3 +357,56 @@ def test_the_export_is_blind_redacted_and_round_trips(tmp_path: Path) -> None:
     assert calibration.main(["score", "--labels", str(sheet)]) == 0
     pairs = calibration.pairs_from(calibration.read_labels(sheet), calibration.read_judge(judge))
     assert pairs == [calibration.Pair(human="failed", judge="passed", model="m", position="first")]
+
+
+async def test_an_answer_that_breaks_a_rule_is_sent_back_once_with_the_problem(
+    gemini: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: an answer the parse refuses for a reason it can name goes straight to the
+    standby (or to "not available") instead of back to the same model, told what to fix."""
+    seen: list[str] = []
+
+    async def _complete(leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any) -> Any:
+        seen.append(str(messages[-1]["content"]))
+        body = {"ok": len(seen) > 1}
+        return chat.ChatOutcome(
+            content=json.dumps(body),
+            finish_reason="stop",
+            usage=chat.TokenUsage(prompt_tokens=10, output_tokens=5),
+        )
+
+    def parse(raw: dict[str, Any]) -> bool:
+        if not raw.get("ok"):
+            raise script_assist.UnusableAnswerError("ok: must be true")
+        return True
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    answer = await script_assist.ask_json("d", "i", parse=parse, tenant_leg=GOOGLE_LEG)
+
+    assert answer.value is True and answer.capability.provider == "google"
+    assert len(seen) == 2 and "ok: must be true" in seen[1]
+    assert answer.usage is not None and answer.usage.prompt_tokens == 20
+
+
+async def test_an_answer_still_unusable_says_so_rather_than_that_nothing_answered(
+    gemini: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: the model answered twice in a shape the parse refused and the standby was
+    unreachable, and the owner is told no assistant answered (production, 18 Oct 2026)."""
+
+    async def _complete(leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any) -> Any:
+        if leg.dialect != "google":
+            raise httpx.ConnectTimeout("standby unreachable")
+        return chat.ChatOutcome(
+            content='{"ok": false}',
+            finish_reason="stop",
+            usage=chat.TokenUsage(prompt_tokens=10, output_tokens=5),
+        )
+
+    def parse(raw: dict[str, Any]) -> bool:
+        raise script_assist.UnusableAnswerError("ok: must be true")
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    with pytest.raises(ProblemError) as refused:
+        await script_assist.ask_json("d", "i", parse=parse, tenant_leg=GOOGLE_LEG)
+    assert refused.value.code == script_assist.ANSWER_UNUSABLE_CODE
