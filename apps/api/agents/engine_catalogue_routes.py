@@ -313,8 +313,9 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
 
 
 def _own_model_rows() -> list[EngineCatalogueModelOut]:
-    """The Google models of our key an operator may put an agent on (D-764): selectable, our
-    key installed and the price attested. Their cost is ours; the client's minute price is
+    """The Google models of our key an operator may put an agent on (D-764, D-817): permitted
+    on our own-model leg with no Google access limit, our key installed and the price
+    attested. Their cost is ours; the client's minute price is
     the voice's, so each is offered with no band."""
     return [
         EngineCatalogueModelOut(

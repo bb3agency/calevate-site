@@ -38,7 +38,7 @@ from apps.api.engine.catalogue import OwnVoiceKeyState
 from apps.api.engine.thinnest import BASE_URL, ThinnestEngine, parse_llm_usage
 from apps.api.engine.thinnest_workspace import in_workspace
 from apps.workers import pipeline
-from calevate_shared.engine import AgentConfig, AgentSnapshot
+from calevate_shared.engine import THINNEST_OWN_MODEL_DEFAULT, AgentConfig, AgentSnapshot
 from calevate_shared.events import CallLlmUsage
 from tests.hosted_voice_fakes import HostingEngine
 
@@ -456,7 +456,9 @@ def readiness_inputs(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(own_model, "own_model_workspaces", _workspaces)
     monkeypatch.setattr(own_model, "dashboard_data_use_attested", lambda: state["data_use"])
     monkeypatch.setattr(own_model, "unofferable_reason", lambda model, **_: None)
-    monkeypatch.setattr(own_model, "offerable_models", lambda: frozenset({"gemini-2.5-flash-lite"}))
+    monkeypatch.setattr(
+        own_model, "own_model_offerable_models", lambda: frozenset({"gemini-3.1-flash-lite"})
+    )
     monkeypatch.setattr(get_settings(), "gemini_api_key", "AIza-test")
     return state
 
@@ -720,7 +722,7 @@ def own_model_on(monkeypatch: pytest.MonkeyPatch, attested: set[str]) -> set[str
 
     monkeypatch.setattr(get_settings(), "thinnest_own_model", True)
     monkeypatch.setattr(get_settings(), "gemini_api_key", "AIza-test")
-    monkeypatch.setattr(own_model, "offerable_own_models", lambda: ("gemini-2.5-flash-lite",))
+    monkeypatch.setattr(own_model, "offerable_own_models", lambda: (THINNEST_OWN_MODEL_DEFAULT,))
     monkeypatch.setattr(service, "attested_rate_keys", _keys)
     attested.add("byok_llm_voice")
     return attested
@@ -753,10 +755,10 @@ async def test_a_clear_agent_on_our_model_keeps_its_band_and_runs_our_key_in_its
         ref = await _publish(tenant_id, agent_id)
     assert isinstance(engine, _PublishingEngine)
     sent = engine.sent[-1]
-    assert (sent.engine_own_voice_key, sent.engine_own_model) == (False, "gemini-2.5-flash-lite")
+    assert (sent.engine_own_voice_key, sent.engine_own_model) == (False, THINNEST_OWN_MODEL_DEFAULT)
     assert engine.model_keys_in == [workspace_of(UUID(str(tenant_id)))]
     assert engine.key_state.llm_provider is None  # never our developer workspace
-    assert await _route_model(tenant_id, ref) == ("studio", "gemini-2.5-flash-lite")
+    assert await _route_model(tenant_id, ref) == ("studio", THINNEST_OWN_MODEL_DEFAULT)
 
 
 async def test_a_studio_agent_on_our_model_meters_the_own_voice_and_model_minute(
@@ -773,12 +775,12 @@ async def test_a_studio_agent_on_our_model_meters_the_own_voice_and_model_minute
         ref = await _publish(tenant_id, agent_id)
     assert isinstance(engine, _PublishingEngine)
     sent = engine.sent[-1]
-    assert (sent.engine_own_voice_key, sent.engine_own_model) == (True, "gemini-2.5-flash-lite")
+    assert (sent.engine_own_voice_key, sent.engine_own_model) == (True, THINNEST_OWN_MODEL_DEFAULT)
     ws = workspace_of(UUID(str(tenant_id)))
     # Studio's workspace keeps its own scope; our model key is added beside our voice key.
     assert engine.workspace_keys[ws].scope == "voice"
     assert engine.workspace_keys[ws].llm_provider == "google"
-    assert await _route_model(tenant_id, ref) == ("byok_llm_voice", "gemini-2.5-flash-lite")
+    assert await _route_model(tenant_id, ref) == ("byok_llm_voice", THINNEST_OWN_MODEL_DEFAULT)
 
 
 async def test_a_studio_agent_on_our_model_is_refused_while_its_minute_is_unpriced(

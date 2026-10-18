@@ -63,7 +63,7 @@ from apps.api.agents.lead_fields import business_type_label
 from apps.api.agents.llm_models import resolve_llm_model
 from apps.api.agents.turn_checks import claims_done
 from apps.api.agents.voices import voice_tier
-from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
+from apps.api.billing.ai_quota import cache_log_fields, new_assist_ref, record_ai_assist_usage
 from apps.api.billing.caps import (
     CAPS_CTE,
     announce_cap_headroom,
@@ -79,7 +79,11 @@ from apps.api.billing.engine_minutes import (
     engine_minute_cost,
 )
 from apps.api.billing.lots import CallDemand
-from apps.api.billing.models import ASSIST_FEATURE_CALL_EXTRACTION, ASSIST_FEATURE_CALL_LANGUAGE
+from apps.api.billing.models import (
+    ASSIST_FEATURE_CALL_EXTRACTION,
+    ASSIST_FEATURE_CALL_LANGUAGE,
+    LLM_CACHED_UNIT_TYPE,
+)
 from apps.api.billing.plans import (
     OVERAGE_RATE_SECOND_SQL,
     ist_billing_month,
@@ -87,11 +91,13 @@ from apps.api.billing.plans import (
     plan_in_effect_sql,
 )
 from apps.api.billing.rates import (
+    CACHED_TOKENS_PER_UNIT,
     MONEY_Q,
     PREPAID_TIERS,
     ROUNDING,
     VALUE_VOICE_TIER,
     VoiceTier,
+    cached_input_inr_per_unit,
     client_billed_minutes,
     client_billed_seconds,
     llm_inr_per_ktok,
@@ -3258,17 +3264,38 @@ def _own_model_rows(
     own account (snapshots/2026-10-18/pages/api-reference/calls/get-call.md:1180-1181;
     ThinnestAI email of 18 Oct 2026, VENDOR-STATED), so no cost of ours is owed for them.
 
-    Cached input tokens are priced as ordinary input: no cached-input price is attested, and
-    the dearer figure keeps the margin honest (hard rule 7). Whether Google bills a cached
-    token at its cached rate is Google's decision; the engine only passes on the count the
-    provider returned (get-call.md:1201-1207). A model with no billable price
-    meters its tokens with no cost and alarms, as an unattested minute does; a call the
-    engine counted no tokens for (a missed call, a forward) writes nothing."""
+    Input Google served from its prompt cache is its own `llm_10ktok_cached_in` row at the
+    attested cached rung (D-817, the call-side twin of D-816's `ai_assist_10ktok_cached_in`):
+    `cachedInputTokens` is "How many of `inputTokens` the provider served from its cache",
+    null when the provider reports none (get-call.md:1201-1207), and `inputTokens` includes
+    them (:1189-1194). Only when BOTH a count was reported and a rung is attested; otherwise
+    every input token is priced at the input rate, which is what the invoice says when
+    nothing is known to be cheaper (hard rule 7). `llm_ktok_in` is written either way, with
+    the uncached remainder, because the prompt-size floor samples a call by that row
+    (`billing/own_model_prompt`). A model with no billable price meters its tokens with no
+    cost and alarms, as an unattested minute does; a call the engine counted no tokens for
+    (a missed call, a forward) writes nothing.
+
+    Logs the counts (`own_model_call_metered`) so an operator can read the in-call cache hit
+    rate; the same counts are in every row's meta (`llm_input_tokens`,
+    `llm_cached_input_tokens`)."""
     if usage is None or (usage.input_tokens is None and usage.output_tokens is None):
         return []
-    tokens_in = Decimal(usage.input_tokens or 0) / _THOUSAND
+    log.info(
+        "own_model_call_metered",
+        extra={
+            "call_id": str(call_id),
+            "tenant_id": str(tenant_id),
+            "model": model,
+            "output_count": usage.output_tokens,
+            **cache_log_fields(
+                tokens_in=usage.input_tokens or 0, cached_tokens_in=usage.cached_input_tokens
+            ),
+        },
+    )
     tokens_out = Decimal(usage.output_tokens or 0) / _THOUSAND
     if not llm_price_is_billable(model):
+        tokens_in = Decimal(usage.input_tokens or 0) / _THOUSAND
         alert(
             "WORKER_TERMINAL",
             "own_model_tokens_unpriced",
@@ -3282,7 +3309,16 @@ def _own_model_rows(
         )
         return [("llm_ktok_in", tokens_in, None), ("llm_ktok_out", tokens_out, None)]
     price = llm_inr_per_ktok(model)
-    return [("llm_ktok_in", tokens_in, price["in"]), ("llm_ktok_out", tokens_out, price["out"])]
+    total_in = usage.input_tokens or 0
+    cached_rate = cached_input_inr_per_unit(model) if usage.cached_input_tokens else None
+    cached = min(usage.cached_input_tokens or 0, total_in) if cached_rate is not None else 0
+    rows: list[tuple[str, Decimal, Decimal | None]] = [
+        ("llm_ktok_in", Decimal(total_in - cached) / _THOUSAND, price["in"]),
+        ("llm_ktok_out", tokens_out, price["out"]),
+    ]
+    if cached:
+        rows.append((LLM_CACHED_UNIT_TYPE, Decimal(cached) / CACHED_TOKENS_PER_UNIT, cached_rate))
+    return rows
 
 
 def _engine_minute_voice_tier(

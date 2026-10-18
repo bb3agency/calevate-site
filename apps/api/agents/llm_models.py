@@ -112,10 +112,12 @@ from typing import Final, Literal, get_args
 from calevate_shared.engine import (
     LLM_MODELS,
     OFF_CALL_LLM_MODELS,
+    OWN_MODEL_CALL_LLM_MODELS,
     SELECTABLE_LLM_MODELS,
     LlmProvider,
     leg_for_model,
 )
+from calevate_shared.model_lifecycle import MODEL_LIFECYCLE
 
 from apps.api.billing.rates import (
     PRICED_LLM_MODELS,
@@ -392,7 +394,20 @@ CLIENT_UNAVAILABLE_REASON: Final = (
 )
 
 
-def _operator_unofferable_reason(model: str, *, off_call: bool = False) -> str | None:
+#: Why our own model on a call may not run a model Google limits to earlier users (D-817).
+#: Our Google project is a new one for Gemini 2.5: it answers 404 "no longer available to
+#: new users" on both 2.5 models (live test, 18 Oct 2026), and a call on our key has no
+#: backup model, so the caller would hear an apology on every turn.
+ACCESS_RESTRICTED_REASON: Final = (
+    "Google limits who may call this model, and our Google project gets 'no longer available "
+    "to new users' on it, so a call on it would fail. Choose a model a new Google project can "
+    "call"
+)
+
+
+def _operator_unofferable_reason(
+    model: str, *, off_call: bool = False, own_model_call: bool = False
+) -> str | None:
     """The OPERATOR ground — which of the three conditions failed, named so an operator can
     act on it. `unofferable_reason` is the audience-aware wrapper; this is its truth.
 
@@ -408,12 +423,23 @@ def _operator_unofferable_reason(model: str, *, off_call: bool = False) -> str |
 
     `off_call` widens only the merit condition, to `OFF_CALL_LLM_MODELS` (D-786); the
     key and the billable price are asked exactly as for a call.
+
+    `own_model_call` asks for ThinnestAI calls on our Google key (D-817): the merit condition
+    is `OWN_MODEL_CALL_LLM_MODELS`, and a model Google limits to earlier users
+    (`ModelLifecycle.access_restriction`) is refused before the key is asked, because no key
+    or price makes it answer our project.
     """
-    if model not in (OFF_CALL_LLM_MODELS if off_call else SELECTABLE_LLM_MODELS):
+    if own_model_call:
+        merit = OWN_MODEL_CALL_LLM_MODELS
+    else:
+        merit = OFF_CALL_LLM_MODELS if off_call else SELECTABLE_LLM_MODELS
+    if model not in merit:
         spec = LLM_MODELS.get(model)
         # A withdrawn model carries its own sentence and it is a better one than any generic
         # phrasing here: it names the trap, the price or the unread page that withheld it.
         return (spec.withdrawn_reason if spec else None) or "this platform does not run it"
+    if own_model_call and MODEL_LIFECYCLE[model].access_restriction:
+        return ACCESS_RESTRICTED_REASON
     leg = leg_for_model(model)
     if leg.provider not in installed_llm_providers():
         return NO_CREDENTIAL_REASON
@@ -425,7 +451,11 @@ def _operator_unofferable_reason(model: str, *, off_call: bool = False) -> str |
 
 
 def unofferable_reason(
-    model: str, *, audience: LlmReasonAudience = "operator", off_call: bool = False
+    model: str,
+    *,
+    audience: LlmReasonAudience = "operator",
+    off_call: bool = False,
+    own_model_call: bool = False,
 ) -> str | None:
     """Why `model` cannot be offered here, or `None` when it can — in the AUDIENCE's language.
 
@@ -439,7 +469,7 @@ def unofferable_reason(
     Default `"operator"` so every existing caller — the guards, the publish path, `offerable_
     models`, the tests — keeps its current behaviour unchanged; the client realm opts in.
     """
-    reason = _operator_unofferable_reason(model, off_call=off_call)
+    reason = _operator_unofferable_reason(model, off_call=off_call, own_model_call=own_model_call)
     if reason is None or audience == "operator":
         return reason
     return CLIENT_UNAVAILABLE_REASON
@@ -485,6 +515,18 @@ def off_call_offerable_models() -> frozenset[str]:
     """
     return frozenset(
         model for model in OFF_CALL_LLM_MODELS if unofferable_reason(model, off_call=True) is None
+    )
+
+
+def own_model_offerable_models() -> frozenset[str]:
+    """The Google models a ThinnestAI call on our key may run right now (D-817): permitted on
+    that leg (`OWN_MODEL_CALL_LLM_MODELS`), not limited by Google to earlier users, our key
+    installed and the price attested. Clients choose none of them (D-750); this is what an
+    operator may put an agent on and what the console default must be."""
+    return frozenset(
+        model
+        for model in OWN_MODEL_CALL_LLM_MODELS
+        if unofferable_reason(model, own_model_call=True) is None
     )
 
 
@@ -960,6 +1002,7 @@ def validate_llm_model(
 
 
 __all__ = [
+    "ACCESS_RESTRICTED_REASON",
     "ASSISTANT_MODEL_SETTINGS",
     "CLIENT_DASHBOARD_UNAVAILABLE_REASON",
     "CLIENT_UNAVAILABLE_REASON",
@@ -993,6 +1036,7 @@ __all__ = [
     "installed_llm_providers",
     "off_call_offerable_models",
     "offerable_models",
+    "own_model_offerable_models",
     "platform_default_model",
     "quoted_inr_per_minute",
     "resolve_llm_model",

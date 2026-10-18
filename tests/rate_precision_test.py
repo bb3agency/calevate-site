@@ -99,6 +99,8 @@ UNIT_RATE_SHAPE: dict[str, str] = {
     # Prompt-cache hits at the attested cached rung, per TEN thousand tokens (D-816); the
     # attestation form refuses a figure the column cannot hold at that unit.
     "ai_assist_10ktok_cached_in": "struck",
+    # A call's cache hits on our own model, the same rung and unit (D-817).
+    "llm_10ktok_cached_in": "struck",
 }
 
 

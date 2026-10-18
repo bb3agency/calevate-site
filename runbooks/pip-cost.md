@@ -18,6 +18,9 @@ Every metered assist logs `ai_assist_metered` (client accounts) or
   `null` while Google's own billing shows cache savings. Compare the month's ledger with the
   Google Cloud billing export for the same model before concluding anything.
 
+Phone calls on our own Google key (D-817) log the same counts as `own_model_call_metered`;
+their hit-rate query is in `runbooks/thinnest-own-model.md` §3.
+
 ## 2. Price cached input at the cached rate
 
 Ops console → model prices → the model → "Update price". Enter the input, output and

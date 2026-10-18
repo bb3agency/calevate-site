@@ -27,13 +27,28 @@ switch is refused (`own_model_not_ready`) until they are done.
 1. Save the Google (Gemini) API key in the ops console Secrets panel (`gemini_api_key`). Test it
    there first.
 2. Attest the Gemini price of the default model, `thinnest_own_model_default`
-   (`gemini-2.5-flash-lite` unless changed), and of any other Gemini model agents may run
+   (`gemini-3.1-flash-lite` unless changed, D-817), with its **cached input** figure from the
+   same invoice (US$0.025 per 1M on Google's list, ai.google.dev/gemini-api/docs/pricing,
+   updated 2026-10-16), and of any other Gemini model agents may run
    (ops console, model pricing), from the Google invoice. An unattested model is not offered.
 3. Attest the Google data-use position (Models, dashboard data use: `google`): the project is on
    the paid tier and log sharing is off (OPERATIONS §2 gate 41). Raw caller speech goes through
    this key on every turn of every call.
 4. Attest the `byok_llm_voice` per-minute rate (ops console, Per-minute rates; VENDOR-PUBLISHED
    ₹1.00/min, `bring-your-own-keys.md:26-29`).
+
+### The card says the default model is "no longer available to new users"
+
+The stored console value is a Gemini 2.5 model. Google limits 2.5 to projects that used it
+before, and our project gets 404 on both 2.5 models (live test, 18 Oct 2026), so the default
+is refused on this leg (D-817): the card is not ready, the switch cannot go on, and every
+publish on our model is refused with `own_model_not_offered` rather than placing calls that
+would fail. Fix: attest `gemini-3.1-flash-lite` (step 2), then Platform configuration
+(`/admin/ops/config?section=voice-engine`) → Voice
+engine → "Our language model for agents with none chosen" → **Change** to
+`gemini-3.1-flash-lite` and save (or **Reset to default**, which is the same model). Saving
+the same 2.5 value again is refused. Agents an operator put on a 2.5 model of their own
+(`byok:gemini-2.5-…` on the admin agent page) fall back to the default at their next publish.
 
 ## 2. Switch it on
 
@@ -55,7 +70,8 @@ test call on each set-up (step 3) passes (OPERATIONS §2 gate T-29).
    model and rate key the meter reads. The live-apply run lists any agent not applied.
 3. Place one test call on a Clear agent and one on a Studio agent of a paying client
    (OPERATIONS §2 gate T-29). On each: the reply comes from Gemini (the call's usage shows
-   tokens), the usage rows show `llm_ktok_in` / `llm_ktok_out` with a cost, and the
+   tokens), the usage rows show `llm_ktok_in` / `llm_ktok_out` with a cost (plus
+   `llm_10ktok_cached_in` when the cache was hit and its rung is attested), and the
    `platform_min` row's `meta.engine_rate_key` is the band's (Clear) or `byok_llm_voice`
    (Studio).
 
@@ -75,6 +91,27 @@ test call on each set-up (step 3) passes (OPERATIONS §2 gate T-29).
   `engine_call_own_key_failed`; the caller heard ThinnestAI's apology for that turn. The alarm
   ends with ThinnestAI's own sentence about the failure (`detail`, one line, long numbers
   masked, D-769), which is the best indication of which key failed and why.
+- **Is Google's prompt cache being hit on calls?** (D-817) Every metered own-model call logs
+  `own_model_call_metered` with `model`, `input_count`, `cached_input_count` and
+  `output_count` (counts only). `cached_input_count` null means ThinnestAI reported no cached
+  figure, which is not zero hits. From the ledger, per client (run in that client's tenant
+  session; RLS scopes it):
+
+  ```sql
+  SELECT meta->>'own_model' AS model,
+         sum((meta->>'llm_cached_input_tokens')::numeric)
+           / NULLIF(sum((meta->>'llm_input_tokens')::numeric), 0) AS hit_rate,
+         count(*) AS calls
+  FROM usage_events
+  WHERE unit_type = 'llm_ktok_in' AND meta->>'own_model' IS NOT NULL
+    AND meta->>'llm_cached_input_tokens' IS NOT NULL
+    AND occurred_at >= now() - interval '1 day'
+  GROUP BY 1;
+  ```
+
+  One row per call (`llm_ktok_in` is written on every metered call). Cached tokens are billed
+  at the cached rung only once its figure is attested (§1 step 2); the call then carries an
+  `llm_10ktok_cached_in` row and `llm_ktok_in` holds the rest.
 - **A key gone at call start** does not fail the call: it runs on the workspace's default scope
   and is billed for what ran (ThinnestAI, 14 Oct 2026). On a Studio agent the charge
   reconciliation then raises `engine_call_cost_variance` against the `byok_llm_voice` minute,
@@ -98,5 +135,5 @@ in each client workspace and costs nothing while no agent names a model scope.
 | `own_model_workspace_not_ready` | The read-back did not show our checked Google key in use. | Retry; read the workspace's keys on ThinnestAI. |
 | `own_model_account_not_ready` | A client's publish was refused for one of the above (the client saw no vendor name). | Retry with the enable route. |
 | `own_model_minute_unpriced` | A Studio publish on our model with `byok_llm_voice` unattested. | §1 step 4. |
-| `own_model_not_offered` | An agent named a Gemini model that is not offerable, or our model is off. | Attest the model's price, or choose another. |
+| `own_model_not_offered` | An agent named a Gemini model that is not offerable (no key, no attested price, or one Google limits to earlier users, such as 2.5), or our model is off. | Attest the model's price, or choose another; for a 2.5 default see §1. |
 | `engine_own_model_unavailable` | ThinnestAI refused the agent's model (`PUT /agents/{id}/byok-model`). | Choose a model our key reaches. |

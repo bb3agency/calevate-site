@@ -1480,7 +1480,8 @@ class OwnModelOut(Strict):
     #: The model an agent with none of its own runs (`thinnest_own_model_default`).
     default_model: str
     google_key_configured: bool
-    #: The default model is selectable, its key installed and its price attested.
+    #: The default model is permitted on our own-model leg, not limited by Google to earlier
+    #: users, its key installed and its price attested (D-817).
     default_offerable: bool
     #: Why it is not, for an operator; null when it is.
     default_reason: str | None

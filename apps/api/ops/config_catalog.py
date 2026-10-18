@@ -290,8 +290,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "voice-engine",
         "thinnest",
         "Our language model for agents with none chosen",
-        "The Gemini model an agent answers with on our own model when it names none. Must "
-        "have our Google key installed and its price attested.",
+        "The Gemini model agents on our own model use when they name none. Not 2.5 (Google "
+        "refuses it to our project); needs our Google key and an attested price.",
         _THINNEST,
     ),
     "thinnest_reply_languages": _m(
