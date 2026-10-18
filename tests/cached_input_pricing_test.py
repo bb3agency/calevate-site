@@ -241,3 +241,12 @@ async def test_an_operator_attests_a_cached_rung_and_billing_reads_it() -> None:
     assert stored.cached_input_usd_per_mtok == Decimal("0.025")
     attestation = pricing_snapshot._to_attestation(stored)
     assert attestation is not None and attestation.cached_input_usd_per_mtok == Decimal("0.025")
+
+
+def test_the_cache_counts_survive_the_log_redactor() -> None:
+    """An operator reads the hit rate from these fields; a redacted count reads as nothing."""
+    from apps.api.billing.ai_quota import cache_log_fields
+    from apps.api.core.logging import redact_mapping
+
+    fields = cache_log_fields(tokens_in=6000, cached_tokens_in=4096)
+    assert redact_mapping(dict(fields)) == {"input_count": 6000, "cached_input_count": 4096}

@@ -7,12 +7,12 @@ quality and cut the cost (D-816).
 ## 1. Is the provider's prompt cache being hit?
 
 Every metered assist logs `ai_assist_metered` (client accounts) or
-`platform_ai_assist_metered` (the admin console) with `feature`, `model`, `tokens_in` and
-`cached_tokens_in`. Counts only; no question or answer is logged.
+`platform_ai_assist_metered` (the admin console) with `feature`, `model`, `input_count` and
+`cached_input_count`. Counts only; no question or answer is logged.
 
-* `cached_tokens_in` is a number: the provider reported its cache hits. Hit rate =
-  sum(`cached_tokens_in`) / sum(`tokens_in`) over a day, per `feature`.
-* `cached_tokens_in` is `null`: the provider sent no cached count, which is NOT zero hits.
+* `cached_input_count` is a number: the provider reported its cache hits. Hit rate =
+  sum(`cached_input_count`) / sum(`input_count`) over a day, per `feature`.
+* `cached_input_count` is `null`: the provider sent no cached count, which is NOT zero hits.
   Google documents no cached field on its OpenAI-compatible surface
   (ai.google.dev/gemini-api/docs/openai, read 18 Oct 2026), so Gemini answers may show
   `null` while Google's own billing shows cache savings. Compare the month's ledger with the

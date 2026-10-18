@@ -1045,12 +1045,17 @@ def assist_ledger_rows(
 
 
 def cache_log_fields(*, tokens_in: int, cached_tokens_in: int | None) -> dict[str, object]:
-    """Counts an operator reads the prompt-cache hit rate from (D-816). Counts only."""
+    """Counts an operator reads the prompt-cache hit rate from (D-816). Counts only.
+
+    Named without "token": the log redactor blanks every key containing it
+    (`core/logging.REDACT_KEYS`), which is right for credentials and left these counts
+    reading "[redacted]" in production.
+    """
     return {
-        "tokens_in": tokens_in,
+        "input_count": tokens_in,
         # `None` is "the provider sent no cached count", which is not "zero hits": the
         # Gemini OpenAI-compatible surface documents no such field.
-        "cached_tokens_in": cached_tokens_in,
+        "cached_input_count": cached_tokens_in,
     }
 
 
