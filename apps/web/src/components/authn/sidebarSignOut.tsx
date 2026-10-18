@@ -47,6 +47,8 @@ import { useMutation } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
 
 import { SidebarLabel } from "@/components/sidebarCollapse";
+import { TEXT_ACTION } from "@/components/console/section";
+import { NoticeBox } from "@/components/ui";
 
 /**
  * The query parameter a sign-in screen can read to explain an incomplete sign-out.
@@ -125,23 +127,20 @@ export function SidebarSignOut({ authn, signInPath, isCollapsed }: SidebarSignOu
     {refused && !isCollapsed && (
       // `role="alert"`, because this appears after an action the person took and a screen
       // reader is otherwise never told the control did anything.
-      <div
+      <NoticeBox
+        tone="warn"
         role="alert"
-        className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs leading-snug text-amber-800 dark:text-amber-300"
+        title="Signed out on this device only"
+        className="text-meta"
+        action={
+          <button type="button" onClick={() => leave(false)} className={TEXT_ACTION}>
+            Go to sign-in to end it everywhere
+          </button>
+        }
       >
-        <p className="font-semibold">Signed out on this device only</p>
-        <p className="mt-1">
-          Calevate could not be reached, so this session may still be open elsewhere until
-          it times out.
-        </p>
-        <button
-          type="button"
-          onClick={() => leave(false)}
-          className="mt-2 font-semibold underline underline-offset-2"
-        >
-          Go to sign-in to end it everywhere
-        </button>
-      </div>
+        Calevate could not be reached, so this session may still be open elsewhere until it
+        times out.
+      </NoticeBox>
     )}
     </div>
   );

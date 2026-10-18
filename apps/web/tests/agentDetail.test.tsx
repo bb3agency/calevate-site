@@ -12,6 +12,7 @@ import type { Agent } from "@/lib/api/agents";
 import { ENGINE_CATALOGUE_PATH } from "@/lib/api/engineCatalogue";
 import type { PendingState } from "@/lib/api/publishing";
 import { EMPTY_SCRIPT } from "@/lib/api/script";
+import { useCopilotSurfaceHolder, type SurfaceHolder } from "@/lib/copilot/registry";
 
 import { problem, renderClientPage } from "./harness";
 import { businessProfileFixture } from "./businessProfileFixture";
@@ -2287,5 +2288,122 @@ describe("what this agent spent this month", () => {
     await screen.findByText("Reception");
     expect(screen.queryByText(/this month/)).toBeNull();
     expect(calls.some((call) => call.path === AGENT_SPEND_PATH)).toBe(false);
+  });
+});
+
+/*
+ * D-826: the assistant sees a whole tab, the header's way into Training respects unsaved
+ * edits, and real calls lead Training while they left questions open.
+ */
+const seen: { holder: SurfaceHolder | null } = { holder: null };
+function SurfaceProbe() {
+  seen.holder = useCopilotSurfaceHolder();
+  return null;
+}
+
+describe("the assistant sees every panel on a tab (D-826)", () => {
+  beforeEach(() => {
+    seen.holder = null;
+  });
+
+  it("reads call handling, the model and what the agent is together on Settings", async () => {
+    openSection("settings");
+    await renderClientPage(
+      <>
+        {page}
+        <SurfaceProbe />
+      </>,
+      routes(),
+    );
+    await screen.findByRole("heading", { level: 3, name: "What it is" });
+    await waitFor(() => {
+      const surface = seen.holder?.read();
+      const facts = surface?.facts?.map((fact) => fact.key) ?? [];
+      expect(facts).toEqual(expect.arrayContaining(["agent_id", "call_cap_s", "tier"]));
+      expect(surface?.fields.map((field) => field.id)).toEqual(
+        expect.arrayContaining(["agent-name", "agent-direction", "agent-language"]),
+      );
+    });
+    expect(seen.holder?.read().title).toBe("Agent: settings (Reception)");
+  });
+
+  it("fills a field on its own panel, and keeps the teach box beside the trial number on Training", async () => {
+    openSection("training");
+    await renderClientPage(
+      <>
+        {page}
+        <SurfaceProbe />
+      </>,
+      routes(TRAINING_READS),
+    );
+    await screen.findByRole("heading", { level: 3, name: "Teach your agents" });
+    await waitFor(() => expect(seen.holder?.read().fields.map((field) => field.id)).toContain("kb-teach"));
+    await act(async () => {
+      seen.holder?.read().apply([{ field_id: "kb-teach", value: "We open at 9." }]);
+    });
+    expect((screen.getByLabelText(/What should your agents know/) as HTMLTextAreaElement).value).toBe(
+      "We open at 9.",
+    );
+  });
+});
+
+describe("Training leads with real calls while they left questions open (D-826)", () => {
+  beforeEach(() => openSection("training"));
+
+  const OPEN_GAP = {
+    "/v1/knowledge-gaps?agent_id=agent-1&status=open&limit=20": {
+      items: [
+        {
+          id: "gap-1",
+          agent_id: "agent-1",
+          agent_name: "Reception",
+          signal: "dont_know",
+          topic_label: "Do you open on Sundays?",
+          example_answer: "I am not sure.",
+          occurrence_count: 2,
+          call_count: 2,
+          status: "open",
+          first_seen_at: "2026-10-18T09:00:00Z",
+          last_seen_at: "2026-10-18T09:00:00Z",
+          last_call_id: "call-1",
+        },
+      ],
+      open_count: 1,
+      total: 1,
+    },
+  };
+  const order = () =>
+    screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent?.trim() ?? "");
+
+  it("puts Where it struggled first when there are open questions", async () => {
+    await renderClientPage(page, routes({ ...TRAINING_READS, ...OPEN_GAP }));
+    await screen.findByText("Do you open on Sundays?");
+    const headings = order();
+    expect(headings.indexOf("Where it struggled on real calls")).toBeLessThan(headings.indexOf("Teach your agents"));
+  });
+
+  it("keeps the founder's order when nothing is open", async () => {
+    await renderClientPage(page, routes(TRAINING_READS));
+    await screen.findByText("Nothing unanswered");
+    const headings = order();
+    expect(headings.indexOf("Teach your agents")).toBeLessThan(headings.indexOf("Where it struggled on real calls"));
+  });
+});
+
+describe("the header's Try it asks before leaving unsaved edits (D-826)", () => {
+  it("opens the leave-without-saving dialog instead of switching to Training", async () => {
+    openSection("settings");
+    await renderClientPage(page, routes());
+    const panel = (await screen.findByRole("heading", { level: 3, name: "What it is" })).closest("section") as HTMLElement;
+    await act(async () => {
+      fireEvent.change(within(panel).getByLabelText(/^Name/), { target: { value: "Front desk" } });
+    });
+    const tryIt = screen.getByRole("link", { name: "Try it" });
+    expect(tryIt.getAttribute("href")).toBe("/c/acme/agents/agent-1?section=training");
+    await act(async () => {
+      fireEvent.click(tryIt);
+    });
+    expect(await screen.findByRole("dialog", { name: "Leave without saving?" })).toBeTruthy();
+    expect(nav.push).not.toHaveBeenCalled();
   });
 });

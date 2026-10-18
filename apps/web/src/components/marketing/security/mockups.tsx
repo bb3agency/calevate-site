@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { Eye } from "lucide-react";
+import { Check, Eye } from "lucide-react";
 
 import { Bar, MaskedPhone, Panel, Tag } from "@/components/marketing/home/mockups/kit";
 
@@ -133,8 +133,8 @@ export function CallingWindowMock() {
       </span>
       <span className="mk-rise mk-s2 flex flex-col gap-1.5 rounded-lg border border-line bg-surface p-3">
         <span className="flex items-center gap-2 text-[12px] font-medium text-ink">
-          <span className="flex h-3.5 w-3.5 items-center justify-center rounded-sm bg-brand-strong text-[9px] text-white">
-            ✓
+          <span className="flex h-3.5 w-3.5 items-center justify-center rounded-sm bg-brand-strong text-white">
+            <Check aria-hidden className="h-2.5 w-2.5" strokeWidth={3} />
           </span>
           Only call during specific hours
         </span>

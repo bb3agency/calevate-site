@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { useTabs } from "@/components/interior/tabs";
@@ -25,6 +34,27 @@ export type SettingsSection = {
 export const SECTION_PARAM = "section";
 
 const NO_ALIASES: Readonly<Record<string, string>> = {};
+
+/**
+ * A link to another section from outside the menu (the agent header's "Try it"), taking the
+ * same unsaved-edits guard as the menu: while a form in the open section is dirty, following
+ * it opens the "Leave without saving?" dialog instead of switching. Only a `header` passed to
+ * the layout can reach it; anywhere else it is `null` and the caller keeps a plain link.
+ */
+export type SectionLink = {
+  href: string;
+  /** For a link: lets it navigate, or holds it while there are unsaved edits. */
+  onClick: (event: MouseEvent<HTMLAnchorElement>) => void;
+  /** For a menu item that is not a link: switches, or asks first. */
+  go: () => void;
+};
+
+const SectionLinks = createContext<((id: string) => SectionLink) | null>(null);
+
+export function useSectionLink(id: string): SectionLink | null {
+  const linkTo = useContext(SectionLinks);
+  return linkTo ? linkTo(id) : null;
+}
 
 /**
  * Which section is open: the URL's, when it names one of `sections` (directly or through
@@ -96,6 +126,7 @@ export function SettingsLayout({
   param = SECTION_PARAM,
   menu = "column",
   aliases,
+  header,
   className = "",
 }: {
   /** Names the section menu: "Agent settings". */
@@ -111,6 +142,8 @@ export function SettingsLayout({
    */
   menu?: "column" | "row" | "tabs";
   aliases?: Readonly<Record<string, string>>;
+  /** Drawn above the menu, where `useSectionLink` works. */
+  header?: ReactNode;
   className?: string;
 }) {
   const pathname = usePathname();
@@ -147,6 +180,19 @@ export function SettingsLayout({
     return `${pathname}?${next.toString()}`;
   };
   const current = sections.find((s) => s.id === active);
+  const linkTo = (id: string): SectionLink => ({
+    href: hrefFor(id),
+    onClick: (event) => {
+      if (id === active || drafts.current.size === 0) return;
+      event.preventDefault();
+      setPending(id);
+    },
+    go: () => {
+      if (id === active) return;
+      if (drafts.current.size > 0) setPending(id);
+      else router.push(hrefFor(id), { scroll: false });
+    },
+  });
 
   const confirm =
     pending !== null ? (
@@ -172,108 +218,107 @@ export function SettingsLayout({
 
   if (menu === "tabs") {
     return (
-      <TabbedSections
-        label={label}
-        sections={inPlace}
-        active={active}
-        className={className}
-        onPick={(id) => {
-          if (id === active) return;
-          if (drafts.current.size > 0) {
-            setPending(id);
-            return;
-          }
-          router.push(hrefFor(id), { scroll: false });
-        }}
-      >
-        <UnsavedRegistry.Provider value={registry}>{renderSection(active)}</UnsavedRegistry.Provider>
-        {confirm}
-      </TabbedSections>
+      <SectionLinks.Provider value={linkTo}>
+        {header}
+        <TabbedSections
+          label={label}
+          sections={inPlace}
+          active={active}
+          className={className}
+          onPick={(id) => linkTo(id).go()}
+        >
+          <UnsavedRegistry.Provider value={registry}>{renderSection(active)}</UnsavedRegistry.Provider>
+          {confirm}
+        </TabbedSections>
+      </SectionLinks.Provider>
     );
   }
 
   return (
-    <div className={`${row ? "" : "gap-8 lg:grid lg:grid-cols-[200px_minmax(0,1fr)]"} ${className}`}>
-      {/* ONE list of links in both shapes — a scrolling row of pills on a phone, a sticky
-          column from `lg` — so each section has exactly one link in the document. */}
-      <nav aria-label={label} className={row ? "mb-5" : "mb-5 lg:sticky lg:top-2 lg:mb-0 lg:self-start"}>
-        <ScrollRegion
-          label={label}
-          className={`-mx-1 px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${row ? "" : "lg:mx-0 lg:overflow-visible lg:p-0"}`}
-        >
-          <ul className={row ? "flex w-max gap-1" : "flex w-max gap-1 lg:w-auto lg:flex-col lg:gap-0.5"}>
-            {sections.map((section) => {
-              const on = section.id === active;
-              return (
-                <li key={section.id}>
-                  <Link
-                    href={section.href ?? hrefFor(section.id)}
-                    scroll={false}
-                    aria-current={on ? "true" : undefined}
-                    aria-describedby={section.detail && !row ? `${param}-${section.id}-detail` : undefined}
-                    onClick={(event) => {
-                      if (on || section.href) return;
-                      if (drafts.current.size > 0) {
-                        event.preventDefault();
-                        setPending(section.id);
-                        return;
-                      }
-                      picked.current = true;
-                    }}
-                    className={`press flex min-h-9 items-center gap-2 whitespace-nowrap lg:py-1.5 rounded-full px-3.5 text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 ${row ? "" : "lg:justify-between lg:rounded-md lg:px-3 lg:text-[14px]"} ${
-                      on
-                        ? row
-                          ? "bg-ink text-surface"
-                          : "bg-ink text-surface lg:bg-ink/[0.06] lg:text-ink"
-                        : row
-                          ? "text-ink-muted hover:bg-ink/[0.05] hover:text-ink"
-                          : "text-ink-muted hover:bg-ink/[0.05] hover:text-ink lg:font-normal"
-                    }`}
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate">{section.label}</span>
-                      {section.detail && !row && (
-                        // Described, not named: the link's name stays the section's name.
+    <SectionLinks.Provider value={linkTo}>
+      {header}
+      <div className={`${row ? "" : "gap-8 lg:grid lg:grid-cols-[200px_minmax(0,1fr)]"} ${className}`}>
+        {/* ONE list of links in both shapes — a scrolling row of pills on a phone, a sticky
+            column from `lg` — so each section has exactly one link in the document. */}
+        <nav aria-label={label} className={row ? "mb-5" : "mb-5 lg:sticky lg:top-2 lg:mb-0 lg:self-start"}>
+          <ScrollRegion
+            label={label}
+            className={`-mx-1 px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${row ? "" : "lg:mx-0 lg:overflow-visible lg:p-0"}`}
+          >
+            <ul className={row ? "flex w-max gap-1" : "flex w-max gap-1 lg:w-auto lg:flex-col lg:gap-0.5"}>
+              {sections.map((section) => {
+                const on = section.id === active;
+                return (
+                  <li key={section.id}>
+                    <Link
+                      href={section.href ?? hrefFor(section.id)}
+                      scroll={false}
+                      aria-current={on ? "true" : undefined}
+                      aria-describedby={section.detail && !row ? `${param}-${section.id}-detail` : undefined}
+                      onClick={(event) => {
+                        if (on || section.href) return;
+                        if (drafts.current.size > 0) {
+                          event.preventDefault();
+                          setPending(section.id);
+                          return;
+                        }
+                        picked.current = true;
+                      }}
+                      className={`press flex min-h-9 items-center gap-2 whitespace-nowrap lg:py-1.5 rounded-full px-3.5 text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 ${row ? "" : "lg:justify-between lg:rounded-md lg:px-3 lg:text-[14px]"} ${
+                        on
+                          ? row
+                            ? "bg-ink text-surface"
+                            : "bg-ink text-surface lg:bg-ink/[0.06] lg:text-ink"
+                          : row
+                            ? "text-ink-muted hover:bg-ink/[0.05] hover:text-ink"
+                            : "text-ink-muted hover:bg-ink/[0.05] hover:text-ink lg:font-normal"
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate">{section.label}</span>
+                        {section.detail && !row && (
+                          // Described, not named: the link's name stays the section's name.
+                          <span
+                            id={`${param}-${section.id}-detail`}
+                            aria-hidden
+                            className="hidden truncate text-[12px] font-normal text-ink-faint lg:block"
+                          >
+                            {section.detail}
+                          </span>
+                        )}
+                      </span>
+                      {section.badge !== undefined && (
                         <span
-                          id={`${param}-${section.id}-detail`}
-                          aria-hidden
-                          className="hidden truncate text-[12px] font-normal text-ink-faint lg:block"
+                          className={`text-[12px] tabular-nums ${on ? (row ? "text-surface/80" : "text-surface/80 lg:text-ink-faint") : "text-ink-faint"}`}
                         >
-                          {section.detail}
+                          {section.badge}
                         </span>
                       )}
-                    </span>
-                    {section.badge !== undefined && (
-                      <span
-                        className={`text-[12px] tabular-nums ${on ? (row ? "text-surface/80" : "text-surface/80 lg:text-ink-faint") : "text-ink-faint"}`}
-                      >
-                        {section.badge}
-                      </span>
-                    )}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </ScrollRegion>
-      </nav>
-      <section aria-labelledby={`settings-${active}`} className="min-w-0">
-        <h2
-          id={`settings-${active}`}
-          ref={headingRef}
-          tabIndex={-1}
-          className="mb-4 text-[17px] font-semibold text-ink focus-visible:outline-none"
-        >
-          {current?.label}
-        </h2>
-        {/* Keyed by section so a switch is a fresh mount: no state leaks between sections,
-            and the entry fade plays once per switch (reduced motion: none). */}
-        <div key={active} className="settings-enter">
-          <UnsavedRegistry.Provider value={registry}>{renderSection(active)}</UnsavedRegistry.Provider>
-        </div>
-      </section>
-      {confirm}
-    </div>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </ScrollRegion>
+        </nav>
+        <section aria-labelledby={`settings-${active}`} className="min-w-0">
+          <h2
+            id={`settings-${active}`}
+            ref={headingRef}
+            tabIndex={-1}
+            className="mb-4 text-[17px] font-semibold text-ink focus-visible:outline-none"
+          >
+            {current?.label}
+          </h2>
+          {/* Keyed by section so a switch is a fresh mount: no state leaks between sections,
+              and the entry fade plays once per switch (reduced motion: none). */}
+          <div key={active} className="settings-enter">
+            <UnsavedRegistry.Provider value={registry}>{renderSection(active)}</UnsavedRegistry.Provider>
+          </div>
+        </section>
+        {confirm}
+      </div>
+    </SectionLinks.Provider>
   );
 }
 

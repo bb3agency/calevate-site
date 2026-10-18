@@ -299,8 +299,8 @@ export default function ResourcesPage() {
             {READING.map(({ href, title, body }, i) => (
               <li key={href}>
                 <Link href={href} className={`${CARD_LINK} sm:p-6`}>
-                  <span className="font-mono text-sm font-semibold text-brand-strong dark:text-brand-bright">
-                    {String(i + 1).padStart(2, "0")}
+                  <span className="text-sm font-semibold tabular-nums text-brand-strong dark:text-brand-bright">
+                    {i + 1}
                   </span>
                   {/* Inline rather than a flex row: in a flex row a title that wraps takes
                       the full width and pushes the arrow to the far edge, away from the

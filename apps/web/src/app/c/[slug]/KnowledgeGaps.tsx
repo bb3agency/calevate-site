@@ -262,7 +262,7 @@ function GapRow({
             placeholder={`e.g. ${eg.knowledgeAnswer}`}
           />
           {valid.error("answer")}
-          <p className="text-[11px] text-ink-faint">
+          <p className="text-meta text-ink-muted">
             This is added to your agent&apos;s knowledge and goes to your agent without
             review.
           </p>
@@ -282,9 +282,11 @@ function GapRow({
         </form>
       ) : (
         <div className="mt-3 flex gap-2">
+          {/* Bordered, not filled: it opens the form, and the form's Save is the filled one
+              (REDESIGN-2: one filled action per view, bound to the form it submits). */}
           <button
             type="button"
-            className={PRIMARY_BUTTON_SM}
+            className={SECONDARY_BUTTON_SM}
             onClick={() => setTeaching(true)}
             disabled={busy}
           >

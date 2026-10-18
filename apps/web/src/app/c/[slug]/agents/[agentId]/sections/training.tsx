@@ -18,9 +18,15 @@
  *    calls come first (decision 565c8ef2); the disclosure opens by itself while a run or a
  *    set of suggested fixes is waiting, so a fix Pip prepared is never hidden.
  *
- * ONE COPILOT SURFACE. The registry answers with the newest declaration, so the tab
- * declares through the teach box: its field, plus the practice-call number on a trial and
- * this agent's facts. The practice-callers panel declares its own only while open.
+ * REAL CALLS FIRST (D-826). While real calls left questions open, "Where it struggled" is
+ * the first thing on the tab: it is the only part that names something already going wrong,
+ * and the badge on the tab is what brought the owner here. The order is read once, from the
+ * first answer, so the list does not jump down under the owner's hand when they close the
+ * last question.
+ *
+ * ONE COPILOT SURFACE. The tab is a `CopilotSurfaceScope`: the teach box, the practice-call
+ * number on a trial and, while open, the practice callers each declare what they own and
+ * the assistant sees them merged.
  */
 
 import Link from "next/link";
@@ -33,98 +39,112 @@ import { TryChat } from "@/components/improvement/TryChat";
 import { Disclosure, ProblemNotice, Skeleton } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { useKnowledgeGaps } from "@/lib/api/knowledgeGaps";
 import { useTestConversations } from "@/lib/api/script";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useKnows } from "@/lib/api/teach";
 import { activeTrial, useWallet } from "@/lib/api/wallet";
+import { CopilotSurfaceScope, useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
 import { KnowledgeGaps } from "../../../KnowledgeGaps";
 import { TeachBox } from "../../../knowledge/TeachBox";
 import { countsOf } from "../test/testCopy";
 import { TestSection } from "../test/TestSection";
+import { OPEN_GAPS } from "./agentSections";
 import { TryIt } from "./tryIt";
 
 /** Facts shown before "and N more"; the full list is on the Knowledge page. */
 const FACTS_SHOWN = 5;
 
 export function TrainingTab({ agent, slug }: { agent: Agent; slug: string }) {
+  return (
+    <CopilotSurfaceScope
+      route="/c/{slug}/agents/{id}"
+      title={`Agent: training (${agent.name})`}
+      realm="client"
+      facts={[
+        { key: "agent_id", label: "Agent id", value: agent.id },
+        { key: "name", label: "Agent name", value: agent.name },
+        {
+          key: "what_is_here",
+          label: "What this tab holds",
+          value:
+            "a teach box for facts and rules, what the agents know, a chat and a practice call with this agent, the questions it could not answer on real calls, saved tests, and practice callers",
+        },
+      ]}
+    >
+      <Training agent={agent} slug={slug} />
+    </CopilotSurfaceScope>
+  );
+}
+
+function Training({ agent, slug }: { agent: Agent; slug: string }) {
   const session = useClientSession();
   const teach = useWriteAccess(session, "kb:write", "teach your agents");
   const tryAccess = useWriteAccess(session, "org:manage", "try this agent");
   const wallet = useWallet(session);
   const trial = wallet.data ? activeTrial(wallet.data) : null;
   const onTrial = trial !== null && trial.test_calls_only === true;
-  // Owned here so the one declaration (through the teach box) can offer it as a field.
   const [testNumber, setTestNumber] = useState("");
+  const gapsFirst = useGapsFirst(agent.id);
 
+  useCopilotSurface({
+    route: "/c/{slug}/agents/{id}",
+    title: "Practice call",
+    realm: "client",
+    fields: onTrial
+      ? [
+          {
+            id: "agent-test-call-number",
+            label: "Your phone number for a practice call",
+            type: "text",
+            value: testNumber,
+            personal: "phone",
+          },
+        ]
+      : [],
+    apply: (items) => {
+      for (const item of items) {
+        if (item.field_id === "agent-test-call-number") setTestNumber(asText(item.value));
+      }
+    },
+  });
+
+  const gaps = <KnowledgeGaps agentId={agent.id} headingLevel={3} />;
   return (
     <div className="max-w-3xl space-y-12">
-      <TeachBox
-        allowed={teach.allowed}
-        reason={teach.reason}
-        headingLevel={3}
-        surface={{
-          route: "/c/{slug}/agents/{id}",
-          title: `Agent: training (${agent.name})`,
-          fields: onTrial
-            ? [
-                {
-                  id: "agent-test-call-number",
-                  label: "Your phone number for a practice call",
-                  type: "text",
-                  value: testNumber,
-                  personal: "phone",
-                },
-              ]
-            : [],
-          facts: [
-            { key: "agent_id", label: "Agent id", value: agent.id },
-            { key: "name", label: "Agent name", value: agent.name },
-            {
-              key: "what_is_here",
-              label: "What this tab holds",
-              value:
-                "a teach box for facts and rules, what the agents know, a chat and a practice call with this agent, the questions it could not answer on real calls, saved tests, and practice callers",
-            },
-          ],
-          apply: (items) => {
-            for (const item of items) {
-              if (item.field_id === "agent-test-call-number")
-                setTestNumber(asText(item.value));
-            }
-          },
-        }}
-      />
+      {gapsFirst && gaps}
+
+      <TeachBox allowed={teach.allowed} reason={teach.reason} headingLevel={3} />
 
       <WhatItKnows slug={slug} />
 
       <div className="grid gap-10 lg:grid-cols-2 lg:gap-8">
-        <TryChat
-          agentId={agent.id}
-          canWrite={tryAccess.allowed}
-          headingLevel={3}
-        />
-        <TryIt
-          agent={agent}
-          slug={slug}
-          onTrial={onTrial}
-          number={testNumber}
-          onNumber={setTestNumber}
-        />
+        <TryChat agentId={agent.id} canWrite={tryAccess.allowed} headingLevel={3} />
+        <TryIt agent={agent} slug={slug} onTrial={onTrial} number={testNumber} onNumber={setTestNumber} />
       </div>
 
-      <KnowledgeGaps agentId={agent.id} headingLevel={3} />
+      {!gapsFirst && gaps}
 
-      <SavedTests
-        agentId={agent.id}
-        canWrite={tryAccess.allowed}
-        headingLevel={3}
-      />
+      <SavedTests agentId={agent.id} canWrite={tryAccess.allowed} headingLevel={3} />
 
       <PracticeCallers agent={agent} slug={slug} />
     </div>
   );
+}
+
+/**
+ * Whether "Where it struggled" leads the tab: decided by the first answer the open-gap read
+ * gives (the same cached query as the tab's badge), and kept for as long as the tab is
+ * open. Until there is an answer the founder's order stands.
+ */
+function useGapsFirst(agentId: string): boolean {
+  const session = useClientSession();
+  const gaps = useKnowledgeGaps(session, { agentId, ...OPEN_GAPS });
+  const [first, setFirst] = useState<boolean | null>(null);
+  if (first === null && gaps.isSuccess) setFirst(gaps.data.open_count > 0);
+  return first === true;
 }
 
 /**

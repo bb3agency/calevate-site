@@ -51,7 +51,9 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
           >
             <Menu className="h-5 w-5" />
           </button>
-          <h1 className="truncate text-title text-ink">{title}</h1>
+          {/* A step down on a phone, where the menu button and two header buttons leave about
+              190px: at the title size "Your phone numbers" was cut to "Your phone numb…". */}
+          <h1 className="truncate text-heading text-ink sm:text-title">{title}</h1>
         </div>
 
         <div className="flex shrink-0 items-center gap-2 lg:gap-3">

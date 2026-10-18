@@ -148,6 +148,8 @@ async function openDock() {
       screen.getByRole("button", { name: "Ask Pip" }),
     );
   });
+  // The panel is its own chunk (CopilotDock), so it arrives a tick after the click.
+  await screen.findByLabelText("Your question about this screen");
 }
 
 async function ask(question: string) {

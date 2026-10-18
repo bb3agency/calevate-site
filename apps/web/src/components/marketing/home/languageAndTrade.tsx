@@ -84,7 +84,7 @@ export function LanguageAndTrade() {
                     index === 0 ? "border-brand/30 bg-brand-soft/50 dark:bg-brand-strong/20" : "border-line bg-app/60"
                   }`}
                 >
-                  <span className="text-xs font-semibold tracking-wide text-ink-muted uppercase">
+                  <span className="text-sm font-medium text-ink-muted">
                     {label}
                   </span>
                   <span lang={lang} className="text-xl text-ink sm:text-2xl">

@@ -111,7 +111,7 @@ outline.
   card per agent read as a document, which is why it was changed.
 
 **Never nest a `Card` inside a `Card`.** If a panel needs internal structure, use
-`SectionHeading` (an `h3` — see §2).
+`Section` with `headingLevel={3}` (an `h3` — see §2).
 
 ---
 
@@ -127,7 +127,8 @@ The levels are fixed by the PRIMITIVE, not chosen per call site:
 - `<h2>` — `Card title`, and `Disclosure title` (which renders a real `h2` inside its
   `<summary>`, so a disclosed panel is in the heading list rather than reachable only by
   tabbing). A disclosure is a PEER of a card, never nested inside one.
-- `<h3>` — `SectionHeading`, a block within a panel.
+- `<h3>` — `Section` with `headingLevel={3}` (`components/console/section`), a block within a
+  panel or a tab.
 
 Never skip a level, and never express a heading with a styled `<span>`.
 
@@ -329,7 +330,7 @@ and it is the half a test can drive without a render.
 
 **Reuse these. Do not hand-roll an equivalent.**
 
-`components/ui.tsx` — `Card`, `SectionHeading`, `Fact`, `Disclosure`, `ToggleSwitch`,
+`components/ui.tsx` — `Card`, `Fact`, `Disclosure`, `ToggleSwitch`,
 `StatTile`, `Avatar`, `StatusBadge`, `MonoValue`, `TermGloss` (via `lib/glossary`'s
 `Term`), `ProblemNotice`,
 `RestrictionNote`, `NoticeBox`, `NOTICE_TONES`, `ScrollRegion`, `SkipLink`,

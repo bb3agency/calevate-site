@@ -107,39 +107,6 @@ export function Card({
 }
 
 /**
- * The label over a block INSIDE a card, with the medallion the design puts on a marker.
- *
- * Hoisted out of `c/[slug]/agents/panels.tsx`, which had written "it belongs in
- * `components/ui.tsx` the moment a screen outside `/agents` wants one" — and had already
- * been imported across the route boundary by `agents/Actions.tsx` in the meantime, which
- * is the same signal one file later. UX-DOCTRINE §7: a primitive is added here, never
- * duplicated per route.
- *
- * `h3` and not a prop, deliberately. This marks a block within a `Card`, whose title is
- * the `h2` — so the level is a property of where the primitive is allowed to be used, not
- * a decision each call site re-takes. WCAG 2.4.6 Headings and Labels is about headings
- * being descriptive; 1.3.1 Info and Relationships is about the structure being real
- * rather than a font size, which is what makes this an `h3` and not a styled `<span>`
- * (w3.org/WAI/WCAG22/Understanding/info-and-relationships, read 25 Aug 2026).
- */
-export function SectionHeading({
-  icon,
-  children,
-}: {
-  icon: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
-        {icon}
-      </span>
-      {children}
-    </h3>
-  );
-}
-
-/**
  * One labelled fact. `dt`/`dd` because that is exactly what these are.
  *
  * The GOV.UK Design System's Summary list makes the same call and states the constraint
@@ -150,7 +117,7 @@ export function SectionHeading({
  * 25 Aug 2026). Every caller here pairs one key with one value, so the element is the
  * honest one — and a `<dl>` is what tells a screen reader the pairing exists at all.
  *
- * Hoisted from `agents/panels.tsx` with `SectionHeading`, for the same reason.
+ * Hoisted from `agents/panels.tsx` when a second route needed it (UX-DOCTRINE §7).
  */
 export function Fact({
   label,
