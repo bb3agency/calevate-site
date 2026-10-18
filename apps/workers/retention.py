@@ -2809,6 +2809,13 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 text("DELETE FROM agent_test_cases WHERE source_call_id = ANY(:ids)"),
                 {"ids": list(calls)},
             )
+            # A test Pip prepared from one of these calls would reopen its form on an
+            # erased call (D-822). Emptying a call does not delete it, so its CASCADE
+            # never fires.
+            await session.execute(
+                text("DELETE FROM call_test_case_drafts WHERE call_id = ANY(:ids)"),
+                {"ids": list(calls)},
+            )
         if leads:
             await session.execute(
                 text(
@@ -3635,6 +3642,7 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # carry copies of those saved lines.
         await session.execute(text("DELETE FROM agent_test_runs"))
         await session.execute(text("DELETE FROM agent_test_cases"))
+        await session.execute(text("DELETE FROM call_test_case_drafts"))
         await session.execute(text("DELETE FROM agent_rule_proposals"))
         await session.execute(text("DELETE FROM kb_facts"))
         await session.execute(text("DELETE FROM kb_teachings"))

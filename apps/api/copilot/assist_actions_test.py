@@ -1,4 +1,6 @@
-"""D-821: the teach box, the lead-details draft and a call's second reading, asked of Pip.
+"""D-821 and D-822: the teach box, the lead-details draft, a call's second reading and
+making a call a test, asked of Pip. `call_test_prepare`'s own path is
+`tests/call_test_prepare_test.py`.
 
 Held to `docs/COPILOT-CONTRACT.md` §5: the planner's canonical arguments and refusals, the
 confirm through the old button's own service function with its audit row, and where the
@@ -42,18 +44,21 @@ async def _propose(
     )
 
 
-def test_all_three_are_confirm_actions_on_their_buttons_permissions() -> None:
+def test_each_is_on_its_buttons_permission_and_only_the_form_filler_skips_the_click() -> None:
     expected = {
-        "knowledge_teach": "kb:write",
-        "lead_fields_draft": "org:manage",
-        "call_summarise_again": "org:manage",
+        "knowledge_teach": ("confirm", "kb:write"),
+        "lead_fields_draft": ("confirm", "org:manage"),
+        "call_summarise_again": ("confirm", "org:manage"),
+        # D-822: it saves nothing; the call page's form is saved by the person.
+        "call_test_prepare": ("immediate", "agents:write"),
     }
-    for name, permission in expected.items():
+    for name, (tier, permission) in expected.items():
         tool = write_tools.tool_named(name)
         assert tool is not None, name
-        assert tool.tier == "confirm" and tool.permission == permission, name
+        assert (tool.tier, tool.permission) == (tier, permission), name
     assert [t.name for t in assist_actions.ASSIST_ACTIONS] == list(expected)
-    assert write_tools.WRITE_TOOLS[-3:] == assist_actions.ASSIST_ACTIONS
+    count = len(assist_actions.ASSIST_ACTIONS)
+    assert write_tools.WRITE_TOOLS[-count:] == assist_actions.ASSIST_ACTIONS
 
 
 # --- knowledge_teach ----------------------------------------------------------------------

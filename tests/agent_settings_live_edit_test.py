@@ -331,6 +331,8 @@ async def test_every_client_route_holding_agents_write_is_declared() -> None:
         "/v1/agents/{agent_id}/test-cases/{case_id}",
         "/v1/agents/{agent_id}/test-cases/run",
         "/v1/calls/{call_id}/test-case",
+        # D-822: discarding the test Pip prepared from a call, the save above's undo.
+        "/v1/calls/{call_id}/test-case-draft/pending",
         "/v1/agents/{agent_id}/try-chat",
     }
     open_to_clients: set[str] = set()

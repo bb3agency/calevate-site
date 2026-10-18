@@ -429,7 +429,29 @@ Every AI request a person makes on a client screen is now asked of Pip. The scre
   teach box), the client `POST /v1/lead-fields/draft` (the operator's twin stays) and
   `POST /v1/calls/{id}/assist`. Tests: `apps/api/copilot/assist_actions_test.py`,
   `tests/call_assist_test.py`, `tests/lead_fields_test.py`, `tests/teach_loop_test.py`.
-* **Left where it is, and why.** "Make this call a test" drafts nothing with AI (its draft is
-  the call's redacted caller lines, `teach/test_cases.draft_from_call`). The English "Try again"
-  retries a background step. Test runs, saved tests and Try chat test the agent itself. The
-  operator's lead-details draft and business-type "Suggest again" are admin console controls.
+* **Left where it is, and why.** The English "Try again" retries a background step. Test runs,
+  saved tests and Try chat test the agent itself. The operator's lead-details draft and
+  business-type "Suggest again" are admin console controls. "Make this call a test" uses no AI
+  and was left here too, until D-822 moved it to Pip for one entry point (§12).
+
+## 12. Making a call a test (`call_test_prepare`, D-822)
+
+"Make this call a test" is asked of Pip, and the call page's form is where the result is
+reviewed. No model is called, so nothing is metered and no allowance is checked.
+
+| Tool | Tier, permission, audit | Executor | Review |
+|---|---|---|---|
+| `call_test_prepare` | immediate with Undo, `agents:write` (the save route's), `agent_test_case.prepared` | `teach/test_cases.write_pending`: one row in `call_test_case_drafts` per call and person, holding only `expected` and `title` | the call page's "Make this call a test" form opens filled in; the person saves it through `POST /v1/calls/{call_id}/test-case` or discards it (`DELETE /v1/calls/{call_id}/test-case-draft/pending`) |
+
+* **Why immediate.** It saves no test, reaches no caller and spends nothing; the form's Save is
+  the click. Undo restores what the form held before (or empties it), and refuses once the
+  form was saved, discarded or prepared again (compare and swap on `expected` and `title`).
+* **Planner refusals.** A call this person cannot see or one erased (404), a call where the
+  caller said nothing, an agent that already keeps 20 saved tests.
+* **What is stored.** Not the caller's lines: the form reads them redacted from the call
+  (`draft_from_call`) as it always did. `GET /v1/calls/{call_id}/test-case-draft` adds
+  `pending`. Saving the form deletes the row; subject and tenant erasure delete it
+  (`workers/retention.py`).
+* **Not retired.** The GET and POST routes are the review form's own reads and save.
+* Tests: `tests/call_test_prepare_test.py`, `apps/api/copilot/assist_actions_test.py`, web
+  `teachLoop`.

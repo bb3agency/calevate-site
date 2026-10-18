@@ -822,6 +822,12 @@ comes back. Pip proposes; the person confirms the card; the old button's own fun
   `call_summarise_again` → once confirmed, a fresh summary of the redacted transcript in Pip's
   confirmation, with the fallback disclosure when another model answered; nothing is stored.
   At the allowance ceiling the panel offers the wallet dialog.
+- **Make this call a test (call page, D-822).** "Let Pip make this call a test" →
+  `call_test_prepare` runs at once (no card, no AI, nothing charged) → the call page's test
+  form opens with what the caller said (numbers hidden) and what the person told Pip the agent
+  should do → they change anything and press "Save test", or "Discard". Nothing joins the
+  agent's tests before Save; Pip's receipt carries an Undo until then. Anyone who may change
+  agents (`agents:write`, so staff too) sees the button.
 
 Failure handling: refusals the model can fix come back as Pip's sentence; a refusal at
 Confirm (allowance used up, AI paused) is shown on the card with the server's remediation; a

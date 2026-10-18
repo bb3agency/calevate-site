@@ -5448,6 +5448,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calls/{call_id}/test-case-draft/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Discard the test Pip prepared from this call */
+        delete: operations["discard_prepared_test_case_v1_calls__call_id__test_case_draft_pending_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calls/{call_id}/transcript/raw": {
         parameters: {
             query?: never;
@@ -13687,6 +13704,7 @@ export interface components {
             call_id: string;
             /** Caller Lines */
             caller_lines: string[];
+            pending: components["schemas"]["PendingCaseOut"] | null;
             /** Title */
             title: string;
         };
@@ -21763,6 +21781,13 @@ export interface components {
             cells: components["schemas"]["RateCardCellOut"][];
             /** Effective From */
             effective_from: string;
+        };
+        /** PendingCaseOut */
+        PendingCaseOut: {
+            /** Expected */
+            expected: string | null;
+            /** Title */
+            title: string | null;
         };
         /** PendingChangeOut */
         PendingChangeOut: {
@@ -37940,6 +37965,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CaseDraftOut"];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    discard_prepared_test_case_v1_calls__call_id__test_case_draft_pending_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {

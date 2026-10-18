@@ -231,9 +231,12 @@ export function useDeleteTestCase(session: Session, agentId: string) {
   });
 }
 
+const caseDraftKey = (orgSlug: string, callId: string) => ["call-test-case-draft", orgSlug, callId];
+
+/** The call's caller lines (redacted) and, when Pip prepared one, the test it left (D-822). */
 export function useCaseDraft(session: Session, callId: string, enabled: boolean) {
   return useQuery({
-    queryKey: ["call-test-case-draft", session.orgSlug, callId],
+    queryKey: caseDraftKey(session.orgSlug, callId),
     queryFn: () => apiRequest<CaseDraft>(session, `/v1/calls/${callId}/test-case-draft`),
     enabled,
   });
@@ -244,8 +247,20 @@ export function useMakeCallATest(session: Session, callId: string) {
   return useMutation({
     mutationFn: (body: { title: string; caller_lines: string[]; expected: string }) =>
       apiRequest<TestCase>(session, `/v1/calls/${callId}/test-case`, { method: "POST", body }),
-    onSuccess: (created) =>
-      void client.invalidateQueries({ queryKey: casesKey(session.orgSlug, created.agent_id) }),
+    onSuccess: (created) => {
+      void client.invalidateQueries({ queryKey: casesKey(session.orgSlug, created.agent_id) });
+      // Saving closes what Pip prepared, so the form gives way to the button again.
+      void client.invalidateQueries({ queryKey: caseDraftKey(session.orgSlug, callId) });
+    },
+  });
+}
+
+export function useDiscardPreparedTest(session: Session, callId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<void>(session, `/v1/calls/${callId}/test-case-draft/pending`, { method: "DELETE" }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: caseDraftKey(session.orgSlug, callId) }),
   });
 }
 

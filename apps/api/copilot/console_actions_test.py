@@ -135,7 +135,7 @@ _MUST_CONFIRM = {
 def test_the_console_actions_are_appended_after_the_earlier_ones() -> None:
     names = [tool.name for tool in write_tools.WRITE_TOOLS]
     console = [tool.name for tool in CONSOLE_ACTIONS]
-    # Only D-820's and D-821's actions are registered after them.
+    # Only D-820's, D-821's and D-822's actions are registered after them.
     later = len(SCRIPT_ACTIONS) + len(ASSIST_ACTIONS)
     assert names[-len(console) - later : -later] == console
     assert len(set(names)) == len(names)
